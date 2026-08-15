@@ -7,8 +7,8 @@
  * test/app/plugin/manager-consumption.test.ts`.
  */
 
-import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -16,8 +16,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PluginManager } from '#/app/plugin/manager';
 
-import { createZipFromDir } from './zip-helper';
 import { stubSkill } from '../skillCatalog/stubs';
+import { createZipFromDir } from './zip-helper';
 
 async function isolatedTmpdir(): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), 'kimi-isolated-tmp-'));
@@ -132,8 +132,7 @@ function mockGithubFetch(options: MockGithubFetchOptions): void {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-      const url =
-        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (/^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/latest$/.test(url)) {
         options.onReleaseLookup?.();
         if (options.releaseTag === undefined) {
@@ -788,10 +787,9 @@ describe('PluginManager consumption plane', () => {
     const root = await makePlugin('rando', { version: '1.0.0' });
     const manager = new PluginManager({ kimiHomeDir: home });
     await manager.load();
-    const record = await (manager.install as (source: string, options?: unknown) => Promise<unknown>)(
-      root,
-      { marketplace: { id: 'rando', tier: 'official' } },
-    );
+    const record = await (
+      manager.install as (source: string, options?: unknown) => Promise<unknown>
+    )(root, { marketplace: { id: 'rando', tier: 'official' } });
     expect((record as { marketplace?: unknown }).marketplace).toBeUndefined();
   });
 

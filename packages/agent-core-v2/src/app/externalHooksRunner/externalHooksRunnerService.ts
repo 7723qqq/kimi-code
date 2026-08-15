@@ -15,14 +15,14 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
+import { HOOKS_SECTION, type HookDefConfig } from '#/agent/externalHooks/configSection';
+import type { HookBlockDecision, HookDef, HookResult } from '#/agent/externalHooks/types';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IPluginService } from '#/app/plugin/plugin';
-import { HOOKS_SECTION, type HookDefConfig } from '#/agent/externalHooks/configSection';
-import type { HookBlockDecision, HookDef, HookResult } from '#/agent/externalHooks/types';
+import { LifecycleScope } from '#/app/scopes';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import {

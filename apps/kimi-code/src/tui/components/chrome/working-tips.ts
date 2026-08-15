@@ -1,5 +1,5 @@
-import { getWorkingTips, type ToolbarTip } from '#/tui/constant/tips';
 import { getLocale } from '#/i18n';
+import { getWorkingTips, type ToolbarTip } from '#/tui/constant/tips';
 
 import { buildWeightedTips } from './footer';
 

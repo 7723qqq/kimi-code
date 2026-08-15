@@ -22,10 +22,8 @@
 
 import { z } from 'zod';
 
-import {
-  type ConfigStripEnv,
-  envBindings,
-} from '#/app/config/config';
+import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
+import { type ConfigStripEnv, envBindings } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
 import {
   camelToSnake,
@@ -36,12 +34,10 @@ import {
   snakeToCamel,
   transformPlainObject,
 } from '#/app/config/toml';
-import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
 import type { ModelOverride, ModelRecord, ModelsSection } from '#/kosong/model/model';
 import type { ThinkingConfig } from '#/kosong/model/thinking';
-import type { OAuthRef, ProviderConfig, ProvidersSection } from '#/kosong/provider/provider';
 import { ProtocolSchema } from '#/kosong/protocol/protocol';
-
+import type { OAuthRef, ProviderConfig, ProvidersSection } from '#/kosong/provider/provider';
 
 export const PROVIDERS_SECTION = 'providers';
 
@@ -161,7 +157,6 @@ registerConfigSection(PROVIDERS_SECTION, ProvidersSectionSchema, {
   toToml: providersToToml,
 });
 
-
 export const MODELS_SECTION = 'models';
 
 export const DEFAULT_MODEL_SECTION = 'defaultModel';
@@ -212,13 +207,9 @@ export const ModelRecordSchema = ModelBaseSchema.extend({
 
 export const ModelsSectionSchema = z.record(z.string(), ModelRecordSchema);
 
-type _AssertModelOverride = AssertExact<
-  Equal<z.infer<typeof ModelOverrideSchema>, ModelOverride>
->;
+type _AssertModelOverride = AssertExact<Equal<z.infer<typeof ModelOverrideSchema>, ModelOverride>>;
 type _AssertModelRecord = AssertExact<Equal<z.infer<typeof ModelRecordSchema>, ModelRecord>>;
-type _AssertModelsSection = AssertExact<
-  Equal<z.infer<typeof ModelsSectionSchema>, ModelsSection>
->;
+type _AssertModelsSection = AssertExact<Equal<z.infer<typeof ModelsSectionSchema>, ModelsSection>>;
 
 export const modelsFromToml = (rawSnake: unknown): unknown => {
   if (!isPlainObject(rawSnake)) return rawSnake;
@@ -281,7 +272,6 @@ registerConfigSection(MODELS_SECTION, ModelsSectionSchema, {
   fromToml: modelsFromToml,
   toToml: modelsToToml,
 });
-
 
 export const THINKING_SECTION = 'thinking';
 

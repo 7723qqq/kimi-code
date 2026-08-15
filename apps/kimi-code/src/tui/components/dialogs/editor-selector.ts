@@ -1,5 +1,6 @@
-import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 import { t } from '#/i18n';
+
+import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
 function getEditorOptions(): readonly ChoiceOption[] {
   return [

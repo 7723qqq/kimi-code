@@ -1,16 +1,17 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
-import type { ToolCall } from '#/kosong/contract/message';
+import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IEventBus } from '#/app/event/eventBus';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IEventBus } from '#/app/event/eventBus';
 import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
 import { type SkillCatalog, type SkillDefinition } from '#/app/skillCatalog/types';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import type { ToolCall } from '#/kosong/contract/message';
+
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,
@@ -39,9 +40,7 @@ function recordContainsSkillLoaded(record: unknown, skillName: string): boolean 
   );
 }
 
-function isRecordWithMessage(
-  record: unknown,
-): record is {
+function isRecordWithMessage(record: unknown): record is {
   readonly type: string;
   readonly message: {
     readonly content?: readonly { readonly type?: string; readonly text?: string }[];
@@ -204,10 +203,7 @@ describe('ToolManager SkillTool wire behavior', () => {
     skills = new InMemorySkillCatalog();
     skills.register(makeSkill('review'));
     persistence = new InMemoryWireRecordPersistence();
-    ctx = createTestAgent(
-      skillServices(skills),
-      wireRecordPersistenceServices(persistence),
-    );
+    ctx = createTestAgent(skillServices(skills), wireRecordPersistenceServices(persistence));
     context = ctx.get(IAgentContextMemoryService);
     profile = ctx.get(IAgentProfileService);
     profile.update({ activeToolNames: ['Skill'] });
@@ -233,8 +229,8 @@ describe('ToolManager SkillTool wire behavior', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Review this change' }] });
     await ctx.untilTurnEnd();
 
-    const skillSplice = persistence.records.find(
-      (record) => recordContainsSkillLoaded(record, 'review'),
+    const skillSplice = persistence.records.find((record) =>
+      recordContainsSkillLoaded(record, 'review'),
     );
     expect(skillSplice).toMatchObject({
       type: 'context.append_message',
@@ -286,10 +282,7 @@ describe('ToolManager SkillTool restore behavior', () => {
     skills.register(makeSkill('review'));
     const telemetry = recordingTelemetry([]);
     track = vi.spyOn(telemetry, 'track2');
-    ctx = createTestAgent(
-      skillServices(skills),
-      telemetryServices(telemetry),
-    );
+    ctx = createTestAgent(skillServices(skills), telemetryServices(telemetry));
     context = ctx.get(IAgentContextMemoryService);
     const events = ctx.get(IEventBus);
     emit = vi.spyOn(events, 'publish');
@@ -325,9 +318,7 @@ describe('ToolManager SkillTool restore behavior', () => {
       { type: 'context.append_message', message },
     ]);
 
-    expect(emit).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'skill.activated' }),
-    );
+    expect(emit).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'skill.activated' }));
     expect(ctx.allEvents).not.toContainEqual(
       expect.objectContaining({ type: '[rpc]', event: 'skill.activated' }),
     );
@@ -362,10 +353,7 @@ describe('ToolManager SkillTool workspace refresh', () => {
     };
     skills.register(skill);
 
-    ctx = createTestAgent(
-      { cwd: workDir },
-      skillServices(skills),
-    );
+    ctx = createTestAgent({ cwd: workDir }, skillServices(skills));
     profile = ctx.get(IAgentProfileService);
     tools = ctx.get(IAgentToolRegistryService);
     profile.update({ activeToolNames: ['Skill'] });

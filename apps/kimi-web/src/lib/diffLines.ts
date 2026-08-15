@@ -52,7 +52,9 @@ export function buildDiffLines(before: string, after: string): DiffViewLine[] | 
   if (n > MAX_DIFF_ROWS || m > MAX_DIFF_ROWS) return null;
   if ((n + 1) * (m + 1) > MAX_DIFF_CELLS) return null;
 
-  const dp: number[][] = Array.from({ length: n + 1 }, () => Array.from({ length: m + 1 }, () => 0));
+  const dp: number[][] = Array.from({ length: n + 1 }, () =>
+    Array.from({ length: m + 1 }, () => 0),
+  );
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
       dp[i]![j] =

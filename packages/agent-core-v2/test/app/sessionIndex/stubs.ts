@@ -5,11 +5,8 @@
  * Lives under `test/` (not `src/`). Import from a relative path.
  */
 
-import type {
-  ISessionIndexMirror} from '#/app/sessionIndex/sessionIndex';
-import {
-  type SessionSummary,
-} from '#/app/sessionIndex/sessionIndex';
+import type { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
+import { type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 
 export function stubSessionIndexMirror(): ISessionIndexMirror & {
   readonly recorded: SessionSummary[];

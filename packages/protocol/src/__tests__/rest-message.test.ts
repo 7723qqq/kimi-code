@@ -23,9 +23,9 @@ describe('listMessagesQuerySchema', () => {
   });
 
   it('rejects before_id + after_id together', () => {
-    expect(
-      listMessagesQuerySchema.safeParse({ before_id: 'a', after_id: 'b' }).success,
-    ).toBe(false);
+    expect(listMessagesQuerySchema.safeParse({ before_id: 'a', after_id: 'b' }).success).toBe(
+      false,
+    );
   });
 
   it('rejects page_size > 100 (SCHEMAS §1.3 / REST §1.6)', () => {

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 
-import type { Issue, IssueSeverity } from '../../lib/issues';
 import { t } from '../../i18n';
+import type { Issue, IssueSeverity } from '../../lib/issues';
 
 interface IssuesDrawerProps {
   issues: Issue[];
@@ -21,17 +21,28 @@ const SEV_COLOR: Record<IssueSeverity, string> = {
 
 function kindLabel(kind: Issue['kind']): string {
   switch (kind) {
-    case 'orphan_tool_call': return t('wire.kindOrphanToolCall');
-    case 'missing_tool_result': return t('wire.kindMissingToolResult');
-    case 'tool_error': return t('wire.kindToolError');
-    case 'tool_truncated': return t('wire.kindToolTruncated');
-    case 'model_filtered': return t('wire.kindModelFiltered');
-    case 'model_max_tokens': return t('wire.kindModelMaxTokens');
-    case 'incomplete_step': return t('wire.kindIncompleteStep');
-    case 'incomplete_compaction': return t('wire.kindIncompleteCompaction');
-    case 'active_plan_mode': return t('wire.kindActivePlanMode');
-    case 'rejected_approval': return t('wire.kindRejectedApproval');
-    case 'wire_warning': return t('wire.kindWireWarning');
+    case 'orphan_tool_call':
+      return t('wire.kindOrphanToolCall');
+    case 'missing_tool_result':
+      return t('wire.kindMissingToolResult');
+    case 'tool_error':
+      return t('wire.kindToolError');
+    case 'tool_truncated':
+      return t('wire.kindToolTruncated');
+    case 'model_filtered':
+      return t('wire.kindModelFiltered');
+    case 'model_max_tokens':
+      return t('wire.kindModelMaxTokens');
+    case 'incomplete_step':
+      return t('wire.kindIncompleteStep');
+    case 'incomplete_compaction':
+      return t('wire.kindIncompleteCompaction');
+    case 'active_plan_mode':
+      return t('wire.kindActivePlanMode');
+    case 'rejected_approval':
+      return t('wire.kindRejectedApproval');
+    case 'wire_warning':
+      return t('wire.kindWireWarning');
   }
 }
 

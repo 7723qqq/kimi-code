@@ -40,15 +40,14 @@
  * helpers stay private so callers cannot bypass the limits.
  */
 
-import type { ContentPart } from '#/kosong/contract/message';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
-
 import { compressImageContentParts } from '#/agent/media/image-compress';
 import {
   buildUnsupportedImageNotice,
   isModelAcceptedImageMime,
 } from '#/agent/media/image-format-policy';
 import { persistOriginalImage } from '#/agent/media/image-originals';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { ContentPart } from '#/kosong/contract/message';
 import type { MCPContentBlock, MCPToolResult } from '#/mcpCore/types';
 
 export interface McpOutputOptions {
@@ -225,9 +224,7 @@ function serializeStructuredExtras(extras: Record<string, unknown>): string | un
   }
 }
 
-function stripReservedMetaKeys(
-  meta: Record<string, unknown>,
-): Record<string, unknown> | undefined {
+function stripReservedMetaKeys(meta: Record<string, unknown>): Record<string, unknown> | undefined {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(meta)) {
     if (!isReservedMetaKey(key)) {
@@ -242,8 +239,7 @@ function isReservedMetaKey(key: string): boolean {
   if (slash <= 0) return false;
   const labels = key.slice(0, slash).split('.');
   return labels.some(
-    (label, i) =>
-      (label === 'modelcontextprotocol' || label === 'mcp') && i < labels.length - 1,
+    (label, i) => (label === 'modelcontextprotocol' || label === 'mcp') && i < labels.length - 1,
   );
 }
 

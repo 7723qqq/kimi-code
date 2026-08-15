@@ -21,14 +21,14 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const FALLBACK_HEADERS: Record<string, string> = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36',
-  'Connection': 'keep-alive',
-  'Accept': '*/*',
+  Connection: 'keep-alive',
+  Accept: '*/*',
   'Accept-Encoding': 'gzip, deflate, br',
   'sec-ch-ua': '"Chromium";v="112", "Google Chrome";v="112", "Not:A-Brand";v="99"',
   'content-type': 'text/plain;charset=UTF-8',
   'sec-ch-ua-mobile': '?0',
   'sec-ch-ua-platform': '"Windows"',
-  'origin': 'https://exa.ai',
+  origin: 'https://exa.ai',
   'sec-fetch-site': 'same-origin',
   'sec-fetch-mode': 'cors',
   'sec-fetch-dest': 'empty',
@@ -47,7 +47,9 @@ interface ExaApiResponse {
 }
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 export async function searchExa(
@@ -106,9 +108,13 @@ export async function searchExa(
     );
   }
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Exa request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `Exa request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
   let apiResponse: ExaApiResponse;
   try {

@@ -11,13 +11,13 @@ function handleCallback(handler) {
       if (result instanceof Promise) {
         result.then(
           (res) => m.resolveCallback(callbackId, null, res),
-          (err) => m.resolveCallback(callbackId, err?.message ?? String(err), null),
+          (error) => m.resolveCallback(callbackId, error?.message ?? String(error), null),
         );
       } else {
         m.resolveCallback(callbackId, null, result);
       }
-    } catch (err) {
-      m.resolveCallback(callbackId, err?.message ?? String(err), null);
+    } catch (error) {
+      m.resolveCallback(callbackId, error?.message ?? String(error), null);
     }
   };
 }
@@ -28,22 +28,32 @@ async function test() {
   try {
     const r = await m.runTurnRust(
       { turnId: 't1', systemPrompt: 's', modelName: 'm', messages: [], tools: [], maxSteps: 1 },
-      handleCallback((_req) => '{"tool_calls":[],"finish_reason":"stop","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}'),
+      handleCallback(
+        (_req) =>
+          '{"tool_calls":[],"finish_reason":"stop","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}',
+      ),
       handleCallback((_req) => '{"content":"","is_error":false}'),
     );
     console.log('Result:', JSON.stringify(r));
-  } catch(e) { console.log('Error:', e.message); }
+  } catch (error) {
+    console.log('Error:', error.message);
+  }
 
   // Test 2: async callback
   console.log('\nTest 2: async callback');
   try {
     const r = await m.runTurnRust(
       { turnId: 't2', systemPrompt: 's', modelName: 'm', messages: [], tools: [], maxSteps: 1 },
-      handleCallback(async (_req) => '{"tool_calls":[],"finish_reason":"stop","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}'),
+      handleCallback(
+        async (_req) =>
+          '{"tool_calls":[],"finish_reason":"stop","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}',
+      ),
       handleCallback(async (_req) => '{"content":"","is_error":false}'),
     );
     console.log('Result:', JSON.stringify(r));
-  } catch(e) { console.log('Error:', e.message); }
+  } catch (error) {
+    console.log('Error:', error.message);
+  }
 
   // Test 3: delayed callback
   console.log('\nTest 3: delayed callback');
@@ -52,7 +62,11 @@ async function test() {
       { turnId: 't3', systemPrompt: 's', modelName: 'm', messages: [], tools: [], maxSteps: 1 },
       (callbackId) => {
         setTimeout(() => {
-          m.resolveCallback(callbackId, null, '{"tool_calls":[],"finish_reason":"stop","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}');
+          m.resolveCallback(
+            callbackId,
+            null,
+            '{"tool_calls":[],"finish_reason":"stop","usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}',
+          );
         }, 100);
       },
       (callbackId) => {
@@ -60,7 +74,9 @@ async function test() {
       },
     );
     console.log('Result:', JSON.stringify(r));
-  } catch(e) { console.log('Error:', e.message); }
+  } catch (error) {
+    console.log('Error:', error.message);
+  }
 
   // Test 4: error propagation
   console.log('\nTest 4: error propagation');
@@ -75,6 +91,8 @@ async function test() {
       },
     );
     console.log('Result:', JSON.stringify(r));
-  } catch(e) { console.log('Error:', e.message); }
+  } catch (error) {
+    console.log('Error:', error.message);
+  }
 }
 void test();

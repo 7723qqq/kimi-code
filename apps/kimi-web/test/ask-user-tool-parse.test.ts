@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import {
   answerFor,
   parseAskInput,
@@ -35,7 +36,7 @@ describe('parseAskInput', () => {
     const qs = parseAskInput(ARG);
     expect(qs).toHaveLength(2);
     expect(qs[0]).toMatchObject({ header: 'Auth', multiSelect: false });
-    expect(qs[0].options.map(o => o.label)).toEqual(['Clerk', 'Auth0']);
+    expect(qs[0].options.map((o) => o.label)).toEqual(['Clerk', 'Auth0']);
     expect(qs[1]).toMatchObject({ header: 'Deploy', multiSelect: true });
     expect(qs[1].options).toHaveLength(3);
   });
@@ -90,7 +91,9 @@ describe('parseAskOutput', () => {
   });
 
   it('does not recognize plain-text error output', () => {
-    expect(parseAskOutput(['Interactive questions are not supported in this session.']).recognized).toBe(false);
+    expect(
+      parseAskOutput(['Interactive questions are not supported in this session.']).recognized,
+    ).toBe(false);
   });
 
   it('does not recognize JSON that is not the answer payload', () => {

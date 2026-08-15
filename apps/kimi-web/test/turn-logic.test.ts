@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import type { AppMessage, AppMessageContent } from '../src/api/types';
 import { latestTodos } from '../src/composables/latestTodos';
 import { messagesToTurns } from '../src/composables/messagesToTurns';
@@ -56,7 +57,9 @@ describe('messagesToTurns', () => {
           { type: 'thinking', thinking: 'plan' },
           { type: 'toolUse', toolCallId: 'tool-1', toolName: 'read', input: { path: 'src/a.ts' } },
         ]),
-        message('t1', 'tool', [{ type: 'toolResult', toolCallId: 'tool-1', output: 'alpha\nbeta' }]),
+        message('t1', 'tool', [
+          { type: 'toolResult', toolCallId: 'tool-1', output: 'alpha\nbeta' },
+        ]),
         message('a2', 'assistant', [{ type: 'text', text: 'done' }]),
       ],
       [],
@@ -82,7 +85,12 @@ describe('messagesToTurns', () => {
     const turns = messagesToTurns(
       [
         message('a1', 'assistant', [
-          { type: 'toolUse', toolCallId: 'tool-9', toolName: 'ReadMediaFile', input: { path: 'shot.png' } },
+          {
+            type: 'toolUse',
+            toolCallId: 'tool-9',
+            toolName: 'ReadMediaFile',
+            input: { path: 'shot.png' },
+          },
         ]),
         message('t1', 'tool', [
           {
@@ -294,8 +302,20 @@ describe('messagesToTurns', () => {
       [
         message('u1', 'user', [
           { type: 'text', text: 'check these' },
-          { type: 'file', fileId: 'f_yaml', name: 'api-spec.yaml', mediaType: 'application/yaml', size: 18432 },
-          { type: 'file', fileId: 'f_pdf', name: '设计文档.pdf', mediaType: 'application/pdf', size: 2516582 },
+          {
+            type: 'file',
+            fileId: 'f_yaml',
+            name: 'api-spec.yaml',
+            mediaType: 'application/yaml',
+            size: 18432,
+          },
+          {
+            type: 'file',
+            fileId: 'f_pdf',
+            name: '设计文档.pdf',
+            mediaType: 'application/pdf',
+            size: 2516582,
+          },
         ]),
       ],
       [],
@@ -337,7 +357,14 @@ describe('messagesToTurns', () => {
     );
 
     expect(turns[0]?.attachments).toEqual([
-      { kind: 'file', url: '/api/v1/files/f_make', fileId: 'f_make', name: 'Makefile', mediaType: undefined, size: 512 },
+      {
+        kind: 'file',
+        url: '/api/v1/files/f_make',
+        fileId: 'f_make',
+        name: 'Makefile',
+        mediaType: undefined,
+        size: 512,
+      },
     ]);
   });
 
@@ -391,7 +418,14 @@ describe('messagesToTurns', () => {
 
     expect(turns[0]?.text).toBe('');
     expect(turns[0]?.attachments).toEqual([
-      { kind: 'file', url: '', fileId: undefined, name: 'image.avif', mediaType: 'image/avif', size: 100 },
+      {
+        kind: 'file',
+        url: '',
+        fileId: undefined,
+        name: 'image.avif',
+        mediaType: 'image/avif',
+        size: 100,
+      },
     ]);
   });
 
@@ -443,7 +477,8 @@ describe('messagesToTurns', () => {
   });
 
   it('keeps lookalike text that is not an attachment notice as text', () => {
-    const text = 'Attached file "a.pdf" (application/pdf, 3 bytes): /tmp/x - open it with the Read tool';
+    const text =
+      'Attached file "a.pdf" (application/pdf, 3 bytes): /tmp/x - open it with the Read tool';
     const turns = messagesToTurns(
       [message('u1', 'user', [{ type: 'text', text }])],
       [],
@@ -472,8 +507,7 @@ describe('messagesToTurns', () => {
   it('leaves non-file-store media paths as text instead of fabricating a url', () => {
     // TUI/legacy cache names are not shaped like a file-store id (`f_…`), so the
     // tag must stay as text rather than becoming a broken /files/<name> request.
-    const tag =
-      '<video path="/tmp/550e8400-e29b-41d4-a716-446655440000-clip.mp4"></video>';
+    const tag = '<video path="/tmp/550e8400-e29b-41d4-a716-446655440000-clip.mp4"></video>';
     const turns = messagesToTurns(
       [message('u1', 'user', [{ type: 'text', text: tag }])],
       [],
@@ -560,11 +594,7 @@ describe('messagesToTurns', () => {
 
   it('leaves ordinary user text and stray angle brackets untouched', () => {
     const turns = messagesToTurns(
-      [
-        message('u1', 'user', [
-          { type: 'text', text: 'a < b and c > d, no system tag here' },
-        ]),
-      ],
+      [message('u1', 'user', [{ type: 'text', text: 'a < b and c > d, no system tag here' }])],
       [],
       undefined,
       false,
@@ -855,7 +885,6 @@ describe('messagesToTurns cron', () => {
     expect(turns.some((t) => t.role === 'user')).toBe(false);
     expect(turns).toHaveLength(1);
   });
-
 
   it('flushes an idle cron fire as its own turn even when no prompt ids are present', () => {
     const envelope =

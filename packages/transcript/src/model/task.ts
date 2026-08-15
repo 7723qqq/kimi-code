@@ -11,13 +11,7 @@ import type { StepUsage } from './turn';
 
 export type TaskKind = 'shell' | 'subagent' | 'tool' | 'other';
 
-export type TaskState =
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'timed_out'
-  | 'killed'
-  | 'lost';
+export type TaskState = 'running' | 'completed' | 'failed' | 'timed_out' | 'killed' | 'lost';
 
 export interface TranscriptTask {
   readonly taskId: TaskId;

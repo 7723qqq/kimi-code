@@ -8,8 +8,8 @@ import {
   type Focusable,
 } from '@moonshot-ai/pi-tui';
 
-import { currentTheme } from '#/tui/theme';
 import { t } from '#/i18n';
+import { currentTheme } from '#/tui/theme';
 
 export type ApiKeyInputResult =
   | { readonly kind: 'ok'; readonly value: string }
@@ -112,15 +112,7 @@ export class ApiKeyInputDialogComponent extends Container implements Focusable {
     const inputLine =
       this.mask && this.input.getValue() !== '' ? maskInputLine(rawInputLine) : rawInputLine;
 
-    const contentLines: string[] = [
-      titleLine,
-      '',
-      ...subtitleLines,
-      '',
-      inputLine,
-      '',
-      footerLine,
-    ];
+    const contentLines: string[] = [titleLine, '', ...subtitleLines, '', inputLine, '', footerLine];
 
     if (safeWidth < 4) {
       return ['', ...contentLines.map((line) => truncateToWidth(line, safeWidth, '…'))];

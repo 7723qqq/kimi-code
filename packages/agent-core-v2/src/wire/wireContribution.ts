@@ -38,10 +38,7 @@
 
 import { collection } from '#/_base/di/collection';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import {
-  CHECKPOINTED_MODELS,
-  type Checkpointed,
-} from '#/agent/contextMemory/conversationTime';
+import { CHECKPOINTED_MODELS, type Checkpointed } from '#/agent/contextMemory/conversationTime';
 
 import { WireError, WireErrors } from './errors';
 import {

@@ -6,10 +6,9 @@
  * Bound at Workspace scope.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { type FsDiffResponse, type FsGitStatusResponse, IGitService } from '#/app/git/git';
+import { LifecycleScope } from '#/app/scopes';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 
 import { IWorkspaceGitService } from './workspaceGit';

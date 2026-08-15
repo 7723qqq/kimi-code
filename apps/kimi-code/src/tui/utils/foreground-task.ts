@@ -2,9 +2,7 @@ import type { BackgroundTaskInfo } from '@moonshot-ai/kimi-code-sdk';
 
 function isDetachableForegroundTask(t: BackgroundTaskInfo): boolean {
   return (
-    t.detached === false &&
-    t.status === 'running' &&
-    (t.kind === 'process' || t.kind === 'agent')
+    t.detached === false && t.status === 'running' && (t.kind === 'process' || t.kind === 'agent')
   );
 }
 
@@ -13,12 +11,8 @@ function isDetachableForegroundTask(t: BackgroundTaskInfo): boolean {
  * currently-running Bash (`process`) or subagent (`agent`) tasks, most recently
  * started first.
  */
-export function pickForegroundTasks(
-  tasks: readonly BackgroundTaskInfo[],
-): BackgroundTaskInfo[] {
-  return tasks
-    .filter(isDetachableForegroundTask)
-    .sort((a, b) => b.startedAt - a.startedAt);
+export function pickForegroundTasks(tasks: readonly BackgroundTaskInfo[]): BackgroundTaskInfo[] {
+  return tasks.filter(isDetachableForegroundTask).toSorted((a, b) => b.startedAt - a.startedAt);
 }
 
 /**

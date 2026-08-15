@@ -57,8 +57,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
 import { stat } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import {
   createDecorator,
@@ -106,7 +106,12 @@ import {
   type SearchBudgets,
 } from './match';
 import { makeSnippet } from './snippet';
-import { SearchWorkerError, SearchWorkerHost, dropLiveLockToken, noteLiveLockToken } from './worker/host';
+import {
+  SearchWorkerError,
+  SearchWorkerHost,
+  dropLiveLockToken,
+  noteLiveLockToken,
+} from './worker/host';
 
 export { GlobalSearchError } from './contract';
 export type { GlobalSearchErrorReason } from './contract';
@@ -634,7 +639,8 @@ export class GlobalSearchService implements IGlobalSearchService {
   async search(input: GlobalSearchQuery): Promise<GlobalSearchPage> {
     const q = normalizeQuery(input, this.maxQueryTerms);
     const sessionId = q.container?.sessionId;
-    const liveStore = sessionId !== undefined ? this.liveSource?.forSessionLive(sessionId) : undefined;
+    const liveStore =
+      sessionId !== undefined ? this.liveSource?.forSessionLive(sessionId) : undefined;
     if (liveStore !== undefined && sessionId !== undefined) {
       return this.searchLive(q, sessionId, liveStore, input.pageToken);
     }
@@ -749,7 +755,8 @@ export class GlobalSearchService implements IGlobalSearchService {
               sessionTitle,
               agentId,
               role: 'user',
-              text: prompt.length > MAX_DOC_TEXT_CHARS ? prompt.slice(0, MAX_DOC_TEXT_CHARS) : prompt,
+              text:
+                prompt.length > MAX_DOC_TEXT_CHARS ? prompt.slice(0, MAX_DOC_TEXT_CHARS) : prompt,
               time: turnTime,
               turn: item.ordinal,
               stepId: undefined,
@@ -891,12 +898,7 @@ export class GlobalSearchService implements IGlobalSearchService {
       items: result.rows.map((row) => this.projectHit(q, row)),
       hasMore: result.hasMore,
       pageToken: result.hasMore
-        ? encodePageToken(
-            q,
-            'index',
-            boundaryOf(q, result.rows.at(-1)!),
-            result.generation,
-          )
+        ? encodePageToken(q, 'index', boundaryOf(q, result.rows.at(-1)!), result.generation)
         : undefined,
       incomplete: result.incomplete,
       indexState: this.composeIndexState(result.index),

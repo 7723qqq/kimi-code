@@ -38,7 +38,10 @@ function buildBaiduSearchUrl(query: string, pageNumber: number): string {
   url.searchParams.set('fenlei', '256');
   url.searchParams.set('rsv_idx', '1');
   url.searchParams.set('rsv_pq', 'f7ba1776007bcf9e');
-  url.searchParams.set('rsv_t', '8179fxGiNMUh/0dXHrLsJXPlKYbkj9S5QH6rOLHY6pG6OGQ81YqzRTIGjjeMwEfiYQTSiTQIhCJj');
+  url.searchParams.set(
+    'rsv_t',
+    '8179fxGiNMUh/0dXHrLsJXPlKYbkj9S5QH6rOLHY6pG6OGQ81YqzRTIGjjeMwEfiYQTSiTQIhCJj',
+  );
   url.searchParams.set('bs', query);
   url.searchParams.set('_ss', '1');
   url.searchParams.set('f4s', '1');
@@ -48,7 +51,9 @@ function buildBaiduSearchUrl(query: string, pageNumber: number): string {
 }
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 async function fetchSearchPage(url: string, options: SearchEngineOptions): Promise<string> {
@@ -58,11 +63,15 @@ async function fetchSearchPage(url: string, options: SearchEngineOptions): Promi
       signal: options.signal,
     });
     if (!response.ok) {
-      throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Baidu search request failed: HTTP ${String(response.status)}.`, {
-        details: { status: response.status },
-      });
+      throw new Error2(
+        ErrorCodes.WEB_FETCH_FAILED,
+        `Baidu search request failed: HTTP ${String(response.status)}.`,
+        {
+          details: { status: response.status },
+        },
+      );
     }
-    return  response.text();
+    return response.text();
   }
   if (options.signal?.aborted === true) {
     const abortError = new Error('The operation was aborted.');
@@ -74,11 +83,15 @@ async function fetchSearchPage(url: string, options: SearchEngineOptions): Promi
     timeoutMs: REQUEST_TIMEOUT_MS,
   });
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Baidu search request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `Baidu search request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
-  return  response.text();
+  return response.text();
 }
 
 function toWebSearchResult(result: BaiduSearchResult): WebSearchResult {

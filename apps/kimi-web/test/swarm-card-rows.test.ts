@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import type { AppSubagentPhase } from '../src/api/types';
 import type { SwarmMember } from '../src/composables/swarmGroups';
 import type { SwarmResult } from '../src/lib/parseSwarmResult';
@@ -60,11 +61,10 @@ describe('swarmMemberActivity', () => {
 
 describe('buildSwarmCardRows', () => {
   it('builds rows from live members when no parsed result exists', () => {
-    const rows = buildSwarmCardRows(
-      [member('a', '子任务 A', { text: 'streaming' })],
-      null,
-    );
-    expect(rows).toEqual([{ id: 'a', name: '子任务 A', activity: 'streaming', phase: 'working', body: 'streaming' }]);
+    const rows = buildSwarmCardRows([member('a', '子任务 A', { text: 'streaming' })], null);
+    expect(rows).toEqual([
+      { id: 'a', name: '子任务 A', activity: 'streaming', phase: 'working', body: 'streaming' },
+    ]);
   });
 
   it('builds rows from result subagents when no members are present', () => {

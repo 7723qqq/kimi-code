@@ -7,28 +7,25 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { ServicesAccessor } from '#/_base/di/instantiation';
-import type { ToolCall } from '#/kosong/contract/message';
-import {
-  compileToolArgsValidator,
-  validateToolArgs,
-} from '#/tool/args-validator';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import { IAgentGoalService } from '#/agent/goal/goal';
-import { CreateGoalTool } from '#/agent/tools/goal/create-goal/createGoalTool';
-import { GetGoalTool } from '#/agent/tools/goal/get-goal/getGoalTool';
-import { SetGoalBudgetTool } from '#/agent/tools/goal/set-goal-budget/setGoalBudgetTool';
-import { UpdateGoalToolInputSchema } from '#/agent/tools/goal/update-goal/update-goal';
-import { UpdateGoalTool } from '#/agent/tools/goal/update-goal/updateGoalTool';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import {
   IAgentToolExecutorService,
   type ToolExecutionResult,
 } from '#/agent/toolExecutor/toolExecutor';
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { CreateGoalTool } from '#/agent/tools/goal/create-goal/createGoalTool';
+import { GetGoalTool } from '#/agent/tools/goal/get-goal/getGoalTool';
+import { SetGoalBudgetTool } from '#/agent/tools/goal/set-goal-budget/setGoalBudgetTool';
+import { UpdateGoalToolInputSchema } from '#/agent/tools/goal/update-goal/update-goal';
+import { UpdateGoalTool } from '#/agent/tools/goal/update-goal/updateGoalTool';
 import { IEventBus } from '#/app/event/eventBus';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import type { ToolCall } from '#/kosong/contract/message';
+import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
 
 import {
   agentService,
@@ -213,7 +210,10 @@ describe('goal tools', () => {
 
     const results = await executeGoalCalls(
       [
-        goalToolCall('call_create', 'CreateGoal', { objective: 'new task', completionCriterion: 'verify the change with a test run' }),
+        goalToolCall('call_create', 'CreateGoal', {
+          objective: 'new task',
+          completionCriterion: 'verify the change with a test run',
+        }),
         goalToolCall('call_budget', 'SetGoalBudget', { value: 5, unit: 'turns' }),
       ],
       2,
@@ -234,7 +234,11 @@ describe('goal tools', () => {
 
     const results = await executeGoalCalls(
       [
-        goalToolCall('call_replace', 'CreateGoal', { objective: 'new task', replace: true, completionCriterion: 'verify the change with a test run' }),
+        goalToolCall('call_replace', 'CreateGoal', {
+          objective: 'new task',
+          replace: true,
+          completionCriterion: 'verify the change with a test run',
+        }),
         goalToolCall('call_budget', 'SetGoalBudget', { value: 5, unit: 'turns' }),
       ],
       3,
@@ -344,7 +348,11 @@ describe('goal tools', () => {
 
     const results = await executeGoalCalls(
       [
-        goalToolCall('call_replace', 'CreateGoal', { objective: 'new task', replace: true, completionCriterion: 'verify the change with a test run' }),
+        goalToolCall('call_replace', 'CreateGoal', {
+          objective: 'new task',
+          replace: true,
+          completionCriterion: 'verify the change with a test run',
+        }),
         goalToolCall('call_outcome', 'UpdateGoal', { status: 'complete' }),
       ],
       4,
@@ -362,7 +370,11 @@ describe('goal tools', () => {
 
     const results = await executeGoalCalls(
       [
-        goalToolCall('call_replace', 'CreateGoal', { objective: 'new task', replace: true, completionCriterion: 'verify the change with a test run' }),
+        goalToolCall('call_replace', 'CreateGoal', {
+          objective: 'new task',
+          replace: true,
+          completionCriterion: 'verify the change with a test run',
+        }),
         goalToolCall('call_outcome', 'UpdateGoal', { status: 'blocked' }),
       ],
       4,
@@ -381,7 +393,11 @@ describe('goal tools', () => {
 
     const results = await executeGoalCalls(
       [
-        goalToolCall('call_create', 'CreateGoal', { objective: 'new task', replace: true, completionCriterion: 'verify the change with a test run' }),
+        goalToolCall('call_create', 'CreateGoal', {
+          objective: 'new task',
+          replace: true,
+          completionCriterion: 'verify the change with a test run',
+        }),
         goalToolCall('call_outcome', 'UpdateGoal', { status: 'complete' }),
       ],
       5,
@@ -398,7 +414,11 @@ describe('goal tools', () => {
 
     const results = await executeGoalCalls(
       [
-        goalToolCall('call_create', 'CreateGoal', { objective: 'new task', replace: true, completionCriterion: 'verify the change with a test run' }),
+        goalToolCall('call_create', 'CreateGoal', {
+          objective: 'new task',
+          replace: true,
+          completionCriterion: 'verify the change with a test run',
+        }),
         goalToolCall('call_outcome', 'UpdateGoal', { status: 'blocked' }),
       ],
       5,

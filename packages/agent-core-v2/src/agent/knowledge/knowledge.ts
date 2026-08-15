@@ -57,7 +57,12 @@ export interface IAgentKnowledgeService {
   open(projectDbPath: string, userDbPath: string): void;
 
   /** Search for relevant standards given context */
-  search(query: string, scopePath?: string, tags?: string[], limit?: number): KnowledgeSearchResult[];
+  search(
+    query: string,
+    scopePath?: string,
+    tags?: string[],
+    limit?: number,
+  ): KnowledgeSearchResult[];
 
   /** Add a new knowledge entry */
   add(input: KnowledgeAddInput): KnowledgeEntry | null;

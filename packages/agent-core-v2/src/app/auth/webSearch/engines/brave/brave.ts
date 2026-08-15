@@ -22,8 +22,8 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const FALLBACK_HEADERS: Record<string, string> = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36',
-  'Connection': 'keep-alive',
-  'Accept':
+  Connection: 'keep-alive',
+  Accept:
     'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
   'Accept-Encoding': 'gzip, deflate, br',
   'sec-ch-ua': '"Chromium";v="112", "Google Chrome";v="112", "Not:A-Brand";v="99"',
@@ -34,18 +34,21 @@ const FALLBACK_HEADERS: Record<string, string> = {
   'sec-fetch-mode': 'navigate',
   'sec-fetch-user': '?1',
   'sec-fetch-dest': 'document',
-  'referer': 'https://duckduckgo.com/',
+  referer: 'https://duckduckgo.com/',
   'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
 };
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 /** First direct `<a>` child of a `.result-content` block (cheerio's `> a`). */
 function directChildAnchor(element: EngineElement): EngineElement | null {
-  const children = (element as EngineElement & { children?: ArrayLike<EngineElement & { tagName?: string }> })
-    .children;
+  const children = (
+    element as EngineElement & { children?: ArrayLike<EngineElement & { tagName?: string }> }
+  ).children;
   if (children === undefined) {
     return null;
   }
@@ -121,11 +124,15 @@ async function fetchSearchPage(url: string, options: SearchEngineOptions): Promi
     );
   }
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Brave search request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `Brave search request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
-  return  response.text();
+  return response.text();
 }
 
 export async function searchBrave(

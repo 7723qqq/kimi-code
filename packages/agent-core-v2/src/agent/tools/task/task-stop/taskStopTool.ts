@@ -13,16 +13,15 @@
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
+import { IAgentTaskService } from '#/agent/task/task';
+import { TERMINAL_STATUSES } from '#/agent/task/types';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
 import { type ToolExecution } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
-import { IAgentTaskService } from '#/agent/task/task';
-import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { ITaskStopTool, TaskStopInputSchema, type TaskStopInput } from './task-stop';
 import TASK_STOP_DESCRIPTION from './task-stop.md?raw';
-
 
 export class TaskStopTool implements ITaskStopTool {
   declare readonly _serviceBrand: undefined;
@@ -81,5 +80,7 @@ registerAgentToolService(ITaskStopTool, TaskStopTool, { name: 'TaskStop', domain
 
 function terminalStopReason(reason: string | undefined): string {
   const trimmed = reason?.trim();
-  return trimmed === undefined || trimmed.length === 0 ? t('toolsV2.task.alreadyTerminal') : trimmed;
+  return trimmed === undefined || trimmed.length === 0
+    ? t('toolsV2.task.alreadyTerminal')
+    : trimmed;
 }

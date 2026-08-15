@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
-
 import { Buffer } from 'node:buffer';
+
+import { describe, expect, it } from 'vitest';
 
 import {
   LspFramingError,
@@ -68,9 +68,7 @@ describe('MessageDecoder', () => {
 
   it('rejects a malformed header', () => {
     const decoder = new MessageDecoder();
-    expect(() => decoder.feed(Buffer.from('Bogus: 1\r\n\r\n{}', 'utf8'))).toThrow(
-      LspFramingError,
-    );
+    expect(() => decoder.feed(Buffer.from('Bogus: 1\r\n\r\n{}', 'utf8'))).toThrow(LspFramingError);
   });
 
   it('rejects an invalid Content-Length', () => {
@@ -82,8 +80,6 @@ describe('MessageDecoder', () => {
 
   it('rejects a header that exceeds the frame limit without a terminator', () => {
     const decoder = new MessageDecoder();
-    expect(() => decoder.feed(Buffer.alloc(MAX_FRAME_BYTES + 1, 0x61))).toThrow(
-      LspFramingError,
-    );
+    expect(() => decoder.feed(Buffer.alloc(MAX_FRAME_BYTES + 1, 0x61))).toThrow(LspFramingError);
   });
 });

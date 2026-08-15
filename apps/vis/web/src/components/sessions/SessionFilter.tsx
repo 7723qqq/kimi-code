@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 
-import type { SessionSortKey, HealthFilter, SourceFilter } from './SessionRail';
 import { t } from '../../i18n';
+import type { SessionSortKey, HealthFilter, SourceFilter } from './SessionRail';
 
 interface SessionFilterProps {
   search: string;
@@ -80,14 +80,18 @@ export function SessionFilter({
           {importing ? t('session.importing') : t('session.importDebugZip')}
         </button>
         {importedCount > 0 ? (
-          <span className="font-mono text-[10px] text-fg-3 tabular">{t('session.imported', { count: importedCount })}</span>
+          <span className="font-mono text-[10px] text-fg-3 tabular">
+            {t('session.imported', { count: importedCount })}
+          </span>
         ) : null}
       </div>
       <div className="relative">
         <input
           type="text"
           value={search}
-          onChange={(e) => { onSearchChange(e.target.value); }}
+          onChange={(e) => {
+            onSearchChange(e.target.value);
+          }}
           placeholder={t('session.searchPlaceholder')}
           className="w-full border border-border bg-surface-0 px-2 py-1 font-mono text-[12px] text-fg-0 placeholder:text-fg-3 focus:border-border-strong focus:outline-none"
         />
@@ -97,7 +101,9 @@ export function SessionFilter({
           <span className="text-fg-3">{t('session.sort')}</span>
           <select
             value={sortKey}
-            onChange={(e) => { onSortChange(e.target.value as SessionSortKey); }}
+            onChange={(e) => {
+              onSortChange(e.target.value as SessionSortKey);
+            }}
             className="flex-1 border border-border bg-surface-0 px-1 py-0.5 text-fg-1 focus:border-border-strong focus:outline-none"
           >
             {SORT_OPTIONS.map((o) => (
@@ -111,7 +117,9 @@ export function SessionFilter({
           <span className="text-fg-3">{t('session.source')}</span>
           <select
             value={sourceFilter}
-            onChange={(e) => { onSourceChange(e.target.value as SourceFilter); }}
+            onChange={(e) => {
+              onSourceChange(e.target.value as SourceFilter);
+            }}
             className="flex-1 border border-border bg-surface-0 px-1 py-0.5 text-fg-1 focus:border-border-strong focus:outline-none"
           >
             {SOURCE_OPTIONS.map((o) => (
@@ -125,7 +133,9 @@ export function SessionFilter({
           <span className="text-fg-3">{t('session.health')}</span>
           <select
             value={healthFilter}
-            onChange={(e) => { onHealthChange(e.target.value as HealthFilter); }}
+            onChange={(e) => {
+              onHealthChange(e.target.value as HealthFilter);
+            }}
             className="flex-1 border border-border bg-surface-0 px-1 py-0.5 text-fg-1 focus:border-border-strong focus:outline-none"
           >
             {HEALTH_OPTIONS.map((o) => (

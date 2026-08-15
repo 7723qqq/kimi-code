@@ -9,14 +9,23 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+
 import type { ValueLoc } from './store.js';
 
 /** Promise wrapper over fs.read (the callback API runs on the libuv thread
  *  pool for a plain fd; fs.promises has no fd-level read). Shared with the
  *  postings file's async read. */
-export function readAtAsync(fd: number, buf: Buffer, bufOff: number, len: number, pos: number): Promise<number> {
+export function readAtAsync(
+  fd: number,
+  buf: Buffer,
+  bufOff: number,
+  len: number,
+  pos: number,
+): Promise<number> {
   return new Promise((resolve, reject) => {
-    fs.read(fd, buf, bufOff, len, pos, (err, bytesRead) => (err ? reject(err) : resolve(bytesRead)));
+    fs.read(fd, buf, bufOff, len, pos, (err, bytesRead) =>
+      err ? reject(err) : resolve(bytesRead),
+    );
   });
 }
 
@@ -36,7 +45,10 @@ export class ValueReader {
    *  generation pairing compares these against the inodes it scanned, so a
    *  rotation landing between the scan and this attach is detected instead of
    *  serving old offsets from a new file. */
-  open(): { snapshot: { dev: number; ino: number } | null; wal: { dev: number; ino: number } | null } {
+  open(): {
+    snapshot: { dev: number; ino: number } | null;
+    wal: { dev: number; ino: number } | null;
+  } {
     this.snapshotFd = this.openIfExists(this.snapshotPath);
     this.walFd = this.openIfExists(this.walPath);
     return { snapshot: this.ident(this.snapshotFd), wal: this.ident(this.walFd) };
@@ -51,9 +63,9 @@ export class ValueReader {
   private openIfExists(file: string): number | null {
     try {
       return fs.openSync(file, 'r');
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw e;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
     }
   }
 

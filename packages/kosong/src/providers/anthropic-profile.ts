@@ -24,13 +24,7 @@ export interface AnthropicModelVersion {
 
 export const BUDGET_THINKING_EFFORTS = ['low', 'medium', 'high'] as const;
 const ADAPTIVE_MAX_EFFORTS = ['low', 'medium', 'high', 'max'] as const;
-export const LATEST_OPUS_THINKING_EFFORTS = [
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-] as const;
+export const LATEST_OPUS_THINKING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 const BUDGET_PROFILE: AnthropicModelProfile = {
   mode: 'budget',
@@ -110,9 +104,7 @@ export function parseAnthropicModelVersion(
   return null;
 }
 
-export function matchKnownAnthropicModelProfile(
-  model: string,
-): AnthropicModelProfile | undefined {
+export function matchKnownAnthropicModelProfile(model: string): AnthropicModelProfile | undefined {
   const normalized = model.toLowerCase();
   if (/mythos[-._]preview/.test(normalized)) return ALWAYS_ADAPTIVE_MAX_PROFILE;
 

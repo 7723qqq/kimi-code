@@ -3,13 +3,15 @@
 // Single-process ClusterDb behavior: topology creation/validation, basic KV
 // across shards, multi-key ops, merged scans, hash distribution, stats.
 
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { MiniDb } from '../../src/index.js';
+
+import { test } from 'vitest';
+
 import { ClusterDb, shardDirName } from '../../src/cluster/index.js';
 import { shardFor } from '../../src/cluster/utils.js';
+import { MiniDb } from '../../src/index.js';
 import { tmpDir, rmrf } from '../e2e/helpers/tmp.js';
 import { keyOnShard, keysByShard } from './helpers.js';
 
@@ -107,7 +109,10 @@ test('mset/mget/mdel span shards (atomic per shard)', async () => {
 
     const keys = entries.map(([k]) => k);
     const got = await db.mget(keys);
-    assert.deepEqual(got, entries.map(([, v]) => v));
+    assert.deepEqual(
+      got,
+      entries.map(([, v]) => v),
+    );
 
     // mdel counts real deletions and spans shards.
     const some = keys.filter((_, i) => i % 2 === 0);
@@ -142,55 +147,81 @@ test('batch applies per-shard atomically with ttl/dt', async () => {
   }
 });
 
-test('scan/prefix merge across shards: sorted, bounded, limited, reversible', { timeout: 60_000 }, async () => {
-  const dir = await tmpDir('minidb-cluster-');
-  try {
-    const db = await ClusterDb.open<number>({ dir, shardCount: 8, valueCodec: 'json' });
-    const keys: string[] = [];
-    for (let i = 0; i < 300; i++) {
-      const k = `s:${String(i).padStart(4, '0')}`;
-      keys.push(k);
-      await db.set(k, i);
+test(
+  'scan/prefix merge across shards: sorted, bounded, limited, reversible',
+  { timeout: 60_000 },
+  async () => {
+    const dir = await tmpDir('minidb-cluster-');
+    try {
+      const db = await ClusterDb.open<number>({ dir, shardCount: 8, valueCodec: 'json' });
+      const keys: string[] = [];
+      for (let i = 0; i < 300; i++) {
+        const k = `s:${String(i).padStart(4, '0')}`;
+        keys.push(k);
+        await db.set(k, i);
+      }
+      const byteSorted = [...keys].toSorted((a, b) =>
+        Buffer.compare(Buffer.from(a), Buffer.from(b)),
+      );
+
+      const all = await db.scan();
+      assert.equal(all.length, 300);
+      assert.deepEqual(
+        all.map((e) => e.key),
+        byteSorted,
+        'globally sorted by key bytes',
+      );
+
+      // Interleaved writes land in every shard; the merge must be complete.
+      const range = await db.scan({ gte: 's:0010', lt: 's:0020' });
+      assert.deepEqual(
+        range.map((e) => e.key),
+        byteSorted.filter((k) => k >= 's:0010' && k < 's:0020'),
+      );
+
+      const pref = await db.prefix('s:01', 10);
+      assert.equal(pref.length, 10);
+      assert.deepEqual(
+        pref.map((e) => e.key),
+        byteSorted.filter((k) => k.startsWith('s:01')).slice(0, 10),
+      );
+
+      const limited = await db.scan({ limit: 7 });
+      assert.equal(limited.length, 7);
+      assert.deepEqual(
+        limited.map((e) => e.key),
+        byteSorted.slice(0, 7),
+      );
+
+      const rev = await db.scan({ reverse: true, limit: 5 });
+      assert.deepEqual(
+        rev.map((e) => e.key),
+        [...byteSorted].toReversed().slice(0, 5),
+      );
+
+      // Prefix within ScanOptions beats range bounds.
+      const prefOpt = await db.scan({ prefix: 's:029', gte: 'zzz' });
+      assert.deepEqual(
+        prefOpt.map((e) => e.key),
+        [
+          's:0290',
+          's:0291',
+          's:0292',
+          's:0293',
+          's:0294',
+          's:0295',
+          's:0296',
+          's:0297',
+          's:0298',
+          's:0299',
+        ].filter((k) => k.startsWith('s:029')),
+      );
+      await db.close();
+    } finally {
+      await rmrf(dir);
     }
-    const byteSorted = [...keys].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
-
-    const all = await db.scan();
-    assert.equal(all.length, 300);
-    assert.deepEqual(
-      all.map((e) => e.key),
-      byteSorted,
-      'globally sorted by key bytes',
-    );
-
-    // Interleaved writes land in every shard; the merge must be complete.
-    const range = await db.scan({ gte: 's:0010', lt: 's:0020' });
-    assert.deepEqual(
-      range.map((e) => e.key),
-      byteSorted.filter((k) => k >= 's:0010' && k < 's:0020'),
-    );
-
-    const pref = await db.prefix('s:01', 10);
-    assert.equal(pref.length, 10);
-    assert.deepEqual(
-      pref.map((e) => e.key),
-      byteSorted.filter((k) => k.startsWith('s:01')).slice(0, 10),
-    );
-
-    const limited = await db.scan({ limit: 7 });
-    assert.equal(limited.length, 7);
-    assert.deepEqual(limited.map((e) => e.key), byteSorted.slice(0, 7));
-
-    const rev = await db.scan({ reverse: true, limit: 5 });
-    assert.deepEqual(rev.map((e) => e.key), [...byteSorted].reverse().slice(0, 5));
-
-    // Prefix within ScanOptions beats range bounds.
-    const prefOpt = await db.scan({ prefix: 's:029', gte: 'zzz' });
-    assert.deepEqual(prefOpt.map((e) => e.key), ['s:0290', 's:0291', 's:0292', 's:0293', 's:0294', 's:0295', 's:0296', 's:0297', 's:0298', 's:0299'].filter((k) => k.startsWith('s:029')));
-    await db.close();
-  } finally {
-    await rmrf(dir);
-  }
-});
+  },
+);
 
 test('hash routing distributes keys over all shards and is deterministic', async () => {
   const counts = Array.from({ length: 16 }, () => 0);
@@ -208,7 +239,12 @@ test('hash routing distributes keys over all shards and is deterministic', async
 test('stats reflect writer usage', async () => {
   const dir = await tmpDir('minidb-cluster-');
   try {
-    const db = await ClusterDb.open<string>({ dir, shardCount: 4, valueCodec: 'string', lockPoolMaxShards: 2 });
+    const db = await ClusterDb.open<string>({
+      dir,
+      shardCount: 4,
+      valueCodec: 'string',
+      lockPoolMaxShards: 2,
+    });
     for (let i = 0; i < 20; i++) await db.set(`st:${i}`, 'v');
     const s = db.stats();
     assert.equal(s.shardCount, 4);
@@ -279,16 +315,26 @@ test('compound index definitions fan out to all shards and survive reopen', asyn
 
     // Every shard applied the definition (verified through its own sidecar).
     for (let id = 0; id < 4; id++) {
-      const shard = await MiniDb.open({ dir: path.join(dir, shardDirName(id, 4)), valueCodec: 'json', readOnly: true });
+      const shard = await MiniDb.open({
+        dir: path.join(dir, shardDirName(id, 4)),
+        valueCodec: 'json',
+        readOnly: true,
+      });
       try {
-        assert.ok(shard.listCompoundIndexes().some((i) => i.name === 'byGN'), `shard ${id} has the index`);
+        assert.ok(
+          shard.listCompoundIndexes().some((i) => i.name === 'byGN'),
+          `shard ${id} has the index`,
+        );
       } finally {
         await shard.close();
       }
     }
 
     // A duplicate create is rejected, and the registry round-trips a reopen.
-    await assert.rejects(() => db.createCompoundIndex('byGN', { groupBy: 'g', orderBy: 'n' }), /already exists/);
+    await assert.rejects(
+      () => db.createCompoundIndex('byGN', { groupBy: 'g', orderBy: 'n' }),
+      /already exists/,
+    );
     await db.close();
     const db2 = await ClusterDb.open<QueryDoc>({ dir, shardCount: 4, valueCodec: 'json' });
     assert.deepEqual(await db2.listCompoundIndexes(), info);

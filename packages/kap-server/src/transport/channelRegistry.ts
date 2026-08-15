@@ -19,7 +19,6 @@ import {
   IFeatureManager,
   LifecycleScope,
 } from '@moonshot-ai/agent-core-v2';
-
 import type { Scope, ScopedEntry, ServiceIdentifier } from '@moonshot-ai/agent-core-v2';
 
 export interface ChannelMethodDescriptor {

@@ -13,8 +13,8 @@ import {
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import { PRODUCT_NAME } from '#/constant/app';
+import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import {
   formatTokenCount,
@@ -107,18 +107,31 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
 
   const permission = options.status?.permission ?? options.permissionMode;
   const planMode = options.status?.planMode ?? options.planMode;
-  const sessionId = options.sessionId.trim().length > 0 ? options.sessionId : t('tui.messages.statusPanel.sessionNone');
+  const sessionId =
+    options.sessionId.trim().length > 0
+      ? options.sessionId
+      : t('tui.messages.statusPanel.sessionNone');
   const rows: FieldRow[] = [
     { label: t('tui.messages.statusPanel.modelLabel'), value: formatModelStatus(options) },
     { label: t('tui.messages.statusPanel.directoryLabel'), value: options.workDir },
     { label: t('tui.messages.statusPanel.permissionsLabel'), value: permission },
-    { label: t('tui.messages.statusPanel.planModeLabel'), value: planMode ? t('tui.messages.statusPanel.planModeOn') : t('tui.messages.statusPanel.planModeOff') },
+    {
+      label: t('tui.messages.statusPanel.planModeLabel'),
+      value: planMode
+        ? t('tui.messages.statusPanel.planModeOn')
+        : t('tui.messages.statusPanel.planModeOff'),
+    },
     { label: t('tui.messages.statusPanel.sessionLabel'), value: sessionId },
   ];
   const title = options.sessionTitle?.trim();
-  if (title !== undefined && title.length > 0) rows.push({ label: t('tui.messages.statusPanel.titleLabel'), value: title });
+  if (title !== undefined && title.length > 0)
+    rows.push({ label: t('tui.messages.statusPanel.titleLabel'), value: title });
   if (options.statusError !== undefined) {
-    rows.push({ label: t('tui.messages.statusPanel.warningLabel'), value: options.statusError, severity: 'error' });
+    rows.push({
+      label: t('tui.messages.statusPanel.warningLabel'),
+      value: options.statusError,
+      severity: 'error',
+    });
   }
 
   const lines: string[] = [

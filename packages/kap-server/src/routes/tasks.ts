@@ -45,6 +45,11 @@ import {
   type AgentTaskInfo,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { z } from 'zod';
+
+import { errEnvelope, okEnvelope } from '../envelope';
+import { requestLog } from '../lib/requestLog';
+import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   cancelTaskResultSchema,
@@ -54,11 +59,6 @@ import {
   listTasksResponseSchema,
 } from '../protocol/rest-task';
 import type { Task, TaskKind, TaskStatus } from '../protocol/task';
-import { z } from 'zod';
-
-import { errEnvelope, okEnvelope } from '../envelope';
-import { requestLog } from '../lib/requestLog';
-import { defineRoute } from '../middleware/defineRoute';
 import { ensureMainAgent } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 
@@ -125,16 +125,17 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
 
       // `list(false)` = include terminal (ghost) tasks, matching v1 which
       // lists everything and filters by wire status in-memory.
-      const all = (resolved.tasks?.list(false) ?? []).map((info) =>
-        toWireTask(session_id, info),
-      );
+      const all = (resolved.tasks?.list(false) ?? []).map((info) => toWireTask(session_id, info));
       const query = req.query as { status?: TaskStatus };
-      const items =
-        query.status !== undefined ? all.filter((t) => t.status === query.status) : all;
+      const items = query.status !== undefined ? all.filter((t) => t.status === query.status) : all;
       reply.send(okEnvelope({ items }, req.id));
     },
   );
-  app.get(listRoute.path, listRoute.options, listRoute.handler as Parameters<TasksRouteHost['get']>[2]);
+  app.get(
+    listRoute.path,
+    listRoute.options,
+    listRoute.handler as Parameters<TasksRouteHost['get']>[2],
+  );
 
   // GET /sessions/{session_id}/tasks/{task_id} --------------------------
   const getRoute = defineRoute(
@@ -183,7 +184,11 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
       reply.send(okEnvelope(toWireTask(session_id, found, output), req.id));
     },
   );
-  app.get(getRoute.path, getRoute.options, getRoute.handler as Parameters<TasksRouteHost['get']>[2]);
+  app.get(
+    getRoute.path,
+    getRoute.options,
+    getRoute.handler as Parameters<TasksRouteHost['get']>[2],
+  );
 
   // POST /sessions/{session_id}/tasks/{task_id}:cancel ------------------
   //
@@ -225,9 +230,7 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
       if (parsed.kind === 'bare') {
         // POST without `:cancel` is not a defined action; the bare GET form
         // serves `/.../tasks/{tid}`.
-        reply.send(
-          errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id),
-        );
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
         return;
       }
       const task_id = parsed.id;
@@ -261,7 +264,11 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
       reply.send(okEnvelope({ cancelled: true as const }, req.id));
     },
   );
-  app.post(cancelRoute.path, cancelRoute.options, cancelRoute.handler as Parameters<TasksRouteHost['post']>[2]);
+  app.post(
+    cancelRoute.path,
+    cancelRoute.options,
+    cancelRoute.handler as Parameters<TasksRouteHost['post']>[2],
+  );
 }
 
 // ---------------------------------------------------------------------------

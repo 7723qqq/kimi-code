@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createDecorator } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
   getScopedServiceDescriptors,
   registerScopedService,
 } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 
 interface IApp {
   tag: 'app';
@@ -44,13 +44,7 @@ describe('registerScopedService / getScopedServiceDescriptors', () => {
   });
 
   it('filters registrations by scope layer', () => {
-    registerScopedService(
-      LifecycleScope.App,
-      IApp,
-      AppSvc,
-      ScopeActivation.OnDemand,
-      'app-domain',
-    );
+    registerScopedService(LifecycleScope.App, IApp, AppSvc, ScopeActivation.OnDemand, 'app-domain');
     registerScopedService(
       LifecycleScope.Session,
       ISession,
@@ -67,7 +61,9 @@ describe('registerScopedService / getScopedServiceDescriptors', () => {
     );
 
     expect(getScopedServiceDescriptors(LifecycleScope.App).map((e) => e.id)).toEqual([IApp]);
-    expect(getScopedServiceDescriptors(LifecycleScope.Session).map((e) => e.id)).toEqual([ISession]);
+    expect(getScopedServiceDescriptors(LifecycleScope.Session).map((e) => e.id)).toEqual([
+      ISession,
+    ]);
     expect(getScopedServiceDescriptors(LifecycleScope.Agent).map((e) => e.id)).toEqual([IAgent]);
   });
 

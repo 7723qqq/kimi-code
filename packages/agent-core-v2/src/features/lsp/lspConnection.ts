@@ -11,7 +11,12 @@
 import type { IProcess } from '#/session/process/processRunner';
 
 import { encodeFrame, MessageDecoder } from './framing';
-import type { LspMessage, LspNotificationMessage, LspRequestMessage, LspResponseMessage } from './protocol';
+import type {
+  LspMessage,
+  LspNotificationMessage,
+  LspRequestMessage,
+  LspResponseMessage,
+} from './protocol';
 
 export class LspTransportClosedError extends Error {
   constructor() {
@@ -74,7 +79,12 @@ export class LspConnection {
         this.write({ jsonrpc: '2.0', method: '$/cancelRequest', params: { id } });
         reject(new LspRequestAbortedError());
       };
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, signal, onAbort });
+      this.pending.set(id, {
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        signal,
+        onAbort,
+      });
       if (signal !== undefined) {
         if (signal.aborted) {
           onAbort();

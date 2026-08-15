@@ -1,10 +1,12 @@
-// Covers the RESP commands and parser paths not exercised by server.test.ts.
-import { expect, test } from 'vitest';
 import assert from 'node:assert/strict';
-import net from 'node:net';
 import fs from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+
+// Covers the RESP commands and parser paths not exercised by server.test.ts.
+import { expect, test } from 'vitest';
+
 import { startServer } from '../src/server.js';
 
 async function tmpDir() {
@@ -143,7 +145,10 @@ test('RESP: inline (non-array) command path', async () => {
 function collectUntil(sock: net.Socket, done: (s: string) => boolean): Promise<string> {
   return new Promise((resolve, reject) => {
     let buf = '';
-    const timer = setTimeout(() => reject(new Error(`timed out waiting for reply; got ${buf.length} bytes`)), 20_000);
+    const timer = setTimeout(
+      () => reject(new Error(`timed out waiting for reply; got ${buf.length} bytes`)),
+      20_000,
+    );
     sock.on('data', (d) => {
       buf += d.toString();
       if (done(buf)) {
@@ -179,29 +184,36 @@ test('RESP: a client aborting mid-large-reply does not kill the server', async (
   }
 });
 
-test('RESP: an oversized request gets -ERR and the connection recovers', { timeout: 30_000 }, async () => {
-  const dir = await tmpDir();
-  const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
-  try {
-    const sock = await connect(srv.port);
-    // 65MB of bulk payload crosses the parser's 64MB cap.
-    const big = Buffer.alloc(65 * 1024 * 1024, 'x'.charCodeAt(0));
-    const head = Buffer.from(`*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$${big.length}\r\n`);
-    sock.write(Buffer.concat([head, big, Buffer.from('\r\n')]));
-    // Pipelined right behind it: once the parser recovers from the -ERR this
-    // fresh small command must still be answered.
-    sock.write(encode('PING'));
-    const data = await collectUntil(sock, (s) => s.includes('+PONG'));
-    const tooLarge = data.indexOf('too large');
-    const pong = data.indexOf('+PONG');
-    assert.ok(tooLarge !== -1, `expected a too-large -ERR, got ${JSON.stringify(data.slice(0, 120))}`);
-    assert.ok(pong > tooLarge, 'PING after the oversized request must be answered');
-    sock.end();
-  } finally {
-    await srv.close();
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-});
+test(
+  'RESP: an oversized request gets -ERR and the connection recovers',
+  { timeout: 30_000 },
+  async () => {
+    const dir = await tmpDir();
+    const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
+    try {
+      const sock = await connect(srv.port);
+      // 65MB of bulk payload crosses the parser's 64MB cap.
+      const big = Buffer.alloc(65 * 1024 * 1024, 'x'.charCodeAt(0));
+      const head = Buffer.from(`*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$${big.length}\r\n`);
+      sock.write(Buffer.concat([head, big, Buffer.from('\r\n')]));
+      // Pipelined right behind it: once the parser recovers from the -ERR this
+      // fresh small command must still be answered.
+      sock.write(encode('PING'));
+      const data = await collectUntil(sock, (s) => s.includes('+PONG'));
+      const tooLarge = data.indexOf('too large');
+      const pong = data.indexOf('+PONG');
+      assert.ok(
+        tooLarge !== -1,
+        `expected a too-large -ERR, got ${JSON.stringify(data.slice(0, 120))}`,
+      );
+      assert.ok(pong > tooLarge, 'PING after the oversized request must be answered');
+      sock.end();
+    } finally {
+      await srv.close();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  },
+);
 
 test('RESP: one bad command does not starve its pipelined siblings', async () => {
   const dir = await tmpDir();

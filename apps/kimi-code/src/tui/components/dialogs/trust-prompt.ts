@@ -1,3 +1,4 @@
+import type { WorkspaceTrustMcpServerInfo } from '@moonshot-ai/kimi-code-sdk';
 import {
   Key,
   matchesKey,
@@ -6,8 +7,6 @@ import {
   type Component,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
-
-import type { WorkspaceTrustMcpServerInfo } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
@@ -122,7 +121,9 @@ function formatMcpTarget(server: WorkspaceTrustMcpServerInfo): string {
   if (server.transport === 'stdio') {
     const args = server.args === undefined ? '' : ` args=${JSON.stringify(server.args)}`;
     const cwd = server.cwd === undefined ? '' : ` cwd=${server.cwd}`;
-    return sanitizeForDisplay(`${server.name} (stdio): command=${server.command ?? ''}${args}${cwd}`);
+    return sanitizeForDisplay(
+      `${server.name} (stdio): command=${server.command ?? ''}${args}${cwd}`,
+    );
   }
   return sanitizeForDisplay(`${server.name} (${server.transport}): url=${server.url ?? ''}`);
 }

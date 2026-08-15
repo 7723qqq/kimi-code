@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { migrateV1_4ToV1_5 } from '#/wire/migration/migration';
+
 import { runMigration } from './utils';
 
 describe('1.4 to 1.5 active wall-clock anchor migration', () => {
@@ -54,7 +55,9 @@ describe('1.4 to 1.5 active wall-clock anchor migration', () => {
           time: 40,
         },
       ]),
-    ).toMatchInlineSnapshot(`[wire] goal.update   { "status": "active", "wallClockResumedAt": 35, "time": "<time>" }`);
+    ).toMatchInlineSnapshot(
+      `[wire] goal.update   { "status": "active", "wallClockResumedAt": 35, "time": "<time>" }`,
+    );
   });
 
   it('advances a missing anchor from a wall-clock checkpoint timestamp', () => {

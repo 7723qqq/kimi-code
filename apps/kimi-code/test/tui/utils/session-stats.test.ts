@@ -132,8 +132,18 @@ describe('fitSessionStatsText', () => {
   function groups(): SessionStatsGroup[] {
     return [
       { items: [{ text: 'A', priority: 6 }] },
-      { items: [{ text: 'B', priority: 4 }, { text: 'C', priority: 1 }] },
-      { items: [{ text: 'D', priority: 2 }, { text: 'E', priority: 3 }] },
+      {
+        items: [
+          { text: 'B', priority: 4 },
+          { text: 'C', priority: 1 },
+        ],
+      },
+      {
+        items: [
+          { text: 'D', priority: 2 },
+          { text: 'E', priority: 3 },
+        ],
+      },
       { items: [{ text: 'KEEP1', priority: Number.POSITIVE_INFINITY }] },
       { items: [{ text: 'F', priority: 5 }] },
       { items: [{ text: 'KEEP2', priority: Number.POSITIVE_INFINITY }] },
@@ -141,9 +151,7 @@ describe('fitSessionStatsText', () => {
   }
 
   it('joins groups with " | " and items within a group with " · "', () => {
-    expect(fitSessionStatsText(groups(), 100)).toBe(
-      'A | B · C | D · E | KEEP1 | F | KEEP2',
-    );
+    expect(fitSessionStatsText(groups(), 100)).toBe('A | B · C | D · E | KEEP1 | F | KEEP2');
   });
 
   it('drops the lowest-priority item first, keeping its group-mates joined', () => {
@@ -158,9 +166,12 @@ describe('fitSessionStatsText', () => {
     expect(tight).toBe('KEEP1 | KEEP2');
     // Infinity-only text that still overflows is returned as-is (the caller
     // truncates at the render boundary).
-    expect(fitSessionStatsText([{ items: [{ text: 'KEEP1 | KEEP2', priority: Number.POSITIVE_INFINITY }] }], 1)).toBe(
-      'KEEP1 | KEEP2',
-    );
+    expect(
+      fitSessionStatsText(
+        [{ items: [{ text: 'KEEP1 | KEEP2', priority: Number.POSITIVE_INFINITY }] }],
+        1,
+      ),
+    ).toBe('KEEP1 | KEEP2');
   });
 
   it('returns empty for an empty group list', () => {

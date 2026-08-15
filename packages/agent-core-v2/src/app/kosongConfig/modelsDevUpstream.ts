@@ -97,7 +97,7 @@ async function fetchAndCache(userAgent: string): Promise<ModelsDevCatalog> {
     }
     cache = { catalog: payload as ModelsDevCatalog, fetchedAt: now };
     return cache.catalog;
-  } catch (err) {
+  } catch (error) {
     if (cache !== undefined) return cache.catalog;
     const builtIn = builtInCatalog();
     if (builtIn !== undefined) {
@@ -106,7 +106,7 @@ async function fetchAndCache(userAgent: string): Promise<ModelsDevCatalog> {
     }
     throw new Error2(
       ModelsDevImportErrors.codes.CATALOG_UNAVAILABLE,
-      `models.dev catalog unavailable: ${err instanceof Error ? err.message : String(err)}`,
+      `models.dev catalog unavailable: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -122,7 +122,6 @@ export function modelsDevEntry(
 ): ModelsDevProviderEntry | undefined {
   return Object.prototype.hasOwnProperty.call(catalog, id) ? catalog[id] : undefined;
 }
-
 
 function capabilityToStrings(capability: ModelCapability): string[] | undefined {
   const caps: string[] = [];
@@ -191,7 +190,6 @@ export function toModelsDevProviderItem(
     `unhandled models.dev import resolution: ${JSON.stringify(resolution)}`,
   );
 }
-
 
 export function modelsDevModelToRecord(providerId: string, model: ModelsDevModel): ModelRecord {
   const caps = capabilityToStrings(model.capability);

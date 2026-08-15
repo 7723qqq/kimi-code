@@ -101,7 +101,6 @@ export const AskUserQuestionInputSchema: z.ZodType<AskUserQuestionInput> =
     { message: QUESTION_UNIQUENESS_MESSAGE },
   );
 
-
 export interface IAskUserQuestionTool extends AgentTool<AskUserQuestionInput> {
   readonly _serviceBrand: undefined;
 }

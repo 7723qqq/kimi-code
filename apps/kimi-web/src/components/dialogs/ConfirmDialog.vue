@@ -5,21 +5,25 @@
 <script setup lang="ts">
 import { onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
-import Dialog from '../ui/Dialog.vue';
-import Button from '../ui/Button.vue';
 
-const props = withDefaults(defineProps<{
-  open: boolean;
-  title: string;
-  message?: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
-  /** primary = confirm/neutral action; danger = destructive (default). */
-  variant?: 'primary' | 'danger';
-  loading?: boolean;
-}>(), {
-  variant: 'danger',
-});
+import Button from '../ui/Button.vue';
+import Dialog from '../ui/Dialog.vue';
+
+const props = withDefaults(
+  defineProps<{
+    open: boolean;
+    title: string;
+    message?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    /** primary = confirm/neutral action; danger = destructive (default). */
+    variant?: 'primary' | 'danger';
+    loading?: boolean;
+  }>(),
+  {
+    variant: 'danger',
+  },
+);
 
 const emit = defineEmits<{
   'update:open': [value: boolean];

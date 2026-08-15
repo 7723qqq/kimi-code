@@ -22,27 +22,25 @@
 
 import { z } from 'zod';
 
-import { IConfigService } from '#/app/config/config';
+import { createDecorator } from '#/_base/di/instantiation';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import { ToolResultBuilder } from '#/tool/result-builder';
+import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
   type ExecutableToolContext,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { createDecorator } from '#/_base/di/instantiation';
 
-import {
-  GITHUB_CONFIG_SECTION,
-  GITHUB_TOOLS_FLAG_ID,
-} from './flag';
+import { GITHUB_CONFIG_SECTION, GITHUB_TOOLS_FLAG_ID } from './flag';
+import type { IGitHubTool } from './github';
+import { type GitHubToolSpec } from './github';
 import { githubRequest, type GitHubRequestOptions } from './github-request';
-import { IGitHubTool, type GitHubToolSpec } from './github';
 
 // ── Reusable schema fragments ────────────────────────────────────────────────
 
@@ -204,7 +202,11 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
   {
     name: 'GitHubGetCommit',
     description: 'Get a single commit, including its diff stats and changed files.',
-    schema: z.object({ owner, repo, ref: z.string().min(1).describe('Commit SHA, branch, or tag.') }),
+    schema: z.object({
+      owner,
+      repo,
+      ref: z.string().min(1).describe('Commit SHA, branch, or tag.'),
+    }),
     method: 'GET',
     path: (a) => `/repos/${a.owner}/${a.repo}/commits/${a.ref}`,
     subject: repoBase,
@@ -217,7 +219,10 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
       owner,
       repo,
       path: z.string().min(1).describe('Path to the file or directory in the repo.'),
-      ref: z.string().optional().describe('Branch, tag, or commit SHA (defaults to the default branch).'),
+      ref: z
+        .string()
+        .optional()
+        .describe('Branch, tag, or commit SHA (defaults to the default branch).'),
     }),
     method: 'GET',
     path: (a) => `/repos/${a.owner}/${a.repo}/contents/${a.path}`,
@@ -235,7 +240,10 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
       message: z.string().min(1).describe('Commit message.'),
       content: z.string().describe('Plain (UTF-8) file content.'),
       branch: z.string().optional().describe('Target branch (defaults to the default branch).'),
-      sha: z.string().optional().describe('Blob SHA of the file being replaced (required when updating).'),
+      sha: z
+        .string()
+        .optional()
+        .describe('Blob SHA of the file being replaced (required when updating).'),
     }),
     method: 'PUT',
     path: (a) => `/repos/${a.owner}/${a.repo}/contents/${a.path}`,
@@ -252,7 +260,8 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
   // ── Issues ────────────────────────────────────────────────────────────
   {
     name: 'GitHubListIssues',
-    description: 'List issues in a repository (excludes pull requests unless combined with search).',
+    description:
+      'List issues in a repository (excludes pull requests unless combined with search).',
     schema: z.object({
       owner,
       repo,
@@ -334,7 +343,13 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
   {
     name: 'GitHubListIssueComments',
     description: 'List comments on an issue or pull request.',
-    schema: z.object({ owner, repo, issueNumber: z.number().int().describe('Issue or PR number.'), perPage, page }),
+    schema: z.object({
+      owner,
+      repo,
+      issueNumber: z.number().int().describe('Issue or PR number.'),
+      perPage,
+      page,
+    }),
     method: 'GET',
     path: (a) => `/repos/${a.owner}/${a.repo}/issues/${String(a.issueNumber)}/comments`,
     query: (a) => ({ per_page: a.perPage, page: a.page }),
@@ -356,13 +371,23 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
     }),
     method: 'GET',
     path: (a) => `/repos/${a.owner}/${a.repo}/pulls`,
-    query: (a) => ({ state: a.state, head: a.head, base: a.base, per_page: a.perPage, page: a.page }),
+    query: (a) => ({
+      state: a.state,
+      head: a.head,
+      base: a.base,
+      per_page: a.perPage,
+      page: a.page,
+    }),
     subject: repoBase,
   },
   {
     name: 'GitHubGetPR',
     description: 'Get a single pull request by number.',
-    schema: z.object({ owner, repo, pullNumber: z.number().int().describe('Pull request number.') }),
+    schema: z.object({
+      owner,
+      repo,
+      pullNumber: z.number().int().describe('Pull request number.'),
+    }),
     method: 'GET',
     path: (a) => `/repos/${a.owner}/${a.repo}/pulls/${String(a.pullNumber)}`,
     subject: repoBase,
@@ -370,7 +395,11 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
   {
     name: 'GitHubGetPRDiff',
     description: 'Get the unified diff for a pull request.',
-    schema: z.object({ owner, repo, pullNumber: z.number().int().describe('Pull request number.') }),
+    schema: z.object({
+      owner,
+      repo,
+      pullNumber: z.number().int().describe('Pull request number.'),
+    }),
     method: 'GET',
     path: (a) => `/repos/${a.owner}/${a.repo}/pulls/${String(a.pullNumber)}`,
     accept: 'application/vnd.github.diff',
@@ -379,7 +408,13 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
   {
     name: 'GitHubGetPRFiles',
     description: 'List the files changed in a pull request.',
-    schema: z.object({ owner, repo, pullNumber: z.number().int().describe('Pull request number.'), perPage, page }),
+    schema: z.object({
+      owner,
+      repo,
+      pullNumber: z.number().int().describe('Pull request number.'),
+      perPage,
+      page,
+    }),
     method: 'GET',
     path: (a) => `/repos/${a.owner}/${a.repo}/pulls/${String(a.pullNumber)}/files`,
     query: (a) => ({ per_page: a.perPage, page: a.page }),
@@ -456,7 +491,13 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
   {
     name: 'GitHubListPRReviewComments',
     description: 'List review comments (inline code comments) on a pull request.',
-    schema: z.object({ owner, repo, pullNumber: z.number().int().describe('Pull request number.'), perPage, page }),
+    schema: z.object({
+      owner,
+      repo,
+      pullNumber: z.number().int().describe('Pull request number.'),
+      perPage,
+      page,
+    }),
     method: 'GET',
     path: (a) => `/repos/${a.owner}/${a.repo}/pulls/${String(a.pullNumber)}/comments`,
     query: (a) => ({ per_page: a.perPage, page: a.page }),
@@ -466,7 +507,8 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
   // ── Search ────────────────────────────────────────────────────────────
   {
     name: 'GitHubSearchCode',
-    description: 'Search code across GitHub. Use qualifiers like `repo:owner/name`, `path:`, `language:`.',
+    description:
+      'Search code across GitHub. Use qualifiers like `repo:owner/name`, `path:`, `language:`.',
     schema: z.object({ q: z.string().min(1).describe('Search query.'), perPage, page }),
     method: 'GET',
     path: () => '/search/code',
@@ -475,7 +517,8 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
   },
   {
     name: 'GitHubSearchRepos',
-    description: 'Search repositories. Supports qualifiers like `language:`, `stars:>100`, `user:`.',
+    description:
+      'Search repositories. Supports qualifiers like `language:`, `stars:>100`, `user:`.',
     schema: z.object({
       q: z.string().min(1).describe('Search query.'),
       sort: z.enum(['stars', 'forks', 'updated']).optional(),
@@ -489,7 +532,8 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
   },
   {
     name: 'GitHubSearchIssues',
-    description: 'Search issues and pull requests. Supports qualifiers like `repo:`, `is:pr`, `author:`, `state:`.',
+    description:
+      'Search issues and pull requests. Supports qualifiers like `repo:`, `is:pr`, `author:`, `state:`.',
     schema: z.object({
       q: z.string().min(1).describe('Search query.'),
       sort: z.enum(['comments', 'created', 'updated']).optional(),
@@ -510,7 +554,10 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
       owner,
       repo,
       branch: z.string().optional().describe('Filter by branch.'),
-      status: z.string().optional().describe('Filter by status/conclusion (e.g. success, failure, in_progress).'),
+      status: z
+        .string()
+        .optional()
+        .describe('Filter by status/conclusion (e.g. success, failure, in_progress).'),
       perPage,
       page,
     }),

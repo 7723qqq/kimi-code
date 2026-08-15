@@ -168,9 +168,7 @@ async function locateWindowsShell(deps: HostEnvironmentProbeDeps): Promise<Locat
     if (await deps.isFile(override)) {
       return { name: shellNameFromPath(override), path: override };
     }
-    throw new Error(
-      `KIMI_SHELL_PATH points to a missing file: ${override}. Checked: ${override}.`,
-    );
+    throw new Error(`KIMI_SHELL_PATH points to a missing file: ${override}. Checked: ${override}.`);
   }
 
   // An explicit `[shell] preference` pins the shell; `auto` keeps the
@@ -238,7 +236,12 @@ async function locatePinnedShell(
 ): Promise<LocatedShell | undefined> {
   switch (preference) {
     case 'pwsh': {
-      const onPath = await findExecutableOnPath('pwsh.exe', deps.env['PATH'], deps.platform, deps.isFile);
+      const onPath = await findExecutableOnPath(
+        'pwsh.exe',
+        deps.env['PATH'],
+        deps.platform,
+        deps.isFile,
+      );
       if (onPath !== undefined) return { name: 'pwsh', path: onPath };
       const candidates = [
         'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
@@ -254,7 +257,12 @@ async function locatePinnedShell(
       return undefined;
     }
     case 'powershell': {
-      const onPath = await findExecutableOnPath('powershell.exe', deps.env['PATH'], deps.platform, deps.isFile);
+      const onPath = await findExecutableOnPath(
+        'powershell.exe',
+        deps.env['PATH'],
+        deps.platform,
+        deps.isFile,
+      );
       if (onPath !== undefined) return { name: 'powershell', path: onPath };
       const candidates = [
         'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
@@ -273,12 +281,14 @@ async function locatePinnedShell(
       }
     }
     case 'cmd': {
-      const onPath = await findExecutableOnPath('cmd.exe', deps.env['PATH'], deps.platform, deps.isFile);
+      const onPath = await findExecutableOnPath(
+        'cmd.exe',
+        deps.env['PATH'],
+        deps.platform,
+        deps.isFile,
+      );
       if (onPath !== undefined) return { name: 'cmd', path: onPath };
-      const candidates = [
-        'C:\\Windows\\System32\\cmd.exe',
-        'C:\\Windows\\SysWOW64\\cmd.exe',
-      ];
+      const candidates = ['C:\\Windows\\System32\\cmd.exe', 'C:\\Windows\\SysWOW64\\cmd.exe'];
       for (const candidate of candidates) {
         if (await deps.isFile(candidate)) return { name: 'cmd', path: candidate };
       }

@@ -34,15 +34,15 @@ import {
 } from '@moonshot-ai/kimi-code-oauth';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
-import { IFlagService } from '#/app/flag/flag';
 import { ILogService } from '#/_base/log/log';
 import { IOAuthService } from '#/app/auth/auth';
 import { IEventService } from '#/app/event/event';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
 import { IHostRequestHeaders } from '#/kosong/model/hostRequestHeaders';
 import { IProviderService } from '#/kosong/provider/provider';
 import { isOAuthCatalogVendor } from '#/kosong/provider/providerDefinition';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
@@ -113,10 +113,7 @@ export class SessionTitleService implements ISessionTitleService {
     return this.generateAndApply(input, force);
   }
 
-  private async generateAndApply(
-    chatContent: string,
-    force: boolean,
-  ): Promise<string | undefined> {
+  private async generateAndApply(chatContent: string, force: boolean): Promise<string | undefined> {
     const current = await this.metadata.read();
     if (!force && current.titleKind === 'custom') return undefined;
     const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);

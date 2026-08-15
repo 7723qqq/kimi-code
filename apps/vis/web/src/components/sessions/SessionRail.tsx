@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { useDeleteSession, useImportZip, useSessions } from '../../hooks/useSession';
+import { t } from '../../i18n';
 import type { SessionSummary, SessionHealth } from '../../types';
 import { SessionCard } from './SessionCard';
 import { SessionFilter } from './SessionFilter';
-import { t } from '../../i18n';
 
 export type SessionSortKey = 'recent' | 'oldest' | 'most_records' | 'most_subagents';
 export type HealthFilter = 'all' | SessionHealth;
@@ -25,7 +25,7 @@ function sortSessions(sessions: readonly SessionSummary[], key: SessionSortKey):
     case 'most_records':
       return sessions.toSorted((a, b) => b.mainWireRecordCount - a.mainWireRecordCount);
     case 'most_subagents':
-      return sessions.toSorted((a, b) => (b.agentCount - 1) - (a.agentCount - 1));
+      return sessions.toSorted((a, b) => b.agentCount - 1 - (a.agentCount - 1));
   }
 }
 
@@ -68,7 +68,11 @@ export function SessionRail() {
       const result = await importZip.mutateAsync(file);
       void navigate(`/sessions/${result.sessionId}`);
     } catch (importError) {
-      window.alert(t('session.importFailed', { message: importError instanceof Error ? importError.message : String(importError) }));
+      window.alert(
+        t('session.importFailed', {
+          message: importError instanceof Error ? importError.message : String(importError),
+        }),
+      );
     }
   }
 
@@ -130,7 +134,9 @@ export function SessionRail() {
         totalCount={data?.length ?? 0}
         filteredCount={filtered.length}
         importedCount={importedCount}
-        onImport={(file) => { void handleImport(file); }}
+        onImport={(file) => {
+          void handleImport(file);
+        }}
         importing={importZip.isPending}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">

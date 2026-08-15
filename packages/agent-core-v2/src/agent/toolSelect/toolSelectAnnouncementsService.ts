@@ -11,16 +11,19 @@
  * re-folding. Bound at Agent scope.
  */
 
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { LifecycleScope } from '#/app/scopes';
 
 import { LOADABLE_TOOLS_VARIANT } from './dynamicTools';
 import { IAgentToolSelectService } from './toolSelect';
 import { IAgentToolSelectAnnouncementsService } from './toolSelectAnnouncements';
 
-export class AgentToolSelectAnnouncementsService extends Service implements IAgentToolSelectAnnouncementsService {
+export class AgentToolSelectAnnouncementsService
+  extends Service
+  implements IAgentToolSelectAnnouncementsService
+{
   declare readonly _serviceBrand: undefined;
 
   constructor(

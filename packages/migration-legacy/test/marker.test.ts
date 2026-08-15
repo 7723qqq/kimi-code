@@ -1,3 +1,7 @@
+import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 /**
  * Scenario: legacy migration marker persistence and prompt suppression.
  * Responsibilities: preserve run history and decide whether one target still needs migration.
@@ -5,16 +9,9 @@
  * Run: pnpm --filter @moonshot-ai/migration-legacy test -- marker.test.ts
  */
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-  readMarker,
-  writeMarker,
-  appendMarkerRun,
-  type MarkerData,
-} from '../src/marker.js';
+
 import { runMigration, shouldSuppressMigration } from '../src/index.js';
+import { readMarker, writeMarker, appendMarkerRun, type MarkerData } from '../src/marker.js';
 
 let dir: string;
 beforeEach(async () => {
@@ -132,9 +129,9 @@ describe('marker', () => {
   });
 
   it('does not suppress migration when no marker exists for the target', () => {
-    expect(
-      shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') }),
-    ).toBe(false);
+    expect(shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') })).toBe(
+      false,
+    );
   });
 
   it('suppresses migration when the completed marker names the same target', async () => {
@@ -163,17 +160,17 @@ describe('marker', () => {
   it('suppresses migration when an old marker has no target path', async () => {
     await writeFile(join(dir, '.migrated-to-kimi-code'), '{}', 'utf-8');
 
-    expect(
-      shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') }),
-    ).toBe(true);
+    expect(shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') })).toBe(
+      true,
+    );
   });
 
   it('suppresses migration when the completed marker is corrupt', async () => {
     await writeFile(join(dir, '.migrated-to-kimi-code'), 'not-json', 'utf-8');
 
-    expect(
-      shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') }),
-    ).toBe(true);
+    expect(shouldSuppressMigration({ sourceHome: dir, targetHome: join(dir, 'target') })).toBe(
+      true,
+    );
   });
 
   it('suppresses migration when the target contains the skip marker', async () => {

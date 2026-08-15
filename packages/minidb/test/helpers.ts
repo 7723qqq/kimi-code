@@ -52,7 +52,11 @@ export function deferred<T = void>(): Deferred<T> {
 /** Poll a condition on the macrotask queue until it holds (or the timeout
  *  makes the failure loud). Use this instead of a fixed sleep when waiting
  *  for an asynchronous state a barrier cannot signal directly. */
-export async function waitFor(cond: () => boolean, what: string, timeoutMs = 10_000): Promise<void> {
+export async function waitFor(
+  cond: () => boolean,
+  what: string,
+  timeoutMs = 10_000,
+): Promise<void> {
   const t0 = Date.now();
   while (!cond()) {
     if (Date.now() - t0 > timeoutMs) throw new Error(`timed out waiting for ${what}`);

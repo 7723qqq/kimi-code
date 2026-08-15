@@ -1,9 +1,9 @@
+import { normalizeToolName } from '../lib/toolMeta';
 // apps/kimi-web/src/components/chatTurnRendering.ts
 // Pure turn-rendering helpers: pure functions of their arguments (no Vue
 // reactivity, no component state). Shared by ChatPane.vue's template and its
 // stateful copy/edit helpers.
 import type { ChatTurn, TurnBlock } from '../types';
-import { normalizeToolName } from '../lib/toolMeta';
 
 // Shared 1024-based token formatter (lib/formatTokens); re-exported so the
 // existing ChatPane import keeps working.
@@ -176,6 +176,7 @@ export function renderBlockKey(block: AssistantRenderBlock, index: number): stri
   if (block.kind === 'tool-stack') {
     return `tool-stack-${block.tools[0]?.sourceIndex ?? index}`;
   }
-  if (block.kind === 'tool') return toolStackKey({ tool: block.tool, sourceIndex: block.sourceIndex });
+  if (block.kind === 'tool')
+    return toolStackKey({ tool: block.tool, sourceIndex: block.sourceIndex });
   return `${block.kind}-${block.sourceIndex}`;
 }

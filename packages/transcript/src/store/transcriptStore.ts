@@ -28,7 +28,7 @@ export class TranscriptStore {
   readonly #descriptors = new Map<AgentId, AgentDescriptor>();
   readonly #rosterListeners = new Set<RosterListener>();
 
-  constructor(readonly sessionId: string) { }
+  constructor(readonly sessionId: string) {}
 
   /** Lazily create (or fetch) the transcript for an agent. */
   ensureAgent(agentId: AgentId, descriptor?: AgentDescriptor): AgentTranscript {

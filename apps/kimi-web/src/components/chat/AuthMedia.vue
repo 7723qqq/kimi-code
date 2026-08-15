@@ -6,6 +6,7 @@
      authenticated API client and play from a page-local blob URL instead. -->
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+
 import { getKimiWebApi } from '../../api';
 
 const props = withDefaults(

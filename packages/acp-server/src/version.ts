@@ -22,9 +22,7 @@ export const CURRENT_VERSION: AcpVersionSpec = {
   sdkVersion: '0.23.0',
 };
 
-const SUPPORTED_VERSIONS: ReadonlyMap<number, AcpVersionSpec> = new Map([
-  [1, CURRENT_VERSION],
-]);
+const SUPPORTED_VERSIONS: ReadonlyMap<number, AcpVersionSpec> = new Map([[1, CURRENT_VERSION]]);
 
 export const MIN_PROTOCOL_VERSION = 1;
 

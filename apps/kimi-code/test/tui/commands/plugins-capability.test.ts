@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { log } from '@moonshot-ai/kimi-code-sdk';
 import { resetCapabilitiesCache, setCapabilities, type Component } from '@moonshot-ai/pi-tui';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { __pluginsCommandInternals } from '#/tui/commands/plugins';
 import { NoticeMessageComponent } from '#/tui/components/messages/status-message';
@@ -92,9 +92,7 @@ function visibleLines(entries: readonly Component[], width = 100): string[] {
 }
 
 function unwrappedVisibleText(entries: readonly Component[]): string {
-  return visibleLines(entries)
-    .join('\n')
-    .replaceAll(/\s+/g, '');
+  return visibleLines(entries).join('\n').replaceAll(/\s+/g, '');
 }
 
 describe('plugins command capability surface', () => {
@@ -111,7 +109,11 @@ describe('plugins command capability surface', () => {
   it('routes built-in entries through capabilities only on v2', () => {
     const v2 = fakeHost({ engineV2: true });
     expect(
-      isCapabilityEntry(v2.host, { id: 'kimi-cu', source: 'capability:kimi-cu', builtIn: true } as never),
+      isCapabilityEntry(v2.host, {
+        id: 'kimi-cu',
+        source: 'capability:kimi-cu',
+        builtIn: true,
+      } as never),
     ).toBe(true);
     expect(
       isCapabilityEntry(v2.host, {
@@ -121,7 +123,10 @@ describe('plugins command capability surface', () => {
       } as never),
     ).toBe(true);
     expect(
-      isCapabilityEntry(v2.host, { id: 'kimi-cu', source: 'https://example.test/plugin.zip' } as never),
+      isCapabilityEntry(v2.host, {
+        id: 'kimi-cu',
+        source: 'https://example.test/plugin.zip',
+      } as never),
     ).toBe(false);
     // A forged capability: source without the parser-proof flag is a plain row.
     expect(
@@ -130,7 +135,11 @@ describe('plugins command capability surface', () => {
 
     const v1 = fakeHost({});
     expect(
-      isCapabilityEntry(v1.host, { id: 'kimi-cu', source: 'capability:kimi-cu', builtIn: true } as never),
+      isCapabilityEntry(v1.host, {
+        id: 'kimi-cu',
+        source: 'capability:kimi-cu',
+        builtIn: true,
+      } as never),
     ).toBe(false);
   });
 
@@ -161,7 +170,9 @@ describe('plugins command capability surface', () => {
     await removePlugin(host, 'kimi-cu');
     expect(statuses.some((s) => s.includes('Removed kimi-cu'))).toBe(true);
     expect(statuses.some((s) => s.includes('runtime binaries were left untouched'))).toBe(true);
-    expect(statuses.some((s) => s.includes('plugin wiring is disabled for new sessions'))).toBe(true);
+    expect(statuses.some((s) => s.includes('plugin wiring is disabled for new sessions'))).toBe(
+      true,
+    );
     expect(statuses.some((s) => s.includes('Restart Kimi Code before reinstalling'))).toBe(true);
     expect(statuses.some((s) => s.includes('Run /new or /reload'))).toBe(false);
   });
@@ -199,11 +210,11 @@ describe('plugins command capability surface', () => {
 
   it('starts a capability install only when none is running', async () => {
     const idle = fakeHost({ engineV2: true });
-    await installCapabilityFromPanel(
-      idle.host,
-      fakePanel().panel,
-      { id: 'kimi-cu', displayName: 'Kimi Computer Use', source: 'capability:kimi-cu' } as never,
-    );
+    await installCapabilityFromPanel(idle.host, fakePanel().panel, {
+      id: 'kimi-cu',
+      displayName: 'Kimi Computer Use',
+      source: 'capability:kimi-cu',
+    } as never);
     expect(idle.installCapability).toHaveBeenCalledWith('kimi-cu');
   });
 
@@ -216,17 +227,21 @@ describe('plugins command capability surface', () => {
         // The pre-check sees the running install; the poll then sees it settle.
         return Promise.resolve(
           calls === 1
-            ? { state: 'partial', steps: [], install: { running: true, step: 'download', percent: 40 } }
+            ? {
+                state: 'partial',
+                steps: [],
+                install: { running: true, step: 'download', percent: 40 },
+              }
             : { state: 'ready', steps: [], install: { running: false } },
         );
       },
     });
 
-    await installCapabilityFromPanel(
-      host,
-      fakePanel().panel,
-      { id: 'kimi-cu', displayName: 'Kimi Computer Use', source: 'capability:kimi-cu' } as never,
-    );
+    await installCapabilityFromPanel(host, fakePanel().panel, {
+      id: 'kimi-cu',
+      displayName: 'Kimi Computer Use',
+      source: 'capability:kimi-cu',
+    } as never);
 
     // The service rejects duplicate starts (40922) — a healthy in-progress
     // install must be followed via polling, never reported as a failure.
@@ -239,15 +254,11 @@ describe('plugins command capability surface', () => {
     setCapabilities({ images: null, trueColor: true, hyperlinks: true });
     const { host, statuses, notices, transcriptEntries } = fakeHost({ engineV2: true });
 
-    await installCapabilityFromPanel(
-      host,
-      fakePanel().panel,
-      {
-        id: 'kimi-webbridge',
-        displayName: 'Kimi WebBridge',
-        source: 'capability:kimi-webbridge',
-      } as never,
-    );
+    await installCapabilityFromPanel(host, fakePanel().panel, {
+      id: 'kimi-webbridge',
+      displayName: 'Kimi WebBridge',
+      source: 'capability:kimi-webbridge',
+    } as never);
 
     expect(notices).toContainEqual({ title: 'Kimi WebBridge is installed.', detail: undefined });
     expect(statuses).not.toContain('Run /new or /reload to apply plugin changes.');
@@ -266,15 +277,11 @@ describe('plugins command capability surface', () => {
     setCapabilities({ images: null, trueColor: true, hyperlinks: false });
     const { host, transcriptEntries } = fakeHost({ engineV2: true });
 
-    await installCapabilityFromPanel(
-      host,
-      fakePanel().panel,
-      {
-        id: 'kimi-webbridge',
-        displayName: 'Kimi WebBridge',
-        source: 'capability:kimi-webbridge',
-      } as never,
-    );
+    await installCapabilityFromPanel(host, fakePanel().panel, {
+      id: 'kimi-webbridge',
+      displayName: 'Kimi WebBridge',
+      source: 'capability:kimi-webbridge',
+    } as never);
 
     const rendered = transcriptEntries.flatMap((entry) => entry.render(100)).join('\n');
     expect(rendered).not.toContain('\u001B]8;;');
@@ -287,24 +294,16 @@ describe('plugins command capability surface', () => {
     setCapabilities({ images: null, trueColor: true, hyperlinks: true });
     const { host, transcriptEntries } = fakeHost({ engineV2: true });
 
-    await installCapabilityFromPanel(
-      host,
-      fakePanel().panel,
-      {
-        id: 'kimi-webbridge',
-        displayName: 'Kimi WebBridge',
-        source: 'capability:kimi-webbridge',
-      } as never,
-    );
+    await installCapabilityFromPanel(host, fakePanel().panel, {
+      id: 'kimi-webbridge',
+      displayName: 'Kimi WebBridge',
+      source: 'capability:kimi-webbridge',
+    } as never);
 
     const lines = visibleLines(transcriptEntries, 180);
     const installed = lines.findIndex((line) => line.includes('Kimi WebBridge is installed.'));
-    const intro = lines.findIndex((line) =>
-      line.includes('Two steps left to use Kimi WebBridge:'),
-    );
-    const firstStep = lines.findIndex((line) =>
-      line.includes('Install the browser extension'),
-    );
+    const intro = lines.findIndex((line) => line.includes('Two steps left to use Kimi WebBridge:'));
+    const firstStep = lines.findIndex((line) => line.includes('Install the browser extension'));
     const secondStep = lines.findIndex((line) => line.includes('Run /reload or /new to apply it.'));
     expect(lines.slice(installed + 1, intro)).toEqual(['']);
     expect(firstStep).toBe(intro + 1);
@@ -326,11 +325,11 @@ describe('plugins command capability surface', () => {
         }),
     });
 
-    await installCapabilityFromPanel(
-      host,
-      fakePanel().panel,
-      { id: 'kimi-cu', displayName: 'Kimi Computer Use', source: 'capability:kimi-cu' } as never,
-    );
+    await installCapabilityFromPanel(host, fakePanel().panel, {
+      id: 'kimi-cu',
+      displayName: 'Kimi Computer Use',
+      source: 'capability:kimi-cu',
+    } as never);
 
     expect(statuses).toContain(
       'Kimi Computer Use installation failed: Authenticode signature is not valid',
@@ -341,19 +340,20 @@ describe('plugins command capability surface', () => {
   it('shows required permissions once after installation instead of exposing step details', async () => {
     const { host, statuses } = fakeHost({
       engineV2: true,
-      capabilityStatus: () => Promise.resolve({
-        id: 'kimi-cu',
-        state: 'partial',
-        steps: [{ id: 'permissions', state: 'missing', detail: 'screenRecording' }],
-        install: { running: false },
-      }),
+      capabilityStatus: () =>
+        Promise.resolve({
+          id: 'kimi-cu',
+          state: 'partial',
+          steps: [{ id: 'permissions', state: 'missing', detail: 'screenRecording' }],
+          install: { running: false },
+        }),
     });
 
-    await installCapabilityFromPanel(
-      host,
-      fakePanel().panel,
-      { id: 'kimi-cu', displayName: 'Kimi Computer Use', source: 'capability:kimi-cu' } as never,
-    );
+    await installCapabilityFromPanel(host, fakePanel().panel, {
+      id: 'kimi-cu',
+      displayName: 'Kimi Computer Use',
+      source: 'capability:kimi-cu',
+    } as never);
 
     expect(statuses.some((s) => s.includes('Grant Accessibility and Screen Recording'))).toBe(true);
     expect(statuses.some((s) => s.includes('screenRecording'))).toBe(false);

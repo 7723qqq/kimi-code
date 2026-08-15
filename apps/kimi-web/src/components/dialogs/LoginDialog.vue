@@ -4,12 +4,13 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import { copyTextToClipboard } from '../../lib/clipboard';
-import Dialog from '../ui/Dialog.vue';
-import Button from '../ui/Button.vue';
-import Spinner from '../ui/Spinner.vue';
-import Icon from '../ui/Icon.vue';
 import AuthStateIcon from '../ui/AuthStateIcon.vue';
+import Button from '../ui/Button.vue';
+import Dialog from '../ui/Dialog.vue';
+import Icon from '../ui/Icon.vue';
+import Spinner from '../ui/Spinner.vue';
 
 const { t } = useI18n();
 
@@ -200,8 +201,14 @@ function scheduleNextPoll(intervalSec: number): void {
 }
 
 function stopTimers(): void {
-  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
-  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  if (pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
 }
 
 async function retryFlow(): Promise<void> {
@@ -213,7 +220,9 @@ async function copyCode(): Promise<void> {
   const ok = await copyTextToClipboard(flow.value.userCode);
   if (!ok) return;
   copied.value = true;
-  setTimeout(() => { copied.value = false; }, 2000);
+  setTimeout(() => {
+    copied.value = false;
+  }, 2000);
 }
 
 async function close(): Promise<void> {
@@ -235,7 +244,6 @@ function formatSeconds(s: number): string {
 
 <template>
   <Dialog v-model:open="open" :title="t('login.title')" :close-on-overlay="false" @close="close">
-
     <!-- Starting (brief spinner) -->
     <div v-if="step === 'starting'" class="center-body">
       <Spinner size="md" />
@@ -263,16 +271,24 @@ function formatSeconds(s: number): string {
       <!-- Fallback path: open the plain URI and type the code manually -->
       <div class="nb-fallback">
         <div class="nb-fb-text">
-          {{ t('login.fallbackPrefix') }}<a
+          {{ t('login.fallbackPrefix')
+          }}<a
             class="nb-fb-link"
             :href="flow.verificationUri"
             target="_blank"
             rel="noopener noreferrer"
-          >{{ flow.verificationUri }}</a>{{ t('login.fallbackSuffix') }}
+            >{{ flow.verificationUri }}</a
+          >{{ t('login.fallbackSuffix') }}
         </div>
         <div class="nb-code-row">
           <span class="nb-code">{{ flow.userCode }}</span>
-          <Button class="nb-copy" :class="{ 'is-copied': copied }" variant="secondary" size="sm" @click="copyCode">
+          <Button
+            class="nb-copy"
+            :class="{ 'is-copied': copied }"
+            variant="secondary"
+            size="sm"
+            @click="copyCode"
+          >
             <template v-if="copied">
               <Icon name="check" size="sm" />
               {{ t('login.copied') }}
@@ -329,7 +345,6 @@ function formatSeconds(s: number): string {
         <Button variant="secondary" @click="close">{{ t('login.closeBtn') }}</Button>
       </div>
     </template>
-
   </Dialog>
 </template>
 
@@ -348,9 +363,16 @@ function formatSeconds(s: number): string {
   font-weight: var(--weight-medium);
   color: var(--color-text);
 }
-.success-text { color: var(--color-success); }
-.err-text { color: var(--color-danger); }
-.warn-text { color: var(--color-warning); font-size: var(--text-base); }
+.success-text {
+  color: var(--color-success);
+}
+.err-text {
+  color: var(--color-danger);
+}
+.warn-text {
+  color: var(--color-warning);
+  font-size: var(--text-base);
+}
 .center-hint {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
@@ -389,10 +411,14 @@ function formatSeconds(s: number): string {
   font-weight: var(--weight-medium);
   cursor: pointer;
   text-decoration: none;
-  transition: background var(--duration-fast) var(--ease-out),
+  transition:
+    background var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out);
 }
-.nb-primary:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
+.nb-primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
 
 /* "or" divider */
 .nb-or {
@@ -405,7 +431,7 @@ function formatSeconds(s: number): string {
 }
 .nb-or::before,
 .nb-or::after {
-  content: "";
+  content: '';
   flex: 1;
   height: 1px;
   background: var(--color-line);
@@ -427,7 +453,9 @@ function formatSeconds(s: number): string {
   text-decoration: none;
   border-bottom: 1px solid var(--color-accent-bd);
 }
-.nb-fb-link:hover { border-bottom-color: var(--color-accent); }
+.nb-fb-link:hover {
+  border-bottom-color: var(--color-accent);
+}
 .nb-code-row {
   display: flex;
   align-items: center;
@@ -446,7 +474,10 @@ function formatSeconds(s: number): string {
   letter-spacing: 0.14em;
 }
 /* Inline copy control: Button secondary + a success "copied" state. */
-.nb-copy.is-copied { color: var(--color-success); border-color: var(--color-success-bd); }
+.nb-copy.is-copied {
+  color: var(--color-success);
+  border-color: var(--color-success-bd);
+}
 
 /* Status */
 .nb-status {
@@ -456,7 +487,12 @@ function formatSeconds(s: number): string {
   padding-top: var(--space-3);
   border-top: 1px solid var(--color-line);
 }
-.nb-status-text { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-text-muted); flex: 1; }
+.nb-status-text {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  flex: 1;
+}
 .nb-countdown {
   font-family: var(--font-mono);
   font-size: var(--text-xs);

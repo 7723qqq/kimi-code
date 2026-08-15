@@ -4,6 +4,5 @@ export interface IAgentStepRetryService {
   readonly _serviceBrand: undefined;
 }
 
-export const IAgentStepRetryService = createDecorator<IAgentStepRetryService>(
-  'agentStepRetryService',
-);
+export const IAgentStepRetryService =
+  createDecorator<IAgentStepRetryService>('agentStepRetryService');

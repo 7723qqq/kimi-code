@@ -14,12 +14,12 @@
  * functions over already-read records — own no scoped state.
  */
 
-import { Error2, ErrorCodes } from '#/errors';
-import type { ContentPart } from '#/kosong/contract/message';
 import {
   promptMetadataTextFromContentParts,
   promptMetadataTextFromText,
 } from '#/agent/prompt/promptMetadataText';
+import { Error2, ErrorCodes } from '#/errors';
+import type { ContentPart } from '#/kosong/contract/message';
 import type { WireRecord } from '#/wire/record';
 
 export interface MainTurnSlice {
@@ -63,9 +63,7 @@ export function sliceMainRecordsAtTurn(
     .filter(
       (record, index) => !isUserVisibleTurnInputRecord(record) || retainedTurnInputs.has(index),
     );
-  const cutoffTimes = retained
-    .map(recordTime)
-    .filter((time): time is number => time !== undefined);
+  const cutoffTimes = retained.map(recordTime).filter((time): time is number => time !== undefined);
   const lastPrompt = promptMetadataFromTurnRecord(records[start]!);
   return {
     records: retained,
@@ -179,8 +177,7 @@ function turnInputMatchesRecord(
   if (messageKind !== undefined && typeof messageKind !== 'string') return false;
   if (!sameTurnOrigin(inputKind, messageKind)) return false;
   return (
-    !compareContent ||
-    JSON.stringify(inputRecord['input']) === JSON.stringify(message['content'])
+    !compareContent || JSON.stringify(inputRecord['input']) === JSON.stringify(message['content'])
   );
 }
 

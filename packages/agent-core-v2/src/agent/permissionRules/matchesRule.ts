@@ -1,9 +1,10 @@
-import { tryNativeGlobMatch } from '../../tool/native-glob-match';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 import { tryNativeParsePermissionPattern } from '#/_base/native-tools';
 import { Error2, ErrorCodes } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
 import type { RunnableToolExecution } from '#/tool/toolContract';
+
+import { tryNativeGlobMatch } from '../../tool/native-glob-match';
 import type { PermissionRule } from './permissionRules';
 
 export interface ParsedPattern {
@@ -53,13 +54,19 @@ export function parsePattern(pattern: string): ParsedPattern {
   }
 
   if (!trimmed.endsWith(')')) {
-    throw new Error2(ErrorCodes.VALIDATION_FAILED, t('v2Errors.permissionPatternMissingParen', { pattern }));
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      t('v2Errors.permissionPatternMissingParen', { pattern }),
+    );
   }
 
   const toolName = trimmed.slice(0, openIdx);
   const argPattern = trimmed.slice(openIdx + 1, -1);
   if (toolName.length === 0) {
-    throw new Error2(ErrorCodes.VALIDATION_FAILED, t('v2Errors.permissionPatternEmptyTool', { pattern }));
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      t('v2Errors.permissionPatternEmptyTool', { pattern }),
+    );
   }
   if (argPattern.length === 0) {
     return { toolName };

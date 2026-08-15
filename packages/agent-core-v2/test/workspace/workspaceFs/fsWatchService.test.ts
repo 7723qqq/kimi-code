@@ -9,8 +9,9 @@
 import { join, resolve } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LifecycleScope } from '#/app/scopes';
+
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
+import { LifecycleScope } from '#/app/scopes';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   type HostFsChange,
@@ -20,7 +21,6 @@ import {
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import type { FsChangeEvent } from '#/workspace/workspaceFs/fsWatch';
-
 import { IWorkspaceFsWatchService } from '#/workspace/workspaceFs/fsWatch';
 import { WorkspaceFsWatchService } from '#/workspace/workspaceFs/fsWatchService';
 
@@ -87,8 +87,7 @@ function fakeHostFsWatch(): FakeWatch {
   return {
     service,
     watchCalls,
-    fire: (rel, action, kind = 'file') =>
-      listener?.({ path: join(WORK_DIR, rel), action, kind }),
+    fire: (rel, action, kind = 'file') => listener?.({ path: join(WORK_DIR, rel), action, kind }),
     disposedCount: () => disposedCount,
   };
 }
@@ -124,7 +123,9 @@ function makeWorkspace(gitignore?: string): Harness {
   return { svc, watch };
 }
 
-function collect(sub: { onDidChangeFiles: (l: (e: FsChangeEvent) => void) => unknown }): FsChangeEvent[] {
+function collect(sub: {
+  onDidChangeFiles: (l: (e: FsChangeEvent) => void) => unknown;
+}): FsChangeEvent[] {
   const events: FsChangeEvent[] = [];
   sub.onDidChangeFiles((e) => events.push(e));
   return events;

@@ -17,7 +17,13 @@ import {
   OAuthUnauthorizedError,
   RetryableRefreshError,
 } from './errors';
-import type { DeviceAuthorization, DeviceHeaders, OAuthFlowConfig, OAuthRequestHeaders, TokenInfo } from './types';
+import type {
+  DeviceAuthorization,
+  DeviceHeaders,
+  OAuthFlowConfig,
+  OAuthRequestHeaders,
+  TokenInfo,
+} from './types';
 import { isRecord } from './utils';
 
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
@@ -63,9 +69,14 @@ async function postForm(
   options?: { timeoutMs?: number; signal?: AbortSignal },
 ): Promise<{ status: number; data: Record<string, unknown> }> {
   const parsedUrl = new URL(url);
-  const isLoopback = parsedUrl.hostname === 'localhost' || parsedUrl.hostname === '127.0.0.1' || parsedUrl.hostname === '::1';
+  const isLoopback =
+    parsedUrl.hostname === 'localhost' ||
+    parsedUrl.hostname === '127.0.0.1' ||
+    parsedUrl.hostname === '::1';
   if (parsedUrl.protocol !== 'https:' && !isLoopback) {
-    throw new OAuthError(`Refusing to send credentials to non-HTTPS OAuth endpoint: ${parsedUrl.origin}`);
+    throw new OAuthError(
+      `Refusing to send credentials to non-HTTPS OAuth endpoint: ${parsedUrl.origin}`,
+    );
   }
   const timeoutMs = options?.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
   const body = new URLSearchParams(params).toString();
@@ -133,9 +144,7 @@ export async function requestDeviceAuthorization(
   );
 
   if (status !== 200) {
-    throw new OAuthError(
-      `Device authorization failed (HTTP ${status}): ${pickErrorDetail(data)}`,
-    );
+    throw new OAuthError(`Device authorization failed (HTTP ${status}): ${pickErrorDetail(data)}`);
   }
 
   // Required-field validation for the device authorization response.

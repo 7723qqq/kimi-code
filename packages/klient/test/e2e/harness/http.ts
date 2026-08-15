@@ -64,11 +64,7 @@ export class HttpClient {
     return `${this.opts.baseUrl}${this.opts.apiPrefix}${path}`;
   }
 
-  private async request<T>(
-    method: string,
-    path: string,
-    body: unknown,
-  ): Promise<T> {
+  private async request<T>(method: string, path: string, body: unknown): Promise<T> {
     const startedAt = Date.now();
     const headers: Record<string, string> = { accept: 'application/json' };
     if (this.opts.token !== undefined) {
@@ -141,11 +137,7 @@ export class HttpClient {
     return unwrap(envelope);
   }
 
-  private async formRequest<T>(
-    method: 'POST',
-    path: string,
-    body: FormData,
-  ): Promise<T> {
+  private async formRequest<T>(method: 'POST', path: string, body: FormData): Promise<T> {
     const url = this.url(path);
     const res = await fetchWithReport(
       url,
@@ -181,21 +173,13 @@ export class HttpClient {
     return this.request('GET', '/models', undefined);
   }
   setDefaultModel(modelId: string): Promise<SetDefaultModelResponse> {
-    return this.request(
-      'POST',
-      `/models/${encodeURIComponent(modelId)}:set_default`,
-      {},
-    );
+    return this.request('POST', `/models/${encodeURIComponent(modelId)}:set_default`, {});
   }
   listProviders(): Promise<ListProvidersResponse> {
     return this.request('GET', '/providers', undefined);
   }
   getProvider(providerId: string): Promise<ProviderCatalogItem> {
-    return this.request(
-      'GET',
-      `/providers/${encodeURIComponent(providerId)}`,
-      undefined,
-    );
+    return this.request('GET', `/providers/${encodeURIComponent(providerId)}`, undefined);
   }
 
   // ── Sessions ────────────────────────────────────────────────────────────
@@ -218,34 +202,16 @@ export class HttpClient {
     // Earlier scaffolding spoke `PATCH /v1/sessions/{sid}`, which the server
     // never wired — keep the helper name (used by existing fixtures) and just
     // dispatch to the right URL.
-    return this.request<Session>(
-      'POST',
-      `/sessions/${encodeURIComponent(sid)}/profile`,
-      body,
-    );
+    return this.request<Session>('POST', `/sessions/${encodeURIComponent(sid)}/profile`, body);
   }
   forkSession(sid: string, body: ForkSessionRequest = {}): Promise<Session> {
     return this.request('POST', `/sessions/${encodeURIComponent(sid)}:fork`, body);
   }
-  compactSession(
-    sid: string,
-    body: CompactSessionRequest = {},
-  ): Promise<CompactSessionResponse> {
-    return this.request(
-      'POST',
-      `/sessions/${encodeURIComponent(sid)}:compact`,
-      body,
-    );
+  compactSession(sid: string, body: CompactSessionRequest = {}): Promise<CompactSessionResponse> {
+    return this.request('POST', `/sessions/${encodeURIComponent(sid)}:compact`, body);
   }
-  undoSession(
-    sid: string,
-    body: UndoSessionRequest = { count: 1 },
-  ): Promise<UndoSessionResponse> {
-    return this.request(
-      'POST',
-      `/sessions/${encodeURIComponent(sid)}:undo`,
-      body,
-    );
+  undoSession(sid: string, body: UndoSessionRequest = { count: 1 }): Promise<UndoSessionResponse> {
+    return this.request('POST', `/sessions/${encodeURIComponent(sid)}:undo`, body);
   }
   archiveSession(sid: string): Promise<{ archived: true }> {
     return this.request('POST', `/sessions/${encodeURIComponent(sid)}:archive`, {});
@@ -261,30 +227,15 @@ export class HttpClient {
     );
   }
   createChild(sid: string, body: SessionChildCreate = {}): Promise<Session> {
-    return this.request(
-      'POST',
-      `/sessions/${encodeURIComponent(sid)}/children`,
-      body,
-    );
+    return this.request('POST', `/sessions/${encodeURIComponent(sid)}/children`, body);
   }
 
   // ── Terminals ──────────────────────────────────────────────────────────
   listTerminals(sid: string): Promise<ListTerminalsResponse> {
-    return this.request(
-      'GET',
-      `/sessions/${encodeURIComponent(sid)}/terminals`,
-      undefined,
-    );
+    return this.request('GET', `/sessions/${encodeURIComponent(sid)}/terminals`, undefined);
   }
-  createTerminal(
-    sid: string,
-    body: CreateTerminalRequest = {},
-  ): Promise<Terminal> {
-    return this.request(
-      'POST',
-      `/sessions/${encodeURIComponent(sid)}/terminals`,
-      body,
-    );
+  createTerminal(sid: string, body: CreateTerminalRequest = {}): Promise<Terminal> {
+    return this.request('POST', `/sessions/${encodeURIComponent(sid)}/terminals`, body);
   }
   getTerminal(sid: string, terminalId: string): Promise<Terminal> {
     return this.request(
@@ -293,10 +244,7 @@ export class HttpClient {
       undefined,
     );
   }
-  closeTerminal(
-    sid: string,
-    terminalId: string,
-  ): Promise<CloseTerminalResponse> {
+  closeTerminal(sid: string, terminalId: string): Promise<CloseTerminalResponse> {
     return this.request(
       'POST',
       `/sessions/${encodeURIComponent(sid)}/terminals/${encodeURIComponent(terminalId)}:close`,
@@ -312,18 +260,10 @@ export class HttpClient {
     return this.request<Workspace>('POST', '/workspaces', body);
   }
   updateWorkspace(workspaceId: string, body: WorkspaceUpdate): Promise<Workspace> {
-    return this.request<Workspace>(
-      'PATCH',
-      `/workspaces/${encodeURIComponent(workspaceId)}`,
-      body,
-    );
+    return this.request<Workspace>('PATCH', `/workspaces/${encodeURIComponent(workspaceId)}`, body);
   }
   deleteWorkspace(workspaceId: string): Promise<{ deleted: true }> {
-    return this.request(
-      'DELETE',
-      `/workspaces/${encodeURIComponent(workspaceId)}`,
-      undefined,
-    );
+    return this.request('DELETE', `/workspaces/${encodeURIComponent(workspaceId)}`, undefined);
   }
 
   // ── Folder picker (fs:browse + fs:home) ─────────────────────────────────
@@ -358,7 +298,11 @@ export class HttpClient {
     sid: string,
     query?: { page_size?: number; before_id?: string; after_id?: string; role?: string },
   ): Promise<{ items: Message[]; has_more: boolean }> {
-    return this.request('GET', `/sessions/${encodeURIComponent(sid)}/messages${qs(query)}`, undefined);
+    return this.request(
+      'GET',
+      `/sessions/${encodeURIComponent(sid)}/messages${qs(query)}`,
+      undefined,
+    );
   }
 
   // ── Prompts ─────────────────────────────────────────────────────────────
@@ -376,11 +320,9 @@ export class HttpClient {
     );
   }
   steerPrompts(sid: string, promptIds: readonly string[]): Promise<PromptSteerResult> {
-    return this.request(
-      'POST',
-      `/sessions/${encodeURIComponent(sid)}/prompts:steer`,
-      { prompt_ids: [...promptIds] },
-    );
+    return this.request('POST', `/sessions/${encodeURIComponent(sid)}/prompts:steer`, {
+      prompt_ids: [...promptIds],
+    });
   }
   abortPrompt(sid: string, pid: string): Promise<PromptAbortResponse> {
     return this.request(
@@ -430,10 +372,7 @@ export class HttpClient {
       undefined,
     );
   }
-  dismissQuestion(
-    sid: string,
-    qid: string,
-  ): Promise<{ dismissed: true; dismissed_at: string }> {
+  dismissQuestion(sid: string, qid: string): Promise<{ dismissed: true; dismissed_at: string }> {
     return this.request(
       'POST',
       `/sessions/${encodeURIComponent(sid)}/questions/${encodeURIComponent(qid)}:dismiss`,
@@ -472,10 +411,7 @@ function serializedQueryValue(value: string | number | boolean): string {
   return value ? 'true' : 'false';
 }
 
-function blobFromInput(input: {
-  data: UploadFileData;
-  mediaType?: string;
-}): Blob {
+function blobFromInput(input: { data: UploadFileData; mediaType?: string }): Blob {
   if (input.data instanceof Blob) return input.data;
   return new Blob([input.data], {
     type: input.mediaType ?? 'application/octet-stream',

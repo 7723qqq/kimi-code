@@ -25,22 +25,16 @@ import { isErrorCode } from '#/_base/errors/codes';
 import { isError2 } from '#/_base/errors/errors';
 import { IConfigService } from '#/app/config/config';
 import { ConfigErrors } from '#/app/config/errors';
+import { HostRequestHeadersAdapter } from '#/app/kosongConfig/hostRequestHeadersAdapter';
 import { UNKNOWN_CAPABILITY } from '#/kosong/contract/capability';
 import type { ChatProvider } from '#/kosong/contract/provider';
 import { emptyUsage } from '#/kosong/contract/usage';
-import { IProtocolAdapterRegistry } from '#/kosong/protocol/protocol';
 import '#/kosong/provider/bases/anthropic/index';
 import '#/kosong/provider/bases/google-genai/index';
 import '#/kosong/provider/bases/openai/index';
 import '#/kosong/provider/protocolAdapterRegistry';
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 import '#/kosong/provider/providers/standard.contrib';
-import {
-  IProviderService,
-  type ProviderConfig,
-  type ProvidersSection,
-} from '#/kosong/provider/provider';
-import '#/kosong/provider/providerService';
 import {
   globalDefaultForProvider,
   IModelCatalog,
@@ -50,18 +44,23 @@ import {
   toProtocolModelFallback,
   toProtocolProvider,
 } from '#/kosong/model/catalog';
+import '#/kosong/provider/providerService';
 import { ModelCatalog } from '#/kosong/model/catalogService';
-import '#/kosong/model/errors';
 import { IHostRequestHeaders } from '#/kosong/model/hostRequestHeaders';
+import '#/kosong/model/errors';
 import { IModelService, type ModelRecord, type ModelsSection } from '#/kosong/model/model';
-import '#/kosong/model/modelService';
 import { IModelOAuthTokens } from '#/kosong/model/modelOAuth';
+import '#/kosong/model/modelService';
+import type { IProtocolAdapterRegistry } from '#/kosong/protocol/protocol';
+import {
+  IProviderService,
+  type ProviderConfig,
+  type ProvidersSection,
+} from '#/kosong/provider/provider';
 
-import { HostRequestHeadersAdapter } from '#/app/kosongConfig/hostRequestHeadersAdapter';
-
-import { StubConfigService, stubModelOAuthTokens, stubTokenProvider } from '../stubs';
 import { stubAgentIdentity } from '../../app/agentIdentity/stubs';
 import { stubBootstrap } from '../../app/bootstrap/stubs';
+import { StubConfigService, stubModelOAuthTokens, stubTokenProvider } from '../stubs';
 
 const HOST_HEADERS = { 'User-Agent': 'kimi-test/1.0', 'X-Msh-Device-Id': 'device-1' };
 
@@ -326,7 +325,10 @@ describe('Model assembly (pure data)', () => {
   it('resolves provider env-bag credentials and endpoints through the registry', () => {
     const { host, catalog } = createHost({
       providers: {
-        kimi: { type: 'kimi', env: { KIMI_API_KEY: 'env-token', KIMI_BASE_URL: 'https://kimi-env.example.test/v1' } },
+        kimi: {
+          type: 'kimi',
+          env: { KIMI_API_KEY: 'env-token', KIMI_BASE_URL: 'https://kimi-env.example.test/v1' },
+        },
         openai: { type: 'openai', env: { OPENAI_API_KEY: 'sk-openai' } },
       },
       models: {
@@ -480,7 +482,10 @@ describe('Model assembly (pure data)', () => {
       }
     };
     expectInvalid(kimiSections, 'nope');
-    expectInvalid({ models: { ghost: { provider: 'missing', model: 'm', maxContextSize: 1 } } }, 'ghost');
+    expectInvalid(
+      { models: { ghost: { provider: 'missing', model: 'm', maxContextSize: 1 } } },
+      'ghost',
+    );
     expectInvalid(
       { models: { noname: { protocol: 'openai', baseUrl: 'https://x.test', maxContextSize: 1 } } },
       'noname',
@@ -515,7 +520,11 @@ describe('Model assembly (pure data)', () => {
     const { host, catalog } = createHost(
       {
         providers: {
-          kimi: { type: 'kimi', oauth: { storage: 'file', key: 'kimi' }, baseUrl: 'https://api.moonshot.ai/v1' },
+          kimi: {
+            type: 'kimi',
+            oauth: { storage: 'file', key: 'kimi' },
+            baseUrl: 'https://api.moonshot.ai/v1',
+          },
         },
         models: { k1: { provider: 'kimi', model: 'kimi-k2', maxContextSize: 1 } },
       },
@@ -549,12 +558,21 @@ describe('ModelCatalog caching and config-event invalidation', () => {
     const { host, catalog, models, providers } = createHost(kimiSections);
     try {
       const before = catalog.get('k1');
-      await models.set('k1', { provider: 'kimi', model: 'kimi-k2', maxContextSize: 262144, displayName: 'K2' });
+      await models.set('k1', {
+        provider: 'kimi',
+        model: 'kimi-k2',
+        maxContextSize: 262144,
+        displayName: 'K2',
+      });
       const after = catalog.get('k1');
       expect(after).not.toBe(before);
       expect(after.displayName).toBe('K2');
 
-      await providers.set('kimi', { type: 'kimi', apiKey: 'sk-2', baseUrl: 'https://other.example.test/v1' });
+      await providers.set('kimi', {
+        type: 'kimi',
+        apiKey: 'sk-2',
+        baseUrl: 'https://other.example.test/v1',
+      });
       expect(catalog.get('k1').baseUrl).toBe('https://other.example.test/v1');
     } finally {
       host.dispose();
@@ -736,7 +754,9 @@ describe('ModelCatalog inspect', () => {
     try {
       const declaredView = catalog.inspect('declared');
       expect(declaredView.resolved.maxInputSize).toBe(272000);
-      expect(declaredView.sources['model.effective.maxInputSize']).toMatchObject({ kind: 'config' });
+      expect(declaredView.sources['model.effective.maxInputSize']).toMatchObject({
+        kind: 'config',
+      });
       expect(declaredView.sources['resolved.capabilities.max_input_tokens']).toMatchObject({
         kind: 'config',
       });
@@ -894,13 +914,10 @@ describe('ModelCatalog ping', () => {
         }),
         createChatProvider: () => fakeProvider,
       } as unknown as IProtocolAdapterRegistry;
-      const catalog = new ModelCatalog(
-        providers,
-        models,
-        stubModelOAuthTokens(),
-        registry,
-        { headers: {}, thirdPartyHeaders: {} },
-      );
+      const catalog = new ModelCatalog(providers, models, stubModelOAuthTokens(), registry, {
+        headers: {},
+        thirdPartyHeaders: {},
+      });
       const result = await catalog.ping('k1');
       expect(result).toMatchObject({ ok: true, text: 'pong', finishReason: 'completed' });
       expect(result.usage).toEqual(emptyUsage());
@@ -943,8 +960,6 @@ describe('ModelCatalog ping', () => {
   });
 });
 
-
-
 const catalogSections: Record<string, unknown> = {
   providers: {
     kimi: { type: 'kimi', apiKey: 'sk-test', baseUrl: 'https://api.example.test/v1' },
@@ -958,7 +973,12 @@ const catalogSections: Record<string, unknown> = {
       displayName: 'Kimi K2',
       capabilities: ['thinking'],
     },
-    turbo: { provider: 'kimi', model: 'kimi-turbo', maxContextSize: 32768, displayName: 'Kimi Turbo' },
+    turbo: {
+      provider: 'kimi',
+      model: 'kimi-turbo',
+      maxContextSize: 32768,
+      displayName: 'Kimi Turbo',
+    },
     gpt4o: { provider: 'openai', model: 'gpt-4o', maxContextSize: 128000 },
   },
   defaultModel: 'k2',

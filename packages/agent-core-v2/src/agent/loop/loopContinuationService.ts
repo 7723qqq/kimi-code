@@ -13,18 +13,15 @@
  * registers before the first turn runs.
  */
 
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
-import { IAgentLoopContinuationService } from './loopContinuation';
 import { IAgentLoopService } from './loop';
+import { IAgentLoopContinuationService } from './loopContinuation';
 import { ContinuationStepRequest } from './stepRequest';
 
-export class AgentLoopContinuationService
-  extends Service
-  implements IAgentLoopContinuationService
-{
+export class AgentLoopContinuationService extends Service implements IAgentLoopContinuationService {
   declare readonly _serviceBrand: undefined;
 
   constructor(@IAgentLoopService loop: IAgentLoopService) {

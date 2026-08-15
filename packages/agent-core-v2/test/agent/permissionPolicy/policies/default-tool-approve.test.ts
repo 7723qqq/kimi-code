@@ -1,8 +1,8 @@
-import type { ToolCall } from '#/kosong/contract/message';
 import { describe, expect, it } from 'vitest';
 
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import type { ToolCall } from '#/kosong/contract/message';
 import { ToolAccesses } from '#/tool/toolContract';
 
 const signal = new AbortController().signal;
@@ -100,7 +100,10 @@ describe('DefaultToolApprovePermissionPolicyService', () => {
     ['Custom', { value: 1 }],
     ['CronCreate', { cron: '*/5 * * * *', prompt: 'ping' }],
     ['CronDelete', { id: 'job_1' }],
-    ['GitHubCreateOrUpdateFile', { owner: 'octo', repo: 'hello', path: 'a.ts', message: 'm', content: 'x' }],
+    [
+      'GitHubCreateOrUpdateFile',
+      { owner: 'octo', repo: 'hello', path: 'a.ts', message: 'm', content: 'x' },
+    ],
     ['GitHubCreateIssue', { owner: 'octo', repo: 'hello', title: 't' }],
     ['GitHubUpdateIssue', { owner: 'octo', repo: 'hello', issueNumber: 1, title: 't' }],
     ['GitHubAddIssueComment', { owner: 'octo', repo: 'hello', issueNumber: 1, body: 'b' }],
@@ -109,9 +112,7 @@ describe('DefaultToolApprovePermissionPolicyService', () => {
     ['GitHubMergePR', { owner: 'octo', repo: 'hello', pullNumber: 1 }],
     ['GitHubCreatePRReview', { owner: 'octo', repo: 'hello', pullNumber: 1, event: 'APPROVE' }],
   ] as const)('does not approve %s', (toolName, args) => {
-    expect(
-      policy.evaluate(policyContext(toolName, args)),
-    ).toBeUndefined();
+    expect(policy.evaluate(policyContext(toolName, args))).toBeUndefined();
   });
 
   it('does not approve an unknown tool name', () => {
@@ -120,7 +121,11 @@ describe('DefaultToolApprovePermissionPolicyService', () => {
 
   it('approves Goal tools (GetGoal, SetGoalBudget, UpdateGoal)', () => {
     expect(policy.evaluate(policyContext('GetGoal', {}))).toEqual({ kind: 'approve' });
-    expect(policy.evaluate(policyContext('SetGoalBudget', { tokenBudget: 1000 }))).toEqual({ kind: 'approve' });
-    expect(policy.evaluate(policyContext('UpdateGoal', { status: 'complete' }))).toEqual({ kind: 'approve' });
+    expect(policy.evaluate(policyContext('SetGoalBudget', { tokenBudget: 1000 }))).toEqual({
+      kind: 'approve',
+    });
+    expect(policy.evaluate(policyContext('UpdateGoal', { status: 'complete' }))).toEqual({
+      kind: 'approve',
+    });
   });
 });

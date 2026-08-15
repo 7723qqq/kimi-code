@@ -58,9 +58,7 @@ describe('@IFoo auto-injection', () => {
         @IBaz public readonly baz: IBaz,
       ) {}
     }
-    const ix = new InstantiationService(
-      new ServiceCollection([IBaz, new SyncDescriptor(Baz)]),
-    );
+    const ix = new InstantiationService(new ServiceCollection([IBaz, new SyncDescriptor(Baz)]));
     const bar = ix.createInstance(Bar as new (name: string) => Bar, 'hello');
     expect(bar.name).toBe('hello');
     expect(bar.baz).toBeInstanceOf(Baz);
@@ -114,17 +112,14 @@ describe('@IFoo auto-injection', () => {
       }
     }
     const ix = new InstantiationService(
-      new ServiceCollection(
-        [IA, new SyncDescriptor(AImpl)],
-        [IB, new SyncDescriptor(BImpl)],
-      ),
+      new ServiceCollection([IA, new SyncDescriptor(AImpl)], [IB, new SyncDescriptor(BImpl)]),
     );
 
     let captured: unknown;
     try {
       ix.invokeFunction((a) => a.get(IA));
-    } catch (e) {
-      captured = e;
+    } catch (error) {
+      captured = error;
     }
     expect(captured).toBeInstanceOf(CyclicDependencyError);
     expect((captured as CyclicDependencyError).message).toMatch(
@@ -177,16 +172,26 @@ describe('@IFoo auto-injection', () => {
   });
 
   it('deeply nested dependency chain resolves all levels', () => {
-    interface ILevel1 { tag: string; }
-    interface ILevel2 { tag: string; }
-    interface ILevel3 { tag: string; }
-    interface ILevel4 { tag: string; }
+    interface ILevel1 {
+      tag: string;
+    }
+    interface ILevel2 {
+      tag: string;
+    }
+    interface ILevel3 {
+      tag: string;
+    }
+    interface ILevel4 {
+      tag: string;
+    }
     const ILevel1 = createDecorator<ILevel1>('p1.1-chain-l1');
     const ILevel2 = createDecorator<ILevel2>('p1.1-chain-l2');
     const ILevel3 = createDecorator<ILevel3>('p1.1-chain-l3');
     const ILevel4 = createDecorator<ILevel4>('p1.1-chain-l4');
 
-    class Level4 implements ILevel4 { tag = 'L4'; }
+    class Level4 implements ILevel4 {
+      tag = 'L4';
+    }
     class Level3 implements ILevel3 {
       tag = 'L3';
       constructor(@ILevel4 public readonly d4: ILevel4) {}
@@ -219,11 +224,17 @@ describe('@IFoo auto-injection', () => {
   });
 
   it('strict mode throws when resolving an unregistered service', () => {
-    interface IUnknown { tag: string; }
+    interface IUnknown {
+      tag: string;
+    }
     const IUnknown = createDecorator<IUnknown>('p1.1-unknown');
-    interface IKnown { tag: string; }
+    interface IKnown {
+      tag: string;
+    }
     const IKnown = createDecorator<IKnown>('p1.1-known');
-    class Known implements IKnown { tag = 'known'; }
+    class Known implements IKnown {
+      tag = 'known';
+    }
 
     const ix = new InstantiationService(
       new ServiceCollection([IKnown, new SyncDescriptor(Known)]),
@@ -250,14 +261,8 @@ describe('@IFoo auto-injection', () => {
       tag = 'B' as const;
       constructor(@IA _a: IA) {}
     }
-    const parent = new InstantiationService(
-      new ServiceCollection([IA, new SyncDescriptor(AImpl)]),
-    );
-    const child = parent.createChild(
-      new ServiceCollection([IB, new SyncDescriptor(BImpl)]),
-    );
-    expect(() =>
-      child.invokeFunction((a) => a.get(IA)),
-    ).toThrowError(CyclicDependencyError);
+    const parent = new InstantiationService(new ServiceCollection([IA, new SyncDescriptor(AImpl)]));
+    const child = parent.createChild(new ServiceCollection([IB, new SyncDescriptor(BImpl)]));
+    expect(() => child.invokeFunction((a) => a.get(IA))).toThrowError(CyclicDependencyError);
   });
 });

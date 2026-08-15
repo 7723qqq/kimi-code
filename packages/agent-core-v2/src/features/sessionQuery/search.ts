@@ -16,8 +16,8 @@ import { tokenize } from '@moonshot-ai/minidb';
 
 import { Error2 } from '#/errors';
 
-import { SessionQueryErrors } from './errors';
 import { SessionSearchCursor } from './cursor';
+import { SessionQueryErrors } from './errors';
 import type {
   SessionEventResultFilter,
   SessionEventSearchDocument,
@@ -77,7 +77,13 @@ export function searchEventDocuments(
     );
     if (score === 0) continue;
     const snippet = buildSnippet(text, queryTerms);
-    ranked.push({ sessionId: document.sessionId, seq: document.seq, type: document.type, time: document.time, snippet });
+    ranked.push({
+      sessionId: document.sessionId,
+      seq: document.seq,
+      type: document.type,
+      time: document.time,
+      snippet,
+    });
   }
   ranked.sort((a, b) => b.time - a.time);
 
@@ -154,7 +160,9 @@ function matchesRange(value: number, range: SessionResultRange): boolean {
 
 function unknownFilter(filter: never): never {
   const kind = (filter as { kind?: unknown }).kind;
-  throw invalidFilter(`unknown filter kind ${typeof kind === 'string' ? `"${kind}"` : '(missing)'}`);
+  throw invalidFilter(
+    `unknown filter kind ${typeof kind === 'string' ? `"${kind}"` : '(missing)'}`,
+  );
 }
 
 function invalidRange(name: string, detail: string): Error2 {
@@ -162,10 +170,7 @@ function invalidRange(name: string, detail: string): Error2 {
 }
 
 function invalidFilter(detail: string): Error2 {
-  return new Error2(
-    SessionQueryErrors.codes.SESSION_QUERY_INVALID_FILTER,
-    `session ${detail}`,
-  );
+  return new Error2(SessionQueryErrors.codes.SESSION_QUERY_INVALID_FILTER, `session ${detail}`);
 }
 
 /** Bounded plain-text excerpt around the first term match. */

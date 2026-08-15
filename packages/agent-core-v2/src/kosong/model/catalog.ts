@@ -38,7 +38,6 @@ import type { TokenUsage } from '#/kosong/contract/usage';
 import type { Protocol, ProtocolProviderOptions } from '#/kosong/protocol/protocol';
 
 import type { ProviderConfig } from '../provider/provider';
-
 import type { ModelInspection } from './inspection';
 import type { ModelRecord } from './model';
 import { effectiveModelConfig } from './modelAuth';
@@ -104,11 +103,7 @@ export const modelCatalogItemSchema = z.object({
 });
 export type ModelCatalogItem = z.infer<typeof modelCatalogItemSchema>;
 
-export const providerCatalogStatusSchema = z.enum([
-  'connected',
-  'error',
-  'unconfigured',
-]);
+export const providerCatalogStatusSchema = z.enum(['connected', 'error', 'unconfigured']);
 export type ProviderCatalogStatus = z.infer<typeof providerCatalogStatusSchema>;
 
 export const providerCatalogItemSchema = z.object({

@@ -1,10 +1,10 @@
-import * as vscode from "vscode";
+import * as vscode from 'vscode';
 
-import { Events, Methods } from "../../shared/bridge";
-import type { LoginResult } from "../../shared/legacy-sdk";
-import type { LoginStatus } from "../../shared/types";
-import { updateLoginContext } from "../utils/context";
-import type { Handler } from "./types";
+import { Events, Methods } from '../../shared/bridge';
+import type { LoginResult } from '../../shared/legacy-sdk';
+import type { LoginStatus } from '../../shared/types';
+import { updateLoginContext } from '../utils/context';
+import type { Handler } from './types';
 
 export const authHandlers: Record<string, Handler<any, any>> = {
   [Methods.CheckLoginStatus]: async (_, ctx): Promise<LoginStatus> => {
@@ -23,9 +23,9 @@ export const authHandlers: Record<string, Handler<any, any>> = {
       await updateLoginContext(ctx.harness);
       return { success: true };
     } catch (error) {
-      ctx.logError("Kimi login failed", error);
+      ctx.logError('Kimi login failed', error);
       await updateLoginContext(ctx.harness).catch((statusError: unknown) => {
-        ctx.logError("Unable to refresh login status after a failed login", statusError);
+        ctx.logError('Unable to refresh login status after a failed login', statusError);
       });
       return {
         success: false,
@@ -40,9 +40,9 @@ export const authHandlers: Record<string, Handler<any, any>> = {
       await updateLoginContext(ctx.harness);
       return { success: true };
     } catch (error) {
-      ctx.logError("Kimi logout failed", error);
+      ctx.logError('Kimi logout failed', error);
       await updateLoginContext(ctx.harness).catch((statusError: unknown) => {
-        ctx.logError("Unable to refresh login status after a failed logout", statusError);
+        ctx.logError('Unable to refresh login status after a failed logout', statusError);
       });
       return {
         success: false,

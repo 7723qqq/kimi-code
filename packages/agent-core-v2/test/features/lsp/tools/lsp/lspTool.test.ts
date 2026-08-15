@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import { Error2, ErrorCodes } from '#/errors';
-import { LspTool, renderResult } from '#/features/lsp/tools/lsp/lspTool';
-import { LspInputSchema } from '#/features/lsp/tools/lsp/lsp';
 import type { ILspService } from '#/features/lsp/lsp';
+import { LspInputSchema } from '#/features/lsp/tools/lsp/lsp';
+import { LspTool, renderResult } from '#/features/lsp/tools/lsp/lspTool';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
+
 import { executeTool } from '../../../../tools/fixtures/execute-tool';
 
-function stubLsp(result: Parameters<ILspService['query']>[0] extends never ? never : unknown): ILspService {
+function stubLsp(
+  result: Parameters<ILspService['query']>[0] extends never ? never : unknown,
+): ILspService {
   return {
     _serviceBrand: undefined,
     registerProvider: () => ({ dispose: () => undefined }),
@@ -46,7 +49,12 @@ describe('LspInputSchema', () => {
 
   it('rejects unknown keys and invalid positions', () => {
     expect(
-      LspInputSchema.safeParse({ operation: 'goToDefinition', file_path: '/a.ts', line: 0, character: 1 }).success,
+      LspInputSchema.safeParse({
+        operation: 'goToDefinition',
+        file_path: '/a.ts',
+        line: 0,
+        character: 1,
+      }).success,
     ).toBe(false);
     expect(
       LspInputSchema.safeParse({
@@ -58,7 +66,8 @@ describe('LspInputSchema', () => {
       }).success,
     ).toBe(false);
     expect(
-      LspInputSchema.safeParse({ operation: 'bogus', file_path: '/a.ts', line: 1, character: 1 }).success,
+      LspInputSchema.safeParse({ operation: 'bogus', file_path: '/a.ts', line: 1, character: 1 })
+        .success,
     ).toBe(false);
   });
 });
@@ -74,7 +83,10 @@ describe('LspTool', () => {
         return {
           kind: 'locations',
           locations: [
-            { uri: 'file:///ws/def.ts', range: { start: { line: 2, character: 4 }, end: { line: 2, character: 9 } } },
+            {
+              uri: 'file:///ws/def.ts',
+              range: { start: { line: 2, character: 4 }, end: { line: 2, character: 9 } },
+            },
           ],
         };
       },
@@ -96,7 +108,10 @@ describe('LspTool', () => {
 
   it('renders hover text', async () => {
     const tool = new LspTool(
-      stubLsp({ kind: 'hover', hover: { contents: { kind: 'markdown', value: '**type**: string' } } }),
+      stubLsp({
+        kind: 'hover',
+        hover: { contents: { kind: 'markdown', value: '**type**: string' } },
+      }),
       stubSession('/ws'),
     );
     const result = await executeTool(tool, {
@@ -112,7 +127,10 @@ describe('LspTool', () => {
       ...BASE_CONTEXT,
       args: { operation: 'hover', file_path: '/ws/a.ts', line: 1, character: 1 },
     });
-    expect(result).toEqual({ isError: false, output: 'No hover information available at this position.' });
+    expect(result).toEqual({
+      isError: false,
+      output: 'No hover information available at this position.',
+    });
   });
 
   it('renders an empty location list', async () => {
@@ -139,7 +157,10 @@ describe('LspTool', () => {
       _serviceBrand: undefined,
       registerProvider: () => ({ dispose: () => undefined }),
       query: async () => {
-        throw new Error2(ErrorCodes.LSP_UNAVAILABLE, 'no LSP provider is configured for extension "ts"');
+        throw new Error2(
+          ErrorCodes.LSP_UNAVAILABLE,
+          'no LSP provider is configured for extension "ts"',
+        );
       },
     };
     const tool = new LspTool(lsp, stubSession('/ws'));

@@ -15,9 +15,12 @@ const MAX_TOTAL_EXTRACTED_BYTES = 256 * 1024 * 1024;
 
 export async function downloadZip(url: string, signal?: AbortSignal): Promise<Buffer> {
   const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => {
-    controller.abort();
-  }, 5 * 60 * 1000);
+  const timeoutHandle = setTimeout(
+    () => {
+      controller.abort();
+    },
+    5 * 60 * 1000,
+  );
   try {
     const resp = await fetch(url, { signal: signal ?? controller.signal });
     if (!resp.ok) {
@@ -29,8 +32,7 @@ export async function downloadZip(url: string, signal?: AbortSignal): Promise<Bu
     }
     const contentLength = Number(resp.headers.get('content-length'));
     if (Number.isFinite(contentLength) && contentLength > MAX_ZIP_DOWNLOAD_BYTES) {
-      await resp.body?.cancel().catch(() => {
-      });
+      await resp.body?.cancel().catch(() => {});
       throw new Error2(
         ErrorCodes.PLUGIN_LOAD_FAILED,
         `Zip download too large: ${String(contentLength)} bytes exceeds the ${String(MAX_ZIP_DOWNLOAD_BYTES)} byte limit`,
@@ -58,8 +60,7 @@ export async function downloadZip(url: string, signal?: AbortSignal): Promise<Bu
         chunks.push(value);
       }
     } catch (error) {
-      await reader.cancel().catch(() => {
-      });
+      await reader.cancel().catch(() => {});
       throw error;
     }
     return Buffer.concat(chunks);
@@ -219,8 +220,7 @@ export async function extractZip(buffer: Buffer, destDir: string): Promise<strin
   } catch (error) {
     // The destination is a dedicated extraction directory: remove the partial
     // output so a failed extract never leaves broken plugin files behind.
-    await rm(destDir, { recursive: true, force: true }).catch(() => {
-    });
+    await rm(destDir, { recursive: true, force: true }).catch(() => {});
     throw error;
   }
 

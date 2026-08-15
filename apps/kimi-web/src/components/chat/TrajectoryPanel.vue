@@ -5,25 +5,26 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { LedgerFrame } from '../../lib/trajectory/ledger';
 import {
   deriveTrajectoryLayout,
   type TrajectoryRecord,
   type TrajectoryTurnModel,
 } from '../../lib/trajectory/records';
+import { TrajectorySearchIndex } from '../../lib/trajectory/search';
 import {
   deriveTrajectoryTimeline,
   trajectoryTimelineFocusIndexes,
   type TrajectoryTimeRange,
   type TrajectoryTimelineMode,
 } from '../../lib/trajectory/timeline';
-import { TrajectorySearchIndex } from '../../lib/trajectory/search';
+import TrajectoryInspector from '../trajectory/TrajectoryInspector.vue';
+import TrajectoryLedger from '../trajectory/TrajectoryLedger.vue';
+import TrajectoryTimeline from '../trajectory/TrajectoryTimeline.vue';
 import Badge from '../ui/Badge.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
 import SegmentedControl from '../ui/SegmentedControl.vue';
-import TrajectoryLedger from '../trajectory/TrajectoryLedger.vue';
-import TrajectoryTimeline from '../trajectory/TrajectoryTimeline.vue';
-import TrajectoryInspector from '../trajectory/TrajectoryInspector.vue';
 
 const props = defineProps<{ frames: readonly LedgerFrame[] | null }>();
 
@@ -63,15 +64,16 @@ const filteredLayout = computed<readonly TrajectoryTurnModel[]>(() => {
       groups: turn.groups
         // Spread the group so kind/step/seq/stats survive the filter —
         // the ledger's group header reads them for title + description.
-        .map((group) => ({ ...group, records: group.records.filter((record) => ids.has(record.id)) }))
+        .map((group) => ({
+          ...group,
+          records: group.records.filter((record) => ids.has(record.id)),
+        }))
         .filter((group) => group.records.length > 0),
     }))
     .filter((turn) => turn.groups.length > 0);
 });
 
-const timelineModel = computed(() =>
-  deriveTrajectoryTimeline(filteredLayout.value, mode.value),
-);
+const timelineModel = computed(() => deriveTrajectoryTimeline(filteredLayout.value, mode.value));
 
 /** Match count for the active query (null when not searching). */
 const matchCount = computed<number | null>(() => {
@@ -191,8 +193,12 @@ function clearSelection(): void {
         <span v-if="matchCount !== null" class="tv-match-count">
           {{ t('trajectory.matchCount', { count: matchCount }) }}
         </span>
-        <button type="button" class="tv-action" @click="collapseAll">{{ t('trajectory.collapseAll') }}</button>
-        <button type="button" class="tv-action" @click="expandAll">{{ t('trajectory.expandAll') }}</button>
+        <button type="button" class="tv-action" @click="collapseAll">
+          {{ t('trajectory.collapseAll') }}
+        </button>
+        <button type="button" class="tv-action" @click="expandAll">
+          {{ t('trajectory.expandAll') }}
+        </button>
         <button type="button" class="tv-action tv-action-danger" @click="emit('clear')">
           {{ t('trajectory.clearLedger') }}
         </button>
@@ -219,11 +225,7 @@ function clearSelection(): void {
       />
     </div>
 
-    <TrajectoryInspector
-      v-if="selectedRecord"
-      :record="selectedRecord"
-      @clear="clearSelection"
-    />
+    <TrajectoryInspector v-if="selectedRecord" :record="selectedRecord" @clear="clearSelection" />
   </div>
 </template>
 

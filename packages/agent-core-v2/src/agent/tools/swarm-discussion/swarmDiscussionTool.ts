@@ -16,25 +16,22 @@
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
+import { SwarmDiscussionCoordinator, type DiscussionResult } from '#/agent/discussion/coordinator';
+import {
+  StructuredDebateCoordinator,
+  type DebateResult,
+} from '#/agent/discussion/debate-coordinator';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import { IPersistentSubagentService } from '#/session/subagent/persistentSubagent';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   ToolAccesses,
   type ExecutableToolContext,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { IPersistentSubagentService } from '#/session/subagent/persistentSubagent';
-import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import {
-  SwarmDiscussionCoordinator,
-  type DiscussionResult,
-} from '#/agent/discussion/coordinator';
-import {
-  StructuredDebateCoordinator,
-  type DebateResult,
-} from '#/agent/discussion/debate-coordinator';
 
 import {
   IAgentSwarmDiscussionTool,
@@ -165,8 +162,7 @@ function formatDiscussionResult(result: DiscussionResult): string {
 
   lines.push('<discussion_result>');
 
-  const statusText =
-    result.endedBy === 'max_rounds' ? 'completed' : result.endedBy;
+  const statusText = result.endedBy === 'max_rounds' ? 'completed' : result.endedBy;
   lines.push(
     `<summary>rounds: ${String(result.roundsCompleted)}, speeches: ${String(result.transcript.length)}, status: ${statusText}</summary>`,
   );

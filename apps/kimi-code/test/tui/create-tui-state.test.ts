@@ -1,11 +1,9 @@
-
+import { TuiAltScreen, TuiMainScreen } from '@moonshot-ai/pi-tui';
 import { describe, it, expect, vi } from 'vitest';
 
-import { TuiAltScreen, TuiMainScreen } from '@moonshot-ai/pi-tui';
-
 import { createTUIState, type KimiTUIOptions } from '#/tui/kimi-tui';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import type { AppState } from '#/tui/types';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 
 function fakeInitialAppState(): AppState {
   return {
@@ -19,11 +17,11 @@ function fakeInitialAppState(): AppState {
     swarmMode: false,
     thinkingEffort: 'off',
     contextUsage: 0,
-  cacheReadTokens: 0,
-  cacheMissTokens: 0,
+    cacheReadTokens: 0,
+    cacheMissTokens: 0,
     cacheOtherTokens: 0,
-  tokenSpeed: 0,
-  sessionStats: createEmptySessionStats(),
+    tokenSpeed: 0,
+    sessionStats: createEmptySessionStats(),
     contextTokens: 0,
     maxContextTokens: 0,
     isCompacting: false,

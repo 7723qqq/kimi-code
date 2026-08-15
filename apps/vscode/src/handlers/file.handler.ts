@@ -1,40 +1,55 @@
-import * as path from "node:path";
-import * as vscode from "vscode";
+import * as path from 'node:path';
 
-import { Events, Methods } from "../../shared/bridge";
-import type { FileChange, ProjectFile } from "../../shared/types";
-import type { BaselineSession } from "../managers/baseline.manager";
+import * as vscode from 'vscode';
+
+import { Events, Methods } from '../../shared/bridge';
+import type { FileChange, ProjectFile } from '../../shared/types';
+import type { BaselineSession } from '../managers/baseline.manager';
 import {
   isWorkspacePathContained,
   resolveWorkspacePath,
   type WorkspacePath,
-} from "../utils/workspace-path";
-import type { Handler } from "./types";
+} from '../utils/workspace-path';
+import type { Handler } from './types';
 
 interface GetProjectFilesParams {
   query?: string;
   directory?: string;
 }
-interface PickMediaParams { maxCount?: number; includeVideo?: boolean }
-interface FilePathParams { filePath: string }
-interface OptionalFilePathParams { filePath?: string }
-interface PathsParams { paths: string[] }
-interface CheckFilesExistParams { paths: string[] }
+interface PickMediaParams {
+  maxCount?: number;
+  includeVideo?: boolean;
+}
+interface FilePathParams {
+  filePath: string;
+}
+interface OptionalFilePathParams {
+  filePath?: string;
+}
+interface PathsParams {
+  paths: string[];
+}
+interface CheckFilesExistParams {
+  paths: string[];
+}
 
-const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp"];
-const VIDEO_EXTENSIONS = ["mp4", "webm", "mov"];
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+const VIDEO_EXTENSIONS = ['mp4', 'webm', 'mov'];
 const IMAGE_MIME_TYPES: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".svg": "image/svg+xml",
-  ".bmp": "image/bmp",
-  ".ico": "image/x-icon",
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
 };
 
-const getProjectFiles: Handler<GetProjectFilesParams | undefined, ProjectFile[]> = async (params, ctx) => {
+const getProjectFiles: Handler<GetProjectFilesParams | undefined, ProjectFile[]> = async (
+  params,
+  ctx,
+) => {
   if (!ctx.workDirUri) return [];
   return params?.directory !== undefined
     ? ctx.fileManager.listDirectory(ctx.workDirUri, params.directory)
@@ -46,10 +61,14 @@ const pickMedia: Handler<PickMediaParams, string[]> = async (params) => {
   const includeVideo = params.includeVideo ?? true;
   const filters: Record<string, string[]> = { Images: IMAGE_EXTENSIONS };
   if (includeVideo) {
-    filters["Videos"] = VIDEO_EXTENSIONS;
-    filters["All Media"] = [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS];
+    filters['Videos'] = VIDEO_EXTENSIONS;
+    filters['All Media'] = [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS];
   }
-  const uris = await vscode.window.showOpenDialog({ canSelectMany: true, filters, title: "Select Media" });
+  const uris = await vscode.window.showOpenDialog({
+    canSelectMany: true,
+    filters,
+    title: 'Select Media',
+  });
   if (!uris) return [];
 
   const results: string[] = [];
@@ -60,7 +79,7 @@ const pickMedia: Handler<PickMediaParams, string[]> = async (params) => {
       const stat = await vscode.workspace.fs.stat(uri);
       if (stat.size > (isVideo ? 20 : 10) * 1024 * 1024) continue;
       const bytes = await vscode.workspace.fs.readFile(uri);
-      results.push(`data:${mediaMime(extension)};base64,${Buffer.from(bytes).toString("base64")}`);
+      results.push(`data:${mediaMime(extension)};base64,${Buffer.from(bytes).toString('base64')}`);
     } catch {
       // Skip a file that disappears or cannot be read without failing the whole picker.
     }
@@ -71,7 +90,7 @@ const pickMedia: Handler<PickMediaParams, string[]> = async (params) => {
 const openFile: Handler<FilePathParams, { ok: boolean }> = async ({ filePath }, ctx) => {
   const resolved = await resolveExistingWorkspaceFile(ctx.requireWorkDirUri(), filePath);
   if (resolved === undefined) return { ok: false };
-  await vscode.commands.executeCommand("vscode.open", resolved.uri);
+  await vscode.commands.executeCommand('vscode.open', resolved.uri);
   return { ok: true };
 };
 
@@ -81,12 +100,12 @@ const openFileDiff: Handler<FilePathParams, { ok: boolean }> = async ({ filePath
   if (!sessionId || resolved === undefined) return { ok: false };
 
   const baselineUri = vscode.Uri.from({
-    scheme: "kimi-baseline",
+    scheme: 'kimi-baseline',
     path: `/${resolved.relativePath}`,
     query: new URLSearchParams({ sessionId }).toString(),
   });
   await vscode.commands.executeCommand(
-    "vscode.diff",
+    'vscode.diff',
     baselineUri,
     resolved.uri,
     `${path.basename(resolved.relativePath)} (changes from Kimi)`,
@@ -146,14 +165,20 @@ const checkFileExists: Handler<FilePathParams, boolean> = async ({ filePath }, c
   return (await resolveExistingWorkspaceFile(ctx.workDirUri, filePath)) !== undefined;
 };
 
-const checkFilesExist: Handler<CheckFilesExistParams, Record<string, boolean>> = async ({ paths }, ctx) => {
+const checkFilesExist: Handler<CheckFilesExistParams, Record<string, boolean>> = async (
+  { paths },
+  ctx,
+) => {
   if (!ctx.workDirUri) return {};
   return Object.fromEntries(
     await Promise.all(
-      paths.map(async (filePath) => [
-        filePath,
-        (await resolveExistingWorkspaceFile(ctx.workDirUri!, filePath)) !== undefined,
-      ] as const),
+      paths.map(
+        async (filePath) =>
+          [
+            filePath,
+            (await resolveExistingWorkspaceFile(ctx.workDirUri!, filePath)) !== undefined,
+          ] as const,
+      ),
     ),
   );
 };
@@ -170,7 +195,7 @@ const getImageDataUri: Handler<FilePathParams, string | null> = async ({ filePat
     const stat = await vscode.workspace.fs.stat(resolved.uri);
     if (stat.size > 10 * 1024 * 1024) return null;
     const bytes = await vscode.workspace.fs.readFile(resolved.uri);
-    return `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
+    return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`;
   } catch {
     return null;
   }
@@ -192,7 +217,7 @@ export const fileHandlers: Record<string, Handler<any, any>> = {
 
 function requireBaselineSession(ctx: Parameters<Handler>[1]): BaselineSession {
   const session = ctx.fileManager.getSession(ctx.webviewId);
-  if (session === null) throw new Error("No active session.");
+  if (session === null) throw new Error('No active session.');
   return session;
 }
 
@@ -202,7 +227,10 @@ async function resolveWorkspaceFile(
   allowMissing = false,
 ): Promise<WorkspacePath | undefined> {
   const resolved = resolveWorkspacePath(workDirUri, filePath);
-  if (resolved === undefined || !(await isWorkspacePathContained(workDirUri, resolved.uri, { allowMissing }))) {
+  if (
+    resolved === undefined ||
+    !(await isWorkspacePathContained(workDirUri, resolved.uri, { allowMissing }))
+  ) {
     return undefined;
   }
   return resolved;
@@ -223,8 +251,18 @@ async function resolveExistingWorkspaceFile(
 }
 
 function mediaMime(extension: string): string {
-  return ({
-    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",
-    mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
-  } as Record<string, string>)[extension] ?? "application/octet-stream";
+  return (
+    (
+      {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        gif: 'image/gif',
+        webp: 'image/webp',
+        mp4: 'video/mp4',
+        webm: 'video/webm',
+        mov: 'video/quicktime',
+      } as Record<string, string>
+    )[extension] ?? 'application/octet-stream'
+  );
 }

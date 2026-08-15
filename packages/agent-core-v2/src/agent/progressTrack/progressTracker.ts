@@ -19,10 +19,12 @@ export interface ToolReceipt {
   /** Raw command text (Bash tool only). */
   readonly command?: string | undefined;
   /** File paths touched by the call (from ToolAccesses). */
-  readonly paths?: {
-    readonly read: readonly string[];
-    readonly write: readonly string[];
-  } | undefined;
+  readonly paths?:
+    | {
+        readonly read: readonly string[];
+        readonly write: readonly string[];
+      }
+    | undefined;
   readonly success: boolean;
   readonly isError?: boolean | undefined;
 }
@@ -225,7 +227,11 @@ export class ProgressTracker {
     return { ...state, mutatedBases: bases };
   }
 
-  private noteAction(state: TrackerState, receipt: ToolReceipt, sample: ProgressSample): TrackerState {
+  private noteAction(
+    state: TrackerState,
+    receipt: ToolReceipt,
+    sample: ProgressSample,
+  ): TrackerState {
     const signature = `${receipt.toolName}\u0000${JSON.stringify(receipt.paths ?? {})}`;
     if (state.actions.has(signature)) return state;
     sample.exploration += 1;
@@ -253,6 +259,8 @@ function isReadOnly(receipt: ToolReceipt): boolean {
 }
 
 function isNewRead(receipt: ToolReceipt, state: TrackerState): boolean {
-  return (receipt.paths?.read?.length ?? 0) > 0 &&
-    (receipt.paths?.read ?? []).some((path) => !state.readPaths.has(path));
+  return (
+    (receipt.paths?.read?.length ?? 0) > 0 &&
+    (receipt.paths?.read ?? []).some((path) => !state.readPaths.has(path))
+  );
 }

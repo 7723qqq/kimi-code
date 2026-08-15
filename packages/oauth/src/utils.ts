@@ -17,7 +17,9 @@ export async function readResponseBodyWithLimit(
   const contentLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     await response.body?.cancel().catch(() => {});
-    throw new Error(`Response body too large: ${String(contentLength)} bytes (max ${String(maxBytes)}).`);
+    throw new Error(
+      `Response body too large: ${String(contentLength)} bytes (max ${String(maxBytes)}).`,
+    );
   }
   if (response.body === null) {
     return '';
@@ -31,7 +33,9 @@ export async function readResponseBodyWithLimit(
       if (done) break;
       total += value.byteLength;
       if (total > maxBytes) {
-        throw new Error(`Response body too large: ${String(total)} bytes (max ${String(maxBytes)}).`);
+        throw new Error(
+          `Response body too large: ${String(total)} bytes (max ${String(maxBytes)}).`,
+        );
       }
       chunks.push(value);
     }

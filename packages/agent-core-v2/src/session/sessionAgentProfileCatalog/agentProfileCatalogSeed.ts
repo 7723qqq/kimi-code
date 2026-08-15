@@ -20,8 +20,6 @@ export interface ISessionAgentProfileCatalogSeed {
 export const ISessionAgentProfileCatalogSeed: ServiceIdentifier<ISessionAgentProfileCatalogSeed> =
   createDecorator<ISessionAgentProfileCatalogSeed>('sessionAgentProfileCatalogSeed');
 
-export function sessionAgentProfileCatalogSeed(
-  seed: ISessionAgentProfileCatalogSeed,
-): ScopeSeed {
+export function sessionAgentProfileCatalogSeed(seed: ISessionAgentProfileCatalogSeed): ScopeSeed {
   return [[ISessionAgentProfileCatalogSeed as ServiceIdentifier<unknown>, seed]];
 }

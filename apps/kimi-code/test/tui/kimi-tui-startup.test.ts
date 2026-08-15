@@ -231,12 +231,10 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
       sessionId?: string;
     }) => Promise<unknown[]>;
     Object.assign(harness, {
-      listSessionsPage: vi.fn(
-        async (input: { workDir?: string; sessionId?: string } = {}) => ({
-          items: await listSessions({ workDir: input.workDir, sessionId: input.sessionId }),
-          nextCursor: undefined,
-        }),
-      ),
+      listSessionsPage: vi.fn(async (input: { workDir?: string; sessionId?: string } = {}) => ({
+        items: await listSessions({ workDir: input.workDir, sessionId: input.sessionId }),
+        nextCursor: undefined,
+      })),
     });
   }
   return harness;
@@ -318,10 +316,10 @@ describe('KimiTUI startup', () => {
         defaultPermissionMode: 'auto',
       })),
     });
-    const driver = makeDriver(
-      harness,
-      { ...makeStartupInput({ model: 'k2', yolo: true }), engineV2: true },
-    );
+    const driver = makeDriver(harness, {
+      ...makeStartupInput({ model: 'k2', yolo: true }),
+      engineV2: true,
+    });
 
     await expect(driver.init()).resolves.toBe(false);
 
@@ -521,14 +519,11 @@ describe('KimiTUI startup', () => {
 
   it('carries the --agent/--agent-file binding for the lazy-created first session (v2)', async () => {
     const harness = makeHarness(makeSession());
-    const driver = makeDriver(
-      harness,
-      {
-        ...makeStartupInput({ model: 'k2', agentFiles: ['agent.md'] }),
-        engineV2: true,
-        agentProfile: 'reviewer',
-      },
-    );
+    const driver = makeDriver(harness, {
+      ...makeStartupInput({ model: 'k2', agentFiles: ['agent.md'] }),
+      engineV2: true,
+      agentProfile: 'reviewer',
+    });
 
     await expect(driver.init()).resolves.toBe(false);
 
@@ -1523,9 +1518,9 @@ describe('KimiTUI startup', () => {
     expect(showStatus).toHaveBeenCalledWith('New Models · +2 models.');
   });
 
-  it("stages provider-refresh removals and persists one atomic write on atomic-capable harnesses", async () => {
-    const registryUrl = "https://registry.example.test/v1/models/api.json";
-    const source = { kind: "apiJson", url: registryUrl, apiKey: "sk-test-token" };
+  it('stages provider-refresh removals and persists one atomic write on atomic-capable harnesses', async () => {
+    const registryUrl = 'https://registry.example.test/v1/models/api.json';
+    const source = { kind: 'apiJson', url: registryUrl, apiKey: 'sk-test-token' };
     const replaceConfigSections = vi.fn(async (_sections: Record<string, unknown>) => {});
     const removeProvider = vi.fn(async () => ({}));
     const setConfig = vi.fn(async () => ({}));
@@ -1536,40 +1531,56 @@ describe('KimiTUI startup', () => {
       setConfig,
       getConfig: vi.fn(async () => ({
         providers: {
-          a: { type: "openai", baseUrl: "https://a.example.test/v1", apiKey: "sk-test-token", source },
-          b: { type: "openai", baseUrl: "https://b.example.test/v1", apiKey: "sk-test-token", source },
+          a: {
+            type: 'openai',
+            baseUrl: 'https://a.example.test/v1',
+            apiKey: 'sk-test-token',
+            source,
+          },
+          b: {
+            type: 'openai',
+            baseUrl: 'https://b.example.test/v1',
+            apiKey: 'sk-test-token',
+            source,
+          },
         },
         models: {
-          "a/m1": { provider: "a", model: "m1", maxContextSize: 100, capabilities: ["tool_use"] },
-          "b/m1": { provider: "b", model: "m1", maxContextSize: 100, capabilities: ["tool_use"] },
+          'a/m1': { provider: 'a', model: 'm1', maxContextSize: 100, capabilities: ['tool_use'] },
+          'b/m1': { provider: 'b', model: 'm1', maxContextSize: 100, capabilities: ['tool_use'] },
         },
-        defaultModel: "b/m1",
+        defaultModel: 'b/m1',
         thinking: { enabled: true },
       })),
     });
     const driver = makeDriver(harness, makeStartupInput());
     vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            a: {
-              id: "a",
-              name: "Provider A",
-              api: "https://a.example.test/v1",
-              type: "openai",
-              models: { m1: { id: "m1" } },
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              a: {
+                id: 'a',
+                name: 'Provider A',
+                api: 'https://a.example.test/v1',
+                type: 'openai',
+                models: { m1: { id: 'm1' } },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
       ),
     );
     try {
       const result = await (driver as any).authFlow.refreshProviderModels();
 
       expect(result.failed).toEqual([]);
-      expect(result.changed).toContainEqual({ providerId: "b", providerName: "b", added: 0, removed: 1 });
+      expect(result.changed).toContainEqual({
+        providerId: 'b',
+        providerName: 'b',
+        added: 0,
+        removed: 1,
+      });
       // The removal was staged in memory: no destructive pre-write, exactly
       // one atomic section replace carrying the complete records — with the
       // dangling default model / thinking expressed as cleared sections.
@@ -1577,18 +1588,18 @@ describe('KimiTUI startup', () => {
       expect(setConfig).not.toHaveBeenCalled();
       expect(replaceConfigSections).toHaveBeenCalledTimes(1);
       const sections = replaceConfigSections.mock.calls[0]?.[0] as Record<string, unknown>;
-      expect(Object.keys(sections["providers"] as object)).toEqual(["a"]);
-      expect(sections["models"]).not.toHaveProperty("b/m1");
-      expect(sections["defaultModel"]).toBeUndefined();
-      expect(sections["thinking"]).toBeUndefined();
+      expect(Object.keys(sections['providers'] as object)).toEqual(['a']);
+      expect(sections['models']).not.toHaveProperty('b/m1');
+      expect(sections['defaultModel']).toBeUndefined();
+      expect(sections['thinking']).toBeUndefined();
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it("keeps the two-phase removeProvider/setConfig host on harnesses without atomic replace", async () => {
-    const registryUrl = "https://registry.example.test/v1/models/api.json";
-    const source = { kind: "apiJson", url: registryUrl, apiKey: "sk-test-token" };
+  it('keeps the two-phase removeProvider/setConfig host on harnesses without atomic replace', async () => {
+    const registryUrl = 'https://registry.example.test/v1/models/api.json';
+    const source = { kind: 'apiJson', url: registryUrl, apiKey: 'sk-test-token' };
     const replaceConfigSections = vi.fn(async () => {});
     const removeProvider = vi.fn(async () => ({}));
     const setConfig = vi.fn(async (patch: Record<string, unknown>) => patch);
@@ -1598,39 +1609,50 @@ describe('KimiTUI startup', () => {
       setConfig,
       getConfig: vi.fn(async () => ({
         providers: {
-          a: { type: "openai", baseUrl: "https://a.example.test/v1", apiKey: "sk-test-token", source },
-          b: { type: "openai", baseUrl: "https://b.example.test/v1", apiKey: "sk-test-token", source },
+          a: {
+            type: 'openai',
+            baseUrl: 'https://a.example.test/v1',
+            apiKey: 'sk-test-token',
+            source,
+          },
+          b: {
+            type: 'openai',
+            baseUrl: 'https://b.example.test/v1',
+            apiKey: 'sk-test-token',
+            source,
+          },
         },
         models: {
-          "a/m1": { provider: "a", model: "m1", maxContextSize: 100, capabilities: ["tool_use"] },
-          "b/m1": { provider: "b", model: "m1", maxContextSize: 100, capabilities: ["tool_use"] },
+          'a/m1': { provider: 'a', model: 'm1', maxContextSize: 100, capabilities: ['tool_use'] },
+          'b/m1': { provider: 'b', model: 'm1', maxContextSize: 100, capabilities: ['tool_use'] },
         },
-        defaultModel: "b/m1",
+        defaultModel: 'b/m1',
       })),
     });
     const driver = makeDriver(harness, makeStartupInput());
     vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            a: {
-              id: "a",
-              name: "Provider A",
-              api: "https://a.example.test/v1",
-              type: "openai",
-              models: { m1: { id: "m1" } },
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              a: {
+                id: 'a',
+                name: 'Provider A',
+                api: 'https://a.example.test/v1',
+                type: 'openai',
+                models: { m1: { id: 'm1' } },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
       ),
     );
     try {
       const result = await (driver as any).authFlow.refreshProviderModels();
 
       expect(result.failed).toEqual([]);
-      expect(removeProvider).toHaveBeenCalledWith("b");
+      expect(removeProvider).toHaveBeenCalledWith('b');
       expect(setConfig).toHaveBeenCalledTimes(1);
       expect(replaceConfigSections).not.toHaveBeenCalled();
     } finally {

@@ -1,12 +1,8 @@
-import { t } from '#/i18n';
 import type { Component, MarkdownTheme } from '@moonshot-ai/pi-tui';
-import {
-  Markdown,
-  Text,
-  truncateToWidth,
-  visibleWidth,
-} from '@moonshot-ai/pi-tui';
+import { Markdown, Text, truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
+
+import { t } from '#/i18n';
 
 import { THINKING_PREVIEW_LINES } from '../../constant/rendering';
 import { currentTheme } from '../../theme';
@@ -121,9 +117,10 @@ export class BtwPanelComponent implements Component {
 
   private renderTopBorder(width: number, truncated: boolean): string {
     const paint = (s: string): string => chalk.hex(currentTheme.palette.border)(s);
-    const hint = truncated && this.options.canUseScrollKeys()
-      ? t('tui.dialogs.btwPanel.scrollHint')
-      : t('tui.dialogs.btwPanel.closeHint');
+    const hint =
+      truncated && this.options.canUseScrollKeys()
+        ? t('tui.dialogs.btwPanel.scrollHint')
+        : t('tui.dialogs.btwPanel.closeHint');
     const title =
       chalk.hex(currentTheme.palette.accent).bold(t('tui.dialogs.btwPanel.title')) +
       paint('─ ') +
@@ -142,7 +139,9 @@ export class BtwPanelComponent implements Component {
       lines.push(...this.renderTurn(turn, width));
     }
     if (this.turns.length === 0) {
-      lines.push(chalk.hex(currentTheme.palette.textDim)(t('tui.dialogs.btwPanel.readyForSideQuestion')));
+      lines.push(
+        chalk.hex(currentTheme.palette.textDim)(t('tui.dialogs.btwPanel.readyForSideQuestion')),
+      );
     }
     lines.push(...this.renderTransientNotices(width));
     return this.fitBodyLines(lines);
@@ -159,8 +158,7 @@ export class BtwPanelComponent implements Component {
   private fitBodyLines(lines: string[]): BtwBodyRender {
     const bodyLimit = this.collapsedBodyLimit();
     const targetUncapped = Math.max(this.minBodyLines, lines.length);
-    const target =
-      bodyLimit === undefined ? targetUncapped : Math.min(bodyLimit, targetUncapped);
+    const target = bodyLimit === undefined ? targetUncapped : Math.min(bodyLimit, targetUncapped);
     this.minBodyLines = Math.max(this.minBodyLines, target);
 
     if (lines.length > target) {
@@ -200,19 +198,30 @@ export class BtwPanelComponent implements Component {
     const thinking = turn.thinking.trim();
     if (answer.length > 0) {
       lines.push(
-        ...new Markdown(answer, 0, 0, this.options.markdownTheme, undefined, createMarkdownOptions()).render(width),
+        ...new Markdown(
+          answer,
+          0,
+          0,
+          this.options.markdownTheme,
+          undefined,
+          createMarkdownOptions(),
+        ).render(width),
       );
     } else if (thinking.length > 0) {
-      const thinkingLines = new Text(chalk.hex(currentTheme.palette.textDim)(thinking), 0, 0).render(
-        width,
-      );
+      const thinkingLines = new Text(
+        chalk.hex(currentTheme.palette.textDim)(thinking),
+        0,
+        0,
+      ).render(width);
       const visibleThinking =
         thinkingLines.length > THINKING_PREVIEW_LINES
           ? thinkingLines.slice(thinkingLines.length - THINKING_PREVIEW_LINES)
           : thinkingLines;
       lines.push(...visibleThinking);
     } else if (turn.error === undefined) {
-      lines.push(chalk.hex(currentTheme.palette.textDim)(t('tui.dialogs.btwPanel.waitingForAnswer')));
+      lines.push(
+        chalk.hex(currentTheme.palette.textDim)(t('tui.dialogs.btwPanel.waitingForAnswer')),
+      );
     }
     if (turn.error !== undefined) {
       const error = chalk.hex(currentTheme.palette.error)(turn.error);
@@ -246,9 +255,7 @@ export class BtwPanelComponent implements Component {
     if (this.maxScrollTop <= 0) return false;
     const current = this.followTail ? this.maxScrollTop : this.scrollTop;
     const next =
-      direction === 'up'
-        ? Math.max(0, current - 1)
-        : Math.min(this.maxScrollTop, current + 1);
+      direction === 'up' ? Math.max(0, current - 1) : Math.min(this.maxScrollTop, current + 1);
     this.scrollTop = next;
     this.followTail = next === this.maxScrollTop;
     return true;

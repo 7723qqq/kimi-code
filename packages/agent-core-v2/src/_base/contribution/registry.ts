@@ -33,11 +33,7 @@ export class ContributionRegistry<T> extends Disposable {
   private readonly onDidChangeEmitter = this._register(new Emitter<string>());
   readonly onDidChange: Event<string> = this.onDidChangeEmitter.event;
 
-  register(
-    sourceId: string,
-    contribution: T,
-    options?: RegisterContributionOptions,
-  ): IDisposable {
+  register(sourceId: string, contribution: T, options?: RegisterContributionOptions): IDisposable {
     const registration: ContributionRegistration<T> = {
       sourceId,
       priority: options?.priority ?? 0,

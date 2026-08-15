@@ -62,7 +62,5 @@ export function opToWireRecord(op: Op, now = Date.now()): WireRecord {
 
 export function wireRecordToPayload(record: WireRecord): unknown {
   const { type: _type, time: _time, ...payload } = record;
-  return Object.keys(payload).length === 1 && 'payload' in payload
-    ? payload['payload']
-    : payload;
+  return Object.keys(payload).length === 1 && 'payload' in payload ? payload['payload'] : payload;
 }

@@ -9,11 +9,13 @@
 // their dynamic imports + query-string cache busting do not distort the
 // coverage report of this file (Node's coverage keys scripts by URL).
 
-import { expect, test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
+import { expect, test } from 'vitest';
+
 import { copyFileRange, fsyncDir } from '../src/compaction.js';
 
 async function tmpDir(): Promise<string> {

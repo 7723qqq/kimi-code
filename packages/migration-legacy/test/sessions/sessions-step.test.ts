@@ -1,11 +1,13 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+
+import { targetSessionIndex } from '../../src/paths.js';
 import { migrateSessionsStep } from '../../src/sessions/index.js';
 import { oldMd5BucketName } from '../../src/sessions/workdir-bucket.js';
-import { targetSessionIndex } from '../../src/paths.js';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures', import.meta.url));
 const FIXTURE_KIMI = join(FIXTURES, 'multi-workdir', '.kimi');
@@ -77,9 +79,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
     // The user deletes one migrated session's target dir, but its index line
     // survives. A re-run re-migrates that session from scratch.
     const indexPath = targetSessionIndex(targetHome);
-    const firstLine = (await readFile(indexPath, 'utf-8'))
-      .split('\n')
-      .find((l) => l.length > 0)!;
+    const firstLine = (await readFile(indexPath, 'utf-8')).split('\n').find((l) => l.length > 0)!;
     await rm((JSON.parse(firstLine) as { sessionDir: string }).sessionDir, {
       recursive: true,
       force: true,
@@ -123,10 +123,7 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
       );
       const bucket = join(src, 'sessions', oldMd5BucketName(workdir));
       await mkdir(join(bucket, 'corrupt-uuid'), { recursive: true });
-      await writeFile(
-        join(bucket, 'corrupt-uuid', 'context.jsonl'),
-        'not-json\n{broken\n}}}\n',
-      );
+      await writeFile(join(bucket, 'corrupt-uuid', 'context.jsonl'), 'not-json\n{broken\n}}}\n');
       await writeFile(join(bucket, 'corrupt-uuid', 'state.json'), '{}');
 
       const report = await migrateSessionsStep({ sourceHome: src, targetHome });

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import en from '../src/i18n-locales/en';
 import zh from '../src/i18n-locales/zh';
 

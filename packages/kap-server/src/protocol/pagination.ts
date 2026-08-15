@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { ErrorCode } from './error-codes';
 import { t } from '../i18n';
+import { ErrorCode } from './error-codes';
 
 export const cursorQuerySchema = z
   .object({

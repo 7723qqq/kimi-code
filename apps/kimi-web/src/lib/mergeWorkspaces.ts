@@ -38,12 +38,7 @@ export interface MergeWorkspacesInput {
  * derived workspace (id = root = cwd). Real workspaces win on root.
  */
 export function mergeWorkspaces(input: MergeWorkspacesInput): AppWorkspace[] {
-  const {
-    workspaces,
-    sessions,
-    hiddenWorkspaceRoots,
-    sessionsHasMoreByWorkspace,
-  } = input;
+  const { workspaces, sessions, hiddenWorkspaceRoots, sessionsHasMoreByWorkspace } = input;
 
   // "Same root?" is always decided by the folded key; the first-seen original
   // string is kept for display.

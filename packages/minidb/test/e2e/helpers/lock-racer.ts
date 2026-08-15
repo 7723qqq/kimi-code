@@ -5,6 +5,7 @@
 // then races to acquire the lock and prints "R<round> <pid> <0|1>".
 
 import fs from 'node:fs';
+
 import { LockFile } from '../../../src/lockfile.js';
 
 const lockPath = process.argv[2]!;

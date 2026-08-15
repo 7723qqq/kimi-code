@@ -18,9 +18,10 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const __dirname = import.meta.dirname;
 const SRC_ROOT = join(__dirname, '..', '..', 'src');
 
 const VENDOR_GATE_RE = /[!=]==?\s*'kimi'|'kimi'\s*[!=]==?|\bcase\s+'kimi'\s*:/;
@@ -82,9 +83,9 @@ describe('vendor-name gates', () => {
   it('ignores comments, brand/env names, and kimi as data', () => {
     const hits = findVendorGates(
       [
-        '// v1 `provider.type === \'kimi\'` gate restored.',
-        ' * `provider.type === \'kimi\'` parity): strict validation',
-        '/* legacy: provider.type === \'kimi\' */',
+        "// v1 `provider.type === 'kimi'` gate restored.",
+        " * `provider.type === 'kimi'` parity): strict validation",
+        "/* legacy: provider.type === 'kimi' */",
         'const home = process.env.KIMI_CODE_HOME;',
         `const event = { provider_type: 'kimi' };`,
         `const provider = { type: 'kimi', oauth };`,

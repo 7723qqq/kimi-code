@@ -12,12 +12,12 @@ import type { Scope } from '@moonshot-ai/agent-core-v2';
 import { WebSocketServer } from 'ws';
 
 import type { CredentialValidator } from '../../../services/auth/credentials';
+import { selectWsBearerProtocol } from '../bearerProtocol';
 import { type IConnectionRegistry } from '../connectionRegistry';
-import type { SessionEventBroadcaster } from './sessionEventBroadcaster';
 import type { FsWatchBridge } from './fsWatchBridge';
+import type { SessionEventBroadcaster } from './sessionEventBroadcaster';
 import type { JournalLogger } from './sessionEventJournal';
 import { WsConnectionV1 } from './wsConnectionV1';
-import { selectWsBearerProtocol } from '../bearerProtocol';
 
 export const WS_PATH = '/api/v1/ws';
 
@@ -38,7 +38,11 @@ export interface RegisterWsV1Options {
 
 export function registerWsV1(core: Scope, opts: RegisterWsV1Options): WebSocketServer {
   void core; // the broadcaster already holds the Core scope
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024, handleProtocols: selectWsBearerProtocol });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: 4 * 1024 * 1024,
+    handleProtocols: selectWsBearerProtocol,
+  });
   const { registry, broadcaster } = opts;
 
   wss.on('connection', (socket, req) => {

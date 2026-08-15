@@ -6,7 +6,6 @@
 import { z } from 'zod';
 
 import { messageRoleSchema, messageSchema } from './message';
-
 import { cursorQuerySchema } from './pagination';
 
 export const listMessagesQuerySchema = cursorQuerySchema.and(

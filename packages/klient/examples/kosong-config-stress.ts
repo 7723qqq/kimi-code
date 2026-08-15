@@ -31,14 +31,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
-
-
 import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
 import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
 import { IKosongConfigService } from '@moonshot-ai/agent-core-v2/app/kosongConfig/kosongConfig';
 import { type Klient } from '@moonshot-ai/klient';
 import { createKlient } from '@moonshot-ai/klient/memory';
+
+import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
 
 function assert(cond: boolean, message: string): asserts cond {
   if (!cond) throw new Error(`assertion failed: ${message}`);
@@ -161,7 +160,9 @@ async function main(): Promise<void> {
     await phase('concurrent mixed sections', 41, async () => {
       await Promise.all([
         ...Array.from({ length: 30 }, (_, i) => kosong.removeProvider(`seq_${String(i)}`)),
-        ...Array.from({ length: 10 }, (_, i) => kosong.addProvider(anonymousModel(`mix_${String(i)}`))),
+        ...Array.from({ length: 10 }, (_, i) =>
+          kosong.addProvider(anonymousModel(`mix_${String(i)}`)),
+        ),
         kosong.setDefaultModel('churn_b'),
       ]);
       const providers = await config.get<ProvidersSectionView>('providers');
@@ -170,7 +171,10 @@ async function main(): Promise<void> {
         assert(providers[`seq_${String(i)}`] === undefined, `seq_${String(i)} removal persisted`);
       }
       for (let i = 0; i < 10; i += 1) {
-        assert(models[`mix_${String(i)}`]?.model === `mix_${String(i)}-model`, `mix_${String(i)} persisted`);
+        assert(
+          models[`mix_${String(i)}`]?.model === `mix_${String(i)}-model`,
+          `mix_${String(i)} persisted`,
+        );
       }
       assert((await config.get<string>('defaultModel')) === 'churn_b', 'default flip persisted');
     });
@@ -236,7 +240,9 @@ async function main(): Promise<void> {
       for (const [section, expected] of Object.entries(snapshot)) {
         const actual: unknown = await klient2.global.config.get(section);
         if (stable(actual) !== stable(expected)) {
-          console.error(`[diff] ${section}\n  expected: ${stable(expected)}\n  actual:   ${stable(actual)}`);
+          console.error(
+            `[diff] ${section}\n  expected: ${stable(expected)}\n  actual:   ${stable(actual)}`,
+          );
         }
         assert(
           stable(actual) === stable(expected),

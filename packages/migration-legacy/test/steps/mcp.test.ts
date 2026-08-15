@@ -1,7 +1,9 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+
 import { migrateMcpStep } from '../../src/steps/mcp.js';
 
 let src: string;
@@ -54,7 +56,7 @@ describe('migrateMcpStep', () => {
     expect(r.mergedServers).toEqual([]);
   });
 
-  it('drops MCP server entries kimi-code\'s schema rejects', async () => {
+  it("drops MCP server entries kimi-code's schema rejects", async () => {
     await writeFile(
       join(src, 'mcp.json'),
       JSON.stringify({

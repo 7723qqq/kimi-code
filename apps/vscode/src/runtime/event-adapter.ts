@@ -157,12 +157,7 @@ export function adaptSdkEvent(
   const mapped = mapLegacyWireEvent(state, sdkEvent, mainAgentId);
   if (mapped.event === undefined) return { state: mapped.state };
 
-  const routed = routeSubagentEvent(
-    mapped.state,
-    sdkEvent.agentId,
-    mapped.event,
-    mainAgentId,
-  );
+  const routed = routeSubagentEvent(mapped.state, sdkEvent.agentId, mapped.event, mainAgentId);
   if (routed === undefined) return { state: mapped.state };
 
   return {
@@ -240,19 +235,17 @@ function mapLegacyWireEvent(
         event: { type: 'ContentPart', payload: { type: 'think', think: sdkEvent.delta } },
       };
     case 'tool.call.started': {
-      const toolCallId = scopedToolCallId(
-        sdkEvent.agentId,
-        sdkEvent.toolCallId,
-        mainAgentId,
-      );
-      const display = sdkEvent.display === undefined ? undefined : toLegacyDisplay(sdkEvent.display);
+      const toolCallId = scopedToolCallId(sdkEvent.agentId, sdkEvent.toolCallId, mainAgentId);
+      const display =
+        sdkEvent.display === undefined ? undefined : toLegacyDisplay(sdkEvent.display);
       return {
-        state: display === undefined
-          ? state
-          : {
-              ...state,
-              toolDisplays: { ...state.toolDisplays, [toolCallId]: display },
-            },
+        state:
+          display === undefined
+            ? state
+            : {
+                ...state,
+                toolDisplays: { ...state.toolDisplays, [toolCallId]: display },
+              },
         event: {
           type: 'ToolCall',
           payload: {
@@ -270,22 +263,14 @@ function mapLegacyWireEvent(
       const event: AdaptedToolCallPartEvent = {
         type: 'ToolCallPart',
         payload: {
-          tool_call_id: scopedToolCallId(
-            sdkEvent.agentId,
-            sdkEvent.toolCallId,
-            mainAgentId,
-          ),
+          tool_call_id: scopedToolCallId(sdkEvent.agentId, sdkEvent.toolCallId, mainAgentId),
           arguments_part: sdkEvent.argumentsPart,
         },
       };
       return { state, event: event as LegacyWireEvent };
     }
     case 'tool.result': {
-      const toolCallId = scopedToolCallId(
-        sdkEvent.agentId,
-        sdkEvent.toolCallId,
-        mainAgentId,
-      );
+      const toolCallId = scopedToolCallId(sdkEvent.agentId, sdkEvent.toolCallId, mainAgentId);
       const display = state.toolDisplays[toolCallId] ?? [];
       const toolDisplays = { ...state.toolDisplays };
       delete toolDisplays[toolCallId];
@@ -362,15 +347,15 @@ function mapStatusUpdate(
   };
 }
 
-function usageDelta(current: AdapterTokenUsage, previous: AdapterTokenUsage | undefined): TokenUsage {
+function usageDelta(
+  current: AdapterTokenUsage,
+  previous: AdapterTokenUsage | undefined,
+): TokenUsage {
   return {
     input_other: delta(current.inputOther, previous?.inputOther),
     output: delta(current.output, previous?.output),
     input_cache_read: delta(current.inputCacheRead, previous?.inputCacheRead),
-    input_cache_creation: delta(
-      current.inputCacheCreation,
-      previous?.inputCacheCreation,
-    ),
+    input_cache_creation: delta(current.inputCacheCreation, previous?.inputCacheCreation),
   };
 }
 
@@ -447,6 +432,6 @@ function serializeDetails(details: Record<string, unknown> | undefined): string 
   try {
     return JSON.stringify(details, null, 2);
   } catch {
-    return "[Unable to serialize error details]";
+    return '[Unable to serialize error details]';
   }
 }

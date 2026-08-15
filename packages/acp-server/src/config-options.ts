@@ -21,8 +21,8 @@
 
 import type { SessionConfigOption, SessionConfigSelectOption } from '@agentclientprotocol/sdk';
 
-import { ACP_MODES, type AcpModeId } from './modes';
 import type { AcpModelEntry } from './model-catalog';
+import { ACP_MODES, type AcpModeId } from './modes';
 
 /**
  * Project the catalog into the `SessionConfigOption` `model` arm. One option

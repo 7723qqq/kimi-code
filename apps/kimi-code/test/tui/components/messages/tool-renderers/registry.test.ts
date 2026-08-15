@@ -206,11 +206,11 @@ describe('tool-result registry', () => {
 
   it('CreateGoal renders the created goal summary without raw JSON', () => {
     const renderer = pickResultRenderer('CreateGoal');
-    const out = strip(joinRender(renderer(
-      call('CreateGoal', { objective: 'Ship feature X' }),
-      result(goalOutput()),
-      ctx,
-    )));
+    const out = strip(
+      joinRender(
+        renderer(call('CreateGoal', { objective: 'Ship feature X' }), result(goalOutput()), ctx),
+      ),
+    );
     expect(out).toContain('Goal active: Ship feature X');
     expect(out).not.toContain('"goalId"');
   });

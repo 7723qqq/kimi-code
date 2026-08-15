@@ -109,13 +109,19 @@ export const en = {
     outputLimitExceeded:
       'Output limit exceeded: the command produced more than {{mib}} MiB and was terminated. Redirect large output to a file (e.g. `command > out.txt`) and inspect it in slices instead.',
     outputFile: 'Read the output file to retrieve the result: {{path}}',
-    outputPreviewTruncated: 'Showing the last {{bytes}} bytes. No persisted full output is available.',
-    outputPreviewBuffered: 'No persisted full output is available; this preview is the currently buffered task output.',
+    outputPreviewTruncated:
+      'Showing the last {{bytes}} bytes. No persisted full output is available.',
+    outputPreviewBuffered:
+      'No persisted full output is available; this preview is the currently buffered task output.',
     fullOutputSaved: '[Full output saved]',
-    recoverPrompt: 'To recover or continue this subagent, call Agent(resume="{{agentId}}", prompt="Pick up where you left off; redo the last tool call if its result was never observed.").',
-    recoverAgentId: 'Use agent_id ("{{agentId}}"), NOT source_id / task_id ("{{taskId}}") — the two look alike but only agent_id is accepted by the resume parameter.',
-    recoverBackground: 'Add run_in_background=true to keep it backgrounded, or omit it to take the result inline in the current turn.',
-    recoverContext: 'The subagent retains its full prior context across the restart, but any in-flight tool call lost its result and may need to be redone.',
+    recoverPrompt:
+      'To recover or continue this subagent, call Agent(resume="{{agentId}}", prompt="Pick up where you left off; redo the last tool call if its result was never observed.").',
+    recoverAgentId:
+      'Use agent_id ("{{agentId}}"), NOT source_id / task_id ("{{taskId}}") — the two look alike but only agent_id is accepted by the resume parameter.',
+    recoverBackground:
+      'Add run_in_background=true to keep it backgrounded, or omit it to take the result inline in the current turn.',
+    recoverContext:
+      'The subagent retains its full prior context across the restart, but any in-flight tool call lost its result and may need to be redone.',
   },
 
   shell: {
@@ -129,7 +135,8 @@ export const en = {
     backgroundedBrief: 'Backgrounded {{taskId}}',
     abortedBeforeStart: 'Aborted before command started',
     commandCannotBeEmpty: 'Command cannot be empty.',
-    backgroundNotAvailable: 'Background execution is not available for this agent because TaskOutput and TaskStop are not enabled.',
+    backgroundNotAvailable:
+      'Background execution is not available for this agent because TaskOutput and TaskStop are not enabled.',
     descriptionRequired: 'description is required when run_in_background is true.',
     killedByTimeout: 'Command killed by timeout ({{label}})',
     killedByTimeoutBrief: 'Killed by timeout ({{label}})',
@@ -142,17 +149,23 @@ export const en = {
     descriptionLabel: 'description: {{description}}',
     statusLabel: 'status: {{status}}',
     automaticNotification: 'automatic_notification: true',
-    humanShellHint: 'human_shell_hint: Tell the human to run /tasks to open the interactive background-task panel.',
+    humanShellHint:
+      'human_shell_hint: Tell the human to run /tasks to open the interactive background-task panel.',
     nextStepWithTaskOutput: 'do NOT wait, poll, or call TaskOutput on it',
     nextStepAwaitNoTaskOutput: 'do NOT wait or poll',
-    nextStepForegroundDetached: 'next_step: The task now runs in the background. You will be automatically notified when it completes — do NOT wait, poll, or call TaskOutput on it; continue with your current work.\n',
-    nextStepForegroundDetachedNoBg: 'next_step: The task now runs in the background. You will be automatically notified when it completes — do NOT wait or poll; continue with your current work.\n',
-    nextStepBackgroundStarted: 'next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with your current work.\nnext_step: Use TaskStop only if the task must be cancelled.\n',
-    nextStepBackgroundStartedNoBg: 'next_step: You will be automatically notified when it completes.\n',
+    nextStepForegroundDetached:
+      'next_step: The task now runs in the background. You will be automatically notified when it completes — do NOT wait, poll, or call TaskOutput on it; continue with your current work.\n',
+    nextStepForegroundDetachedNoBg:
+      'next_step: The task now runs in the background. You will be automatically notified when it completes — do NOT wait or poll; continue with your current work.\n',
+    nextStepBackgroundStarted:
+      'next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with your current work.\nnext_step: Use TaskStop only if the task must be cancelled.\n',
+    nextStepBackgroundStartedNoBg:
+      'next_step: You will be automatically notified when it completes.\n',
     taskOutputHint: ', or TaskOutput(task_id="{{taskId}}", block=false)',
     outputPathLabel: 'output_path: {{path}}',
     outputSizeLabel: 'output_size_bytes: {{bytes}}',
-    nextStepReadOutput: 'next_step: Use Read with output_path to page through the full log{{hint}}.',
+    nextStepReadOutput:
+      'next_step: Use Read with output_path to page through the full log{{hint}}.',
   },
 
   tools: {
@@ -176,9 +189,11 @@ export const en = {
     toolSelectDesc:
       'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
     nativeToolsTitle: 'Native tools',
-    nativeToolsDesc: 'Use Rust-native implementations for Read, Write, Edit, Grep, Glob and Bash tools.',
+    nativeToolsDesc:
+      'Use Rust-native implementations for Read, Write, Edit, Grep, Glob and Bash tools.',
     rpcMicrotaskTitle: 'RPC microtask scheduling',
-    rpcMicrotaskDesc: 'Use queueMicrotask instead of setTimeout(0) for in-process RPC simulation, reducing per-call latency.',
+    rpcMicrotaskDesc:
+      'Use queueMicrotask instead of setTimeout(0) for in-process RPC simulation, reducing per-call latency.',
   },
 
   // ============================================================================
@@ -188,8 +203,10 @@ export const en = {
     internal: 'Internal error',
     notImplemented: 'Not implemented',
     loopMaxStepsExceeded: 'Loop max steps exceeded',
-    loopMaxStepsAction: 'Raise loop_control.max_steps_per_turn in config.toml, or run "/update-config" then "/reload".',
-    loopMaxStepsMessage: 'Turn exceeded maxSteps={{maxSteps}}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run "/update-config" to update it, then "/reload".',
+    loopMaxStepsAction:
+      'Raise loop_control.max_steps_per_turn in config.toml, or run "/update-config" then "/reload".',
+    loopMaxStepsMessage:
+      'Turn exceeded maxSteps={{maxSteps}}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run "/update-config" to update it, then "/reload".',
     providerSafetyBlocked: 'Provider safety policy blocked the response.',
     goalAlreadyExists: 'A goal is already active',
     goalAlreadyExistsAction: 'Use "/goal replace <objective>" to replace the current goal.',
@@ -198,15 +215,20 @@ export const en = {
     goalObjectiveEmpty: 'Goal objective is empty',
     goalObjectiveEmptyAction: 'Provide a non-empty objective.',
     goalObjectiveTooLong: 'Goal objective is too long',
-    goalObjectiveTooLongAction: 'Keep the objective under 4000 characters; reference long details by file path.',
+    goalObjectiveTooLongAction:
+      'Keep the objective under 4000 characters; reference long details by file path.',
     goalCompletionCriterionEmpty: 'Goal completion criterion is required',
-    goalCompletionCriterionEmptyAction: 'Provide a concrete, verifiable completion criterion (e.g. a test passing or a command exiting 0). Ask the user first when the request is vague.',
+    goalCompletionCriterionEmptyAction:
+      'Provide a concrete, verifiable completion criterion (e.g. a test passing or a command exiting 0). Ask the user first when the request is vague.',
     goalCompletionCriterionTooShort: 'Goal completion criterion is too short',
-    goalCompletionCriterionTooShortAction: 'Describe a concrete, checkable done condition instead of a placeholder.',
+    goalCompletionCriterionTooShortAction:
+      'Describe a concrete, checkable done condition instead of a placeholder.',
     goalStatusInvalid: 'Invalid goal status transition',
-    goalStatusInvalidAction: 'Only an active goal can be paused; resume a blocked goal with "/goal resume".',
+    goalStatusInvalidAction:
+      'Only an active goal can be paused; resume a blocked goal with "/goal resume".',
     goalMetadataReserved: 'Goal metadata is reserved',
-    goalMetadataReservedAction: 'Do not write metadata.custom.goal directly; use the goal lifecycle methods.',
+    goalMetadataReservedAction:
+      'Do not write metadata.custom.goal directly; use the goal lifecycle methods.',
     goalNotResumable: 'Goal is not resumable',
     goalNotResumableAction: 'Only paused or blocked goals can be resumed.',
     goalUnsupportedAgent: 'Goals are unavailable for subagents',
@@ -224,7 +246,8 @@ export const en = {
     providerRateLimit: 'Provider rate limit',
     providerRateLimitAction: 'Retry after the provider rate limit resets.',
     providerFiltered: 'Provider filtered response',
-    providerFilteredAction: 'Revise the prompt or model configuration to avoid provider safety filtering.',
+    providerFilteredAction:
+      'Revise the prompt or model configuration to avoid provider safety filtering.',
     providerAuthError: 'Provider authentication failed',
     providerAuthErrorAction: 'Check provider credentials and authentication configuration.',
     providerOverloaded: 'Provider overloaded',
@@ -253,22 +276,27 @@ export const en = {
     processKillFailed: 'Failed to kill process',
     storageNotFound: 'Stored value not found',
     storageDecodeFailed: 'Stored data is corrupted',
-    storageDecodeFailedAction: 'Inspect the stored document; it is not valid for its declared format.',
+    storageDecodeFailedAction:
+      'Inspect the stored document; it is not valid for its declared format.',
     storageCorrupted: 'Stored data is corrupted',
-    storageCorruptedAction: 'Inspect the backing store; the corrupted entry must be repaired or dropped.',
+    storageCorruptedAction:
+      'Inspect the backing store; the corrupted entry must be repaired or dropped.',
     storageIoFailed: 'Storage I/O failed',
     storageLocked: 'Storage is locked',
     storageLockedAction: 'Another process holds the store; close it or retry later.',
     wireDuplicateOp: 'Duplicate wire op type',
-    wireDuplicateOpAction: 'Two ops registered the same type; rename one. This is a build-time bug.',
+    wireDuplicateOpAction:
+      'Two ops registered the same type; rename one. This is a build-time bug.',
     wireCycle: 'Wire dispatch cycle',
     wireCycleAction: 'An onChange handler re-dispatches endlessly; break the op cycle.',
     wireUnknownRecord: 'Unknown wire record',
     wireUnknownRecordAction: 'The record was written by a newer version; upgrade or drop it.',
     wireWriteFailed: 'Wire journal write failed',
     compactionNoMessages: 'No messages to compact in current history.',
-    compactionActiveTurn: 'Cannot compact while a turn is active. Wait for it to finish, then retry.',
-    compactionOverflowFailed: 'Compaction failed to bring the context under the model window after {{attempts}} attempts.',
+    compactionActiveTurn:
+      'Cannot compact while a turn is active. Wait for it to finish, then retry.',
+    compactionOverflowFailed:
+      'Compaction failed to bring the context under the model window after {{attempts}} attempts.',
     compactionLimitExceeded: 'Compaction limit exceeded ({{limit}}).',
     mcpFileReadFailed: 'Failed to read {{filePath}}: {{error}}',
     mcpJsonParseFailed: 'Invalid JSON in {{filePath}}: {{error}}',
@@ -278,7 +306,8 @@ export const en = {
     swarmMaxSubagents: 'AgentSwarm supports at most {{count}} subagents.',
     swarmPromptRequired: 'prompt_template is required when items are provided.',
     swarmPromptPlaceholder: 'prompt_template must include the {{placeholder}} placeholder.',
-    swarmDuplicatePrompts: 'Duplicate subagent prompts from items {{indexA}} and {{indexB}}. AgentSwarm requires distinct subagents.',
+    swarmDuplicatePrompts:
+      'Duplicate subagent prompts from items {{indexA}} and {{indexB}}. AgentSwarm requires distinct subagents.',
     tooManyBackgroundTasks: 'Too many background tasks are already running.',
     planModeAlreadyActive: 'Already in plan mode',
     mainAgentNotFound: 'Main agent was not found',
@@ -290,7 +319,8 @@ export const en = {
     callerAgentNoModel: 'Caller agent has no model bound',
     subagentNotSubagent: 'Agent instance "{{agentId}}" is not a subagent',
     subagentWrongParent: 'Agent instance "{{agentId}}" does not belong to this parent agent',
-    subagentAlreadyRunning: 'Agent instance "{{agentId}}" is already running and cannot run concurrently',
+    subagentAlreadyRunning:
+      'Agent instance "{{agentId}}" is already running and cannot run concurrently',
     subagentDepthExceeded:
       'Subagent delegation depth exceeded (max {{maxDepth}}) — use a persistent subagent or restructure the delegation',
     rgNotAvailable: 'ripgrep (rg) is not available on PATH',
@@ -326,8 +356,10 @@ export const en = {
     promptsNotPending: 'one or more prompts are not pending',
     noActiveTurnToSteer: 'no active turn to steer into',
     unknownCommand: 'Unknown command "{{name}}"',
-    agentProfileSystemPromptRequired: 'Agent profile "{{name}}" must define systemPrompt or renderSystemPrompt.',
-    webbridgeDaemonNotUp: 'WebBridge daemon did not come up on {{baseUrl}} — check ~/.kimi-webbridge/logs',
+    agentProfileSystemPromptRequired:
+      'Agent profile "{{name}}" must define systemPrompt or renderSystemPrompt.',
+    webbridgeDaemonNotUp:
+      'WebBridge daemon did not come up on {{baseUrl}} — check ~/.kimi-webbridge/logs',
     webbridgeUnsupportedPlatform: 'kimi-webbridge is not supported on {{platform}}/{{arch}}',
     webbridgeStartFailed: 'kimi-webbridge start failed: {{detail}}',
   },
@@ -336,10 +368,14 @@ export const en = {
   // agent-core-v2 goal service strings
   // ============================================================================
   v2Goal: {
-    cancelledReminder: 'The user cancelled the current goal. Ignore earlier active-goal reminders for that goal. Handle the next user request normally unless the user starts or resumes a goal.',
-    forkClearedReminder: 'This fork does not have a current goal. Ignore earlier active-goal reminders from the source session. Handle requests normally unless the user starts a new goal.',
-    completionCriterionEmpty: 'A goal needs a completion criterion — a concrete, verifiable condition for "done".',
-    completionCriterionTooShort: 'The completion criterion is too short (minimum {{min}} characters). Describe a concrete, checkable condition for "done".',
+    cancelledReminder:
+      'The user cancelled the current goal. Ignore earlier active-goal reminders for that goal. Handle the next user request normally unless the user starts or resumes a goal.',
+    forkClearedReminder:
+      'This fork does not have a current goal. Ignore earlier active-goal reminders from the source session. Handle requests normally unless the user starts a new goal.',
+    completionCriterionEmpty:
+      'A goal needs a completion criterion — a concrete, verifiable condition for "done".',
+    completionCriterionTooShort:
+      'The completion criterion is too short (minimum {{min}} characters). Describe a concrete, checkable condition for "done".',
     pausedRateLimit: 'Paused after provider rate limit',
     pausedConnectionError: 'Paused after provider connection error',
     pausedAuthError: 'Paused after provider authentication error',
@@ -350,10 +386,13 @@ export const en = {
     pausedProviderFiltered: 'Paused after provider safety policy block',
     budgetLimited: 'Budget limited after goal budget reached',
     llmNotSet: 'LLM not set, send "/login" to login',
-    budgetStopReminder: 'The goal\'s hard budget was reached. Stop immediately. Do not call any more tools. Write a brief final status message.',
-    budgetToolsRejected: 'Goal budget exhausted; tool calls are rejected. Write your final message.',
+    budgetStopReminder:
+      "The goal's hard budget was reached. Stop immediately. Do not call any more tools. Write a brief final status message.",
+    budgetToolsRejected:
+      'Goal budget exhausted; tool calls are rejected. Write your final message.',
     staleToolResult: 'Goal changed since this turn started; ignored stale goal tool call.',
-    continuationPromptFallback: 'Continue working toward the active goal. Keep the self-audit brief.',
+    continuationPromptFallback:
+      'Continue working toward the active goal. Keep the self-audit brief.',
     onlyMainAgent: 'Goals are only supported by the main agent',
     objectiveCannotBeEmpty: 'Goal objective cannot be empty',
     objectiveTooLong: 'Goal objective cannot exceed {{max}} characters',
@@ -364,7 +403,8 @@ export const en = {
     pausedAfterInterruption: 'Paused after interruption',
     pausedAfterResume: 'Paused after agent resume',
     noCurrentGoal: 'No current goal',
-    budgetBlockReason: 'Budget limited after goal budget reached: {{budgets}} (turn {{turnBudget}}, token {{tokenBudget}}, wall-clock {{wallClockBudget}}ms)',
+    budgetBlockReason:
+      'Budget limited after goal budget reached: {{budgets}} (turn {{turnBudget}}, token {{tokenBudget}}, wall-clock {{wallClockBudget}}ms)',
   },
 
   // ============================================================================
@@ -372,23 +412,32 @@ export const en = {
   // ============================================================================
   v2Mcp: {
     authToolDescription: 'Authenticate with MCP server "{{serverName}}" via OAuth',
-    authToolDescriptionBlock: 'This server requires an OAuth login that has not yet been completed. Calling this tool starts the authorization flow:\n\n1. The tool prints an authorization URL.\n2. **You must show that URL to the user verbatim** and ask them to open it in a browser, sign in, and approve the kimi-code client.\n3. The tool blocks (up to {{timeoutMinutes}} minutes) until the browser redirects back to the local callback listener.\n4. On success, kimi-code reconnects the MCP server and the real tools replace this synthetic tool.\n\nTake no arguments. Treat the URL as sensitive — do not modify it or strip query parameters.',
-    authTimeoutSuffix: ' (timeout {{timeoutMinutes}} min). If you cancel, call this tool again to restart the flow.',
-    authErrorUrlSuffix: '\n\nAuthorization URL (still valid if the listener has not timed out): {{authorizationUrl}}',
+    authToolDescriptionBlock:
+      'This server requires an OAuth login that has not yet been completed. Calling this tool starts the authorization flow:\n\n1. The tool prints an authorization URL.\n2. **You must show that URL to the user verbatim** and ask them to open it in a browser, sign in, and approve the kimi-code client.\n3. The tool blocks (up to {{timeoutMinutes}} minutes) until the browser redirects back to the local callback listener.\n4. On success, kimi-code reconnects the MCP server and the real tools replace this synthetic tool.\n\nTake no arguments. Treat the URL as sensitive — do not modify it or strip query parameters.',
+    authTimeoutSuffix:
+      ' (timeout {{timeoutMinutes}} min). If you cancel, call this tool again to restart the flow.',
+    authErrorUrlSuffix:
+      '\n\nAuthorization URL (still valid if the listener has not timed out): {{authorizationUrl}}',
     discoveringOAuth: 'Discovering OAuth metadata for {{serverName}}…',
     alreadyAuthorized: 'Already authorized; reconnecting {{serverName}}…',
-    authorizedReconnected: 'MCP server "{{serverName}}" already had valid OAuth credentials. Reconnected; real tools are available now.',
+    authorizedReconnected:
+      'MCP server "{{serverName}}" already had valid OAuth credentials. Reconnected; real tools are available now.',
     openUrl: 'Open this URL in your browser to authorize "{{serverName}}":',
     waitingForCallback: 'Waiting for the OAuth callback...',
     authorizedReconnecting: 'Authorized — reconnecting {{serverName}}…',
-    authenticated: 'MCP server "{{serverName}}" authenticated successfully. The real MCP tools have replaced this synthetic authenticate tool.',
+    authenticated:
+      'MCP server "{{serverName}}" authenticated successfully. The real MCP tools have replaced this synthetic authenticate tool.',
     oauthFailed: 'OAuth flow for MCP server "{{serverName}}" did not complete: {{message}}',
     requiresOAuth: '{{name}} requires OAuth — run /mcp-config login {{name}}',
-    toolNameCollision: '"{{toolName}}" -> {{qualified}} (collides with "{{collidesWith}}" from the same server)',
-    serverCollisionSummary: 'MCP server "{{serverName}}" registered {{count}} tool name(s) that collide',
+    toolNameCollision:
+      '"{{toolName}}" -> {{qualified}} (collides with "{{collidesWith}}" from the same server)',
+    serverCollisionSummary:
+      'MCP server "{{serverName}}" registered {{count}} tool name(s) that collide',
     losingToolsDropped: 'the losing tools were dropped: {{summary}}',
-    outputTruncated: '\n\n[Output truncated: exceeded {{limit}} character limit. Use pagination or more specific queries to get remaining content.]',
-    binaryPartTooLarge: '[{{kind}}_url dropped: ~{{approxMb}} MB exceeds {{capMb}} MB per-part limit. Try a smaller resource.]',
+    outputTruncated:
+      '\n\n[Output truncated: exceeded {{limit}} character limit. Use pagination or more specific queries to get remaining content.]',
+    binaryPartTooLarge:
+      '[{{kind}}_url dropped: ~{{approxMb}} MB exceeds {{capMb}} MB per-part limit. Try a smaller resource.]',
   },
 
   // ============================================================================
@@ -400,7 +449,8 @@ export const en = {
   },
 
   v2Loop: {
-    maxStepsExceeded: 'Turn exceeded maxSteps={{maxSteps}}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run "/update-config" to update it, then "/reload".',
+    maxStepsExceeded:
+      'Turn exceeded maxSteps={{maxSteps}}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run "/update-config" to update it, then "/reload".',
     providerSafetyBlocked: 'Provider safety policy blocked the response.',
   },
 
@@ -462,7 +512,8 @@ export const en = {
       statusInstalled: 'installed',
     },
     systemd: {
-      alreadyExists: 'systemd unit already installed at {{path}}. Rerun with --force to replace it.',
+      alreadyExists:
+        'systemd unit already installed at {{path}}. Rerun with --force to replace it.',
       installed: 'Kimi server systemd unit {{status}} at {{path}} (port {{port}}).',
       nothingToRemove: 'systemd unit was not installed; nothing to remove.',
       removed: 'systemd unit removed ({{path}}).',
@@ -480,7 +531,8 @@ export const en = {
       nothingToRemove: 'LaunchAgent was not installed; nothing to remove.',
       removed: 'LaunchAgent removed ({{path}}).',
       notInstalled: 'LaunchAgent is not installed. Run `kimi server install` first.',
-      kickstartBootstrapFailed: 'launchctl kickstart + bootstrap both failed: {{error1}} / {{error2}}',
+      kickstartBootstrapFailed:
+        'launchctl kickstart + bootstrap both failed: {{error1}} / {{error2}}',
       kickstartFailedAfterBootstrap: 'launchctl kickstart failed after bootstrap: {{error}}',
       started: 'Kimi server started ({{name}}).',
       killBootoutFailed: 'launchctl kill + bootout both failed: {{error1}} / {{error2}}',
@@ -516,13 +568,16 @@ export const en = {
     grepFailed: 'Failed to grep: {{reason}}',
     grepNoResults: 'No matches found. Try a different pattern or path.',
     globTimedOut: 'Glob timed out after {{seconds}}s; partial results returned.',
-    globNoSensitiveMatches: 'No non-sensitive matches found ({{count}} sensitive file(s) filtered).',
+    globNoSensitiveMatches:
+      'No non-sensitive matches found ({{count}} sensitive file(s) filtered).',
     globTruncated: 'Only the first {{count}} matches are returned.',
     sensitiveFilesFiltered: 'Filtered {{count}} sensitive file(s).',
     foundMatches: 'Found {{count}} matches',
-    bufferTruncated: '[stdout truncated at {{bytes}} bytes; results may be incomplete — use a more specific pattern]',
+    bufferTruncated:
+      '[stdout truncated at {{bytes}} bytes; results may be incomplete — use a more specific pattern]',
     grepBufferTruncated: '[stdout truncated at {{bytes}} bytes; incomplete trailing line omitted]',
-    paginationTruncated: 'Results truncated to {{headLimit}} lines (total: {{total}}). Use offset={{nextOffset}} to see more.',
+    paginationTruncated:
+      'Results truncated to {{headLimit}} lines (total: {{total}}). Use offset={{nextOffset}} to see more.',
     writeAppended: 'Appended {{bytes}} bytes to {{path}}',
     writeWrote: 'Wrote {{bytes}} bytes to {{path}}',
     writeFailedParentNotFound: 'Failed to write {{path}}: parent directory does not exist.',
@@ -550,12 +605,14 @@ export const en = {
       networkError: 'Failed to fetch URL due to network error: {{url}}. {{message}}',
       passthroughNote: 'The returned content is the full response body, returned verbatim.',
       extractedNote: 'The returned content is the main text extracted from the page.',
-      citeReminder: 'If you use it in your answer, cite this page as a markdown link, e.g. [title](url).',
+      citeReminder:
+        'If you use it in your answer, cite this page as a markdown link, e.g. [title](url).',
       invalidUrl: 'Invalid URL: "{{url}}"',
       unsupportedScheme: 'Unsupported URL scheme "{{scheme}}" — only http(s) allowed.',
       privateAddress: 'Refusing to fetch private address: "{{host}}"',
       privateHost: 'Refusing to fetch private host: "{{host}}"',
-      privateResolved: 'Refusing to fetch host "{{host}}": resolves to private address "{{address}}".',
+      privateResolved:
+        'Refusing to fetch host "{{host}}": resolves to private address "{{address}}".',
       tooManyRedirects: 'Too many redirects while fetching "{{url}}" (limit {{limit}}).',
       bodyTooLarge: 'Response body too large: {{bytes}} bytes exceeds maxBytes ({{maxBytes}}).',
       contentExtractionFailed:
@@ -594,7 +651,8 @@ export const en = {
         'Sandbox mode "{{mode}}" blocks code execution (run_code). Set `[sandbox] mode = "off"` to allow it.',
     },
     spill: {
-      retrievalHint: 'Full output spilled to {{path}} — read it with the Read tool to see the complete result.',
+      retrievalHint:
+        'Full output spilled to {{path}} — read it with the Read tool to see the complete result.',
     },
     sessionQuery: {
       mainAgentOnly: 'The session_query tool is available to the main agent only.',
@@ -603,13 +661,20 @@ export const en = {
     swarm: {
       launching: 'Launching agent swarm: {{description}}',
       childDescription: '{{description}} #{{index}} ({{profileName}})',
-      multipleDenied: 'AgentSwarm must be called one swarm at a time. Multiple AgentSwarm calls are not forbidden, but issue them sequentially: call one AgentSwarm, wait for its result, then call the next; or merge the work into a single AgentSwarm when one swarm can cover it.',
-      multipleDeniedMixed: 'AgentSwarm must be called one swarm at a time. Multiple AgentSwarm calls are not forbidden, but issue them sequentially: call one AgentSwarm, wait for its result, then call the next; or merge the work into a single AgentSwarm when one swarm can cover it. AgentSwarm also must not be combined with other tools in the same response.',
-      mixedDenied: 'AgentSwarm must be the only tool call in a model response. Retry with a single AgentSwarm call by itself, then call any other tools after it returns.',
-      agentDeniedInSwarmMode: 'The Agent tool is not available in swarm mode. Use AgentSwarm to dispatch subagents in parallel instead. If you need a single subagent, use AgentSwarm with one item or one resume_agent_ids entry.',
-      solitaryMultipleDenied: 'AgentSwarm/SwarmDiscussion must be called one at a time. Multiple calls are not forbidden, but issue them sequentially: call one, wait for its result, then call the next; or merge the work into a single call when one can cover it.',
-      solitaryMultipleDeniedMixed: 'AgentSwarm/SwarmDiscussion must be called one at a time. Multiple calls are not forbidden, but issue them sequentially: call one, wait for its result, then call the next; or merge the work into a single call when one can cover it. These tools also must not be combined with other tools in the same response.',
-      solitaryMixedDenied: 'AgentSwarm/SwarmDiscussion must be the only tool call in a model response. Retry with a single call by itself, then call any other tools after it returns.',
+      multipleDenied:
+        'AgentSwarm must be called one swarm at a time. Multiple AgentSwarm calls are not forbidden, but issue them sequentially: call one AgentSwarm, wait for its result, then call the next; or merge the work into a single AgentSwarm when one swarm can cover it.',
+      multipleDeniedMixed:
+        'AgentSwarm must be called one swarm at a time. Multiple AgentSwarm calls are not forbidden, but issue them sequentially: call one AgentSwarm, wait for its result, then call the next; or merge the work into a single AgentSwarm when one swarm can cover it. AgentSwarm also must not be combined with other tools in the same response.',
+      mixedDenied:
+        'AgentSwarm must be the only tool call in a model response. Retry with a single AgentSwarm call by itself, then call any other tools after it returns.',
+      agentDeniedInSwarmMode:
+        'The Agent tool is not available in swarm mode. Use AgentSwarm to dispatch subagents in parallel instead. If you need a single subagent, use AgentSwarm with one item or one resume_agent_ids entry.',
+      solitaryMultipleDenied:
+        'AgentSwarm/SwarmDiscussion must be called one at a time. Multiple calls are not forbidden, but issue them sequentially: call one, wait for its result, then call the next; or merge the work into a single call when one can cover it.',
+      solitaryMultipleDeniedMixed:
+        'AgentSwarm/SwarmDiscussion must be called one at a time. Multiple calls are not forbidden, but issue them sequentially: call one, wait for its result, then call the next; or merge the work into a single call when one can cover it. These tools also must not be combined with other tools in the same response.',
+      solitaryMixedDenied:
+        'AgentSwarm/SwarmDiscussion must be the only tool call in a model response. Retry with a single call by itself, then call any other tools after it returns.',
     },
     discussion: {
       launching: 'Roundtable discussion: {{topic}}',
@@ -626,23 +691,31 @@ export const en = {
       rootNotDirectory: 'Plugin root is not a directory: {{path}}',
       noGithubMeta: 'Plugin "{{id}}" has no GitHub metadata',
     },
-    oldStringNotFound: 'old_string not found in {{path}}, the file contents may be out of date. Please use the Read Tool to reload the content.',
-    oldStringNotUnique: 'old_string is not unique in {{path}} (found {{count}} occurrences). To replace every occurrence, set replace_all=true. To replace only one occurrence, include more surrounding context in old_string.',
+    oldStringNotFound:
+      'old_string not found in {{path}}, the file contents may be out of date. Please use the Read Tool to reload the content.',
+    oldStringNotUnique:
+      'old_string is not unique in {{path}} (found {{count}} occurrences). To replace every occurrence, set replace_all=true. To replace only one occurrence, include more surrounding context in old_string.',
     planMode: {
       alreadyActive: 'Plan mode is already active. Use ExitPlanMode when the plan is ready.',
       enterFailed: 'Failed to enter plan mode.',
       enterFailedDetail: 'Failed to enter plan mode: {{message}}',
-      exitOnlyInPlanMode: 'ExitPlanMode can only be called while plan mode is active. Use EnterPlanMode (or /plan) first.',
+      exitOnlyInPlanMode:
+        'ExitPlanMode can only be called while plan mode is active. Use EnterPlanMode (or /plan) first.',
       exitFailed: 'Failed to exit plan mode.',
       exitFailedDetail: 'Failed to exit plan mode: {{message}}',
       readFailed: 'Failed to read plan file.',
       readFailedDetail: 'Failed to read plan file: {{message}}',
-      noPlanFile: 'No plan file found. Write the plan to the current plan file first, then call ExitPlanMode.',
-      noPlanFileDetail: 'No plan file found. Write your plan to {{path}} first, then call ExitPlanMode.',
-      selectedApproach: 'Selected approach: {{label}}\nExecute ONLY the selected approach. Do not pick-and-choose individual tasks from other approaches.',
+      noPlanFile:
+        'No plan file found. Write the plan to the current plan file first, then call ExitPlanMode.',
+      noPlanFileDetail:
+        'No plan file found. Write your plan to {{path}} first, then call ExitPlanMode.',
+      selectedApproach:
+        'Selected approach: {{label}}\nExecute ONLY the selected approach. Do not pick-and-choose individual tasks from other approaches.',
       planSaved: 'Plan saved to: {{path}}\n\n',
-      planApproved: 'Plan mode deactivated. All tools are now available.\n{{savedTo}}## Approved Plan:\n{{plan}}',
-      planAutoApproved: 'Plan mode deactivated. All tools are now available.\nNote: this plan was auto-approved without user review — the user has NOT explicitly approved it. Follow the user\'s original instructions on whether to proceed with execution; if they asked you to stop, wait, or only summarize after planning, do not start executing.\n{{savedTo}}## Plan (auto-approved, not user-reviewed):\n',
+      planApproved:
+        'Plan mode deactivated. All tools are now available.\n{{savedTo}}## Approved Plan:\n{{plan}}',
+      planAutoApproved:
+        "Plan mode deactivated. All tools are now available.\nNote: this plan was auto-approved without user review — the user has NOT explicitly approved it. Follow the user's original instructions on whether to proceed with execution; if they asked you to stop, wait, or only summarize after planning, do not start executing.\n{{savedTo}}## Plan (auto-approved, not user-reviewed):\n",
       exitedPlanMode: 'Exited plan mode. {{prefix}}{{plan}}',
       approvalDismissed: 'Plan approval dismissed. Plan mode remains active.',
       rejected: 'Plan rejected by user. Plan mode deactivated.',
@@ -674,9 +747,12 @@ export const en = {
     },
     task: {
       notFound: 'Task not found: {{taskId}}',
-      outputTruncatedHint: 'Only the last {{bytes}} bytes are shown above. Use the Read tool with the output_path to see the full content.',
-      outputCompleteHint: 'The preview above is the complete output. Use the Read tool with the output_path to see the full content.',
-      stillRunningHint: 'The task is still running after waiting. Do not block on it again — the result arrives automatically.',
+      outputTruncatedHint:
+        'Only the last {{bytes}} bytes are shown above. Use the Read tool with the output_path to see the full content.',
+      outputCompleteHint:
+        'The preview above is the complete output. Use the Read tool with the output_path to see the full content.',
+      stillRunningHint:
+        'The task is still running after waiting. Do not block on it again — the result arrives automatically.',
       truncatedFull: '[Truncated. Full output: {{path}}]',
       truncatedNoLog: '[Truncated. No persisted full log is available for this task.]',
       noOutput: '[no output available]',
@@ -687,12 +763,15 @@ export const en = {
     },
     agent: {
       promptEmpty: 'prompt must not be empty or whitespace-only',
-      cannotSetSubagentTypeOnResume: 'Cannot set subagent_type when resuming an existing agent. Resume by agent id only.',
+      cannotSetSubagentTypeOnResume:
+        'Cannot set subagent_type when resuming an existing agent. Resume by agent id only.',
       stoppedBeforeFinish: 'The subagent was stopped before it finished.',
       statusRunning: 'status: running',
       autoNotification: 'automatic_notification: true',
-      completionNotice: 'next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with your current work.',
-      resumeHint: 'resume_hint: To continue or recover this subagent, call Agent(resume="{{agentId}}", prompt="Pick up where you left off; redo the last tool call if its result was never observed.").',
+      completionNotice:
+        'next_step: The completion arrives automatically in a later turn — do NOT wait, poll, or call TaskOutput on it; continue with your current work.',
+      resumeHint:
+        'resume_hint: To continue or recover this subagent, call Agent(resume="{{agentId}}", prompt="Pick up where you left off; redo the last tool call if its result was never observed.").',
       statusCompleted: 'status: completed',
       statusFailed: 'status: failed',
       unknownError: 'unknown error',
@@ -705,11 +784,15 @@ export const en = {
     readMedia: {
       pathEmpty: 'File path cannot be empty.',
       isTextFile: '"{{path}}" is a text file. Use Read to read text files.',
-      notSupported: '"{{path}}" is not a supported image or video file. Use Read for text files, or Bash or an MCP tool for other binary formats.',
-      noImageSupport: 'The current model does not support image input. Tell the user to use a model with image input capability.',
-      noVideoSupport: 'The current model does not support video input. Tell the user to use a model with video input capability.',
+      notSupported:
+        '"{{path}}" is not a supported image or video file. Use Read for text files, or Bash or an MCP tool for other binary formats.',
+      noImageSupport:
+        'The current model does not support image input. Tell the user to use a model with image input capability.',
+      noVideoSupport:
+        'The current model does not support video input. Tell the user to use a model with video input capability.',
       fileEmpty: '"{{path}}" is empty.',
-      fileTooLarge: '"{{path}}" is {{size}} bytes, which exceeds the maximum {{max}}MB for media files.',
+      fileTooLarge:
+        '"{{path}}" is {{size}} bytes, which exceeds the maximum {{max}}MB for media files.',
       regionOnlyForImages: 'region and full_resolution apply only to image files.',
       cannotReadRegion: 'Cannot read region from "{{path}}": {{error}}',
     },
@@ -735,7 +818,8 @@ export const en = {
       invalidArgs: 'Invalid args for tool "{{toolName}}": {{error}}',
       noResult: 'Tool "{{toolName}}" returned no result.',
       wrongType: 'Tool "{{toolName}}" returned a {{type}} instead of a tool result.',
-      malformedOutput: 'Tool "{{toolName}}" returned a result with a missing or malformed "output" field.',
+      malformedOutput:
+        'Tool "{{toolName}}" returned a result with a missing or malformed "output" field.',
       userInterrupted:
         'The user manually interrupted "{{toolName}}" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user\'s next instruction.',
       aborted: 'Tool "{{toolName}}" was aborted',

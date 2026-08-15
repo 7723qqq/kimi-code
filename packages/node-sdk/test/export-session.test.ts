@@ -4,18 +4,15 @@ import { tmpdir } from 'node:os';
 import { join, resolve, basename, dirname } from 'node:path';
 import * as zlib from 'node:zlib';
 
-import { afterEach, describe, expect, it } from 'vitest';
-
 import {
   exportSessionDirectory,
   type ExportSessionDirectorySummary,
 } from '@moonshot-ai/agent-core-v2/app/sessionExport/sessionExportService';
 import { WIRE_PROTOCOL_VERSION } from '@moonshot-ai/agent-core-v2/wire/migration/migration';
-import {
-  createKimiHarness,
-  type KimiError,
-  resolveGlobalLogPath,
-} from '#/index';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { createKimiHarness, type KimiError, resolveGlobalLogPath } from '#/index';
+
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 import { TEST_IDENTITY } from './test-identity';
 
@@ -334,7 +331,11 @@ describe('KimiHarness.exportSession', () => {
     await writeFile(join(sessionDir, 'subagents', 'demo.txt'), 'demo', 'utf-8');
 
     const outputPath = join(workDir, 'export.zip');
-    const result = await harness.exportSession({ id: session.id, outputPath, version: '1.0.0-test' });
+    const result = await harness.exportSession({
+      id: session.id,
+      outputPath,
+      version: '1.0.0-test',
+    });
 
     expect(result.zipPath).toBe(toPosix(outputPath));
     expect(result.entries).toContain('manifest.json');

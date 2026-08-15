@@ -8,15 +8,11 @@
  */
 
 import { type IDisposable, toDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import { LifecycleScope } from '#/app/scopes';
 
-import type {
-  StrictPropertyCheck,
-  TelemetryEventName,
-  TelemetryEventPayload,
-} from './events';
+import type { StrictPropertyCheck, TelemetryEventName, TelemetryEventPayload } from './events';
 import {
   ITelemetryService,
   type ITelemetryAppender,
@@ -40,8 +36,8 @@ export class TelemetryService implements ITelemetryService {
     for (const appender of this.appenders) {
       try {
         appender.track(event, merged);
-      } catch (err) {
-        onUnexpectedError(err);
+      } catch (error) {
+        onUnexpectedError(error);
       }
     }
   }

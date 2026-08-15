@@ -39,17 +39,11 @@ function rootLength(path: string): number {
   return 0;
 }
 
-export function parseWorkspacePathInput(
-  raw: string,
-  homePath: string,
-): ParsedWorkspacePathInput {
+export function parseWorkspacePathInput(raw: string, homePath: string): ParsedWorkspacePathInput {
   let target = normalizeForwardSlashes(expandTilde(raw.trim(), homePath));
   const windowsPath = isWindowsPath(target);
   const isRoot =
-    target === '/' ||
-    target === '//' ||
-    target === '\\\\' ||
-    /^[A-Za-z]:[\\/]$/.test(target);
+    target === '/' || target === '//' || target === '\\\\' || /^[A-Za-z]:[\\/]$/.test(target);
 
   // A trailing backslash is a separator only for Windows-shaped paths. On
   // POSIX it may be part of the directory name and must stay untouched.
@@ -62,9 +56,7 @@ export function parseWorkspacePathInput(
   const separator: WorkspacePathSeparator = backslash > slash ? '\\' : '/';
   const root = rootLength(target);
   const parent =
-    lastSeparator < root
-      ? target.slice(0, root) || '/'
-      : target.slice(0, lastSeparator) || '/';
+    lastSeparator < root ? target.slice(0, root) || '/' : target.slice(0, lastSeparator) || '/';
 
   return {
     target,

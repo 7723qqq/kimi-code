@@ -6,10 +6,11 @@
  * activity baseline; the pure trigger rule lives in `../utils/cache-hint`.
  */
 
-import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import { log, type KimiHarness, type Session, type TokenUsage } from '@moonshot-ai/kimi-code-sdk';
+import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 
 import { getCacheHintConfig, peekCacheHintConfig } from '#/utils/cache-hint-config';
+
 import { currentTuiConfig } from '../commands/config';
 import {
   CacheHintDialogComponent,
@@ -17,8 +18,8 @@ import {
 } from '../components/dialogs/cache-hint-dialog';
 import { saveTuiConfig } from '../config';
 import { MAIN_AGENT_ID } from '../constant/kimi-tui';
-import type { AppState } from '../types';
 import type { TUIState } from '../tui-state';
+import type { AppState } from '../types';
 import { evaluateCacheHint } from '../utils/cache-hint';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { ExtractionResult } from '../utils/image-placeholder';

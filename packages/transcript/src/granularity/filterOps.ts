@@ -13,9 +13,9 @@
  * nothing.
  */
 
+import type { AgentTranscriptSnapshot, TranscriptOperation } from '../ops/operation';
 import type { TranscriptGrade } from './grade';
 import { GRADE_RANK } from './grade';
-import type { AgentTranscriptSnapshot, TranscriptOperation } from '../ops/operation';
 
 export function filterOpsForGrade(
   grade: TranscriptGrade,

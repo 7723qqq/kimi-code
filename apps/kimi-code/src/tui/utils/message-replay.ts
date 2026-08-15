@@ -321,8 +321,7 @@ function contentPartToText(part: ContentPart): string {
   }
 }
 
-const HOOK_RESULT_RE =
-  /<hook_result\s+hook_event="([^"]+)">\n?([\s\S]*?)\n?<\/hook_result>/g;
+const HOOK_RESULT_RE = /<hook_result\s+hook_event="([^"]+)">\n?([\s\S]*?)\n?<\/hook_result>/g;
 
 function formatHookResultBlock(event: string, body: string, blocked: boolean): string {
   return `*${event} hook${blocked ? ' blocked' : ''}*\n\n${body.trim() || '(empty)'}`;

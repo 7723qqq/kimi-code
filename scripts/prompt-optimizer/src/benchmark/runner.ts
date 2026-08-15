@@ -5,9 +5,9 @@
  * collects results, and outputs a structured report.
  */
 
+import { estimateTokens } from '../prompt-parser';
 import type { BenchmarkCase, BenchmarkResult, BenchmarkScores, PromptVariant } from '../types';
 import { runAllEvaluators, type EvalContext } from './evaluators';
-import { estimateTokens } from '../prompt-parser';
 
 export interface RunnerConfig {
   model: string;
@@ -62,7 +62,12 @@ export async function runCase(
 ): Promise<BenchmarkResult> {
   const start = Date.now();
 
-  const response = await caller(variant.content, benchCase.userMessages, config, benchCase.availableTools);
+  const response = await caller(
+    variant.content,
+    benchCase.userMessages,
+    config,
+    benchCase.availableTools,
+  );
 
   const latencyMs = Date.now() - start;
 
@@ -113,8 +118,12 @@ export async function runSuite(
     while (running.length < config.concurrency && queue.length > 0) {
       const benchCase = queue.shift()!;
       const promise = runCase(benchCase, variant, caller, config)
-        .then((result) => { results.push(result); })
-        .finally(() => { void running.splice(running.indexOf(promise), 1); });
+        .then((result) => {
+          results.push(result);
+        })
+        .finally(() => {
+          void running.splice(running.indexOf(promise), 1);
+        });
       running.push(promise);
     }
     if (running.length > 0) {
@@ -153,7 +162,7 @@ export function aggregateResults(results: BenchmarkResult[]): {
     }
   }
   const topViolations = [...violationCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
+    .toSorted((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([rule, count]) => ({ rule, count }));
 

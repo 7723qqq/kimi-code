@@ -1,5 +1,5 @@
-import { createDecorator } from "#/_base/di/instantiation";
-import type { ApprovalResponse } from "#/session/approval/approval";
+import { createDecorator } from '#/_base/di/instantiation';
+import type { ApprovalResponse } from '#/session/approval/approval';
 
 export interface PermissionApprovalResultRecord {
   readonly turnId: number;
@@ -30,5 +30,6 @@ export interface IAgentPermissionRulesService {
   recordApprovalResult(record: PermissionApprovalResultRecord): void;
 }
 
-export const IAgentPermissionRulesService =
-  createDecorator<IAgentPermissionRulesService>('agentPermissionRulesService');
+export const IAgentPermissionRulesService = createDecorator<IAgentPermissionRulesService>(
+  'agentPermissionRulesService',
+);

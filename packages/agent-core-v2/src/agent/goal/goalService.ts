@@ -49,8 +49,6 @@ import {
   tryNativeGoalRenderBudgetLimit,
   tryNativeGoalRenderContinuation,
 } from '#/_base/native-tools';
-import { LifecycleScope } from '#/app/scopes';
-import type { TurnEndedEvent, TurnStartedEvent } from '#/agent/loop/turnEvents';
 import { defineState } from '#/_base/state/stateRegistry';
 import { abortError } from '#/_base/utils/abort';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
@@ -58,20 +56,20 @@ import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInj
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { GoalInjection } from '#/agent/goal/injection/goalInjection';
 import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
+import { LoopErrors } from '#/agent/loop/errors';
 import {
   IAgentLoopService,
   type AfterStepContext,
   type BeforeStepContext,
   type EnqueueReceipt,
 } from '#/agent/loop/loop';
-import { LoopErrors } from '#/agent/loop/errors';
 import { ContinuationStepRequest, MessageStepRequest } from '#/agent/loop/stepRequest';
+import type { TurnEndedEvent, TurnStartedEvent } from '#/agent/loop/turnEvents';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
-import type { ExecutableToolResult } from '#/tool/toolContract';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { BeforeToolExecuteEvent } from '#/agent/toolExecutor/toolHooks';
@@ -79,9 +77,11 @@ import { IAgentUsageService, type UsageRecordedContext } from '#/agent/usage/usa
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
 import { inputTotal, type TokenUsage } from '#/app/llmProtocol/usage';
+import { LifecycleScope } from '#/app/scopes';
 import type { GoalBudgetProperties } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
+import type { ExecutableToolResult } from '#/tool/toolContract';
 import { defineModel } from '#/wire/model';
 import { IWireService } from '#/wire/wire';
 
@@ -344,7 +344,11 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
         this.handleTurnLaunched(e.turnId, e.origin);
       }),
     );
-    this._register(usageService.onDidRecord((ctx) =>{  this.handleUsageRecorded(ctx); }));
+    this._register(
+      usageService.onDidRecord((ctx) => {
+        this.handleUsageRecorded(ctx);
+      }),
+    );
     this._register(
       loopService.hooks.onWillBeginStep.register('goal-count-turn', async (ctx, next) => {
         await this.handleBeforeStep(ctx);
@@ -1003,9 +1007,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     const stepCapped = isMaxStepsTurnFailure(result);
     if (
       !stepCapped &&
-      (result.reason === 'blocked' ||
-        result.reason === 'cancelled' ||
-        result.reason === 'failed')
+      (result.reason === 'blocked' || result.reason === 'cancelled' || result.reason === 'failed')
     ) {
       const restore = this.withAccountingMode('active_or_stopped');
       await this.settleAbnormalTurn(result, lifecycleGoalId);

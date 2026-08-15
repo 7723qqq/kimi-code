@@ -6,6 +6,7 @@ import {
 } from '@moonshot-ai/minidb/worker-runtime';
 
 import { t } from '#/i18n';
+
 import { MINIDB_TEXT_BUILD_WORKER_ASSET } from '../../scripts/native/manifest.mjs';
 import {
   getEmbeddedNativeAssetManifest,
@@ -54,7 +55,8 @@ export function installMinidbTextBuildWorker(
     if (workerPath === null) return { status: 'asset-missing' };
     configureTextBuildWorkerRuntime(workerPath);
     const runtime = getTextBuildWorkerRuntimeState();
-    if (!runtime.configured) throw new Error(t('tui.statusMessages.minidbWorkerRuntimeNotConfigured'));
+    if (!runtime.configured)
+      throw new Error(t('tui.statusMessages.minidbWorkerRuntimeNotConfigured'));
     return {
       status: 'installed',
       assetSha256,

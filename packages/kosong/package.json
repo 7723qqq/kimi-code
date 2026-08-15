@@ -3,23 +3,23 @@
   "version": "0.6.0",
   "private": true,
   "description": "The LLM abstraction layer for modern AI agent applications",
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "provider"
+  ],
+  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/kosong#readme",
+  "bugs": {
+    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+  },
   "license": "MIT",
   "author": "Moonshot AI",
-  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/kosong#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MoonshotAI/kimi-code.git",
     "directory": "packages/kosong"
   },
-  "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
-  },
-  "keywords": [
-    "llm",
-    "ai",
-    "agent",
-    "provider"
-  ],
   "files": [
     "dist"
   ],

@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
@@ -20,7 +21,7 @@ declare module '#/wire/types' {
   }
 }
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const __dirname = import.meta.dirname;
 const PKG_ROOT = join(__dirname, '..', '..');
 const SRC_ROOT = join(PKG_ROOT, 'src');
 const FIXTURE_ROOT = join(__dirname, 'fixtures');

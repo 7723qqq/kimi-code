@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { createScopedTestHost } from '#/_base/di/test';
 import {
   DEFAULT_GLOBAL_FILES,
   DEFAULT_GLOBAL_MAX_BYTES,
@@ -12,7 +13,6 @@ import {
   resolveLoggingConfig,
   resolveSessionLogPath,
 } from '#/_base/log/logConfig';
-import { createScopedTestHost } from '#/_base/di/test';
 
 describe('resolveLoggingConfig', () => {
   it('uses defaults when env is empty', () => {

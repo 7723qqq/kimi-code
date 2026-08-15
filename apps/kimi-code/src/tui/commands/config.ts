@@ -63,7 +63,8 @@ export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConf
     theme: host.state.appState.theme,
     locale: host.state.appState.locale as Locale,
     editorCommand: host.state.appState.editorCommand,
-    disablePasteBurst: host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
+    disablePasteBurst:
+      host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
     renderLatex: host.state.appState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true,
     cacheExpiryHint: host.state.appState.cacheExpiryHint ?? DEFAULT_TUI_CONFIG.cacheExpiryHint,
     notifications: host.state.appState.notifications,
@@ -280,7 +281,10 @@ export async function handleModelCommand(host: SlashCommandHost, args: string): 
   showModelPicker(host, alias);
 }
 
-export async function handleSecondaryModelCommand(host: SlashCommandHost, args: string): Promise<void> {
+export async function handleSecondaryModelCommand(
+  host: SlashCommandHost,
+  args: string,
+): Promise<void> {
   const alias = args.trim();
   await refreshModelsForPicker(host);
   const models = pickerModelsForHost(host);
@@ -475,7 +479,10 @@ function pickerModelsForHost(host: SlashCommandHost): Record<string, ModelAlias>
   );
 }
 
-export function showModelPicker(host: SlashCommandHost, selectedValue: string = host.state.appState.model): void {
+export function showModelPicker(
+  host: SlashCommandHost,
+  selectedValue: string = host.state.appState.model,
+): void {
   const models = pickerModelsForHost(host);
   const entries = Object.entries(models);
   if (entries.length === 0) {

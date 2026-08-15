@@ -1,6 +1,7 @@
-import { defineConfig } from 'vitest/config';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
+
+import { defineConfig } from 'vitest/config';
 
 const require = createRequire(import.meta.url);
 const pkg = require('./package.json') as { version: string };

@@ -15,7 +15,7 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
 } from '@moonshot-ai/pi-tui';
-import { currentTheme } from '#/tui/theme';
+
 import { t } from '#/i18n';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
@@ -26,6 +26,7 @@ import type {
   FileContentDisplayBlock,
   PendingApproval,
 } from '#/tui/reverse-rpc/types';
+import { currentTheme } from '#/tui/theme';
 
 export interface ApprovalPanelResponse {
   readonly response: 'approved' | 'approved_for_session' | 'rejected' | 'cancelled';
@@ -92,7 +93,10 @@ function renderShellDisplayBlock(
   }
   const cmdLines = block.command.length > 0 ? block.command.split('\n') : [''];
   cmdLines.forEach((cmdLine, idx) => {
-    const prefix = idx === 0 ? s.accent(t('tui.approvalPanel.shellPrompt')) : s.dim(t('tui.approvalPanel.shellContinuation'));
+    const prefix =
+      idx === 0
+        ? s.accent(t('tui.approvalPanel.shellPrompt'))
+        : s.dim(t('tui.approvalPanel.shellContinuation'));
     appendWrappedLine(lines, prefix, '  ', s.strong(cmdLine), width);
   });
   if (block.description !== undefined && block.description.length > 0) {
@@ -101,11 +105,7 @@ function renderShellDisplayBlock(
   return lines;
 }
 
-function renderDisplayBlock(
-  block: DisplayBlock,
-  s: BlockStyles,
-  contentWidth: number,
-): string[] {
+function renderDisplayBlock(block: DisplayBlock, s: BlockStyles, contentWidth: number): string[] {
   switch (block.type) {
     case 'diff':
       return renderDiffLinesClustered(block.old_text, block.new_text, block.path, {
@@ -354,11 +354,7 @@ export class ApprovalPanelComponent extends Container implements Focusable {
     if (visibleBlocks.length > 0) {
       lines.push('');
       for (const block of visibleBlocks) {
-        const blockLines = renderDisplayBlock(
-          block,
-          blockStyles,
-          Math.max(1, width - 2),
-        );
+        const blockLines = renderDisplayBlock(block, blockStyles, Math.max(1, width - 2));
         for (const line of blockLines) {
           lines.push(indent(line));
         }
@@ -407,7 +403,10 @@ export class ApprovalPanelComponent extends Container implements Focusable {
       lines.push(
         indent(
           dim(
-            t('tui.dialogs.approvalPanel.navHint', { numeric: buildNumericHint(data.choices.length), expand: expandHint }),
+            t('tui.dialogs.approvalPanel.navHint', {
+              numeric: buildNumericHint(data.choices.length),
+              expand: expandHint,
+            }),
           ),
         ),
       );

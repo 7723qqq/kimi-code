@@ -1,6 +1,3 @@
-import { ErrorCodes, KimiError } from '#/legacy';
-import type { Logger } from '#/legacy';
-import type { ModelAlias, ProviderType } from '#/config-local';
 import {
   createKimiDefaultHeaders,
   KIMI_CODE_FLOW_CONFIG,
@@ -18,8 +15,10 @@ import type {
 } from '@moonshot-ai/kosong';
 import { APIStatusError, UNKNOWN_CAPABILITY, type ModelCapability } from '@moonshot-ai/kosong';
 
+import type { ModelAlias, ProviderType } from '#/config-local';
 import { resolveKimiHome } from '#/config-local';
-
+import { ErrorCodes, KimiError } from '#/legacy';
+import type { Logger } from '#/legacy';
 import { mapOAuthTokenError } from '#/oauth-error';
 
 /**
@@ -110,9 +109,7 @@ export class KimiForCodingProvider implements ModelProvider {
       type: 'kimi',
       model: this.model,
       baseUrl: this.baseUrl,
-      generationKwargs: this.promptCacheKey
-        ? { prompt_cache_key: this.promptCacheKey }
-        : undefined,
+      generationKwargs: this.promptCacheKey ? { prompt_cache_key: this.promptCacheKey } : undefined,
       defaultHeaders: {
         ...parseKimiCodeCustomHeaders(),
         ...createKimiDefaultHeaders({

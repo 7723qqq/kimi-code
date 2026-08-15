@@ -29,7 +29,9 @@ function rowClass(line: DiffViewLine): string {
       <template v-else>
         <span class="dl-gutter old">{{ oldGutter(line) }}</span>
         <span class="dl-gutter new">{{ newGutter(line) }}</span>
-        <span class="dl-sign">{{ line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' ' }}</span>
+        <span class="dl-sign">{{
+          line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '
+        }}</span>
         <span class="dl-text">{{ line.text }}</span>
       </template>
     </div>
@@ -70,7 +72,9 @@ function rowClass(line: DiffViewLine): string {
   font-variant-numeric: tabular-nums;
 }
 
-.dl-gutter.new { border-right: 1px solid var(--line, #e7eaee); }
+.dl-gutter.new {
+  border-right: 1px solid var(--line, #e7eaee);
+}
 
 .dl-sign {
   flex: none;

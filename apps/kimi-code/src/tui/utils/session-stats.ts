@@ -60,14 +60,23 @@ export function accumulateStepCompleted(
     ...stats,
     stepCount: stats.stepCount + 1,
   };
-  if (typeof llmStreamDurationMs === 'number' && Number.isFinite(llmStreamDurationMs) && llmStreamDurationMs >= 0) {
+  if (
+    typeof llmStreamDurationMs === 'number' &&
+    Number.isFinite(llmStreamDurationMs) &&
+    llmStreamDurationMs >= 0
+  ) {
     next.llmTotalMs += llmStreamDurationMs;
   }
-  if (typeof llmFirstTokenLatencyMs === 'number' && Number.isFinite(llmFirstTokenLatencyMs) && llmFirstTokenLatencyMs >= 0) {
+  if (
+    typeof llmFirstTokenLatencyMs === 'number' &&
+    Number.isFinite(llmFirstTokenLatencyMs) &&
+    llmFirstTokenLatencyMs >= 0
+  ) {
     next.firstTokenSamples = [...stats.firstTokenSamples, llmFirstTokenLatencyMs];
   }
   if (usage !== undefined) {
-    next.inputTokens += (usage.inputOther ?? 0) + (usage.inputCacheRead ?? 0) + (usage.inputCacheCreation ?? 0);
+    next.inputTokens +=
+      (usage.inputOther ?? 0) + (usage.inputCacheRead ?? 0) + (usage.inputCacheCreation ?? 0);
     next.outputTokens += usage.output ?? 0;
   }
   return next;

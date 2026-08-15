@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
-import type { AgentRecord, WireEntry } from '../../types';
 import { t } from '../../i18n';
+import type { AgentRecord, WireEntry } from '../../types';
 import { CopyButton } from '../shared/CopyButton';
 import { JsonViewer } from '../shared/JsonViewer';
 import { GenericDetail } from './parts';
@@ -26,10 +26,7 @@ export function WireRowDetail({ entry }: WireRowDetailProps) {
     <div className="pl-[120px] pr-2 py-1 font-mono text-[12px]">
       {renderFriendly(entry.data)}
       <div className="mt-2 flex items-center justify-end gap-3">
-        <CopyButton
-          value={JSON.stringify(entry.raw, null, 2)}
-          label={t('wireRowDetail.copyRaw')}
-        />
+        <CopyButton value={JSON.stringify(entry.raw, null, 2)} label={t('wireRowDetail.copyRaw')} />
         {migrated ? (
           <CopyButton
             value={JSON.stringify(entry.data, null, 2)}
@@ -57,24 +54,25 @@ export function WireRowDetail({ entry }: WireRowDetailProps) {
             }`}
             title={t('wireRowDetail.projectedTitle')}
           >
-            {view === 'projected' ? t('wireRowDetail.hideProjected') : t('wireRowDetail.showProjected')}
+            {view === 'projected'
+              ? t('wireRowDetail.hideProjected')
+              : t('wireRowDetail.showProjected')}
           </button>
         ) : null}
       </div>
       {view !== 'none' ? (
         <div className="mt-2 border border-border bg-surface-0 p-2">
           <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.08em] text-fg-3">
-            {view === 'raw' ? t('wireRowDetail.asWrittenOnDisk') : t('wireRowDetail.afterVisMigration')}
+            {view === 'raw'
+              ? t('wireRowDetail.asWrittenOnDisk')
+              : t('wireRowDetail.afterVisMigration')}
             {migrated && view === 'raw' ? (
               <span className="ml-2 text-[var(--color-sev-warning)]">
                 {t('wireRowDetail.differsFromProjected')}
               </span>
             ) : null}
           </div>
-          <JsonViewer
-            value={view === 'raw' ? entry.raw : entry.data}
-            defaultOpenDepth={2}
-          />
+          <JsonViewer value={view === 'raw' ? entry.raw : entry.data} defaultOpenDepth={2} />
         </div>
       ) : null}
     </div>

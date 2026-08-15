@@ -1,12 +1,17 @@
-import { describe, it, expect, afterEach } from 'vitest';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { buildSessionFixture } from '../fixtures/build';
+
+import { describe, it, expect, afterEach } from 'vitest';
+
 import { blobsRoute } from '../../src/routes/blobs';
+import { buildSessionFixture } from '../fixtures/build';
 
 describe('blobs route', () => {
   let cleanup: (() => Promise<void>) | null = null;
-  afterEach(async () => { if (cleanup) await cleanup(); cleanup = null; });
+  afterEach(async () => {
+    if (cleanup) await cleanup();
+    cleanup = null;
+  });
 
   it('serves a blob with the requested content-type', async () => {
     const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
@@ -17,9 +22,7 @@ describe('blobs route', () => {
     await writeFile(join(blobDir, hash), Buffer.from('binary-content'));
 
     const app = blobsRoute(home);
-    const res = await app.request(
-      `/session_fixture/blobs/${hash}?agent=main&mime=image/png`,
-    );
+    const res = await app.request(`/session_fixture/blobs/${hash}?agent=main&mime=image/png`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/png');
     const body = await res.text();
@@ -35,9 +38,7 @@ describe('blobs route', () => {
     await writeFile(join(blobDir, hash), Buffer.from('x'));
 
     const app = blobsRoute(home);
-    const res = await app.request(
-      `/session_fixture/blobs/${hash}?agent=main`,
-    );
+    const res = await app.request(`/session_fixture/blobs/${hash}?agent=main`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('application/octet-stream');
   });
@@ -84,9 +85,7 @@ describe('blobs route', () => {
 
   it('returns 400 for invalid blob hash', async () => {
     const app = blobsRoute();
-    const res = await app.request(
-      `/session_fixture/blobs/not-a-hash?agent=main&mime=image/png`,
-    );
+    const res = await app.request(`/session_fixture/blobs/not-a-hash?agent=main&mime=image/png`);
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: 'BAD_REQUEST' });
   });

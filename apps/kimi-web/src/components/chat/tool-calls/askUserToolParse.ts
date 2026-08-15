@@ -56,7 +56,7 @@ export function parseAskInput(arg: string): AskQuestion[] {
       if (!q || typeof q !== 'object') continue;
       const qr = q as Record<string, unknown>;
       const opts: AskOption[] = Array.isArray(qr['options'])
-        ? (qr['options'] as unknown[]).map(o => {
+        ? (qr['options'] as unknown[]).map((o) => {
             const or = (o && typeof o === 'object' ? o : {}) as Record<string, unknown>;
             return {
               label: typeof or['label'] === 'string' ? or['label'] : '',
@@ -102,9 +102,10 @@ export function parseAskOutput(output: string[] | undefined): AskOutput {
   return {
     recognized: true,
     answers,
-    note: typeof (obj as Record<string, unknown>)['note'] === 'string'
-      ? ((obj as Record<string, unknown>)['note'] as string)
-      : '',
+    note:
+      typeof (obj as Record<string, unknown>)['note'] === 'string'
+        ? ((obj as Record<string, unknown>)['note'] as string)
+        : '',
   };
 }
 

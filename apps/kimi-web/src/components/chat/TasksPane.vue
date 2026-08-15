@@ -4,8 +4,9 @@
 <script setup lang="ts">
 import { reactive } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { TaskItem } from '../../types';
+
 import { copyTextToClipboard } from '../../lib/clipboard';
+import type { TaskItem } from '../../types';
 import Badge from '../ui/Badge.vue';
 import Icon from '../ui/Icon.vue';
 import StatusGlyph, { type StatusGlyphStatus } from './StatusGlyph.vue';
@@ -87,9 +88,17 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
           v-for="task in tasks"
           :key="task.id"
           class="tp-row"
-          :class="{ done: task.state === 'done', fail: task.state === 'fail', expandable: isClickable(task) }"
+          :class="{
+            done: task.state === 'done',
+            fail: task.state === 'fail',
+            expandable: isClickable(task),
+          }"
         >
-          <div class="tp-main" :role="isClickable(task) ? 'button' : undefined" @click="handleClick(task)">
+          <div
+            class="tp-main"
+            :role="isClickable(task) ? 'button' : undefined"
+            @click="handleClick(task)"
+          >
             <StatusGlyph :status="glyphStatus(task.state)" />
             <span class="tp-name">{{ task.name }}</span>
             <Badge variant="neutral" size="sm">{{ task.kind }}</Badge>
@@ -98,14 +107,24 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
               v-if="task.state === 'run'"
               class="tp-stop"
               @click.stop="emit('cancel', task.id)"
-            >{{ t('tasks.stop') }}</button>
-            <Icon v-if="task.kind === 'subagent'" class="tp-chevron" name="chevron-right" size="sm" />
-            <Icon v-else-if="hasDetail(task)" class="tp-chevron" :class="{ open: expandedIds.has(task.id) }" name="chevron-right" size="sm" />
+            >
+              {{ t('tasks.stop') }}
+            </button>
+            <Icon
+              v-if="task.kind === 'subagent'"
+              class="tp-chevron"
+              name="chevron-right"
+              size="sm"
+            />
+            <Icon
+              v-else-if="hasDetail(task)"
+              class="tp-chevron"
+              :class="{ open: expandedIds.has(task.id) }"
+              name="chevron-right"
+              size="sm"
+            />
           </div>
-          <div
-            v-if="expandedIds.has(task.id) && hasDetail(task)"
-            class="tp-detail"
-          >
+          <div v-if="expandedIds.has(task.id) && hasDetail(task)" class="tp-detail">
             <div v-if="task.meta" class="tp-codebox">
               <button
                 class="tp-copy"
@@ -234,7 +253,9 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
   cursor: pointer;
   font-family: var(--mono);
 }
-.tp-stop:hover { background: var(--panel); }
+.tp-stop:hover {
+  background: var(--panel);
+}
 
 /* Expanded detail: separate code boxes for command and terminal output */
 .tp-detail {
@@ -258,7 +279,9 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
   z-index: 1;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.12s ease, visibility 0.12s ease;
+  transition:
+    opacity 0.12s ease,
+    visibility 0.12s ease;
   background: var(--panel2);
   border: 1px solid var(--line);
   border-radius: var(--radius-xs);
@@ -314,9 +337,16 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
 
 /* Mobile */
 @media (max-width: 640px) {
-  .taskspane { padding: 14px 14px 16px; }
-  .tp-main { flex-wrap: wrap; row-gap: 4px; }
-  .tp-name { font-size: var(--ui-font-size-sm); }
+  .taskspane {
+    padding: 14px 14px 16px;
+  }
+  .tp-main {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .tp-name {
+    font-size: var(--ui-font-size-sm);
+  }
   .tp-stop {
     min-height: 32px;
     display: inline-flex;
@@ -325,9 +355,16 @@ async function copyTaskOutput(task: TaskItem): Promise<void> {
     border-radius: 6px;
     font-size: var(--ui-font-size-xs);
   }
-  .tp-detail { margin-left: 0; }
-  .tp-pre { font-size: var(--ui-font-size-xs); }
+  .tp-detail {
+    margin-left: 0;
+  }
+  .tp-pre {
+    font-size: var(--ui-font-size-xs);
+  }
 }
 
-.tp-stop { border-radius: var(--radius-md); font-family: var(--sans); }
+.tp-stop {
+  border-radius: var(--radius-md);
+  font-family: var(--sans);
+}
 </style>

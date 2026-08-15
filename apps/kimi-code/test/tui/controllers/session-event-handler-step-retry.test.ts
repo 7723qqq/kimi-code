@@ -128,10 +128,7 @@ describe('SessionEventHandler step retry state', () => {
     const handler = new SessionEventHandler(host);
     handler.handleEvent(retryingEvent as any, vi.fn());
     expect(host.state.appState.stepRetry).not.toBeNull();
-    handler.handleEvent(
-      { sessionId: 's1', agentId: 'main', ...event } as any,
-      vi.fn(),
-    );
+    handler.handleEvent({ sessionId: 's1', agentId: 'main', ...event } as any, vi.fn());
     expect(host.state.appState.stepRetry).toBeNull();
   });
 

@@ -12,9 +12,10 @@
  * `ModelCapability`) do not churn every row.
  */
 
+import { describe, expect, it } from 'vitest';
+
 import { UNKNOWN_CAPABILITY } from '#/capability';
 import { getModelCapability } from '#/providers/index';
-import { describe, expect, it } from 'vitest';
 
 describe('getModelCapability: kimi', () => {
   it('does not infer capabilities from Kimi model names', () => {

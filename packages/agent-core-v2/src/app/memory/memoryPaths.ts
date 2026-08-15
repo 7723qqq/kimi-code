@@ -10,8 +10,9 @@
  * working directory always maps to the same project memory.
  */
 
-import { join } from 'pathe';
 import { createHash } from 'node:crypto';
+
+import { join } from 'pathe';
 
 export type MemoryScope = 'global' | 'project' | 'session';
 export type MemoryType = 'note' | 'decision' | 'pattern' | 'lesson' | 'reference';
@@ -45,11 +46,7 @@ export function memoryDir(homeDir: string): string {
   return join(homeDir, 'memory');
 }
 
-export function scopeDir(
-  base: string,
-  scope: MemoryScope,
-  scopeId: string,
-): string {
+export function scopeDir(base: string, scope: MemoryScope, scopeId: string): string {
   if (scope === 'global') return join(base, 'global');
   if (scope === 'project') return join(base, 'projects', scopeId);
   return join(base, 'sessions', scopeId);

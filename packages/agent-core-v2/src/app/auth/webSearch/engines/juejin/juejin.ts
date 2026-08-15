@@ -19,14 +19,14 @@ const JUEJIN_SEARCH_URL = 'https://api.juejin.cn/search_api/v1/search';
 const REQUEST_TIMEOUT_MS = 30_000;
 
 const FALLBACK_HEADERS: Record<string, string> = {
-  'pragma': 'no-cache',
-  'priority': 'u=1, i',
+  pragma: 'no-cache',
+  priority: 'u=1, i',
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36',
   'content-type': 'application/json',
-  'Accept': '*/*',
-  'Host': 'api.juejin.cn',
-  'Connection': 'keep-alive',
+  Accept: '*/*',
+  Host: 'api.juejin.cn',
+  Connection: 'keep-alive',
 };
 
 interface JuejinSearchItem {
@@ -50,7 +50,9 @@ interface JuejinSearchResponse {
 }
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 async function fetchSearchPage(
@@ -104,11 +106,15 @@ async function fetchSearchPage(
     );
   }
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Juejin search request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `Juejin search request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
-  return  response.text();
+  return response.text();
 }
 
 function parseJuejinResults(data: JuejinSearchItem[] | undefined): WebSearchResult[] {
@@ -123,7 +129,10 @@ function parseJuejinResults(data: JuejinSearchItem[] | undefined): WebSearchResu
     }
     const cleanTitle = (item.title_highlight ?? '').replaceAll(/<\/?em>/g, '');
     const cleanContent = (item.content_highlight ?? '').replaceAll(/<\/?em>/g, '');
-    const tagNames = (resultModel.tags ?? []).map((tag) => tag.tag_name ?? '').filter(Boolean).join(', ');
+    const tagNames = (resultModel.tags ?? [])
+      .map((tag) => tag.tag_name ?? '')
+      .filter(Boolean)
+      .join(', ');
     const categoryName = resultModel.category?.category_name ?? '';
     const diggCount = resultModel.article_info?.digg_count ?? 0;
     const viewCount = resultModel.article_info?.view_count ?? 0;
@@ -167,7 +176,12 @@ export async function searchJuejin(
     }
     const results = parseJuejinResults(parsed.data);
     allResults.push(...results);
-    if (!parsed.has_more || parsed.cursor === undefined || parsed.cursor === '' || results.length === 0) {
+    if (
+      !parsed.has_more ||
+      parsed.cursor === undefined ||
+      parsed.cursor === '' ||
+      results.length === 0
+    ) {
       break;
     }
     cursor = parsed.cursor;

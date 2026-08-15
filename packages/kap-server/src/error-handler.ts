@@ -22,10 +22,10 @@
  */
 
 import { ErrorCodes, isError2 } from '@moonshot-ai/agent-core-v2';
+import type { FastifyError } from 'fastify';
 
 import { errEnvelope, internalErrorEnvelope } from './envelope';
 import { ErrorCode } from './protocol/error-codes';
-import type { FastifyError } from 'fastify';
 
 /**
  * Loose Fastify-instance shape so this helper accepts both the default

@@ -8,10 +8,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ConversationStatus, PermissionMode } from '../../types';
+
 import type { AppModel, AppSession, ThinkingLevel } from '../../api/types';
 import type { ColorScheme } from '../../composables/useKimiWebClient';
 import { useKimiWebClient } from '../../composables/useKimiWebClient';
+import { formatTokens } from '../../lib/formatTokens';
 import {
   commitLevel,
   effectiveThinkingLevel,
@@ -19,9 +20,9 @@ import {
   modelThinkingAvailability,
   segmentsFor,
 } from '../../lib/modelThinking';
+import type { ConversationStatus, PermissionMode } from '../../types';
 import BottomSheet from '../dialogs/BottomSheet.vue';
 import LanguageSwitcher from '../settings/LanguageSwitcher.vue';
-import { formatTokens } from '../../lib/formatTokens';
 import Button from '../ui/Button.vue';
 import Input from '../ui/Input.vue';
 import SegmentedControl from '../ui/SegmentedControl.vue';
@@ -106,7 +107,12 @@ const permColor = computed<string>(() => {
 /** Permission sub-line, e.g. "manual · confirm every tool". */
 const permSub = computed<string>(() => {
   const p = props.status.permission;
-  const desc = p === 'yolo' ? t('mobile.permYoloSub') : p === 'auto' ? t('mobile.permAutoSub') : t('mobile.permManualSub');
+  const desc =
+    p === 'yolo'
+      ? t('mobile.permYoloSub')
+      : p === 'auto'
+        ? t('mobile.permAutoSub')
+        : t('mobile.permManualSub');
   return `${p} · ${desc}`;
 });
 
@@ -118,7 +124,9 @@ const ctxPct = computed<number>(() =>
 );
 // Shared 1024-based formatter, same as the desktop tooltip / status panel.
 const ctxValue = computed<string>(() =>
-  props.status.ctxMax > 0 ? `${formatTokens(props.status.ctxUsed)}/${formatTokens(props.status.ctxMax)}` : t('status.statusNone'),
+  props.status.ctxMax > 0
+    ? `${formatTokens(props.status.ctxUsed)}/${formatTokens(props.status.ctxMax)}`
+    : t('status.statusNone'),
 );
 
 function setThinkingSegment(value: string): void {
@@ -242,162 +250,164 @@ watch(
     @update:model-value="emit('update:modelValue', $event)"
   >
     <template v-if="view === 'main'">
-    <div class="group-title">{{ t('mobile.groupSession') }}</div>
+      <div class="group-title">{{ t('mobile.groupSession') }}</div>
 
-    <!-- Model → opens ModelPicker -->
-    <button type="button" class="srow" @click="onPickModel">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('status.statusModel') }}</span>
-        <span class="srow-sub">{{ status.model }}</span>
-      </span>
-      <span class="chev">›</span>
-    </button>
+      <!-- Model → opens ModelPicker -->
+      <button type="button" class="srow" @click="onPickModel">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('status.statusModel') }}</span>
+          <span class="srow-sub">{{ status.model }}</span>
+        </span>
+        <span class="chev">›</span>
+      </button>
 
-    <!-- Thinking level → segmented control (or read-only value when single/unsupported) -->
-    <div class="srow read-only">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('status.statusThinking') }}</span>
-        <span
-          v-if="thinkingAvailability === 'unsupported'"
-          class="srow-sub"
-        >{{ t('status.modeNotSupported') }}</span>
-      </span>
-      <SegmentedControl
-        v-if="thinkingSegments.length > 1"
-        :model-value="activeThinkingSegment"
-        :options="thinkingOptions"
-        size="sm"
-        @update:model-value="setThinkingSegment"
-      />
-      <span
-        v-else
-        class="srow-val"
-        :class="{ dim: thinkingLevel === 'off' }"
-      >{{ thinkingLevel === 'off' ? t('status.planOff') : effortLabel(thinkingLevel) }}</span>
-    </div>
-
-    <!-- Prompt-cache invalidation note — same text as the desktop model dropdown,
-         covering both the model row above and this thinking control. -->
-    <div class="cache-note">{{ t('status.cacheNote') }}</div>
-
-    <!-- Plan mode → real toggle switch -->
-    <button type="button" class="srow" @click="emit('togglePlan')">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('status.statusPlanMode') }}</span>
-        <span class="srow-sub">{{ t('mobile.planModeSub') }}</span>
-      </span>
-      <span class="toggle" :class="{ on: planOn }" role="switch" :aria-checked="planOn" />
-    </button>
-
-    <!-- Swarm mode → real toggle switch -->
-    <button type="button" class="srow" @click="emit('toggleSwarm')">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('status.statusSwarmMode') }}</span>
-        <span class="srow-sub">{{ t('mobile.swarmModeSub') }}</span>
-      </span>
-      <span class="toggle" :class="{ on: swarmOn }" role="switch" :aria-checked="swarmOn" />
-    </button>
-
-    <!-- Permission → cycle (sub-line + chevron) -->
-    <button type="button" class="srow" @click="cyclePermission">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('status.statusPermission') }}</span>
-        <span class="srow-sub" :style="{ color: permColor }">{{ permSub }}</span>
-      </span>
-      <span class="chev">›</span>
-    </button>
-
-    <!-- Context usage → read-only mini meter + value -->
-    <div class="srow read-only">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('status.statusContext') }}</span>
-        <span class="srow-sub">{{ ctxValue }}</span>
-      </span>
-      <span class="ctx-meter" :aria-label="ctxValue">
-        <i :style="{ width: ctxPct + '%' }" />
-      </span>
-    </div>
-
-    <div class="group-title">{{ t('mobile.groupApp') }}</div>
-
-    <!-- Archived sessions → opens the archived restore sub-view -->
-    <button type="button" class="srow" @click="openArchived">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('mobile.archivedSessions') }}</span>
-        <span class="srow-sub">{{ t('mobile.archivedSessionsSub') }}</span>
-      </span>
-      <span class="chev">›</span>
-    </button>
-
-    <!-- App preferences (the desktop settings-popover controls) -->
-    <div class="srow read-only pref">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('theme.colorSchemeLabel') }}</span>
-      </span>
-      <SegmentedControl
-        :model-value="colorScheme ?? 'system'"
-        :options="[
-          { value: 'light', label: t('theme.light') },
-          { value: 'dark', label: t('theme.dark') },
-          { value: 'system', label: t('theme.system') },
-        ]"
-        @update:model-value="onColorScheme"
-      />
-    </div>
-
-    <div class="srow read-only pref">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('sidebar.language') }}</span>
-      </span>
-      <LanguageSwitcher />
-    </div>
-
-    <div class="srow read-only pref">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('settings.uiFontSize') }}</span>
-      </span>
-      <label class="num-field">
-        <input
-          class="num-input"
-          type="number"
-          min="12"
-          max="20"
-          step="1"
-          :value="uiFontSize"
-          :aria-label="t('settings.uiFontSize')"
-          @input="emit('setUiFontSize', Number(($event.target as HTMLInputElement).value))"
+      <!-- Thinking level → segmented control (or read-only value when single/unsupported) -->
+      <div class="srow read-only">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('status.statusThinking') }}</span>
+          <span v-if="thinkingAvailability === 'unsupported'" class="srow-sub">{{
+            t('status.modeNotSupported')
+          }}</span>
+        </span>
+        <SegmentedControl
+          v-if="thinkingSegments.length > 1"
+          :model-value="activeThinkingSegment"
+          :options="thinkingOptions"
+          size="sm"
+          @update:model-value="setThinkingSegment"
         />
-        <span class="num-unit">px</span>
-      </label>
-    </div>
+        <span v-else class="srow-val" :class="{ dim: thinkingLevel === 'off' }">{{
+          thinkingLevel === 'off' ? t('status.planOff') : effortLabel(thinkingLevel)
+        }}</span>
+      </div>
 
-    <button type="button" class="srow" @click="emit('setConversationToc', !conversationToc)">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('settings.conversationToc') }}</span>
-        <span class="srow-sub">{{ t('settings.conversationTocHint') }}</span>
-      </span>
-      <span class="toggle" :class="{ on: conversationToc }" role="switch" :aria-checked="conversationToc" />
-    </button>
+      <!-- Prompt-cache invalidation note — same text as the desktop model dropdown,
+         covering both the model row above and this thinking control. -->
+      <div class="cache-note">{{ t('status.cacheNote') }}</div>
 
-    <!-- Account: sign in / out -->
-    <button v-if="authReady" type="button" class="srow acct out" @click="onLogout">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('sidebar.signOut') }}</span>
-      </span>
-    </button>
-    <button v-else type="button" class="srow acct in" @click="onLogin">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('sidebar.signIn') }}</span>
-      </span>
-    </button>
+      <!-- Plan mode → real toggle switch -->
+      <button type="button" class="srow" @click="emit('togglePlan')">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('status.statusPlanMode') }}</span>
+          <span class="srow-sub">{{ t('mobile.planModeSub') }}</span>
+        </span>
+        <span class="toggle" :class="{ on: planOn }" role="switch" :aria-checked="planOn" />
+      </button>
 
-    <!-- Server version -->
-    <div v-if="serverVersion" class="srow read-only">
-      <span class="srow-main">
-        <span class="srow-label">{{ t('settings.serverVersion') }}</span>
-      </span>
-      <span class="srow-val dim">{{ serverVersion }}</span>
-    </div>
+      <!-- Swarm mode → real toggle switch -->
+      <button type="button" class="srow" @click="emit('toggleSwarm')">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('status.statusSwarmMode') }}</span>
+          <span class="srow-sub">{{ t('mobile.swarmModeSub') }}</span>
+        </span>
+        <span class="toggle" :class="{ on: swarmOn }" role="switch" :aria-checked="swarmOn" />
+      </button>
+
+      <!-- Permission → cycle (sub-line + chevron) -->
+      <button type="button" class="srow" @click="cyclePermission">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('status.statusPermission') }}</span>
+          <span class="srow-sub" :style="{ color: permColor }">{{ permSub }}</span>
+        </span>
+        <span class="chev">›</span>
+      </button>
+
+      <!-- Context usage → read-only mini meter + value -->
+      <div class="srow read-only">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('status.statusContext') }}</span>
+          <span class="srow-sub">{{ ctxValue }}</span>
+        </span>
+        <span class="ctx-meter" :aria-label="ctxValue">
+          <i :style="{ width: ctxPct + '%' }" />
+        </span>
+      </div>
+
+      <div class="group-title">{{ t('mobile.groupApp') }}</div>
+
+      <!-- Archived sessions → opens the archived restore sub-view -->
+      <button type="button" class="srow" @click="openArchived">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('mobile.archivedSessions') }}</span>
+          <span class="srow-sub">{{ t('mobile.archivedSessionsSub') }}</span>
+        </span>
+        <span class="chev">›</span>
+      </button>
+
+      <!-- App preferences (the desktop settings-popover controls) -->
+      <div class="srow read-only pref">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('theme.colorSchemeLabel') }}</span>
+        </span>
+        <SegmentedControl
+          :model-value="colorScheme ?? 'system'"
+          :options="[
+            { value: 'light', label: t('theme.light') },
+            { value: 'dark', label: t('theme.dark') },
+            { value: 'system', label: t('theme.system') },
+          ]"
+          @update:model-value="onColorScheme"
+        />
+      </div>
+
+      <div class="srow read-only pref">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('sidebar.language') }}</span>
+        </span>
+        <LanguageSwitcher />
+      </div>
+
+      <div class="srow read-only pref">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('settings.uiFontSize') }}</span>
+        </span>
+        <label class="num-field">
+          <input
+            class="num-input"
+            type="number"
+            min="12"
+            max="20"
+            step="1"
+            :value="uiFontSize"
+            :aria-label="t('settings.uiFontSize')"
+            @input="emit('setUiFontSize', Number(($event.target as HTMLInputElement).value))"
+          />
+          <span class="num-unit">px</span>
+        </label>
+      </div>
+
+      <button type="button" class="srow" @click="emit('setConversationToc', !conversationToc)">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('settings.conversationToc') }}</span>
+          <span class="srow-sub">{{ t('settings.conversationTocHint') }}</span>
+        </span>
+        <span
+          class="toggle"
+          :class="{ on: conversationToc }"
+          role="switch"
+          :aria-checked="conversationToc"
+        />
+      </button>
+
+      <!-- Account: sign in / out -->
+      <button v-if="authReady" type="button" class="srow acct out" @click="onLogout">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('sidebar.signOut') }}</span>
+        </span>
+      </button>
+      <button v-else type="button" class="srow acct in" @click="onLogin">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('sidebar.signIn') }}</span>
+        </span>
+      </button>
+
+      <!-- Server version -->
+      <div v-if="serverVersion" class="srow read-only">
+        <span class="srow-main">
+          <span class="srow-label">{{ t('settings.serverVersion') }}</span>
+        </span>
+        <span class="srow-val dim">{{ serverVersion }}</span>
+      </div>
     </template>
 
     <template v-else>
@@ -406,7 +416,9 @@ watch(
         <button type="button" class="arch-back" @click="backToMain">
           <span class="chev back">‹</span> {{ t('mobile.archivedBack') }}
         </button>
-        <span class="arch-count">{{ t('mobile.sessionCount', { n: filteredArchived.length }) }}</span>
+        <span class="arch-count">{{
+          t('mobile.sessionCount', { n: filteredArchived.length })
+        }}</span>
       </div>
 
       <div class="arch-tools">
@@ -425,7 +437,9 @@ watch(
             { value: 'created-desc', label: t('settings.archivedSortCreated') },
             { value: 'name-asc', label: t('settings.archivedSortName') },
           ]"
-          @update:model-value="archiveSort = $event as 'archived-desc' | 'created-desc' | 'name-asc'"
+          @update:model-value="
+            archiveSort = $event as 'archived-desc' | 'created-desc' | 'name-asc'
+          "
         />
       </div>
 
@@ -435,14 +449,20 @@ watch(
         <div v-for="s in filteredArchived" :key="s.id" class="arch-row">
           <div class="arch-meta">
             <div class="arch-name">{{ s.title }}</div>
-            <div class="arch-time">{{ t('settings.archivedAt', { time: archiveTime(s.updatedAt) }) }}</div>
+            <div class="arch-time">
+              {{ t('settings.archivedAt', { time: archiveTime(s.updatedAt) }) }}
+            </div>
           </div>
-          <Button variant="secondary" size="sm" @click="onRestore(s.id)">{{ t('settings.archivedRestore') }}</Button>
+          <Button variant="secondary" size="sm" @click="onRestore(s.id)">{{
+            t('settings.archivedRestore')
+          }}</Button>
         </div>
       </template>
 
       <div v-else class="arch-empty">
-        {{ archivedItems.length === 0 ? t('settings.archivedEmpty') : t('settings.archivedNoMatch') }}
+        {{
+          archivedItems.length === 0 ? t('settings.archivedEmpty') : t('settings.archivedNoMatch')
+        }}
       </div>
     </template>
   </BottomSheet>
@@ -473,9 +493,15 @@ watch(
   text-align: left;
   color: var(--color-text);
 }
-.srow:hover:not(.read-only) { background: var(--color-surface-sunken); }
-.srow:active:not(.read-only) { background: var(--color-surface-sunken); }
-.srow.read-only { cursor: default; }
+.srow:hover:not(.read-only) {
+  background: var(--color-surface-sunken);
+}
+.srow:active:not(.read-only) {
+  background: var(--color-surface-sunken);
+}
+.srow.read-only {
+  cursor: default;
+}
 
 .srow-main {
   flex: 1;
@@ -484,7 +510,10 @@ watch(
   flex-direction: column;
   gap: 1px;
 }
-.srow-label { font-size: var(--text-base); color: var(--color-text); }
+.srow-label {
+  font-size: var(--text-base);
+  color: var(--color-text);
+}
 .srow-sub {
   font-size: var(--text-base);
   color: var(--color-text-faint);
@@ -530,9 +559,11 @@ watch(
   position: relative;
   transition: background 0.18s;
 }
-.toggle.on { background: var(--color-accent); }
+.toggle.on {
+  background: var(--color-accent);
+}
 .toggle::after {
-  content: "";
+  content: '';
   position: absolute;
   top: 3px;
   left: 3px;
@@ -545,10 +576,14 @@ watch(
   box-shadow: var(--shadow-xs);
   transition: left 0.18s;
 }
-.toggle.on::after { left: 21px; }
+.toggle.on::after {
+  left: 21px;
+}
 
 /* App preference rows: segmented theme/color-scheme toggles + language switcher. */
-.srow.pref { cursor: default; }
+.srow.pref {
+  cursor: default;
+}
 
 .num-field {
   display: inline-flex;
@@ -578,8 +613,13 @@ watch(
 }
 
 /* Account rows */
-.srow.acct.in .srow-label { color: var(--color-accent-hover); font-weight: 500; }
-.srow.acct.out .srow-label { color: var(--color-danger); }
+.srow.acct.in .srow-label {
+  color: var(--color-accent-hover);
+  font-weight: 500;
+}
+.srow.acct.out .srow-label {
+  color: var(--color-danger);
+}
 
 /* Context meter (96px prototype) */
 .ctx-meter {
@@ -638,7 +678,9 @@ watch(
 .srow,
 .srow-sub,
 .srow-val,
-.cache-note { font-family: var(--sans); }
+.cache-note {
+  font-family: var(--sans);
+}
 
 /* Archived sessions sub-view */
 .arch-subhead {
@@ -660,7 +702,9 @@ watch(
   color: var(--color-accent-hover);
   cursor: pointer;
 }
-.chev.back { font-size: 20px; }
+.chev.back {
+  font-size: 20px;
+}
 .arch-count {
   font-family: var(--font-ui);
   font-size: var(--text-sm);
@@ -673,7 +717,10 @@ watch(
   padding: var(--space-2) var(--space-3);
   flex-wrap: wrap;
 }
-.arch-search-input { flex: 1; min-width: 160px; }
+.arch-search-input {
+  flex: 1;
+  min-width: 160px;
+}
 .arch-row {
   display: flex;
   align-items: center;
@@ -682,8 +729,16 @@ watch(
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--color-line);
 }
-.arch-row:first-of-type { border-top: none; }
-.arch-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.arch-row:first-of-type {
+  border-top: none;
+}
+.arch-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
 .arch-name {
   font-family: var(--font-ui);
   font-size: var(--text-base);

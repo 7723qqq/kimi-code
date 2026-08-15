@@ -18,11 +18,7 @@ import {
   githubRequest,
 } from '#/agent/tools/github/github-request';
 
-function jsonResponse(
-  body: unknown,
-  status = 200,
-  headers: Record<string, string> = {},
-): Response {
+function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json', ...headers },
@@ -106,7 +102,9 @@ describe('githubRequest', () => {
     );
 
     const [url] = fetchImpl.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(`${GITHUB_DEFAULT_BASE_URL}/repos/o/r/issues?state=open&per_page=100&draft=true`);
+    expect(url).toBe(
+      `${GITHUB_DEFAULT_BASE_URL}/repos/o/r/issues?state=open&per_page=100&draft=true`,
+    );
   });
 
   it('serializes a JSON body with the content-type header', async () => {
@@ -127,9 +125,11 @@ describe('githubRequest', () => {
   });
 
   it('normalizes non-2xx responses to GitHub API error with the raw body', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
-      jsonResponse({ message: 'Not Found' }, 404, { 'x-ratelimit-remaining': '4998' }),
-    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ message: 'Not Found' }, 404, { 'x-ratelimit-remaining': '4998' }),
+      );
     const getEnv = (name: string): string | undefined =>
       name === 'GITHUB_TOKEN' ? 'ghp_token' : undefined;
 
@@ -145,9 +145,11 @@ describe('githubRequest', () => {
   });
 
   it('parses the rate-limit header on success', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(
-      jsonResponse({ full_name: 'o/r' }, 200, { 'x-ratelimit-remaining': '1234' }),
-    );
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ full_name: 'o/r' }, 200, { 'x-ratelimit-remaining': '1234' }),
+      );
     const getEnv = (name: string): string | undefined =>
       name === 'GITHUB_TOKEN' ? 'ghp_token' : undefined;
 

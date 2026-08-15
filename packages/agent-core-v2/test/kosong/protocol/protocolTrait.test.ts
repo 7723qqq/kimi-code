@@ -10,6 +10,8 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { ChatProviderError } from '#/kosong/contract/errors';
+import type { ProtocolAdapterConfig } from '#/kosong/protocol/protocol';
 import {
   traitConvertError,
   traitDefaultHeaders,
@@ -17,8 +19,6 @@ import {
   type ResolvedTrait,
   type TraitContext,
 } from '#/kosong/protocol/protocolTrait';
-import { ChatProviderError } from '#/kosong/contract/errors';
-import type { ProtocolAdapterConfig } from '#/kosong/protocol/protocol';
 
 const config: ProtocolAdapterConfig = { protocol: 'openai', modelName: 'test-model' };
 const context: TraitContext = { config, providerId: 'vendor-x' };
@@ -48,7 +48,7 @@ describe('ProtocolTrait', () => {
       capability: () => undefined,
       uploadVideo: () => Promise.reject(new Error('unused')),
     };
-    expect(Object.keys(fullTrait).sort()).toEqual([
+    expect(Object.keys(fullTrait).toSorted()).toEqual([
       'buildParams',
       'cacheKey',
       'capability',

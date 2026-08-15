@@ -140,7 +140,9 @@ export class ServiceCollection {
       value: unknown,
     ) => void,
   ): void {
-    this._entries.forEach((entry, id) => { callback(id, entry.value); });
+    this._entries.forEach((entry, id) => {
+      callback(id, entry.value);
+    });
   }
 
   dispose(): void {

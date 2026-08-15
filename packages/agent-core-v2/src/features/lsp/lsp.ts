@@ -12,6 +12,7 @@
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';
+
 import type { LspHover, LspLocation, LspPosition } from './protocol';
 
 export type LspOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover';
@@ -45,4 +46,5 @@ export interface ILspService {
   query(request: LspQueryRequest, signal?: AbortSignal): Promise<LspQueryResult>;
 }
 
-export const ILspService: ServiceIdentifier<ILspService> = createDecorator<ILspService>('lspService');
+export const ILspService: ServiceIdentifier<ILspService> =
+  createDecorator<ILspService>('lspService');

@@ -38,10 +38,21 @@ describe('SubagentActivityStore', () => {
     store.applyEvent(ev({ type: 'assistant.delta', turnId: 1, delta: 'Hello ' }));
     store.applyEvent(ev({ type: 'assistant.delta', turnId: 1, delta: 'world' }));
     store.applyEvent(
-      ev({ type: 'tool.call.started', turnId: 1, toolCallId: 't1', name: 'Grep', args: { pattern: 'foo' } }),
+      ev({
+        type: 'tool.call.started',
+        turnId: 1,
+        toolCallId: 't1',
+        name: 'Grep',
+        args: { pattern: 'foo' },
+      }),
     );
     store.applyEvent(
-      ev({ type: 'tool.progress', turnId: 1, toolCallId: 't1', update: { kind: 'stdout', text: 'line1\nline2\n' } }),
+      ev({
+        type: 'tool.progress',
+        turnId: 1,
+        toolCallId: 't1',
+        update: { kind: 'stdout', text: 'line1\nline2\n' },
+      }),
     );
     store.applyEvent(
       ev({ type: 'tool.result', turnId: 1, toolCallId: 't1', output: 'a\nb\nc', isError: false }),
@@ -67,7 +78,13 @@ describe('SubagentActivityStore', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());
     store.applyEvent(
-      ev({ type: 'tool.call.delta', turnId: 1, toolCallId: 't1', name: 'Bash', argumentsPart: '{"command":"ls' }),
+      ev({
+        type: 'tool.call.delta',
+        turnId: 1,
+        toolCallId: 't1',
+        name: 'Bash',
+        argumentsPart: '{"command":"ls',
+      }),
     );
     store.applyEvent(
       ev({ type: 'tool.call.delta', turnId: 1, toolCallId: 't1', argumentsPart: ' -la"}' }),
@@ -189,9 +206,7 @@ describe('SubagentActivityStore', () => {
         argumentsPart: 'x'.repeat(STREAMING_ARGS_PREVIEW_MAX_CHARS + 1000),
       }),
     );
-    const buffers = (
-      store as unknown as { streamingArgs: Map<string, string> }
-    ).streamingArgs;
+    const buffers = (store as unknown as { streamingArgs: Map<string, string> }).streamingArgs;
     expect(buffers.get('agent-1:t1')?.length).toBeLessThanOrEqual(STREAMING_ARGS_PREVIEW_MAX_CHARS);
   });
 
@@ -227,16 +242,20 @@ describe('SubagentActivityStore', () => {
     store.ensureRecord(spawn());
     store.ensureRecord(spawn({ agentId: 'agent-2', agentName: 'general' }));
     store.applyEvent(
-      ev({ type: 'tool.call.delta', turnId: 1, toolCallId: 't1', name: 'Write', argumentsPart: '{"path":"a"}' }),
+      ev({
+        type: 'tool.call.delta',
+        turnId: 1,
+        toolCallId: 't1',
+        name: 'Write',
+        argumentsPart: '{"path":"a"}',
+      }),
     );
 
     store.drop('agent-1');
 
     expect(store.get('agent-1')).toBeUndefined();
     expect(store.get('agent-2')).toBeDefined();
-    const buffers = (
-      store as unknown as { streamingArgs: Map<string, string> }
-    ).streamingArgs;
+    const buffers = (store as unknown as { streamingArgs: Map<string, string> }).streamingArgs;
     expect([...buffers.keys()].every((key) => !key.startsWith('agent-1:'))).toBe(true);
   });
 
@@ -265,11 +284,15 @@ describe('SubagentActivityStore', () => {
     store.ensureRecord(spawn());
     // A call truncated before started/result only ever produced deltas.
     store.applyEvent(
-      ev({ type: 'tool.call.delta', turnId: 1, toolCallId: 't-trunc', name: 'Write', argumentsPart: '{"path":"a"' }),
+      ev({
+        type: 'tool.call.delta',
+        turnId: 1,
+        toolCallId: 't-trunc',
+        name: 'Write',
+        argumentsPart: '{"path":"a"',
+      }),
     );
-    const buffers = (
-      store as unknown as { streamingArgs: Map<string, string> }
-    ).streamingArgs;
+    const buffers = (store as unknown as { streamingArgs: Map<string, string> }).streamingArgs;
     expect(buffers.has('agent-1:t-trunc')).toBe(true);
 
     for (let i = 0; i < MAX_SUBAGENT_ACTIVITY_STEPS; i++) {
@@ -282,11 +305,15 @@ describe('SubagentActivityStore', () => {
     const store = new SubagentActivityStore();
     store.ensureRecord(spawn());
     store.applyEvent(
-      ev({ type: 'tool.call.delta', turnId: 1, toolCallId: 't-trunc', name: 'Write', argumentsPart: '{"path":"a"' }),
+      ev({
+        type: 'tool.call.delta',
+        turnId: 1,
+        toolCallId: 't-trunc',
+        name: 'Write',
+        argumentsPart: '{"path":"a"',
+      }),
     );
-    const buffers = (
-      store as unknown as { streamingArgs: Map<string, string> }
-    ).streamingArgs;
+    const buffers = (store as unknown as { streamingArgs: Map<string, string> }).streamingArgs;
     expect(buffers.has('agent-1:t-trunc')).toBe(true);
 
     store.markCompleted('agent-1', 'done');

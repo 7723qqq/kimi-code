@@ -10,9 +10,8 @@
  * (main agent only).
  */
 
-import type { IEventService } from '#/app/event/event';
-
 import { titleFromPromptMetadataText } from '#/agent/prompt/promptMetadataText';
+import type { IEventService } from '#/app/event/event';
 
 import type { ISessionMetadata, SessionTitleKind } from './sessionMetadata';
 

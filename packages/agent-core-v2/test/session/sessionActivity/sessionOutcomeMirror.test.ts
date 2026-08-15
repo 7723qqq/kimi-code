@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import {
   _clearScopedRegistryForTests,
   ScopeActivation,
@@ -13,14 +12,12 @@ import { createScopedTestHost, stubPair, type ScopedTestHost } from '#/_base/di/
 import { Emitter } from '#/_base/event';
 import type { DomainEvent } from '#/app/event/eventBus';
 import { IEventBus } from '#/app/event/eventBus';
-import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import {
-  IAgentLifecycleService,
-  MAIN_AGENT_ID,
-} from '#/session/agentLifecycle/agentLifecycle';
+import { LifecycleScope } from '#/app/scopes';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionOutcomeMirror } from '#/session/sessionActivity/sessionOutcomeMirror';
 import { SessionOutcomeMirror } from '#/session/sessionActivity/sessionOutcomeMirrorService';
+import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
 class FakeBus {
   private readonly handlers = new Map<string, Array<(e: DomainEvent) => void>>();
@@ -34,7 +31,13 @@ class FakeBus {
     const fn = handler as (e: DomainEvent) => void;
     list.push(fn);
     this.handlers.set(type as string, list);
-    return { dispose: () => this.handlers.set(type as string, list.filter((h) => h !== fn)) };
+    return {
+      dispose: () =>
+        this.handlers.set(
+          type as string,
+          list.filter((h) => h !== fn),
+        ),
+    };
   }
 }
 
@@ -91,14 +94,26 @@ describe('SessionOutcomeMirror (Session scope)', () => {
   let host: ScopedTestHost;
   let session: Scope;
   let lifecycle: FakeAgentLifecycle;
-  let writes: (SessionMeta['lastTurnReason'])[];
+  let writes: SessionMeta['lastTurnReason'][];
   let touches: boolean[];
   let failNextWrite: boolean;
 
   beforeEach(() => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.Session, IAgentLifecycleService, FakeAgentLifecycle, ScopeActivation.OnDemand, 'agentLifecycle');
-    registerScopedService(LifecycleScope.Session, ISessionOutcomeMirror, SessionOutcomeMirror, ScopeActivation.OnScopeCreated, 'sessionActivity');
+    registerScopedService(
+      LifecycleScope.Session,
+      IAgentLifecycleService,
+      FakeAgentLifecycle,
+      ScopeActivation.OnDemand,
+      'agentLifecycle',
+    );
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionOutcomeMirror,
+      SessionOutcomeMirror,
+      ScopeActivation.OnScopeCreated,
+      'sessionActivity',
+    );
 
     writes = [];
     touches = [];
@@ -136,7 +151,11 @@ describe('SessionOutcomeMirror (Session scope)', () => {
   const started = () =>
     lifecycle.bus.publish({ type: 'turn.started', turnId: 1 } as unknown as DomainEvent);
   const ended = (reason: string, interruptReason?: string) =>
-    lifecycle.bus.publish({ type: 'turn.ended', reason, interruptReason } as unknown as DomainEvent);
+    lifecycle.bus.publish({
+      type: 'turn.ended',
+      reason,
+      interruptReason,
+    } as unknown as DomainEvent);
 
   it('persists completed/failed/user-cancelled, never programmatic aborts', async () => {
     lifecycle.addMain();
@@ -185,13 +204,23 @@ describe('SessionOutcomeMirror (Session scope)', () => {
         },
       } as unknown as ISessionMetadata),
     ]);
-    const secondLifecycle = second.accessor.get(IAgentLifecycleService) as unknown as FakeAgentLifecycle;
+    const secondLifecycle = second.accessor.get(
+      IAgentLifecycleService,
+    ) as unknown as FakeAgentLifecycle;
     second.accessor.get(ISessionOutcomeMirror);
     secondLifecycle.addMain();
     await tick();
-    secondLifecycle.bus.publish({ type: 'turn.ended', turnId: 1, reason: 'failed' } as unknown as DomainEvent);
+    secondLifecycle.bus.publish({
+      type: 'turn.ended',
+      turnId: 1,
+      reason: 'failed',
+    } as unknown as DomainEvent);
     expect(writes).toEqual(['failed']);
-    secondLifecycle.bus.publish({ type: 'turn.ended', turnId: 2, reason: 'completed' } as unknown as DomainEvent);
+    secondLifecycle.bus.publish({
+      type: 'turn.ended',
+      turnId: 2,
+      reason: 'completed',
+    } as unknown as DomainEvent);
     expect(writes).toEqual(['failed', 'completed']);
   });
 

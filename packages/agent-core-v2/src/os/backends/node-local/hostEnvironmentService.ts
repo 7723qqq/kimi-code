@@ -13,8 +13,6 @@
  * Bound at App scope.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { BugIndicatingError } from '#/_base/errors/errors';
 import {
@@ -23,8 +21,8 @@ import {
 } from '#/_base/execEnv/environmentProbe';
 import { applyLoginShellPathFromNode } from '#/_base/execEnv/loginShellPath';
 import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
 import { SHELL_SECTION, type ShellConfig } from '#/os/configSection';
-
 import {
   type HostEnvironmentInfo,
   IHostEnvironment,
@@ -43,9 +41,11 @@ export class HostEnvironmentService implements IHostEnvironment {
 
   constructor(@IConfigService private readonly config: IConfigService) {
     this.ready = Promise.all([
-      this.config.ready.then(() => probeHostEnvironmentFromNode(this.shellPreference())).then((info) => {
-        this._info = info;
-      }),
+      this.config.ready
+        .then(() => probeHostEnvironmentFromNode(this.shellPreference()))
+        .then((info) => {
+          this._info = info;
+        }),
       applyLoginShellPathFromNode(),
     ])
       .then(() => {})
@@ -81,11 +81,10 @@ export class HostEnvironmentService implements IHostEnvironment {
 
   private toHostProcessError(error: unknown): Error {
     if (error instanceof ProbeShellNotFoundError) {
-      return new HostProcessError(
-        OsProcessErrors.codes.SHELL_GIT_BASH_NOT_FOUND,
-        error.message,
-        { details: { checkedPaths: error.checked }, cause: error },
-      );
+      return new HostProcessError(OsProcessErrors.codes.SHELL_GIT_BASH_NOT_FOUND, error.message, {
+        details: { checkedPaths: error.checked },
+        cause: error,
+      });
     }
     return error instanceof Error ? error : new Error(String(error));
   }

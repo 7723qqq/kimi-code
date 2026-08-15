@@ -38,7 +38,6 @@ const noopLogService: ILogService = {
   flush: () => Promise.resolve(),
 };
 
-
 function projectLegacy(history: readonly ContextMessage[]): Message[] {
   const openCalls = new Map<string, ToolCall>();
   const answers = new Map<ToolCall, ContextMessage>();
@@ -119,7 +118,10 @@ function canMergeUserMessage(message: ContextMessage): boolean {
 }
 
 function mergeTwoUserMessages(a: ContextMessage, b: ContextMessage): ContextMessage {
-  const text = [a, b].map(extractText).filter((t) => t.length > 0).join('\n\n');
+  const text = [a, b]
+    .map(extractText)
+    .filter((t) => t.length > 0)
+    .join('\n\n');
   const content: ContentPart[] = text === '' ? [] : [{ type: 'text', text }];
   content.push(
     ...a.content.filter((part) => part.type !== 'text'),
@@ -145,7 +147,6 @@ function stripContextMetadata(message: ContextMessage): Message {
     partial: message.partial,
   };
 }
-
 
 function makeExchangeHistory(exchanges: number, callsPerStep: number): ContextMessage[] {
   const history: ContextMessage[] = [];
@@ -200,7 +201,6 @@ function createProjector(disposables: DisposableStore): IAgentContextProjectorSe
   return ix.get(IAgentContextProjectorService);
 }
 
-
 const disposables = new DisposableStore();
 const projector = createProjector(disposables);
 
@@ -211,28 +211,52 @@ const MERGE_HEAVY = makeMergeHistory(2000, 500);
 const OPTIONS = { warmupTime: 500, time: 3000 };
 
 describe(`typical mid-session history (${TYPICAL.length} messages)`, () => {
-  bench('legacy (two-pass)', () => {
-    projectLegacy(TYPICAL);
-  }, OPTIONS);
-  bench('current (single-pass)', () => {
-    projector.project(TYPICAL);
-  }, OPTIONS);
+  bench(
+    'legacy (two-pass)',
+    () => {
+      projectLegacy(TYPICAL);
+    },
+    OPTIONS,
+  );
+  bench(
+    'current (single-pass)',
+    () => {
+      projector.project(TYPICAL);
+    },
+    OPTIONS,
+  );
 });
 
 describe(`tool-exchange heavy history (${EXCHANGE_HEAVY.length} messages)`, () => {
-  bench('legacy (two-pass)', () => {
-    projectLegacy(EXCHANGE_HEAVY);
-  }, OPTIONS);
-  bench('current (single-pass)', () => {
-    projector.project(EXCHANGE_HEAVY);
-  }, OPTIONS);
+  bench(
+    'legacy (two-pass)',
+    () => {
+      projectLegacy(EXCHANGE_HEAVY);
+    },
+    OPTIONS,
+  );
+  bench(
+    'current (single-pass)',
+    () => {
+      projector.project(EXCHANGE_HEAVY);
+    },
+    OPTIONS,
+  );
 });
 
 describe(`adjacent user-prompt merging (${MERGE_HEAVY.length} messages x 500 chars)`, () => {
-  bench('legacy (O(k²) re-merge)', () => {
-    projectLegacy(MERGE_HEAVY);
-  }, OPTIONS);
-  bench('current (O(k) accumulation)', () => {
-    projector.project(MERGE_HEAVY);
-  }, OPTIONS);
+  bench(
+    'legacy (O(k²) re-merge)',
+    () => {
+      projectLegacy(MERGE_HEAVY);
+    },
+    OPTIONS,
+  );
+  bench(
+    'current (O(k) accumulation)',
+    () => {
+      projector.project(MERGE_HEAVY);
+    },
+    OPTIONS,
+  );
 });

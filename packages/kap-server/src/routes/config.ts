@@ -26,11 +26,7 @@
  * response (the schema contract) is unaffected.
  */
 
-import {
-  IConfigService,
-  IEventService,
-  type Scope,
-} from '@moonshot-ai/agent-core-v2';
+import { IConfigService, IEventService, type Scope } from '@moonshot-ai/agent-core-v2';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
@@ -45,10 +41,7 @@ interface ConfigRouteHost {
   get(
     path: string,
     options: { schema?: Record<string, unknown> },
-    handler: (
-      req: { id: string },
-      reply: { send(payload: unknown): void },
-    ) => Promise<void> | void,
+    handler: (req: { id: string }, reply: { send(payload: unknown): void }) => Promise<void> | void,
   ): unknown;
   post(
     path: string,
@@ -75,7 +68,11 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
       reply.send(okEnvelope(toConfigResponse(config.getAll()), req.id));
     },
   );
-  app.get(getRoute.path, getRoute.options, getRoute.handler as Parameters<ConfigRouteHost['get']>[2]);
+  app.get(
+    getRoute.path,
+    getRoute.options,
+    getRoute.handler as Parameters<ConfigRouteHost['get']>[2],
+  );
 
   const setRoute = defineRoute(
     {
@@ -123,7 +120,11 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
       }
     },
   );
-  app.post(setRoute.path, setRoute.options, setRoute.handler as Parameters<ConfigRouteHost['post']>[2]);
+  app.post(
+    setRoute.path,
+    setRoute.options,
+    setRoute.handler as Parameters<ConfigRouteHost['post']>[2],
+  );
 }
 
 // ---------------------------------------------------------------------------

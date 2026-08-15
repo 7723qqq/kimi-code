@@ -7,10 +7,11 @@
  * test/session/agentLifecycle/agentLifecycle.test.ts`.
  */
 
+import { join } from 'node:path';
+
 import type { OAuthTokens } from '@modelcontextprotocol/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { join } from 'node:path';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
 import { type ISessionScopeHandle } from '#/_base/di/scope';
@@ -534,7 +535,15 @@ describe('AgentLifecycleService', () => {
 
     expect(child.id).toBe('child');
     expect(registerAgent).toHaveBeenCalledWith('child', {
-      homedir: join('/tmp', 'kimi-agentLifecycle-home', 'sessions', 'ws_test', 'sess_test', 'agents', 'child'),
+      homedir: join(
+        '/tmp',
+        'kimi-agentLifecycle-home',
+        'sessions',
+        'ws_test',
+        'sess_test',
+        'agents',
+        'child',
+      ),
       type: 'sub',
       parentAgentId: 'main',
       forkedFrom: 'main',

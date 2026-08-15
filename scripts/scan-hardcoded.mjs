@@ -6,27 +6,102 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'target', '.vite']);
 
 // Words that are clearly HTML elements, CSS, or programming keywords — not i18n targets
 const SKIP_WORDS = new Set([
-  'div', 'span', 'button', 'template', 'svg', 'g', 'path', 'rect', 'mask',
-  'defs', 'title', 'thead', 'tbody', 'tr', 'th', 'td', 'table', 'label',
-  'input', 'form', 'section', 'header', 'footer', 'nav', 'main', 'aside',
-  'article', 'figure', 'figcaption', 'select', 'option', 'textarea',
-  'pre', 'code', 'blockquote', 'hr', 'br', 'img', 'slot', 'slot',
-  'Transition', 'transition', 'TransitionGroup', 'KeepAlive',
-  'Teleport', 'Suspense', 'RouterView', 'RouterLink',
-  'Component', 'component', 'text', 'color', 'width', 'height', 'size',
-  'left', 'right', 'top', 'bottom', 'center', 'middle', 'small', 'large',
-  'yes', 'no', 'ok', 'on', 'off', 'true', 'false', 'null', 'undefined',
-  'Kimi', 'Code', 'API', 'URL', 'ID', 'UI', 'UX', 'AI',
+  'div',
+  'span',
+  'button',
+  'template',
+  'svg',
+  'g',
+  'path',
+  'rect',
+  'mask',
+  'defs',
+  'title',
+  'thead',
+  'tbody',
+  'tr',
+  'th',
+  'td',
+  'table',
+  'label',
+  'input',
+  'form',
+  'section',
+  'header',
+  'footer',
+  'nav',
+  'main',
+  'aside',
+  'article',
+  'figure',
+  'figcaption',
+  'select',
+  'option',
+  'textarea',
+  'pre',
+  'code',
+  'blockquote',
+  'hr',
+  'br',
+  'img',
+  'slot',
+  'slot',
+  'Transition',
+  'transition',
+  'TransitionGroup',
+  'KeepAlive',
+  'Teleport',
+  'Suspense',
+  'RouterView',
+  'RouterLink',
+  'Component',
+  'component',
+  'text',
+  'color',
+  'width',
+  'height',
+  'size',
+  'left',
+  'right',
+  'top',
+  'bottom',
+  'center',
+  'middle',
+  'small',
+  'large',
+  'yes',
+  'no',
+  'ok',
+  'on',
+  'off',
+  'true',
+  'false',
+  'null',
+  'undefined',
+  'Kimi',
+  'Code',
+  'API',
+  'URL',
+  'ID',
+  'UI',
+  'UX',
+  'AI',
 ]);
 
 // Known i18n patterns that mean the file is already internationalized
 const I18N_PATTERNS = [
-  /\$t\(/, /t\(/, /useI18n/, /i18n\.global/, /import.*i18n/, /from.*i18n/,
-  /\bt\(['"`]/, /\$t\(['"`]/,
+  /\$t\(/,
+  /t\(/,
+  /useI18n/,
+  /i18n\.global/,
+  /import.*i18n/,
+  /from.*i18n/,
+  /\bt\(['"`]/,
+  /\$t\(['"`]/,
 ];
 
 function hasI18n(content) {
-  return I18N_PATTERNS.some(p => p.test(content));
+  return I18N_PATTERNS.some((p) => p.test(content));
 }
 
 // Collect all unique hardcoded strings found
@@ -34,7 +109,7 @@ const findings = [];
 
 function scanFile(filePath, content) {
   const lines = content.split('\n');
-  const relPath = relative(ROOT, filePath).replace(/\\/g, '/');
+  const relPath = relative(ROOT, filePath).replaceAll('\\', '/');
   const alreadyI18n = hasI18n(content);
 
   for (let i = 0; i < lines.length; i++) {
@@ -55,11 +130,18 @@ function scanFile(filePath, content) {
     }
 
     // Pattern 2: "Text" as attribute value that looks like a label
-    const attrMatch = line.match(/"(?:label|title|placeholder|aria-label|text|message)"\s*:\s*"([A-Z][^"]{3,})"/);
+    const attrMatch = line.match(
+      /"(?:label|title|placeholder|aria-label|text|message)"\s*:\s*"([A-Z][^"]{3,})"/,
+    );
     if (attrMatch && !line.includes('$t(') && !line.includes('t(')) {
       const text = attrMatch[1];
       if (text.length > 2 && !SKIP_WORDS.has(text)) {
-        findings.push({ file: relPath, line: lineNum, text: `attr: ${text}`, context: line.trim() });
+        findings.push({
+          file: relPath,
+          line: lineNum,
+          text: `attr: ${text}`,
+          context: line.trim(),
+        });
       }
     }
   }
@@ -74,15 +156,25 @@ function walkDir(dir) {
         if (!SKIP_DIRS.has(file.name)) walkDir(full);
       } else if (/\.(vue|tsx|ts)$/.test(file.name)) {
         // Only scan UI source files
-        if (full.includes('components') || full.includes('views') || full.includes('pages') || full.includes('tui') || full.includes('cli')) {
+        if (
+          full.includes('components') ||
+          full.includes('views') ||
+          full.includes('pages') ||
+          full.includes('tui') ||
+          full.includes('cli')
+        ) {
           try {
             const content = readFileSync(full, 'utf-8');
             scanFile(full, content);
-          } catch { /* skip binary */ }
+          } catch {
+            /* skip binary */
+          }
         }
       }
     }
-  } catch { /* skip unreadable */ }
+  } catch {
+    /* skip unreadable */
+  }
 }
 
 // Scan the main source directories
@@ -100,7 +192,9 @@ for (const d of SCAN_DIRS) {
   const full = join(ROOT, d);
   try {
     if (statSync(full).isDirectory()) walkDir(full);
-  } catch { /* skip */ }
+  } catch {
+    /* skip */
+  }
 }
 
 // Report findings grouped by directory
@@ -118,4 +212,6 @@ for (const [dir, items] of Object.entries(byDir)) {
   if (items.length > 20) console.log(`  ... and ${items.length - 20} more`);
 }
 
-console.log(`\nTotal: ${findings.length} hardcoded strings found across ${Object.keys(byDir).length} directories`);
+console.log(
+  `\nTotal: ${findings.length} hardcoded strings found across ${Object.keys(byDir).length} directories`,
+);

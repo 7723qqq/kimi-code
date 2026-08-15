@@ -12,6 +12,11 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
+import { shouldCompact } from './compaction.js';
+import type { CompactionTarget } from './compaction.js';
+import { GEN_BUILD_WAL_DELTA_OPS, GEN_BUILD_WAL_DELTA_BYTES } from './generation-builder.js';
+import { readManifest, sweepGenerationTemps } from './generation-files.js';
 import {
   SNAPSHOT_FILE,
   WAL_FILE,
@@ -22,22 +27,18 @@ import {
   STALE_POSTINGS_TMP_PATTERN,
   isStaleTmpFile,
 } from './generation.js';
-import { readManifest, sweepGenerationTemps } from './generation-files.js';
-import { MaintenanceScheduler } from './maintenance.js';
-import { LockFile, LockError } from './lockfile.js';
 import type { LifecycleTracker } from './lifecycle-status.js';
-import { ValueReader } from './value-reader.js';
-import { Store } from './store.js';
-import type { StoreRecord } from './store.js';
-import { WAL } from './wal.js';
+import { LockFile, LockError } from './lockfile.js';
+import { MaintenanceScheduler } from './maintenance.js';
 import { recover } from './recovery.js';
 import type { RecoveryMode, RecoveryInfo, ValueMode } from './recovery.js';
-import { shouldCompact } from './compaction.js';
-import type { CompactionTarget } from './compaction.js';
-import { CODECS, fileSize, resolveValueMode } from './value-codec.js';
-import { GEN_BUILD_WAL_DELTA_OPS, GEN_BUILD_WAL_DELTA_BYTES } from './generation-builder.js';
-import type { FsyncPolicy, WalStats } from './wal.js';
+import { Store } from './store.js';
+import type { StoreRecord } from './store.js';
 import type { ValueCodec, ValueCodecName, ValueModeSetting, OpenOptions } from './types.js';
+import { CODECS, fileSize, resolveValueMode } from './value-codec.js';
+import { ValueReader } from './value-reader.js';
+import { WAL } from './wal.js';
+import type { FsyncPolicy, WalStats } from './wal.js';
 
 /** The private methods the lifecycle flow calls, bound by the owner. */
 export interface LifecycleHooks {
@@ -48,11 +49,18 @@ export interface LifecycleHooks {
   tryLoadGeneration: (mode: RecoveryMode) => Promise<boolean>;
   rebuildAllIndexes: () => Promise<void>;
   submitCompaction: () => Promise<void>;
-  buildGeneration: (trigger: 'open' | 'compact' | 'manual' | 'wal-growth' | 'close') => Promise<void>;
+  buildGeneration: (
+    trigger: 'open' | 'compact' | 'manual' | 'wal-growth' | 'close',
+  ) => Promise<void>;
   seedAccessFromStore: () => void;
   /** Close every live text index (open failure cleanup + the close pass). */
   closeAllTextIndexes: () => void;
-  generationInfo: () => { id: string; createdAt: number; walCheckpoint: number; records: number } | null;
+  generationInfo: () => {
+    id: string;
+    createdAt: number;
+    walCheckpoint: number;
+    records: number;
+  } | null;
   /** Whether the current generation is missing or stale past the runtime
    *  staleness threshold (the wal-growth trigger's dirty rule). Drives the
    *  close-time best-effort publish. */
@@ -115,7 +123,11 @@ export interface LifecycleHost<V> {
 /** The open() flow: configure, acquire, recover, and kick background
  *  maintenance. On success the host instance is fully open; on failure every
  *  acquired resource is released before the error rethrows. */
-export async function openMiniDb<V>(db: LifecycleHost<V>, opts: OpenOptions, hooks: LifecycleHooks): Promise<void> {
+export async function openMiniDb<V>(
+  db: LifecycleHost<V>,
+  opts: OpenOptions,
+  hooks: LifecycleHooks,
+): Promise<void> {
   const openT0 = performance.now();
   if (!opts || !opts.dir) throw new TypeError('MiniDb.open: opts.dir is required');
   db.dir = opts.dir;
@@ -138,11 +150,17 @@ export async function openMiniDb<V>(db: LifecycleHost<V>, opts: OpenOptions, hoo
   db.textBuildWorkerEnabled = opts.textBuildWorker ?? true;
   db.deferTextBuildsEnabled = opts.deferOpenTextBuilds ?? true;
   db.textBuildMemoryBytes = opts.textBuildMemoryBytes ?? db.textBuildMemoryBytes;
-  db.maintenanceIoConcurrency = Math.max(1, opts.maintenanceIoConcurrency ?? db.maintenanceIoConcurrency);
+  db.maintenanceIoConcurrency = Math.max(
+    1,
+    opts.maintenanceIoConcurrency ?? db.maintenanceIoConcurrency,
+  );
   if (db.textBuildMemoryBytes <= 0 || !Number.isFinite(db.textBuildMemoryBytes)) {
     throw new RangeError('textBuildMemoryBytes must be a positive finite number');
   }
-  if (db.maxMemoryBytes !== null && (!Number.isFinite(db.maxMemoryBytes) || db.maxMemoryBytes <= 0)) {
+  if (
+    db.maxMemoryBytes !== null &&
+    (!Number.isFinite(db.maxMemoryBytes) || db.maxMemoryBytes <= 0)
+  ) {
     throw new RangeError('maxMemoryBytes must be a positive finite number');
   }
 
@@ -249,7 +267,11 @@ export async function openMiniDb<V>(db: LifecycleHost<V>, opts: OpenOptions, hoo
     },
   });
   try {
-    db.wal = new WAL(db.walPath, { fsyncPolicy: db.fsyncPolicy, syncIntervalMs: db.syncIntervalMs, stats: db.stats });
+    db.wal = new WAL(db.walPath, {
+      fsyncPolicy: db.fsyncPolicy,
+      syncIntervalMs: db.syncIntervalMs,
+      stats: db.stats,
+    });
     // A read-only instance must not create or modify any file: the WAL is
     // constructed but never opened (opening with 'a' would create db.wal on
     // disk). Writes are already rejected by ensureWritable, and the unopened
@@ -270,7 +292,8 @@ export async function openMiniDb<V>(db: LifecycleHost<V>, opts: OpenOptions, hoo
     // below. Any validation failure falls back to the legacy full recovery
     // inside tryLoadGeneration — never a deletion of authoritative data.
     let generationLoaded = false;
-    if (db.indexGenerationsEnabled) generationLoaded = await hooks.tryLoadGeneration(opts.recovery ?? 'resync');
+    if (db.indexGenerationsEnabled)
+      generationLoaded = await hooks.tryLoadGeneration(opts.recovery ?? 'resync');
 
     if (!generationLoaded) {
       // The loader already recorded a 'generation-load' attempt when it tried
@@ -309,7 +332,10 @@ export async function openMiniDb<V>(db: LifecycleHost<V>, opts: OpenOptions, hoo
                   reader.close();
                   throw error;
                 }
-                const sameInode = (a: { dev: number; ino: number } | null, i: { dev: number; ino: number } | null): boolean =>
+                const sameInode = (
+                  a: { dev: number; ino: number } | null,
+                  i: { dev: number; ino: number } | null,
+                ): boolean =>
                   a === null ? i === null : i !== null && i.dev === a.dev && i.ino === a.ino;
                 if (sameInode(anchors.snapshot, ids.snapshot) && sameInode(anchors.wal, ids.wal)) {
                   db.valueReader = reader;
@@ -341,7 +367,8 @@ export async function openMiniDb<V>(db: LifecycleHost<V>, opts: OpenOptions, hoo
     // complete and consistent the moment open() returns. Awaiting the
     // compaction here blocked open() on the whole snapshot rewrite + text
     // postings rebuild — tens of seconds of stalled startup on a large db.
-    if (!db.readOnly && db.autoCompact && shouldCompact(db)) hooks.submitCompaction().catch(() => {});
+    if (!db.readOnly && db.autoCompact && shouldCompact(db))
+      hooks.submitCompaction().catch(() => {});
     // Background generation build (fire-and-forget, like the compaction
     // kick). Two triggers: (a) the legacy path served the open and there is
     // data worth checkpointing — no (usable) generation exists; (b) a
@@ -354,7 +381,9 @@ export async function openMiniDb<V>(db: LifecycleHost<V>, opts: OpenOptions, hoo
       const gen = db.recoveryInfo?.indexGeneration;
       const deltaOps = db.recoveryInfo?.walDeltaAppliedOps ?? 0;
       const deltaBytes = gen ? db.recoveryInfo!.walScanEnd - gen.walCheckpoint : 0;
-      const stale = gen !== undefined && (deltaOps > GEN_BUILD_WAL_DELTA_OPS || deltaBytes > GEN_BUILD_WAL_DELTA_BYTES);
+      const stale =
+        gen !== undefined &&
+        (deltaOps > GEN_BUILD_WAL_DELTA_OPS || deltaBytes > GEN_BUILD_WAL_DELTA_BYTES);
       if ((!generationLoaded && db.size > 0) || stale) {
         void hooks.buildGeneration('open').catch(() => {});
       }
@@ -384,7 +413,8 @@ export async function openMiniDb<V>(db: LifecycleHost<V>, opts: OpenOptions, hoo
     // onLockFail:'readonly'): the instance never owned the directory, so
     // openOrRebuild must not "rebuild" (delete) anything in it — it rethrows
     // instead of touching a live writer's files (lock-review repro).
-    if (db.readOnly && error && typeof error === 'object') (error as { readOnlyOpen?: boolean }).readOnlyOpen = true;
+    if (db.readOnly && error && typeof error === 'object')
+      (error as { readOnlyOpen?: boolean }).readOnlyOpen = true;
     throw error;
   }
 }
@@ -530,7 +560,8 @@ export async function openOrRebuildMiniDb<T>(
     // malformed index-definition JSON). Transient I/O errors (EACCES, ENOSPC,
     // EIO, EMFILE, …) are rethrown so a cache opener never destroys data
     // because of a recoverable system error.
-    const rebuildable = error instanceof SyntaxError || (error as { name?: string }).name === 'CorruptFrameError';
+    const rebuildable =
+      error instanceof SyntaxError || (error as { name?: string }).name === 'CorruptFrameError';
     if (!rebuildable) throw error;
     if ((error as { readOnlyOpen?: boolean }).readOnlyOpen) throw error;
     if (hooks.onRebuild) hooks.onRebuild(error);

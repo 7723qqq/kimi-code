@@ -22,13 +22,13 @@ import {
   withTelemetryContext,
 } from '@moonshot-ai/kimi-telemetry';
 
+import { t } from '#/i18n';
+
 import { createProgram } from './cli/commands';
 import { finalizeHeadlessRun } from './cli/headless-exit';
-import { startupTrace } from './utils/startup-trace';
 import type { CLIOptions } from './cli/options';
 import { OptionConflictError, validateOptions } from './cli/options';
 import { runPrompt } from './cli/run-prompt';
-import { t } from '#/i18n';
 import { runShell } from './cli/run-shell';
 import { formatStartupError } from './cli/startup-error';
 import { runPluginNodeEntry } from './cli/sub/plugin-run-node';
@@ -37,11 +37,12 @@ import { createCliTelemetryBootstrap, initializeCliTelemetry } from './cli/telem
 import { runUpdatePreflight } from './cli/update/preflight';
 import { createKimiCodeHostIdentity, getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
-import { cleanupStaleNativeCacheForCurrent } from './native/native-assets';
 import { installMinidbTextBuildWorker } from './native/minidb-worker';
-import { installKapSearchWorker } from './native/search-worker';
 import { installNativeModuleHook } from './native/module-hook';
+import { cleanupStaleNativeCacheForCurrent } from './native/native-assets';
+import { installKapSearchWorker } from './native/search-worker';
 import { runNativeAssetSmokeIfRequested } from './native/smoke';
+import { startupTrace } from './utils/startup-trace';
 
 /**
  * Outcome of a CLI command run, reported back to the process entrypoint.
@@ -243,7 +244,11 @@ export function main(): void {
     (entry, args) => {
       void runPluginNodeEntry(entry, args).catch(async (error: unknown) => {
         await logStartupFailure(t('startup.operations.runPluginNodeEntry'), error);
-        process.stderr.write(t('tui.statusMessages.mainError', { message: error instanceof Error ? error.message : String(error) }) + '\n');
+        process.stderr.write(
+          t('tui.statusMessages.mainError', {
+            message: error instanceof Error ? error.message : String(error),
+          }) + '\n',
+        );
         process.exit(1);
       });
     },

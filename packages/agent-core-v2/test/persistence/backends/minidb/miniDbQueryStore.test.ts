@@ -1,18 +1,27 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
+
+import { ClusterDb } from '@moonshot-ai/minidb/cluster';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import {
+  ScopeActivation,
+  _clearScopedRegistryForTests,
+  registerScopedService,
+} from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { ClusterDb } from '@moonshot-ai/minidb/cluster';
-import { drainQueryStoreDisposals, MiniDbQueryStore } from '#/persistence/backends/minidb/miniDbQueryStore';
+import { LifecycleScope } from '#/app/scopes';
+import {
+  drainQueryStoreDisposals,
+  MiniDbQueryStore,
+} from '#/persistence/backends/minidb/miniDbQueryStore';
 import { IQueryStore } from '#/persistence/interface/queryStore';
-import { stubBootstrap } from '../../../app/bootstrap/stubs';
+
 import { stubLog } from '../../../_base/log/stubs';
+import { stubBootstrap } from '../../../app/bootstrap/stubs';
 
 const COLLECTION = 'session';
 const SEP = String.fromCodePoint(0);
@@ -47,7 +56,9 @@ describe('MiniDbQueryStore', () => {
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
     ]);
-    disposeHost = () => { host.dispose(); };
+    disposeHost = () => {
+      host.dispose();
+    };
     return host.app.accessor.get(IQueryStore);
   }
 
@@ -87,13 +98,18 @@ describe('MiniDbQueryStore', () => {
     await store.ensureIndex(COLLECTION, { kind: 'value', name: 'byWs', field: 'ws' });
     await store.batch(
       (
-      [
-        ['a', 'x', 1],
-        ['b', 'x', 3],
-        ['c', 'y', 5],
-        ['d', 'x', 2],
-      ] as const
-      ).map(([id, ws, n]) => ({ kind: 'put' as const, collection: COLLECTION, key: id, value: { id, ws, n } })),
+        [
+          ['a', 'x', 1],
+          ['b', 'x', 3],
+          ['c', 'y', 5],
+          ['d', 'x', 2],
+        ] as const
+      ).map(([id, ws, n]) => ({
+        kind: 'put' as const,
+        collection: COLLECTION,
+        key: id,
+        value: { id, ws, n },
+      })),
     );
 
     const page1 = await store
@@ -121,8 +137,18 @@ describe('MiniDbQueryStore', () => {
     await store.put(COLLECTION, 'a', { id: 'a', ws: 'x', n: 1, body: 'hello world' });
     await store.ensureIndex(COLLECTION, { kind: 'value', name: 'byWs', field: 'ws' });
     await store.ensureIndex(COLLECTION, { kind: 'value', name: 'byWs', field: 'ws' });
-    await store.ensureIndex(COLLECTION, { kind: 'compound', name: 'byWsN', groupBy: 'ws', orderBy: 'n' });
-    await store.ensureIndex(COLLECTION, { kind: 'compound', name: 'byWsN', groupBy: 'ws', orderBy: 'n' });
+    await store.ensureIndex(COLLECTION, {
+      kind: 'compound',
+      name: 'byWsN',
+      groupBy: 'ws',
+      orderBy: 'n',
+    });
+    await store.ensureIndex(COLLECTION, {
+      kind: 'compound',
+      name: 'byWsN',
+      groupBy: 'ws',
+      orderBy: 'n',
+    });
     const page = await store.query(COLLECTION).where({ ws: 'x' }).execute();
     expect(page.items).toHaveLength(1);
   });
@@ -179,7 +205,10 @@ describe('MiniDbQueryStore', () => {
     await second.ensureIndex(COLLECTION, { kind: 'value', name: 'byV', field: 'v' });
     expect(await second.get(COLLECTION, 'a')).toBeUndefined();
     await second.put(COLLECTION, 'b', { id: 'b', v: 2 });
-    const page = await second.query<{ id: string; v: number }>(COLLECTION).where({ v: 2 }).execute();
+    const page = await second
+      .query<{ id: string; v: number }>(COLLECTION)
+      .where({ v: 2 })
+      .execute();
     expect(page.items).toEqual([{ id: 'b', v: 2 }]);
   });
 

@@ -45,9 +45,7 @@ const SUMMARY_ORDER: readonly McpServerInfo['status'][] = [
   'removed',
 ];
 
-function statusPainter(
-  status: McpServerInfo['status'],
-): (text: string) => string {
+function statusPainter(status: McpServerInfo['status']): (text: string) => string {
   switch (status) {
     case 'connected':
       return (text) => currentTheme.fg('success', text);
@@ -94,8 +92,7 @@ function formatErrorLine(error: string): string {
 
 function sortedServers(servers: readonly McpServerInfo[]): McpServerInfo[] {
   return servers.toSorted(
-    (a, b) =>
-      STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status] || a.name.localeCompare(b.name),
+    (a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status] || a.name.localeCompare(b.name),
   );
 }
 
@@ -108,10 +105,10 @@ function buildSummary(servers: readonly McpServerInfo[]): string {
   }
   const parts: string[] = [];
   for (const status of SUMMARY_ORDER) {
-      const n = counts[status];
-      if (n === undefined || n === 0) continue;
-      parts.push(`${n} ${statusLabel(status)}`);
-    }
+    const n = counts[status];
+    if (n === undefined || n === 0) continue;
+    parts.push(`${n} ${statusLabel(status)}`);
+  }
   parts.push(formatToolsAvailable(toolsAvailable));
   return parts.join(' · ');
 }
@@ -164,7 +161,9 @@ export function buildMcpStatusReportLines(options: McpStatusReportOptions): stri
       server.error !== undefined &&
       server.error.trim().length > 0
     ) {
-      lines.push(`    ${muted(t('tui.messages.mcpStatusPanel.errorLabel'))} ${error(formatErrorLine(server.error))}`);
+      lines.push(
+        `    ${muted(t('tui.messages.mcpStatusPanel.errorLabel'))} ${error(formatErrorLine(server.error))}`,
+      );
     }
     if (server.status === 'needs-auth') {
       lines.push(

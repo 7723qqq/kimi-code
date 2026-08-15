@@ -9,21 +9,22 @@ import { cp, mkdir, mkdtemp, realpath, rename, rm, stat } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { BugIndicatingError, Error2, ErrorCodes, PluginErrors } from '#/errors';
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import type { HookDef } from '#/agent/externalHooks/types';
-import type { McpServerConfig } from '#/mcpCore/config-schema';
-import type { PluginAgentRoot } from './types';
 import { discoverFileSkills } from '#/app/skillCatalog/fileSkillDiscovery';
 import type { SkillDiscoveryResult } from '#/app/skillCatalog/skillDiscovery';
 import type { SkillRoot } from '#/app/skillCatalog/types';
+import { BugIndicatingError, Error2, ErrorCodes, PluginErrors } from '#/errors';
+import type { McpServerConfig } from '#/mcpCore/config-schema';
 
 import { downloadZip, extractZip } from './archive';
 import { loadPluginCommand } from './commands';
 import { resolveGithubCommitSha, resolveGithubSource } from './github-resolver';
-import { resolveInstallSource } from './source';
 import { parseManifest, type ParsedManifestResult } from './manifest';
-import { t } from '@moonshot-ai/kimi-i18n';
+import { resolveInstallSource } from './source';
 import { readInstalled, writeInstalled, type InstalledRecord } from './store';
+import type { PluginAgentRoot } from './types';
 import {
   normalizePluginId,
   type EnabledPluginSessionStart,
@@ -53,9 +54,7 @@ interface ManagedPluginCopy {
 
 export class PluginManager {
   private readonly kimiHomeDir: string;
-  private readonly discoverSkills: (
-    roots: readonly SkillRoot[],
-  ) => Promise<SkillDiscoveryResult>;
+  private readonly discoverSkills: (roots: readonly SkillRoot[]) => Promise<SkillDiscoveryResult>;
   private records = new Map<string, PluginRecord>();
 
   constructor(options: PluginManagerOptions) {
@@ -126,7 +125,8 @@ export class PluginManager {
 
       const parsed = await parseManifest(sourceRoot);
       if (parsed.manifest === undefined) {
-        const msg = parsed.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no manifest';
+        const msg =
+          parsed.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no manifest';
         throw new Error2(
           ErrorCodes.PLUGIN_LOAD_FAILED,
           sourceType === 'local-path'
@@ -631,11 +631,7 @@ async function recordFrom(input: {
     originalSource: input.originalSource,
     capabilities: input.capabilities,
     github: input.github,
-    skillCount: await countDiscoveredPluginSkills(
-      input.id,
-      parsed.manifest,
-      input.discoverSkills,
-    ),
+    skillCount: await countDiscoveredPluginSkills(input.id, parsed.manifest, input.discoverSkills),
     manifest: parsed.manifest,
     manifestKind: parsed.manifestKind,
     manifestPath: parsed.manifestPath,

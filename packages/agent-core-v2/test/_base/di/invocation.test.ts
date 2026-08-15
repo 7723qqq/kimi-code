@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import {
-  createDecorator,
-  type ServicesAccessor,
-} from '#/_base/di/instantiation';
+import { createDecorator, type ServicesAccessor } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
 
@@ -130,17 +127,13 @@ describe('InstantiationService.invokeFunction', () => {
   });
 
   it('non-strict mode yields undefined for an unknown service', () => {
-    const service = new InstantiationService(
-      new ServiceCollection([IService1, new Service1()]),
-    );
+    const service = new InstantiationService(new ServiceCollection([IService1, new Service1()]));
     const value = service.invokeFunction((a) => a.get(IService2));
     expect(value).toBeUndefined();
   });
 
   it('accessor is only valid during the invocation (escaping use throws)', () => {
-    const service = new InstantiationService(
-      new ServiceCollection([IService1, new Service1()]),
-    );
+    const service = new InstantiationService(new ServiceCollection([IService1, new Service1()]));
     let cached: ServicesAccessor | undefined;
     service.invokeFunction((a) => {
       expect(a.get(IService1)).toBeInstanceOf(Service1);
@@ -153,9 +146,7 @@ describe('InstantiationService.invokeFunction', () => {
   });
 
   it('propagates errors thrown by the callback', () => {
-    const service = new InstantiationService(
-      new ServiceCollection([IService1, new Service1()]),
-    );
+    const service = new InstantiationService(new ServiceCollection([IService1, new Service1()]));
     expect(() =>
       service.invokeFunction(() => {
         throw new Error('invoke-boom');

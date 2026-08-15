@@ -9,6 +9,7 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+
 import { IAgentKnowledgeService, type KnowledgeSearchResult } from './knowledge';
 
 const MAX_INJECTION_TOKENS = 800;
@@ -65,7 +66,7 @@ export class KnowledgeInjection extends Disposable {
     // Extract keywords (first 200 chars, split on whitespace)
     const words = lastUserText
       .slice(0, 200)
-      .replace(/[`"'()[\]{}]/g, ' ')
+      .replaceAll(/[`"'()[\]{}]/g, ' ')
       .split(/\s+/)
       .filter((w) => w.length > 2);
     const query = words.slice(0, 8).join(' ');
@@ -76,7 +77,8 @@ export class KnowledgeInjection extends Disposable {
     if (pathMatch) scopePath = pathMatch[0];
 
     // Detect tags from file extensions mentioned
-    if (lastUserText.includes('.ts') || lastUserText.includes('typescript')) tags.push('typescript');
+    if (lastUserText.includes('.ts') || lastUserText.includes('typescript'))
+      tags.push('typescript');
     if (lastUserText.includes('.rs') || lastUserText.includes('rust')) tags.push('rust');
     if (lastUserText.includes('test')) tags.push('testing');
     if (lastUserText.includes('import')) tags.push('import');

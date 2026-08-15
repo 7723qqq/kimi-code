@@ -15,9 +15,11 @@ import type { KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
 import { ulid } from 'ulid';
 
 import { okEnvelope } from '../envelope';
+import type { IGuiStoreService } from '../services/guiStore/guiStore';
+import type { TranscriptService } from '../services/transcript/transcriptService';
+import { registerDebugRoutes } from '../transport/registerDebugRoutes';
 import { type IConnectionRegistry } from '../transport/ws/connectionRegistry';
 import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBroadcaster';
-import type { TranscriptService } from '../services/transcript/transcriptService';
 import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
 import { registerCapabilitiesRoutes } from './capabilities';
@@ -29,8 +31,6 @@ import { registerFsRoutes } from './fs';
 import { registerGuiStoreRoutes } from './guiStore';
 import { registerMcpRoutes } from './mcp';
 import { registerMessagesRoutes } from './messages';
-import type { IGuiStoreService } from '../services/guiStore/guiStore';
-import { registerDebugRoutes } from '../transport/registerDebugRoutes';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
 import { registerOAuthRoutes } from './oauth';
@@ -41,8 +41,8 @@ import { registerSearchRoutes } from './search';
 import { registerSessionExportRoute } from './sessionExport';
 import { registerSessionsRoutes } from './sessions';
 import { registerShutdownRoutes } from './shutdown';
-import { registerSnapshotRoutes } from './snapshot';
 import { registerSkillsRoutes } from './skills';
+import { registerSnapshotRoutes } from './snapshot';
 import { registerTasksRoutes } from './tasks';
 import { registerTerminalsRoutes } from './terminals';
 import { registerToolsRoutes } from './tools';
@@ -162,10 +162,7 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerQuestionsRoutes>[0],
         core,
       );
-      registerPromptsRoutes(
-        apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0],
-        core,
-      );
+      registerPromptsRoutes(apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0], core);
       registerWorkspacesRoutes(
         apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],
         core,
@@ -176,7 +173,10 @@ export async function registerApiV1Routes(
       );
       registerFilesRoutes(apiV1 as unknown as Parameters<typeof registerFilesRoutes>[0], core);
       registerFsRoutes(apiV1 as unknown as Parameters<typeof registerFsRoutes>[0], core);
-      registerGuiStoreRoutes(apiV1 as unknown as Parameters<typeof registerGuiStoreRoutes>[0], opts.guiStore);
+      registerGuiStoreRoutes(
+        apiV1 as unknown as Parameters<typeof registerGuiStoreRoutes>[0],
+        opts.guiStore,
+      );
       registerToolsRoutes(apiV1 as unknown as Parameters<typeof registerToolsRoutes>[0], core);
       if (opts.enableTerminals !== false) {
         registerTerminalsRoutes(

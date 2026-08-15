@@ -2,7 +2,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { LifecycleScope } from '#/app/scopes';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -10,19 +10,20 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import type { IGitService } from '#/app/git/git';
+import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService, type TelemetryProperties } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
 import { type HostDirEntry, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceFsService } from '#/workspace/workspaceFs/fs';
-import { WorkspaceFsService } from '#/workspace/workspaceFs/fsService';
 import { ISessionProcessRunner, type IProcess } from '#/session/process/processRunner';
-import { ITelemetryService, type TelemetryProperties } from '#/app/telemetry/telemetry';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
+import { IWorkspaceFsService } from '#/workspace/workspaceFs/fs';
+import { WorkspaceFsService } from '#/workspace/workspaceFs/fsService';
 import { IWorkspaceGitService } from '#/workspace/workspaceGit/workspaceGit';
 
 // `resolve('/repo')` binds the current drive root on Windows, so the fake fs
 // keys and the service's resolved paths only agree when both are normalized.
-const norm = (p: string): string => p.replaceAll(/\\/g, '/');
+const norm = (p: string): string => p.replaceAll('\\', '/');
 const WORK_DIR = norm(resolve('/repo'));
 
 function stubWorkspaceContext(): IWorkspaceContext {
@@ -111,7 +112,14 @@ function fakeFs(
       };
     }
     if (symlinkSet.has(p)) {
-      return { isFile: false, isDirectory: false, isSymbolicLink: true, size: 0, mtimeMs: 1000, ino: 1 };
+      return {
+        isFile: false,
+        isDirectory: false,
+        isSymbolicLink: true,
+        size: 0,
+        mtimeMs: 1000,
+        ino: 1,
+      };
     }
     if (isDir(p)) {
       return { isFile: false, isDirectory: true, size: 0, mtimeMs: 1000, ino: 1 };
@@ -133,8 +141,7 @@ function fakeFs(
       const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
       return buf.subarray(0, n ?? buf.length);
     },
-    readLines: async function* (): AsyncGenerator<string> {
-    },
+    readLines: async function* (): AsyncGenerator<string> {},
     writeBytes: async () => {},
     createExclusive: async () => false,
     lstat: lstatImpl,
@@ -242,7 +249,11 @@ function fakeFs(
 
 function fakeProcess(stdout: string, stderr: string, exitCode: number): IProcess {
   return {
-    stdin: new Writable({ write(_c, _e, cb) { cb(); } }),
+    stdin: new Writable({
+      write(_c, _e, cb) {
+        cb();
+      },
+    }),
     stdout: Readable.from([stdout]),
     stderr: Readable.from([stderr]),
     pid: 1,
@@ -290,7 +301,11 @@ function makeStreamingProcess(lines: readonly string[]): {
     resolveWait(0);
   }
   const proc: IProcess = {
-    stdin: new Writable({ write(_c, _e, cb) { cb(); } }),
+    stdin: new Writable({
+      write(_c, _e, cb) {
+        cb();
+      },
+    }),
     stdout: Readable.from(gen()),
     stderr: Readable.from(['']),
     pid: 1,
@@ -305,7 +320,9 @@ function makeStreamingProcess(lines: readonly string[]): {
   return { proc, wasKilled: () => killed, yieldedLines: () => yielded };
 }
 
-function telemetryStub(events: Array<{ event: string; properties: Record<string, unknown> }>): ITelemetryService {
+function telemetryStub(
+  events: Array<{ event: string; properties: Record<string, unknown> }>,
+): ITelemetryService {
   return {
     _serviceBrand: undefined,
     track: (event: string, properties?: TelemetryProperties) => {
@@ -467,10 +484,7 @@ describe('WorkspaceFsService.diff', () => {
 
 describe('WorkspaceFsService.search', () => {
   it('finds files by fuzzy query and respects the result cap', async () => {
-    const fs = makeSession(
-      { 'src/foo.ts': '', 'src/bar.ts': '', 'README.md': '' },
-      emptyHandler,
-    );
+    const fs = makeSession({ 'src/foo.ts': '', 'src/bar.ts': '', 'README.md': '' }, emptyHandler);
     const result = await fs.search({ query: 'foo', limit: 50, follow_gitignore: false });
     const paths = result.items.map((i) => i.path);
     expect(paths).toContain('src/foo.ts');
@@ -593,9 +607,7 @@ describe('WorkspaceFsService.grep', () => {
   it('stops rg as soon as max_total_matches is reached', async () => {
     const TOTAL = 200;
     const CAP = 5;
-    const lines: string[] = [
-      JSON.stringify({ type: 'begin', data: { path: { text: 'big.ts' } } }),
-    ];
+    const lines: string[] = [JSON.stringify({ type: 'begin', data: { path: { text: 'big.ts' } } })];
     for (let i = 0; i < TOTAL; i++) {
       lines.push(
         JSON.stringify({
@@ -642,10 +654,7 @@ describe('WorkspaceFsService.grep', () => {
 
 describe('WorkspaceFsService.list', () => {
   it('lists files and directories with kinds', async () => {
-    const fs = makeSession(
-      { 'src/a.ts': '', 'src/sub/b.ts': '', 'README.md': '' },
-      emptyHandler,
-    );
+    const fs = makeSession({ 'src/a.ts': '', 'src/sub/b.ts': '', 'README.md': '' }, emptyHandler);
     const result = await fs.list({
       path: '.',
       depth: 1,
@@ -734,7 +743,10 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('transcodes UTF-16 text with a BOM instead of throwing fs.is_binary', async () => {
-    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('hello\nworld\n', 'utf16le')]);
+    const utf16 = Buffer.concat([
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from('hello\nworld\n', 'utf16le'),
+    ]);
     const fs = makeSession({ 'notes.txt': utf16 }, emptyHandler);
     const result = await fs.read({ path: 'notes.txt', offset: 0, length: 1024, encoding: 'utf-8' });
     expect(result.content).toBe('hello\nworld\n');
@@ -773,7 +785,12 @@ describe('WorkspaceFsService.read', () => {
   it('keeps raw bytes for base64 requests on UTF-16 files', async () => {
     const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('hi', 'utf16le')]);
     const fs = makeSession({ 'notes.txt': utf16 }, emptyHandler);
-    const result = await fs.read({ path: 'notes.txt', offset: 0, length: 1024, encoding: 'base64' });
+    const result = await fs.read({
+      path: 'notes.txt',
+      offset: 0,
+      length: 1024,
+      encoding: 'base64',
+    });
     expect(result.encoding).toBe('base64');
     expect(result.is_binary).toBe(true);
     expect(result.content).toBe(utf16.toString('base64'));

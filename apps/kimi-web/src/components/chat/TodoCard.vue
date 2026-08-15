@@ -6,6 +6,7 @@
      two stay visually identical. -->
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
+
 import type { TodoView } from '../../types';
 import StatusGlyph, { type StatusGlyphStatus } from './StatusGlyph.vue';
 
@@ -23,7 +24,16 @@ function glyphStatus(status: TodoView['status']): StatusGlyphStatus {
 <template>
   <div class="todo-card">
     <div v-if="props.todos.length === 0" class="tc-empty">
-      <svg class="tc-empty-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <svg
+        class="tc-empty-ico"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
         <path d="M9 11l2 2 4-4" />
         <rect x="4" y="4" width="16" height="16" rx="3" />
       </svg>
@@ -52,8 +62,15 @@ function glyphStatus(status: TodoView['status']): StatusGlyphStatus {
   padding: 4px 0;
   color: var(--color-text);
 }
-.tc-name { flex: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
-.tc-row.s-in_progress .tc-name { font-weight: var(--weight-medium); }
+.tc-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.tc-row.s-in_progress .tc-name {
+  font-weight: var(--weight-medium);
+}
 .tc-row.s-done .tc-name {
   color: var(--color-text-faint);
   text-decoration: line-through;
@@ -68,11 +85,19 @@ function glyphStatus(status: TodoView['status']): StatusGlyphStatus {
   color: var(--color-text-faint);
   font-size: var(--text-sm);
 }
-.tc-empty-ico { width: 28px; height: 28px; color: var(--color-line-strong); }
+.tc-empty-ico {
+  width: 28px;
+  height: 28px;
+  color: var(--color-line-strong);
+}
 
 /* Mobile (~/todo tab): match the chat font bump; row spacing opens up. */
 @media (max-width: 640px) {
-  .todo-card { font-size: var(--text-lg); }
-  .tc-row { padding: var(--space-2) var(--space-3); }
+  .todo-card {
+    font-size: var(--text-lg);
+  }
+  .tc-row {
+    padding: var(--space-2) var(--space-3);
+  }
 }
 </style>

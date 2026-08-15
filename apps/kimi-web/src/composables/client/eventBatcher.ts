@@ -39,9 +39,7 @@ const MAX_COALESCED_STREAM_CHARS = 32 * 1024;
 
 const defaultScheduler: EventBatcherScheduler = {
   requestFrame(callback) {
-    return typeof requestAnimationFrame === 'function'
-      ? requestAnimationFrame(callback)
-      : null;
+    return typeof requestAnimationFrame === 'function' ? requestAnimationFrame(callback) : null;
   },
   cancelFrame(handle) {
     if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(handle);
@@ -122,12 +120,7 @@ export function createEventBatcher<T>(
   let drainSlice: () => void;
 
   const scheduleDrain = (): void => {
-    if (
-      disposed ||
-      frameHandle !== null ||
-      taskHandle !== null ||
-      countPending() === 0
-    ) {
+    if (disposed || frameHandle !== null || taskHandle !== null || countPending() === 0) {
       return;
     }
     const version = ++scheduleVersion;
@@ -229,9 +222,7 @@ function assistantChunk(event: AppEvent): AssistantChunk | undefined {
  * before enqueueing so the per-group cap also holds for that case. Every part
  * keeps the wire seq and advances only the raw stream offset.
  */
-export function splitOversizedAppRenderEvent(
-  item: PendingAppEvent,
-): readonly PendingAppEvent[] {
+export function splitOversizedAppRenderEvent(item: PendingAppEvent): readonly PendingAppEvent[] {
   if (item.appEvent.type !== 'assistantDelta') return [item];
   const appEvent = item.appEvent;
   const stream = item.meta.stream;

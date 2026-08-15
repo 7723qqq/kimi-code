@@ -6,9 +6,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import { getKimiWebApi } from '../api';
-import type { AppCronTask, AppMcpServer, AppMcpServerDetail, AppMcpTool } from '../api/types';
 import { isDaemonApiError } from '../api/errors';
+import type { AppCronTask, AppMcpServer, AppMcpServerDetail, AppMcpTool } from '../api/types';
 import Dialog from './ui/Dialog.vue';
 import Icon from './ui/Icon.vue';
 import Spinner from './ui/Spinner.vue';
@@ -80,7 +81,10 @@ async function toggleServerDetail(server: AppMcpServer): Promise<void> {
     const detail = await getKimiWebApi().getMcpServerDetail(sid, name);
     serverDetails.value = { ...serverDetails.value, [name]: detail };
   } catch (err) {
-    detailError.value = { ...detailError.value, [name]: isDaemonApiError(err) ? err.message : String(err) };
+    detailError.value = {
+      ...detailError.value,
+      [name]: isDaemonApiError(err) ? err.message : String(err),
+    };
     // Keep the row collapsed on failure — a retry is one click away.
     serverDetails.value = { ...serverDetails.value, [name]: null };
   } finally {
@@ -119,18 +123,27 @@ const MCP_STATUS_CLASS: Record<AppMcpServer['status'], string> = {
 
 function statusLabel(status: AppMcpServer['status']): string {
   switch (status) {
-    case 'pending': return t('status.mcpStatusPending');
-    case 'pending-approval': return t('status.mcpStatusPendingApproval');
-    case 'connected': return t('status.mcpStatusConnected');
-    case 'failed': return t('status.mcpStatusFailed');
-    case 'disabled': return t('status.mcpStatusDisabled');
-    case 'needs-auth': return t('status.mcpStatusNeedsAuth');
-    case 'removed': return t('status.mcpStatusRemoved');
+    case 'pending':
+      return t('status.mcpStatusPending');
+    case 'pending-approval':
+      return t('status.mcpStatusPendingApproval');
+    case 'connected':
+      return t('status.mcpStatusConnected');
+    case 'failed':
+      return t('status.mcpStatusFailed');
+    case 'disabled':
+      return t('status.mcpStatusDisabled');
+    case 'needs-auth':
+      return t('status.mcpStatusNeedsAuth');
+    case 'removed':
+      return t('status.mcpStatusRemoved');
   }
 }
 
 function canReconnect(server: AppMcpServer): boolean {
-  return server.status === 'failed' || server.status === 'needs-auth' || server.status === 'pending';
+  return (
+    server.status === 'failed' || server.status === 'needs-auth' || server.status === 'pending'
+  );
 }
 
 function toolRowKey(tool: AppMcpTool): string {
@@ -245,13 +258,7 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
 </script>
 
 <template>
-  <Dialog
-    :open="open"
-    size="lg"
-    height="fixed"
-    close-on-overlay
-    @update:open="emitOpen"
-  >
+  <Dialog :open="open" size="lg" height="fixed" close-on-overlay @update:open="emitOpen">
     <template #head>
       <div class="st-head">
         <div>
@@ -289,9 +296,13 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
                 <div class="st-row-line1">
                   <span class="st-name" :title="server.name">{{ server.name }}</span>
                   <span class="st-transport">{{ server.transport }}</span>
-                  <span class="st-tools">{{ t('status.mcpTools', { count: String(server.toolCount) }) }}</span>
+                  <span class="st-tools">{{
+                    t('status.mcpTools', { count: String(server.toolCount) })
+                  }}</span>
                 </div>
-                <div v-if="server.error" class="st-row-error" :title="server.error">{{ server.error }}</div>
+                <div v-if="server.error" class="st-row-error" :title="server.error">
+                  {{ server.error }}
+                </div>
               </div>
               <span class="st-badge" :class="MCP_STATUS_CLASS[server.status]">
                 {{ statusLabel(server.status) }}
@@ -303,9 +314,18 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
                 :disabled="reconnecting.has(server.name)"
                 @click="reconnect(server.name)"
               >
-                {{ reconnecting.has(server.name) ? t('status.mcpReconnecting') : t('status.mcpReconnect') }}
+                {{
+                  reconnecting.has(server.name)
+                    ? t('status.mcpReconnecting')
+                    : t('status.mcpReconnect')
+                }}
               </button>
-              <Icon class="st-chevron" :class="{ open: serverDetails[server.name] !== undefined }" name="chevron-right" size="sm" />
+              <Icon
+                class="st-chevron"
+                :class="{ open: serverDetails[server.name] !== undefined }"
+                name="chevron-right"
+                size="sm"
+              />
             </div>
             <!-- Expanded server detail: resolved tools -->
             <template v-for="server in servers" :key="'d' + server.name">
@@ -313,15 +333,25 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
                 <div v-if="detailLoading.has(server.name)" class="st-loading st-inline">
                   <Spinner size="sm" />
                 </div>
-                <div v-else-if="serverDetails[server.name] === null && detailError[server.name]" class="st-error">
+                <div
+                  v-else-if="serverDetails[server.name] === null && detailError[server.name]"
+                  class="st-error"
+                >
                   {{ detailError[server.name] }}
                 </div>
                 <template v-else-if="serverDetails[server.name]">
-                  <div v-if="serverDetails[server.name]!.tools.length === 0" class="st-empty st-inline">
+                  <div
+                    v-if="serverDetails[server.name]!.tools.length === 0"
+                    class="st-empty st-inline"
+                  >
                     {{ t('status.mcpNoTools') }}
                   </div>
                   <div v-else class="st-tools-list">
-                    <div v-for="tool in serverDetails[server.name]!.tools" :key="toolRowKey(tool)" class="st-tool">
+                    <div
+                      v-for="tool in serverDetails[server.name]!.tools"
+                      :key="toolRowKey(tool)"
+                      class="st-tool"
+                    >
                       <span class="st-tool-name" :title="tool.description">{{ tool.name }}</span>
                       <span class="st-tool-desc">{{ tool.description }}</span>
                     </div>
@@ -385,15 +415,21 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
           <span>{{ t('status.mcpLoading') }}</span>
         </div>
         <template v-else>
-          <div v-if="cronTasks && cronTasks.length === 0" class="st-empty">{{ t('status.cronEmpty') }}</div>
+          <div v-if="cronTasks && cronTasks.length === 0" class="st-empty">
+            {{ t('status.cronEmpty') }}
+          </div>
           <div v-else-if="cronTasks" class="st-list">
             <div v-for="task in cronTasks" :key="task.id" class="st-row">
               <Icon name="calendar-schedule" size="sm" class="st-row-icon" />
               <div class="st-row-main">
                 <div class="st-row-line1">
                   <span class="st-cron" :title="task.cron">{{ task.cron }}</span>
-                  <span v-if="task.humanSchedule" class="st-transport">{{ task.humanSchedule }}</span>
-                  <span class="st-transport">{{ task.recurring === false ? t('status.cronOneShot') : t('status.cronRecurring') }}</span>
+                  <span v-if="task.humanSchedule" class="st-transport">{{
+                    task.humanSchedule
+                  }}</span>
+                  <span class="st-transport">{{
+                    task.recurring === false ? t('status.cronOneShot') : t('status.cronRecurring')
+                  }}</span>
                 </div>
                 <div class="st-cron-prompt" :title="task.prompt">{{ task.prompt }}</div>
                 <div v-if="formatNextFire(task.nextFireAt)" class="st-cron-next">
@@ -446,7 +482,10 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
   border-color: var(--color-line-strong);
   color: var(--color-text);
 }
-.st-refresh:disabled { opacity: 0.5; cursor: default; }
+.st-refresh:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 
 .st-body {
   display: flex;
@@ -454,7 +493,9 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
   gap: 18px;
   padding: 0 0 6px;
 }
-.st-sec { min-width: 0; }
+.st-sec {
+  min-width: 0;
+}
 .st-sec-title {
   margin: 0 0 8px;
   font-size: var(--text-xs);
@@ -477,7 +518,9 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
   color: var(--color-text-muted);
   font-size: var(--text-base);
 }
-.st-inline { padding: 6px 0; }
+.st-inline {
+  padding: 6px 0;
+}
 .st-empty {
   padding: 14px 0;
   color: var(--color-text-faint);
@@ -511,17 +554,30 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
   padding: 8px 12px;
   min-width: 0;
 }
-.st-row + .st-row { border-top: 1px solid var(--color-line); }
-.st-row-icon { flex: none; color: var(--color-text-faint); }
-.st-row-main { flex: 1; min-width: 0; }
+.st-row + .st-row {
+  border-top: 1px solid var(--color-line);
+}
+.st-row-icon {
+  flex: none;
+  color: var(--color-text-faint);
+}
+.st-row-main {
+  flex: 1;
+  min-width: 0;
+}
 .st-row > .st-row-main[role='button'] {
   cursor: pointer;
   border-radius: var(--radius-xs);
   padding: 1px 2px;
   outline: none;
 }
-.st-row > .st-row-main[role='button']:hover { background: var(--color-surface-sunken); }
-.st-row > .st-row-main[role='button']:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; }
+.st-row > .st-row-main[role='button']:hover {
+  background: var(--color-surface-sunken);
+}
+.st-row > .st-row-main[role='button']:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
 .st-row-line1 {
   display: flex;
   align-items: baseline;
@@ -580,7 +636,9 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
   color: var(--color-text-faint);
   transition: transform 0.12s;
 }
-.st-chevron.open { transform: rotate(90deg); }
+.st-chevron.open {
+  transform: rotate(90deg);
+}
 
 /* Expanded server detail: resolved tools */
 .st-detail {
@@ -600,7 +658,9 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
   border-radius: var(--radius-xs);
   min-width: 0;
 }
-.st-tool:hover { background: var(--color-surface-sunken); }
+.st-tool:hover {
+  background: var(--color-surface-sunken);
+}
 .st-tool-name {
   flex: none;
   font-family: var(--font-mono);
@@ -630,12 +690,32 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
   color: var(--color-text-muted);
   background: var(--color-surface-sunken);
 }
-.st-badge.st-connected { color: var(--color-success); border-color: var(--color-success-bd); background: var(--color-success-soft); }
-.st-badge.st-failed { color: var(--color-danger); border-color: var(--color-danger-bd); background: var(--color-danger-soft); }
-.st-badge.st-pending-approval { color: var(--color-warning); border-color: color-mix(in srgb, var(--color-warning) 30%, var(--color-line)); background: color-mix(in srgb, var(--color-warning) 10%, transparent); }
-.st-badge.st-needs-auth { color: var(--color-warning); border-color: color-mix(in srgb, var(--color-warning) 30%, var(--color-line)); background: color-mix(in srgb, var(--color-warning) 10%, transparent); }
-.st-badge.st-pending { color: var(--color-text-muted); }
-.st-badge.st-disabled { color: var(--color-text-faint); }
+.st-badge.st-connected {
+  color: var(--color-success);
+  border-color: var(--color-success-bd);
+  background: var(--color-success-soft);
+}
+.st-badge.st-failed {
+  color: var(--color-danger);
+  border-color: var(--color-danger-bd);
+  background: var(--color-danger-soft);
+}
+.st-badge.st-pending-approval {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 30%, var(--color-line));
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+}
+.st-badge.st-needs-auth {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 30%, var(--color-line));
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+}
+.st-badge.st-pending {
+  color: var(--color-text-muted);
+}
+.st-badge.st-disabled {
+  color: var(--color-text-faint);
+}
 
 .st-action {
   flex: none;
@@ -651,7 +731,10 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
   border-color: var(--color-line-strong);
   color: var(--color-text);
 }
-.st-action:disabled { opacity: 0.5; cursor: default; }
+.st-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .st-action-primary {
   background: var(--color-accent);
   border-color: var(--color-accent);
@@ -662,7 +745,9 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
   border-color: var(--color-accent-hover);
   color: var(--color-bg);
 }
-.st-action-danger { color: var(--color-danger); }
+.st-action-danger {
+  color: var(--color-danger);
+}
 .st-action-danger:hover:not(:disabled) {
   border-color: var(--color-danger-bd);
   color: var(--color-danger);
@@ -680,7 +765,11 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
   border-radius: var(--radius-sm);
   background: var(--color-surface-sunken);
 }
-.st-field { display: flex; flex-direction: column; gap: 4px; }
+.st-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 .st-field-label {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
@@ -694,9 +783,16 @@ const busy = computed(() => serversLoading.value || cronLoading.value);
   padding: 5px 8px;
   outline: none;
 }
-.st-input:focus { border-color: var(--color-accent); }
-.st-input-mono { font-family: var(--font-mono); }
-.st-textarea { resize: vertical; font-family: var(--font-ui); }
+.st-input:focus {
+  border-color: var(--color-accent);
+}
+.st-input-mono {
+  font-family: var(--font-mono);
+}
+.st-textarea {
+  resize: vertical;
+  font-family: var(--font-ui);
+}
 .st-form-row {
   display: flex;
   align-items: center;

@@ -19,19 +19,20 @@
  * Session scope by `SwarmFeature` (`features/swarm/swarmFeature`).
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
+import type { IAgentScopeHandle } from '#/_base/di/scope';
+import { ILogService } from '#/_base/log/log';
+import { linkAbortSignal } from '#/_base/utils/abort';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
+import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
+import { IEventBus } from '#/app/event/eventBus';
+import { Error2, ErrorCodes } from '#/errors';
 import type { TokenUsage } from '#/kosong/contract/usage';
 import { IModelCatalog } from '#/kosong/model/catalog';
-import { Error2, ErrorCodes } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
-import { linkAbortSignal } from '#/_base/utils/abort';
-import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentUserToolService } from '#/agent/userTool/userTool';
-import { IEventBus } from '#/app/event/eventBus';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import {
   assertSubagentDepthAllowed,
@@ -40,21 +41,14 @@ import {
   subagentParentAgentId,
   subagentSwarmItem,
 } from '#/session/agentLifecycle/subagentMetadata';
-import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { wrapSubagentModelError } from '#/session/subagent/configSection';
+import { ISessionProcessRunner } from '#/session/process/processRunner';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionProcessRunner } from '#/session/process/processRunner';
-import { ILogService } from '#/_base/log/log';
+import { wrapSubagentModelError } from '#/session/subagent/configSection';
+import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
 
-import type {
-  ISessionSwarmService} from './sessionSwarm';
-import {
-  type SessionSwarmRunArgs,
-  type SessionSwarmRunResult,
-  type SessionSwarmTask,
-} from './sessionSwarm';
 import {
   resolveSwarmMaxConcurrency,
   AgentRunBatch,
@@ -63,6 +57,12 @@ import {
   type AgentRunBatchLauncher,
   type AgentRunAttemptHandle,
 } from './agentRunBatch';
+import type { ISessionSwarmService } from './sessionSwarm';
+import {
+  type SessionSwarmRunArgs,
+  type SessionSwarmRunResult,
+  type SessionSwarmTask,
+} from './sessionSwarm';
 
 export interface SubagentSuspendedEvent {
   readonly type: 'subagent.suspended';
@@ -148,9 +148,13 @@ export class SessionSwarmService implements ISessionSwarmService {
     await this.catalog.ready;
     const profile = this.catalog.get(options.profileName);
     if (profile === undefined) {
-      throw new Error2(ErrorCodes.PROFILE_UNKNOWN, t('v2Errors.unknownAgentType', { type: options.profileName }), {
-        details: { profileName: options.profileName },
-      });
+      throw new Error2(
+        ErrorCodes.PROFILE_UNKNOWN,
+        t('v2Errors.unknownAgentType', { type: options.profileName }),
+        {
+          details: { profileName: options.profileName },
+        },
+      );
     }
     const callerData = caller.accessor.get(IAgentProfileService).data();
     if (callerData.modelAlias === undefined) {
@@ -201,10 +205,16 @@ export class SessionSwarmService implements ISessionSwarmService {
       runner: this.processRunner,
       log: this.log,
     });
-    return this.observe(caller, child.id, options.profileName, {
-      kind: 'prompt',
-      prompt: promptText,
-    }, options);
+    return this.observe(
+      caller,
+      child.id,
+      options.profileName,
+      {
+        kind: 'prompt',
+        prompt: promptText,
+      },
+      options,
+    );
   }
 
   private async resumeAttempt(
@@ -285,9 +295,13 @@ export class SessionSwarmService implements ISessionSwarmService {
   private async requireOwnedSubagent(callerAgentId: string, agentId: string): Promise<void> {
     const meta = await this.agentMeta(agentId);
     if (!isSubagentMeta(meta)) {
-      throw new Error2(ErrorCodes.AGENT_NOT_A_SUBAGENT, t('v2Errors.subagentNotSubagent', { agentId }), {
-        details: { agentId },
-      });
+      throw new Error2(
+        ErrorCodes.AGENT_NOT_A_SUBAGENT,
+        t('v2Errors.subagentNotSubagent', { agentId }),
+        {
+          details: { agentId },
+        },
+      );
     }
     if (subagentParentAgentId(meta) !== callerAgentId) {
       throw new Error2(

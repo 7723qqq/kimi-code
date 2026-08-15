@@ -3,26 +3,25 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ILogService } from '#/_base/log/log';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IRestGateway } from '#/app/gateway/gateway';
 import { RestGateway } from '#/app/gateway/gatewayService';
-import { ILogService } from '#/_base/log/log';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { LifecycleScope } from '#/app/scopes';
 import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { IAgentLoopService } from '#/agent/loop/loop';
 import { createHooks } from '#/hooks';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
+
 import { stubLog } from '../../_base/log/stubs';
 import { stubLoopWithHooks, type StubLoop } from '../../agent/loop/stubs';
 
 function textOf(message: ContextMessage): string {
-  return message.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('');
+  return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
 function makeAccessor(
@@ -52,7 +51,10 @@ describe('RestGateway', () => {
 
     const promptService: IAgentPromptService = {
       _serviceBrand: undefined,
-      enqueue: ({ message }: { message: ContextMessage }) => { promptCalls.push(message); return Promise.resolve({ id: 'p', launched: Promise.resolve() } as never); },
+      enqueue: ({ message }: { message: ContextMessage }) => {
+        promptCalls.push(message);
+        return Promise.resolve({ id: 'p', launched: Promise.resolve() } as never);
+      },
       submit: () => Promise.resolve(undefined),
       submitSteer: () => Promise.resolve(undefined),
       steer: () => Promise.resolve([]),

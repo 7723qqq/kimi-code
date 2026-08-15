@@ -9,16 +9,16 @@
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { getBuiltin, resolveUserWorkflow } from '#/app/workflow/workflowRegistry';
+import { IWorkflowService } from '#/app/workflow/workflowService';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { AgentTool, ToolExecution } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { IWorkflowService } from '#/app/workflow/workflowService';
-import { getBuiltin, resolveUserWorkflow } from '#/app/workflow/workflowRegistry';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 
 import DESCRIPTION from './workflow.md?raw';
 
@@ -35,18 +35,9 @@ export const WorkflowToolInputSchema = z
       .string()
       .optional()
       .describe('Inline workflow script (for `run`). Mutually exclusive with `name`.'),
-    args: z
-      .string()
-      .optional()
-      .describe('Arguments to pass to the workflow (for `run`).'),
-    run_id: z
-      .string()
-      .optional()
-      .describe('Workflow run ID (for `status`, `wait`, `cancel`).'),
-    timeout_ms: z
-      .number()
-      .optional()
-      .describe('Timeout in milliseconds (for `wait`).'),
+    args: z.string().optional().describe('Arguments to pass to the workflow (for `run`).'),
+    run_id: z.string().optional().describe('Workflow run ID (for `status`, `wait`, `cancel`).'),
+    timeout_ms: z.number().optional().describe('Timeout in milliseconds (for `wait`).'),
   })
   .strict();
 
@@ -88,7 +79,10 @@ export class WorkflowTool implements IWorkflowTool {
           case 'cancel':
             return this.handleCancel(args);
           default:
-            return { output: `Unknown workflow operation: ${String(args.operation)}`, isError: true };
+            return {
+              output: `Unknown workflow operation: ${String(args.operation)}`,
+              isError: true,
+            };
         }
       },
     };
@@ -158,9 +152,8 @@ export class WorkflowTool implements IWorkflowTool {
       return { output: `Workflow run not found: ${args.run_id}` };
     }
     if (result.status === 'completed') {
-      const resultStr = typeof result.result === 'string'
-        ? result.result
-        : JSON.stringify(result.result, null, 2);
+      const resultStr =
+        typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
       return {
         output: `Workflow completed.\nAgent runs: ${result.agentCount}\nDuration: ${((result.finishedAt ?? 0) - result.startedAt) / 1000}s\n\nResult:\n${resultStr}`,
         stopTurn: true,

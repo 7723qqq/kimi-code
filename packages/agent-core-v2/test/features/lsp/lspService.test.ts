@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { Error2, ErrorCodes } from '#/errors';
-import { finalExtension, LspService } from '#/features/lsp/lspService';
 import type { LspProvider, LspQueryResult } from '#/features/lsp/lsp';
+import { finalExtension, LspService } from '#/features/lsp/lspService';
 
 function stubProvider(
   id: string,
@@ -34,10 +34,19 @@ describe('LspService', () => {
     const service = new LspService();
     const calls: string[] = [];
     service.registerProvider(
-      stubProvider('typescript', { ts: 'typescript', tsx: 'typescript' }, {
-        kind: 'locations',
-        locations: [{ uri: 'file:///a.ts', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
-      }),
+      stubProvider(
+        'typescript',
+        { ts: 'typescript', tsx: 'typescript' },
+        {
+          kind: 'locations',
+          locations: [
+            {
+              uri: 'file:///a.ts',
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+            },
+          ],
+        },
+      ),
     );
     service.registerProvider(
       stubProvider('python', { py: 'python' }, { kind: 'hover', hover: null }),
@@ -52,7 +61,12 @@ describe('LspService', () => {
     expect(result.kind).toBe('locations');
     expect(result).toEqual({
       kind: 'locations',
-      locations: [{ uri: 'file:///a.ts', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
+      locations: [
+        {
+          uri: 'file:///a.ts',
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+        },
+      ],
     });
     expect(calls).toEqual([]);
   });
@@ -139,7 +153,9 @@ describe('LspService', () => {
       }),
     ).rejects.toMatchObject({ code: ErrorCodes.LSP_UNAVAILABLE });
     // The id is free again.
-    expect(() => service.registerProvider(stubProvider('typescript', { ts: 'typescript' }))).not.toThrow();
+    expect(() =>
+      service.registerProvider(stubProvider('typescript', { ts: 'typescript' })),
+    ).not.toThrow();
   });
 
   it('forwards the abort signal to the provider', async () => {

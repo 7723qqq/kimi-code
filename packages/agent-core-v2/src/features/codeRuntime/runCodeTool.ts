@@ -12,18 +12,19 @@
  * Bound at Agent scope.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
+import { IConfigService } from '#/app/config/config';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type {
   ExecutableToolContext,
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
-import { IConfigService } from '#/app/config/config';
 import { resolveSandboxPolicy } from '#/workspace/sandbox/sandbox';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 import { runCodeInWorker } from './codeExecutor';
-import type { IRunCodeTool} from './codeRuntime';
+import type { IRunCodeTool } from './codeRuntime';
 import { RunCodeInputSchema, type RunCodeInput } from './codeRuntime';
 import DESCRIPTION from './tools/run_code/run_code.md?raw';
 

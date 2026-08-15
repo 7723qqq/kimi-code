@@ -59,9 +59,7 @@ function collectErrorCodes(error: object): string[] {
  * with the raw SDK error — the base conversion would otherwise drop the
  * SDK-parsed body `error.type`/`error.code` this reads.
  */
-export function classifyKimiQuotaError(
-  error: unknown,
-): APIProviderQuotaExhaustedError | undefined {
+export function classifyKimiQuotaError(error: unknown): APIProviderQuotaExhaustedError | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
   const status = (error as Record<string, unknown>)['status'];
   if (status !== 429) return undefined;

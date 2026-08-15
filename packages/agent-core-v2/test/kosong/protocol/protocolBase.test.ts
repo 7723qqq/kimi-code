@@ -14,6 +14,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ChatProvider } from '#/kosong/contract/provider';
+import type { ProtocolAdapterConfig } from '#/kosong/protocol/protocol';
 import {
   getProtocolBase,
   listProtocolBases,
@@ -22,7 +23,6 @@ import {
   type ProtocolBaseDefinition,
   type ProtocolBaseId,
 } from '#/kosong/protocol/protocolBase';
-import type { ProtocolAdapterConfig } from '#/kosong/protocol/protocol';
 
 const config: ProtocolAdapterConfig = { protocol: 'openai', modelName: 'test-model' };
 
@@ -55,11 +55,7 @@ describe('listProtocolBases', () => {
     const googleGenAI = fakeBase('google-genai');
     registerProtocolBase(anthropic);
     registerProtocolBase(googleGenAI);
-    expect(listProtocolBases()).toEqual([
-      getProtocolBase('openai'),
-      anthropic,
-      googleGenAI,
-    ]);
+    expect(listProtocolBases()).toEqual([getProtocolBase('openai'), anthropic, googleGenAI]);
     expect(listProtocolBases().map((base) => base.id)).not.toContain('openai_responses');
   });
 });

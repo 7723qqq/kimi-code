@@ -19,7 +19,6 @@
 
 import { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
 import { ISessionIndex } from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
-import { ISessionLifecycleService } from '@moonshot-ai/agent-core-v2/workspace/sessionLifecycle/sessionLifecycle';
 import type { InspectionSource } from '@moonshot-ai/agent-core-v2/kosong/contract/inspection';
 import type { TokenUsage } from '@moonshot-ai/agent-core-v2/kosong/contract/usage';
 import {
@@ -29,6 +28,7 @@ import {
   type ProviderCatalogItem,
 } from '@moonshot-ai/agent-core-v2/kosong/model/catalog';
 import { IModelService } from '@moonshot-ai/agent-core-v2/kosong/model/model';
+import { ISessionLifecycleService } from '@moonshot-ai/agent-core-v2/workspace/sessionLifecycle/sessionLifecycle';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 

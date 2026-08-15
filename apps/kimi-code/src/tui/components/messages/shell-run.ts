@@ -2,7 +2,6 @@ import { Container, Text } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-
 import { formatBashOutputForDisplay, sanitizeShellOutput } from '#/tui/utils/shell-output';
 
 const RUNNING_TAIL_LINES = 5;

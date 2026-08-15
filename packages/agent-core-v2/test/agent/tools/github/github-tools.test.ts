@@ -13,21 +13,21 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getConfigSectionContributions } from '#/app/config/configSectionContributions';
-import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import type { IConfigService } from '#/app/config/config';
-import { getContributedFlags } from '#/app/flag/flagRegistry';
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
-import type { ExecutableToolContext } from '#/tool/toolContract';
+import { GITHUB_CONFIG_SECTION, GITHUB_TOOLS_FLAG_ID } from '#/agent/tools/github/flag';
+import { GITHUB_NO_TOKEN_ERROR } from '#/agent/tools/github/github-request';
+import type { GitHubToolBase } from '#/agent/tools/github/github-tools';
 import {
   GITHUB_MUTATING_TOOL_NAMES,
   GITHUB_READONLY_TOOL_NAMES,
   GITHUB_SPECS,
-  GitHubToolBase,
   makeGitHubToolCtor,
 } from '#/agent/tools/github/github-tools';
-import { GITHUB_NO_TOKEN_ERROR } from '#/agent/tools/github/github-request';
-import { GITHUB_CONFIG_SECTION, GITHUB_TOOLS_FLAG_ID } from '#/agent/tools/github/flag';
+import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import type { IConfigService } from '#/app/config/config';
+import { getConfigSectionContributions } from '#/app/config/configSectionContributions';
+import { getContributedFlags } from '#/app/flag/flagRegistry';
+import type { ExecutableToolContext } from '#/tool/toolContract';
 
 const EXPECTED_TOOL_COUNT = 29;
 const EXPECTED_READONLY_COUNT = 21;
@@ -49,7 +49,9 @@ function makeTool(
   const config = {
     _serviceBrand: undefined,
     get: (domain: string) =>
-      domain === GITHUB_CONFIG_SECTION && deps?.token !== undefined ? { token: deps.token } : undefined,
+      domain === GITHUB_CONFIG_SECTION && deps?.token !== undefined
+        ? { token: deps.token }
+        : undefined,
   } as unknown as IConfigService;
   const bootstrap = {
     _serviceBrand: undefined,
@@ -92,16 +94,18 @@ describe('GitHub tool table', () => {
     const all = [...GITHUB_READONLY_TOOL_NAMES, ...GITHUB_MUTATING_TOOL_NAMES];
     expect(new Set(all).size).toBe(EXPECTED_TOOL_COUNT);
     expect(all.toSorted()).toEqual(GITHUB_SPECS.map((spec) => spec.name).toSorted());
-    expect(GITHUB_MUTATING_TOOL_NAMES.toSorted()).toEqual([
-      'GitHubCreateOrUpdateFile',
-      'GitHubCreateIssue',
-      'GitHubUpdateIssue',
-      'GitHubAddIssueComment',
-      'GitHubCreatePR',
-      'GitHubUpdatePR',
-      'GitHubMergePR',
-      'GitHubCreatePRReview',
-    ].toSorted());
+    expect(GITHUB_MUTATING_TOOL_NAMES.toSorted()).toEqual(
+      [
+        'GitHubCreateOrUpdateFile',
+        'GitHubCreateIssue',
+        'GitHubUpdateIssue',
+        'GitHubAddIssueComment',
+        'GitHubCreatePR',
+        'GitHubUpdatePR',
+        'GitHubMergePR',
+        'GitHubCreatePRReview',
+      ].toSorted(),
+    );
   });
 
   it('gates activation on the github_tools flag', () => {
@@ -161,7 +165,9 @@ describe('GitHub tool execution', () => {
         'x-ratelimit-remaining': '4871',
       }),
     );
-    const tool = makeTool('GitHubGetRepo', { getEnv: (name) => (name === 'GITHUB_TOKEN' ? 'ghp_t' : undefined) });
+    const tool = makeTool('GitHubGetRepo', {
+      getEnv: (name) => (name === 'GITHUB_TOKEN' ? 'ghp_t' : undefined),
+    });
 
     const execution = tool.resolveExecution({ owner: 'octo', repo: 'hello' });
     if (execution.isError === true) throw new Error('expected runnable execution');
@@ -186,9 +192,7 @@ describe('GitHub tool execution', () => {
     const result = await execution.execute(ctx());
 
     expect(result.isError).toBe(true);
-    expect(result.output).toBe(
-      'GitHub API error 404 (status 404)\n{"message":"Not Found"}',
-    );
+    expect(result.output).toBe('GitHub API error 404 (status 404)\n{"message":"Not Found"}');
   });
 
   it('returns the no-token error without a request', async () => {

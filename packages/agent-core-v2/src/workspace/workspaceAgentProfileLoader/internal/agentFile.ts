@@ -117,9 +117,7 @@ export function parseAgentFileText(options: ParseAgentFileOptions): AgentFileDef
 function parseBoolean(value: unknown, field: string, filePath: string): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value === 'boolean') return value;
-  throw new AgentFileParseError(
-    `Frontmatter field "${field}" in ${filePath} must be a boolean`,
-  );
+  throw new AgentFileParseError(`Frontmatter field "${field}" in ${filePath} must be a boolean`);
 }
 
 function parseStringList(

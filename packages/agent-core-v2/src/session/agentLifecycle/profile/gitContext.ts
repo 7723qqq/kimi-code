@@ -194,8 +194,7 @@ async function runGit(
 
   try {
     proc.stdin.end();
-  } catch {
-  }
+  } catch {}
 
   const work = Promise.all([collectStream(proc.stdout), collectStream(proc.stderr), proc.wait()]);
   work.catch(() => {});
@@ -216,8 +215,7 @@ async function runGit(
   } catch {
     try {
       await proc.kill('SIGKILL');
-    } catch {
-    }
+    } catch {}
     await work.catch(() => {});
     if (timedOut) return { ok: false, kind: 'timeout' };
     return { ok: false, kind: 'command-failed' };
@@ -238,6 +236,5 @@ async function collectStream(stream: Readable): Promise<string> {
 async function disposeProcess(proc: IProcess): Promise<void> {
   try {
     await proc.dispose();
-  } catch {
-  }
+  } catch {}
 }

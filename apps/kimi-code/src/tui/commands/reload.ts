@@ -1,7 +1,8 @@
-import { t } from '#/i18n';
 import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
 import { currentTheme, lightColors } from '#/tui/theme';
+
 import { loadTuiConfig, type TuiConfig } from '../config';
 import { setMarkdownRenderLatex } from '../utils/markdown-options';
 import type { SlashCommandHost } from './dispatch';
@@ -46,10 +47,7 @@ export async function handleReloadCommand(host: SlashCommandHost): Promise<void>
     if (sessionlessV2) {
       await host.hydrateLazyConfigDefaults();
     }
-    host.showStatus(
-      t('tui.statusMessages.reloadNoActiveSession'),
-      'success',
-    );
+    host.showStatus(t('tui.statusMessages.reloadNoActiveSession'), 'success');
   }
 }
 
@@ -61,9 +59,8 @@ export async function applyReloadedTuiConfig(
   // transcript components, which rebuild their Markdown children and copy the
   // options at construction — so the new value must be live by then.
   setMarkdownRenderLatex(config.renderLatex ?? true);
-  const resolved = config.theme === 'auto'
-    ? (currentTheme.palette === lightColors ? 'light' : 'dark')
-    : undefined;
+  const resolved =
+    config.theme === 'auto' ? (currentTheme.palette === lightColors ? 'light' : 'dark') : undefined;
   await host.applyTheme(config.theme, resolved);
   host.refreshTerminalThemeTracking();
   host.setAppState({

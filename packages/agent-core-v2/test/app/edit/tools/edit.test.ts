@@ -15,8 +15,6 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PathSecurityError } from '#/tool/path-access';
-import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { type EditInput, EditInputSchema } from '#/agent/tools/edit/edit';
@@ -24,12 +22,19 @@ import { EditTool } from '#/agent/tools/edit/editTool';
 import type { IConfigService } from '#/app/config/config';
 import { IFileEditService } from '#/app/edit/fileEdit';
 import { FileEditService } from '#/app/edit/fileEditService';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { PathSecurityError } from '#/tool/path-access';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
+import { stubWorkspaceContext } from '../../../session/workspaceContext/stub-workspace-context';
 
 // These suites exercise the TS edit path (text model, CRLF handling,
 // exact-match semantics) through the real FileEditService. Stub the native

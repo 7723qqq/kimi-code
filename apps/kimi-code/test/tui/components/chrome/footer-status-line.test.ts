@@ -5,14 +5,14 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
+import type { AppState } from '#/tui/types';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import {
   runStatusLineCommand,
   STATUS_LINE_MAX_CAPTURE_BYTES,
   StatusLineCommandRunner,
   type StatusLinePayload,
 } from '#/tui/utils/status-line-command';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
-import type { AppState } from '#/tui/types';
 
 const baseState: AppState = {
   version: '1.2.3',
@@ -26,7 +26,7 @@ const baseState: AppState = {
   contextUsage: 0,
   cacheReadTokens: 0,
   cacheMissTokens: 0,
-    cacheOtherTokens: 0,
+  cacheOtherTokens: 0,
   tokenSpeed: 0,
   sessionStats: createEmptySessionStats(),
   contextTokens: 0,
@@ -278,7 +278,10 @@ describe('StatusLineCommandRunner', () => {
         scriptFile,
         "import { readFileSync, writeFileSync } from 'node:fs';\nconst file = process.argv[2];\nconst n = Number(readFileSync(file, 'utf-8'));\nwriteFileSync(file, String(n + 1));\nprocess.stdout.write(`run-${n}`);\n",
       );
-      const runner = new StatusLineCommandRunner(`""${process.execPath}" ${scriptFile}" ${counterFile}`, () => {});
+      const runner = new StatusLineCommandRunner(
+        `""${process.execPath}" ${scriptFile}" ${counterFile}`,
+        () => {},
+      );
 
       runner.maybeRefresh(payload);
       await new Promise((resolve) => setTimeout(resolve, 250));

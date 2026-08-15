@@ -63,9 +63,7 @@ export function stripDynamicToolContext(
   return out;
 }
 
-export function collectLoadedDynamicToolNames(
-  history: readonly ContextMessage[],
-): Set<string> {
+export function collectLoadedDynamicToolNames(history: readonly ContextMessage[]): Set<string> {
   const names = new Set<string>();
   for (const message of history) {
     if (message.tools === undefined) continue;
@@ -83,9 +81,7 @@ export function foldAnnouncedToolNames(history: readonly ContextMessage[]): Set<
   const announced = new Set<string>();
   for (const message of history) {
     if (!isLoadableToolsAnnouncement(message)) continue;
-    const text = message.content
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('');
+    const text = message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
     for (const name of matchToolNameBlocks(text, TOOLS_REMOVED_BLOCK)) {
       announced.delete(name);
     }

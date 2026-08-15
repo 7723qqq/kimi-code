@@ -1,11 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import {
   type IAgentScopeHandle,
   ScopeActivation,
@@ -15,78 +14,74 @@ import {
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import { IAgentActivityView } from '#/agent/activityView/activityView';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { CRON_SESSION_TAG, type CronTask } from '#/app/cron/cronTask';
+import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
+import { IEventService } from '#/app/event/event';
 import { IFlagService } from '#/app/flag/flag';
+import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
+import { LifecycleScope } from '#/app/scopes';
+import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
+import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
+import { IAppStateService } from '#/app/state/appState';
+import { AppStateService } from '#/app/state/appStateService';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
+import { resumeSessionById } from '#/app/workspaceLifecycle/sessionLookup';
+import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
+import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
+import { Error2, ErrorCodes } from '#/errors';
+import { IAgentPlanService } from '#/features/plan/plan';
+import { IModelCatalog } from '#/kosong/model/catalog';
+import { IModelService } from '#/kosong/model/model';
+import { IProviderService } from '#/kosong/provider/provider';
+import type { McpServerConfig } from '#/mcpCore/config-schema';
+import type { McpConnectionManager } from '#/mcpCore/connection-manager';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
-import { IEventService } from '#/app/event/event';
-import {
-  IAgentLifecycleService,
-  MAIN_AGENT_ID,
-} from '#/session/agentLifecycle/agentLifecycle';
-import type { McpConnectionManager } from '#/mcpCore/connection-manager';
-import type { McpServerConfig } from '#/mcpCore/config-schema';
-import { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalog';
-import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
-import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
+import { ISessionExternalHooksService } from '#/session/externalHooks/externalHooks';
+import { ISessionEphemeralMcpServers } from '#/session/mcp/ephemeralMcpServers';
+import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
+import { ISessionProcessRunner } from '#/session/process/processRunner';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionMetadata, type SessionMetaPatch } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
+import { ISessionStateService } from '#/session/state/sessionState';
+import { SessionStateService } from '#/session/state/sessionStateService';
+import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
+import { ISessionSubagentModelsValidationService } from '#/session/subagent/subagentModelsValidation';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { SessionWorkspaceContextService } from '#/session/workspaceContext/workspaceContextService';
+import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
+import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
+import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
 import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
-import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
 import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
+import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { WorkspaceDirsService } from '#/workspace/workspaceDirs/workspaceDirsService';
 import { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
 import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
-import { IAgentPlanService } from '#/features/plan/plan';
-import { ISessionCronService } from '#/session/cron/sessionCronService';
-import { ISessionSubagentModelsValidationService } from '#/session/subagent/subagentModelsValidation';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
-import { IModelCatalog } from '#/kosong/model/catalog';
-import { IModelService } from '#/kosong/model/model';
-import { IProviderService } from '#/kosong/provider/provider';
-import { stubProviderService } from '../../app/provider/stubs';
-import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
-import { CRON_SESSION_TAG, type CronTask } from '#/app/cron/cronTask';
-import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
-import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
-import { resumeSessionById } from '#/app/workspaceLifecycle/sessionLookup';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
+import { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalog';
 import { IWorkspaceToolPolicy } from '#/workspace/workspaceToolPolicy/workspaceToolPolicy';
 import { WorkspaceToolPolicyService } from '#/workspace/workspaceToolPolicy/workspaceToolPolicyService';
-import { IAgentActivityView } from '#/agent/activityView/activityView';
-import { ISessionExternalHooksService } from '#/session/externalHooks/externalHooks';
-import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import {
-  ISessionMetadata,
-  type SessionMetaPatch,
-} from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
-import { ISessionProcessRunner } from '#/session/process/processRunner';
-import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
-import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { SessionWorkspaceContextService } from '#/session/workspaceContext/workspaceContextService';
-import { ISessionStateService } from '#/session/state/sessionState';
-import { SessionStateService } from '#/session/state/sessionStateService';
-import { IAppStateService } from '#/app/state/appState';
-import { AppStateService } from '#/app/state/appStateService';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
-import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
-import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionEphemeralMcpServers } from '#/session/mcp/ephemeralMcpServers';
-import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { Error2, ErrorCodes } from '#/errors';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
-import { stubFlag } from '../../app/flag/stubs';
+
 import { stubLog } from '../../_base/log/stubs';
+import { stubFlag } from '../../app/flag/stubs';
+import { stubProviderService } from '../../app/provider/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 function bootstrapStub(): IBootstrapService {
   return {
@@ -248,9 +243,7 @@ function workspaceStub(): IWorkspaceService {
   };
 }
 
-function projectLocalConfigStub(
-  localDirs: readonly string[] = [],
-): IProjectLocalConfigService {
+function projectLocalConfigStub(localDirs: readonly string[] = []): IProjectLocalConfigService {
   return {
     _serviceBrand: undefined,
     readAdditionalDirs: (workDir: string) =>
@@ -808,9 +801,9 @@ describe('SessionLifecycleService', () => {
   it('rejects create with a session id that would escape the session directory', async () => {
     const svc = await build();
 
-    await expect(svc.create({ sessionId: '../escape', workDir: '/tmp/proj' })).rejects.toMatchObject(
-      { code: ErrorCodes.SESSION_ID_INVALID },
-    );
+    await expect(
+      svc.create({ sessionId: '../escape', workDir: '/tmp/proj' }),
+    ).rejects.toMatchObject({ code: ErrorCodes.SESSION_ID_INVALID });
     await expect(svc.create({ sessionId: 'a/b', workDir: '/tmp/proj' })).rejects.toMatchObject({
       code: ErrorCodes.SESSION_ID_INVALID,
     });
@@ -824,9 +817,9 @@ describe('SessionLifecycleService', () => {
     const svc = await build();
     await svc.create({ sessionId: 'src', workDir: '/tmp/proj' });
 
-    await expect(svc.fork({ sourceSessionId: 'src', newSessionId: '../evil' })).rejects.toMatchObject(
-      { code: ErrorCodes.SESSION_ID_INVALID },
-    );
+    await expect(
+      svc.fork({ sourceSessionId: 'src', newSessionId: '../evil' }),
+    ).rejects.toMatchObject({ code: ErrorCodes.SESSION_ID_INVALID });
     expect(svc.get('../evil')).toBeUndefined();
   });
 
@@ -958,12 +951,10 @@ describe('SessionLifecycleService', () => {
       stubPair(IFlagService, secondaryModelFlagStub(true)),
     ]);
 
-    await expect(svc.create({ sessionId: 's-force', workDir: '/tmp/proj' })).rejects.toMatchObject(
-      {
-        code: ErrorCodes.CONFIG_INVALID,
-        message: expect.stringContaining('[secondary_model].default_model is required'),
-      },
-    );
+    await expect(svc.create({ sessionId: 's-force', workDir: '/tmp/proj' })).rejects.toMatchObject({
+      code: ErrorCodes.CONFIG_INVALID,
+      message: expect.stringContaining('[secondary_model].default_model is required'),
+    });
     expect(svc.get('s-force')).toBeUndefined();
   });
 
@@ -1180,7 +1171,7 @@ describe('SessionLifecycleService', () => {
               }
             : undefined,
         ),
-        createOrTouch: (root, name) =>
+      createOrTouch: (root, name) =>
         Promise.resolve({
           id: encodeWorkDirKey(root),
           root,
@@ -1243,9 +1234,7 @@ describe('SessionLifecycleService', () => {
 
     expect(archived).toBe(true);
     expect(removed).toEqual(['main']);
-    expect(published).toEqual([
-      { type: 'event.session.archived', payload: { sessionId: 's1' } },
-    ]);
+    expect(published).toEqual([{ type: 'event.session.archived', payload: { sessionId: 's1' } }]);
     expect(svc.get('s1')).toBeUndefined();
   });
 
@@ -1308,7 +1297,9 @@ describe('SessionLifecycleService', () => {
   });
 
   describe('delete', () => {
-    function recordingAppendLogStore(appended: { key: string; record: unknown }[]): IAppendLogStore {
+    function recordingAppendLogStore(
+      appended: { key: string; record: unknown }[],
+    ): IAppendLogStore {
       return {
         ...appendLogStoreStub(),
         append: (_scope: string, key: string, record: unknown) => {
@@ -1573,9 +1564,7 @@ describe('SessionLifecycleService', () => {
     const mcpReady = new Promise<void>((resolve) => {
       resolveMcpReady = resolve;
     });
-    const svc = await build([
-      stubPair(IWorkspaceMcpService, workspaceMcpServiceStub(mcpReady)),
-    ]);
+    const svc = await build([stubPair(IWorkspaceMcpService, workspaceMcpServiceStub(mcpReady))]);
 
     // Create resolves while the workspace MCP initial connect is still
     // pending; the seeded handle carries the readiness promise so the agent's
@@ -2044,12 +2033,11 @@ describe('SessionLifecycleService', () => {
       );
     });
 
-    it('fork inherits the source session\'s last turn outcome', async () => {
+    it("fork inherits the source session's last turn outcome", async () => {
       const updates: { readonly lastTurnReason?: unknown }[] = [];
       const metaStub: ISessionMetadata = {
         ...metadataStub(),
-        read: () =>
-          Promise.resolve({ lastTurnReason: 'failed', agents: {} } as never),
+        read: () => Promise.resolve({ lastTurnReason: 'failed', agents: {} } as never),
         update: (patch) => {
           updates.push(patch);
           return Promise.resolve();
@@ -2064,12 +2052,11 @@ describe('SessionLifecycleService', () => {
       expect(forkUpdate?.lastTurnReason).toBe('failed');
     });
 
-    it('fork inherits the source session\'s updatedAt (a copy is not fresh activity)', async () => {
+    it("fork inherits the source session's updatedAt (a copy is not fresh activity)", async () => {
       const updates: { readonly updatedAt?: unknown }[] = [];
       const metaStub: ISessionMetadata = {
         ...metadataStub(),
-        read: () =>
-          Promise.resolve({ updatedAt: 9876, agents: {} } as never),
+        read: () => Promise.resolve({ updatedAt: 9876, agents: {} } as never),
         update: (patch) => {
           updates.push(patch);
           return Promise.resolve();
@@ -2090,8 +2077,7 @@ describe('SessionLifecycleService', () => {
         ...metadataStub(),
         // A cold legacy/v1 document read from disk can still carry an ISO
         // string — the fork must not persist it as the v2 updatedAt.
-        read: () =>
-          Promise.resolve({ updatedAt: '2026-08-10T23:00:00.000Z', agents: {} } as never),
+        read: () => Promise.resolve({ updatedAt: '2026-08-10T23:00:00.000Z', agents: {} } as never),
         update: (patch) => {
           updates.push(patch);
           return Promise.resolve();
@@ -2156,9 +2142,7 @@ describe('SessionLifecycleService', () => {
 
     it('copies blobs, plans, background tasks, and media originals into the fork', async () => {
       const root = await makeTmpRoot();
-      const svc = await build([
-        stubPair(IBootstrapService, tmpBootstrapStub(root)),
-      ]);
+      const svc = await build([stubPair(IBootstrapService, tmpBootstrapStub(root))]);
       await svc.create({ sessionId: 'src', workDir: '/tmp/proj' });
 
       const srcDir = join(root, 'sessions', 'wd_stub', 'src');
@@ -2191,9 +2175,7 @@ describe('SessionLifecycleService', () => {
       await expect(
         readFile(join(dstDir, 'agents', 'main', 'tasks', 'bash-1', 'output.log'), 'utf8'),
       ).resolves.toBe('out');
-      await expect(readFile(join(dstDir, 'media-originals', 'x.png'), 'utf8')).resolves.toBe(
-        'png',
-      );
+      await expect(readFile(join(dstDir, 'media-originals', 'x.png'), 'utf8')).resolves.toBe('png');
       await expect(stat(join(dstDir, 'state.json'))).rejects.toThrow();
       await expect(stat(join(dstDir, 'agents', 'main', 'wire.jsonl'))).rejects.toThrow();
       await expect(stat(join(dstDir, 'logs'))).rejects.toThrow();
@@ -2429,9 +2411,9 @@ describe('SessionLifecycleService', () => {
       await expect(stat(join(dstDir, 'agents', 'sub_new'))).rejects.toThrow();
       await expect(stat(join(dstDir, 'agents', 'main', 'tasks'))).rejects.toThrow();
       await expect(stat(join(dstDir, 'agents', 'sub_old', 'tasks'))).rejects.toThrow();
-      await expect(readFile(join(dstDir, 'agents', 'main', 'plans', 'p1.md'), 'utf8')).resolves.toBe(
-        '# plan',
-      );
+      await expect(
+        readFile(join(dstDir, 'agents', 'main', 'plans', 'p1.md'), 'utf8'),
+      ).resolves.toBe('# plan');
     });
 
     it('does not duplicate cron tasks on a truncated fork', async () => {

@@ -87,9 +87,7 @@ export function buildAcpSkillSlashCommands(
   for (const skill of sorted) {
     if (!isUserActivatableSkillType(skill.type)) continue;
     const commandName =
-      skill.source === 'builtin' || skill.isSubSkill === true
-        ? skill.name
-        : `skill:${skill.name}`;
+      skill.source === 'builtin' || skill.isSubSkill === true ? skill.name : `skill:${skill.name}`;
     if (reservedNames.has(commandName)) continue;
     commandMap.set(commandName, skill.name);
     commands.push({ name: commandName, description: skill.description });

@@ -1,22 +1,20 @@
-import type { Component } from '@moonshot-ai/pi-tui';
 import type { ContextMessage } from '@moonshot-ai/kimi-code-sdk';
 import { isKimiError } from '@moonshot-ai/kimi-code-sdk';
+import type { Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+
 import { WelcomeComponent } from '../components/chrome/welcome';
 import { CompactionComponent } from '../components/dialogs/compaction';
-import {
-  UndoSelectorComponent,
-  type UndoChoice,
-} from '../components/dialogs/undo-selector';
+import { UndoSelectorComponent, type UndoChoice } from '../components/dialogs/undo-selector';
 import { AgentGroupComponent } from '../components/messages/agent-group';
 import { AgentSwarmProgressComponent } from '../components/messages/agent-swarm-progress';
 import { AssistantMessageComponent } from '../components/messages/assistant-message';
 import { BackgroundAgentStatusComponent } from '../components/messages/background-agent-status';
 import { CronMessageComponent } from '../components/messages/cron-message';
+import { PluginCommandComponent } from '../components/messages/plugin-command';
 import { ReadGroupComponent } from '../components/messages/read-group';
 import { SkillActivationComponent } from '../components/messages/skill-activation';
-import { PluginCommandComponent } from '../components/messages/plugin-command';
 import { ThinkingComponent } from '../components/messages/thinking';
 import { ToolCallComponent } from '../components/messages/tool-call';
 import { UserMessageComponent } from '../components/messages/user-message';
@@ -42,10 +40,7 @@ type UndoSessionContext = Awaited<
 
 const UNDO_LIMIT_STATUS_TURN_ID = 'undo-limit-status';
 
-export async function handleUndoCommand(
-  host: SlashCommandHost,
-  args: string = '',
-): Promise<void> {
+export async function handleUndoCommand(host: SlashCommandHost, args: string = ''): Promise<void> {
   if (host.state.appState.streamingPhase !== 'idle') {
     host.showError(t('tui.statusMessages.undoCannotWhileStreaming'));
     return;
@@ -114,9 +109,9 @@ async function undoByCount(host: SlashCommandHost, count: number): Promise<boole
     removeUndoContextComponents(children, lastUserComponentIndex);
   }
 
-  const preservedEntries = entries.slice(lastUserIndex).filter(
-    (entry) => !isUndoContextEntry(entry),
-  );
+  const preservedEntries = entries
+    .slice(lastUserIndex)
+    .filter((entry) => !isUndoContextEntry(entry));
   entries.splice(lastUserIndex, entries.length - lastUserIndex, ...preservedEntries);
 
   if (entries.length === 0) {
@@ -171,9 +166,7 @@ function parseUndoCount(args: string): number | undefined {
   return Number.isSafeInteger(count) ? count : undefined;
 }
 
-async function resolveUndoAvailability(
-  host: SlashCommandHost,
-): Promise<UndoAvailability> {
+async function resolveUndoAvailability(host: SlashCommandHost): Promise<UndoAvailability> {
   const local = undoAvailabilityFromTranscript(
     host.state.transcriptEntries,
     host.state.transcriptContainer.children,
@@ -184,17 +177,15 @@ async function resolveUndoAvailability(
   const activeContext = undoAvailabilityFromContext(context.history);
   return {
     maxCount: Math.min(local.maxCount, activeContext.maxCount),
-    stoppedAtCompaction:
-      local.stoppedAtCompaction || activeContext.stoppedAtCompaction,
+    stoppedAtCompaction: local.stoppedAtCompaction || activeContext.stoppedAtCompaction,
   };
 }
 
 async function getSessionContext(
   session: SlashCommandHost['session'],
 ): Promise<UndoSessionContext | undefined> {
-  const getContext = (
-    session as { getContext?: () => Promise<UndoSessionContext> } | undefined
-  )?.getContext;
+  const getContext = (session as { getContext?: () => Promise<UndoSessionContext> } | undefined)
+    ?.getContext;
   if (session === undefined || getContext === undefined) return undefined;
   try {
     return await getContext.call(session);
@@ -214,9 +205,7 @@ function undoAvailabilityFromTranscript(
   };
 }
 
-function undoAvailabilityFromContext(
-  history: readonly ContextMessage[],
-): UndoAvailability {
+function undoAvailabilityFromContext(history: readonly ContextMessage[]): UndoAvailability {
   let maxCount = 0;
   let stoppedAtCompaction = false;
 
@@ -291,19 +280,17 @@ function activeUndoAnchorEntries(
   };
 }
 
-function formatUndoChoiceLabel(
-  entry: TranscriptEntry,
-): string {
+function formatUndoChoiceLabel(entry: TranscriptEntry): string {
   if (entry.kind === 'skill_activation') {
-    const name = singleLine(
-      entry.skillName ?? entry.content.replace(/^Activated skill:\s*/, ''),
-    );
+    const name = singleLine(entry.skillName ?? entry.content.replace(/^Activated skill:\s*/, ''));
     const args = singleLine(entry.skillArgs ?? '');
     if (name.length === 0) return t('tui.statusMessages.undoSkillUnknown');
     return args.length > 0 ? `/${name} ${args}` : `/${name}`;
   }
   if (entry.kind === 'plugin_command' && entry.pluginCommandData !== undefined) {
-    return formatPluginCommandSlash(entry.pluginCommandData) ?? t('tui.statusMessages.undoUserMessage');
+    return (
+      formatPluginCommandSlash(entry.pluginCommandData) ?? t('tui.statusMessages.undoUserMessage')
+    );
   }
 
   const content = singleLine(entry.content);
@@ -317,9 +304,7 @@ function formatUndoChoiceLabel(
 
 function formatUndoChoiceInput(entry: TranscriptEntry): string {
   if (entry.kind === 'skill_activation') {
-    const name = singleLine(
-      entry.skillName ?? entry.content.replace(/^Activated skill:\s*/, ''),
-    );
+    const name = singleLine(entry.skillName ?? entry.content.replace(/^Activated skill:\s*/, ''));
     const args = singleLine(entry.skillArgs ?? '');
     if (name.length === 0) return '';
     return args.length > 0 ? `/${name} ${args}` : `/${name}`;
@@ -330,7 +315,9 @@ function formatUndoChoiceInput(entry: TranscriptEntry): string {
   return entry.content;
 }
 
-function formatPluginCommandSlash(data: NonNullable<TranscriptEntry['pluginCommandData']>): string | undefined {
+function formatPluginCommandSlash(
+  data: NonNullable<TranscriptEntry['pluginCommandData']>,
+): string | undefined {
   const name = `${data.pluginId}:${data.commandName}`;
   const args = singleLine(data.args ?? '');
   if (name.length === 0) return undefined;
@@ -341,12 +328,15 @@ function singleLine(text: string): string {
   return text.replaceAll(/\s+/g, ' ').trim();
 }
 
-function formatUndoLimitMessage(
-  requestedCount: number,
-  availability: UndoAvailability,
-): string {
-  const reason = availability.stoppedAtCompaction ? t('tui.statusMessages.undoLimitAfterCompaction') : '';
-  return t('tui.statusMessages.undoLimit', { requested: String(requestedCount), max: String(availability.maxCount), reason });
+function formatUndoLimitMessage(requestedCount: number, availability: UndoAvailability): string {
+  const reason = availability.stoppedAtCompaction
+    ? t('tui.statusMessages.undoLimitAfterCompaction')
+    : '';
+  return t('tui.statusMessages.undoLimit', {
+    requested: String(requestedCount),
+    max: String(availability.maxCount),
+    reason,
+  });
 }
 
 function formatNothingToUndoMessage(availability: UndoAvailability): string {
@@ -441,10 +431,7 @@ function findUndoAnchorComponentIndex(
   return undefined;
 }
 
-function removeUndoContextComponents(
-  children: Component[],
-  startIndex: number,
-): void {
+function removeUndoContextComponents(children: Component[], startIndex: number): void {
   for (let i = children.length - 1; i >= startIndex; i--) {
     const child = children[i];
     if (child !== undefined && isUndoContextComponent(child)) {
@@ -483,14 +470,8 @@ function isUndoContextComponent(child: Component): boolean {
 }
 
 function renderWelcome(host: SlashCommandHost): void {
-  if (
-    host.state.transcriptContainer.children.some(
-      (child) => child instanceof WelcomeComponent,
-    )
-  ) {
+  if (host.state.transcriptContainer.children.some((child) => child instanceof WelcomeComponent)) {
     return;
   }
-  host.state.transcriptContainer.addChild(
-    new WelcomeComponent(host.state.appState),
-  );
+  host.state.transcriptContainer.addChild(new WelcomeComponent(host.state.appState));
 }

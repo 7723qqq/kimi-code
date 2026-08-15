@@ -27,7 +27,11 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 </template>
 
 <style scoped>
-.ui-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--color-line); }
+.ui-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-line);
+}
 .ui-tabs__item {
   padding: var(--space-2) 14px;
   margin-bottom: -1px;
@@ -39,10 +43,20 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   cursor: pointer;
-  transition: color var(--duration-base) var(--ease-out),
+  transition:
+    color var(--duration-base) var(--ease-out),
     border-color var(--duration-base) var(--ease-out);
 }
-.ui-tabs__item:hover:not(.is-on) { color: var(--color-text); }
-.ui-tabs__item.is-on { color: var(--color-accent); border-bottom-color: var(--color-accent); }
-.ui-tabs__item:focus-visible { outline: none; box-shadow: var(--p-focus-ring); border-radius: var(--radius-xs); }
+.ui-tabs__item:hover:not(.is-on) {
+  color: var(--color-text);
+}
+.ui-tabs__item.is-on {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+.ui-tabs__item:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+  border-radius: var(--radius-xs);
+}
 </style>

@@ -20,10 +20,10 @@
 
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
+import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { LifecycleScope } from '#/app/scopes';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -33,65 +33,64 @@ import {
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
+import { IEventService } from '#/app/event/event';
+import { IFlagService } from '#/app/flag/flag';
+import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
+import { LifecycleScope } from '#/app/scopes';
+import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
+import { IAppStateService } from '#/app/state/appState';
+import { AppStateService } from '#/app/state/appStateService';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
+import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
+import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IModelService } from '#/kosong/model/model';
 import { IProviderService } from '#/kosong/provider/provider';
-import { stubProviderService } from '../../app/provider/stubs';
-import { IFlagService } from '#/app/flag/flag';
-import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
-import { IEventService } from '#/app/event/event';
-import {
-  IProjectLocalConfigService,
-} from '#/app/projectLocalConfig/projectLocalConfig';
-import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
-import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
-import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
-import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFsWatchService } from '#/os/backends/node-local/hostFsWatchService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
-import { HostFsWatchService } from '#/os/backends/node-local/hostFsWatchService';
+import { FileProjectLocalConfigService } from '#/persistence/backends/node-fs/projectLocalConfigService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { FileProjectLocalConfigService } from '#/persistence/backends/node-fs/projectLocalConfigService';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionProcessRunner } from '#/session/process/processRunner';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
-import { ISessionProcessRunner } from '#/session/process/processRunner';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { IAppStateService } from '#/app/state/appState';
-import { AppStateService } from '#/app/state/appStateService';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { SessionWorkspaceContextService } from '#/session/workspaceContext/workspaceContextService';
-import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
-import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
+import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
+import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
+import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
 import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
-import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
 import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
+import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import {
   WorkspaceDirsService,
   workspaceDirsEphemeralDirsKey,
   workspaceDirsFileDirsKey,
 } from '#/workspace/workspaceDirs/workspaceDirsService';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
-import { IWorkspaceToolPolicy } from '#/workspace/workspaceToolPolicy/workspaceToolPolicy';
-import { WorkspaceToolPolicyService } from '#/workspace/workspaceToolPolicy/workspaceToolPolicyService';
 import { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
 import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
 import { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalog';
+import { IWorkspaceToolPolicy } from '#/workspace/workspaceToolPolicy/workspaceToolPolicy';
+import { WorkspaceToolPolicyService } from '#/workspace/workspaceToolPolicy/workspaceToolPolicyService';
 
 import { stubLog } from '../../_base/log/stubs';
 import { stubFlag } from '../../app/flag/stubs';
+import { stubProviderService } from '../../app/provider/stubs';
 
 const normalizeSlashes = (p: string): string => p.replaceAll('\\', '/');
 
@@ -310,7 +309,10 @@ describe('workspace add-dir (handler chain)', () => {
         ready: Promise.resolve(),
       } as unknown as IModelService),
       stubPair(IProviderService, stubProviderService()),
-      stubPair(IFlagService, stubFlag(() => false)),
+      stubPair(
+        IFlagService,
+        stubFlag(() => false),
+      ),
       stubPair(ITelemetryService, noopTelemetryService),
       stubPair(IWorkspaceService, workspaceCatalogStub()),
       stubPair(ISessionIndex, {
@@ -352,10 +354,7 @@ describe('workspace add-dir (handler chain)', () => {
         _serviceBrand: undefined,
         list: () => Promise.resolve([]),
       } as unknown as ICronTaskPersistence),
-      stubPair(
-        IProjectLocalConfigService,
-        new FileProjectLocalConfigService(bootstrap, hostFs),
-      ),
+      stubPair(IProjectLocalConfigService, new FileProjectLocalConfigService(bootstrap, hostFs)),
       stubPair(ISessionMetadata, {
         _serviceBrand: undefined,
         ready: Promise.resolve(),
@@ -486,7 +485,10 @@ describe('workspace add-dir (handler chain)', () => {
 
     await mkdir(join(root, '.kimi-code'), { recursive: true });
     const writeLocalToml = () =>
-      writeFile(join(root, '.kimi-code', 'local.toml'), `[workspace]\nadditional_dir = ["${extra}"]\n`);
+      writeFile(
+        join(root, '.kimi-code', 'local.toml'),
+        `[workspace]\nadditional_dir = ["${extra}"]\n`,
+      );
     await writeLocalToml();
 
     const deadline = Date.now() + 10_000;

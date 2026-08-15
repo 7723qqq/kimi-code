@@ -10,15 +10,16 @@
  * syncs disk → index.
  */
 
-import { join } from 'pathe';
 import { MiniDb } from '@moonshot-ai/minidb';
+import { join } from 'pathe';
 
+import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { createDecorator } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { ILogService } from '#/_base/log/log';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
+
 import type { MemoryEntry, MemorySearchResult } from './memoryPaths';
 import { buildSnippet, detectType, extractTitle, parseMemoryPath } from './memoryPaths';
 
@@ -57,7 +58,11 @@ export class MemoryStore extends Disposable implements IMemoryStore {
     super();
     this.dir = join(this.bootstrap.storeDir, STORE_SUBDIR);
     this.memoryBaseDir = join(this.bootstrap.homeDir, 'memory');
-    this._register(toDisposable(() => { void this.close(); }));
+    this._register(
+      toDisposable(() => {
+        void this.close();
+      }),
+    );
   }
 
   private async openDb(): Promise<MiniDb> {
@@ -195,10 +200,7 @@ export class MemoryStore extends Disposable implements IMemoryStore {
     });
   }
 
-  private async walkDir(
-    base: string,
-    relPrefix: string,
-  ): Promise<Map<string, string>> {
+  private async walkDir(base: string, relPrefix: string): Promise<Map<string, string>> {
     const { readdir, stat } = await import('node:fs/promises');
     const { join: joinPath } = await import('pathe');
     const result = new Map<string, string>();

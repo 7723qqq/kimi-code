@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
+import {
+  ScopeActivation,
+  _clearScopedRegistryForTests,
+  registerScopedService,
+} from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
 import {
   IBootstrapOptions,
@@ -11,6 +15,7 @@ import {
   resolveBootstrapOptions,
 } from '#/app/bootstrap/bootstrap';
 import { BootstrapService } from '#/app/bootstrap/bootstrapService';
+import { LifecycleScope } from '#/app/scopes';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
@@ -84,8 +89,12 @@ describe('BootstrapService (scoped)', () => {
 describe('resolveBootstrapOptions', () => {
   it('prefers explicit homeDir over KIMI_CODE_HOME over osHomeDir', () => {
     expect(
-      resolveBootstrapOptions({ homeDir: '/a', osHomeDir: '/b', env: {}, clientIdentity: stubClientIdentity })
-        .homeDir,
+      resolveBootstrapOptions({
+        homeDir: '/a',
+        osHomeDir: '/b',
+        env: {},
+        clientIdentity: stubClientIdentity,
+      }).homeDir,
     ).toBe('/a');
     expect(
       resolveBootstrapOptions({
@@ -95,7 +104,8 @@ describe('resolveBootstrapOptions', () => {
       }).homeDir,
     ).toBe('/c');
     expect(
-      resolveBootstrapOptions({ osHomeDir: '/b', env: {}, clientIdentity: stubClientIdentity }).homeDir,
+      resolveBootstrapOptions({ osHomeDir: '/b', env: {}, clientIdentity: stubClientIdentity })
+        .homeDir,
     ).toBe('/b/.kimi-code');
   });
 
@@ -118,14 +128,18 @@ describe('resolveBootstrapOptions', () => {
 
   it('falls through to osHomeDir/.kimi-code when nothing is provided', () => {
     expect(
-      resolveBootstrapOptions({ osHomeDir: '/home/user', env: {}, clientIdentity: stubClientIdentity })
-        .homeDir,
+      resolveBootstrapOptions({
+        osHomeDir: '/home/user',
+        env: {},
+        clientIdentity: stubClientIdentity,
+      }).homeDir,
     ).toBe('/home/user/.kimi-code');
   });
 
   it('handles empty osHomeDir gracefully', () => {
     expect(
-      resolveBootstrapOptions({ osHomeDir: '', env: {}, clientIdentity: stubClientIdentity }).homeDir,
+      resolveBootstrapOptions({ osHomeDir: '', env: {}, clientIdentity: stubClientIdentity })
+        .homeDir,
     ).toBe('.kimi-code');
   });
 });
@@ -189,32 +203,55 @@ describe('bootstrapSeed', () => {
 
 describe('resolveBootstrapOptions — BootstrapInput field coverage', () => {
   it('falls back to process.platform when platform is omitted', () => {
-    expect(resolveBootstrapOptions({ osHomeDir: '/h', env: {}, clientIdentity: stubClientIdentity }).platform).toBe(process.platform);
+    expect(
+      resolveBootstrapOptions({ osHomeDir: '/h', env: {}, clientIdentity: stubClientIdentity })
+        .platform,
+    ).toBe(process.platform);
   });
 
   it('falls back to process.arch when arch is omitted', () => {
-    expect(resolveBootstrapOptions({ osHomeDir: '/h', env: {}, clientIdentity: stubClientIdentity }).arch).toBe(process.arch);
+    expect(
+      resolveBootstrapOptions({ osHomeDir: '/h', env: {}, clientIdentity: stubClientIdentity })
+        .arch,
+    ).toBe(process.arch);
   });
 
   it('falls back to process.cwd() when cwd is omitted', () => {
-    expect(resolveBootstrapOptions({ osHomeDir: '/h', env: {}, clientIdentity: stubClientIdentity }).cwd).toBe(process.cwd());
+    expect(
+      resolveBootstrapOptions({ osHomeDir: '/h', env: {}, clientIdentity: stubClientIdentity }).cwd,
+    ).toBe(process.cwd());
   });
 
   it('preserves an explicit platform value', () => {
     expect(
-      resolveBootstrapOptions({ osHomeDir: '/h', env: {}, platform: 'linux', clientIdentity: stubClientIdentity }).platform,
+      resolveBootstrapOptions({
+        osHomeDir: '/h',
+        env: {},
+        platform: 'linux',
+        clientIdentity: stubClientIdentity,
+      }).platform,
     ).toBe('linux');
   });
 
   it('preserves an explicit arch value', () => {
     expect(
-      resolveBootstrapOptions({ osHomeDir: '/h', env: {}, arch: 'arm64', clientIdentity: stubClientIdentity }).arch,
+      resolveBootstrapOptions({
+        osHomeDir: '/h',
+        env: {},
+        arch: 'arm64',
+        clientIdentity: stubClientIdentity,
+      }).arch,
     ).toBe('arm64');
   });
 
   it('preserves an explicit cwd value', () => {
     expect(
-      resolveBootstrapOptions({ osHomeDir: '/h', env: {}, cwd: '/work', clientIdentity: stubClientIdentity }).cwd,
+      resolveBootstrapOptions({
+        osHomeDir: '/h',
+        env: {},
+        cwd: '/work',
+        clientIdentity: stubClientIdentity,
+      }).cwd,
     ).toBe('/work');
   });
 
@@ -287,7 +324,10 @@ describe('bootstrap() — BootstrapResult', () => {
   });
 
   it('returned app provides accessor.get and dispose', () => {
-    const { app } = bootstrap({ homeDir: '/tmp/kimi-result-shape', clientIdentity: stubClientIdentity });
+    const { app } = bootstrap({
+      homeDir: '/tmp/kimi-result-shape',
+      clientIdentity: stubClientIdentity,
+    });
     try {
       expect(typeof app.accessor.get).toBe('function');
       expect(typeof app.dispose).toBe('function');
@@ -297,7 +337,10 @@ describe('bootstrap() — BootstrapResult', () => {
   });
 
   it('app.dispose() releases the scope without throwing', () => {
-    const { app } = bootstrap({ homeDir: '/tmp/kimi-result-dispose', clientIdentity: stubClientIdentity });
+    const { app } = bootstrap({
+      homeDir: '/tmp/kimi-result-dispose',
+      clientIdentity: stubClientIdentity,
+    });
     expect(() => app.dispose()).not.toThrow();
   });
 
@@ -314,10 +357,9 @@ describe('bootstrap() — BootstrapResult', () => {
 
   it('honors extraSeeds alongside the default seeds', () => {
     const extra: IExtraProbe = { _serviceBrand: undefined, tag: 'extra-seed' };
-    const { app } = bootstrap(
-      { homeDir: '/tmp/kimi-extra', clientIdentity: stubClientIdentity },
-      [[IExtraProbe as ServiceIdentifier<unknown>, extra]],
-    );
+    const { app } = bootstrap({ homeDir: '/tmp/kimi-extra', clientIdentity: stubClientIdentity }, [
+      [IExtraProbe as ServiceIdentifier<unknown>, extra],
+    ]);
     try {
       expect(app.accessor.get(IExtraProbe).tag).toBe('extra-seed');
     } finally {

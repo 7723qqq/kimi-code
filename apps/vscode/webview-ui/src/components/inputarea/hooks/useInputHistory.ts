@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
-import { bridge } from "@/services";
+import { useState, useEffect, useCallback } from 'react';
+
+import { bridge } from '@/services';
 
 interface UseInputHistoryOptions {
   text: string;
@@ -22,7 +23,7 @@ export function useInputHistory({ text, setText, onHeightChange }: UseInputHisto
     }
 
     void bridge.addInputHistory(trimmed);
-    setHistory((prev) => (prev[prev.length - 1] === trimmed ? prev : [...prev, trimmed]));
+    setHistory((prev) => (prev.at(-1) === trimmed ? prev : [...prev, trimmed]));
     setIndex(-1);
   }, []);
 
@@ -33,7 +34,7 @@ export function useInputHistory({ text, setText, onHeightChange }: UseInputHisto
         return false;
       }
 
-      if (e.key === "ArrowUp" && history.length > 0 && (!text || index >= 0)) {
+      if (e.key === 'ArrowUp' && history.length > 0 && (!text || index >= 0)) {
         const newIndex = Math.min(index + 1, history.length - 1);
         if (newIndex !== index) {
           e.preventDefault();
@@ -44,11 +45,11 @@ export function useInputHistory({ text, setText, onHeightChange }: UseInputHisto
         }
       }
 
-      if (e.key === "ArrowDown" && index >= 0) {
+      if (e.key === 'ArrowDown' && index >= 0) {
         e.preventDefault();
         const newIndex = index - 1;
         setIndex(newIndex);
-        setText(newIndex === -1 ? "" : history[history.length - 1 - newIndex]);
+        setText(newIndex === -1 ? '' : history[history.length - 1 - newIndex]);
         onHeightChange?.();
         return true;
       }

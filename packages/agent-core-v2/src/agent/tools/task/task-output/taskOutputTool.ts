@@ -19,23 +19,19 @@
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
+import { IAgentTaskService } from '#/agent/task/task';
+import type { AgentTaskInfo, AgentTaskOutputSnapshot } from '#/agent/task/task';
+import { formatPlainObject } from '#/agent/task/tools/format';
+import { type AgentTaskStatus, TERMINAL_STATUSES } from '#/agent/task/types';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
 import { type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
-import { IAgentTaskService } from '#/agent/task/task';
-import type {
-  AgentTaskInfo,
-  AgentTaskOutputSnapshot,
-} from '#/agent/task/task';
-import { type AgentTaskStatus, TERMINAL_STATUSES } from '#/agent/task/types';
-import { formatPlainObject } from '#/agent/task/tools/format';
 import { ITaskOutputTool, TaskOutputInputSchema, type TaskOutputInput } from './task-output';
 import TASK_OUTPUT_DESCRIPTION from './task-output.md?raw';
 
 const OUTPUT_PREVIEW_BYTES = 32 * 1024;
-
 
 function retrievalStatus(status: AgentTaskStatus): 'success' | 'not_ready' {
   return TERMINAL_STATUSES.has(status) ? 'success' : 'not_ready';
@@ -114,4 +110,7 @@ export class TaskOutputTool implements ITaskOutputTool {
   }
 }
 
-registerAgentToolService(ITaskOutputTool, TaskOutputTool, { name: 'TaskOutput', domain: 'agentTask' });
+registerAgentToolService(ITaskOutputTool, TaskOutputTool, {
+  name: 'TaskOutput',
+  domain: 'agentTask',
+});

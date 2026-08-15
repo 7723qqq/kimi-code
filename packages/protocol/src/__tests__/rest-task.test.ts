@@ -71,8 +71,6 @@ describe('taskAlreadyFinishedDataSchema (40904 envelope data)', () => {
     expect(taskAlreadyFinishedDataSchema.parse({ cancelled: false })).toEqual({
       cancelled: false,
     });
-    expect(taskAlreadyFinishedDataSchema.safeParse({ cancelled: true }).success).toBe(
-      false,
-    );
+    expect(taskAlreadyFinishedDataSchema.safeParse({ cancelled: true }).success).toBe(false);
   });
 });

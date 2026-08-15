@@ -1,13 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import {
-  chmod,
-  mkdir,
-  open,
-  readFile,
-  rename,
-  rm,
-  stat,
-} from 'node:fs/promises';
+import { chmod, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 export class PrivateFileTooPermissiveError extends Error {
@@ -24,10 +16,7 @@ export class PrivateFileTooPermissiveError extends Error {
   }
 }
 
-export async function writePrivateFile(
-  filePath: string,
-  data: string | Buffer,
-): Promise<void> {
+export async function writePrivateFile(filePath: string, data: string | Buffer): Promise<void> {
   const dir = dirname(filePath);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await chmod(dir, 0o700);
@@ -43,12 +32,12 @@ export async function writePrivateFile(
     await handle.close();
     handle = undefined;
     await rename(tmp, filePath);
-  } catch (err) {
+  } catch (error) {
     if (handle) {
       await handle.close().catch(() => {});
     }
     await rm(tmp, { force: true }).catch(() => {});
-    throw err;
+    throw error;
   }
 }
 

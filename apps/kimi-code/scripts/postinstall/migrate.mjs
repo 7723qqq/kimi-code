@@ -154,10 +154,7 @@ export async function detectLegacyShims(ownRoot, pathString) {
       // already excludes the manager's generated wrapper today, but
       // this layer keeps us safe if anything in our bundle ever
       // happens to contain the marker substring.
-      if (
-        ownRootPrefix !== null &&
-        (realPath === ownRoot || realPath.startsWith(ownRootPrefix))
-      ) {
+      if (ownRootPrefix !== null && (realPath === ownRoot || realPath.startsWith(ownRootPrefix))) {
         continue;
       }
 
@@ -212,7 +209,7 @@ async function pathExists(p) {
  * shells won't run.
  */
 function renameTargetFor(shimPath) {
-  const ext = extname(shimPath);  // "" on POSIX, ".exe" on Windows
+  const ext = extname(shimPath); // "" on POSIX, ".exe" on Windows
   return join(dirname(shimPath), LEGACY_RENAME + ext);
 }
 
@@ -242,9 +239,7 @@ async function isSystemOwnedDir(shimPath) {
       'c:\\programdata',
       'c:\\windows',
     ];
-    return systemRoots.some(
-      (root) => dir === root || dir.startsWith(root + '\\'),
-    );
+    return systemRoots.some((root) => dir === root || dir.startsWith(root + '\\'));
   }
   try {
     const info = await fs.stat(dirname(shimPath));

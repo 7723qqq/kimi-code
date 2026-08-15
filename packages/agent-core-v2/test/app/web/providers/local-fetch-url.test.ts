@@ -25,7 +25,14 @@ function asUndiciAgent(dispatcher: RequestInit['dispatcher']): Agent {
 beforeEach(() => {
   lookupMock.mockReset();
   lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-  for (const key of ['http_proxy', 'HTTP_PROXY', 'https_proxy', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY']) {
+  for (const key of [
+    'http_proxy',
+    'HTTP_PROXY',
+    'https_proxy',
+    'HTTPS_PROXY',
+    'all_proxy',
+    'ALL_PROXY',
+  ]) {
     vi.stubEnv(key, '');
   }
 });
@@ -120,7 +127,9 @@ describe('LocalFetchURLProvider SSRF guard', () => {
 
   it('fetches public hosts normally', async () => {
     const fetchImpl = vi.fn<typeof fetch>();
-    const pinnedFetchImpl = vi.fn<PinnedFetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    const pinnedFetchImpl = vi
+      .fn<PinnedFetch>()
+      .mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl, pinnedFetchImpl });
 
     const result = await provider.fetch('https://example.com/');
@@ -214,14 +223,14 @@ describe('LocalFetchURLProvider redirects', () => {
   });
 
   it('gives up after too many redirects', async () => {
-    const pinnedFetchImpl = vi.fn<PinnedFetch>().mockImplementation(
-      async () => new Response(null, { status: 302, headers: { location: '/loop' } }),
-    );
+    const pinnedFetchImpl = vi
+      .fn<PinnedFetch>()
+      .mockImplementation(
+        async () => new Response(null, { status: 302, headers: { location: '/loop' } }),
+      );
     const provider = new LocalFetchURLProvider({ pinnedFetchImpl });
 
-    await expect(provider.fetch('https://example.com/loop')).rejects.toThrow(
-      'Too many redirects',
-    );
+    await expect(provider.fetch('https://example.com/loop')).rejects.toThrow('Too many redirects');
     expect(pinnedFetchImpl).toHaveBeenCalledTimes(11);
   });
 
@@ -242,7 +251,9 @@ describe('LocalFetchURLProvider redirects', () => {
 
 describe('LocalFetchURLProvider connection pinning', () => {
   it('pins a public-host fetch to the addresses validated by the safety check', async () => {
-    const pinnedFetchImpl = vi.fn<PinnedFetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    const pinnedFetchImpl = vi
+      .fn<PinnedFetch>()
+      .mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ pinnedFetchImpl });
 
     const result = await provider.fetch('https://example.com/');
@@ -305,7 +316,9 @@ describe('LocalFetchURLProvider connection pinning', () => {
   it('still pins when the request bypasses the proxy via NO_PROXY wildcard', async () => {
     vi.stubEnv('http_proxy', 'http://proxy.example:8080');
     vi.stubEnv('no_proxy', '*');
-    const pinnedFetchImpl = vi.fn<PinnedFetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    const pinnedFetchImpl = vi
+      .fn<PinnedFetch>()
+      .mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ pinnedFetchImpl });
 
     await provider.fetch('https://example.com/');
@@ -316,7 +329,9 @@ describe('LocalFetchURLProvider connection pinning', () => {
   it('still pins when NO_PROXY exempts the target host specifically', async () => {
     vi.stubEnv('http_proxy', 'http://proxy.example:8080');
     vi.stubEnv('no_proxy', 'example.com');
-    const pinnedFetchImpl = vi.fn<PinnedFetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    const pinnedFetchImpl = vi
+      .fn<PinnedFetch>()
+      .mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ pinnedFetchImpl });
 
     await provider.fetch('https://example.com/');
@@ -361,9 +376,7 @@ describe('LocalFetchURLProvider connection pinning', () => {
     );
     const provider = new LocalFetchURLProvider({ fetchImpl, maxBytes: 1024 });
 
-    await expect(provider.fetch('https://example.com/')).rejects.toThrow(
-      'Response body too large',
-    );
+    await expect(provider.fetch('https://example.com/')).rejects.toThrow('Response body too large');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

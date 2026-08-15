@@ -24,15 +24,14 @@
  * throws). The provider treats `undefined` as "not stored".
  */
 
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
-import { hostname, userInfo } from 'node:os';
-import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { hostname, userInfo } from 'node:os';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-
+import { LifecycleScope } from '#/app/scopes';
 import type { McpOAuthStore } from '#/mcpCore/oauth/store';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 
@@ -142,7 +141,13 @@ export function createMcpOAuthStore(docs: IAtomicDocumentStore): McpOAuthStore {
         const raw = await docs.get<EncryptedBlob | T>(CREDENTIALS_SCOPE, key);
         if (raw === undefined) return undefined;
         // Support both encrypted (new) and plain (legacy) storage.
-        if (typeof raw === 'object' && raw !== null && 'iv' in raw && 'tag' in raw && 'data' in raw) {
+        if (
+          typeof raw === 'object' &&
+          raw !== null &&
+          'iv' in raw &&
+          'tag' in raw &&
+          'data' in raw
+        ) {
           return JSON.parse(decrypt(raw as EncryptedBlob)) as T;
         }
         return raw as T;

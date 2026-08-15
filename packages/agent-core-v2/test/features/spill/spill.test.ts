@@ -12,14 +12,15 @@ import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { IConfigService } from '#/app/config/config';
-import type { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ToolResultBuilder } from '#/tool/result-builder';
-import { encodeSegment, saveTextFile, sessionDir } from '#/features/spill/spillStore';
 import { SpillLocator, type ISpillService, type SpillRef } from '#/features/spill/spill';
 import { SpillService } from '#/features/spill/spillService';
+import { encodeSegment, saveTextFile, sessionDir } from '#/features/spill/spillStore';
+import type { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ToolResultBuilder } from '#/tool/result-builder';
 
 const scratchDirs: string[] = [];
 
@@ -41,8 +42,7 @@ function sessionStub(sessionId = 'test-session'): ISessionContext {
 
 function configStub(root: string | undefined): IConfigService {
   return {
-    get: <T>(section: string): T | undefined =>
-      section === 'spill' ? ({ root } as T) : undefined,
+    get: <T>(section: string): T | undefined => (section === 'spill' ? ({ root } as T) : undefined),
   } as unknown as IConfigService;
 }
 
@@ -117,7 +117,11 @@ describe('ToolResultBuilder spill hook', () => {
   it('spills the FULL untruncated text and attaches the reference when truncated', async () => {
     const onTruncated = vi.fn((fullText: string): SpillRef => {
       expect(fullText).toContain('tail beyond the cap');
-      return { locator: SpillLocator('/spill/out.txt'), bytes: fullText.length, retrievalHint: 'read /spill/out.txt' };
+      return {
+        locator: SpillLocator('/spill/out.txt'),
+        bytes: fullText.length,
+        retrievalHint: 'read /spill/out.txt',
+      };
     });
     const builder = new ToolResultBuilder({ maxChars: 100, onTruncated });
     builder.write('a'.repeat(200) + 'tail beyond the cap');

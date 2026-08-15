@@ -33,7 +33,9 @@ export class ClaudeCodeBackend implements ISubagentBackend {
   private readonly config: ClaudeCodeBackendConfig | undefined;
 
   constructor(@IConfigService config: IConfigService) {
-    this.config = config.get<SubagentBackendConfig | undefined>(SUBAGENT_BACKEND_SECTION)?.claudeCode;
+    this.config = config.get<SubagentBackendConfig | undefined>(
+      SUBAGENT_BACKEND_SECTION,
+    )?.claudeCode;
   }
 
   async start(request: SubagentBackendStartRequest): Promise<SubagentBackendRun> {
@@ -47,16 +49,14 @@ export class ClaudeCodeBackend implements ISubagentBackend {
       void (async () => {
         let output = '';
         try {
-          const stream = query(
-            {
-              prompt: request.prompt,
-              options: {
-                cwd: request.cwd,
-                ...(this.config?.model === undefined ? {} : { model: this.config.model }),
-                abortController: controller,
-              },
+          const stream = query({
+            prompt: request.prompt,
+            options: {
+              cwd: request.cwd,
+              ...(this.config?.model === undefined ? {} : { model: this.config.model }),
+              abortController: controller,
             },
-          );
+          });
           for await (const event of stream) {
             if (event.type === 'result') {
               if (event.is_error) {

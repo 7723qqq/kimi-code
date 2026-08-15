@@ -221,9 +221,7 @@ function literalText(node: BashSyntaxNode): string | undefined {
 
 function dropFlags(args: readonly string[], command: string): string[] {
   const argumentTakingOptions =
-    command === 'ls' || command === 'dir'
-      ? LS_ARG_TAKING_OPTIONS
-      : TREE_LIKE_ARG_TAKING_OPTIONS;
+    command === 'ls' || command === 'dir' ? LS_ARG_TAKING_OPTIONS : TREE_LIKE_ARG_TAKING_OPTIONS;
   const out: string[] = [];
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;

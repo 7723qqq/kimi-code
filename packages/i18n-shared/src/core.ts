@@ -21,10 +21,7 @@ const INTERPOLATION_RE = /\{\{(\w+)\}\}/g;
  *
  * Returns `undefined` if the key path doesn't exist or the leaf is not a string.
  */
-export function resolveMessage(
-  data: MessageValue,
-  key: string,
-): string | undefined {
+export function resolveMessage(data: MessageValue, key: string): string | undefined {
   const parts = key.split('.');
   let current: MessageValue | undefined = data;
   for (const part of parts) {
@@ -44,10 +41,7 @@ export function resolveMessage(
  * Unknown placeholders are left as-is (e.g. `{{missing}}` stays unchanged),
  * matching the Rust engine's behaviour.
  */
-export function interpolate(
-  template: string,
-  params: Record<string, string | number>,
-): string {
+export function interpolate(template: string, params: Record<string, string | number>): string {
   INTERPOLATION_RE.lastIndex = 0;
   return template.replace(INTERPOLATION_RE, (_match: string, name: string) => {
     const value = params[name];
@@ -71,9 +65,6 @@ export function translate(
   key: string,
   params?: Record<string, string | number>,
 ): string {
-  const raw =
-    resolveMessage(localeData, key) ??
-    resolveMessage(fallbackData, key) ??
-    key;
+  const raw = resolveMessage(localeData, key) ?? resolveMessage(fallbackData, key) ?? key;
   return params ? interpolate(raw, params) : raw;
 }

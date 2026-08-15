@@ -1,3 +1,4 @@
+import { t, setLocale } from '@moonshot-ai/kimi-i18n';
 /**
  * Test: Agent tool is hard-denied while swarm mode is active.
  *
@@ -17,39 +18,41 @@
  * | active      | Agent + mixed  | 鉂?VETO       | 5       |
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { t, setLocale } from '@moonshot-ai/kimi-i18n';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionSwarmService } from '#/features/swarm/session/sessionSwarm';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
-import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import { AgentSwarmService } from '#/features/swarm/agent/swarmService';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type {
   BeforeExecuteDecision,
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
-import type { ToolCall } from '#/kosong/contract/message';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import { AgentSwarmService } from '#/features/swarm/agent/swarmService';
+import { ISessionSwarmService } from '#/features/swarm/session/sessionSwarm';
+import type { ToolCall } from '#/kosong/contract/message';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import { stubContextMemory } from '../../agent/contextMemory/stubs';
+import {
+  stubToolExecutorEvents,
+  type ToolExecutorEventStubs,
+} from '../../agent/toolExecutor/stubs';
 import { registerTestAgentWire, testWireScope } from '../../wire/stubs';
-import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 
 // 鈹€鈹€ Helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
@@ -216,7 +219,7 @@ describe('AgentSwarmService 鈥?Agent tool veto in swarm mode', () => {
       expect(decision).toBeUndefined();
       expect(permissionGateRan).toBe(true);
     });
-  })
+  });
 
   // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
   // Non-target tools are not affected
@@ -329,4 +332,3 @@ describe('AgentSwarmService 鈥?Agent tool veto in swarm mode', () => {
     });
   });
 });
-

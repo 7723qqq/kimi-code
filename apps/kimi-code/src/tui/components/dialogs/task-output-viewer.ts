@@ -9,6 +9,7 @@
  * once when the viewer opens.
  */
 
+import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Key,
@@ -18,7 +19,6 @@ import {
   visibleWidth,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
-import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
@@ -114,7 +114,9 @@ export class TaskOutputViewer extends Container implements Focusable {
   }
 
   private splitOutput(output: string): string[] {
-    return (output.length > 0 ? sanitizeShellOutput(output) : t('tui.dialogs.taskOutputViewer.noOutput')).split('\n');
+    return (
+      output.length > 0 ? sanitizeShellOutput(output) : t('tui.dialogs.taskOutputViewer.noOutput')
+    ).split('\n');
   }
 
   // ── input ──────────────────────────────────────────────────────────
@@ -207,7 +209,12 @@ export class TaskOutputViewer extends Container implements Focusable {
     if (info !== undefined) {
       segments.push(currentTheme.fg(statusColor(info.status), statusLabel(info.status)));
       if (info.kind === 'process' && info.exitCode !== null) {
-        segments.push(currentTheme.fg('textMuted', t('tui.dialogs.taskOutputViewer.exitCode', { code: String(info.exitCode) })));
+        segments.push(
+          currentTheme.fg(
+            'textMuted',
+            t('tui.dialogs.taskOutputViewer.exitCode', { code: String(info.exitCode) }),
+          ),
+        );
       }
       if (info.description && info.description.length > 0) {
         segments.push(currentTheme.fg('textMuted', info.description));
@@ -248,8 +255,7 @@ export class TaskOutputViewer extends Container implements Focusable {
     const total = this.lines.length;
     const viewRows = Math.max(1, bodyHeight - 2);
     const maxScroll = Math.max(0, total - viewRows);
-    const percent =
-      maxScroll === 0 ? 100 : Math.round((this.scrollTop / maxScroll) * 100);
+    const percent = maxScroll === 0 ? 100 : Math.round((this.scrollTop / maxScroll) * 100);
     const lineFrom = this.scrollTop + 1;
     const lineTo = Math.min(total, this.scrollTop + viewRows);
 

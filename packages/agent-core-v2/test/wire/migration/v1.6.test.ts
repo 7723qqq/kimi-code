@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { migrateV1_5ToV1_6 } from '#/wire/migration/migration';
+
 import { runMigration } from './utils';
 
 describe('1.5 to 1.6 tool.call display migration', () => {

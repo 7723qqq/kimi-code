@@ -21,11 +21,11 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const FALLBACK_HEADERS: Record<string, string> = {
   'User-Agent':
     'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-  'Connection': 'keep-alive',
-  'Accept':
+  Connection: 'keep-alive',
+  Accept:
     'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
   'Accept-Encoding': 'gzip, deflate, br, zstd',
-  'pragma': 'no-cache',
+  pragma: 'no-cache',
   'cache-control': 'no-cache',
   'upgrade-insecure-requests': '1',
   'sec-fetch-site': 'none',
@@ -33,7 +33,7 @@ const FALLBACK_HEADERS: Record<string, string> = {
   'sec-fetch-user': '?1',
   'sec-fetch-dest': 'document',
   'accept-language': 'zh-CN,zh;q=0.9',
-  'priority': 'u=0, i',
+  priority: 'u=0, i',
 };
 
 const CONTENT_SELECTORS = [
@@ -75,7 +75,9 @@ function extractArticleContent(html: string): string {
 }
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 async function fetchArticleHtml(url: string, options: SearchEngineOptions): Promise<string> {
@@ -113,11 +115,15 @@ async function fetchArticleHtml(url: string, options: SearchEngineOptions): Prom
     );
   }
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Juejin article request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `Juejin article request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
-  return  response.text();
+  return response.text();
 }
 
 async function fetchJuejinArticleImpl(
@@ -132,4 +138,5 @@ async function fetchJuejinArticleImpl(
   return { content };
 }
 
-export const fetchJuejinArticle: ArticleFetchFn = (url, options = {}) => fetchJuejinArticleImpl(url, options);
+export const fetchJuejinArticle: ArticleFetchFn = (url, options = {}) =>
+  fetchJuejinArticleImpl(url, options);

@@ -99,10 +99,7 @@ describe('subtree watch filtering', () => {
 
   it('keeps direct sub-skill probes below a directory the scanner traversed', () => {
     const ignored = subtreeWatchFilter(root, candidates, {
-      scannedDirectories: [
-        '/repo/.agents/skills',
-        '/repo/.agents/skills/parent',
-      ],
+      scannedDirectories: ['/repo/.agents/skills', '/repo/.agents/skills/parent'],
       keepEntryFile: 'SKILL.md',
     });
     expect(ignored('/repo/.agents/skills/parent/child')).toBe(false);

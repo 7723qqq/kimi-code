@@ -1,5 +1,5 @@
-import type { ProjectedMessage } from '../../types';
 import { t } from '../../i18n';
+import type { ProjectedMessage } from '../../types';
 
 interface CompactionRibbonProps {
   /** The synthetic compaction-summary message emitted by the projector. */
@@ -26,7 +26,11 @@ export function CompactionRibbon({ message }: CompactionRibbonProps) {
       </div>
       {stats ? (
         <div className="text-center font-mono text-[10.5px] text-fg-3">
-          {t('context.compactStats', { count: stats.compactedCount, before: stats.tokensBefore.toLocaleString(), after: stats.tokensAfter.toLocaleString() })}
+          {t('context.compactStats', {
+            count: stats.compactedCount,
+            before: stats.tokensBefore.toLocaleString(),
+            after: stats.tokensAfter.toLocaleString(),
+          })}
         </div>
       ) : null}
       {summary.length > 0 ? (

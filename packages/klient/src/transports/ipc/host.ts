@@ -5,9 +5,9 @@
  * construction; only serialization separates them.
  */
 
-import { createServer, type Server, type Socket } from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { lstat, unlink } from 'node:fs/promises';
+import { createServer, type Server, type Socket } from 'node:net';
 
 import type { EventSourceRef, IDisposable, ScopeRef } from '../../core/channel.js';
 import { RPCError } from '../../core/errors.js';
@@ -166,7 +166,11 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
             sendError(id, new RPCError(REQUEST_INVALID, 'expected hello first'));
             return;
           }
-          const args = Array.isArray(frame.arg) ? frame.arg : frame.arg === undefined ? [] : [frame.arg];
+          const args = Array.isArray(frame.arg)
+            ? frame.arg
+            : frame.arg === undefined
+              ? []
+              : [frame.arg];
           dispatcher
             .call(scopeRefFromFrame(frame), String(frame.service), String(frame.method), args)
             .then((data) => {
@@ -211,7 +215,11 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
             sendStreamError(id, new RPCError(REQUEST_INVALID, 'expected hello first'));
             return;
           }
-          const args = Array.isArray(frame.arg) ? frame.arg : frame.arg === undefined ? [] : [frame.arg];
+          const args = Array.isArray(frame.arg)
+            ? frame.arg
+            : frame.arg === undefined
+              ? []
+              : [frame.arg];
           const ac = new AbortController();
           activeStreams.set(id, ac);
           const iterable = dispatcher.stream(

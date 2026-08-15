@@ -20,7 +20,13 @@ export interface SwarmGroup {
   counts: Record<AppSubagentPhase, number>;
 }
 
-const PHASES: readonly AppSubagentPhase[] = ['queued', 'working', 'suspended', 'completed', 'failed'];
+const PHASES: readonly AppSubagentPhase[] = [
+  'queued',
+  'working',
+  'suspended',
+  'completed',
+  'failed',
+];
 
 export function phaseForTask(task: AppTask): AppSubagentPhase {
   // Terminal statuses are authoritative over a possibly-stale subagentPhase: a
@@ -65,7 +71,9 @@ export function buildSwarmGroups(tasks: AppTask[]): SwarmGroup[] {
 
   return [...buckets.entries()]
     .map(([id, members]) => {
-      const sorted = members.toSorted((a, b) => a.swarmIndex - b.swarmIndex || a.id.localeCompare(b.id));
+      const sorted = members.toSorted(
+        (a, b) => a.swarmIndex - b.swarmIndex || a.id.localeCompare(b.id),
+      );
       const counts = emptyCounts();
       for (const member of sorted) counts[member.phase]++;
       return { id, members: sorted, counts };

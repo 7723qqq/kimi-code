@@ -13,7 +13,6 @@
 import { isAbsolute, join, parse } from 'pathe';
 
 import { tryNativeGlobMatch } from './native-glob-match';
-
 import { canonicalizePath, type PathClass } from './path-access';
 
 export interface PermissionPathMatchOptions {
@@ -86,11 +85,7 @@ function canonicalizePathPattern(
   }
 }
 
-function expandUserPath(
-  value: string,
-  pathClass: PathClass,
-  homeDir: string | undefined,
-): string {
+function expandUserPath(value: string, pathClass: PathClass, homeDir: string | undefined): string {
   if (homeDir === undefined) return value;
   if (value === '~') return homeDir;
   if (value.startsWith('~/') || (pathClass === 'win32' && value.startsWith('~\\'))) {

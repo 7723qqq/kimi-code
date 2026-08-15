@@ -13,14 +13,10 @@
  * or bucket is ever rewritten here. Bound at App scope.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { IWorkspaceService } from '#/app/workspace/workspace';
-import {
-  collectAliasIds,
-  readSessionIndexEntries,
-} from '#/app/workspace/workspaceAlias';
+import { collectAliasIds, readSessionIndexEntries } from '#/app/workspace/workspaceAlias';
 import { IWorkspacePersistence } from '#/app/workspace/workspacePersistence';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 

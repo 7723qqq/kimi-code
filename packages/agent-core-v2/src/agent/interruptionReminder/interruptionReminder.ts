@@ -11,5 +11,6 @@ export interface IAgentInterruptionReminderService {
   readonly _serviceBrand: undefined;
 }
 
-export const IAgentInterruptionReminderService =
-  createDecorator<IAgentInterruptionReminderService>('agentInterruptionReminderService');
+export const IAgentInterruptionReminderService = createDecorator<IAgentInterruptionReminderService>(
+  'agentInterruptionReminderService',
+);

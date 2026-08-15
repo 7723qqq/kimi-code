@@ -8,7 +8,7 @@
  * a turn (`recordModelToolActivation`). Bound at Agent scope.
  */
 
-import { createDecorator } from "#/_base/di/instantiation";
+import { createDecorator } from '#/_base/di/instantiation';
 import type { SkillActivationOrigin } from '#/agent/contextMemory/types';
 import type { PromptLaunchResult } from '#/agent/prompt/prompt';
 import type { ContentPart } from '#/kosong/contract/message';
@@ -26,5 +26,4 @@ export interface IAgentSkillService {
   recordModelToolActivation(origin: SkillActivationOrigin): void;
 }
 
-export const IAgentSkillService =
-  createDecorator<IAgentSkillService>('agentSkillService');
+export const IAgentSkillService = createDecorator<IAgentSkillService>('agentSkillService');

@@ -1,10 +1,12 @@
-// test/server.test.js
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import net from 'node:net';
 import fs from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+
+// test/server.test.js
+import { test } from 'vitest';
+
 import { startServer } from '../src/server.js';
 
 async function tmpDir() {
@@ -59,7 +61,10 @@ test('RESP server: MGET / DEL / DBSIZE', async () => {
     const sock = await connect(srv.port);
     await send(sock, encode('SET', 'a', '1'));
     await send(sock, encode('SET', 'b', '2'));
-    assert.equal(await send(sock, encode('MGET', 'a', 'b', 'z')), '*3\r\n$1\r\n1\r\n$1\r\n2\r\n$-1\r\n');
+    assert.equal(
+      await send(sock, encode('MGET', 'a', 'b', 'z')),
+      '*3\r\n$1\r\n1\r\n$1\r\n2\r\n$-1\r\n',
+    );
     assert.equal(await send(sock, encode('DBSIZE')), ':2\r\n');
     assert.equal(await send(sock, encode('DEL', 'a')), ':1\r\n');
     assert.equal(await send(sock, encode('DBSIZE')), ':1\r\n');

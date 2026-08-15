@@ -12,24 +12,25 @@
  * Bound at Session scope.
  */
 
-import { Service } from '#/_base/di/service';
-import { Error2, ErrorCodes } from '#/errors';
 import { t } from '@moonshot-ai/kimi-i18n';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService, type IAgentScopeHandle } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentUsageService } from '#/agent/usage/usage';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
+import { LifecycleScope } from '#/app/scopes';
+import { Error2, ErrorCodes } from '#/errors';
 import type { TokenUsage } from '#/kosong/contract/usage';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import {
   assertSubagentDepthAllowed,
   subagentLabels,
 } from '#/session/agentLifecycle/subagentMetadata';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentUserToolService } from '#/agent/userTool/userTool';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentUsageService } from '#/agent/usage/usage';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 
@@ -75,9 +76,13 @@ export class PersistentSubagentService extends Service implements IPersistentSub
     await this.catalog.ready;
     const profile = this.catalog.get(options.profileName);
     if (profile === undefined) {
-      throw new Error2(ErrorCodes.PROFILE_UNKNOWN, t('v2Errors.unknownAgentType', { type: options.profileName }), {
-        details: { profileName: options.profileName },
-      });
+      throw new Error2(
+        ErrorCodes.PROFILE_UNKNOWN,
+        t('v2Errors.unknownAgentType', { type: options.profileName }),
+        {
+          details: { profileName: options.profileName },
+        },
+      );
     }
     const callerData = caller.accessor.get(IAgentProfileService).data();
     const callerMeta = (await this.sessionMetadata.read()).agents?.[ownerAgentId];

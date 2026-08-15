@@ -10,8 +10,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { permissionModeServices, type TestAgentContext } from '../../harness';
 
+import { permissionModeServices, type TestAgentContext } from '../../harness';
 import { createLoopTestAgent, makeEchoTool, nextTurnMessage, registerTool } from './helpers';
 
 function rpcEvents(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {
@@ -99,8 +99,7 @@ describe('Agent loop — event sequences', () => {
   it('emits only step events for a turn with no tool calls', async () => {
     ctx.mockNextResponse({ type: 'text', text: 'just text' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('text')).assigned)
-      .turn;
+    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('text')).assigned).turn;
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     expect(rpcEvents(ctx, 'tool.call.started')).toHaveLength(0);
@@ -115,9 +114,12 @@ describe('Agent loop — event sequences', () => {
     const echo = makeEchoTool();
     registerTool(ctx, echo);
 
-    ctx.mockNextResponse(
-      { type: 'function', id: 'tc-99', name: 'echo', arguments: '{"text":"hi"}' },
-    );
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'tc-99',
+      name: 'echo',
+      arguments: '{"text":"hi"}',
+    });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
     const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run')).assigned).turn;

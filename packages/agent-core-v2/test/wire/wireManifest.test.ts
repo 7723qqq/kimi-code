@@ -8,6 +8,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+
 import { Project } from 'ts-morph';
 import { describe, expect, it } from 'vitest';
 

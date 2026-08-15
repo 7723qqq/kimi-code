@@ -1,17 +1,19 @@
+import { describe, it, expect, vi } from 'vitest';
+
 import { generate } from '#/generate';
 import type { Message, StreamedMessagePart } from '#/message';
-import { MockChatProvider } from './fixtures/mock-provider';
 import type { FinishReason } from '#/provider';
 import { AnthropicChatProvider } from '#/providers/anthropic';
 import { GoogleGenAIChatProvider, GoogleGenAIStreamedMessage } from '#/providers/google-genai';
 import { KimiChatProvider } from '#/providers/kimi';
+import { normalizeOpenAIFinishReason } from '#/providers/openai-common';
 import { OpenAILegacyChatProvider } from '#/providers/openai-legacy';
 import { OpenAIResponsesStreamedMessage } from '#/providers/openai-responses';
-import { normalizeOpenAIFinishReason } from '#/providers/openai-common';
-import { step } from './fixtures/step';
+
+import { MockChatProvider } from './fixtures/mock-provider';
 import { toolOk } from './fixtures/simple-toolset';
 import type { Toolset } from './fixtures/simple-toolset';
-import { describe, it, expect, vi } from 'vitest';
+import { step } from './fixtures/step';
 const USER_MSG: Message = {
   role: 'user',
   content: [{ type: 'text', text: 'hi' }],
@@ -93,8 +95,7 @@ function makeKimiChatClient(response: unknown) {
     chat: {
       completions: {
         create: vi.fn().mockImplementation(() => ({
-          withResponse: () =>
-            Promise.resolve({ data: response, response: new Response(null) }),
+          withResponse: () => Promise.resolve({ data: response, response: new Response(null) }),
         })),
       },
     },

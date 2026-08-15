@@ -14,7 +14,6 @@ import { truncateToWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
-
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 

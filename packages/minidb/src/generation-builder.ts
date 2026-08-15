@@ -28,9 +28,35 @@
 // write paths (they push applied ops and set `aborted` through MiniDb's
 // private views).
 
-import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
+import fs from 'node:fs/promises';
 import path from 'node:path';
+
+import { TYPE_SET } from './codec.js';
+import { fsyncDir } from './compaction.js';
+import { CompoundIndexManager } from './compound-index.js';
+import { DtIndex } from './dt-index.js';
+import {
+  readGenerationFileCheckedAsync,
+  readTextDictionaryImageAsync,
+  writeStoreImage,
+  writeDtIndexImage,
+  writeSecondaryIndexImage,
+  writeCompoundIndexImage,
+  writeTextDictionaryImage,
+  writeTextDocsImage,
+} from './gen-codec.js';
+import type { StoreImageRecord, TextDocsImage } from './gen-codec.js';
+import {
+  cleanupGenerations,
+  generationDir,
+  generationsDir,
+  listGenerations,
+  publishGeneration,
+  readCurrent,
+  writeManifest,
+} from './generation-files.js';
+import { GenerationLoader } from './generation-loader.js';
 import {
   SNAPSHOT_FILE,
   GENERATION_FORMAT_VERSION,
@@ -46,51 +72,39 @@ import {
   textDocsFile,
 } from './generation.js';
 import type { GenerationManifest } from './generation.js';
-import {
-  cleanupGenerations,
-  generationDir,
-  generationsDir,
-  listGenerations,
-  publishGeneration,
-  readCurrent,
-  writeManifest,
-} from './generation-files.js';
-import {
-  readGenerationFileCheckedAsync,
-  readTextDictionaryImageAsync,
-  writeStoreImage,
-  writeDtIndexImage,
-  writeSecondaryIndexImage,
-  writeCompoundIndexImage,
-  writeTextDictionaryImage,
-  writeTextDocsImage,
-} from './gen-codec.js';
-import type { StoreImageRecord, TextDocsImage } from './gen-codec.js';
 import { IndexManager } from './index-manager.js';
-import { DtIndex } from './dt-index.js';
-import { CompoundIndexManager } from './compound-index.js';
+import type { LifecycleTracker } from './lifecycle-status.js';
+import { defaultWorkerSlots, MaintenanceCancelledError } from './maintenance.js';
+import type { MaintenanceContext, MaintenanceScheduler } from './maintenance.js';
+import type { RecoveryMode, RecoveryInfo, ValueMode, RecoveredOp } from './recovery.js';
+import type { Store } from './store.js';
+import type { ValueRef } from './store.js';
 import { TextIndex } from './text-index/index.js';
 import type { TextIndexBuild } from './text-index/index.js';
+import { yieldToLoop } from './text-index/tokenize.js';
 import type { PostingEntry } from './text-postings.js';
 import { TextRegistry } from './text-registry.js';
 import type { TextIndexDef } from './text-registry.js';
-import type { ValueReader } from './value-reader.js';
-import type { RecoveryMode, RecoveryInfo, ValueMode, RecoveredOp } from './recovery.js';
-import type { LifecycleTracker } from './lifecycle-status.js';
-import { fsyncDir } from './compaction.js';
-import { defaultWorkerSlots, MaintenanceCancelledError } from './maintenance.js';
-import type { MaintenanceContext, MaintenanceScheduler } from './maintenance.js';
-import { startWorkerTextBuild, textBuildWorkerAvailable, verifyFileCrcAsync, WorkerTextBuildError } from './worker/text-build.js';
-import type { WorkerTextBuildFallbackReason, WorkerTextBuildHandle, TextBuildCheckpoint } from './worker/text-build.js';
-import { readBaseDocsImageAsync, BASE_DOCS_MAGIC, BASE_DOCS_VERSION } from './worker/text-build-core.js';
-import type { TextBuildCoreResult } from './worker/text-build-core.js';
-import { TYPE_SET } from './codec.js';
-import { GenerationLoader } from './generation-loader.js';
-import { yieldToLoop } from './text-index/tokenize.js';
-import type { Store } from './store.js';
-import type { ValueRef } from './store.js';
-import type { WAL } from './wal.js';
 import type { ValueCodecName } from './types.js';
+import type { ValueReader } from './value-reader.js';
+import type { WAL } from './wal.js';
+import {
+  readBaseDocsImageAsync,
+  BASE_DOCS_MAGIC,
+  BASE_DOCS_VERSION,
+} from './worker/text-build-core.js';
+import type { TextBuildCoreResult } from './worker/text-build-core.js';
+import {
+  startWorkerTextBuild,
+  textBuildWorkerAvailable,
+  verifyFileCrcAsync,
+  WorkerTextBuildError,
+} from './worker/text-build.js';
+import type {
+  WorkerTextBuildFallbackReason,
+  WorkerTextBuildHandle,
+  TextBuildCheckpoint,
+} from './worker/text-build.js';
 
 /** The open-time index rebuild yields to the event loop every this many
  *  records, so a huge Store walk never hard-blocks the host (mirrors the
@@ -202,7 +216,11 @@ export interface GenerationBuilderDeps<V> {
   decode: (b: Buffer | undefined) => V | undefined;
   indexable: (v: unknown) => v is Record<string, unknown>;
   /** Live records (decoded values), for per-index rebuilds. */
-  liveRecords: () => Generator<{ key: Buffer; value: V | undefined; dt: Record<string, number> | null }>;
+  liveRecords: () => Generator<{
+    key: Buffer;
+    value: V | undefined;
+    dt: Record<string, number> | null;
+  }>;
   /** Live records with untyped decoded values, for secondary-index rebuilds. */
   liveRecordsRaw: () => Generator<{ key: Buffer; value: unknown }>;
   /** Live indexable records with canonical keys, for text-index rebuilds. */
@@ -216,7 +234,12 @@ export interface GenerationBuilderDeps<V> {
   /** The owner's bounded full-corpus build (worker/inline + rebase — see
    *  MiniDb.boundedTextBuild); the loader calls it with the candidate
    *  generation's manifest checkpoint, createTextIndex with a fresh seal. */
-  boundedTextBuild: (name: string, ti: TextIndex, def: TextIndexDef, checkpoint: TextBuildCheckpoint | null) => Promise<'worker' | 'inline' | null>;
+  boundedTextBuild: (
+    name: string,
+    ti: TextIndex,
+    def: TextIndexDef,
+    checkpoint: TextBuildCheckpoint | null,
+  ) => Promise<'worker' | 'inline' | null>;
   /** Called when a build fails for ANY reason (abort included), so the
    *  owner's runtime WAL-growth trigger can back off instead of re-kicking
    *  a build every interval on a hopelessly churning writer. */
@@ -246,7 +269,8 @@ export class GenerationBuilder<V> {
   /** The generation this instance loaded at open or last published (null when
    *  running on the legacy recovery path). Stable status surface — see
    *  getIndexGeneration(). Non-private (see genBuildAbort). */
-  generationInfo: { id: string; createdAt: number; walCheckpoint: number; records: number } | null = null;
+  generationInfo: { id: string; createdAt: number; walCheckpoint: number; records: number } | null =
+    null;
 
   private readonly loader: GenerationLoader<V>;
 
@@ -268,12 +292,18 @@ export class GenerationBuilder<V> {
    *  own trigger just made it abort) and then build fresh. The build itself
    *  runs as a maintenance-scheduler task (stage 6): mutual exclusion with
    *  compaction, disk preflight, and shutdown cancellation. */
-  async buildGeneration(trigger: 'open' | 'compact' | 'manual' | 'wal-growth' | 'close'): Promise<void> {
+  async buildGeneration(
+    trigger: 'open' | 'compact' | 'manual' | 'wal-growth' | 'close',
+  ): Promise<void> {
     if (this.deps.readOnly() || !this.deps.indexGenerationsEnabled()) return;
     if (this.deps.state() !== 'open') return;
     if (this.genBuildPromise) {
-      if (trigger === 'open' || trigger === 'wal-growth' || trigger === 'close') return this.genBuildPromise;
-      if (this.deps.maintenanceTaskCtx() !== null && this.deps.maintenance().hasQueued('generation-build')) {
+      if (trigger === 'open' || trigger === 'wal-growth' || trigger === 'close')
+        return this.genBuildPromise;
+      if (
+        this.deps.maintenanceTaskCtx() !== null &&
+        this.deps.maintenance().hasQueued('generation-build')
+      ) {
         // Inside the compaction task (onCompacted): a QUEUED build waits for
         // exactly this task, so awaiting it here would self-deadlock the
         // one-at-a-time scheduler. It runs right after this task over the
@@ -284,7 +314,9 @@ export class GenerationBuilder<V> {
       // trigger accompanies; wait for it to die, then build fresh.
       await this.genBuildPromise.catch(() => {});
     }
-    const run = this.deps.maintenance().submit('generation-build', (ctx) => this.runGenerationBuild(ctx));
+    const run = this.deps
+      .maintenance()
+      .submit('generation-build', (ctx) => this.runGenerationBuild(ctx));
     this.genBuildPromise = run;
     try {
       await run;
@@ -312,7 +344,11 @@ export class GenerationBuilder<V> {
     const gens = generationsDir(this.deps.dir());
     const prevCurrent = await readCurrent(this.deps.dir());
     const existing = await listGenerations(this.deps.dir());
-    const nextN = Math.max(prevCurrent ? (existing.find((g) => g.id === prevCurrent)?.n ?? 0) : 0, existing[0]?.n ?? 0) + 1;
+    const nextN =
+      Math.max(
+        prevCurrent ? (existing.find((g) => g.id === prevCurrent)?.n ?? 0) : 0,
+        existing[0]?.n ?? 0,
+      ) + 1;
     const id = generationId(nextN);
     const tmpName = `${id}.tmp-${process.pid}`;
     const tmpDir = path.join(gens, tmpName);
@@ -323,8 +359,12 @@ export class GenerationBuilder<V> {
     const secB = new IndexManager();
     for (const d of this.deps.indexes.list()) secB.create(d.name, d);
     const cmpB = new CompoundIndexManager();
-    for (const d of this.deps.compound.list()) cmpB.create(d.name, { groupBy: d.groupBy, orderBy: d.orderBy, orderType: d.orderType });
-    const imageRecords = new Map<string, { ref: ValueRef; expireAt: number; dt: Record<string, number> | null }>();
+    for (const d of this.deps.compound.list())
+      cmpB.create(d.name, { groupBy: d.groupBy, orderBy: d.orderBy, orderType: d.orderType });
+    const imageRecords = new Map<
+      string,
+      { ref: ValueRef; expireAt: number; dt: Record<string, number> | null }
+    >();
     const textBuilds = new Map<string, { ti: TextIndex; b: TextIndexBuild }>();
     /** Dirty text indexes assigned to the stage-6 worker build (their live
      *  rebase capture starts at the seal; the base arrives from the worker). */
@@ -341,7 +381,11 @@ export class GenerationBuilder<V> {
       gb.bytes = 0;
       for (const op of ops) {
         if (op.type === TYPE_SET) {
-          imageRecords.set(op.pk, { ref: { kind: 'memory', value: op.value! }, expireAt: op.expireAt, dt: op.dtNorm });
+          imageRecords.set(op.pk, {
+            ref: { kind: 'memory', value: op.value! },
+            expireAt: op.expireAt,
+            dt: op.dtNorm,
+          });
           dtB.set(op.pk, op.dtNorm);
           if (!op.storeOnly) {
             secB.remove(op.pk);
@@ -360,7 +404,8 @@ export class GenerationBuilder<V> {
 
     const checkAlive = (): void => {
       if (gb.aborted) throw new GenerationBuildAborted('store rewound by a WAL rollback');
-      if (this.deps.wal() !== gb.wal) throw new GenerationBuildAborted('compaction rotation replaced the WAL');
+      if (this.deps.wal() !== gb.wal)
+        throw new GenerationBuildAborted('compaction rotation replaced the WAL');
       if (this.deps.state() !== 'open') throw new GenerationBuildAborted('instance is closing');
       if (gb.queue.length > GEN_BUILD_QUEUE_CAP || gb.bytes > GEN_BUILD_QUEUE_BYTES_CAP) {
         throw new GenerationBuildAborted('write storm outran the build');
@@ -404,11 +449,21 @@ export class GenerationBuilder<V> {
             textClean.set(name, ti);
             continue;
           }
-          if (workerOk && !ti.hasCustomTokenizer && this.deps.store().size >= TEXT_BUILD_WORKER_MIN_DOCS) {
-            workerTargets.set(name, { ti, def: this.deps.textRegistry.textDefs.find((d) => d.name === name) });
+          if (
+            workerOk &&
+            !ti.hasCustomTokenizer &&
+            this.deps.store().size >= TEXT_BUILD_WORKER_MIN_DOCS
+          ) {
+            workerTargets.set(name, {
+              ti,
+              def: this.deps.textRegistry.textDefs.find((d) => d.name === name),
+            });
             continue;
           }
-          textBuilds.set(name, { ti, b: ti.beginBuild({ postingsPath: path.join(tmpDir, textPostingsFile(name)) }) });
+          textBuilds.set(name, {
+            ti,
+            b: ti.beginBuild({ postingsPath: path.join(tmpDir, textPostingsFile(name)) }),
+          });
         } catch {
           /* excluded from this generation */
         }
@@ -429,7 +484,10 @@ export class GenerationBuilder<V> {
         imageRecords.set(kstr, { ref: rec.ref, expireAt: rec.expireAt, dt: rec.dt });
         dtB.set(kstr, rec.dt);
         if (needValues) {
-          const buf = rec.ref.kind === 'memory' ? rec.ref.value : this.deps.getValueReader()!.read(rec.ref.loc);
+          const buf =
+            rec.ref.kind === 'memory'
+              ? rec.ref.value
+              : this.deps.getValueReader()!.read(rec.ref.loc);
           const doc = this.deps.decode(buf);
           if (this.deps.indexable(doc)) {
             secB.add(kstr, doc);
@@ -503,9 +561,13 @@ export class GenerationBuilder<V> {
         let inlineReason: WorkerTextBuildFallbackReason | undefined;
         if (workerAvailable) {
           try {
-            workerSlotRelease = await defaultWorkerSlots.acquireBounded(this.deps.textBuildSlotWaitMs(), aborter.signal);
+            workerSlotRelease = await defaultWorkerSlots.acquireBounded(
+              this.deps.textBuildSlotWaitMs(),
+              aborter.signal,
+            );
           } catch (error) {
-            if (error instanceof MaintenanceCancelledError) throw new GenerationBuildAborted('worker slot wait cancelled');
+            if (error instanceof MaintenanceCancelledError)
+              throw new GenerationBuildAborted('worker slot wait cancelled');
             throw error;
           }
           if (workerSlotRelease === null) inlineReason = 'slot-pressure';
@@ -534,7 +596,8 @@ export class GenerationBuilder<V> {
           },
           {
             signal: aborter.signal,
-            shouldAbort: () => gb.aborted || this.deps.wal() !== gb.wal || this.deps.state() !== 'open',
+            shouldAbort: () =>
+              gb.aborted || this.deps.wal() !== gb.wal || this.deps.state() !== 'open',
             inline,
             inlineReason,
             onFallback: (reason) => {
@@ -554,7 +617,10 @@ export class GenerationBuilder<V> {
       // reuses the integrity record from the build that WROTE the file (it is
       // immutable until replaced, so the record is still exact) — no
       // re-tokenization, no re-read.
-      const cleanPostings = new Map<string, { src: string; info: { bytes: number; crc32: number } }>();
+      const cleanPostings = new Map<
+        string,
+        { src: string; info: { bytes: number; crc32: number } }
+      >();
       for (const [name, ti] of textClean) {
         const src = ti.currentPostingsPath;
         const info = ti.postingsFileInfo;
@@ -581,11 +647,20 @@ export class GenerationBuilder<V> {
         })(),
       );
       files[STORE_IMAGE_FILE] = { bytes: storeRes.bytes, crc32: storeRes.crc32 };
-      files[DT_INDEX_FILE] = await writeDtIndexImage(path.join(tmpDir, DT_INDEX_FILE), dtB.exportImage());
+      files[DT_INDEX_FILE] = await writeDtIndexImage(
+        path.join(tmpDir, DT_INDEX_FILE),
+        dtB.exportImage(),
+      );
       const secImages = secB.exportImage();
-      files[SECONDARY_INDEX_FILE] = await writeSecondaryIndexImage(path.join(tmpDir, SECONDARY_INDEX_FILE), secImages);
+      files[SECONDARY_INDEX_FILE] = await writeSecondaryIndexImage(
+        path.join(tmpDir, SECONDARY_INDEX_FILE),
+        secImages,
+      );
       const cmpExport = cmpB.exportImage();
-      files[COMPOUND_INDEX_FILE] = await writeCompoundIndexImage(path.join(tmpDir, COMPOUND_INDEX_FILE), cmpExport.images);
+      files[COMPOUND_INDEX_FILE] = await writeCompoundIndexImage(
+        path.join(tmpDir, COMPOUND_INDEX_FILE),
+        cmpExport.images,
+      );
 
       // Stage 6: collect the worker build. Verification before anything is
       // trusted (design rule 3: worker output is verifiable): (a) the
@@ -622,13 +697,27 @@ export class GenerationBuilder<V> {
           // gen-codec envelopes — the checked reads below verify their crc
           // AND cross-check the worker's report, in slices.
           await verifyFileCrcAsync(postingsPath, r.postingsInfo);
-          const dictPayload = await readGenerationFileCheckedAsync(dictionaryPath, 'MDTD', 1, r.dictionaryInfo);
+          const dictPayload = await readGenerationFileCheckedAsync(
+            dictionaryPath,
+            'MDTD',
+            1,
+            r.dictionaryInfo,
+          );
           const dictEntries = (await readTextDictionaryImageAsync(dictPayload)).map(
             (e) => [e.term, { off: e.off, len: e.len, df: e.df }] as [string, PostingEntry],
           );
-          const baseDocsPayload = await readGenerationFileCheckedAsync(baseDocsPath, BASE_DOCS_MAGIC, BASE_DOCS_VERSION, r.baseDocsInfo);
+          const baseDocsPayload = await readGenerationFileCheckedAsync(
+            baseDocsPath,
+            BASE_DOCS_MAGIC,
+            BASE_DOCS_VERSION,
+            r.baseDocsInfo,
+          );
           const baseDocs = await readBaseDocsImageAsync(baseDocsPayload);
-          const containers = await TextIndex.prepareRebaseContainers(dictEntries, baseDocs.keys, baseDocs.docLens);
+          const containers = await TextIndex.prepareRebaseContainers(
+            dictEntries,
+            baseDocs.keys,
+            baseDocs.docLens,
+          );
           target.ti.commitRebase({
             postingsPath,
             containers,
@@ -670,7 +759,10 @@ export class GenerationBuilder<V> {
             docs: [...m].map(([docID, freq]) => ({ docID, freq })),
           })),
         };
-        files[textDocsFile(name)] = await writeTextDocsImage(path.join(tmpDir, textDocsFile(name)), docsImage);
+        files[textDocsFile(name)] = await writeTextDocsImage(
+          path.join(tmpDir, textDocsFile(name)),
+          docsImage,
+        );
         const clean = cleanPostings.get(name);
         if (clean) {
           // Re-publish the unchanged base: hard link (same inode, zero copy),
@@ -688,7 +780,8 @@ export class GenerationBuilder<V> {
           files[textPostingsFile(name)] = workerResult.postingsInfo;
         } else {
           const postInfo = textBuilds.get(name)?.ti.postingsFileInfo;
-          if (!postInfo) throw new GenerationBuildAborted(`text index "${name}" produced no postings file info`);
+          if (!postInfo)
+            throw new GenerationBuildAborted(`text index "${name}" produced no postings file info`);
           files[textPostingsFile(name)] = postInfo;
         }
       }
@@ -715,7 +808,8 @@ export class GenerationBuilder<V> {
           const h = await fs.open(path.join(tmpDir, GEN_SNAPSHOT_FILE), 'r');
           try {
             await h.sync().catch((error: NodeJS.ErrnoException) => {
-              if (error.code !== 'EPERM' && error.code !== 'ENOTSUP' && error.code !== 'EINVAL') throw error;
+              if (error.code !== 'EPERM' && error.code !== 'ENOTSUP' && error.code !== 'EINVAL')
+                throw error;
             });
           } finally {
             await h.close().catch(() => {});
@@ -747,11 +841,25 @@ export class GenerationBuilder<V> {
           secondary: Object.fromEntries(
             secImages.map((i) => [
               i.name,
-              indexDefHash({ name: i.name, field: i.field, type: i.type, unique: i.unique, sparse: i.sparse }),
+              indexDefHash({
+                name: i.name,
+                field: i.field,
+                type: i.type,
+                unique: i.unique,
+                sparse: i.sparse,
+              }),
             ]),
           ),
           compound: Object.fromEntries(
-            cmpExport.images.map((i) => [i.name, indexDefHash({ name: i.name, groupBy: i.groupBy, orderBy: i.orderBy, orderType: i.orderType })]),
+            cmpExport.images.map((i) => [
+              i.name,
+              indexDefHash({
+                name: i.name,
+                groupBy: i.groupBy,
+                orderBy: i.orderBy,
+                orderType: i.orderType,
+              }),
+            ]),
           ),
           text: Object.fromEntries(
             [...textStates.keys()].map((name) => {
@@ -803,7 +911,9 @@ export class GenerationBuilder<V> {
       // reads from inside the CURRENT generation. POSIX: same inode (the
       // hard link), just update the path string; win32: close + reopen there.
       for (const [name, tb] of textBuilds) {
-        const reopened = tb.ti.repointPostings(path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)));
+        const reopened = tb.ti.repointPostings(
+          path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)),
+        );
         if (reopened) {
           tb.ti.basePending = false;
           // The closed window may have admitted empty reads into the cache
@@ -812,7 +922,9 @@ export class GenerationBuilder<V> {
         }
       }
       for (const [name, { ti }] of workerTargets) {
-        const reopened = ti.repointPostings(path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)));
+        const reopened = ti.repointPostings(
+          path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)),
+        );
         if (reopened) {
           ti.basePending = false;
           ti.clearCache();
@@ -820,14 +932,21 @@ export class GenerationBuilder<V> {
       }
       for (const [name, ti] of textClean) {
         if (!cleanPostings.has(name)) continue;
-        const reopened = ti.repointPostings(path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)));
+        const reopened = ti.repointPostings(
+          path.join(generationDir(this.deps.dir(), id), textPostingsFile(name)),
+        );
         if (reopened) {
           ti.basePending = false;
           ti.clearCache();
         }
       }
 
-      this.generationInfo = { id, createdAt: manifest.createdAt, walCheckpoint: sealedOffset, records: imageRecords.size };
+      this.generationInfo = {
+        id,
+        createdAt: manifest.createdAt,
+        walCheckpoint: sealedOffset,
+        records: imageRecords.size,
+      };
       this.deps.stats.generationBuilds++;
       this.deps.stats.generationBuildDurationMs += performance.now() - t0;
 
@@ -844,7 +963,11 @@ export class GenerationBuilder<V> {
       // (the final docs images were written by the main thread): reclaim them
       // from the published generation.
       for (const name of workerResults.keys()) {
-        await fs.rm(path.join(generationDir(this.deps.dir(), id), `${textDocsFile(name)}.base`), { force: true }).catch(() => {});
+        await fs
+          .rm(path.join(generationDir(this.deps.dir(), id), `${textDocsFile(name)}.base`), {
+            force: true,
+          })
+          .catch(() => {});
       }
     } catch (error) {
       if (this.genBuild === gb) this.genBuild = null;
@@ -883,13 +1006,19 @@ export class GenerationBuilder<V> {
   async rebuildGeneration(): Promise<void> {
     this.deps.ensureOpen();
     this.deps.ensureWritable();
-    if (!this.deps.indexGenerationsEnabled()) throw new Error('index generations are disabled (OpenOptions.indexGenerations: false)');
+    if (!this.deps.indexGenerationsEnabled())
+      throw new Error('index generations are disabled (OpenOptions.indexGenerations: false)');
     await this.buildGeneration('manual');
   }
 
   /** Stable generation status: the generation this instance loaded at open or
    *  last published (null when running on the legacy recovery path). */
-  getIndexGeneration(): { id: string; createdAt: number; walCheckpoint: number; records: number } | null {
+  getIndexGeneration(): {
+    id: string;
+    createdAt: number;
+    walCheckpoint: number;
+    records: number;
+  } | null {
     return this.generationInfo ? { ...this.generationInfo } : null;
   }
 }

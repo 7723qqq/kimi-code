@@ -3,18 +3,21 @@
      + close. Variants color the icon (info / success / warning / danger). The
      default slot carries extra body content (action links, detail panels…). -->
 <script setup lang="ts">
-import IconButton from './IconButton.vue';
 import Icon from './Icon.vue';
+import IconButton from './IconButton.vue';
 
-withDefaults(defineProps<{
-  variant?: 'info' | 'success' | 'warning' | 'danger';
-  title: string;
-  message?: string;
-  dismissLabel?: string;
-}>(), {
-  variant: 'info',
-  dismissLabel: 'Dismiss',
-});
+withDefaults(
+  defineProps<{
+    variant?: 'info' | 'success' | 'warning' | 'danger';
+    title: string;
+    message?: string;
+    dismissLabel?: string;
+  }>(),
+  {
+    variant: 'info',
+    dismissLabel: 'Dismiss',
+  },
+);
 
 defineEmits<{ dismiss: [] }>();
 </script>
@@ -66,12 +69,29 @@ defineEmits<{ dismiss: [] }>();
   background: var(--color-accent-soft);
   color: var(--color-accent);
 }
-.ui-toast__icon svg { width: 12px; height: 12px; }
-.ui-toast--success .ui-toast__icon { background: var(--color-success-soft); color: var(--color-success); }
-.ui-toast--warning .ui-toast__icon { background: var(--color-warning-soft); color: var(--color-warning); }
-.ui-toast--danger .ui-toast__icon { background: var(--color-danger-soft); color: var(--color-danger); }
-.ui-toast--danger { border-color: color-mix(in srgb, var(--color-danger) 35%, transparent); }
-.ui-toast__body { flex: 1; min-width: 0; }
+.ui-toast__icon svg {
+  width: 12px;
+  height: 12px;
+}
+.ui-toast--success .ui-toast__icon {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.ui-toast--warning .ui-toast__icon {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+.ui-toast--danger .ui-toast__icon {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.ui-toast--danger {
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+}
+.ui-toast__body {
+  flex: 1;
+  min-width: 0;
+}
 .ui-toast__title {
   font-size: var(--text-base);
   font-weight: 500;
@@ -84,6 +104,11 @@ defineEmits<{ dismiss: [] }>();
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
 }
-.ui-toast--danger .ui-toast__msg { color: var(--color-danger); }
-.ui-toast__close { flex: none; margin: -3px -4px 0 0; }
+.ui-toast--danger .ui-toast__msg {
+  color: var(--color-danger);
+}
+.ui-toast__close {
+  flex: none;
+  margin: -3px -4px 0 0;
+}
 </style>

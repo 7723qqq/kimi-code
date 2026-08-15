@@ -116,6 +116,8 @@ export function resolveTargetDeps(target) {
       ...d,
       resolvedName: d.name(target),
       nativeFileRelatives: d.nativeFileRelatives?.(target) ?? [],
-      parentName: d.parent ? nativeDeps.find((p) => p.id === d.parent)?.name(target) ?? null : null,
+      parentName: d.parent
+        ? (nativeDeps.find((p) => p.id === d.parent)?.name(target) ?? null)
+        : null,
     }));
 }

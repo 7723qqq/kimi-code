@@ -19,18 +19,18 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/_base/state/stateRegistry';
-import { IEventBus } from '#/app/event/eventBus';
+import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
+import type { PromptOrigin } from '#/agent/contextMemory/types';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import type { TurnEndReason } from '#/agent/loop/turnEvents';
 import { TurnModel } from '#/agent/loop/turnOps';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
-import type { PromptOrigin } from '#/agent/contextMemory/types';
-import type { TurnEndReason } from '#/agent/loop/turnEvents';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { IWireService } from '#/wire/wire';
 
 import type {
@@ -65,10 +65,13 @@ export const activityViewBackgroundKey = defineState<Map<string, BackgroundRef>>
   'activityView.background',
   () => new Map(),
 );
-export const activityViewCurrentKey = defineState<AgentActivityState>('activityView.current', () => ({
-  lifecycle: 'ready',
-  background: [],
-}));
+export const activityViewCurrentKey = defineState<AgentActivityState>(
+  'activityView.current',
+  () => ({
+    lifecycle: 'ready',
+    background: [],
+  }),
+);
 
 // NOTE: stays Disposable — its own 'state' collides with the Fiber
 export class AgentActivityView extends Disposable implements IAgentActivityView {
@@ -98,13 +101,17 @@ export class AgentActivityView extends Disposable implements IAgentActivityView 
       }),
     );
 
-    this._register(this.eventBus.subscribe('turn.started', (e) => this.onTurnStarted(e.turnId, e.origin)));
+    this._register(
+      this.eventBus.subscribe('turn.started', (e) => this.onTurnStarted(e.turnId, e.origin)),
+    );
     this._register(this.eventBus.subscribe('turn.step.started', (e) => this.onStepStarted(e.step)));
     this._register(this.eventBus.subscribe('assistant.delta', () => this.onDelta('assistant')));
     this._register(this.eventBus.subscribe('thinking.delta', () => this.onDelta('thinking')));
     this._register(this.eventBus.subscribe('tool.call.delta', () => this.onDelta('tool_call')));
     this._register(
-      this.eventBus.subscribe('tool.call.started', (e) => this.onToolCallStarted(e.toolCallId, e.name)),
+      this.eventBus.subscribe('tool.call.started', (e) =>
+        this.onToolCallStarted(e.toolCallId, e.name),
+      ),
     );
     this._register(this.eventBus.subscribe('tool.result', (e) => this.onToolResult(e.toolCallId)));
     this._register(
@@ -133,7 +140,9 @@ export class AgentActivityView extends Disposable implements IAgentActivityView 
       }),
     );
     this._register(
-      this.eventBus.subscribe('turn.step.interrupted', (e) => this.onStepInterrupted(e.turnId, e.reason)),
+      this.eventBus.subscribe('turn.step.interrupted', (e) =>
+        this.onStepInterrupted(e.turnId, e.reason),
+      ),
     );
     this._register(
       this.eventBus.subscribe('turn.ended', (e) => this.onTurnEnded(e.turnId, e.reason)),
@@ -429,7 +438,10 @@ function activityEqual(a: AgentActivityState, b: AgentActivityState): boolean {
   }
   if (a.background.length !== b.background.length) return false;
   for (let i = 0; i < a.background.length; i++) {
-    if (a.background[i]!.id !== b.background[i]!.id || a.background[i]!.kind !== b.background[i]!.kind) {
+    if (
+      a.background[i]!.id !== b.background[i]!.id ||
+      a.background[i]!.kind !== b.background[i]!.kind
+    ) {
       return false;
     }
   }

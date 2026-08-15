@@ -14,19 +14,21 @@
  * user, or the agent itself acting on the user's behalf).
  */
 
-import { join, resolve, isAbsolute } from 'pathe';
-import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { exec as execCallback } from 'node:child_process';
+import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { promisify } from 'node:util';
 
-import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import type { ISessionSubagentService } from '#/session/subagent/subagent';
-import type { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { t } from '@moonshot-ai/kimi-i18n';
+import { join, resolve, isAbsolute } from 'pathe';
+
 import type { ILogService } from '#/_base/log/log';
-import type { WorkflowRunEntry, AgentOpts } from './workflowTypes';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
+import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import type { ISessionContext } from '#/session/sessionContext/sessionContext';
+import type { ISessionSubagentService } from '#/session/subagent/subagent';
+
+import type { WorkflowRunEntry, AgentOpts } from './workflowTypes';
 
 const MAX_CONCURRENT = Math.min(16, 2 * (navigator?.hardwareConcurrency ?? 4));
 
@@ -166,9 +168,19 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
       });
       return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', exitCode: 0 };
     } catch (error: unknown) {
-      if (error && typeof error === 'object' && 'code' in error && 'stdout' in error && 'stderr' in error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        'stdout' in error &&
+        'stderr' in error
+      ) {
         const cmdErr = error as { code: number | string; stdout: string; stderr: string };
-        return { stdout: cmdErr.stdout ?? '', stderr: cmdErr.stderr ?? '', exitCode: typeof cmdErr.code === 'number' ? cmdErr.code : 1 };
+        return {
+          stdout: cmdErr.stdout ?? '',
+          stderr: cmdErr.stderr ?? '',
+          exitCode: typeof cmdErr.code === 'number' ? cmdErr.code : 1,
+        };
       }
       return { stdout: '', stderr: String(error), exitCode: 1 };
     }
@@ -176,7 +188,11 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
 
   const fetchHook = async (
     url: string,
-    opts?: { readonly method?: string; readonly headers?: Record<string, string>; readonly body?: string },
+    opts?: {
+      readonly method?: string;
+      readonly headers?: Record<string, string>;
+      readonly body?: string;
+    },
   ): Promise<{ readonly ok: boolean; readonly status: number; readonly body: string }> => {
     try {
       const response = await globalThis.fetch(url, {
@@ -192,7 +208,11 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
     }
   };
 
-  const searchHook = async (query: string): Promise<readonly { readonly title: string; readonly url: string; readonly snippet: string }[]> => {
+  const searchHook = async (
+    query: string,
+  ): Promise<
+    readonly { readonly title: string; readonly url: string; readonly snippet: string }[]
+  > => {
     const provider = deps.webSearchProvider;
     if (provider === undefined) {
       deps.log.warn('workflow.search.unavailable', { runId: entry.runId });
@@ -232,7 +252,10 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
     args,
     parallel: (thunks: (() => Promise<unknown>)[]) =>
       Promise.all(thunks.map((t) => Promise.resolve().then(() => t()))),
-    pipeline: <T>(items: T[], ...stages: ((prev: unknown, item: T, index: number) => Promise<unknown>)[]) =>
+    pipeline: <T>(
+      items: T[],
+      ...stages: ((prev: unknown, item: T, index: number) => Promise<unknown>)[]
+    ) =>
       Promise.all(
         items.map((item, index) =>
           stages.reduce(
@@ -391,10 +414,10 @@ function resolveInWorkspace(root: string, path: string): string {
 
 function globToRegex(pattern: string): RegExp {
   let regex = pattern
-    .replaceAll(/\./g, '\\.')
-    .replaceAll(/\*\*/g, '.*')
-    .replaceAll(/\*/g, '[^/]*')
-    .replaceAll(/\?/g, '[^/]');
+    .replaceAll('.', '\\.')
+    .replaceAll('**', '.*')
+    .replaceAll('*', '[^/]*')
+    .replaceAll('?', '[^/]');
   return new RegExp(regex);
 }
 

@@ -177,12 +177,15 @@ export class Store {
   }
 
   private cloneRef(ref: ValueRef): ValueRef {
-    return ref.kind === 'memory' ? { kind: 'memory', value: Buffer.from(ref.value) } : { kind: 'disk', loc: { ...ref.loc } };
+    return ref.kind === 'memory'
+      ? { kind: 'memory', value: Buffer.from(ref.value) }
+      : { kind: 'disk', loc: { ...ref.loc } };
   }
 
   private materialize(ref: ValueRef): Buffer {
     if (ref.kind === 'memory') return ref.value;
-    if (!this.readValue) throw new Error('Store cannot read disk-backed value without a ValueReader');
+    if (!this.readValue)
+      throw new Error('Store cannot read disk-backed value without a ValueReader');
     return this.readValue(ref.loc);
   }
 
@@ -203,7 +206,11 @@ export class Store {
   ): number {
     const k = toKStr(key);
     const countValue = opts.countValue ?? true;
-    return Buffer.byteLength(k, 'binary') + (countValue ? value.length : DISK_REF_BYTES) + this.metaBytes(dt);
+    return (
+      Buffer.byteLength(k, 'binary') +
+      (countValue ? value.length : DISK_REF_BYTES) +
+      this.metaBytes(dt)
+    );
   }
 
   private remove(k: string): boolean {
@@ -225,11 +232,21 @@ export class Store {
     if (this.remove(k)) this.onExpire?.(k, rec);
   }
 
-  set(key: string | Buffer, value: Buffer, expireAt = 0, dt: Record<string, number> | null = null): void {
+  set(
+    key: string | Buffer,
+    value: Buffer,
+    expireAt = 0,
+    dt: Record<string, number> | null = null,
+  ): void {
     this.setRef(key, { kind: 'memory', value: Buffer.from(value) }, expireAt, dt);
   }
 
-  setRef(key: string | Buffer, ref: ValueRef, expireAt = 0, dt: Record<string, number> | null = null): void {
+  setRef(
+    key: string | Buffer,
+    ref: ValueRef,
+    expireAt = 0,
+    dt: Record<string, number> | null = null,
+  ): void {
     const k = toKStr(key);
     const prev = this.map.get(k);
     if (prev) {
@@ -329,7 +346,12 @@ export class Store {
    *  path (grouped, bounded-concurrency) instead of one synchronous
    *  positioned read per record. Expired records are skipped exactly as in
    *  entries(). Internal to the package. */
-  *rawRefRecords(): Generator<{ kstr: string; ref: ValueRef; expireAt: number; dt: Record<string, number> | null }> {
+  *rawRefRecords(): Generator<{
+    kstr: string;
+    ref: ValueRef;
+    expireAt: number;
+    dt: Record<string, number> | null;
+  }> {
     const now = Date.now();
     for (const [k, r] of this.map) {
       if (r.expireAt && r.expireAt <= now) continue;
@@ -342,7 +364,12 @@ export class Store {
     for (const n of this.order.range(opts) as Iterable<RangeEntry<string, string>>) {
       const r = this.getRecord(n.key);
       if (!r) continue;
-      yield { key: fromKStr(n.key), value: this.materialize(r.ref), expireAt: r.expireAt, dt: r.dt };
+      yield {
+        key: fromKStr(n.key),
+        value: this.materialize(r.ref),
+        expireAt: r.expireAt,
+        dt: r.dt,
+      };
     }
   }
 
@@ -383,7 +410,13 @@ export class Store {
    *  `metaBytes` is the precomputed dt accounting value (0 = none), so the
    *  load never re-stringifies per record. */
   bulkLoadRefs(
-    records: Iterable<{ kstr: string; ref: ValueRef; expireAt: number; dt: Record<string, number> | null; metaBytes?: number }>,
+    records: Iterable<{
+      kstr: string;
+      ref: ValueRef;
+      expireAt: number;
+      dt: Record<string, number> | null;
+      metaBytes?: number;
+    }>,
   ): void {
     const orderEntries: RangeEntry<string, string>[] = [];
     for (const { kstr, ref, expireAt, dt, metaBytes } of records) {
@@ -409,7 +442,13 @@ export class Store {
    *  load's duration (see `bulkLoading`) so a mid-load reap cannot diverge
    *  the map from the not-yet-rebuilt ordered index. */
   async bulkLoadRefsAsync(
-    records: Iterable<{ kstr: string; ref: ValueRef; expireAt: number; dt: Record<string, number> | null; metaBytes?: number }>,
+    records: Iterable<{
+      kstr: string;
+      ref: ValueRef;
+      expireAt: number;
+      dt: Record<string, number> | null;
+      metaBytes?: number;
+    }>,
     opts: { sliceEvery?: number } = {},
   ): Promise<void> {
     const sliceEvery = opts.sliceEvery ?? 8192;
@@ -428,7 +467,11 @@ export class Store {
         orderEntries.push({ key: kstr, val: kstr });
         if (++n % sliceEvery === 0) await new Promise((r) => setImmediate(r));
       }
-      this.order = await SkipList.bulkLoadAsync(orderEntries, { compareKey: cmpString }, { sliceEvery });
+      this.order = await SkipList.bulkLoadAsync(
+        orderEntries,
+        { compareKey: cmpString },
+        { sliceEvery },
+      );
     } finally {
       this.bulkLoading = false;
     }
@@ -445,7 +488,9 @@ export class Store {
     // Normal ticks stay within the small budget; a tick that still finds a
     // full quota of expired keys flips to aggressive mode (larger budget, like
     // Redis's fast expire cycle) until the storm drains.
-    const deadline = now + (this.expireAggressive ? Math.max(this.expireTimeBudgetMs, 10) : this.expireTimeBudgetMs);
+    const deadline =
+      now +
+      (this.expireAggressive ? Math.max(this.expireTimeBudgetMs, 10) : this.expireTimeBudgetMs);
     let n = 0;
     let reaped = 0;
     while (this.heap.size > 0 && this.heap.peek()!.t <= now) {

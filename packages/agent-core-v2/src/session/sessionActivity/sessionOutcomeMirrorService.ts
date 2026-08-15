@@ -15,12 +15,9 @@
 
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
 import { IEventBus } from '#/app/event/eventBus';
-import {
-  IAgentLifecycleService,
-  MAIN_AGENT_ID,
-} from '#/session/agentLifecycle/agentLifecycle';
+import { LifecycleScope } from '#/app/scopes';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
 import type { SessionTurnOutcome } from './sessionActivity';
@@ -46,14 +43,18 @@ export class SessionOutcomeMirror extends Disposable implements ISessionOutcomeM
       })
       .catch(() => {});
     this.attachMain();
-    this._register(this.agents.onDidCreate((handle) => {
-      if (handle.id === MAIN_AGENT_ID) this.attachMain();
-    }));
-    this._register(this.agents.onDidDispose((agentId) => {
-      if (agentId !== MAIN_AGENT_ID) return;
-      this.mainSubscription?.dispose();
-      this.mainSubscription = undefined;
-    }));
+    this._register(
+      this.agents.onDidCreate((handle) => {
+        if (handle.id === MAIN_AGENT_ID) this.attachMain();
+      }),
+    );
+    this._register(
+      this.agents.onDidDispose((agentId) => {
+        if (agentId !== MAIN_AGENT_ID) return;
+        this.mainSubscription?.dispose();
+        this.mainSubscription = undefined;
+      }),
+    );
     this._register({
       dispose: () => {
         this.mainSubscription?.dispose();

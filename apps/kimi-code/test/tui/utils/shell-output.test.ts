@@ -86,7 +86,9 @@ describe('formatBashOutputForDisplay', () => {
   });
 
   it('strips control sequences from stdout before rendering', () => {
-    const result = stripTheme(formatBashOutputForDisplay(`${ESC}[?1049h${ESC}[31mhi${ESC}[0m\r`, ''));
+    const result = stripTheme(
+      formatBashOutputForDisplay(`${ESC}[?1049h${ESC}[31mhi${ESC}[0m\r`, ''),
+    );
     expect(result).not.toContain(ESC);
     expect(result).not.toContain('\r');
     expect(result).toContain('hi');

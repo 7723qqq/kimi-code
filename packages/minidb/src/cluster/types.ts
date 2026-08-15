@@ -3,9 +3,9 @@
 // Public option and result types for ClusterDb, the sharded multi-process
 // layer on top of MiniDb. See plan/minidb-cluster-plan.md for the design.
 
-import type { ValueCodecName } from '../index.js';
-import type { IndexDef } from '../index-manager.js';
 import type { CompoundIndexDef } from '../compound-index.js';
+import type { IndexDef } from '../index-manager.js';
+import type { ValueCodecName } from '../index.js';
 import type { FsyncPolicy } from '../wal.js';
 
 /** Cross-shard write semantics.

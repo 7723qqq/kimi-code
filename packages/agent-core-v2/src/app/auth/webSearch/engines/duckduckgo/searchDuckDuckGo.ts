@@ -53,7 +53,9 @@ const HTML_HEADERS: Record<string, string> = {
 const HTML_RESULT_URL = 'https://html.duckduckgo.com/html/';
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 async function fetchDuckDuckGoText(
@@ -101,11 +103,15 @@ async function fetchDuckDuckGoText(
     );
   }
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `DuckDuckGo request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `DuckDuckGo request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
-  return  response.text();
+  return response.text();
 }
 
 async function searchDuckDuckGoPreloadUrl(
@@ -118,7 +124,9 @@ async function searchDuckDuckGoPreloadUrl(
   // `URLSearchParams` serializes spaces as `+`; DuckDuckGo answers a
   // `%20`-encoded query with a 202 anomaly page.
   searchUrl.searchParams.set('q', query);
-  const pageHtml = await fetchDuckDuckGoText(searchUrl.toString(), options, { headers: PRELOAD_PAGE_HEADERS });
+  const pageHtml = await fetchDuckDuckGoText(searchUrl.toString(), options, {
+    headers: PRELOAD_PAGE_HEADERS,
+  });
   const basePreloadUrl = extractDuckDuckGoPreloadUrl(pageHtml);
   if (basePreloadUrl === '') {
     return allResults;
@@ -127,7 +135,9 @@ async function searchDuckDuckGoPreloadUrl(
   let offset = 0;
   while (allResults.length < maxResults) {
     preloadUrlObj.searchParams.set('s', String(offset));
-    const jsonpText = await fetchDuckDuckGoText(preloadUrlObj.toString(), options, { headers: PRELOAD_DATA_HEADERS });
+    const jsonpText = await fetchDuckDuckGoText(preloadUrlObj.toString(), options, {
+      headers: PRELOAD_DATA_HEADERS,
+    });
     const pageResults = parseDuckDuckGoJsonp(jsonpText);
     if (pageResults.length === 0) {
       break;
@@ -151,7 +161,10 @@ async function searchDuckDuckGoHtml(
   const allResults: DuckDuckGoSearchResult[] = [];
   let offset = 0;
   const firstBody = new URLSearchParams({ q: query }).toString();
-  const firstHtml = await fetchDuckDuckGoText(HTML_RESULT_URL, options, { headers: HTML_HEADERS, body: firstBody });
+  const firstHtml = await fetchDuckDuckGoText(HTML_RESULT_URL, options, {
+    headers: HTML_HEADERS,
+    body: firstBody,
+  });
   let pageResults = parseDuckDuckGoResults(firstHtml, maxResults);
   allResults.push(...pageResults);
   while (allResults.length < maxResults && pageResults.length > 0) {
@@ -164,7 +177,10 @@ async function searchDuckDuckGoHtml(
       o: 'json',
       api: 'd.js',
     }).toString();
-    const html = await fetchDuckDuckGoText(HTML_RESULT_URL, options, { headers: HTML_HEADERS, body });
+    const html = await fetchDuckDuckGoText(HTML_RESULT_URL, options, {
+      headers: HTML_HEADERS,
+      body,
+    });
     pageResults = parseDuckDuckGoResults(html, maxResults - allResults.length);
     allResults.push(...pageResults);
   }

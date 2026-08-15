@@ -1,7 +1,11 @@
 /**
  * XML escaping helpers for content, attribute values, and tag delimiters.
  */
-import { tryNativeEscapeXml, tryNativeEscapeXmlAttr, tryNativeEscapeXmlTags } from '#/_base/native-tools';
+import {
+  tryNativeEscapeXml,
+  tryNativeEscapeXmlAttr,
+  tryNativeEscapeXmlTags,
+} from '#/_base/native-tools';
 
 export function escapeXml(input: string): string {
   const native = tryNativeEscapeXml(input);

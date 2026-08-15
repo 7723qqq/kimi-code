@@ -9,14 +9,17 @@ import { z } from 'zod';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { defineModel } from '#/wire/model';
-import { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
 
 import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from './stubs';
 
@@ -74,7 +77,10 @@ function makeReader(storage: IFileSystemStorageService): IAppendLogStore {
 
 async function collect(log: IAppendLogStore): Promise<WireRecord[]> {
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, KEY), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, KEY),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -102,10 +108,7 @@ describe('wire.jsonl round-trip', () => {
     }
 
     const replayTarget = makeContainer(storage, 'replay-target');
-    const withUnknown: WireRecord[] = [
-      ...records,
-      { type: 'compat.unknown.nope', foo: 1 },
-    ];
+    const withUnknown: WireRecord[] = [...records, { type: 'compat.unknown.nope', foo: 1 }];
     const unexpected: unknown[] = [];
     setUnexpectedErrorHandler((error) => unexpected.push(error));
     try {
@@ -120,9 +123,7 @@ describe('wire.jsonl round-trip', () => {
     }
 
     expect(unexpected).toHaveLength(1);
-    expect(replayTarget.wire.getModel(CounterModel)).toEqual(
-      live.wire.getModel(CounterModel),
-    );
+    expect(replayTarget.wire.getModel(CounterModel)).toEqual(live.wire.getModel(CounterModel));
     expect(replayTarget.wire.getModel(TagsModel)).toEqual(live.wire.getModel(TagsModel));
   });
 });

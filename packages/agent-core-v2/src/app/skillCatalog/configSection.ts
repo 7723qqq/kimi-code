@@ -57,11 +57,13 @@ export type BuiltinProductSkillsConfig = z.infer<typeof BuiltinProductSkillsConf
 
 export const BUILTIN_PRODUCT_SKILLS_ENV = 'KIMI_CODE_BUILTIN_PRODUCT_SKILLS';
 
-export const builtinProductSkillsEnvBindings: EnvBindings<BuiltinProductSkillsConfig> =
-  envBindings(BuiltinProductSkillsConfigSchema, {
+export const builtinProductSkillsEnvBindings: EnvBindings<BuiltinProductSkillsConfig> = envBindings(
+  BuiltinProductSkillsConfigSchema,
+  {
     env: BUILTIN_PRODUCT_SKILLS_ENV,
     parse: parseBooleanEnv,
-  });
+  },
+);
 
 export const stripBuiltinProductSkillsEnv: ConfigStripEnv<BuiltinProductSkillsConfig> = (
   value,

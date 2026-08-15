@@ -8,8 +8,7 @@
  * format by hand. Bound at Agent scope.
  */
 
-import { createDecorator } from "#/_base/di/instantiation";
-
+import { createDecorator } from '#/_base/di/instantiation';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 
 const SYSTEM_REMINDER_PREFIX = '<system-reminder>\n';
@@ -33,4 +32,6 @@ export interface IAgentSystemReminderService {
   appendSystemReminder(content: string, origin: PromptOrigin): ContextMessage;
 }
 
-export const IAgentSystemReminderService = createDecorator<IAgentSystemReminderService>('agentSystemReminderService');
+export const IAgentSystemReminderService = createDecorator<IAgentSystemReminderService>(
+  'agentSystemReminderService',
+);

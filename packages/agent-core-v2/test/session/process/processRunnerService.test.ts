@@ -1,18 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
-import { LifecycleScope } from '#/app/scopes';
+import type { Readable } from 'node:stream';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { IHostProcessService } from '#/os/interface/hostProcess';
+import { LifecycleScope } from '#/app/scopes';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionProcessRunner } from '#/session/process/processRunner';
 import { SessionProcessRunner } from '#/session/process/processRunnerService';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
@@ -53,22 +54,18 @@ describe('SessionProcessRunner', () => {
 
   async function makeRunner(): Promise<ISessionProcessRunner> {
     const host = createScopedTestHost();
-    const session = host.child(
-      LifecycleScope.Session,
-      's',
-      [
-        stubPair(
-          ISessionContext,
-          makeSessionContext({
-            sessionId: 's',
-            workspaceId: 'w',
-            sessionDir: dir,
-            sessionScope: 'sessions/w/s',
-            cwd: dir,
-          }),
-        ),
-      ],
-    );
+    const session = host.child(LifecycleScope.Session, 's', [
+      stubPair(
+        ISessionContext,
+        makeSessionContext({
+          sessionId: 's',
+          workspaceId: 'w',
+          sessionDir: dir,
+          sessionScope: 'sessions/w/s',
+          cwd: dir,
+        }),
+      ),
+    ]);
     return session.accessor.get(ISessionProcessRunner);
   }
 
@@ -83,10 +80,9 @@ describe('SessionProcessRunner', () => {
 
   it('exec overlays per-call env', async () => {
     const runner = await makeRunner();
-    const proc = await runner.exec(
-      ['node', '-e', 'process.stdout.write(process.env.FOO ?? "")'],
-      { env: { FOO: 'bar' } },
-    );
+    const proc = await runner.exec(['node', '-e', 'process.stdout.write(process.env.FOO ?? "")'], {
+      env: { FOO: 'bar' },
+    });
     const out = await collect(proc.stdout);
     expect(out).toBe('bar');
     expect(await proc.wait()).toBe(0);

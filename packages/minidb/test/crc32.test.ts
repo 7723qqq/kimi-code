@@ -1,6 +1,8 @@
+import assert from 'node:assert/strict';
+
 // test/crc32.test.js
 import { test } from 'vitest';
-import assert from 'node:assert/strict';
+
 import { crc32 } from '../src/crc32.js';
 
 test('crc32 known vectors', () => {

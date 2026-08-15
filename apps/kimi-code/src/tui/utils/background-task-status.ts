@@ -11,9 +11,8 @@
 
 import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@moonshot-ai/kimi-code-sdk';
 
-import type { BackgroundAgentStatusData, BackgroundAgentStatusPhase } from '#/tui/types';
-
 import { t } from '#/i18n';
+import type { BackgroundAgentStatusData, BackgroundAgentStatusPhase } from '#/tui/types';
 
 const MAX_DETAIL_LENGTH = 240;
 
@@ -77,7 +76,11 @@ function detailFor(info: BackgroundTaskInfo): string | undefined {
   }
   if (info.status === 'killed') {
     const reason = truncate(info.stopReason);
-    parts.push(reason !== undefined ? t('tui.messages.bgTaskStoppedReason', { reason }) : t('tui.messages.bgTaskStopped', { subject: '' }));
+    parts.push(
+      reason !== undefined
+        ? t('tui.messages.bgTaskStoppedReason', { reason })
+        : t('tui.messages.bgTaskStopped', { subject: '' }),
+    );
   }
   if (info.status === 'failed') {
     const reason = truncate(info.stopReason);

@@ -1,9 +1,9 @@
-import { ErrorCodes, KimiError } from '#/legacy';
-import type { KimiErrorCode } from '#/legacy';
 import type { AgentContextData } from '@moonshot-ai/agent-core-v2';
 import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2';
 
 import { type ApprovalHandler, type Event, type QuestionHandler } from '#/events';
+import { ErrorCodes, KimiError } from '#/legacy';
+import type { KimiErrorCode } from '#/legacy';
 import type { SDKRpcClientBase } from '#/rpc';
 import type {
   AddAdditionalDirOptions,
@@ -284,10 +284,7 @@ export class Session {
   async setSwarmMode(enabled: boolean, trigger: SwarmModeTrigger): Promise<void> {
     this.ensureOpen();
     if (typeof enabled !== 'boolean') {
-      throw new KimiError(
-        ErrorCodes.REQUEST_INVALID,
-        'Session swarm mode must be a boolean',
-      );
+      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Session swarm mode must be a boolean');
     }
     if (enabled) {
       await this.rpc.setSwarmMode({ sessionId: this.id, enabled: true, trigger });
@@ -394,10 +391,7 @@ export class Session {
    * `<sessionDir>/tasks/<taskId>/output.log`. `tail` caps the returned
    * string to that many trailing characters.
    */
-  async getBackgroundTaskOutput(
-    taskId: string,
-    options: { tail?: number } = {},
-  ): Promise<string> {
+  async getBackgroundTaskOutput(taskId: string, options: { tail?: number } = {}): Promise<string> {
     this.ensureOpen();
     const trimmedTaskId = normalizeRequiredString(
       taskId,
@@ -418,10 +412,7 @@ export class Session {
    * for unknown or already-terminal task ids are no-ops at the core
    * level — this method does not throw in those cases.
    */
-  async stopBackgroundTask(
-    taskId: string,
-    options: { reason?: string } = {},
-  ): Promise<void> {
+  async stopBackgroundTask(taskId: string, options: { reason?: string } = {}): Promise<void> {
     this.ensureOpen();
     const trimmedTaskId = normalizeRequiredString(
       taskId,
@@ -570,11 +561,7 @@ export class Session {
     return capabilityRpc(this.rpc).installCapability(id);
   }
 
-  async setPluginMcpServerEnabled(
-    id: string,
-    server: string,
-    enabled: boolean,
-  ): Promise<void> {
+  async setPluginMcpServerEnabled(id: string, server: string, enabled: boolean): Promise<void> {
     this.ensureOpen();
     await this.rpc.setPluginMcpServerEnabled(id, server, enabled);
   }
@@ -618,10 +605,7 @@ export class Session {
     const normalizedPluginId = pluginId.trim();
     const normalizedCommandName = commandName.trim();
     if (normalizedPluginId.length === 0 || normalizedCommandName.length === 0) {
-      throw new KimiError(
-        ErrorCodes.REQUEST_INVALID,
-        'Plugin id and command name cannot be empty',
-      );
+      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Plugin id and command name cannot be empty');
     }
     const commandArgs = normalizeOptionalString(args);
     await this.rpc.activatePluginCommand({
@@ -733,11 +717,7 @@ function normalizePromptInput(input: string | PromptInput): PromptInput {
   return input;
 }
 
-function normalizeRequiredString(
-  value: string,
-  message: string,
-  code: KimiErrorCode,
-): string {
+function normalizeRequiredString(value: string, message: string, code: KimiErrorCode): string {
   const normalized = value.trim();
   if (normalized.length === 0) {
     throw new KimiError(code, message);

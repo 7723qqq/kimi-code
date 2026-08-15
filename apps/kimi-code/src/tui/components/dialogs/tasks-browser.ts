@@ -13,7 +13,7 @@
  * fire the `on*` callbacks back to the controller.
  */
 
-import { t } from '#/i18n';
+import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Key,
@@ -23,8 +23,8 @@ import {
   visibleWidth,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
-import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '#/tui/utils/printable-key';
@@ -328,7 +328,9 @@ export class TasksBrowserApp extends Container implements Focusable {
 
     const lines: string[] = [header];
     for (let i = 0; i < bodyHeight; i++) {
-      lines.push((listFrame[i] ?? ' '.repeat(listWidth)) + (rightFrames[i] ?? ' '.repeat(rightWidth)));
+      lines.push(
+        (listFrame[i] ?? ' '.repeat(listWidth)) + (rightFrames[i] ?? ' '.repeat(rightWidth)),
+      );
     }
     lines.push(footer);
     return lines;
@@ -349,14 +351,30 @@ export class TasksBrowserApp extends Container implements Focusable {
     const counts = countByStatus(visible);
     const countSegments: string[] = [];
     if (counts.running > 0)
-      countSegments.push(currentTheme.fg('success', ` ${String(counts.running)} ${t('tui.dialogs.tasksBrowser.statusRunning')} `));
+      countSegments.push(
+        currentTheme.fg(
+          'success',
+          ` ${String(counts.running)} ${t('tui.dialogs.tasksBrowser.statusRunning')} `,
+        ),
+      );
     if (counts.completed > 0)
-      countSegments.push(currentTheme.fg('textDim', ` ${String(counts.completed)} ${t('tui.dialogs.tasksBrowser.statusCompleted')} `));
+      countSegments.push(
+        currentTheme.fg(
+          'textDim',
+          ` ${String(counts.completed)} ${t('tui.dialogs.tasksBrowser.statusCompleted')} `,
+        ),
+      );
     if (counts.terminalFailed > 0)
       countSegments.push(
-        currentTheme.fg('error', ` ${String(counts.terminalFailed)} ${t('tui.dialogs.tasksBrowser.statusInterrupted')} `),
+        currentTheme.fg(
+          'error',
+          ` ${String(counts.terminalFailed)} ${t('tui.dialogs.tasksBrowser.statusInterrupted')} `,
+        ),
       );
-    const totals = currentTheme.fg('textMuted', ` ${String(visible.length)} ${t('tui.dialogs.tasksBrowser.statusTotal')} `);
+    const totals = currentTheme.fg(
+      'textMuted',
+      ` ${String(visible.length)} ${t('tui.dialogs.tasksBrowser.statusTotal')} `,
+    );
 
     const composed = title + filterText + countSegments.join('') + totals;
     return fitExactly(composed, width);
@@ -433,7 +451,11 @@ export class TasksBrowserApp extends Container implements Focusable {
     const lines: string[] = [top];
     for (let i = 0; i < innerHeight; i++) {
       const inner = content[i] ?? '';
-      lines.push(currentTheme.fg('primary', '│') + fitExactly(inner, innerWidth) + currentTheme.fg('primary', '│'));
+      lines.push(
+        currentTheme.fg('primary', '│') +
+          fitExactly(inner, innerWidth) +
+          currentTheme.fg('primary', '│'),
+      );
     }
     lines.push(bottom);
     return lines;
@@ -554,13 +576,17 @@ export class TasksBrowserApp extends Container implements Focusable {
       `${label(t('tui.dialogs.tasksBrowser.descriptionLabel'))}${value(singleLine(task.description) || '—')}`,
     ];
     if (task.kind === 'process' && task.command && task.command !== task.description) {
-      lines.push(`${label(t('tui.dialogs.tasksBrowser.commandLabel'))}${value(singleLine(task.command))}`);
+      lines.push(
+        `${label(t('tui.dialogs.tasksBrowser.commandLabel'))}${value(singleLine(task.command))}`,
+      );
     }
     if (task.kind === 'agent' && task.agentId !== undefined) {
       lines.push(`${label(t('tui.dialogs.tasksBrowser.agentIdLabel'))}${value(task.agentId)}`);
     }
     if (task.kind === 'agent' && task.subagentType !== undefined) {
-      lines.push(`${label(t('tui.dialogs.tasksBrowser.agentTypeLabel'))}${value(task.subagentType)}`);
+      lines.push(
+        `${label(t('tui.dialogs.tasksBrowser.agentTypeLabel'))}${value(task.subagentType)}`,
+      );
     }
     if (task.kind === 'agent' && task.model !== undefined) {
       lines.push(`${label('Model:')}${value(task.model)}`);
@@ -569,9 +595,13 @@ export class TasksBrowserApp extends Container implements Focusable {
       lines.push(`${label('Effort:')}${value(task.thinkingEffort)}`);
     }
     if (task.kind === 'question') {
-      lines.push(`${label(t('tui.dialogs.tasksBrowser.questionsLabel'))}${currentTheme.fg('textMuted', String(task.questionCount))}`);
+      lines.push(
+        `${label(t('tui.dialogs.tasksBrowser.questionsLabel'))}${currentTheme.fg('textMuted', String(task.questionCount))}`,
+      );
       if (task.toolCallId !== undefined) {
-        lines.push(`${label(t('tui.dialogs.tasksBrowser.toolCallLabel'))}${currentTheme.fg('textMuted', task.toolCallId)}`);
+        lines.push(
+          `${label(t('tui.dialogs.tasksBrowser.toolCallLabel'))}${currentTheme.fg('textMuted', task.toolCallId)}`,
+        );
       }
     }
     const timing =
@@ -580,15 +610,24 @@ export class TasksBrowserApp extends Container implements Focusable {
         : task.endedAt !== null && task.endedAt !== undefined
           ? `${t('tui.dialogs.tasksBrowser.timingFinished')}${formatRelativeTime(task.endedAt)}`
           : '';
-    if (timing.length > 0) lines.push(`${label(t('tui.dialogs.tasksBrowser.timeLabel'))}${currentTheme.fg('textMuted', timing)}`);
+    if (timing.length > 0)
+      lines.push(
+        `${label(t('tui.dialogs.tasksBrowser.timeLabel'))}${currentTheme.fg('textMuted', timing)}`,
+      );
     if (task.kind === 'process' && task.pid > 0) {
-      lines.push(`${label(t('tui.dialogs.tasksBrowser.pidLabel'))}${currentTheme.fg('textMuted', String(task.pid))}`);
+      lines.push(
+        `${label(t('tui.dialogs.tasksBrowser.pidLabel'))}${currentTheme.fg('textMuted', String(task.pid))}`,
+      );
     }
     if (task.kind === 'process' && task.exitCode !== null) {
-      lines.push(`${label(t('tui.dialogs.tasksBrowser.exitCodeLabel'))}${currentTheme.fg('textMuted', String(task.exitCode))}`);
+      lines.push(
+        `${label(t('tui.dialogs.tasksBrowser.exitCodeLabel'))}${currentTheme.fg('textMuted', String(task.exitCode))}`,
+      );
     }
     if (task.stopReason !== undefined && task.stopReason.length > 0) {
-      lines.push(`${label(t('tui.dialogs.tasksBrowser.reasonLabel'))}${currentTheme.fg('textMuted', task.stopReason)}`);
+      lines.push(
+        `${label(t('tui.dialogs.tasksBrowser.reasonLabel'))}${currentTheme.fg('textMuted', task.stopReason)}`,
+      );
     }
     while (lines.length < innerHeight) lines.push('');
     return this.renderFrame(t('tui.dialogs.tasksBrowser.detailFrameTitle'), lines, width, height);
@@ -598,9 +637,16 @@ export class TasksBrowserApp extends Container implements Focusable {
     const innerHeight = Math.max(0, height - 2);
     const task = this.sortedVisible[this.selectedIndex];
     if (task === undefined) {
-      const lines: string[] = [currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.noTaskSelected'))];
+      const lines: string[] = [
+        currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.noTaskSelected')),
+      ];
       while (lines.length < innerHeight) lines.push('');
-      return this.renderFrame(t('tui.dialogs.tasksBrowser.previewFrameTitle'), lines, width, height);
+      return this.renderFrame(
+        t('tui.dialogs.tasksBrowser.previewFrameTitle'),
+        lines,
+        width,
+        height,
+      );
     }
 
     let body: string;

@@ -2,14 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { api } from '../../api';
+import { useTasks } from '../../hooks/useTasks';
+import { t } from '../../i18n';
 import type { BackgroundTaskEntry, BackgroundTaskInfo, BackgroundTaskStatus } from '../../types';
 import { formatAbsoluteTime, formatRelativeTime } from '../../util/time';
-import { useTasks } from '../../hooks/useTasks';
 import { CopyButton } from '../shared/CopyButton';
 import { JsonViewer } from '../shared/JsonViewer';
-import { formatBytes } from '../shared/SizePreview';
 import { Pill, type PillTone } from '../shared/Pill';
-import { t } from '../../i18n';
+import { formatBytes } from '../shared/SizePreview';
 
 interface TasksTabProps {
   sessionId: string;
@@ -42,16 +42,15 @@ export function TasksTab({ sessionId }: TasksTabProps) {
   }
   if (error) {
     return (
-      <div className="p-6 font-mono text-[12px] text-[var(--color-sev-error)]">
-        {error.message}
-      </div>
+      <div className="p-6 font-mono text-[12px] text-[var(--color-sev-error)]">{error.message}</div>
     );
   }
   const tasks = data?.tasks ?? [];
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4">
       <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">
-        {t('tasks.backgroundTasks')}{tasks.length > 0 ? ` · ${tasks.length}` : ''}
+        {t('tasks.backgroundTasks')}
+        {tasks.length > 0 ? ` · ${tasks.length}` : ''}
       </div>
       {tasks.length === 0 ? (
         <div className="mt-3 border border-border bg-surface-0 px-3 py-6 text-center font-mono text-[12px] text-fg-3">
@@ -74,15 +73,15 @@ function TaskCard({ sessionId, entry }: { sessionId: string; entry: BackgroundTa
   const [showRaw, setShowRaw] = useState(false);
 
   const duration =
-    task.endedAt !== null && task.endedAt !== undefined
-      ? task.endedAt - task.startedAt
-      : null;
+    task.endedAt !== null && task.endedAt !== undefined ? task.endedAt - task.startedAt : null;
 
   return (
     <div className="border border-border bg-surface-0">
       {/* Header line */}
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-        <Pill tone={kindTone(task.kind)} variant="outline">{task.kind}</Pill>
+        <Pill tone={kindTone(task.kind)} variant="outline">
+          {task.kind}
+        </Pill>
         <Pill tone={STATUS_TONE[task.status]}>{task.status}</Pill>
         <span className="font-mono text-[12px] text-fg-0">{task.taskId}</span>
         <CopyButton value={task.taskId} />
@@ -92,19 +91,28 @@ function TaskCard({ sessionId, entry }: { sessionId: string; entry: BackgroundTa
           </Pill>
         ) : null}
         {task.detached === false ? (
-          <Pill tone="warning" variant="outline">{t('tasks.foreground')}</Pill>
+          <Pill tone="warning" variant="outline">
+            {t('tasks.foreground')}
+          </Pill>
         ) : null}
-        <span className="ml-auto font-mono text-[11px] text-fg-3 tabular" title={formatAbsoluteTime(task.startedAt)}>
+        <span
+          className="ml-auto font-mono text-[11px] text-fg-3 tabular"
+          title={formatAbsoluteTime(task.startedAt)}
+        >
           {t('tasks.started')} {formatRelativeTime(task.startedAt)}
         </span>
       </div>
 
       {/* Body fields */}
       <div className="grid grid-cols-1 gap-x-6 gap-y-1 px-3 py-2 md:grid-cols-2">
-        <Field label={t('tasks.description')}>{task.description || <Dim>{t('tasks.none')}</Dim>}</Field>
+        <Field label={t('tasks.description')}>
+          {task.description || <Dim>{t('tasks.none')}</Dim>}
+        </Field>
         {task.kind === 'process' ? (
           <>
-            <Field label={t('tasks.command')}><code className="break-all">{task.command}</code></Field>
+            <Field label={t('tasks.command')}>
+              <code className="break-all">{task.command}</code>
+            </Field>
             <Field label={t('tasks.pid')}>{task.pid}</Field>
             <Field label={t('tasks.exitCode')}>
               {task.exitCode ?? <Dim>{t('tasks.running')}</Dim>}
@@ -126,13 +134,17 @@ function TaskCard({ sessionId, entry }: { sessionId: string; entry: BackgroundTa
                 <Dim>{t('tasks.none')}</Dim>
               )}
             </Field>
-            <Field label={t('tasks.subagentType')}>{task.subagentType ?? <Dim>{t('tasks.none')}</Dim>}</Field>
+            <Field label={t('tasks.subagentType')}>
+              {task.subagentType ?? <Dim>{t('tasks.none')}</Dim>}
+            </Field>
           </>
         ) : null}
         {task.kind === 'question' ? (
           <>
             <Field label={t('tasks.questionCount')}>{task.questionCount}</Field>
-            <Field label={t('tasks.toolCallId')}>{task.toolCallId ?? <Dim>{t('tasks.none')}</Dim>}</Field>
+            <Field label={t('tasks.toolCallId')}>
+              {task.toolCallId ?? <Dim>{t('tasks.none')}</Dim>}
+            </Field>
           </>
         ) : null}
         <Field label={t('tasks.duration')}>
@@ -155,7 +167,9 @@ function TaskCard({ sessionId, entry }: { sessionId: string; entry: BackgroundTa
       <div className="flex items-center gap-3 border-t border-border px-3 py-1.5">
         <button
           type="button"
-          onClick={() => { setShowLog((v) => !v); }}
+          onClick={() => {
+            setShowLog((v) => !v);
+          }}
           className="font-mono text-[11px] text-fg-2 hover:text-fg-0"
           disabled={!entry.outputExists}
           title={entry.outputExists ? t('tasks.viewOutput') : t('tasks.noOutput')}
@@ -167,7 +181,9 @@ function TaskCard({ sessionId, entry }: { sessionId: string; entry: BackgroundTa
         </button>
         <button
           type="button"
-          onClick={() => { setShowRaw((v) => !v); }}
+          onClick={() => {
+            setShowRaw((v) => !v);
+          }}
           className="ml-auto font-mono text-[11px] text-fg-3 hover:text-fg-1"
         >
           {showRaw ? t('tasks.hideRaw') : t('tasks.rawJson')}
@@ -233,7 +249,9 @@ function TaskOutput({ sessionId, taskId }: { sessionId: string; taskId: string }
         {!eof && cursor > 0 ? (
           <span className="text-[var(--color-sev-warning)]">{t('tasks.moreBelow')}</span>
         ) : null}
-        <span className="ml-auto"><CopyButton value={content} label={t('shared.copy')} /></span>
+        <span className="ml-auto">
+          <CopyButton value={content} label={t('shared.copy')} />
+        </span>
       </div>
       {err !== null ? (
         <div className="border-t border-border px-3 py-2 font-mono text-[11px] text-[var(--color-sev-error)]">
@@ -246,11 +264,15 @@ function TaskOutput({ sessionId, taskId }: { sessionId: string; taskId: string }
       {!eof && cursor > 0 ? (
         <button
           type="button"
-          onClick={() => { void loadFrom(cursor); }}
+          onClick={() => {
+            void loadFrom(cursor);
+          }}
           disabled={loading}
           className="w-full border-t border-border px-3 py-1.5 font-mono text-[11px] text-fg-2 hover:bg-surface-2 hover:text-fg-0 disabled:opacity-50"
         >
-          {loading ? t('tasks.loading') : t('tasks.loadMore', { remaining: formatBytes(size - cursor) })}
+          {loading
+            ? t('tasks.loading')
+            : t('tasks.loadMore', { remaining: formatBytes(size - cursor) })}
         </button>
       ) : null}
     </div>
@@ -260,7 +282,9 @@ function TaskOutput({ sessionId, taskId }: { sessionId: string; taskId: string }
 function Field({ label, children }: { label: string; children: import('react').ReactNode }) {
   return (
     <div className="flex items-baseline gap-2 font-mono text-[12px]">
-      <span className="w-28 shrink-0 text-[10px] uppercase tracking-[0.1em] text-fg-3">{label}</span>
+      <span className="w-28 shrink-0 text-[10px] uppercase tracking-[0.1em] text-fg-3">
+        {label}
+      </span>
       <span className="min-w-0 break-words text-fg-1">{children}</span>
     </div>
   );

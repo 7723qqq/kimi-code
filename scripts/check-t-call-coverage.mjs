@@ -7,12 +7,11 @@
  */
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { resolve, relative, dirname, extname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve, relative, extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __filename = import.meta.filename;
+const __dirname = import.meta.dirname;
 const ROOT = resolve(__dirname, '..');
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -70,8 +69,8 @@ async function loadLocaleKeys() {
     const data = mod.default || mod;
     localeKeys = collectLeafKeys(data);
     return localeKeys;
-  } catch (err) {
-    console.error(`Cannot load locale file ${LOCALE_FILE}: ${err.message}`);
+  } catch (error) {
+    console.error(`Cannot load locale file ${LOCALE_FILE}: ${error.message}`);
     process.exit(1);
   }
 }
@@ -136,14 +135,16 @@ async function main() {
 
   console.log(`\nChecked ${files.length} files, ${allCalls.size} unique t() keys.`);
   if (hasErrors) {
-    console.error('\n❌ Some t() calls have no matching locale key — add them to packages/i18n/src/locales/{en,zh}.ts\n');
+    console.error(
+      '\n❌ Some t() calls have no matching locale key — add them to packages/i18n/src/locales/{en,zh}.ts\n',
+    );
     process.exit(1);
   } else {
     console.log('\n✅ All t() calls have matching locale keys.\n');
   }
 }
 
-main().catch((err) => {
-  console.error(err);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

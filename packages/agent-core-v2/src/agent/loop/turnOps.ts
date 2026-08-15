@@ -107,9 +107,7 @@ function advanceTurnClock(
   nextTurnId: number,
   cancelledTurnIds: readonly number[] = state.cancelledTurnIds,
 ): TurnModelState {
-  const pendingCancellations = new Set(
-    cancelledTurnIds.filter((turnId) => turnId >= nextTurnId),
-  );
+  const pendingCancellations = new Set(cancelledTurnIds.filter((turnId) => turnId >= nextTurnId));
   while (pendingCancellations.delete(nextTurnId)) nextTurnId += 1;
   return {
     ...state,

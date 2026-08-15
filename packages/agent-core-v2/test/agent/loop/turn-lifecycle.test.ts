@@ -14,8 +14,8 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentProfileService, IAgentUsageService } from '#/index';
 import type { generate as kosongGenerate } from '#/kosong/contract/generate';
-import { permissionModeServices, type TestAgentContext } from '../../harness';
 
+import { permissionModeServices, type TestAgentContext } from '../../harness';
 import { createLoopTestAgent, makeEchoTool, nextTurnMessage } from './helpers';
 
 type GenerateFn = typeof kosongGenerate;
@@ -71,9 +71,12 @@ describe('Agent loop — turn lifecycle', () => {
       { type: 'text', text: 'calling echo' },
       { type: 'function', id: 'tc-1', name: 'echo', arguments: '{"text":"hi"}' },
     );
-    ctx.mockNextResponse(
-      { type: 'function', id: 'tc-2', name: 'echo', arguments: '{"text":"again"}' },
-    );
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'tc-2',
+      name: 'echo',
+      arguments: '{"text":"again"}',
+    });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'echo twice' }] });
@@ -141,19 +144,14 @@ describe('Agent loop — turn lifecycle', () => {
 
   it('throws loop.max_steps_exceeded when steps reach maxSteps', async () => {
     const echo = makeEchoTool();
-    ctx = createLoopTestAgent(
-      permissionModeServices('yolo'),
-      { initialConfig: { loopControl: { maxStepsPerTurn: 2 } } },
-    );
+    ctx = createLoopTestAgent(permissionModeServices('yolo'), {
+      initialConfig: { loopControl: { maxStepsPerTurn: 2 } },
+    });
     ctx.get(IAgentToolRegistryService).register(echo);
     ctx.get(IAgentProfileService).update({ activeToolNames: ['echo'] });
 
-    ctx.mockNextResponse(
-      { type: 'function', id: 'a', name: 'echo', arguments: '{"text":"1"}' },
-    );
-    ctx.mockNextResponse(
-      { type: 'function', id: 'b', name: 'echo', arguments: '{"text":"2"}' },
-    );
+    ctx.mockNextResponse({ type: 'function', id: 'a', name: 'echo', arguments: '{"text":"1"}' });
+    ctx.mockNextResponse({ type: 'function', id: 'b', name: 'echo', arguments: '{"text":"2"}' });
 
     const turnEnded = ctx.untilTurnEnd();
     const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('go')).assigned).turn;
@@ -172,19 +170,14 @@ describe('Agent loop — turn lifecycle', () => {
 
   it('does not enforce a max step limit when maxStepsPerTurn is 0', async () => {
     const echo = makeEchoTool();
-    ctx = createLoopTestAgent(
-      permissionModeServices('yolo'),
-      { initialConfig: { loopControl: { maxStepsPerTurn: 0 } } },
-    );
+    ctx = createLoopTestAgent(permissionModeServices('yolo'), {
+      initialConfig: { loopControl: { maxStepsPerTurn: 0 } },
+    });
     ctx.get(IAgentToolRegistryService).register(echo);
     ctx.get(IAgentProfileService).update({ activeToolNames: ['echo'] });
 
-    ctx.mockNextResponse(
-      { type: 'function', id: 'a', name: 'echo', arguments: '{"text":"1"}' },
-    );
-    ctx.mockNextResponse(
-      { type: 'function', id: 'b', name: 'echo', arguments: '{"text":"2"}' },
-    );
+    ctx.mockNextResponse({ type: 'function', id: 'a', name: 'echo', arguments: '{"text":"1"}' });
+    ctx.mockNextResponse({ type: 'function', id: 'b', name: 'echo', arguments: '{"text":"2"}' });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
     const turnEnded = ctx.untilTurnEnd();
@@ -228,10 +221,7 @@ describe('Agent loop — turn lifecycle', () => {
     };
 
     const echo = makeEchoTool();
-    ctx = createLoopTestAgent(
-      { generate },
-      permissionModeServices('yolo'),
-    );
+    ctx = createLoopTestAgent({ generate }, permissionModeServices('yolo'));
     ctx.get(IAgentToolRegistryService).register(echo);
     ctx.get(IAgentProfileService).update({ activeToolNames: ['echo'] });
 

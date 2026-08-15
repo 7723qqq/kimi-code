@@ -1,3 +1,5 @@
+import { ApiError as GoogleApiError, GoogleGenAI as GenAIClient } from '@google/genai';
+
 import {
   APIConnectionError,
   APITimeoutError,
@@ -17,9 +19,8 @@ import type {
 } from '#/provider';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
-import { ApiError as GoogleApiError, GoogleGenAI as GenAIClient } from '@google/genai';
-import { mergeConsecutiveUserMessages } from './merge-user-messages';
 
+import { mergeConsecutiveUserMessages } from './merge-user-messages';
 import { AuthClientLRU, requireProviderApiKey, resolveAuthBackedClient } from './request-auth';
 
 /**

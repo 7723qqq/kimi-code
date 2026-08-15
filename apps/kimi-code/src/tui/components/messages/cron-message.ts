@@ -15,10 +15,7 @@ export class CronMessageComponent implements Component {
   private readonly promptText: Text;
   private readonly prompt: string;
 
-  constructor(
-    prompt: string,
-    data: CronTranscriptData,
-  ) {
+  constructor(prompt: string, data: CronTranscriptData) {
     const missed = data.missedCount !== undefined;
     this.data = data;
     this.title = missed
@@ -39,7 +36,8 @@ export class CronMessageComponent implements Component {
     if (safeWidth <= 0) return [''];
 
     const missed = this.data.missedCount !== undefined;
-    const titleToken: keyof ColorPalette = this.data.stale === true || missed ? 'warning' : 'accent';
+    const titleToken: keyof ColorPalette =
+      this.data.stale === true || missed ? 'warning' : 'accent';
     const bullet = currentTheme.boldFg(titleToken, STATUS_BULLET);
     const bulletWidth = visibleWidth(bullet);
     const contentWidth = Math.max(1, safeWidth - bulletWidth);
@@ -50,13 +48,17 @@ export class CronMessageComponent implements Component {
       lines.push(line);
     }
 
-    const titleLines = new Text(currentTheme.boldFg(titleToken, this.title), 0, 0).render(contentWidth);
+    const titleLines = new Text(currentTheme.boldFg(titleToken, this.title), 0, 0).render(
+      contentWidth,
+    );
     for (let i = 0; i < titleLines.length; i += 1) {
       lines.push(`${i === 0 ? bullet : continuationIndent}${titleLines[i]}`);
     }
 
     if (this.detail !== undefined) {
-      const detailLines = new Text(currentTheme.fg('textDim', this.detail), 0, 0).render(contentWidth);
+      const detailLines = new Text(currentTheme.fg('textDim', this.detail), 0, 0).render(
+        contentWidth,
+      );
       for (const line of detailLines) {
         lines.push(`${continuationIndent}${line}`);
       }

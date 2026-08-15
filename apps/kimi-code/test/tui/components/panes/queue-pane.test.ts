@@ -12,10 +12,7 @@ describe('QueuePaneComponent', () => {
       isCompacting: false,
       isStreaming: true,
       canSteerImmediately: true,
-      messages: [
-        { text: 'first message' },
-        { text: '/skill:review src/app.ts' },
-      ],
+      messages: [{ text: 'first message' }, { text: '/skill:review src/app.ts' }],
     });
 
     const output = stripAnsi(component.render(120).join('\n'));

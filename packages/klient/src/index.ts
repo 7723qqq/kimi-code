@@ -6,12 +6,7 @@
  * bytes.
  */
 
-export type {
-  EventSourceRef,
-  IDisposable,
-  KlientChannel,
-  ScopeRef,
-} from './core/channel.js';
+export type { EventSourceRef, IDisposable, KlientChannel, ScopeRef } from './core/channel.js';
 export { RPCError } from './core/errors.js';
 export { KlientValidationError, type ValidationPhase } from './core/validation.js';
 export {

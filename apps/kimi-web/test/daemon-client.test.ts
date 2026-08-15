@@ -8,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DaemonKimiWebApi } from '../src/api/daemon/client';
 import { DaemonApiError, DaemonNetworkError } from '../src/api/errors';
-import { clearTrace, traceToJsonl } from '../src/debug/trace';
 import type { AppEvent, KimiEventConnection, KimiEventMeta } from '../src/api/types';
+import { clearTrace, traceToJsonl } from '../src/debug/trace';
 
 class FakeWebSocket {
   static readonly OPEN = 1;
@@ -152,7 +152,9 @@ describe('DaemonKimiWebApi.exportSession', () => {
       }),
     );
 
-    const caught = await createApi().exportSession('sess_1').catch((error: unknown) => error);
+    const caught = await createApi()
+      .exportSession('sess_1')
+      .catch((error: unknown) => error);
 
     expect(caught).toBeInstanceOf(DaemonNetworkError);
     expect(caught).toMatchObject({ phase: 'parse', contentType: 'text/plain' });

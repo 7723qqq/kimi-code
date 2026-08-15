@@ -16,7 +16,12 @@
  * pattern used by every agent tool. Bound at Agent scope.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { ToolResultBuilder } from '#/tool/result-builder';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
@@ -24,18 +29,9 @@ import {
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-import { ToolResultBuilder } from '#/tool/result-builder';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
 
-import {
-  IWebSearchTool,
-  WebSearchInputSchema,
-  type WebSearchInput,
-} from './web-search';
-import { t } from '@moonshot-ai/kimi-i18n';
+import { IWebSearchTool, WebSearchInputSchema, type WebSearchInput } from './web-search';
 import DESCRIPTION from './web-search.md?raw';
-
 
 export class WebSearchTool implements IWebSearchTool {
   declare readonly _serviceBrand: undefined;
@@ -67,7 +63,8 @@ export class WebSearchTool implements IWebSearchTool {
     if (provider === undefined) {
       return {
         isError: true,
-        output: 'Web search is no longer configured; the provider was removed after this session started.',
+        output:
+          'Web search is no longer configured; the provider was removed after this session started.',
       };
     }
     try {
@@ -91,9 +88,7 @@ export class WebSearchTool implements IWebSearchTool {
         builder.write(`Snippet: ${result.snippet}\n\n`);
       }
 
-      builder.write(
-        t('toolsV2.webSearch.citeReminder'),
-      );
+      builder.write(t('toolsV2.webSearch.citeReminder'));
 
       return builder.ok();
     } catch (error) {
@@ -105,7 +100,6 @@ export class WebSearchTool implements IWebSearchTool {
     }
   }
 }
-
 
 function classifySearchError(error: unknown): string {
   const name = error instanceof Error ? error.name : '';

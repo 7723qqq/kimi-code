@@ -1,17 +1,19 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+
 // Regression tests for the second deep-review round (compound-index dup,
 // snapshot/WAL short-write, rollback on WAL failure, RESP binary, buffer
 // aliasing, batch unique swap/del+set, unique-on-existing-dups, batch key
 // length, TTL heap growth, size vs expiry, range-array, dtColumns, MSET
 // atomicity, openOrRebuild scope, open-failure cleanup).
 import { test } from 'vitest';
-import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import net from 'node:net';
+
+import { encodeBatchOps, encodeFrame, TYPE_BATCH, TYPE_SET } from '../src/codec.js';
 import { MiniDb, UniqueViolationError } from '../src/index.js';
 import { startServer } from '../src/server.js';
-import { encodeBatchOps, encodeFrame, TYPE_BATCH, TYPE_SET } from '../src/codec.js';
 
 async function tmpDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'minidb-r2-'));
@@ -27,7 +29,10 @@ test('compound index: re-set with same group+order does not duplicate', async ()
     await db.set('a', { workspaceId: 'W1' }, { dt: { updatedAt: 100 } });
     await db.set('a', { workspaceId: 'W1' }, { dt: { updatedAt: 100 } });
     await db.set('a', { workspaceId: 'W1' }, { dt: { updatedAt: 100 } });
-    assert.deepEqual(db.compoundRange('byWs', 'W1').map((r) => r.key), ['a']);
+    assert.deepEqual(
+      db.compoundRange('byWs', 'W1').map((r) => r.key),
+      ['a'],
+    );
     await db.del('a');
     assert.deepEqual(db.compoundRange('byWs', 'W1'), []);
   } finally {
@@ -62,14 +67,22 @@ test('WAL and snapshot tolerate short writes (fragmented writev)', async () => {
   await fs.rm(path.join(dir, '_probe'), { force: true });
   const orig = proto.writev;
   const CAP = 11;
-  proto.writev = async function (buffers: ReadonlyArray<{ length: number; subarray: (a: number, b: number) => unknown }>, position?: number | null) {
+  proto.writev = async function (
+    buffers: ReadonlyArray<{ length: number; subarray: (a: number, b: number) => unknown }>,
+    position?: number | null,
+  ) {
     const first = buffers[0];
     if (!first) return orig.call(this, buffers, position);
     const n = Math.min(first.length, CAP);
     return orig.call(this, [first.subarray(0, n)], position);
   };
   try {
-    const db = await MiniDb.open({ dir, valueCodec: 'string', compactThresholdBytes: 1, autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      compactThresholdBytes: 1,
+      autoCompact: false,
+    });
     for (let i = 0; i < 30; i++) await db.set(`k${i}`, `value-${i}-${'x'.repeat(40)}`);
     await db.compact();
     await db.set('after', 'tail');
@@ -93,7 +106,8 @@ test('set rolls back store + indexes when the WAL write fails', async () => {
   await db.createIndex('byCity', { field: 'city' });
   await db.set('old', { city: 'Paris' });
 
-  const fh = (db as unknown as { wal: { fh: { writev: (...a: unknown[]) => Promise<unknown> } } }).wal.fh;
+  const fh = (db as unknown as { wal: { fh: { writev: (...a: unknown[]) => Promise<unknown> } } })
+    .wal.fh;
   const orig = fh.writev.bind(fh);
   let boom = true;
   fh.writev = async (...a: unknown[]) => {
@@ -120,7 +134,8 @@ test('batch rolls back atomically when the WAL write fails', async () => {
   const db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'always' });
   await db.set('a', { n: 1 });
 
-  const fh = (db as unknown as { wal: { fh: { writev: (...a: unknown[]) => Promise<unknown> } } }).wal.fh;
+  const fh = (db as unknown as { wal: { fh: { writev: (...a: unknown[]) => Promise<unknown> } } })
+    .wal.fh;
   const orig = fh.writev.bind(fh);
   let boom = true;
   fh.writev = async (...a: unknown[]) => {
@@ -164,8 +179,15 @@ test('RESP GET returns correct UTF-8 bulk for non-ASCII values', async () => {
       sock.on('end', () => resolve(Buffer.concat(chunks)));
       sock.on('error', reject);
     });
-    const expected = Buffer.concat([Buffer.from('$6\r\n', 'binary'), Buffer.from('北京', 'utf8'), Buffer.from('\r\n', 'binary')]);
-    assert.ok(raw.includes(expected), `expected bulk reply, got ${JSON.stringify(raw.toString('binary'))}`);
+    const expected = Buffer.concat([
+      Buffer.from('$6\r\n', 'binary'),
+      Buffer.from('北京', 'utf8'),
+      Buffer.from('\r\n', 'binary'),
+    ]);
+    assert.ok(
+      raw.includes(expected),
+      `expected bulk reply, got ${JSON.stringify(raw.toString('binary'))}`,
+    );
   } finally {
     await close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -214,7 +236,10 @@ test('batch allows del(u1) + set(u2) reusing u1 unique value', async () => {
   ]);
   assert.equal(db.get('u1'), undefined);
   assert.equal(db.get('u2')?.email, 'shared@example.test');
-  assert.deepEqual(db.findEq('byMail', 'shared@example.test').map((r) => r.key), ['u2']);
+  assert.deepEqual(
+    db.findEq('byMail', 'shared@example.test').map((r) => r.key),
+    ['u2'],
+  );
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -224,7 +249,10 @@ test('batch still rejects genuine unique violations', async () => {
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   await db.createIndex('byMail', { field: 'email', unique: true });
   await db.set('u1', { email: 'duplicate@example.test' });
-  await assert.rejects(db.batch([{ op: 'set', key: 'u2', value: { email: 'duplicate@example.test' } }]), /unique/i);
+  await assert.rejects(
+    db.batch([{ op: 'set', key: 'u2', value: { email: 'duplicate@example.test' } }]),
+    /unique/i,
+  );
   assert.equal(db.get('u2'), undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -291,10 +319,16 @@ test('range index indexes array fields per element', async () => {
   await db.set('b', { scores: [25] });
   const r = db.findRange('byScore', { min: 0, max: 100 });
   assert.equal(r.length, 4, `expected 4 indexed elements, got ${r.length}`);
-  assert.deepEqual(db.findRange('byScore', { min: 20, max: 20 }).map((x) => x.key), ['a']);
+  assert.deepEqual(
+    db.findRange('byScore', { min: 20, max: 20 }).map((x) => x.key),
+    ['a'],
+  );
   // update removes old elements
   await db.set('a', { scores: [99] });
-  assert.deepEqual(db.findRange('byScore', { min: 10, max: 30 }).map((x) => x.key), ['b']);
+  assert.deepEqual(
+    db.findRange('byScore', { min: 10, max: 30 }).map((x) => x.key),
+    ['b'],
+  );
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -351,7 +385,10 @@ test('openOrRebuild rebuilds on corrupt index-definition JSON', async () => {
   await fs.writeFile(path.join(dir, 'db.indexes.json'), '{ not valid json', 'utf8');
 
   let rebuilt = false;
-  const db2 = await MiniDb.openOrRebuild({ dir, valueCodec: 'json' }, { onRebuild: () => (rebuilt = true) });
+  const db2 = await MiniDb.openOrRebuild(
+    { dir, valueCodec: 'json' },
+    { onRebuild: () => (rebuilt = true) },
+  );
   assert.ok(rebuilt, 'onRebuild should be called');
   // the corrupt sidecar (derived state) is dropped; the data is preserved
   assert.deepEqual(db2.get('k'), { v: 1 });
@@ -418,7 +455,11 @@ async function waitFor(cond: () => boolean, what: string, timeoutMs = 5000): Pro
   }
 }
 
-const MEM_OPTS = { valueCodec: 'string' as const, fsyncPolicy: 'no' as const, activeExpireIntervalMs: 0 };
+const MEM_OPTS = {
+  valueCodec: 'string' as const,
+  fsyncPolicy: 'no' as const,
+  activeExpireIntervalMs: 0,
+};
 
 test('WAL poison: a failed writev is truncated away — the rejected key never reappears and later writes stay consistent (disk mode)', async () => {
   const dir = await tmpDir();
@@ -429,11 +470,19 @@ test('WAL poison: a failed writev is truncated away — the rejected key never r
     () => {
       throw new Error('expected the set to reject');
     },
-    (e) => e as Error,
+    (error) => error as Error,
   );
   assert.match(String(err), /injected WAL failure/);
-  assert.equal((err as { ambiguous?: boolean }).ambiguous, true, 'a failure past the commit point is marked ambiguous');
-  assert.equal(db.get('failed'), undefined, 'the group rollback hides the rejected write in-memory');
+  assert.equal(
+    (err as { ambiguous?: boolean }).ambiguous,
+    true,
+    'a failure past the commit point is marked ambiguous',
+  );
+  assert.equal(
+    db.get('failed'),
+    undefined,
+    'the group rollback hides the rejected write in-memory',
+  );
   assert.equal(db.stats.walWriteErrors, 1, 'writev-class failure counted');
   assert.equal(db.stats.walFsyncErrors, 0);
 
@@ -464,7 +513,10 @@ test('WAL poison: a half-written group is fully revoked — in-memory and reopen
     throw new Error('injected after first frame');
   };
 
-  const results = await Promise.allSettled([db.set('first', 'should-fail'), db.set('second', 'should-fail')]);
+  const results = await Promise.allSettled([
+    db.set('first', 'should-fail'),
+    db.set('second', 'should-fail'),
+  ]);
   assert.deepEqual(
     results.map((r) => r.status),
     ['rejected', 'rejected'],
@@ -474,7 +526,11 @@ test('WAL poison: a half-written group is fully revoked — in-memory and reopen
   await db.close();
 
   db = await MiniDb.open<string>({ dir, ...MEM_OPTS });
-  assert.equal(db.get('first'), undefined, 'the half-written frame was truncated by the in-place recovery');
+  assert.equal(
+    db.get('first'),
+    undefined,
+    'the half-written frame was truncated by the in-place recovery',
+  );
   assert.equal(db.get('second'), undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -482,7 +538,12 @@ test('WAL poison: a half-written group is fully revoked — in-memory and reopen
 
 test("WAL poison: an fsync failure (fsyncPolicy 'always') revokes the rejected write — no reappears after reopen", async () => {
   const dir = await tmpDir();
-  let db = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'always', activeExpireIntervalMs: 0 });
+  let db = await MiniDb.open<string>({
+    dir,
+    valueCodec: 'string',
+    fsyncPolicy: 'always',
+    activeExpireIntervalMs: 0,
+  });
   const fh = walFh(db as MiniDb<unknown>);
   const origSync = fh.sync.bind(fh);
   let fail = true;
@@ -498,7 +559,7 @@ test("WAL poison: an fsync failure (fsyncPolicy 'always') revokes the rejected w
     () => {
       throw new Error('expected the set to reject');
     },
-    (e) => e as Error,
+    (error) => error as Error,
   );
   assert.match(String(err), /injected fsync failure/);
   assert.equal((err as { ambiguous?: boolean }).ambiguous, true);
@@ -507,7 +568,12 @@ test("WAL poison: an fsync failure (fsyncPolicy 'always') revokes the rejected w
   assert.equal(db.stats.walWriteErrors, 0, 'not a writev-class failure');
   await db.close();
 
-  db = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'always', activeExpireIntervalMs: 0 });
+  db = await MiniDb.open<string>({
+    dir,
+    valueCodec: 'string',
+    fsyncPolicy: 'always',
+    activeExpireIntervalMs: 0,
+  });
   assert.equal(db.get('rejected'), undefined, 'rejected write must not reappear after reopen');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -525,7 +591,11 @@ test('WAL poison: same-key ops failing in one group restore the pre-group value;
     results.map((r) => r.status),
     ['rejected', 'rejected'],
   );
-  assert.equal(db.get('k'), 'old', 'group rollback restores the pre-group value, not an intermediate one');
+  assert.equal(
+    db.get('k'),
+    'old',
+    'group rollback restores the pre-group value, not an intermediate one',
+  );
   await db.close();
   db = await MiniDb.open<string>({ dir: dir1, ...MEM_OPTS });
   assert.equal(db.get('k'), 'old', 'reopen agrees with the in-memory state');
@@ -549,12 +619,21 @@ test('WAL poison: same-key ops failing in one group restore the pre-group value;
 
 test('WAL poison: an applyOp contract violation poisons the WAL and rolls the group back — no half-commit anywhere', async () => {
   const dir = await tmpDir();
-  let db = await MiniDb.open<{ t: string }>({ dir, valueCodec: 'json', fsyncPolicy: 'no', activeExpireIntervalMs: 0 });
+  let db = await MiniDb.open<{ t: string }>({
+    dir,
+    valueCodec: 'json',
+    fsyncPolicy: 'no',
+    activeExpireIntervalMs: 0,
+  });
   await db.createTextIndex('ft', { fields: ['t'] });
   // Stage 11: applyOp's text-index entry point is addPrepared (pre-validated
   // tokens); breaking its must-not-throw contract exercises the same
   // defensive path the old ti.add injection did.
-  const ti = (db as unknown as { text: Map<string, { addPrepared: (k: string, t: readonly string[]) => void }> }).text.get('ft')!;
+  const ti = (
+    db as unknown as {
+      text: Map<string, { addPrepared: (k: string, t: readonly string[]) => void }>;
+    }
+  ).text.get('ft')!;
   const origAdd = ti.addPrepared.bind(ti);
   let boom = true;
   ti.addPrepared = (k: string, t: readonly string[]) => {
@@ -569,16 +648,12 @@ test('WAL poison: an applyOp contract violation poisons the WAL and rolls the gr
     () => {
       throw new Error('expected the set to reject');
     },
-    (e) => e as Error,
+    (error) => error as Error,
   );
   assert.match(String(err), /injected apply failure/);
   assert.equal((err as { ambiguous?: boolean }).ambiguous, true);
   assert.equal(db.get('doc'), undefined, 'no half-commit in the store');
-  assert.deepEqual(
-    db.search('ft', 'hello'),
-    [],
-    'no half-commit in the text index',
-  );
+  assert.deepEqual(db.search('ft', 'hello'), [], 'no half-commit in the text index');
 
   // The defensive poison triggers the same in-place recovery as a write
   // failure; later writes land normally.
@@ -586,7 +661,12 @@ test('WAL poison: an applyOp contract violation poisons the WAL and rolls the gr
   assert.equal(db.get('after')?.t, 'fine');
   await db.close();
 
-  db = await MiniDb.open<{ t: string }>({ dir, valueCodec: 'json', fsyncPolicy: 'no', activeExpireIntervalMs: 0 });
+  db = await MiniDb.open<{ t: string }>({
+    dir,
+    valueCodec: 'json',
+    fsyncPolicy: 'no',
+    activeExpireIntervalMs: 0,
+  });
   assert.equal(db.get('doc'), undefined, 'the half-applied write never reached disk');
   assert.equal(db.get('after')?.t, 'fine');
   await db.close();
@@ -620,7 +700,13 @@ test('WAL poison: when the recovery truncate fails the instance is write-disable
 
 test('everysec background sync failure neither poisons the WAL nor rejects writes (stage-1 semantics regression)', async () => {
   const dir = await tmpDir();
-  const db = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'everysec', syncIntervalMs: 10, activeExpireIntervalMs: 0 });
+  const db = await MiniDb.open<string>({
+    dir,
+    valueCodec: 'string',
+    fsyncPolicy: 'everysec',
+    syncIntervalMs: 10,
+    activeExpireIntervalMs: 0,
+  });
   const fh = walFh(db as MiniDb<unknown>);
   const origSync = fh.sync.bind(fh);
   const boom = new Error('injected background fsync failure');
@@ -649,7 +735,12 @@ test('WAL poison: an applyOp violation queued behind an in-flight batch still le
   // truncation point is the queued region's start, applied only after the
   // in-flight batch settled — no zero-extended gap on reopen).
   const dir = await tmpDir();
-  let db = await MiniDb.open<{ t: string }>({ dir, valueCodec: 'json', fsyncPolicy: 'no', activeExpireIntervalMs: 0 });
+  let db = await MiniDb.open<{ t: string }>({
+    dir,
+    valueCodec: 'json',
+    fsyncPolicy: 'no',
+    activeExpireIntervalMs: 0,
+  });
   await db.createTextIndex('ft', { fields: ['t'] });
 
   const fh = walFh(db as MiniDb<unknown>);
@@ -666,7 +757,11 @@ test('WAL poison: an applyOp violation queued behind an in-flight batch still le
   const opA = db.set('a', { t: 'first' });
   await waitFor(() => writevCalls === 1, "op A's writev to be in flight");
 
-  const ti = (db as unknown as { text: Map<string, { addPrepared: (k: string, t: readonly string[]) => void }> }).text.get('ft')!;
+  const ti = (
+    db as unknown as {
+      text: Map<string, { addPrepared: (k: string, t: readonly string[]) => void }>;
+    }
+  ).text.get('ft')!;
   const origAdd = ti.addPrepared.bind(ti);
   let boom = true;
   ti.addPrepared = (k: string, t: readonly string[]) => {
@@ -688,7 +783,12 @@ test('WAL poison: an applyOp violation queued behind an in-flight batch still le
   await db.set('c', { t: 'third' });
   await db.close();
 
-  db = await MiniDb.open<{ t: string }>({ dir, valueCodec: 'json', fsyncPolicy: 'no', activeExpireIntervalMs: 0 });
+  db = await MiniDb.open<{ t: string }>({
+    dir,
+    valueCodec: 'json',
+    fsyncPolicy: 'no',
+    activeExpireIntervalMs: 0,
+  });
   assert.equal(db.get('a')?.t, 'first', 'the committed in-flight batch survives reopen');
   assert.equal(db.get('b'), undefined);
   assert.equal(db.get('c')?.t, 'third');
@@ -704,11 +804,20 @@ test('WAL poison: an applyOp violation on a never-enqueued frame (sealed WAL) do
   // file's coordinates would corrupt it during the in-place recovery); only
   // the partial in-memory mutation needs undoing.
   const dir = await tmpDir();
-  let db = await MiniDb.open<{ t: string }>({ dir, valueCodec: 'json', fsyncPolicy: 'no', activeExpireIntervalMs: 0 });
+  let db = await MiniDb.open<{ t: string }>({
+    dir,
+    valueCodec: 'json',
+    fsyncPolicy: 'no',
+    activeExpireIntervalMs: 0,
+  });
   await db.createTextIndex('ft', { fields: ['t'] });
   await db.set('old', { t: 'keep' });
 
-  const ti = (db as unknown as { text: Map<string, { addPrepared: (k: string, t: readonly string[]) => void }> }).text.get('ft')!;
+  const ti = (
+    db as unknown as {
+      text: Map<string, { addPrepared: (k: string, t: readonly string[]) => void }>;
+    }
+  ).text.get('ft')!;
   ti.addPrepared = () => {
     throw new Error('injected apply failure');
   };
@@ -719,16 +828,25 @@ test('WAL poison: an applyOp violation on a never-enqueued frame (sealed WAL) do
     () => {
       throw new Error('expected the set to reject');
     },
-    (e) => e as Error,
+    (error) => error as Error,
   );
   assert.match(String(err), /injected apply failure/);
   assert.equal(db.wal.poison, null, 'a never-enqueued frame poisons nothing');
   assert.equal(db.get('bad'), undefined, 'the partial apply was undone');
   assert.equal(db.get('old')?.t, 'keep');
-  assert.deepEqual(db.search('ft', 'keep').map((h) => h.key), ['old'], 'derived indexes stayed consistent');
+  assert.deepEqual(
+    db.search('ft', 'keep').map((h) => h.key),
+    ['old'],
+    'derived indexes stayed consistent',
+  );
   await db.close(); // the sealed WAL still flushes its (empty) queue and closes
 
-  db = await MiniDb.open<{ t: string }>({ dir, valueCodec: 'json', fsyncPolicy: 'no', activeExpireIntervalMs: 0 });
+  db = await MiniDb.open<{ t: string }>({
+    dir,
+    valueCodec: 'json',
+    fsyncPolicy: 'no',
+    activeExpireIntervalMs: 0,
+  });
   assert.equal(db.get('bad'), undefined);
   assert.equal(db.get('old')?.t, 'keep');
   await db.close();
@@ -757,8 +875,14 @@ test('WAL poison: in-place recovery skips the truncate when the WAL file was rep
 
   // Drive the recovery: the stale-coordinate guard must skip the truncate —
   // zero-extending to the stale offset would corrupt the new file.
-  await (db as unknown as { recoverWalInPlace(w: unknown): Promise<void> }).recoverWalInPlace(db.wal);
-  assert.equal((await fs.stat(path.join(dir, 'db.wal'))).size, 0, 'the new file was not zero-extended');
+  await (db as unknown as { recoverWalInPlace(w: unknown): Promise<void> }).recoverWalInPlace(
+    db.wal,
+  );
+  assert.equal(
+    (await fs.stat(path.join(dir, 'db.wal'))).size,
+    0,
+    'the new file was not zero-extended',
+  );
   assert.equal(db.wal.poison, null, 'the poison is cleared');
 
   await db.set('post', 'ok');
@@ -835,7 +959,10 @@ test('backup waits out an in-flight WAL recovery instead of copying the un-acked
 
   // The backup carries the recovered state: the acknowledged write is in,
   // the revoked one is not.
-  const restored = await MiniDb.restore<string>(backupDir, restoreDir, { ...MEM_OPTS, force: true });
+  const restored = await MiniDb.restore<string>(backupDir, restoreDir, {
+    ...MEM_OPTS,
+    force: true,
+  });
   assert.equal(restored.get('k'), 'v');
   assert.equal(restored.get('bad'), undefined, 'the un-acked tail never reached the backup');
   await restored.close();
@@ -899,15 +1026,23 @@ function rawBatchBody(ops: { type: number; key: string; value?: string }[]): Buf
   }
   const body = Buffer.alloc(total);
   let o = 0;
-  body.writeUInt16LE(parts.length, o); o += 2;
+  body.writeUInt16LE(parts.length, o);
+  o += 2;
   for (const op of parts) {
-    body.writeUInt8(op.type, o); o += 1;
-    body.writeUInt16LE(op.key.length, o); o += 2;
-    body.writeUInt32LE(op.value.length, o); o += 4;
-    body.writeUInt32LE(0, o); o += 4; // metaLen
-    body.writeBigInt64LE(0n, o); o += 8; // expireAt
-    op.key.copy(body, o); o += op.key.length;
-    op.value.copy(body, o); o += op.value.length;
+    body.writeUInt8(op.type, o);
+    o += 1;
+    body.writeUInt16LE(op.key.length, o);
+    o += 2;
+    body.writeUInt32LE(op.value.length, o);
+    o += 4;
+    body.writeUInt32LE(0, o);
+    o += 4; // metaLen
+    body.writeBigInt64LE(0n, o);
+    o += 8; // expireAt
+    op.key.copy(body, o);
+    o += op.key.length;
+    op.value.copy(body, o);
+    o += op.value.length;
   }
   return body;
 }
@@ -919,7 +1054,10 @@ async function reopenWithAppendedBatch(body: Buffer): Promise<{ dir: string; db:
   const dir = await tmpDir();
   let db = await MiniDb.open<string>({ dir, ...MEM_OPTS });
   await db.close();
-  await fs.appendFile(path.join(dir, 'db.wal'), encodeFrame({ type: TYPE_BATCH, key: Buffer.alloc(0), value: body }));
+  await fs.appendFile(
+    path.join(dir, 'db.wal'),
+    encodeFrame({ type: TYPE_BATCH, key: Buffer.alloc(0), value: body }),
+  );
   db = await MiniDb.open<string>({ dir, ...MEM_OPTS });
   return { dir, db };
 }
@@ -944,7 +1082,15 @@ test('recovery skips a batch with an unknown sub-op type wholesale (review #9)',
 });
 
 test('recovery skips a batch with trailing bytes wholesale (review #9)', async () => {
-  const valid = encodeBatchOps([{ type: TYPE_SET, key: Buffer.from('accepted'), value: Buffer.from('yes'), meta: null, expireAt: 0 }]);
+  const valid = encodeBatchOps([
+    {
+      type: TYPE_SET,
+      key: Buffer.from('accepted'),
+      value: Buffer.from('yes'),
+      meta: null,
+      expireAt: 0,
+    },
+  ]);
   const body = Buffer.concat([valid, Buffer.from([0xde, 0xad])]);
   const { dir, db } = await reopenWithAppendedBatch(body);
   try {
@@ -960,13 +1106,22 @@ test('recovery skips a batch with trailing bytes wholesale (review #9)', async (
 
 test('a mid-batch applyOp violation rolls the whole batch back — memory and reopen agree (stage 7 group rollback)', async () => {
   const dir = await tmpDir();
-  let db = await MiniDb.open<{ t: string }>({ dir, valueCodec: 'json', fsyncPolicy: 'no', activeExpireIntervalMs: 0 });
+  let db = await MiniDb.open<{ t: string }>({
+    dir,
+    valueCodec: 'json',
+    fsyncPolicy: 'no',
+    activeExpireIntervalMs: 0,
+  });
   await db.createTextIndex('ft', { fields: ['t'] });
   // Break applyOp's must-not-throw contract on the SECOND op of the batch:
   // the first op is already applied when the batch fails, and both must
   // disappear (stage 11 keeps applyOp pure; this exercises the defensive
   // poison + group rollback that remains as the backstop).
-  const ti = (db as unknown as { text: Map<string, { addPrepared: (k: string, t: readonly string[]) => void }> }).text.get('ft')!;
+  const ti = (
+    db as unknown as {
+      text: Map<string, { addPrepared: (k: string, t: readonly string[]) => void }>;
+    }
+  ).text.get('ft')!;
   const origAdd = ti.addPrepared.bind(ti);
   let calls = 0;
   ti.addPrepared = (k: string, t: readonly string[]) => {
@@ -984,7 +1139,7 @@ test('a mid-batch applyOp violation rolls the whole batch back — memory and re
       () => {
         throw new Error('expected the batch to reject');
       },
-      (e) => e as Error,
+      (error) => error as Error,
     );
   assert.match(String(err), /injected mid-batch apply failure/);
   assert.equal((err as { ambiguous?: boolean }).ambiguous, true);
@@ -996,7 +1151,12 @@ test('a mid-batch applyOp violation rolls the whole batch back — memory and re
   // Later writes land after the in-place recovery; reopen agrees with memory.
   await db.set('after', { t: 'fine' });
   await db.close();
-  db = await MiniDb.open<{ t: string }>({ dir, valueCodec: 'json', fsyncPolicy: 'no', activeExpireIntervalMs: 0 });
+  db = await MiniDb.open<{ t: string }>({
+    dir,
+    valueCodec: 'json',
+    fsyncPolicy: 'no',
+    activeExpireIntervalMs: 0,
+  });
   assert.equal(db.get('x1'), undefined, 'the revoked batch never reached disk');
   assert.equal(db.get('x2'), undefined);
   assert.equal(db.get('after')?.t, 'fine');

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { type ISessionTodoService } from '#/session/todo/sessionTodo';
-import { TODO_LIST_TOOL_NAME, type TodoItem } from '#/session/todo/todoItem';
 import { TodoListInputSchema } from '#/agent/tools/todo-list/todo-list';
 import { TodoListTool } from '#/agent/tools/todo-list/todoListTool';
+import { type ISessionTodoService } from '#/session/todo/sessionTodo';
+import { TODO_LIST_TOOL_NAME, type TodoItem } from '#/session/todo/todoItem';
+
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -45,9 +46,9 @@ describe('TodoListTool', () => {
     expect(tool.name).toBe(TODO_LIST_TOOL_NAME);
     expect(tool.description.length).toBeGreaterThan(0);
     expect(TodoListInputSchema.safeParse({}).success).toBe(true);
-    expect(
-      TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'wip' }] }).success,
-    ).toBe(false);
+    expect(TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'wip' }] }).success).toBe(
+      false,
+    );
     expect(tool.parameters).toMatchObject({
       type: 'object',
       additionalProperties: false,
@@ -79,7 +80,16 @@ describe('TodoListTool', () => {
   });
 
   it('query mode renders the current list without mutating it', async () => {
-    const { tool, getTodos } = makeTool([{ id: 'T1', parentId: null, title: 'existing', status: 'in_progress', createdAt: Date.now(), updatedAt: Date.now() }]);
+    const { tool, getTodos } = makeTool([
+      {
+        id: 'T1',
+        parentId: null,
+        title: 'existing',
+        status: 'in_progress',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]);
 
     const result = await executeTool(tool, {
       turnId: 1,
@@ -91,14 +101,30 @@ describe('TodoListTool', () => {
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Current task list');
     expect(result.output).toContain('[in_progress] T1: existing');
-    expect(getTodos()).toEqual([expect.objectContaining({ title: 'existing', status: 'in_progress' })]);
+    expect(getTodos()).toEqual([
+      expect.objectContaining({ title: 'existing', status: 'in_progress' }),
+    ]);
   });
 
   it('write mode replaces the list and defensively copies todos into the service', async () => {
     const { tool, getTodos } = makeTool();
     const todos: TodoItem[] = [
-      { id: 'T1', parentId: null, title: 'first', status: 'open', createdAt: Date.now(), updatedAt: Date.now() },
-      { id: 'T2', parentId: null, title: 'second', status: 'in_progress', createdAt: Date.now(), updatedAt: Date.now() },
+      {
+        id: 'T1',
+        parentId: null,
+        title: 'first',
+        status: 'open',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      {
+        id: 'T2',
+        parentId: null,
+        title: 'second',
+        status: 'in_progress',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
     ];
 
     const result = await executeTool(tool, {
@@ -107,7 +133,14 @@ describe('TodoListTool', () => {
       args: { todos },
       signal,
     });
-    todos[0] = { id: 'T1', parentId: null, title: 'leaked', status: 'done', createdAt: Date.now(), updatedAt: Date.now() };
+    todos[0] = {
+      id: 'T1',
+      parentId: null,
+      title: 'leaked',
+      status: 'done',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
 
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Todo list updated');
@@ -124,7 +157,16 @@ describe('TodoListTool', () => {
   });
 
   it('renders a done todo with a marker matching the status enum value', async () => {
-    const { tool } = makeTool([{ id: 'T1', parentId: null, title: 'shipped', status: 'done', createdAt: Date.now(), updatedAt: Date.now() }]);
+    const { tool } = makeTool([
+      {
+        id: 'T1',
+        parentId: null,
+        title: 'shipped',
+        status: 'done',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]);
 
     const result = await executeTool(tool, {
       turnId: 1,
@@ -139,7 +181,16 @@ describe('TodoListTool', () => {
   });
 
   it('clear mode empties the list without adding the progress-tracking reminder', async () => {
-    const { tool, getTodos } = makeTool([{ id: 'T1', parentId: null, title: 'x', status: 'open', createdAt: Date.now(), updatedAt: Date.now() }]);
+    const { tool, getTodos } = makeTool([
+      {
+        id: 'T1',
+        parentId: null,
+        title: 'x',
+        status: 'open',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]);
 
     const result = await executeTool(tool, {
       turnId: 1,
@@ -187,8 +238,22 @@ describe('TodoListTool', () => {
   it('write mode with multiple in_progress todos still succeeds', async () => {
     const { tool, getTodos } = makeTool();
     const todos: TodoItem[] = [
-      { id: 'T1', parentId: null, title: 'first', status: 'in_progress', createdAt: Date.now(), updatedAt: Date.now() },
-      { id: 'T2', parentId: null, title: 'second', status: 'in_progress', createdAt: Date.now(), updatedAt: Date.now() },
+      {
+        id: 'T1',
+        parentId: null,
+        title: 'first',
+        status: 'in_progress',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      {
+        id: 'T2',
+        parentId: null,
+        title: 'second',
+        status: 'in_progress',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
     ];
     const result = await executeTool(tool, {
       turnId: 1,
@@ -202,7 +267,9 @@ describe('TodoListTool', () => {
   });
 
   it('schema rejects a todo with an invalid status string', () => {
-    expect(TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'invalid' }] }).success).toBe(false);
+    expect(
+      TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'invalid' }] }).success,
+    ).toBe(false);
   });
 
   it('schema rejects a todo missing a title', () => {

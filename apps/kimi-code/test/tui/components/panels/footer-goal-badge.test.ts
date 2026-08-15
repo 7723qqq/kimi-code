@@ -1,9 +1,9 @@
+import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
-import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import type { AppState } from '#/tui/types';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
 function strip(text: string): string {
@@ -78,9 +78,7 @@ describe('FooterComponent — goal badge', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
 
-    const footer = new FooterComponent(
-      baseState({ goal: goal({ wallClockMs: 0, turnsUsed: 0 }) }),
-    );
+    const footer = new FooterComponent(baseState({ goal: goal({ wallClockMs: 0, turnsUsed: 0 }) }));
 
     expect(strip(footer.render(160)[0]!)).toContain('0s');
     vi.setSystemTime(2_500);
@@ -99,7 +97,11 @@ describe('FooterComponent — goal badge', () => {
 
   it('shows used/limit turns only when a turn budget is set', () => {
     const footer = new FooterComponent(
-      baseState({ goal: goal({ budget: { turnBudget: 20, tokenBudget: null, wallClockBudgetMs: null } } as Partial<GoalSnapshot>) }),
+      baseState({
+        goal: goal({
+          budget: { turnBudget: 20, tokenBudget: null, wallClockBudgetMs: null },
+        } as Partial<GoalSnapshot>),
+      }),
     );
     expect(strip(footer.render(160)[0]!)).toContain('7/20 turns');
   });

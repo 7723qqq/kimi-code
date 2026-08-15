@@ -28,6 +28,16 @@ defineProps<{ frost?: boolean }>();
   -webkit-backdrop-filter: saturate(150%) blur(12px);
   backdrop-filter: saturate(150%) blur(12px);
 }
-.ui-topbar__title { flex: 1; font-weight: var(--weight-medium); font-size: var(--text-sm); color: var(--color-text); min-width: 0; }
-.ui-topbar__actions { display: inline-flex; align-items: center; gap: var(--space-1); }
+.ui-topbar__title {
+  flex: 1;
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  min-width: 0;
+}
+.ui-topbar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
 </style>

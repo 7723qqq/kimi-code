@@ -4,16 +4,16 @@ import { join } from 'node:path';
 
 import { OldSessionStateSchema, type OldSessionState } from '../kimi-cli-schema.js';
 import { targetSessionsDir } from '../paths.js';
-import { computeWorkdirBucket } from './workdir-bucket.js';
 import { closeDanglingToolCalls } from './close-tool-calls.js';
+import { writeSessionState } from './state-writer.js';
+import { extractToolCallDisplays } from './tool-call-display.js';
 import {
   analyzeContextContent,
   translateContextLines,
   type NormalizedMessage,
 } from './translator.js';
 import { writeMainAgentWire } from './wire-writer.js';
-import { writeSessionState } from './state-writer.js';
-import { extractToolCallDisplays } from './tool-call-display.js';
+import { computeWorkdirBucket } from './workdir-bucket.js';
 
 export type MigrateOneResult =
   | { readonly outcome: 'migrated'; readonly targetDir: string }
@@ -31,7 +31,11 @@ export interface MigrateOneInput {
 
 export async function migrateOneSession(input: MigrateOneInput): Promise<MigrateOneResult> {
   const bucket = computeWorkdirBucket(input.workdirPath);
-  const targetDir = join(targetSessionsDir(input.targetHome), bucket, `ses_${input.oldSessionUuid}`);
+  const targetDir = join(
+    targetSessionsDir(input.targetHome),
+    bucket,
+    `ses_${input.oldSessionUuid}`,
+  );
 
   if (existsSync(targetDir)) {
     const cls = await classifyExistingTarget(targetDir);
@@ -72,9 +76,7 @@ export async function migrateOneSession(input: MigrateOneInput): Promise<Migrate
     }
     const toolCallDisplays =
       oldWireText === undefined ? undefined : extractToolCallDisplays(oldWireText);
-    messages = closeDanglingToolCalls(
-      translateContextLines(contextLines, toolCallDisplays),
-    );
+    messages = closeDanglingToolCalls(translateContextLines(contextLines, toolCallDisplays));
     lastUserPrompt = extractLastUserText(messages);
   } catch {
     return { outcome: 'failed', reason: 'cannot read context.jsonl' };
@@ -107,9 +109,7 @@ export async function migrateOneSession(input: MigrateOneInput): Promise<Migrate
     // "most recent" order. `Date.now()` would stamp every such session with
     // the migration time and break resume ordering.
     try {
-      createdAtMs = Math.floor(
-        (await stat(join(input.sourceSessionDir, 'wire.jsonl'))).mtimeMs,
-      );
+      createdAtMs = Math.floor((await stat(join(input.sourceSessionDir, 'wire.jsonl'))).mtimeMs);
     } catch {
       createdAtMs = Date.now();
     }

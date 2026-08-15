@@ -3,6 +3,7 @@
  * child processes (HTTP/HTTPS and SOCKS, honoring `NO_PROXY`).
  */
 
+import { SocksClient } from 'socks';
 import {
   Agent,
   buildConnector,
@@ -10,7 +11,6 @@ import {
   EnvHttpProxyAgent,
   setGlobalDispatcher as undiciSetGlobalDispatcher,
 } from 'undici';
-import { SocksClient } from 'socks';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -91,7 +91,8 @@ export function isProxyConfigured(env: Env): boolean {
 }
 
 export function resolveNoProxy(env: Env): string {
-  const raw = [env['no_proxy'], env['NO_PROXY']].find((value) => (value?.trim() ?? '').length > 0) ?? '';
+  const raw =
+    [env['no_proxy'], env['NO_PROXY']].find((value) => (value?.trim() ?? '').length > 0) ?? '';
   const hosts = raw
     .split(',')
     .map((host) => host.trim())
@@ -103,7 +104,9 @@ export function resolveNoProxy(env: Env): string {
   return hosts.join(',');
 }
 
-export function makeNoProxyMatcher(noProxy: string): (host: string, port?: number | string) => boolean {
+export function makeNoProxyMatcher(
+  noProxy: string,
+): (host: string, port?: number | string) => boolean {
   const entries = noProxy
     .split(',')
     .map((entry) => entry.trim().toLowerCase())
@@ -150,8 +153,11 @@ export interface ProxyAgentFactories {
   readonly makeSocksAgent: (options: { proxy: SocksProxyConfig; noProxy: string }) => Dispatcher;
 }
 
-const defaultMakeHttpAgent: ProxyAgentFactories['makeHttpAgent'] = ({ httpProxy, httpsProxy, noProxy }) =>
-  new EnvHttpProxyAgent({ httpProxy, httpsProxy, noProxy });
+const defaultMakeHttpAgent: ProxyAgentFactories['makeHttpAgent'] = ({
+  httpProxy,
+  httpsProxy,
+  noProxy,
+}) => new EnvHttpProxyAgent({ httpProxy, httpsProxy, noProxy });
 
 const defaultMakeSocksAgent: ProxyAgentFactories['makeSocksAgent'] = ({ proxy, noProxy }) => {
   const directConnect = buildConnector({});
@@ -166,12 +172,21 @@ const defaultMakeSocksAgent: ProxyAgentFactories['makeSocksAgent'] = ({ proxy, n
         const isTls = options.protocol === 'https:';
         const port = Number(options.port) || (isTls ? 443 : 80);
         const { socket } = await SocksClient.createConnection({
-          proxy: { host: proxy.host, port: proxy.port, type: proxy.type, userId: proxy.userId, password: proxy.password },
+          proxy: {
+            host: proxy.host,
+            port: proxy.port,
+            type: proxy.type,
+            userId: proxy.userId,
+            password: proxy.password,
+          },
           command: 'connect',
           destination: { host: options.hostname, port },
         });
         if (isTls) {
-          directConnect({ ...options, httpSocket: socket } as Parameters<typeof directConnect>[0], callback);
+          directConnect(
+            { ...options, httpSocket: socket } as Parameters<typeof directConnect>[0],
+            callback,
+          );
         } else {
           socket.setNoDelay(true);
           callback(null, socket);
@@ -188,7 +203,8 @@ export function createProxyDispatcher(
   env: Env,
   factories: Partial<ProxyAgentFactories> = {},
 ): Dispatcher | undefined {
-  const { makeHttpAgent = defaultMakeHttpAgent, makeSocksAgent = defaultMakeSocksAgent } = factories;
+  const { makeHttpAgent = defaultMakeHttpAgent, makeSocksAgent = defaultMakeSocksAgent } =
+    factories;
   try {
     if (hasHttpProxy(env)) {
       const { httpProxy, httpsProxy } = resolveHttpProxyUrls(env);
@@ -205,7 +221,9 @@ export function createProxyDispatcher(
     return undefined;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`kimi: ignoring invalid proxy configuration (${reason}); connecting directly\n`);
+    process.stderr.write(
+      `kimi: ignoring invalid proxy configuration (${reason}); connecting directly\n`,
+    );
     return undefined;
   }
 }

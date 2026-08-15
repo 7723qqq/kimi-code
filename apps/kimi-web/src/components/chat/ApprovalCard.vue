@@ -2,16 +2,17 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ApprovalBlock } from '../../types';
+
 import type { ApprovalDecision } from '../../api/types';
-import Markdown from './Markdown.vue';
-import Card from '../ui/Card.vue';
+import type { ApprovalBlock } from '../../types';
 import Badge from '../ui/Badge.vue';
 import Button from '../ui/Button.vue';
-import IconButton from '../ui/IconButton.vue';
+import Card from '../ui/Card.vue';
 import Icon from '../ui/Icon.vue';
+import IconButton from '../ui/IconButton.vue';
 import Kbd from '../ui/Kbd.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import Markdown from './Markdown.vue';
 
 const props = defineProps<{
   block: ApprovalBlock;
@@ -22,7 +23,14 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  decide: [response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string; selectedLabel?: string }];
+  decide: [
+    response: {
+      decision: ApprovalDecision;
+      scope?: 'session';
+      feedback?: string;
+      selectedLabel?: string;
+    },
+  ];
 }>();
 
 const { t } = useI18n();
@@ -47,7 +55,18 @@ const minimized = ref(false);
 // Title by kind
 // ---------------------------------------------------------------------------
 
-const titleKinds = ['shell', 'diff', 'file', 'fileop', 'url', 'search', 'invocation', 'todo', 'plan_review', 'generic'];
+const titleKinds = [
+  'shell',
+  'diff',
+  'file',
+  'fileop',
+  'url',
+  'search',
+  'invocation',
+  'todo',
+  'plan_review',
+  'generic',
+];
 
 function title(): string {
   const kind = titleKinds.includes(props.block.kind) ? props.block.kind : 'generic';
@@ -115,7 +134,12 @@ watch(
 
 function act(
   action: string,
-  response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string; selectedLabel?: string },
+  response: {
+    decision: ApprovalDecision;
+    scope?: 'session';
+    feedback?: string;
+    selectedLabel?: string;
+  },
 ): void {
   // A second click (or number key) while the first decide is in flight must
   // not fire a duplicate request.
@@ -124,18 +148,30 @@ function act(
   emit('decide', response);
 }
 
-function approve(): void { act('approve', { decision: 'approved' }); }
-function approveSession(): void { act('approveSession', { decision: 'approved', scope: 'session' }); }
-function reject(): void { act('reject', { decision: 'rejected' }); }
+function approve(): void {
+  act('approve', { decision: 'approved' });
+}
+function approveSession(): void {
+  act('approveSession', { decision: 'approved', scope: 'session' });
+}
+function reject(): void {
+  act('reject', { decision: 'rejected' });
+}
 
 // plan_review actions
-function approvePlan(): void { act('approvePlan', { decision: 'approved' }); }
-function approveOption(label: string): void { act(`option:${label}`, { decision: 'approved', selectedLabel: label }); }
+function approvePlan(): void {
+  act('approvePlan', { decision: 'approved' });
+}
+function approveOption(label: string): void {
+  act(`option:${label}`, { decision: 'approved', selectedLabel: label });
+}
 function revisePlan(): void {
   if (props.busy) return;
   openFeedback();
 }
-function rejectAndExitPlan(): void { act('rejectAndExit', { decision: 'rejected', selectedLabel: 'Reject and Exit' }); }
+function rejectAndExitPlan(): void {
+  act('rejectAndExit', { decision: 'rejected', selectedLabel: 'Reject and Exit' });
+}
 
 // ---------------------------------------------------------------------------
 // Number key shortcuts. Generic cards: 1=approve, 2=session, 3=reject,
@@ -155,20 +191,43 @@ function handleKeydown(e: KeyboardEvent): void {
   const pr = planReview.value;
   if (pr) {
     if (pr.options.length === 0) {
-      if (e.key === '1') { e.preventDefault(); approvePlan(); }
-      else if (e.key === '2') { e.preventDefault(); revisePlan(); }
-      else if (e.key === '3') { e.preventDefault(); rejectAndExitPlan(); }
+      if (e.key === '1') {
+        e.preventDefault();
+        approvePlan();
+      } else if (e.key === '2') {
+        e.preventDefault();
+        revisePlan();
+      } else if (e.key === '3') {
+        e.preventDefault();
+        rejectAndExitPlan();
+      }
       return;
     }
-    if (e.key === '1' && pr.options[0]) { e.preventDefault(); approveOption(pr.options[0].label); }
-    else if (e.key === '2' && pr.options[1]) { e.preventDefault(); approveOption(pr.options[1].label); }
-    else if (e.key === '3' && pr.options[2]) { e.preventDefault(); approveOption(pr.options[2].label); }
+    if (e.key === '1' && pr.options[0]) {
+      e.preventDefault();
+      approveOption(pr.options[0].label);
+    } else if (e.key === '2' && pr.options[1]) {
+      e.preventDefault();
+      approveOption(pr.options[1].label);
+    } else if (e.key === '3' && pr.options[2]) {
+      e.preventDefault();
+      approveOption(pr.options[2].label);
+    }
     return;
   }
-  if (e.key === '1') { e.preventDefault(); approve(); }
-  else if (e.key === '2') { e.preventDefault(); approveSession(); }
-  else if (e.key === '3') { e.preventDefault(); reject(); }
-  else if (e.key === '4') { e.preventDefault(); openFeedback(); }
+  if (e.key === '1') {
+    e.preventDefault();
+    approve();
+  } else if (e.key === '2') {
+    e.preventDefault();
+    approveSession();
+  } else if (e.key === '3') {
+    e.preventDefault();
+    reject();
+  } else if (e.key === '4') {
+    e.preventDefault();
+    openFeedback();
+  }
 }
 
 onMounted(() => document.addEventListener('keydown', handleKeydown));
@@ -183,15 +242,22 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
         <span class="ah-ic">!</span>
         <span class="akind">{{ title() }}</span>
         <span class="apath">
-          <template v-if="block.kind === 'diff' || block.kind === 'file' || block.kind === 'fileop'">{{ block.path }}</template>
+          <template
+            v-if="block.kind === 'diff' || block.kind === 'file' || block.kind === 'fileop'"
+            >{{ block.path }}</template
+          >
           <template v-else-if="block.kind === 'shell'">{{ block.command }}</template>
           <template v-else-if="block.kind === 'url'">{{ block.url }}</template>
           <template v-else-if="block.kind === 'search'">{{ block.query }}</template>
           <template v-else-if="block.kind === 'invocation'">{{ block.name }}</template>
           <template v-else-if="block.kind === 'generic'">{{ block.summary }}</template>
         </span>
-        <Badge v-if="agentName && !minimized" variant="neutral" size="sm">{{ t('approval.subagentBadge', { name: agentName }) }}</Badge>
-        <Badge v-if="!minimized" variant="warning" size="sm" class="aw">{{ t('approval.required') }}</Badge>
+        <Badge v-if="agentName && !minimized" variant="neutral" size="sm">{{
+          t('approval.subagentBadge', { name: agentName })
+        }}</Badge>
+        <Badge v-if="!minimized" variant="warning" size="sm" class="aw">{{
+          t('approval.required')
+        }}</Badge>
         <IconButton
           class="amin"
           size="sm"
@@ -215,8 +281,14 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 
       <!-- diff -->
       <div v-if="block.kind === 'diff'" class="diff">
-        <div v-for="(line, i) in block.diff" :key="i" class="dl" :class="line.kind === 'add' ? 'add' : line.kind === 'rem' ? 'del' : ''">
-          <span class="dg">{{ line.gutter }}</span><span class="dc">{{ line.text }}</span>
+        <div
+          v-for="(line, i) in block.diff"
+          :key="i"
+          class="dl"
+          :class="line.kind === 'add' ? 'add' : line.kind === 'rem' ? 'del' : ''"
+        >
+          <span class="dg">{{ line.gutter }}</span
+          ><span class="dc">{{ line.text }}</span>
         </div>
       </div>
 
@@ -224,7 +296,9 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
       <div v-else-if="block.kind === 'shell'" class="body-shell">
         <div class="shell-cmd"><span class="shell-dollar">$</span> {{ block.command }}</div>
         <div v-if="block.cwd" class="shell-cwd">cwd: {{ block.cwd }}</div>
-        <div v-if="block.danger" class="shell-danger">{{ t('approval.danger', { detail: block.danger }) }}</div>
+        <div v-if="block.danger" class="shell-danger">
+          {{ t('approval.danger', { detail: block.danger }) }}
+        </div>
       </div>
 
       <!-- file -->
@@ -234,7 +308,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
         </div>
         <div class="file-content">
           <div v-for="(line, i) in block.content.split('\n')" :key="i" class="file-line">
-            <span class="file-ln">{{ i + 1 }}</span><span class="file-text">{{ line }}</span>
+            <span class="file-ln">{{ i + 1 }}</span
+            ><span class="file-text">{{ line }}</span>
           </div>
         </div>
       </div>
@@ -256,7 +331,9 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
       <div v-else-if="block.kind === 'search'" class="body-chip">
         <span class="chip-label">{{ t('approval.searchQueryLabel') }}</span>
         <span class="chip-value">{{ block.query }}</span>
-        <span v-if="block.scope" class="chip-detail">{{ t('approval.searchScope', { scope: block.scope }) }}</span>
+        <span v-if="block.scope" class="chip-detail">{{
+          t('approval.searchScope', { scope: block.scope })
+        }}</span>
       </div>
 
       <!-- invocation -->
@@ -269,8 +346,14 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
       <!-- todo -->
       <div v-else-if="block.kind === 'todo'" class="body-todo">
         <div v-for="(item, i) in block.items" :key="i" class="todo-item">
-          <span class="todo-glyph">{{ item.status === 'done' || item.status === 'completed' ? '✓' : '○' }}</span>
-          <span class="todo-title" :class="{ 'todo-done': item.status === 'done' || item.status === 'completed' }">{{ item.title }}</span>
+          <span class="todo-glyph">{{
+            item.status === 'done' || item.status === 'completed' ? '✓' : '○'
+          }}</span>
+          <span
+            class="todo-title"
+            :class="{ 'todo-done': item.status === 'done' || item.status === 'completed' }"
+            >{{ item.title }}</span
+          >
         </div>
       </div>
 
@@ -303,11 +386,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
       <!-- plan_review actions -->
       <div v-if="planReview" class="plan-actions">
         <template v-if="planReview.options.length > 0">
-          <Tooltip
-            v-for="(opt, i) in planReview.options"
-            :key="i"
-            :text="opt.description"
-          >
+          <Tooltip v-for="(opt, i) in planReview.options" :key="i" :text="opt.description">
             <Button
               class="kbtn"
               size="sm"
@@ -315,20 +394,68 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
               :loading="pendingAction === `option:${opt.label}`"
               :disabled="busy"
               @click="approveOption(opt.label)"
-            >{{ opt.label }}<Kbd class="k" :keys="[String(i + 1)]" /></Button>
+              >{{ opt.label }}<Kbd class="k" :keys="[String(i + 1)]"
+            /></Button>
           </Tooltip>
         </template>
-        <Button v-else class="kbtn" size="sm" variant="primary" :loading="pendingAction === 'approvePlan'" :disabled="busy" @click="approvePlan">{{ t('approval.approvePlan') }}<Kbd class="k" :keys="['1']" /></Button>
-        <Button class="kbtn" size="sm" variant="secondary" :disabled="busy" @click="revisePlan">{{ t('approval.revise') }}<Kbd v-if="planReview.options.length === 0" class="k" :keys="['2']" /></Button>
-        <Button class="kbtn" size="sm" variant="danger-soft" :loading="pendingAction === 'rejectAndExit'" :disabled="busy" @click="rejectAndExitPlan">{{ t('approval.rejectAndExit') }}<Kbd v-if="planReview.options.length === 0" class="k" :keys="['3']" /></Button>
+        <Button
+          v-else
+          class="kbtn"
+          size="sm"
+          variant="primary"
+          :loading="pendingAction === 'approvePlan'"
+          :disabled="busy"
+          @click="approvePlan"
+          >{{ t('approval.approvePlan') }}<Kbd class="k" :keys="['1']"
+        /></Button>
+        <Button class="kbtn" size="sm" variant="secondary" :disabled="busy" @click="revisePlan"
+          >{{ t('approval.revise')
+          }}<Kbd v-if="planReview.options.length === 0" class="k" :keys="['2']"
+        /></Button>
+        <Button
+          class="kbtn"
+          size="sm"
+          variant="danger-soft"
+          :loading="pendingAction === 'rejectAndExit'"
+          :disabled="busy"
+          @click="rejectAndExitPlan"
+          >{{ t('approval.rejectAndExit')
+          }}<Kbd v-if="planReview.options.length === 0" class="k" :keys="['3']"
+        /></Button>
       </div>
 
       <!-- default actions row -->
       <div v-else class="abtn">
-        <Button class="kbtn" size="sm" variant="primary" :loading="pendingAction === 'approve'" :disabled="busy" @click="approve">{{ t('approval.approve') }}<Kbd class="k" :keys="['1']" /></Button>
-        <Button class="kbtn" size="sm" variant="secondary" :loading="pendingAction === 'approveSession'" :disabled="busy" @click="approveSession">{{ t('approval.approveSession') }}<Kbd class="k" :keys="['2']" /></Button>
-        <Button class="kbtn" size="sm" variant="secondary" :loading="pendingAction === 'reject'" :disabled="busy" @click="reject">{{ t('approval.reject') }}<Kbd class="k" :keys="['3']" /></Button>
-        <Button class="kbtn" size="sm" variant="secondary" :disabled="busy" @click="openFeedback">{{ t('approval.feedback') }}<Kbd class="k" :keys="['4']" /></Button>
+        <Button
+          class="kbtn"
+          size="sm"
+          variant="primary"
+          :loading="pendingAction === 'approve'"
+          :disabled="busy"
+          @click="approve"
+          >{{ t('approval.approve') }}<Kbd class="k" :keys="['1']"
+        /></Button>
+        <Button
+          class="kbtn"
+          size="sm"
+          variant="secondary"
+          :loading="pendingAction === 'approveSession'"
+          :disabled="busy"
+          @click="approveSession"
+          >{{ t('approval.approveSession') }}<Kbd class="k" :keys="['2']"
+        /></Button>
+        <Button
+          class="kbtn"
+          size="sm"
+          variant="secondary"
+          :loading="pendingAction === 'reject'"
+          :disabled="busy"
+          @click="reject"
+          >{{ t('approval.reject') }}<Kbd class="k" :keys="['3']"
+        /></Button>
+        <Button class="kbtn" size="sm" variant="secondary" :disabled="busy" @click="openFeedback"
+          >{{ t('approval.feedback') }}<Kbd class="k" :keys="['4']"
+        /></Button>
       </div>
     </template>
   </Card>
@@ -340,15 +467,21 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 }
 /* Warning attention-card head band layered on top of the shared flat Card
    primitive (Card supplies the border, radius and surface; no shadow). */
-.appr.ui-card { border-color: var(--color-warning-bd); }
+.appr.ui-card {
+  border-color: var(--color-warning-bd);
+}
 .appr :deep(.ui-card__head) {
   background: var(--color-warning-soft);
   border-bottom-color: var(--color-warning-bd);
 }
 /* When minimized the body/foot slots are not rendered; collapse the (always-
    rendered) Card body and drop the head border so the card is a thin bar. */
-.appr.minimized :deep(.ui-card__body) { display: none; }
-.appr.minimized :deep(.ui-card__head) { border-bottom: none; }
+.appr.minimized :deep(.ui-card__body) {
+  display: none;
+}
+.appr.minimized :deep(.ui-card__head) {
+  border-bottom: none;
+}
 
 /* Header — content row (Card provides the band padding/border). Single row:
    title + truncating path on the left, "required" badge + minimize pinned to
@@ -416,13 +549,33 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   overflow: hidden;
   font: var(--text-sm)/1.85 var(--font-mono);
 }
-.dl { display: flex; padding: 0 var(--space-3); }
-.dg { width: 30px; color: var(--color-text-muted); text-align: right; padding-right: var(--space-3); user-select: none; }
-.dc { white-space: pre; font: inherit; }
-.del { background: var(--color-danger-soft); }
-.del .dc { color: var(--color-danger); }
-.add { background: var(--color-success-soft); }
-.add .dc { color: var(--color-success); }
+.dl {
+  display: flex;
+  padding: 0 var(--space-3);
+}
+.dg {
+  width: 30px;
+  color: var(--color-text-muted);
+  text-align: right;
+  padding-right: var(--space-3);
+  user-select: none;
+}
+.dc {
+  white-space: pre;
+  font: inherit;
+}
+.del {
+  background: var(--color-danger-soft);
+}
+.del .dc {
+  color: var(--color-danger);
+}
+.add {
+  background: var(--color-success-soft);
+}
+.add .dc {
+  color: var(--color-success);
+}
 
 /* Shell */
 .shell-cmd {
@@ -437,8 +590,16 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   overflow-y: auto;
   color: var(--color-text);
 }
-.shell-dollar { color: var(--color-accent-hover); font-weight: var(--weight-medium); margin-right: var(--space-2); }
-.shell-cwd { font: var(--text-xs) var(--font-mono); color: var(--color-text-muted); margin-top: var(--space-1); }
+.shell-dollar {
+  color: var(--color-accent-hover);
+  font-weight: var(--weight-medium);
+  margin-right: var(--space-2);
+}
+.shell-cwd {
+  font: var(--text-xs) var(--font-mono);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
 .shell-danger {
   margin-top: var(--space-2);
   padding: var(--space-1) var(--space-3);
@@ -462,7 +623,9 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   font: var(--text-xs) var(--font-mono);
   color: var(--color-text-muted);
 }
-.file-lang { letter-spacing: 0.04em; }
+.file-lang {
+  letter-spacing: 0.04em;
+}
 .file-content {
   padding: var(--space-2) 0;
   font: var(--text-sm)/1.7 var(--font-mono);
@@ -470,9 +633,22 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   max-height: 240px;
   overflow-y: auto;
 }
-.file-line { display: flex; padding: 0 var(--space-3); }
-.file-ln { width: 30px; color: var(--color-text-muted); text-align: right; padding-right: var(--space-3); user-select: none; flex: none; }
-.file-text { white-space: pre; font: inherit; }
+.file-line {
+  display: flex;
+  padding: 0 var(--space-3);
+}
+.file-ln {
+  width: 30px;
+  color: var(--color-text-muted);
+  text-align: right;
+  padding-right: var(--space-3);
+  user-select: none;
+  flex: none;
+}
+.file-text {
+  white-space: pre;
+  font: inherit;
+}
 
 /* Chip (fileop/url/search/invocation) */
 .body-chip {
@@ -497,7 +673,10 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   color: var(--color-text);
   word-break: break-all;
 }
-.chip-detail { font: var(--text-xs) var(--font-ui); color: var(--color-text-muted); }
+.chip-detail {
+  font: var(--text-xs) var(--font-ui);
+  color: var(--color-text-muted);
+}
 
 /* Todo */
 .todo-item {
@@ -508,9 +687,19 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   font: var(--text-base)/var(--leading-normal) var(--font-ui);
   color: var(--color-text);
 }
-.todo-glyph { color: var(--color-accent); font-size: var(--text-sm); flex: none; width: 14px; }
-.todo-title { color: var(--color-text); }
-.todo-done { color: var(--color-text-muted); text-decoration: line-through; }
+.todo-glyph {
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  flex: none;
+  width: 14px;
+}
+.todo-title {
+  color: var(--color-text);
+}
+.todo-done {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
 
 /* Generic */
 .body-generic {
@@ -521,7 +710,10 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 
 /* Plan review — Markdown body, capped at half the viewport height with scroll
    for longer plans. */
-.body-plan { max-height: 50vh; overflow-y: auto; }
+.body-plan {
+  max-height: 50vh;
+  overflow-y: auto;
+}
 
 /* Feedback */
 .feedback-wrap {
@@ -544,7 +736,11 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   box-shadow: var(--p-focus-ring);
 }
 
-.feedback-hint { font: var(--text-xs) var(--font-ui); color: var(--color-text-muted); margin-top: var(--space-1); }
+.feedback-hint {
+  font: var(--text-xs) var(--font-ui);
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
 
 /* Actions row — right-aligned sm buttons (primary / secondary / ghost-danger). */
 .abtn,
@@ -554,8 +750,12 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   gap: var(--space-2);
   width: 100%;
 }
-.plan-actions { flex-wrap: wrap; }
-.k { opacity: .75; }
+.plan-actions {
+  flex-wrap: wrap;
+}
+.k {
+  opacity: 0.75;
+}
 
 /* =========================================================================
    MOBILE (≤640px): the card spans the full chat column, inner previews scroll
@@ -569,11 +769,15 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
-  .file-content { max-height: 50vh; }
+  .file-content {
+    max-height: 50vh;
+  }
 
   /* Actions → full-width stacked rows, each a tall ≥44px tap target. */
   .abtn,
-  .plan-actions { flex-direction: column; }
+  .plan-actions {
+    flex-direction: column;
+  }
   .kbtn {
     width: 100%;
     min-height: 46px;

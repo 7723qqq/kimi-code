@@ -7,8 +7,9 @@
 <script setup lang="ts">
 import { computed, inject, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
+
 import { toolGlyph, toolLabel } from '../../../lib/toolMeta';
+import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
 import Icon from '../../ui/Icon.vue';
 import ToolRow from '../ToolRow.vue';
 
@@ -63,7 +64,9 @@ const open = ref(props.tool.defaultExpanded === true && canExpand.value);
 // collapsed by default — mirrors the official agent-card's saved-result row.
 const showSaved = ref(false);
 
-const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
+const status = computed<'running' | 'ok' | 'error'>(
+  () => props.tool.status as 'running' | 'ok' | 'error',
+);
 const label = computed(() => toolLabel(props.tool.name));
 const glyph = computed(() => toolGlyph(props.tool.name));
 const summary = computed(() => input.value.description || input.value.subagentType || '');
@@ -103,7 +106,12 @@ watch(
     @toggle="toggle"
   >
     <template #trailing>
-      <button v-if="canOpenAgent" type="button" class="at-open" @click.stop="emit('openAgent', tool.id)">
+      <button
+        v-if="canOpenAgent"
+        type="button"
+        class="at-open"
+        @click.stop="emit('openAgent', tool.id)"
+      >
         {{ t('tasks.openDetail') }}
       </button>
     </template>

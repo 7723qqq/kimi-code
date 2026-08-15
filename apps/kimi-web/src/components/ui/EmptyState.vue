@@ -24,8 +24,20 @@ defineProps<{ title?: string; hint?: string }>();
   text-align: center;
   color: var(--color-text-muted);
 }
-.ui-empty__icon { color: var(--color-text-faint); }
-.ui-empty__icon :deep(svg) { width: 48px; height: 48px; }
-.ui-empty__title { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--color-text-muted); }
-.ui-empty__hint { font-size: var(--text-sm); color: var(--color-text-muted); }
+.ui-empty__icon {
+  color: var(--color-text-faint);
+}
+.ui-empty__icon :deep(svg) {
+  width: 48px;
+  height: 48px;
+}
+.ui-empty__title {
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-muted);
+}
+.ui-empty__hint {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
 </style>

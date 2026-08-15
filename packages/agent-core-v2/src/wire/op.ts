@@ -77,8 +77,7 @@ type DefineOpOptions<K extends string, S, P> = OpBehaviorOptions<S, P> & {
   readonly persist?: boolean;
 } & RegisteredOpConstraint<K>;
 
-type DefinedOp<K extends string, S, P> = OpDescriptor<K, S, P> &
-  ((payload: P) => Op<K, P>);
+type DefinedOp<K extends string, S, P> = OpDescriptor<K, S, P> & ((payload: P) => Op<K, P>);
 
 export interface DefineOpFn<S> {
   <const K extends string, P>(
@@ -87,13 +86,14 @@ export interface DefineOpFn<S> {
   ): DefinedOp<K, S, P>;
 }
 
-type SingleStringLiteral<K extends string, Whole extends string = K> = {} extends Record<K, never>
-  ? never
-  : K extends unknown
-    ? [Whole] extends [K]
-      ? K
-      : never
-    : never;
+type SingleStringLiteral<K extends string, Whole extends string = K> =
+  {} extends Record<K, never>
+    ? never
+    : K extends unknown
+      ? [Whole] extends [K]
+        ? K
+        : never
+      : never;
 
 export function bindDefineOp<S>(getModel: () => ModelDef<S>): DefineOpFn<S> {
   const bound = (type: string, opts: unknown): unknown =>

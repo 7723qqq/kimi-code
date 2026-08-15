@@ -54,7 +54,12 @@ export class CodexWire {
         this.pending.delete(id);
         reject(new Error('codex request aborted'));
       };
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, signal, onAbort });
+      this.pending.set(id, {
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        signal,
+        onAbort,
+      });
       if (signal !== undefined) {
         if (signal.aborted) {
           onAbort();
@@ -100,7 +105,9 @@ export class CodexWire {
         const errorMessage =
           typeof raw === 'string'
             ? raw
-            : typeof raw === 'object' && raw !== null && typeof (raw as { message?: unknown }).message === 'string'
+            : typeof raw === 'object' &&
+                raw !== null &&
+                typeof (raw as { message?: unknown }).message === 'string'
               ? (raw as { message: string }).message
               : 'codex error';
         pending.reject(new Error(errorMessage));

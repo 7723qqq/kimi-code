@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { ToolAccesses } from '#/tool/toolContract';
 import { ToolScheduler, type ToolCallTask } from '#/agent/toolExecutor/toolScheduler';
+import { ToolAccesses } from '#/tool/toolContract';
 
 describe('ToolScheduler', () => {
   it('starts read accesses on the same path concurrently', async () => {

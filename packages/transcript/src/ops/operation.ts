@@ -11,15 +11,9 @@
  * The single convergence path is `AgentTranscript.apply` in `store/`.
  */
 
-import type {
-  AgentId,
-  FrameId,
-  StepId,
-  TaskId,
-  TurnId,
-} from '../model/ids';
 import type { TranscriptAttachment } from '../model/attachment';
 import type { TranscriptFrame } from '../model/frame';
+import type { AgentId, FrameId, StepId, TaskId, TurnId } from '../model/ids';
 import type { TranscriptInteraction } from '../model/interaction';
 import type { TranscriptItem, TranscriptMarker, TranscriptTaskRef } from '../model/item';
 import type { TranscriptMeta, TranscriptMetaMerge } from '../model/meta';
@@ -58,7 +52,12 @@ export interface FrameUpsertOp {
 }
 
 export type AppendTarget =
-  | { readonly type: 'frame'; readonly turnId: TurnId; readonly stepId: StepId; readonly frameId: FrameId }
+  | {
+      readonly type: 'frame';
+      readonly turnId: TurnId;
+      readonly stepId: StepId;
+      readonly frameId: FrameId;
+    }
   | { readonly type: 'task'; readonly taskId: TaskId };
 
 /** The only non-idempotent op. `offset` is the chunk's cumulative position. */

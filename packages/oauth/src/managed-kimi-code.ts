@@ -479,8 +479,7 @@ export function parseThinkEfforts(value: unknown): {
   const rawDefault = record['default_effort'];
   return {
     supportEfforts: parseStringArray(record['valid_efforts']),
-    defaultEffort:
-      typeof rawDefault === 'string' && rawDefault.length > 0 ? rawDefault : undefined,
+    defaultEffort: typeof rawDefault === 'string' && rawDefault.length > 0 ? rawDefault : undefined,
   };
 }
 
@@ -725,10 +724,7 @@ export function applyManagedKimiCodeLogoutConfig(config: ManagedKimiConfigShape)
 // being preserved from an earlier config: an always-thinking model ('only')
 // must never end up with thinking off, and a non-thinking model ('no') must
 // never end up with thinking on.
-function forcedThinking(
-  model: ManagedKimiCodeModelInfo | undefined,
-  fallback: boolean,
-): boolean {
+function forcedThinking(model: ManagedKimiCodeModelInfo | undefined, fallback: boolean): boolean {
   if (model?.supportsThinkingType === 'only') return true;
   if (model?.supportsThinkingType === 'no') return false;
   return fallback;

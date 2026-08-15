@@ -21,11 +21,7 @@ const ROOT = path.resolve(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
 const STRICT = process.argv.includes('--strict');
 
-const DOMAIN_HEX_EXEMPT = new Set([
-  'chat/DiffView.vue',
-  'chat/DiffLines.vue',
-  'Terminal.vue',
-]);
+const DOMAIN_HEX_EXEMPT = new Set(['chat/DiffView.vue', 'chat/DiffLines.vue', 'Terminal.vue']);
 
 // Files that legitimately render their own <svg>: bespoke data-viz / colored
 // illustrations, the spinner, and brand marks (the Kimi wordmark on the loading
@@ -49,9 +45,15 @@ const FILE_EXEMPT = new Set(['views/DesignSystemView.vue']);
 
 const RADIUS_SCALE = new Set([4, 6, 8, 12, 16, 20, 999]);
 const WEIGHT_OK = new Set([
-  '400', '500',
-  'normal', 'bolder', 'lighter',
-  'inherit', 'initial', 'unset', 'revert',
+  '400',
+  '500',
+  'normal',
+  'bolder',
+  'lighter',
+  'inherit',
+  'initial',
+  'unset',
+  'revert',
 ]);
 const Z_OK = new Set(['0', '1', '-1', 'auto']);
 
@@ -155,7 +157,8 @@ function checkFile(abs) {
           if (px && RADIUS_SCALE.has(Number(px[1]))) continue;
           if (!bad.includes(t)) bad.push(t);
         }
-        if (bad.length) add('radius-from-scale', file, line, `${bad.join(' ')} · ${trimmed.slice(0, 50)}`);
+        if (bad.length)
+          add('radius-from-scale', file, line, `${bad.join(' ')} · ${trimmed.slice(0, 50)}`);
       }
 
       // z-from-scale
@@ -178,7 +181,8 @@ function checkFile(abs) {
     }
 
     // no-color-glow (block-level heuristic: colored shadow with large blur) — warning only
-    const shadowRe = /box-shadow\s*:[^;}]*?(?:rgba?\([^)]*?\)|hsla?\([^)]*?\)|#[0-9a-fA-F]{3,8})[^;}]*?(?:\d{2,})px/gi;
+    const shadowRe =
+      /box-shadow\s*:[^;}]*?(?:rgba?\([^)]*?\)|hsla?\([^)]*?\)|#[0-9a-fA-F]{3,8})[^;}]*?(?:\d{2,})px/gi;
     let s;
     while ((s = shadowRe.exec(text)) !== null) {
       const glowLine = baseLine + lineOf(text, s.index) - 1;
@@ -191,8 +195,9 @@ function checkFile(abs) {
   // logo) and the primitive components listed in ICON_EXEMPT. Skips <svg> that
   // falls inside <style>/<script> blocks.
   if (!isCss && !ICON_EXEMPT.has(file)) {
-    const blockRanges = [...content.matchAll(/<(?:style|script)\b[^>]*>[\s\S]*?<\/(?:style|script)>/gi)]
-      .map((m) => [m.index, m.index + m[0].length]);
+    const blockRanges = [
+      ...content.matchAll(/<(?:style|script)\b[^>]*>[\s\S]*?<\/(?:style|script)>/gi),
+    ].map((m) => [m.index, m.index + m[0].length]);
     const inBlock = (idx) => blockRanges.some(([a, b]) => idx >= a && idx < b);
     const svgRe = /<svg\b[^>]*>/gi;
     let m;
@@ -215,10 +220,15 @@ for (const f of findings) {
 }
 
 const order = [
-  'no-gradient-text', 'no-glassmorphism', 'no-color-glow(warn)',
+  'no-gradient-text',
+  'no-glassmorphism',
+  'no-color-glow(warn)',
   'icon-from-registry(warn)',
-  'no-hardcoded-hex', 'no-hardcoded-font', 'radius-from-scale',
-  'z-from-scale', 'weight-from-scale',
+  'no-hardcoded-hex',
+  'no-hardcoded-font',
+  'radius-from-scale',
+  'z-from-scale',
+  'weight-from-scale',
 ];
 
 let total = 0;
@@ -242,6 +252,8 @@ for (const [rule, list] of byRule) {
 }
 
 const warnOnly = [...byRule.keys()].every((r) => r.endsWith('(warn)'));
-console.log(`\ncheck-style: ${total} finding(s) across ${byRule.size} rule(s).${STRICT ? '' : ' (baseline mode — not failing)'}`);
+console.log(
+  `\ncheck-style: ${total} finding(s) across ${byRule.size} rule(s).${STRICT ? '' : ' (baseline mode — not failing)'}`,
+);
 
 if (STRICT && total > 0 && !warnOnly) process.exit(1);

@@ -44,8 +44,8 @@ import { convertGoogleGenAIError } from '#/kosong/provider/bases/google-genai/go
 import { convertOpenAIError } from '#/kosong/provider/bases/openai/openai-common';
 import { OpenAIResponsesStreamedMessage } from '#/kosong/provider/bases/openai/openai-responses';
 import { composeOpenAIChatHooks } from '#/kosong/provider/bases/openai/openaiHooks';
-import { kimiAnthropicTrait, kimiOpenAITrait } from '#/kosong/provider/providers/kimi/kimi.contrib';
 import { classifyKimiQuotaError } from '#/kosong/provider/providers/kimi/kimi-errors';
+import { kimiAnthropicTrait, kimiOpenAITrait } from '#/kosong/provider/providers/kimi/kimi.contrib';
 
 const APIUserAbortError = class extends Error {};
 
@@ -337,9 +337,7 @@ describe('convertGoogleGenAIError RetryInfo recovery', () => {
     const error = convertGoogleGenAIError(
       googleApiError(429, {
         error: {
-          details: [
-            { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '5.5s' },
-          ],
+          details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '5.5s' }],
         },
       }),
     );

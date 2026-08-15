@@ -24,9 +24,8 @@
  * scope.
  */
 
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
@@ -43,6 +42,7 @@ import {
 } from '#/agent/systemReminder/systemReminder';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { EnabledPluginSessionStart, PluginMutation } from '#/app/plugin/types';
+import { LifecycleScope } from '#/app/scopes';
 import { PLUGIN_SKILL_SOURCE_ID } from '#/app/skillCatalog/skillSource';
 import type { SkillCatalog, SkillDefinition } from '#/app/skillCatalog/types';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -50,10 +50,7 @@ import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog
 import { IWireService } from '#/wire/wire';
 
 import { IAgentPluginService } from './agentPlugin';
-import {
-  PluginSessionStartSnapshotModel,
-  pluginSessionStartSnapshotSet,
-} from './agentPluginOps';
+import { PluginSessionStartSnapshotModel, pluginSessionStartSnapshotSet } from './agentPluginOps';
 
 const SESSION_START_INJECTION_VARIANT = 'plugin_session_start';
 
@@ -80,8 +77,7 @@ const MAIN_AGENT_ID = 'main';
 const SUPERSEDES_SUFFIX =
   'This supersedes any earlier plugin_session_start reminder in this session.';
 
-const NO_ACTIVE_SESSION_STARTS =
-  `There are currently no active plugin session starts. ${SUPERSEDES_SUFFIX}`;
+const NO_ACTIVE_SESSION_STARTS = `There are currently no active plugin session starts. ${SUPERSEDES_SUFFIX}`;
 
 export const pluginSessionStartRefreshPendingKey = defineState<boolean>(
   'agentPlugin.sessionStartRefreshPending',
@@ -262,7 +258,11 @@ function renderPluginSessionStartReminder(
       continue;
     }
     blocks.push(
-      renderSessionStartBlock(sessionStart, skill, catalog.renderSkillPrompt(skill, '', { sessionId })),
+      renderSessionStartBlock(
+        sessionStart,
+        skill,
+        catalog.renderSkillPrompt(skill, '', { sessionId }),
+      ),
     );
   }
   return blocks.length > 0 ? blocks.join('\n') : undefined;

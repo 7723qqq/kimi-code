@@ -414,7 +414,12 @@ interface PermissionRecordApprovalResultPayload {
   toolName: string;
   action: string;
   sessionApprovalRule?: string;
-  result: ApprovalResponse;
+  result: {
+    decision: 'approved' | 'rejected' | 'cancelled';
+    scope?: 'session';
+    feedback?: string;
+    selectedLabel?: string;
+  };
 }
 
 /**

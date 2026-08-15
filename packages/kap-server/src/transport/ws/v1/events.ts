@@ -10,14 +10,15 @@
  * broadcaster that emits them.
  */
 
-import type { DomainEvent } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
-import type { MessageContent } from '../../../protocol/message';
 import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
 import type { UsageStatus } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
-import type { AgentPhase } from '../../../services/legacyStatus/legacyStatus';
+import type { DomainEvent } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
+
+import type { MessageContent } from '../../../protocol/message';
 import type { ConfigResponse } from '../../../protocol/rest-config';
 import type { Session, SessionPendingInteraction } from '../../../protocol/session';
 import type { Workspace } from '../../../protocol/workspace';
+import type { AgentPhase } from '../../../services/legacyStatus/legacyStatus';
 
 export interface AgentStatusUpdatedEvent {
   readonly type: 'agent.status.updated';
@@ -199,10 +200,7 @@ export interface QuestionTaskInfo extends TaskInfoBase {
   readonly toolCallId?: string;
 }
 
-export type TaskInfo =
-  | ProcessTaskInfo
-  | AgentTaskInfo
-  | QuestionTaskInfo;
+export type TaskInfo = ProcessTaskInfo | AgentTaskInfo | QuestionTaskInfo;
 
 /**
  * Legacy background-task lifecycle events (`background.task.started` /

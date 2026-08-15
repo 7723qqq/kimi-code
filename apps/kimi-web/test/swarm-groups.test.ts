@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import type { AppTask } from '../src/api/types';
 import {
   buildSwarmGroups,
@@ -60,10 +61,7 @@ describe('buildSwarmGroups', () => {
   });
 
   it('ignores subagents without a swarmIndex', () => {
-    const groups = buildSwarmGroups([
-      subagentTask('a', 'swarm-1'),
-      subagentTask('b', 'swarm-1'),
-    ]);
+    const groups = buildSwarmGroups([subagentTask('a', 'swarm-1'), subagentTask('b', 'swarm-1')]);
     expect(groups).toHaveLength(0);
   });
 });
@@ -71,7 +69,11 @@ describe('buildSwarmGroups', () => {
 describe('countSwarmMembers', () => {
   it('counts completed + failed as done across groups', () => {
     const groups = buildSwarmGroups([
-      subagentTask('a', 'swarm-1', { swarmIndex: 1, subagentPhase: 'completed', status: 'completed' }),
+      subagentTask('a', 'swarm-1', {
+        swarmIndex: 1,
+        subagentPhase: 'completed',
+        status: 'completed',
+      }),
       subagentTask('b', 'swarm-1', { swarmIndex: 2, subagentPhase: 'failed', status: 'failed' }),
       subagentTask('c', 'swarm-2', { swarmIndex: 1, subagentPhase: 'working' }),
       subagentTask('d', 'swarm-2', { swarmIndex: 2, subagentPhase: 'queued' }),

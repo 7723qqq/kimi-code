@@ -10,22 +10,30 @@
  * kimi-code's `IAgentLLMRequesterService` pattern.
  */
 
+import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
-import { createDecorator } from '#/_base/di/instantiation';
-import { IAgentLLMRequesterService, type AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
+import { ILogService } from '#/_base/log/log';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { GoalSnapshot } from '#/agent/goal/types';
+import {
+  IAgentLLMRequesterService,
+  type AgentLLMRequestFinish,
+} from '#/agent/llmRequester/llmRequester';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { ILogService } from '#/_base/log/log';
 import type { Message } from '#/app/llmProtocol/message';
 import { createUserMessage, extractText } from '#/app/llmProtocol/message';
-import type { GoalSnapshot } from '#/agent/goal/types';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { JUDGE_SYSTEM_PROMPT, buildJudgeUserPrompt, buildJudgeVerificationPrompt } from './judgePrompt';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
+
 import { GOAL_JUDGE_PROFILE_NAME } from './judgeAgentProfile';
+import {
+  JUDGE_SYSTEM_PROMPT,
+  buildJudgeUserPrompt,
+  buildJudgeVerificationPrompt,
+} from './judgePrompt';
 
 /** Timeout for the judge subagent run (ms). */
 const JUDGE_SUBAGENT_TIMEOUT_MS = 60_000;
@@ -44,9 +52,8 @@ export interface IAgentGoalJudgeService {
   evaluate(goal: GoalSnapshot, signal?: AbortSignal): Promise<JudgeVerdict>;
 }
 
-export const IAgentGoalJudgeService = createDecorator<IAgentGoalJudgeService>(
-  'agentGoalJudgeService',
-);
+export const IAgentGoalJudgeService =
+  createDecorator<IAgentGoalJudgeService>('agentGoalJudgeService');
 
 export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudgeService {
   declare readonly _serviceBrand: undefined;
@@ -156,10 +163,7 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
   ): Promise<JudgeVerdict> {
     const history = this.context.get();
     const judgeUser = buildJudgeUserPrompt(goal.objective, goal.completionCriterion);
-    const messages: Message[] = [
-      ...history,
-      createUserMessage(judgeUser),
-    ];
+    const messages: Message[] = [...history, createUserMessage(judgeUser)];
 
     const modelContext = this.profile.resolveModelContext();
     const maxOutputSize = Math.min(modelContext.maxOutputSize ?? 4096, 4096);
@@ -190,7 +194,10 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
         goalId: goal.goalId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return { ok: true, reason: 'Judge evaluation failed (network/timeout) \u2014 allowing completion.' };
+      return {
+        ok: true,
+        reason: 'Judge evaluation failed (network/timeout) \u2014 allowing completion.',
+      };
     }
 
     const responseText = extractText(finish.message).trim();
@@ -218,10 +225,7 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
         'Based on the conversation transcript above, is this goal complete? Return ONLY {"ok": true/false, "reason": "..."}';
       const retryFinish = await this.llmRequester.request(
         {
-          messages: [
-            ...history,
-            createUserMessage(retryUserPrompt),
-          ],
+          messages: [...history, createUserMessage(retryUserPrompt)],
           tools: [],
           systemPrompt: RETRY_SYSTEM_PROMPT,
           maxOutputSize: 512,
@@ -296,9 +300,18 @@ function extractJsonCandidates(text: string): string[] {
     let escape = false;
     for (let j = i; j < text.length; j++) {
       const ch = text[j]!;
-      if (escape) { escape = false; continue; }
-      if (ch === '\\' && inString) { escape = true; continue; }
-      if (ch === '"') { inString = !inString; continue; }
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === '\\' && inString) {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
       if (inString) continue;
       if (ch === '{') depth++;
       else if (ch === '}') {

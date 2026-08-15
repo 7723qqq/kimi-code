@@ -19,26 +19,23 @@
  * load.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
+import { tryNativeEdit } from '#/_base/native-tools';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IConfigService } from '#/app/config/config';
+import { IFileEditService } from '#/app/edit/fileEdit';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   extendWorkspaceWithSkillRoots,
   resolvePathAccessPath,
   type WorkspaceConfig,
 } from '#/tool/path-access';
-import { tryNativeEdit } from '#/_base/native-tools';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
-import { IFileEditService } from '#/app/edit/fileEdit';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import {
-  ToolAccesses,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { t } from '@moonshot-ai/kimi-i18n';
-import { IConfigService } from '#/app/config/config';
+import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
 import { resolveSandboxPolicy, sandboxWriteGuard } from '#/workspace/sandbox/sandbox';
 
 import { EditInputSchema, IEditTool, type EditInput } from './edit';
@@ -146,7 +143,13 @@ export class EditTool implements IEditTool {
       return { isError: true, output: result.error };
     }
     const word = result.count === 1 ? t('toolsV2.occurrence') : t('toolsV2.occurrences');
-    return { output: t('toolsV2.editReplaced', { count: String(result.count), occurrences: word, path: args.path }) };
+    return {
+      output: t('toolsV2.editReplaced', {
+        count: String(result.count),
+        occurrences: word,
+        path: args.path,
+      }),
+    };
   }
 }
 

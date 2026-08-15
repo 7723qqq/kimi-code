@@ -5,10 +5,10 @@
  * runs the relevant benchmark cases, and reports impact.
  */
 
-import type { BenchmarkCase, PromptSection, PruneReport, PruneResult } from '../types';
-import { generateBaselineVariant, generatePruneVariant } from '../prompt-parser';
-import { runSuite, aggregateResults, type LLMCaller, type RunnerConfig } from '../benchmark/runner';
 import { getCasesBySection } from '../benchmark/cases';
+import { runSuite, aggregateResults, type LLMCaller, type RunnerConfig } from '../benchmark/runner';
+import { generateBaselineVariant, generatePruneVariant } from '../prompt-parser';
+import type { BenchmarkCase, PromptSection, PruneReport, PruneResult } from '../types';
 
 export interface PrunerConfig {
   /** Minimum score delta to consider "significant" */
@@ -132,17 +132,21 @@ export function formatPruneReport(report: PruneReport): string {
     '═'.repeat(80),
     `Model: ${report.model} | Total: ${report.totalTokens} tokens | Prunable: ${report.prunableTokens} tokens (${((report.prunableTokens / report.totalTokens) * 100).toFixed(1)}%)`,
     '─'.repeat(80),
-    padRight('Section', 35) + padRight('Tokens', 8) + padRight('Impact', 10) + padRight('Verdict', 8) + 'Reason',
+    padRight('Section', 35) +
+      padRight('Tokens', 8) +
+      padRight('Impact', 10) +
+      padRight('Verdict', 8) +
+      'Reason',
     '─'.repeat(80),
   ];
 
   for (const r of report.sections) {
     lines.push(
       padRight(r.section.slice(0, 33), 35) +
-      padRight(String(r.tokens), 8) +
-      padRight(r.impact, 10) +
-      padRight(r.verdict, 8) +
-      r.reason,
+        padRight(String(r.tokens), 8) +
+        padRight(r.impact, 10) +
+        padRight(r.verdict, 8) +
+        r.reason,
     );
   }
 

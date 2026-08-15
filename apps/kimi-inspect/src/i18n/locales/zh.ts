@@ -49,7 +49,8 @@ export default {
     dynamicChannelUnavailable: '动态通道列表不可用 — 仅显示手写面板',
     activeAgent: '活动 Agent',
     agentNotLoaded: '{{id}}（未加载）',
-    agentNotMaterialized: '此 Agent 未在运行中的服务器实例化（例如在重启前创建）— 调用将失败；其持久化记录保留在磁盘',
+    agentNotMaterialized:
+      '此 Agent 未在运行中的服务器实例化（例如在重启前创建）— 调用将失败；其持久化记录保留在磁盘',
     methodsCount: '{{n}} 个方法 ⇄ {{domain}}',
     noSessionSelected: '未选择会话。',
     loadingSession: '正在加载会话…',

@@ -13,18 +13,9 @@
 import { basename, dirname, isAbsolute, join, normalize } from 'pathe';
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { ILogService } from '#/_base/log/log';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
-import { IBashParserService } from '#/app/bashParser/bashParser';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import type { AgentsMdReminderShownEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { normalizeUserPath } from '#/tool/path-access';
 import {
   AGENTS_MD_PLAIN_NAMES,
   agentsMdCandidatePaths,
@@ -39,6 +30,15 @@ import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
+import { IBashParserService } from '#/app/bashParser/bashParser';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
+import type { AgentsMdReminderShownEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { normalizeUserPath } from '#/tool/path-access';
 import { IWireService } from '#/wire/wire';
 
 import { IAgentAgentsMdReminderService } from './agentsMdReminder';
@@ -93,7 +93,10 @@ export class AgentAgentsMdReminderService
         await next();
       }),
     );
-    const handler = async (ctx: ToolDidExecuteContext, next: () => Promise<void>): Promise<void> => {
+    const handler = async (
+      ctx: ToolDidExecuteContext,
+      next: () => Promise<void>,
+    ): Promise<void> => {
       await this.probeAndRemind(ctx);
       await next();
     };
@@ -195,9 +198,7 @@ export class AgentAgentsMdReminderService
           normalizedCwdArg === undefined
             ? base
             : normalize(
-                isAbsolute(normalizedCwdArg)
-                  ? normalizedCwdArg
-                  : join(base, normalizedCwdArg),
+                isAbsolute(normalizedCwdArg) ? normalizedCwdArg : join(base, normalizedCwdArg),
               );
         const parsed = this.bashParser.parse(command, BASH_PARSE_OPTIONS);
         if (!parsed.ok || parsed.hasError) {
@@ -205,11 +206,9 @@ export class AgentAgentsMdReminderService
             ? { dirs: [], selfKnown }
             : { dirs: [effectiveCwd], selfKnown };
         }
-        const targets = extractBashTargetDirs(
-          parsed.root,
-          effectiveCwd,
-          this.env.homeDir,
-        ).map((target) => hostPath(target, this.env.pathClass));
+        const targets = extractBashTargetDirs(parsed.root, effectiveCwd, this.env.homeDir).map(
+          (target) => hostPath(target, this.env.pathClass),
+        );
         if (normalizedCwdArg !== undefined && !targets.includes(effectiveCwd)) {
           targets.unshift(effectiveCwd);
         }
@@ -227,9 +226,7 @@ export class AgentAgentsMdReminderService
     const dirs: string[] = [];
     const selfKnown: string[] = [];
     const targetsFiles =
-      ctx.toolCall.name === 'Read' ||
-      ctx.toolCall.name === 'Edit' ||
-      ctx.toolCall.name === 'Write';
+      ctx.toolCall.name === 'Read' || ctx.toolCall.name === 'Edit' || ctx.toolCall.name === 'Write';
     for (const access of ctx.accesses ?? []) {
       if (access.kind !== 'file') continue;
       if (

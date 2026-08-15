@@ -1,6 +1,11 @@
-import { useEffect, RefObject } from "react";
+import type { RefObject } from 'react';
+import { useEffect } from 'react';
 
-export function useClickOutside(refs: RefObject<HTMLElement | null>[], isActive: boolean, onClickOutside: () => void): void {
+export function useClickOutside(
+  refs: RefObject<HTMLElement | null>[],
+  isActive: boolean,
+  onClickOutside: () => void,
+): void {
   useEffect(() => {
     if (!isActive) {
       return;
@@ -14,7 +19,7 @@ export function useClickOutside(refs: RefObject<HTMLElement | null>[], isActive:
       }
     };
 
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
   }, [refs, isActive, onClickOutside]);
 }

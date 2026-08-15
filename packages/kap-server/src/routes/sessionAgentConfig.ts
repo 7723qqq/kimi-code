@@ -65,7 +65,9 @@ export async function applySessionAgentConfig(
     }
   }
   if (agentConfig.goal_objective !== undefined) {
-    await agent.accessor.get(IAgentGoalService).createGoal({ objective: agentConfig.goal_objective });
+    await agent.accessor
+      .get(IAgentGoalService)
+      .createGoal({ objective: agentConfig.goal_objective });
   }
   if (agentConfig.goal_control !== undefined) {
     const goal = agent.accessor.get(IAgentGoalService);

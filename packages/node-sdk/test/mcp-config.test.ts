@@ -10,18 +10,13 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  createKimiHarness,
-  KimiHarness,
-  SDKRpcClientBase,
-} from '#/index';
+import { mcpOAuthStoreKey } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { TEST_IDENTITY } from './test-identity';
-
-import { mcpOAuthStoreKey } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
+import { createKimiHarness, KimiHarness, SDKRpcClientBase } from '#/index';
 
 import { startMcpAuthStatusServer } from './mcp-auth-status-server';
+import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
 const stdioFixture = join(
@@ -30,9 +25,7 @@ const stdioFixture = join(
 );
 
 afterEach(async () => {
-  await Promise.all(
-    tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
-  );
+  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
 async function makeTempDir(): Promise<string> {
@@ -76,10 +69,7 @@ function definePrototypeNamedMcpServer(
 }
 
 async function readMcpConfig(homeDir: string): Promise<Record<string, unknown>> {
-  return JSON.parse(await readFile(join(homeDir, 'mcp.json'), 'utf-8')) as Record<
-    string,
-    unknown
-  >;
+  return JSON.parse(await readFile(join(homeDir, 'mcp.json'), 'utf-8')) as Record<string, unknown>;
 }
 
 describe('global MCP configuration (persisted user entries)', () => {
@@ -266,38 +256,41 @@ describe('MCP OAuth facade (host-controlled browser flow)', () => {
       token_type: 'Bearer',
     });
     await writeMcpConfig(homeDir, {
-      mcpServers: definePrototypeNamedMcpServer({
-        stdio: { command: 'local-command' },
-        plain: { transport: 'http', url: statusServer.plainUrl },
-        detected: { transport: 'http', url: statusServer.oauthUrl },
-        sse: { transport: 'sse', url: statusServer.unavailableUrl },
-        'sse-bearer': {
-          transport: 'sse',
-          url: statusServer.unavailableUrl,
-          bearerTokenEnvVar: 'EXAMPLE_SSE_TOKEN',
+      mcpServers: definePrototypeNamedMcpServer(
+        {
+          stdio: { command: 'local-command' },
+          plain: { transport: 'http', url: statusServer.plainUrl },
+          detected: { transport: 'http', url: statusServer.oauthUrl },
+          sse: { transport: 'sse', url: statusServer.unavailableUrl },
+          'sse-bearer': {
+            transport: 'sse',
+            url: statusServer.unavailableUrl,
+            bearerTokenEnvVar: 'EXAMPLE_SSE_TOKEN',
+          },
+          'sse-oauth': { transport: 'sse', url: statusServer.oauthUrl, auth: 'oauth' },
+          bearer: {
+            transport: 'http',
+            url: 'https://bearer.example.test/mcp',
+            bearerTokenEnvVar: 'EXAMPLE_MCP_TOKEN',
+          },
+          'oauth-required': {
+            transport: 'http',
+            url: statusServer.unavailableUrl,
+            auth: 'oauth',
+          },
+          'oauth-authorized': {
+            transport: 'http',
+            url: statusServer.oauthUrl,
+            auth: 'oauth',
+          },
+          'oauth-stale': {
+            transport: 'http',
+            url: statusServer.oauthUrl,
+            auth: 'oauth',
+          },
         },
-        'sse-oauth': { transport: 'sse', url: statusServer.oauthUrl, auth: 'oauth' },
-        bearer: {
-          transport: 'http',
-          url: 'https://bearer.example.test/mcp',
-          bearerTokenEnvVar: 'EXAMPLE_MCP_TOKEN',
-        },
-        'oauth-required': {
-          transport: 'http',
-          url: statusServer.unavailableUrl,
-          auth: 'oauth',
-        },
-        'oauth-authorized': {
-          transport: 'http',
-          url: statusServer.oauthUrl,
-          auth: 'oauth',
-        },
-        'oauth-stale': {
-          transport: 'http',
-          url: statusServer.oauthUrl,
-          auth: 'oauth',
-        },
-      }, statusServer.oauthUrl),
+        statusServer.oauthUrl,
+      ),
     });
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 

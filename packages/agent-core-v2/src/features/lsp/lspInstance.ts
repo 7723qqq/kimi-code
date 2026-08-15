@@ -17,8 +17,8 @@ import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 
 import type { LspServerConfig } from './configSection';
-import { LspConnection } from './lspConnection';
 import type { LspProviderQuery, LspQueryResult } from './lsp';
+import { LspConnection } from './lspConnection';
 import type {
   LspHoverResponse,
   LspInitializeResult,
@@ -198,7 +198,10 @@ function translateResponse(request: LspProviderQuery, response: unknown): LspQue
     case 'goToImplementation':
       return { kind: 'locations', locations: normalizeLocationsResponse(response) };
     case 'findReferences':
-      return { kind: 'locations', locations: normalizeLocationsResponse(response as LspReferencesResponse) };
+      return {
+        kind: 'locations',
+        locations: normalizeLocationsResponse(response as LspReferencesResponse),
+      };
     case 'hover':
       return { kind: 'hover', hover: normalizeHoverResponse(response as LspHoverResponse) };
   }

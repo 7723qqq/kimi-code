@@ -7,16 +7,11 @@
  * this component never touches config or the SDK directly.
  */
 
-import {
-  Container,
-  Key,
-  matchesKey,
-  truncateToWidth,
-  type Focusable,
-} from '@moonshot-ai/pi-tui';
+import { Container, Key, matchesKey, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
+
+import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import { t } from '#/i18n';
 import { printableChar } from '#/tui/utils/printable-key';
 
 export interface AstronSettings {
@@ -177,7 +172,9 @@ export class AstronSettingsComponent extends Container implements Focusable {
           : currentTheme.fg('textDim', ` ${status}`);
         lines.push(truncateToWidth(`${prefix}${labelText}:${valueText}`, width, ELLIPSIS));
       } else if (this.editing && selected) {
-        lines.push(truncateToWidth(`${prefix}${labelText}: ${this.editBuffer}\u2588`, width, ELLIPSIS));
+        lines.push(
+          truncateToWidth(`${prefix}${labelText}: ${this.editBuffer}\u2588`, width, ELLIPSIS),
+        );
       } else {
         const valueText = currentTheme.fg('text', ` ${String(this.settings[item.name])}`);
         lines.push(truncateToWidth(`${prefix}${labelText}:${valueText}`, width, ELLIPSIS));

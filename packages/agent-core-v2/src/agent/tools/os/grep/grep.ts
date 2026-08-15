@@ -115,5 +115,7 @@ export const GrepOutputSchema = z.object({
 export type GrepInput = z.infer<typeof GrepInputSchema>;
 export type GrepOutput = z.infer<typeof GrepOutputSchema>;
 
-export interface IGrepTool extends AgentTool<GrepInput> { readonly _serviceBrand: undefined }
+export interface IGrepTool extends AgentTool<GrepInput> {
+  readonly _serviceBrand: undefined;
+}
 export const IGrepTool = createDecorator<IGrepTool>('grepTool');

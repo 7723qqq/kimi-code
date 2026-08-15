@@ -20,19 +20,15 @@ import { describe, expect, it } from 'vitest';
 import { isError2 } from '#/_base/errors/errors';
 import { APIStatusError, createAbortError } from '#/kosong/contract/errors';
 import type { Message, StreamedMessagePart } from '#/kosong/contract/message';
-import type {
-  ChatProvider,
-  GenerateOptions,
-  StreamedMessage,
-} from '#/kosong/contract/provider';
+import type { ChatProvider, GenerateOptions, StreamedMessage } from '#/kosong/contract/provider';
 import type { Tool } from '#/kosong/contract/tool';
 import { emptyUsage, type TokenUsage } from '#/kosong/contract/usage';
-import { ProtocolErrors } from '#/kosong/protocol/errors';
-import type { IProtocolAdapterRegistry } from '#/kosong/protocol/protocol';
 import type { Model } from '#/kosong/model/catalog';
 import type { ModelRequestEvent } from '#/kosong/model/modelRequester';
 import { effectiveMaxCompletionTokens } from '#/kosong/model/modelRequester';
 import { buildStreamTiming, ModelRequesterImpl } from '#/kosong/model/modelRequesterImpl';
+import { ProtocolErrors } from '#/kosong/protocol/errors';
+import type { IProtocolAdapterRegistry } from '#/kosong/protocol/protocol';
 
 class FakeChatProvider implements ChatProvider {
   readonly name = 'fake-base';
@@ -131,8 +127,7 @@ function modelWith(authProvider: Model['authProvider']): Model {
 
 const staticAuth = (apiKey?: string): Model['authProvider'] => ({
   canRefresh: false,
-  getAuth: () =>
-    Promise.resolve(apiKey === undefined ? undefined : { apiKey }),
+  getAuth: () => Promise.resolve(apiKey === undefined ? undefined : { apiKey }),
 });
 
 async function collect(stream: AsyncIterable<ModelRequestEvent>): Promise<ModelRequestEvent[]> {
@@ -146,23 +141,22 @@ const INPUT = { systemPrompt: 'sys', tools: [], messages: [] };
 describe('ModelRequesterImpl request execution', () => {
   it('maps ModelRequestParams onto GenerateOptions 1:1', async () => {
     const provider = new FakeChatProvider();
-    const requester = new ModelRequesterImpl(modelWith(staticAuth('sk-1')), registryReturning(provider));
+    const requester = new ModelRequesterImpl(
+      modelWith(staticAuth('sk-1')),
+      registryReturning(provider),
+    );
     const signal = AbortSignal.timeout(1000);
 
     await collect(
-      requester.request(
-        { ...INPUT, responseFormat: { type: 'json_object' } },
-        signal,
-        {
-          cacheKey: 'session-1',
-          sampling: { temperature: 0.5, topP: 0.9 },
-          thinkingEffort: 'high',
-          thinkingKeep: 'all',
-          maxCompletionTokens: 1024,
-          usedContextTokens: 5000,
-          maxContextTokens: 128000,
-        },
-      ),
+      requester.request({ ...INPUT, responseFormat: { type: 'json_object' } }, signal, {
+        cacheKey: 'session-1',
+        sampling: { temperature: 0.5, topP: 0.9 },
+        thinkingEffort: 'high',
+        thinkingKeep: 'all',
+        maxCompletionTokens: 1024,
+        usedContextTokens: 5000,
+        maxContextTokens: 128000,
+      }),
     );
 
     expect(provider.calls).toHaveLength(1);
@@ -207,7 +201,11 @@ describe('ModelRequesterImpl request execution', () => {
     const usage = events.find((e) => e.type === 'usage');
     expect(usage).toMatchObject({ usage: { output: 7 }, model: 'fake-model' });
     const finish = events.find((e) => e.type === 'finish');
-    expect(finish).toMatchObject({ id: 'msg-42', traceId: 'trace-1', providerFinishReason: 'completed' });
+    expect(finish).toMatchObject({
+      id: 'msg-42',
+      traceId: 'trace-1',
+      providerFinishReason: 'completed',
+    });
     const timing = events.find((e) => e.type === 'timing');
     expect(timing).toMatchObject({
       requestBuildMs: expect.any(Number),
@@ -298,10 +296,16 @@ describe('ModelRequesterImpl request execution', () => {
     const uploadCalls: Array<GenerateOptions | undefined> = [];
     provider.uploadVideo = (_input, options) => {
       uploadCalls.push(options);
-      return Promise.resolve({ type: 'video_url', videoUrl: { url: 'https://cdn.example.test/v.mp4' } });
+      return Promise.resolve({
+        type: 'video_url',
+        videoUrl: { url: 'https://cdn.example.test/v.mp4' },
+      });
     };
     const part = await requester.uploadVideo('file-id');
-    expect(part).toEqual({ type: 'video_url', videoUrl: { url: 'https://cdn.example.test/v.mp4' } });
+    expect(part).toEqual({
+      type: 'video_url',
+      videoUrl: { url: 'https://cdn.example.test/v.mp4' },
+    });
     expect(uploadCalls[0]?.auth).toEqual({ apiKey: 'sk-1' });
   });
 });

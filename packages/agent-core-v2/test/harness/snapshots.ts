@@ -1,7 +1,7 @@
-import type { Message } from '#/kosong/contract/message';
-import type { Tool as LLMTool } from '#/kosong/contract/tool';
 import { expect } from 'vitest';
 
+import type { Message } from '#/kosong/contract/message';
+import type { Tool as LLMTool } from '#/kosong/contract/tool';
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 
 const IS_EVENT_ARRAY = Symbol('isEventArray');
@@ -44,10 +44,7 @@ export interface GenerateInputsSnapshot {
   readonly previous: GenerateCall | undefined;
 }
 
-export function eventSnapshot(
-  events: readonly EventSnapshotEntry[],
-  labels: SnapshotLabels,
-) {
+export function eventSnapshot(events: readonly EventSnapshotEntry[], labels: SnapshotLabels) {
   const normalized = events.map((event) => normalizeValue(event, labels));
   (normalized as unknown as Record<symbol, true>)[IS_EVENT_ARRAY] = true;
   return normalized;
@@ -294,7 +291,11 @@ function normalizeObjectField(key: string, value: unknown, labels: SnapshotLabel
   ) {
     return '<time>';
   }
-  if ((key === 'finishedAt' || key === 'abortedAt' || key === 'steeredAt') && typeof value === 'string') return '<time>';
+  if (
+    (key === 'finishedAt' || key === 'abortedAt' || key === 'steeredAt') &&
+    typeof value === 'string'
+  )
+    return '<time>';
   if (key === 'protocol_version' && value === WIRE_PROTOCOL_VERSION) {
     return '<protocol-version>';
   }
@@ -323,9 +324,10 @@ function isUuid(value: string): boolean {
 }
 
 function interactionIdKind(value: string): string | undefined {
-  const match = /^(approval|question|user_tool)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.exec(
-    value,
-  );
+  const match =
+    /^(approval|question|user_tool)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.exec(
+      value,
+    );
   return match?.[1];
 }
 

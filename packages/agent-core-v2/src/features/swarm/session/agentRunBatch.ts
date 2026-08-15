@@ -7,15 +7,15 @@
  * logic — owns no scoped state.
  */
 
-import { isProviderRateLimitError } from '#/kosong/contract/errors';
-import { type TokenUsage } from '#/kosong/contract/usage';
 import * as retry from 'retry';
 
 import { isUserCancellation } from '#/_base/utils/abort';
 import { setClampedTimeout } from '#/_base/utils/timer';
 import { BugIndicatingError, Error2, ErrorCodes } from '#/errors';
-import type { SessionSwarmRunResult, SessionSwarmTask } from './sessionSwarm';
+import { isProviderRateLimitError } from '#/kosong/contract/errors';
+import { type TokenUsage } from '#/kosong/contract/usage';
 
+import type { SessionSwarmRunResult, SessionSwarmTask } from './sessionSwarm';
 
 export interface AgentRunAttemptOptions {
   readonly parentToolCallId: string;
@@ -43,7 +43,6 @@ export type AgentRunAttemptHandle = {
     readonly usage?: TokenUsage;
   }>;
 };
-
 
 const INITIAL_LAUNCH_LIMIT = 5;
 const INITIAL_LAUNCH_INTERVAL_MS = 700;
@@ -483,10 +482,7 @@ export class AgentRunBatch<T> {
       return Number.POSITIVE_INFINITY;
     }
 
-    const latestCapacityChangeAt = Math.max(
-      this.lastRateLimitAt,
-      this.lastCapacityRecoveryAt ?? 0,
-    );
+    const latestCapacityChangeAt = Math.max(this.lastRateLimitAt, this.lastCapacityRecoveryAt ?? 0);
     return latestCapacityChangeAt + RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS;
   }
 
@@ -653,4 +649,3 @@ export function resolveSwarmMaxConcurrency(
   }
   return value;
 }
-

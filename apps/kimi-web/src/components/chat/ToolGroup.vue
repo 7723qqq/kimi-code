@@ -2,12 +2,13 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import ToolCall from './ToolCall.vue';
+
+import type { FilePreviewRequest, ToolMedia } from '../../types';
 import { toolStackKey, toolStackPosition } from '../chatTurnRendering';
 import type { ToolStackItem } from '../chatTurnRendering';
-import type { FilePreviewRequest, ToolMedia } from '../../types';
 import Icon from '../ui/Icon.vue';
 import StatusDot from '../ui/StatusDot.vue';
+import ToolCall from './ToolCall.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -62,7 +63,13 @@ function onHeadClick(): void {
 
 <template>
   <div class="tool-group" :class="{ open }">
-    <button class="tool-group-head" ref="headEl" type="button" :aria-expanded="open" @click="onHeadClick">
+    <button
+      class="tool-group-head"
+      ref="headEl"
+      type="button"
+      :aria-expanded="open"
+      @click="onHeadClick"
+    >
       <StatusDot :status="aggregateStatus" />
       <Icon class="tg-ic" name="list" size="sm" />
       <span class="tg-title">{{ t('tools.group.title', count) }}</span>
@@ -156,5 +163,4 @@ function onHeadClick(): void {
   display: flex;
   flex-direction: column;
 }
-
 </style>

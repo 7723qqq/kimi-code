@@ -5,16 +5,22 @@
  * which transport carried the bytes.
  */
 
-import type { KlientChannel, ScopeRef } from './channel.js';
-import { globalContract, isStreamingContract } from '#/contract/index';
-import { globalEvents, type KlientEventPayloads } from '#/contract/global/events';
-import { sessionEvents, type SessionEventPayloads } from '#/contract/session/events';
 import { agentEvents, type AgentEventPayloads } from '#/contract/agent/events';
+import { globalEvents, type KlientEventPayloads } from '#/contract/global/events';
+import { globalContract, isStreamingContract } from '#/contract/index';
+import { sessionEvents, type SessionEventPayloads } from '#/contract/session/events';
 import type { EventRegistration, StreamingProcedureContract } from '#/contract/types';
+
+import type { KlientChannel, ScopeRef } from './channel.js';
 import { EventHub, type KlientEvents } from './events/hub.js';
-import { createGlobalFacade, type GlobalFacade, type ScopedCaller, type ScopedStreamCaller } from './facade/global.js';
-import { createSessionFacade, type SessionFacade } from './facade/session.js';
 import { createAgentFacade, type AgentFacade } from './facade/agent.js';
+import {
+  createGlobalFacade,
+  type GlobalFacade,
+  type ScopedCaller,
+  type ScopedStreamCaller,
+} from './facade/global.js';
+import { createSessionFacade, type SessionFacade } from './facade/session.js';
 import { parseChunk, parseInput, parseOutput } from './validation.js';
 
 export interface KlientOptions {
@@ -101,17 +107,24 @@ export function createKlientFromChannel(
     scope: ScopeRef,
     registrations: Record<string, EventRegistration>,
   ): KlientEvents<TPayloadMap> => {
-    const hub = new EventHub<TPayloadMap>(channel, validate, scope, registrations, () => {
-      // A discarded handle's hub has no listeners left — stop pinning it in
-      // the Set so the whole EventHub (and any captured scope) can be GC'd.
-      // `close` is idempotent and `close()` on an already-idle hub is a no-op,
-      // so this cannot interfere with `klient.close()`.
-      hubs.delete(hub);
-    }, () => {
-      // The caller re-attached listeners to a previously-idle hub — re-track
-      // it so a later `klient.close()` still tears down its subscriptions.
-      hubs.add(hub);
-    });
+    const hub = new EventHub<TPayloadMap>(
+      channel,
+      validate,
+      scope,
+      registrations,
+      () => {
+        // A discarded handle's hub has no listeners left — stop pinning it in
+        // the Set so the whole EventHub (and any captured scope) can be GC'd.
+        // `close` is idempotent and `close()` on an already-idle hub is a no-op,
+        // so this cannot interfere with `klient.close()`.
+        hubs.delete(hub);
+      },
+      () => {
+        // The caller re-attached listeners to a previously-idle hub — re-track
+        // it so a later `klient.close()` still tears down its subscriptions.
+        hubs.add(hub);
+      },
+    );
     hubs.add(hub);
     return hub;
   };

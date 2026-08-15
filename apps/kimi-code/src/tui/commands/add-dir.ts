@@ -1,6 +1,7 @@
 import { t } from '#/i18n';
-import { getNoActiveSessionMessage } from '../constant/kimi-tui';
+
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
+import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import type { SlashCommandHost } from './dispatch';
 import { slashBusyMessage, slashCommandBusyReason } from './resolve';
 
@@ -74,7 +75,10 @@ export async function handleAddDirCommand(host: SlashCommandHost, args: string):
 }
 
 function formatAdditionalDirsStatus(additionalDirs: readonly string[]): string {
-  return [t('tui.statusMessages.addDirListHeader'), ...additionalDirs.map((dir) => `  ${dir}`)].join('\n');
+  return [
+    t('tui.statusMessages.addDirListHeader'),
+    ...additionalDirs.map((dir) => `  ${dir}`),
+  ].join('\n');
 }
 
 async function handleAddDirChoice(

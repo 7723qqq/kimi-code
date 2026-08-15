@@ -19,6 +19,7 @@ import {
 import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentStateService } from '#/agent/state/agentState';
+
 import AUTO_MODE_ENTER_REMINDER from './permission-mode-auto-enter-reminder.md?raw';
 import AUTO_MODE_EXIT_REMINDER from './permission-mode-auto-exit-reminder.md?raw';
 

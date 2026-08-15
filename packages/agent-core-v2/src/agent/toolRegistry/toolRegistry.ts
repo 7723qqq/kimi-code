@@ -8,12 +8,7 @@
 
 import { createDecorator } from '#/_base/di/instantiation';
 import { type IDisposable } from '#/_base/di/lifecycle';
-import type {
-  ExecutableTool,
-  ToolDisclosure,
-  ToolInfo,
-  ToolSource,
-} from '#/tool/toolContract';
+import type { ExecutableTool, ToolDisclosure, ToolInfo, ToolSource } from '#/tool/toolContract';
 
 export interface ToolRegistrationOptions {
   readonly source?: ToolSource;
@@ -39,4 +34,6 @@ export interface IAgentToolRegistryService {
   resolve(name: string): ExecutableTool | undefined;
 }
 
-export const IAgentToolRegistryService = createDecorator<IAgentToolRegistryService>('agentToolRegistryService');
+export const IAgentToolRegistryService = createDecorator<IAgentToolRegistryService>(
+  'agentToolRegistryService',
+);

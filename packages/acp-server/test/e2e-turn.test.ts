@@ -206,8 +206,9 @@ describe('acp-server real prompt turn (scripted LLM)', () => {
     // The question went over `elicitation/create` — never the permission
     // bridge — as one form carrying both questions.
     expect(elicitationRequests).toHaveLength(1);
-    expect(permissionRequests.filter((p) => JSON.stringify(p).includes('AskUserQuestion')))
-      .toHaveLength(0);
+    expect(
+      permissionRequests.filter((p) => JSON.stringify(p).includes('AskUserQuestion')),
+    ).toHaveLength(0);
     const elicitation = elicitationRequests[0] as {
       mode?: string;
       toolCallId?: string;

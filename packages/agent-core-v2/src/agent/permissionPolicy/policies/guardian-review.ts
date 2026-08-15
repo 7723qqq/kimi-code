@@ -11,10 +11,7 @@
 
 import { IAgentGuardianService } from '#/agent/guardian/guardianService';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import type {
-  PermissionPolicy,
-  PermissionPolicyResult,
-} from '#/agent/permissionPolicy/types';
+import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 
 export class GuardianReviewPermissionPolicyService implements PermissionPolicy {
@@ -67,7 +64,10 @@ export class GuardianReviewPermissionPolicyService implements PermissionPolicy {
 function isHighRisk(context: ResolvedToolExecutionHookContext): boolean {
   if (context.toolCall.name === 'Bash') return true;
   for (const access of context.execution.accesses ?? []) {
-    if (access.kind === 'file' && (access.operation === 'write' || access.operation === 'readwrite')) {
+    if (
+      access.kind === 'file' &&
+      (access.operation === 'write' || access.operation === 'readwrite')
+    ) {
       return true;
     }
   }

@@ -12,19 +12,16 @@ import {
 } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { createScopedTestHost } from '#/_base/di/test';
+import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
 import { AgentProfileContribution } from '#/app/agentProfileCatalog/agentProfileContribution';
 import { ConfigSectionContribution } from '#/app/config/configSectionContributions';
 import { IFeatureManager } from '#/app/feature/featureManager';
 import { FeatureManagerService } from '#/app/feature/featureManagerService';
 import { LifecycleScope } from '#/app/scopes';
-import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
 import { Feature } from '#/features/feature';
 import { IFeatureAssemblyService } from '#/features/featureAssembly';
 import { FeatureAssemblyService } from '#/features/featureAssemblyService';
-import {
-  _clearFeatureRecipesForTests,
-  registerFeature,
-} from '#/features/featureRegistry';
+import { _clearFeatureRecipesForTests, registerFeature } from '#/features/featureRegistry';
 import type { AgentTool, ToolExecution } from '#/tool/toolContract';
 
 interface IGreeter {

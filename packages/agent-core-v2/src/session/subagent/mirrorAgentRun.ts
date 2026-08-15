@@ -23,13 +23,13 @@
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { userCancellationReason } from '#/_base/utils/abort';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { isAbortError } from '#/_base/utils/abort';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { IEventBus } from '#/app/event/eventBus';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { isProviderRateLimitError } from '#/kosong/contract/errors';
 import { type TokenUsage } from '#/kosong/contract/usage';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IEventBus } from '#/app/event/eventBus';
-import { isAbortError } from '#/_base/utils/abort';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import { type AgentRunHandle, ISessionSubagentService } from './subagent';

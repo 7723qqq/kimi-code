@@ -16,9 +16,9 @@
 import { Container, Text, Spacer } from '@moonshot-ai/pi-tui';
 import type { TUI } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import { t } from '#/i18n';
 
 const BLINK_INTERVAL = 500;
 
@@ -152,11 +152,15 @@ export class CompactionComponent extends Container {
       const label = currentTheme.boldFg('success', t('tui.dialogs.compaction.complete'));
       const detail =
         this.tokensBefore !== undefined && this.tokensAfter !== undefined
-          ? currentTheme.dim(` ${t('tui.dialogs.compaction.detailTokens', { before: this.tokensBefore, after: this.tokensAfter })}`)
+          ? currentTheme.dim(
+              ` ${t('tui.dialogs.compaction.detailTokens', { before: this.tokensBefore, after: this.tokensAfter })}`,
+            )
           : '';
       const shortcutHint =
         this.summary !== undefined && this.summary.length > 0
-          ? currentTheme.dim(` ${t('tui.dialogs.compaction.shortcutHint', { action: this.expanded ? t('tui.dialogs.compaction.hide') : t('tui.dialogs.compaction.show') })}`)
+          ? currentTheme.dim(
+              ` ${t('tui.dialogs.compaction.shortcutHint', { action: this.expanded ? t('tui.dialogs.compaction.hide') : t('tui.dialogs.compaction.show') })}`,
+            )
           : '';
       return `${bullet}${label}${detail}${shortcutHint}`;
     }
@@ -167,7 +171,9 @@ export class CompactionComponent extends Container {
     }
     const bullet = this.blinkOn ? currentTheme.fg('text', STATUS_BULLET) : '  ';
     const label = currentTheme.boldFg('primary', t('tui.dialogs.compaction.compacting'));
-    const tip = this.tip ? currentTheme.fg('textDim', t('tui.dialogs.compaction.tipPrefix', { tip: this.tip })) : '';
+    const tip = this.tip
+      ? currentTheme.fg('textDim', t('tui.dialogs.compaction.tipPrefix', { tip: this.tip }))
+      : '';
     return `${bullet}${label}${tip}`;
   }
 

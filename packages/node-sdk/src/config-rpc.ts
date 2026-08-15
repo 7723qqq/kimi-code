@@ -7,6 +7,7 @@
  */
 import { z } from 'zod';
 
+import { parseConfigString, resolveConfigPath } from '#/config-local';
 import {
   ErrorCodes,
   KimiError,
@@ -14,7 +15,6 @@ import {
   toKimiErrorPayload,
   type KimiErrorPayload,
 } from '#/legacy';
-import { parseConfigString, resolveConfigPath } from '#/config-local';
 
 export type KimiConfigValidationPathSegment = string | number;
 
@@ -61,10 +61,10 @@ type RPCClient<Self extends object, Other extends object> = (
   self: Self,
 ) => Promise<RPCMethods<Other>>;
 
-function createRPC<
-  Left extends object,
-  Right extends object,
->(): [RPCClient<Left, Right>, RPCClient<Right, Left>] {
+function createRPC<Left extends object, Right extends object>(): [
+  RPCClient<Left, Right>,
+  RPCClient<Right, Left>,
+] {
   let left: Left | undefined;
   let right: Right | undefined;
   const leftWaiters: ((value: Left) => void)[] = [];
@@ -208,9 +208,7 @@ function extractValidationIssues(error: unknown): readonly KimiConfigValidationI
   const zodError = findZodError(error);
   if (zodError === undefined) return undefined;
   return zodError.issues.map((issue) => ({
-    path: issue.path.map((segment) =>
-      typeof segment === 'number' ? segment : String(segment),
-    ),
+    path: issue.path.map((segment) => (typeof segment === 'number' ? segment : String(segment))),
     message: issue.message,
   }));
 }

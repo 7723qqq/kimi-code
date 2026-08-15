@@ -8,9 +8,8 @@
  * replace rather than shadow), so `surface` is not part of event filters.
  */
 
-import type { SessionRecord, SessionResultFilter, SessionResultRange } from './types';
-
 import type { SessionSearchCursor } from './cursor';
+import type { SessionRecord, SessionResultFilter, SessionResultRange } from './types';
 
 export type { SessionSearchCursor } from './cursor';
 

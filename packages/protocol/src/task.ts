@@ -5,12 +5,7 @@ import { isoDateTimeSchema } from './time';
 export const taskKindSchema = z.enum(['subagent', 'bash', 'tool']);
 export type TaskKind = z.infer<typeof taskKindSchema>;
 
-export const taskStatusSchema = z.enum([
-  'running',
-  'completed',
-  'failed',
-  'cancelled',
-]);
+export const taskStatusSchema = z.enum(['running', 'completed', 'failed', 'cancelled']);
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 
 export const taskSchema = z.object({

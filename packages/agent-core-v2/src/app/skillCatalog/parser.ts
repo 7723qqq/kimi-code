@@ -122,8 +122,7 @@ export function parseD2Flowchart(markdown: string): string | undefined {
 
 export function skillArgumentNames(metadata: SkillMetadata): readonly string[] {
   const value = metadata.arguments;
-  const isValidName = (name: string): boolean =>
-    name.trim() !== '' && !/^\d+$/.test(name);
+  const isValidName = (name: string): boolean => name.trim() !== '' && !/^\d+$/.test(name);
   if (typeof value === 'string') return value.split(/\s+/).filter(isValidName);
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && isValidName(item));

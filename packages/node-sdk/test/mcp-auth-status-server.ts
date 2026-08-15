@@ -1,8 +1,4 @@
-import {
-  createServer,
-  type IncomingMessage,
-  type ServerResponse,
-} from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 export interface McpAuthStatusServer {
@@ -128,11 +124,7 @@ async function readJson(request: AsyncIterable<unknown>): Promise<Record<string,
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
 }
 
-function sendJson(
-  response: ServerResponse,
-  body: unknown,
-  status = 200,
-): void {
+function sendJson(response: ServerResponse, body: unknown, status = 200): void {
   response.writeHead(status, { 'content-type': 'application/json' });
   response.end(JSON.stringify(body));
 }

@@ -15,9 +15,8 @@
  * session/agent per call.
  */
 
-import type { GoalSnapshot } from '#/agent/goal/types';
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { GoalSnapshot } from '#/agent/goal/types';
 
 import type { SessionStatusResponse } from './sessionProtocol';
 

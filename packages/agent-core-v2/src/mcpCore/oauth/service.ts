@@ -27,9 +27,9 @@
  */
 import { auth } from '@modelcontextprotocol/client';
 import type { OAuthClientProvider } from '@modelcontextprotocol/client';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 import { ErrorCodes, Error2, isError2 } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 import { startCallbackServer, type CallbackServer } from './callback-server';
 import type { McpOAuthCredentialsCoordinator } from './coordinator';

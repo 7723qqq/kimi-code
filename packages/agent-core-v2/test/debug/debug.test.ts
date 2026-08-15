@@ -8,9 +8,9 @@ import { Service } from '#/_base/di/service';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
 import { Emitter } from '#/_base/event';
 import { type DomainEvent, IEventService } from '#/app/event/event';
-import { EventService } from '#/app/event/eventService';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { EventService } from '#/app/event/eventService';
 import { DI_UNIT_CHANGED_EVENT } from '#/debug/debugCascade';
 import { DebugCascadeService } from '#/debug/debugCascadeService';
 import { DebugGraphService } from '#/debug/debugGraphService';
@@ -22,7 +22,6 @@ declare module '#/app/event/eventBus' {
     'debug.test': { v: number };
   }
 }
-
 
 interface IRoot {
   label: string;
@@ -99,7 +98,6 @@ function makeTree(): { app: InstantiationService; ws: InstantiationService } {
   ws.debugLabel = 'workspace:ws1';
   return { app, ws };
 }
-
 
 describe('debug domain — IDebugLedgerService', () => {
   it('tree() exposes units, ledger entries, and children recursively', () => {
@@ -191,9 +189,7 @@ describe('debug domain — IDebugCascadeService', () => {
     const wsGroup = pending.find((group) => group.scopePath === 'app/workspace:ws1');
     expect(wsGroup?.waiting ?? []).toEqual([]);
     const appGroup = pending.find((group) => group.scopePath === 'app');
-    expect(appGroup?.failed).toEqual([
-      { token: 'debug-boom', error: 'boom construction failed' },
-    ]);
+    expect(appGroup?.failed).toEqual([{ token: 'debug-boom', error: 'boom construction failed' }]);
     app.dispose();
   });
 
@@ -265,9 +261,7 @@ describe('debug domain — IDebugCascadeService', () => {
     const service = new DebugCascadeService(app, events);
 
     app.provide(IRoot, new SyncDescriptor(Root));
-    const rootEvents = events.published.filter(
-      (event) => event.type === DI_UNIT_CHANGED_EVENT,
-    );
+    const rootEvents = events.published.filter((event) => event.type === DI_UNIT_CHANGED_EVENT);
     expect(rootEvents).toContainEqual({
       type: DI_UNIT_CHANGED_EVENT,
       payload: { scope: 'app', token: 'debug-root', state: 'Active', error: undefined },
@@ -310,9 +304,7 @@ describe('debug domain — IDebugEventsService', () => {
       kind: 'disposer',
       uid: expect.any(Number),
     });
-    expect(result.buses).toEqual([
-      { scopePath: 'app', all: 1, perType: { 'debug.test': 2 } },
-    ]);
+    expect(result.buses).toEqual([{ scopePath: 'app', all: 1, perType: { 'debug.test': 2 } }]);
     expect(() => JSON.stringify(result)).not.toThrow();
     app.dispose();
   });

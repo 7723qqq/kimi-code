@@ -4,8 +4,8 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage } from '#/agent/contextMemory/types';
 import { AgentContextMemoryService } from '#/agent/contextMemory/contextMemoryService';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 
@@ -20,11 +20,8 @@ function textMessage(role: ContextMessage['role'], text: string): ContextMessage
 }
 
 function textOf(message: ContextMessage): string {
-  return message.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('');
+  return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
-
 
 describe('message history (IAgentContextMemoryService)', () => {
   let disposables: DisposableStore;

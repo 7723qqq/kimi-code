@@ -110,10 +110,7 @@ interface StoredRecord {
 export type { StoredRecord };
 
 export class CollectionStore {
-  private readonly _records = new Map<
-    CollectionToken<unknown>,
-    Map<number, StoredRecord>
-  >();
+  private readonly _records = new Map<CollectionToken<unknown>, Map<number, StoredRecord>>();
   private readonly _views = new Set<CollectionViewImpl<unknown>>();
   private _nextId = 0;
 
@@ -195,10 +192,7 @@ export class CollectionStore {
     return out;
   }
 
-  storedRecordsFor(
-    token: CollectionToken<unknown>,
-    consumer: object,
-  ): readonly StoredRecord[] {
+  storedRecordsFor(token: CollectionToken<unknown>, consumer: object): readonly StoredRecord[] {
     const records = this._records.get(token);
     if (records === undefined) {
       return [];
@@ -244,9 +238,7 @@ export class CollectionViewImpl<T> implements CollectionView<T> {
   _fireDelta(kind: 'added' | 'removed', records: readonly StoredRecord[]): void {
     const values = records.map((record) => record.value as T);
     this._onDidChange.fire(
-      kind === 'added'
-        ? { added: values, removed: [] }
-        : { added: [], removed: values },
+      kind === 'added' ? { added: values, removed: [] } : { added: [], removed: values },
     );
   }
 

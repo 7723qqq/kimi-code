@@ -4,6 +4,7 @@
 // agrees on placement without any coordination.
 
 import path from 'node:path';
+
 import type { ClusterMeta } from './types.js';
 import { shardDirName, shardFor } from './utils.js';
 

@@ -10,14 +10,9 @@
  * read back after a client reload.
  */
 
-import type { TokenUsage } from '#/kosong/contract/usage';
-
 import { isAbortError } from '#/_base/utils/abort';
-import {
-  type AgentTask,
-  type AgentTaskInfoBase,
-  type AgentTaskSink,
-} from '#/agent/task/types';
+import { type AgentTask, type AgentTaskInfoBase, type AgentTaskSink } from '#/agent/task/types';
+import type { TokenUsage } from '#/kosong/contract/usage';
 
 type SubagentCompletion = {
   readonly result: string;

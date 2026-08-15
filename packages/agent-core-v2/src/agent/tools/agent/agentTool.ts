@@ -42,49 +42,33 @@ import { t } from '@moonshot-ai/kimi-i18n';
 
 import { type CollectionView } from '#/_base/di/collection';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
-import {
-  isAbortError,
-  isUserCancellation,
-  userCancellationReason,
-} from '#/_base/utils/abort';
-import { Error2, ErrorCodes, isError2 } from '#/errors';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import {
-  IAgentTaskService,
-  type RegisterAgentTaskOptions,
-} from '#/agent/task/task';
+import { ILogService } from '#/_base/log/log';
+import { isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentTaskService, type RegisterAgentTaskOptions } from '#/agent/task/task';
 import {
   isToolActive as evaluateToolActive,
   resolveActiveToolNames,
 } from '#/agent/toolPolicy/evaluate';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentUserToolService } from '#/agent/userTool/userTool';
-import {
-  ToolAccesses,
-  type ExecutableToolContext,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
 import {
   AgentToolContribution,
   registerAgentToolService,
 } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService, type ToolReference } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import {
   subagentAllowlistFor,
   subagentTypeNotAllowedMessage,
 } from '#/app/agentProfileCatalog/profile-shared';
-import { ILogService } from '#/_base/log/log';
+import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
+import { Error2, ErrorCodes, isError2 } from '#/errors';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import {
@@ -94,11 +78,8 @@ import {
   subagentParentAgentId,
 } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionProcessRunner } from '#/session/process/processRunner';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-
-import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
 import {
   exposesSubagentBackends,
   stripSubagentBackendParameter,
@@ -113,6 +94,18 @@ import {
   stripSubagentModelParameter,
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
+import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { matchesGlobRuleSubject } from '#/tool/rule-match';
+import {
+  ToolAccesses,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+
 import {
   BACKGROUND_AGENT_UNAVAILABLE,
   DEFAULT_PROFILE_NAME,
@@ -124,11 +117,10 @@ import {
   USER_INTERRUPTED_SUBAGENT_MESSAGE,
   type SubagentToolInput,
 } from './agent';
-import { SubagentTask, type SubagentHandle } from './subagent-task';
-
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
 import AGENT_BACKGROUND_DESCRIPTION from './agent-background-enabled.md?raw';
 import AGENT_DESCRIPTION_BASE from './agent.md?raw';
+import { SubagentTask, type SubagentHandle } from './subagent-task';
 
 const SUBAGENT_TOOL_PARAMETERS = toInputJsonSchema(SubagentToolInputSchema);
 const SUBAGENT_TOOL_PARAMETERS_NO_MODEL = stripSubagentModelParameter(SUBAGENT_TOOL_PARAMETERS);
@@ -203,8 +195,7 @@ export class SubagentTool implements ISubagentTool {
     const typeLines = buildProfileDescriptions(
       profiles,
       this.knownToolReferences(),
-      (profile, name, source) =>
-        this.toolPolicy.isToolActiveForProfile(profile, name, source),
+      (profile, name, source) => this.toolPolicy.isToolActiveForProfile(profile, name, source),
     );
     if (typeLines) {
       description += `\n\nAvailable agent types (pass via subagent_type):\n${typeLines}`;
@@ -257,8 +248,8 @@ export class SubagentTool implements ISubagentTool {
 
     const profileNameForDisplay =
       resumeAgentId !== undefined && resumeAgentId.length > 0
-        ? this.resumeProfileName(resumeAgentId) ?? RESUMED_LABEL
-        : requestedProfileName ?? DEFAULT_PROFILE_NAME;
+        ? (this.resumeProfileName(resumeAgentId) ?? RESUMED_LABEL)
+        : (requestedProfileName ?? DEFAULT_PROFILE_NAME);
     const prefix = args.run_in_background === true ? 'Launching background' : 'Launching';
     return {
       description: `${prefix} ${profileNameForDisplay} agent: ${args.description}`,
@@ -425,10 +416,7 @@ export class SubagentTool implements ISubagentTool {
     };
   }
 
-  private async ensureOwnedIdleSubagent(
-    agentId: string,
-    target: IAgentScopeHandle,
-  ): Promise<void> {
+  private async ensureOwnedIdleSubagent(agentId: string, target: IAgentScopeHandle): Promise<void> {
     const meta = (await this.sessionMetadata.read()).agents?.[agentId];
     if (!isSubagentMeta(meta)) {
       throw new Error(t('v2Errors.subagentNotSubagent', { agentId }));
@@ -457,7 +445,8 @@ export class SubagentTool implements ISubagentTool {
       }
       if (isResume && args.backend !== undefined && args.backend !== 'in-process') {
         return {
-          output: 'Cannot use an external backend when resuming an existing agent. Resume by agent id only.',
+          output:
+            'Cannot use an external backend when resuming an existing agent. Resume by agent id only.',
           isError: true,
         };
       }
@@ -566,7 +555,6 @@ export class SubagentTool implements ISubagentTool {
 
 registerAgentToolService(ISubagentTool, SubagentTool, { name: 'Agent', domain: 'subagent' });
 
-
 function buildProfileDescriptions(
   profiles: readonly AgentProfile[],
   tools: readonly ToolReference[],
@@ -581,7 +569,8 @@ function buildProfileDescriptions(
       const details = [profile.description, profile.whenToUse].filter(
         (part): part is string => part !== undefined && part.length > 0,
       );
-      const header = details.length === 0 ? `- ${profile.name}` : `- ${profile.name}: ${details.join(' ')}`;
+      const header =
+        details.length === 0 ? `- ${profile.name}` : `- ${profile.name}: ${details.join(' ')}`;
       const activeTools = resolveActiveToolNames(profile);
       const externallyRestricted = tools.some(
         (tool) =>

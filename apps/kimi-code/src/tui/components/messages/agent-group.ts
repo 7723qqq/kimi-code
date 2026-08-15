@@ -18,9 +18,9 @@
 import type { TUI } from '@moonshot-ai/pi-tui';
 import { Container, Spacer, Text } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import { t } from '#/i18n';
 
 import type { ToolCallComponent, ToolCallSubagentSnapshot } from './tool-call';
 
@@ -133,7 +133,9 @@ export class AgentGroupComponent extends Container {
       this.appendLines(snap, isLast);
     });
     if (this.shouldShowDetachHint(snapshots)) {
-      this.bodyContainer.addChild(new Text(currentTheme.dim(t('tui.messages.agentGroup.detachHint')), 2, 0));
+      this.bodyContainer.addChild(
+        new Text(currentTheme.dim(t('tui.messages.agentGroup.detachHint')), 2, 0),
+      );
     }
 
     this.lastFlushPhases.clear();
@@ -159,7 +161,10 @@ export class AgentGroupComponent extends Container {
       const types = new Set(snapshots.map((s) => s.agentName).filter((n) => n !== undefined));
       const headerLabel =
         types.size === 1
-          ? t('tui.messages.agentGroup.finishedWithType', { count: total, type: [...types][0] ?? '' })
+          ? t('tui.messages.agentGroup.finishedWithType', {
+              count: total,
+              type: [...types][0] ?? '',
+            })
           : t('tui.messages.agentGroup.finished', { count: total });
       const totalTools = snapshots.reduce((acc, s) => acc + s.toolCount, 0);
       const totalTokens = snapshots.reduce((acc, s) => acc + s.tokens, 0);
@@ -168,9 +173,13 @@ export class AgentGroupComponent extends Container {
     }
 
     const parts = formatBreakdownParts(counts);
-    const headerText = parts.length > 0
-      ? t('tui.messages.agentGroup.runningWithBreakdown', { count: total, breakdown: parts.join(', ') })
-      : t('tui.messages.agentGroup.running', { count: total });
+    const headerText =
+      parts.length > 0
+        ? t('tui.messages.agentGroup.runningWithBreakdown', {
+            count: total,
+            breakdown: parts.join(', '),
+          })
+        : t('tui.messages.agentGroup.running', { count: total });
     const tail = formatHeaderTail({ toolCount: 0, tokens: 0, elapsedSeconds });
     return `${bullet}${currentTheme.boldFg('primary', headerText)}${tail}`;
   }
@@ -193,8 +202,13 @@ export class AgentGroupComponent extends Container {
     const branch2 = isLast ? '   ' : '│  ';
     if (snap.phase === 'failed') {
       // Show one error line; error messages can be long.
-      const errLine = (snap.errorText ?? t('tui.messages.agentGroup.failed')).split('\n').at(0) ?? t('tui.messages.agentGroup.failed');
-      const errStr = currentTheme.fg('error', t('tui.messages.agentGroup.errorPrefix', { error: errLine }));
+      const errLine =
+        (snap.errorText ?? t('tui.messages.agentGroup.failed')).split('\n').at(0) ??
+        t('tui.messages.agentGroup.failed');
+      const errStr = currentTheme.fg(
+        'error',
+        t('tui.messages.agentGroup.errorPrefix', { error: errLine }),
+      );
       this.bodyContainer.addChild(new Text(`  ${branch2}    ${errStr}`, 0, 0));
       return;
     }
@@ -290,11 +304,16 @@ function countPhases(snapshots: readonly ToolCallSubagentSnapshot[]): PhaseCount
 function formatBreakdownParts(counts: PhaseCounts): string[] {
   const parts: string[] = [];
   if (counts.done > 0) parts.push(t('tui.messages.agentGroup.breakdown.done', { n: counts.done }));
-  if (counts.failed > 0) parts.push(t('tui.messages.agentGroup.breakdown.failed', { n: counts.failed }));
-  if (counts.backgrounded > 0) parts.push(t('tui.messages.agentGroup.breakdown.backgrounded', { n: counts.backgrounded }));
-  if (counts.running > 0) parts.push(t('tui.messages.agentGroup.breakdown.running', { n: counts.running }));
-  if (counts.waiting > 0) parts.push(t('tui.messages.agentGroup.breakdown.waiting', { n: counts.waiting }));
-  if (counts.starting > 0) parts.push(t('tui.messages.agentGroup.breakdown.starting', { n: counts.starting }));
+  if (counts.failed > 0)
+    parts.push(t('tui.messages.agentGroup.breakdown.failed', { n: counts.failed }));
+  if (counts.backgrounded > 0)
+    parts.push(t('tui.messages.agentGroup.breakdown.backgrounded', { n: counts.backgrounded }));
+  if (counts.running > 0)
+    parts.push(t('tui.messages.agentGroup.breakdown.running', { n: counts.running }));
+  if (counts.waiting > 0)
+    parts.push(t('tui.messages.agentGroup.breakdown.waiting', { n: counts.waiting }));
+  if (counts.starting > 0)
+    parts.push(t('tui.messages.agentGroup.breakdown.starting', { n: counts.starting }));
   return parts;
 }
 

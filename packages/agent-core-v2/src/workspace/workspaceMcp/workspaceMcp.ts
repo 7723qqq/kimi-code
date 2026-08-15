@@ -20,8 +20,8 @@
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { McpConnectionManager } from '#/mcpCore/connection-manager';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
+import type { McpConnectionManager } from '#/mcpCore/connection-manager';
 import type { McpOAuthCredentialsChangedEvent } from '#/mcpCore/oauth/coordinator';
 import type { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 

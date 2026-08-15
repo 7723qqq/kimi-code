@@ -3,24 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "description": "A pure-TypeScript bash parser producing a syntax tree whose named node types match tree-sitter-bash one-to-one.",
+  "keywords": [
+    "bash",
+    "kimi",
+    "parser",
+    "shell",
+    "tree-sitter"
+  ],
+  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/tree-sitter-bash#readme",
+  "bugs": {
+    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+  },
   "license": "MIT",
   "author": "Moonshot AI",
-  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/tree-sitter-bash#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MoonshotAI/kimi-code.git",
     "directory": "packages/tree-sitter-bash"
   },
-  "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
-  },
-  "keywords": [
-    "kimi",
-    "bash",
-    "shell",
-    "parser",
-    "tree-sitter"
-  ],
   "files": [
     "dist"
   ],

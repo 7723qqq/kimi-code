@@ -9,10 +9,11 @@
  * level from `ILogOptions`.
  */
 
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
+import { createFileLogWriter, type FileLogWriter } from './fileLog';
 import {
   type ILogger,
   type ILogWriter,
@@ -24,7 +25,6 @@ import {
   ILogService,
   levelEnabled,
 } from './log';
-import { createFileLogWriter, type FileLogWriter } from './fileLog';
 import { ILogOptions } from './logConfig';
 
 interface ExtractedPayload {
@@ -105,11 +105,7 @@ export class BoundLogger extends Service implements ILogger {
     this.emit('debug', message, payload);
   }
 
-  private emit(
-    level: Exclude<LogLevel, 'off'>,
-    message: string,
-    payload?: LogPayload,
-  ): void {
+  private emit(level: Exclude<LogLevel, 'off'>, message: string, payload?: LogPayload): void {
     if (!levelEnabled(level, this.levelState.level)) return;
     const extracted = extractPayload(payload);
     if (extracted === undefined) return;

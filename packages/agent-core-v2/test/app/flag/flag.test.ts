@@ -3,24 +3,21 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
 import { ConfigRegistry, ConfigService } from '#/app/config/configService';
-import {
-  EXPERIMENTAL_SECTION,
-  IFlagService,
-} from '#/app/flag/flag';
+import { EXPERIMENTAL_SECTION, IFlagService } from '#/app/flag/flag';
 import { IFlagRegistry, type FlagDefinitionInput } from '#/app/flag/flagRegistry';
 import { FlagRegistryService } from '#/app/flag/flagRegistryService';
 import { FlagService, MASTER_ENV } from '#/app/flag/flagService';
-import { ILogService } from '#/_base/log/log';
-import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../../_base/log/stubs';
+import { stubBootstrap } from '../bootstrap/stubs';
 
 const exampleFlag: FlagDefinitionInput = {
   id: 'example_flag',

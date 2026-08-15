@@ -1,9 +1,10 @@
-import { t } from '#/i18n';
 import { Container, truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
+
+import { t } from '#/i18n';
+import { currentTheme } from '#/tui/theme';
 
 import { SELECT_POINTER } from '../../constant/symbols';
 import type { QueuedMessage } from '../../types';
-import { currentTheme } from '#/tui/theme';
 
 export interface QueuePaneOptions {
   readonly messages: readonly QueuedMessage[];

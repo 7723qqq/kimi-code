@@ -8,21 +8,21 @@
  * only string-keyed object literals with string values are accepted.
  */
 
-import { join } from 'pathe';
 import { readFile } from 'node:fs/promises';
 
-import type { WorkflowEntry, WorkflowMeta } from './workflowTypes';
+import { join } from 'pathe';
 
+import ARCHITECTURE_REVIEW_SCRIPT from './builtin/architecture-review.js?raw';
+import BUG_TRIAGE_SCRIPT from './builtin/bug-triage.js?raw';
+import CODE_REVIEW_SCRIPT from './builtin/code-review.js?raw';
 // ── Built-in scripts ──────────────────────────────────────────────
 import DEEP_RESEARCH_SCRIPT from './builtin/deep-research.js?raw';
-import CODE_REVIEW_SCRIPT from './builtin/code-review.js?raw';
-import TEST_GENERATOR_SCRIPT from './builtin/test-generator.js?raw';
-import REFACTOR_PLANNER_SCRIPT from './builtin/refactor-planner.js?raw';
-import BUG_TRIAGE_SCRIPT from './builtin/bug-triage.js?raw';
-import PR_DESCRIPTION_SCRIPT from './builtin/pr-description.js?raw';
-import ARCHITECTURE_REVIEW_SCRIPT from './builtin/architecture-review.js?raw';
-import SECURITY_AUDIT_SCRIPT from './builtin/security-audit.js?raw';
 import MIGRATION_PLANNER_SCRIPT from './builtin/migration-planner.js?raw';
+import PR_DESCRIPTION_SCRIPT from './builtin/pr-description.js?raw';
+import REFACTOR_PLANNER_SCRIPT from './builtin/refactor-planner.js?raw';
+import SECURITY_AUDIT_SCRIPT from './builtin/security-audit.js?raw';
+import TEST_GENERATOR_SCRIPT from './builtin/test-generator.js?raw';
+import type { WorkflowEntry, WorkflowMeta } from './workflowTypes';
 
 const BUILTIN_SCRIPTS: readonly { file: string; script: string }[] = [
   { file: 'deep-research.js', script: DEEP_RESEARCH_SCRIPT },
@@ -47,7 +47,9 @@ for (const { file, script } of BUILTIN_SCRIPTS) {
 }
 
 export function listBuiltins(): readonly WorkflowMeta[] {
-  return Object.values(REGISTRY).map((e) => e.meta).sort((a, b) => a.name.localeCompare(b.name));
+  return Object.values(REGISTRY)
+    .map((e) => e.meta)
+    .toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
 export function getBuiltin(name: string): WorkflowEntry | undefined {

@@ -9,23 +9,22 @@
  * the workspace layer alongside every other source.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { IPluginService } from '#/app/plugin/plugin';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-
-import { discoverAgentFiles } from './internal/agentFileDiscovery';
-import { AgentProfileLoaderBase } from './internal/agentProfileLoader';
 import {
   AGENT_PROFILE_SOURCE_PRIORITY,
   type AgentProfileContribution,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
+import { IPluginService } from '#/app/plugin/plugin';
+import { LifecycleScope } from '#/app/scopes';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+
+import { discoverAgentFiles } from './internal/agentFileDiscovery';
 import { profilesFromDiscovery } from './internal/agentProfileFromFile';
-import { IUserAgentProfileLoader } from './userAgentProfileLoader';
+import { AgentProfileLoaderBase } from './internal/agentProfileLoader';
 import { IPluginAgentProfileLoader } from './pluginAgentProfileLoader';
+import { IUserAgentProfileLoader } from './userAgentProfileLoader';
 
 export class PluginAgentProfileLoaderService
   extends AgentProfileLoaderBase

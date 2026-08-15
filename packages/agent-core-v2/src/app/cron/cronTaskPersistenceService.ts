@@ -7,13 +7,13 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 
-import { ICronTaskPersistence, type CronTaskQuery } from './cronTaskPersistence';
 import type { CronTask } from './cronTask';
+import { ICronTaskPersistence, type CronTaskQuery } from './cronTaskPersistence';
 
 export const CRON_ID_REGEX: RegExp = /^(?:[0-9a-f]{8}|[0-9A-HJKMNP-TV-Z]{26})$/i;
 const JSON_SUFFIX = '.json';

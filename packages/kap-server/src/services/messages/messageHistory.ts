@@ -56,7 +56,10 @@ const MAX_PAGE_SIZE = 100;
  * so correctness holds.
  */
 const TRANSCRIPT_CACHE_MAX = 64;
-const transcriptCache = new Map<string, { readonly revision: number; readonly transcript: ContextTranscript }>();
+const transcriptCache = new Map<
+  string,
+  { readonly revision: number; readonly transcript: ContextTranscript }
+>();
 
 /** Sentinel — the route maps it to 40401. */
 export class SessionNotFoundError extends Error {

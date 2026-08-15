@@ -60,9 +60,10 @@ describe('fsListRequestSchema', () => {
 
 describe('fsListResponseSchema', () => {
   it('round-trips an empty truncated:false response', () => {
-    expect(
-      fsListResponseSchema.parse({ items: [], truncated: false }),
-    ).toEqual({ items: [], truncated: false });
+    expect(fsListResponseSchema.parse({ items: [], truncated: false })).toEqual({
+      items: [],
+      truncated: false,
+    });
   });
 
   it('round-trips a response with children_by_path', () => {
@@ -105,9 +106,7 @@ describe('fsReadRequestSchema', () => {
   });
 
   it('rejects length > 10 MB', () => {
-    expect(
-      fsReadRequestSchema.safeParse({ path: 'a', length: 10_485_761 }).success,
-    ).toBe(false);
+    expect(fsReadRequestSchema.safeParse({ path: 'a', length: 10_485_761 }).success).toBe(false);
   });
 
   it('rejects empty path', () => {
@@ -115,9 +114,7 @@ describe('fsReadRequestSchema', () => {
   });
 
   it('rejects negative offset', () => {
-    expect(
-      fsReadRequestSchema.safeParse({ path: 'a', offset: -1 }).success,
-    ).toBe(false);
+    expect(fsReadRequestSchema.safeParse({ path: 'a', offset: -1 }).success).toBe(false);
   });
 });
 
@@ -265,8 +262,10 @@ describe('fsSearchRequestSchema (W11.1)', () => {
 
 describe('fsSearchResponseSchema (W11.1)', () => {
   it('round-trips an empty response', () => {
-    expect(fsSearchResponseSchema.parse({ items: [], truncated: false }))
-      .toEqual({ items: [], truncated: false });
+    expect(fsSearchResponseSchema.parse({ items: [], truncated: false })).toEqual({
+      items: [],
+      truncated: false,
+    });
   });
 
   it('round-trips a populated response', () => {
@@ -306,9 +305,7 @@ describe('fsGrepRequestSchema (W11.1)', () => {
   });
 
   it('rejects context_lines > 10', () => {
-    expect(
-      fsGrepRequestSchema.safeParse({ pattern: 'a', context_lines: 11 }).success,
-    ).toBe(false);
+    expect(fsGrepRequestSchema.safeParse({ pattern: 'a', context_lines: 11 }).success).toBe(false);
   });
 
   it('accepts a regex pattern', () => {
@@ -367,9 +364,7 @@ describe('fsGitStatusRequestSchema (W11.2)', () => {
   });
 
   it('rejects empty path strings inside paths', () => {
-    expect(
-      fsGitStatusRequestSchema.safeParse({ paths: [''] }).success,
-    ).toBe(false);
+    expect(fsGitStatusRequestSchema.safeParse({ paths: [''] }).success).toBe(false);
   });
 });
 

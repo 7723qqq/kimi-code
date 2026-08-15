@@ -11,11 +11,10 @@ import { basename, isAbsolute, join, relative } from 'node:path';
 import { FSWatcher } from 'chokidar';
 
 import type { IDisposable } from '#/_base/di/lifecycle';
-import { Emitter, type Event } from '#/_base/event';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-
+import { Emitter, type Event } from '#/_base/event';
+import { LifecycleScope } from '#/app/scopes';
 import {
   type HostFsChange,
   type HostFsChangeAction,
@@ -46,8 +45,7 @@ interface HostFsWatchRuntime {
 
 const NODE_HOST_FS_WATCH_RUNTIME: HostFsWatchRuntime = {
   platform: process.platform,
-  watchNative: (root, listener) =>
-    fsWatch(root, { persistent: false, recursive: true }, listener),
+  watchNative: (root, listener) => fsWatch(root, { persistent: false, recursive: true }, listener),
   scheduleRetry: (callback, delayMs) => {
     const timer = setTimeout(callback, delayMs);
     timer.unref?.();

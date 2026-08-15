@@ -7,11 +7,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { EBM_REMINDER_VARIANT } from '#/agent/progressTrack/progressTrackerService';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import type { ExecutableTool } from '#/tool/toolContract';
-import { IAgentProfileService } from '#/agent/profile/profile';
 import { ToolAccesses } from '#/tool/toolContract';
-import { EBM_REMINDER_VARIANT } from '#/agent/progressTrack/progressTrackerService';
+
 import { permissionModeServices, testAgent } from '../../harness';
 
 const mutateTool: ExecutableTool<{ path: string }> = {

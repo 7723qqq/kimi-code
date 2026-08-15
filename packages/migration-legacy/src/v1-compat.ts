@@ -10,6 +10,7 @@
 
 import { createHash } from 'node:crypto';
 import { win32 } from 'node:path';
+
 import { basename, resolve } from 'pathe';
 import { z } from 'zod';
 
@@ -185,12 +186,7 @@ const ThinkingConfigSchema = z.object({
 const PermissionModeSchema = z.enum(['yolo', 'manual', 'auto']);
 
 const PermissionRuleDecisionSchema = z.enum(['allow', 'deny', 'ask']);
-const PermissionRuleScopeSchema = z.enum([
-  'turn-override',
-  'session-runtime',
-  'project',
-  'user',
-]);
+const PermissionRuleScopeSchema = z.enum(['turn-override', 'session-runtime', 'project', 'user']);
 
 /**
  * Local TS-only copy of v1's permission-pattern DSL parser (the v1
@@ -279,10 +275,7 @@ const ModelCatalogConfigSchema = z.object({
   refreshOnStart: z.boolean().optional(),
 });
 
-const ExperimentalConfigSchema = z.record(
-  z.string(),
-  z.union([z.boolean(), z.string()]),
-);
+const ExperimentalConfigSchema = z.record(z.string(), z.union([z.boolean(), z.string()]));
 
 const MoonshotServiceConfigSchema = z.object({
   baseUrl: z.string().optional(),

@@ -10,9 +10,7 @@ import type { ToolInputDisplay } from '@moonshot-ai/protocol';
  * Nested SubagentEvent payloads are deliberately ignored here: their child
  * transcript needs a separate agent migration, not a main-context join.
  */
-export function extractToolCallDisplays(
-  wireText: string,
-): ReadonlyMap<string, ToolInputDisplay> {
+export function extractToolCallDisplays(wireText: string): ReadonlyMap<string, ToolInputDisplay> {
   const displays = new Map<string, ToolInputDisplay>();
   const seenToolCallIds = new Set<string>();
 

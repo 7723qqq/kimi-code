@@ -39,7 +39,10 @@ function normalizeWhitespace(value: string): string {
   return value.replaceAll(/\s+/g, ' ').trim();
 }
 
-function hasClass(element: { getAttribute(name: string): string | null }, className: string): boolean {
+function hasClass(
+  element: { getAttribute(name: string): string | null },
+  className: string,
+): boolean {
   const classList = element.getAttribute('class');
   return classList !== null && classList.split(/\s+/).includes(className);
 }
@@ -128,7 +131,10 @@ export function extractDuckDuckGoPreloadUrl(pageHtml: string): string {
 }
 
 /** Extracts organic results from one html.duckduckgo.com result page. */
-export function parseDuckDuckGoResults(htmlContent: string, limit: number): DuckDuckGoSearchResult[] {
+export function parseDuckDuckGoResults(
+  htmlContent: string,
+  limit: number,
+): DuckDuckGoSearchResult[] {
   const $ = loadHtml(htmlContent);
   const results: DuckDuckGoSearchResult[] = [];
   const seenUrls = new Set<string>();
@@ -145,7 +151,9 @@ export function parseDuckDuckGoResults(htmlContent: string, limit: number): Duck
     if (title === '' || url === '' || seenUrls.has(url)) {
       continue;
     }
-    const description = normalizeWhitespace(el.querySelector('.result__snippet')?.textContent ?? '');
+    const description = normalizeWhitespace(
+      el.querySelector('.result__snippet')?.textContent ?? '',
+    );
     const source = normalizeWhitespace(el.querySelector('.result__url')?.textContent ?? '');
     seenUrls.add(url);
     results.push({ title, url, description, source, engine: 'duckduckgo' });

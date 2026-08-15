@@ -1,6 +1,3 @@
-import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
-import type { Kaos } from '@moonshot-ai/kaos';
-import type { ContentPart, ModelCapability } from '@moonshot-ai/kosong';
 import type {
   AgentContextData,
   AgentReplayRecord,
@@ -34,9 +31,13 @@ import type {
   ToolInfo,
   UsageStatus,
 } from '@moonshot-ai/agent-core-v2';
-import type { McpServerEntry } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import type { AgentCommandInfo } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
 import type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
+import type { McpServerEntry } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
+import type { Kaos } from '@moonshot-ai/kaos';
+import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
+import type { ContentPart, ModelCapability } from '@moonshot-ai/kosong';
+
 import type {
   BackgroundConfig,
   GlobalMcpServerConfig,
@@ -359,9 +360,7 @@ export interface GetConfigOptions {
 }
 
 export interface AuthenticateMcpServerOptions {
-  readonly onAuthorizationUrl: (
-    url: string,
-  ) => void | boolean | PromiseLike<void | boolean>;
+  readonly onAuthorizationUrl: (url: string) => void | boolean | PromiseLike<void | boolean>;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
 }
@@ -511,6 +510,9 @@ export interface ResumeSessionResult extends SessionSummary {
   readonly warning?: string | undefined;
 }
 
-export type ResumedSessionState = Pick<ResumeSessionResult, 'sessionMetadata' | 'agents' | 'warning'>;
+export type ResumedSessionState = Pick<
+  ResumeSessionResult,
+  'sessionMetadata' | 'agents' | 'warning'
+>;
 
 export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState {}

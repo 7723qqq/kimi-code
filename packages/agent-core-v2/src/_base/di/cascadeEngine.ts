@@ -31,12 +31,8 @@
 import { onUnexpectedError } from '../errors/unexpectedError';
 import { Emitter, type Event } from '../event';
 import { isPromiseLike } from '../lifecycle/disposer';
+import { PairIndex, type DependencyGraph, type ScopedToken } from './dependencyGraph';
 import type { SyncDescriptor } from './descriptors';
-import {
-  PairIndex,
-  type DependencyGraph,
-  type ScopedToken,
-} from './dependencyGraph';
 import { CascadeConflictError } from './errors';
 import type { ServiceIdentifier } from './instantiation';
 
@@ -85,10 +81,7 @@ export interface UnitStateChange {
 }
 
 export interface CascadeEngineOptions {
-  onWillCascade?: (
-    affected: readonly ScopedToken[],
-    reason: string,
-  ) => void | Promise<void>;
+  onWillCascade?: (affected: readonly ScopedToken[], reason: string) => void | Promise<void>;
   readonly abortWaitMs?: number;
   readonly resolveTimeoutMs?: number;
   readonly historyCapacity?: number;
@@ -368,14 +361,17 @@ export class CascadeEngine {
       }
     }
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(
-          new CascadeConflictError(
-            String(token),
-            'timed out waiting for the in-flight cascade to settle',
-          ),
-        );
-      }, timeoutMs ?? this._options.resolveTimeoutMs ?? DEFAULT_RESOLVE_TIMEOUT_MS);
+      const timer = setTimeout(
+        () => {
+          reject(
+            new CascadeConflictError(
+              String(token),
+              'timed out waiting for the in-flight cascade to settle',
+            ),
+          );
+        },
+        timeoutMs ?? this._options.resolveTimeoutMs ?? DEFAULT_RESOLVE_TIMEOUT_MS,
+      );
       this._tree.addSettleWaiter(() => {
         clearTimeout(timer);
         try {
@@ -414,7 +410,6 @@ export class CascadeEngine {
     this._onDidChangeUnitState.dispose();
     this._onDidCascade.dispose();
   }
-
 
   _teardownForCascade(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -467,7 +462,6 @@ export class CascadeEngine {
     }
   }
 
-
   private _pump(): void {
     if (this._tree.running) {
       return;
@@ -494,8 +488,12 @@ export class CascadeEngine {
       const out = orchestrator._transact(batch);
       if (isPromiseLike(out)) {
         Promise.resolve(out).then(
-          () => { finish(); },
-          (error: unknown) => { finish(error); },
+          () => {
+            finish();
+          },
+          (error: unknown) => {
+            finish(error);
+          },
         );
       } else {
         finish();
@@ -504,7 +502,6 @@ export class CascadeEngine {
       finish(error);
     }
   }
-
 
   private _transact(batch: QueuedRequest[]): void | Promise<void> {
     const changes = mergeBatch(batch);
@@ -694,7 +691,6 @@ export class CascadeEngine {
     return undefined;
   }
 
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _unitFor(token: ServiceIdentifier<any>): UnitRecord {
     let unit = this._units.get(token);
@@ -806,9 +802,7 @@ export class CascadeEngine {
     if (recipe === undefined) {
       return [token];
     }
-    return this._host
-      .dependenciesOf(recipe)
-      .filter((dep) => !this._isAvailable(dep));
+    return this._host.dependenciesOf(recipe).filter((dep) => !this._isAvailable(dep));
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

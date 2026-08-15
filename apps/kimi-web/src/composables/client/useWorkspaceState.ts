@@ -8,12 +8,11 @@
 // here as params.
 
 import { reactive, ref, type ComputedRef, type Ref } from 'vue';
+
 import { getKimiWebApi } from '../../api';
-import { i18n } from '../../i18n';
-import { useConfirmDialog } from '../useConfirmDialog';
-import { isDaemonApiError } from '../../api/errors';
 import { SERVER_AUTH_UNAUTHORIZED_CODE } from '../../api/daemon/http';
 import { isPlaceholderSessionUsage } from '../../api/daemon/mappers';
+import { isDaemonApiError } from '../../api/errors';
 import type {
   AppConfig,
   AppInFlightTurn,
@@ -26,17 +25,18 @@ import type {
   KimiEventConnection,
   QuestionResponse,
 } from '../../api/types';
+import { sessionExportTraceToJsonl, traceKeyEvent } from '../../debug/trace';
+import { i18n } from '../../i18n';
+import { parseDiff } from '../../lib/parseDiff';
+import { workspaceRootKey } from '../../lib/rootKey';
+import { readSessionIdFromLocation, sessionUrl } from '../../lib/sessionRoute';
+import type { SessionUrlMode } from '../../lib/sessionRoute';
 import {
   loadWorkspaceNameOverrides,
   safeRemove,
   saveWorkspaceNameOverrides,
   STORAGE_KEYS,
 } from '../../lib/storage';
-import { parseDiff } from '../../lib/parseDiff';
-import { workspaceRootKey } from '../../lib/rootKey';
-import { sessionExportTraceToJsonl, traceKeyEvent } from '../../debug/trace';
-import { readSessionIdFromLocation, sessionUrl } from '../../lib/sessionRoute';
-import type { SessionUrlMode } from '../../lib/sessionRoute';
 import type {
   ActivityState,
   ConversationStatus,
@@ -44,6 +44,7 @@ import type {
   PermissionMode,
   WorkspaceView,
 } from '../../types';
+import { useConfirmDialog } from '../useConfirmDialog';
 import type { ExtendedState, PromptAttachment } from '../useKimiWebClient';
 import type { UseModelProviderState } from './useModelProviderState';
 import type { UseSideChat } from './useSideChat';
@@ -241,7 +242,10 @@ export interface UseWorkspaceStateDeps {
   /** Persist profile fields to the daemon. Resolves false (after surfacing the
    *  failure itself) when the daemon rejected the patch — awaited callers that
    *  order strictly after the profile must NOT proceed on false. */
-  persistSessionProfile: (patch: PersistSessionProfilePatch, sessionId?: string) => Promise<boolean>;
+  persistSessionProfile: (
+    patch: PersistSessionProfilePatch,
+    sessionId?: string,
+  ) => Promise<boolean>;
   mergedWorkspaces: ComputedRef<AppWorkspace[]>;
   /** Sidebar-facing workspaces in the user's (dragged) display order. */
   workspacesView: ComputedRef<WorkspaceView[]>;
@@ -578,9 +582,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
    *  small initial page size so a sparse page cannot pull in days of history at
    *  once. Continuation pages are also trimmed at the recent-window boundary,
    *  keeping only up to the first session that falls outside the window. */
-  async function loadInitialSessionsForWorkspace(
-    workspaceId: string,
-  ): Promise<{
+  async function loadInitialSessionsForWorkspace(workspaceId: string): Promise<{
     workspaceId: string;
     page: { items: AppSession[]; hasMore: boolean };
     error?: unknown;
@@ -620,9 +622,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         // up to and including the first session that falls outside the window
         // (so the oldest loaded is the first one older than the window) and
         // drop the older tail instead of loading the whole page.
-        const boundaryIndex = page.items.findIndex(
-          (s) => ageOf(s) >= SESSIONS_RECENT_WINDOW_MS,
-        );
+        const boundaryIndex = page.items.findIndex((s) => ageOf(s) >= SESSIONS_RECENT_WINDOW_MS);
         const keep = boundaryIndex >= 0 ? boundaryIndex + 1 : page.items.length;
         items.push(...page.items.slice(0, keep));
         hasMore = page.hasMore || keep < page.items.length;
@@ -731,8 +731,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // Cursor = oldest session of this page (pages are newest-first). Tracked
       // separately from the loaded set so a deep-linked older session appended
       // out of band cannot shift the cursor and skip intervening sessions.
-      cursors[workspaceId] =
-        page.items.length > 0 ? page.items.at(-1)!.id : undefined;
+      cursors[workspaceId] = page.items.length > 0 ? page.items.at(-1)!.id : undefined;
       // Collapse target for the sidebar's in-group "show less" control: the
       // first-page capacity, floored at a full page so a workspace that was
       // empty or sparse on first paint does not hide sessions created later.
@@ -777,8 +776,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       // Advance the cursor to the end of the page we just fetched.
       rawState.sessionsCursorByWorkspace = {
         ...rawState.sessionsCursorByWorkspace,
-        [workspaceId]:
-          page.items.length > 0 ? page.items.at(-1)!.id : beforeId,
+        [workspaceId]: page.items.length > 0 ? page.items.at(-1)!.id : beforeId,
       };
       // Trust the server's hasMore. Deriving it from the workspace session_count
       // is unsafe: archive/delete only removes the local session and leaves the
@@ -995,9 +993,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       );
       saveHiddenWorkspacesToStorage(rawState.hiddenWorkspaceRoots);
     }
-    const index = rawState.workspaces.findIndex(
-      (w) => w.id === ws.id || w.root === ws.root,
-    );
+    const index = rawState.workspaces.findIndex((w) => w.id === ws.id || w.root === ws.root);
     if (index === -1) {
       rawState.workspaces = [ws, ...rawState.workspaces];
       return;
@@ -1023,8 +1019,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     // workspaceDeleted — mirror the local deleteWorkspace so a removal initiated
     // by another client stays hidden even though its surviving sessions would
     // otherwise re-derive it in mergedWorkspaces.
-    const root =
-      rawState.workspaces.find((w) => w.id === event.workspaceId)?.root ?? event.root;
+    const root = rawState.workspaces.find((w) => w.id === event.workspaceId)?.root ?? event.root;
     if (root && !rawState.hiddenWorkspaceRoots.includes(root)) {
       rawState.hiddenWorkspaceRoots = [...rawState.hiddenWorkspaceRoots, root];
       saveHiddenWorkspacesToStorage(rawState.hiddenWorkspaceRoots);
@@ -1262,10 +1257,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
    * (see sendSideChatPromptOn), so unlike skill activation we don't need to
    * persist them onto the parent profile here.
    */
-  async function startSessionAndOpenSideChat(
-    workspaceId: string,
-    prompt?: string,
-  ): Promise<void> {
+  async function startSessionAndOpenSideChat(workspaceId: string, prompt?: string): Promise<void> {
     // Same reentry window as startSessionAndSendPrompt (see the guard there).
     if (startingFirstPromptWorkspaces.has(workspaceId)) return;
     startingFirstPromptWorkspaces.add(workspaceId);
@@ -1487,7 +1479,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const content: import('../../api/types').AppMessageContent[] = [];
       if (text) content.push({ type: 'text', text });
       for (const att of attachments ?? []) {
-        if (att.kind === 'video') content.push({ type: 'video', source: { kind: 'file', fileId: att.fileId } });
+        if (att.kind === 'video')
+          content.push({ type: 'video', source: { kind: 'file', fileId: att.fileId } });
         else if (att.kind === 'file') {
           content.push({
             type: 'file',
@@ -1695,7 +1688,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const content: import('../../api/types').AppMessageContent[] = [];
     if (merged) content.push({ type: 'text', text: merged });
     for (const att of mergedAttachments) {
-      if (att.kind === 'video') content.push({ type: 'video', source: { kind: 'file', fileId: att.fileId } });
+      if (att.kind === 'video')
+        content.push({ type: 'video', source: { kind: 'file', fileId: att.fileId } });
       else if (att.kind === 'file') {
         content.push({
           type: 'file',
@@ -1783,7 +1777,10 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
    * Upload an image file to the daemon's /api/v1/files endpoint.
    * Returns { fileId, name, mediaType } on success, or null on error (warning added to state).
    */
-  async function uploadImage(file: Blob, name?: string): Promise<{ fileId: string; name: string; mediaType: string } | null> {
+  async function uploadImage(
+    file: Blob,
+    name?: string,
+  ): Promise<{ fileId: string; name: string; mediaType: string } | null> {
     try {
       const api = getKimiWebApi();
       const result = await api.uploadFile({ file, name });
@@ -2006,7 +2003,12 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
 
   async function respondApproval(
     approvalId: string,
-    response: { decision: ApprovalDecision; scope?: 'session'; feedback?: string; selectedLabel?: string },
+    response: {
+      decision: ApprovalDecision;
+      scope?: 'session';
+      feedback?: string;
+      selectedLabel?: string;
+    },
   ): Promise<void> {
     const sid = rawState.activeSessionId;
     if (!sid) return;
@@ -2037,10 +2039,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     }
   }
 
-  async function respondQuestion(
-    questionId: string,
-    response: QuestionResponse,
-  ): Promise<void> {
+  async function respondQuestion(questionId: string, response: QuestionResponse): Promise<void> {
     const sid = rawState.activeSessionId;
     if (!sid) return;
     // Guard against a second click while the first respond is in flight.
@@ -2094,16 +2093,15 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       const api = getKimiWebApi();
       // A background subagent row is keyed by agent id, but REST `/tasks` only
       // knows its background-task id.
-      const restTaskId = (rawState.tasksBySession[sid] ?? []).find((t) => t.id === taskId)
-        ?.backgroundTaskId;
+      const restTaskId = (rawState.tasksBySession[sid] ?? []).find(
+        (t) => t.id === taskId,
+      )?.backgroundTaskId;
       await api.cancelTask(sid, restTaskId ?? taskId);
       // Update task status locally
       const list = rawState.tasksBySession[sid] ?? [];
       rawState.tasksBySession = {
         ...rawState.tasksBySession,
-        [sid]: list.map((t) =>
-          t.id === taskId ? { ...t, status: 'cancelled' as const } : t,
-        ),
+        [sid]: list.map((t) => (t.id === taskId ? { ...t, status: 'cancelled' as const } : t)),
       };
     } catch (error) {
       if (isTaskAlreadyFinishedError(error)) {
@@ -2231,7 +2229,10 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     try {
       await getKimiWebApi().updateSession(sid, { goalObjective: trimmed });
     } catch (error) {
-      pushOperationFailure('createGoal', error, { sessionId: sid, message: goalErrorMessage(error) });
+      pushOperationFailure('createGoal', error, {
+        sessionId: sid,
+        message: goalErrorMessage(error),
+      });
       return;
     }
     // The goal objective is set explicitly above. If goal mode was staged on the
@@ -2264,10 +2265,14 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
   function controlGoal(action: 'pause' | 'resume' | 'cancel'): void {
     const sid = rawState.activeSessionId;
     if (!sid) return;
-    void Promise.resolve(getKimiWebApi().updateSession(sid, { goalControl: action }))
-      .catch((error) => {
-        pushOperationFailure('controlGoal', error, { sessionId: sid, message: goalErrorMessage(error) });
-      });
+    void Promise.resolve(getKimiWebApi().updateSession(sid, { goalControl: action })).catch(
+      (error) => {
+        pushOperationFailure('controlGoal', error, {
+          sessionId: sid,
+          message: goalErrorMessage(error),
+        });
+      },
+    );
   }
 
   /** Persist and apply a new permission mode. Approval decisions are owned by
@@ -2305,9 +2310,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
   async function renameWorkspace(id: string, name: string): Promise<void> {
     const root = rawState.workspaces.find((w) => w.id === id)?.root;
     const applyLocal = (): void => {
-      rawState.workspaces = rawState.workspaces.map((w) =>
-        w.id === id ? { ...w, name } : w,
-      );
+      rawState.workspaces = rawState.workspaces.map((w) => (w.id === id ? { ...w, name } : w));
     };
     try {
       await getKimiWebApi().updateWorkspace(id, { name });
@@ -2349,12 +2352,13 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     const activeSession = rawState.activeSessionId
       ? rawState.sessions.find((s) => s.id === rawState.activeSessionId)
       : undefined;
-    const removingActiveWorkspace = rawState.activeWorkspaceId === id || rawState.activeWorkspaceId === root;
+    const removingActiveWorkspace =
+      rawState.activeWorkspaceId === id || rawState.activeWorkspaceId === root;
     const activeSessionInRemovedWorkspace = Boolean(
       activeSession &&
-        (activeSession.cwd === root ||
-          activeSession.workspaceId === id ||
-          workspaceIdForSession(activeSession) === id),
+      (activeSession.cwd === root ||
+        activeSession.workspaceId === id ||
+        workspaceIdForSession(activeSession) === id),
     );
     if (root && !rawState.hiddenWorkspaceRoots.includes(root)) {
       rawState.hiddenWorkspaceRoots = [...rawState.hiddenWorkspaceRoots, root];
@@ -2373,7 +2377,11 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       rawState.activeWorkspaceId = nextWorkspace;
       if (nextWorkspace) saveActiveWorkspaceToStorage(nextWorkspace);
       else {
-        try { safeRemove(STORAGE_KEYS.activeWorkspace); } catch { /* ignore */ }
+        try {
+          safeRemove(STORAGE_KEYS.activeWorkspace);
+        } catch {
+          /* ignore */
+        }
       }
     }
     if (removingActiveWorkspace || activeSessionInRemovedWorkspace) {
@@ -2469,8 +2477,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
         sessionId,
         status: 'failed',
         durationMs: Date.now() - startedAt,
-        errorName:
-          typeof failure?.name === 'string' ? failure.name : typeof error,
+        errorName: typeof failure?.name === 'string' ? failure.name : typeof error,
         errorCode: typeof failure?.code === 'number' ? failure.code : undefined,
         requestId: typeof failure?.requestId === 'string' ? failure.requestId : undefined,
         phase: typeof failure?.phase === 'string' ? failure.phase : undefined,
@@ -2608,7 +2615,8 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
       for (let i = msgs.length - 1; i >= 0; i--) {
         const m = msgs[i]!;
         if (m.role !== 'user') continue;
-        if (m.metadata?.['origin'] && (m.metadata['origin'] as { kind?: string }).kind !== 'user') continue;
+        if (m.metadata?.['origin'] && (m.metadata['origin'] as { kind?: string }).kind !== 'user')
+          continue;
         return m.content
           .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
           .map((c) => c.text)

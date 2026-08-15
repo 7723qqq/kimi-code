@@ -78,7 +78,9 @@ describe('abortable', () => {
 
   it('abortable with a rejected promise propagates the rejection', async () => {
     const controller = new AbortController();
-    await expect(abortable(Promise.reject(new Error('fail')), controller.signal)).rejects.toThrow('fail');
+    await expect(abortable(Promise.reject(new Error('fail')), controller.signal)).rejects.toThrow(
+      'fail',
+    );
   });
 
   it('isAbortError returns true only for AbortError-like objects', () => {

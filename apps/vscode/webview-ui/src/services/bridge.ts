@@ -1,4 +1,4 @@
-import { Methods, Events } from "shared/bridge";
+import { Methods, Events } from 'shared/bridge';
 import type {
   ApprovalResponse,
   ContentPart,
@@ -8,7 +8,7 @@ import type {
   MCPTestResult,
   LoginResult,
   UpdateMCPServerRequest,
-} from "shared/legacy-sdk";
+} from 'shared/legacy-sdk';
 import type {
   FileChange,
   SessionConfig,
@@ -16,7 +16,7 @@ import type {
   WorkspaceStatus,
   LoginStatus,
   UIStreamEvent,
-} from "shared/types";
+} from 'shared/types';
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -43,20 +43,20 @@ class Bridge {
   private webviewId: string;
 
   constructor() {
-    this.webviewId = document.body.getAttribute("data-webviewid") || `unknown_${Date.now()}`;
+    this.webviewId = document.body.getAttribute('data-webviewid') || `unknown_${Date.now()}`;
 
-    if (typeof acquireVsCodeApi === "function") {
+    if (typeof acquireVsCodeApi === 'function') {
       this.vscode = acquireVsCodeApi();
     } else {
-      console.warn("[Kimi Bridge] Running outside VS Code, using mock");
+      console.warn('[Kimi Bridge] Running outside VS Code, using mock');
       this.vscode = {
-        postMessage: (msg) => console.log("[Kimi Mock]", msg),
+        postMessage: (msg) => console.log('[Kimi Mock]', msg),
         getState: () => undefined,
         setState: () => {},
       };
     }
 
-    window.addEventListener("message", this.handleMessage);
+    window.addEventListener('message', this.handleMessage);
   }
 
   private handleMessage = (event: MessageEvent) => {
@@ -81,7 +81,11 @@ class Bridge {
     }
   };
 
-  private call<T>(method: string, params?: unknown, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Promise<T> {
+  private call<T>(
+    method: string,
+    params?: unknown,
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  ): Promise<T> {
     const id = `${++this.requestId}_${Date.now()}`;
 
     return new Promise((resolve, reject) => {
@@ -119,7 +123,7 @@ class Bridge {
   }
 
   getSlashCommands() {
-    return this.call<import("shared/legacy-sdk").SlashCommandInfo[]>(Methods.GetSlashCommands);
+    return this.call<import('shared/legacy-sdk').SlashCommandInfo[]>(Methods.GetSlashCommands);
   }
 
   checkLoginStatus() {
@@ -183,8 +187,20 @@ class Bridge {
     return this.call<MCPTestResult>(Methods.TestMCP, { name });
   }
 
-  streamChat(content: string | ContentPart[], model: string, effort: string, planMode: boolean, sessionId?: string) {
-    return this.call<{ done: boolean }>(Methods.StreamChat, { content, model, effort, planMode, sessionId });
+  streamChat(
+    content: string | ContentPart[],
+    model: string,
+    effort: string,
+    planMode: boolean,
+    sessionId?: string,
+  ) {
+    return this.call<{ done: boolean }>(Methods.StreamChat, {
+      content,
+      model,
+      effort,
+      planMode,
+      sessionId,
+    });
   }
 
   abortChat() {
@@ -196,15 +212,23 @@ class Bridge {
   }
 
   getProjectFiles(params?: { query?: string; directory?: string }) {
-    return this.call<import("shared/types").ProjectFile[]>(Methods.GetProjectFiles, params);
+    return this.call<import('shared/types').ProjectFile[]>(Methods.GetProjectFiles, params);
   }
 
   respondApproval(requestId: string, response: ApprovalResponse) {
     return this.call<{ ok: boolean }>(Methods.RespondApproval, { requestId, response });
   }
 
-  respondQuestion(rpcRequestId: string, questionRequestId: string, answers: Record<string, string>) {
-    return this.call<{ ok: boolean }>(Methods.RespondQuestion, { rpcRequestId, questionRequestId, answers });
+  respondQuestion(
+    rpcRequestId: string,
+    questionRequestId: string,
+    answers: Record<string, string>,
+  ) {
+    return this.call<{ ok: boolean }>(Methods.RespondQuestion, {
+      rpcRequestId,
+      questionRequestId,
+      answers,
+    });
   }
 
   getKimiSessions() {
@@ -236,7 +260,10 @@ class Bridge {
   }
 
   forkSession(sessionId: string, turnIndex: number) {
-    return this.call<{ sessionId: string } | null>(Methods.ForkKimiSession, { sessionId, turnIndex });
+    return this.call<{ sessionId: string } | null>(Methods.ForkKimiSession, {
+      sessionId,
+      turnIndex,
+    });
   }
 
   pickMedia(maxCount: number, includeVideo = true) {

@@ -1,3 +1,5 @@
+import { describe, expect, it } from 'vitest';
+
 import {
   getBuiltinSlashCommands,
   findBuiltInSlashCommand,
@@ -8,7 +10,6 @@ import {
   swarmArgumentCompletions,
   type KimiSlashCommand,
 } from '#/tui/commands/index';
-import { describe, expect, it } from 'vitest';
 
 describe('parseSlashInput', () => {
   it('parses command names and trimmed args', () => {
@@ -86,12 +87,16 @@ describe('built-in slash command registry', () => {
     expect(values('list')).toBeNull();
     const directoryCompletions = values('/') ?? [];
     expect(directoryCompletions.length).toBeGreaterThan(0);
-    expect(directoryCompletions.every((value) => value.startsWith('/') && value.endsWith('/'))).toBe(true);
+    expect(
+      directoryCompletions.every((value) => value.startsWith('/') && value.endsWith('/')),
+    ).toBe(true);
     expect(directoryCompletions.some((value) => value.startsWith('/.'))).toBe(false);
     expect(values('/.')).toBeNull();
     const homeCompletions = values('~/') ?? [];
     expect(homeCompletions.length).toBeGreaterThan(0);
-    expect(homeCompletions.every((value) => value.startsWith('~/') && value.endsWith('/'))).toBe(true);
+    expect(homeCompletions.every((value) => value.startsWith('~/') && value.endsWith('/'))).toBe(
+      true,
+    );
     expect(homeCompletions.some((value) => value.startsWith('~/.'))).toBe(false);
     expect(homeCompletions.some((value) => value.startsWith('~/sers/'))).toBe(false);
   });

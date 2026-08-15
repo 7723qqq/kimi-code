@@ -30,12 +30,7 @@ import { z } from 'zod';
 
 import { defineModel } from '#/wire/model';
 
-import type {
-  GoalBudgetLimits,
-  GoalChange,
-  GoalSnapshot,
-  GoalStatus,
-} from './types';
+import type { GoalBudgetLimits, GoalChange, GoalSnapshot, GoalStatus } from './types';
 
 export interface GoalState {
   readonly goalId: string;
@@ -59,7 +54,14 @@ export type GoalModelState = GoalState | null;
 
 export const GoalModel = defineModel<GoalModelState>('goal', () => null);
 
-const GoalStatusSchema = z.enum(['active', 'paused', 'blocked', 'complete', 'budget_limited', 'usage_limited']);
+const GoalStatusSchema = z.enum([
+  'active',
+  'paused',
+  'blocked',
+  'complete',
+  'budget_limited',
+  'usage_limited',
+]);
 
 const GoalActorSchema = z.enum(['user', 'model', 'runtime', 'system']);
 
@@ -149,8 +151,7 @@ export const updateGoal = GoalModel.defineOp('goal.update', {
         ...(next ?? s),
         status: p.status,
         terminalReason: p.status === 'active' ? undefined : p.reason,
-        wallClockResumedAt:
-          p.status === 'active' ? p.wallClockResumedAt : undefined,
+        wallClockResumedAt: p.status === 'active' ? p.wallClockResumedAt : undefined,
       };
     }
     if (p.turnsUsed !== undefined && p.turnsUsed !== s.turnsUsed) {

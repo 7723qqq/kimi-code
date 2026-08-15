@@ -6,15 +6,27 @@ import { describe, expect, it } from 'vitest';
 const SRC_ROOT = join(__dirname, '..', '..', 'src');
 
 const NAMED_COLORS = [
-  'red', 'green', 'yellow', 'blue', 'magenta', 'cyan',
-  'white', 'gray', 'grey', 'black',
-  'blackBright', 'whiteBright', 'redBright', 'greenBright',
-  'yellowBright', 'blueBright', 'magentaBright', 'cyanBright',
+  'red',
+  'green',
+  'yellow',
+  'blue',
+  'magenta',
+  'cyan',
+  'white',
+  'gray',
+  'grey',
+  'black',
+  'blackBright',
+  'whiteBright',
+  'redBright',
+  'greenBright',
+  'yellowBright',
+  'blueBright',
+  'magentaBright',
+  'cyanBright',
 ];
 
-const CHALK_NAMED_PATTERN = new RegExp(
-  `chalk\\.(${NAMED_COLORS.join('|')})\\(`,
-);
+const CHALK_NAMED_PATTERN = new RegExp(`chalk\\.(${NAMED_COLORS.join('|')})\\(`);
 
 function walk(dir: string, files: string[] = []): string[] {
   try {
@@ -22,11 +34,17 @@ function walk(dir: string, files: string[] = []): string[] {
       const p = join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(p, files);
-      } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') && !entry.name.endsWith('.spec.ts')) {
+      } else if (
+        entry.name.endsWith('.ts') &&
+        !entry.name.endsWith('.test.ts') &&
+        !entry.name.endsWith('.spec.ts')
+      ) {
         files.push(p);
       }
     }
-  } catch { /* skip */ }
+  } catch {
+    /* skip */
+  }
   return files;
 }
 

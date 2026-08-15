@@ -1,5 +1,6 @@
 // apps/kimi-web/test/side-chat.test.ts
 import { describe, expect, it, vi } from 'vitest';
+
 import { createInitialState } from '../src/api/daemon/eventReducer';
 import { useSideChat } from '../src/composables/client/useSideChat';
 import type { ExtendedState } from '../src/composables/useKimiWebClient';

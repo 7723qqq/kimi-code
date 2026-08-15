@@ -5,20 +5,18 @@
  * into the conversation through `contextMemory`. Bound at Agent scope.
  */
 
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
+import { LifecycleScope } from '#/app/scopes';
 
 import { IAgentSystemReminderService, wrapSystemReminder } from './systemReminder';
 
 export class AgentSystemReminderService extends Service implements IAgentSystemReminderService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(
-    @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-  ) {
+  constructor(@IAgentContextMemoryService private readonly context: IAgentContextMemoryService) {
     super();
   }
 

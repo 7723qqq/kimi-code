@@ -38,8 +38,8 @@
  * concurrent replays of different agent scopes never share fold state.
  */
 
-import type { FinishReason } from '#/kosong/contract/provider';
 import { createToolMessage, type ContentPart, type ToolCall } from '#/kosong/contract/message';
+import type { FinishReason } from '#/kosong/contract/provider';
 import type { TokenUsage } from '#/kosong/contract/usage';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
@@ -146,7 +146,12 @@ export function foldLoopEvent(
   switch (event.type) {
     case 'step.begin': {
       const settled = settleOpenStep(state, ctx);
-      const assistant: ContextMessage = { role: 'assistant', content: [], toolCalls: [], partial: true };
+      const assistant: ContextMessage = {
+        role: 'assistant',
+        content: [],
+        toolCalls: [],
+        partial: true,
+      };
       ctx.openStepUuid = event.uuid;
       return bind([...settled, assistant], ctx);
     }
@@ -156,10 +161,13 @@ export function foldLoopEvent(
       return bind(flushDeferred(s, ctx), ctx);
     }
     case 'content.part':
-      return bind(appendToOpenAssistant(state, (message) => ({
-        ...message,
-        content: [...message.content, event.part],
-      })), ctx);
+      return bind(
+        appendToOpenAssistant(state, (message) => ({
+          ...message,
+          content: [...message.content, event.part],
+        })),
+        ctx,
+      );
     case 'tool.call': {
       const call: ToolCall = {
         type: 'function',
@@ -217,10 +225,7 @@ function appendToOpenAssistant(
   return next;
 }
 
-function settleOpenStep(
-  state: readonly ContextMessage[],
-  ctx: FoldCtx,
-): readonly ContextMessage[] {
+function settleOpenStep(state: readonly ContextMessage[], ctx: FoldCtx): readonly ContextMessage[] {
   const closed = closePending(state, ctx);
   const index = findOpenAssistantIndex(closed);
   if (index === -1) return closed;

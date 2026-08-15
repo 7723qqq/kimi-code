@@ -1,8 +1,10 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdir, mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+
 import { detectMigration, runMigration } from '../src/index.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
@@ -186,9 +188,7 @@ describe('runMigration (end-to-end on multi-workdir fixture)', () => {
         target: tgt,
       });
       // The credential must not be copied into the target.
-      await expect(
-        readFile(join(tgt, 'credentials', 'kimi-code.json'), 'utf-8'),
-      ).rejects.toThrow();
+      await expect(readFile(join(tgt, 'credentials', 'kimi-code.json'), 'utf-8')).rejects.toThrow();
       // The report tells the user to sign in again in kimi-code.
       expect(report.notices.oauthLoginsRequiringRelogin).toContain('kimi-code.json');
     } finally {

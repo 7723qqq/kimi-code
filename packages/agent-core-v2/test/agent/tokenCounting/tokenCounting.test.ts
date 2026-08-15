@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
 import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
 import { TokenCountingModel, tokenCountingMeasured } from '#/agent/tokenCounting/tokenCountingOps';
+import { IAgentUsageService } from '#/agent/usage/usage';
+import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
 import { estimateTokensForMessages } from '#/kosong/contract/tokens';
 import type { TokenUsage } from '#/kosong/contract/usage';
-import { IAgentUsageService } from '#/agent/usage/usage';
 import { IWireService } from '#/wire/wire';
 
 import { createTestAgent, type TestAgentContext } from '../../harness';
@@ -159,7 +159,9 @@ describe('Agent token counting', () => {
   });
 
   it('keeps estimates and anchors live for internal reads under the measured strategy', () => {
-    const measured = createTestAgent({ initialConfig: { tokenCounting: { strategy: 'measured' } } });
+    const measured = createTestAgent({
+      initialConfig: { tokenCounting: { strategy: 'measured' } },
+    });
     try {
       const counting = measured.get(IAgentTokenCountingService);
       expect(counting.strategy).toBe('measured');
@@ -201,7 +203,9 @@ describe('Agent token counting', () => {
   it('statusSize reports the strategy-selected reading', () => {
     // `measured`: only the provider-reported anchor is reported, even with an
     // unmeasured tail.
-    const measured = createTestAgent({ initialConfig: { tokenCounting: { strategy: 'measured' } } });
+    const measured = createTestAgent({
+      initialConfig: { tokenCounting: { strategy: 'measured' } },
+    });
     try {
       const counting = measured.get(IAgentTokenCountingService);
       expect(counting.statusSize()).toBe(0);

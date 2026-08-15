@@ -21,7 +21,11 @@ export function getMessageFeedback(turnId: string): MessageFeedback | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as MessageFeedback;
-    if (parsed && typeof parsed === 'object' && (parsed.vote === 'like' || parsed.vote === 'dislike' || parsed.vote === null)) {
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      (parsed.vote === 'like' || parsed.vote === 'dislike' || parsed.vote === null)
+    ) {
       return parsed;
     }
     return null;

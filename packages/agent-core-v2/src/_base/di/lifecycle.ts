@@ -84,9 +84,7 @@ export class DisposableTracker implements IDisposableTracker {
   getTrackedDisposables(): IDisposable[] {
     const cache = new Map<DisposableInfo, DisposableInfo>();
     return [...this.livingDisposables.entries()]
-      .filter(
-        ([, v]) => v.source !== null && !this.getRootParent(v, cache).isSingleton,
-      )
+      .filter(([, v]) => v.source !== null && !this.getRootParent(v, cache).isSingleton)
       .map(([k]) => k);
   }
 }
@@ -106,17 +104,11 @@ export function markAsDisposed(disposable: IDisposable): void {
   disposableTracker?.markAsDisposed(disposable);
 }
 
-function setParentOfDisposable(
-  child: IDisposable,
-  parent: IDisposable | null,
-): void {
+function setParentOfDisposable(child: IDisposable, parent: IDisposable | null): void {
   disposableTracker?.setParent(child, parent);
 }
 
-function setParentOfDisposables(
-  children: IDisposable[],
-  parent: IDisposable | null,
-): void {
+function setParentOfDisposables(children: IDisposable[], parent: IDisposable | null): void {
   if (!disposableTracker) return;
   for (const child of children) {
     disposableTracker.setParent(child, parent);
@@ -141,19 +133,13 @@ export function isDisposable<E>(thing: E): thing is E & IDisposable {
 }
 
 export function dispose<T extends IDisposable>(disposable: T): T;
-export function dispose<T extends IDisposable>(
-  disposable: T | undefined,
-): T | undefined;
+export function dispose<T extends IDisposable>(disposable: T | undefined): T | undefined;
 export function dispose<T extends IDisposable, A extends Iterable<T> = Iterable<T>>(
   disposables: A,
 ): A;
 export function dispose<T extends IDisposable>(disposables: Array<T>): Array<T>;
-export function dispose<T extends IDisposable>(
-  disposables: ReadonlyArray<T>,
-): ReadonlyArray<T>;
-export function dispose<T extends IDisposable>(
-  arg: T | Iterable<T> | undefined,
-): unknown {
+export function dispose<T extends IDisposable>(disposables: ReadonlyArray<T>): ReadonlyArray<T>;
+export function dispose<T extends IDisposable>(arg: T | Iterable<T> | undefined): unknown {
   if (arg === undefined || arg === null) return arg;
   if (isIterable<T>(arg)) {
     const errors: unknown[] = [];
@@ -171,15 +157,12 @@ export function dispose<T extends IDisposable>(
       throw errors[0];
     }
     if (errors.length > 1) {
-      throw new AggregateError(
-        errors,
-        'Encountered errors while disposing of store',
-      );
+      throw new AggregateError(errors, 'Encountered errors while disposing of store');
     }
 
     return Array.isArray(arg) ? [] : arg;
   }
-  (arg).dispose();
+  arg.dispose();
   return arg;
 }
 
@@ -459,10 +442,7 @@ export interface IReference<T> extends IDisposable {
 }
 
 export abstract class ReferenceCollection<T> {
-  private readonly references = new Map<
-    string,
-    { readonly object: T; counter: number }
-  >();
+  private readonly references = new Map<string, { readonly object: T; counter: number }>();
 
   acquire(key: string, ...args: unknown[]): IReference<T> {
     let reference = this.references.get(key);
@@ -504,7 +484,9 @@ export class AsyncReferenceCollection<T> {
       const object = await ref.object;
       return {
         object,
-        dispose: () => { ref.dispose(); },
+        dispose: () => {
+          ref.dispose();
+        },
       };
     } catch (error) {
       ref.dispose();
@@ -518,9 +500,7 @@ export class ImmortalReference<T> implements IReference<T> {
   dispose(): void {}
 }
 
-export class DisposableMap<K, V extends IDisposable = IDisposable>
-  implements IDisposable
-{
+export class DisposableMap<K, V extends IDisposable = IDisposable> implements IDisposable {
   private readonly _store: Map<K, V>;
   private _isDisposed = false;
 
@@ -605,9 +585,7 @@ export class DisposableMap<K, V extends IDisposable = IDisposable>
   }
 }
 
-export class DisposableSet<V extends IDisposable = IDisposable>
-  implements IDisposable
-{
+export class DisposableSet<V extends IDisposable = IDisposable> implements IDisposable {
   private readonly _store: Set<V>;
   private _isDisposed = false;
 
@@ -686,10 +664,7 @@ export function disposeOnReturn(fn: (store: DisposableStore) => void): void {
   }
 }
 
-export function thenIfNotDisposed<T>(
-  promise: Promise<T>,
-  then: (result: T) => void,
-): IDisposable {
+export function thenIfNotDisposed<T>(promise: Promise<T>, then: (result: T) => void): IDisposable {
   let disposed = false;
   void promise.then((result) => {
     if (disposed) return;

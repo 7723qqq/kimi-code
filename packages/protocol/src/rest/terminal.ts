@@ -46,9 +46,5 @@ export const closeTerminalResponseSchema = z.object({
 export type CloseTerminalResponse = z.infer<typeof closeTerminalResponseSchema>;
 
 function isAbsolutePath(value: string): boolean {
-  return (
-    value.startsWith('/') ||
-    value.startsWith('\\') ||
-    /^[A-Za-z]:[\\/]/.test(value)
-  );
+  return value.startsWith('/') || value.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(value);
 }

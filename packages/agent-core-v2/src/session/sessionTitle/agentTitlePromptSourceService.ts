@@ -14,7 +14,6 @@
  */
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
@@ -22,6 +21,7 @@ import {
   promptMetadataTextFromContentParts,
   promptMetadataTextFromText,
 } from '#/agent/prompt/promptMetadataText';
+import { LifecycleScope } from '#/app/scopes';
 import type { ContentPart } from '#/kosong/contract/message';
 
 import {

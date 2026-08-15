@@ -29,7 +29,6 @@
  * collection token folded by `scopeUnits.ts`.
  */
 
-import type { IDisposable } from './lifecycle';
 import type { Emitter } from '../event';
 import { isPromiseLike, type EffectBody } from '../lifecycle/disposer';
 import { Ledger, type LedgerEntry } from '../lifecycle/ledger';
@@ -47,6 +46,7 @@ import {
   type LiveRef,
   type ServiceIdentifier,
 } from './instantiation';
+import type { IDisposable } from './lifecycle';
 
 export enum FiberState {
   Pending = 0,
@@ -90,10 +90,7 @@ export type ServiceObjectRecipe = {
   ): any;
 } & RecipeStatics;
 
-export type ServiceRecipe =
-  | ServiceClassRecipe
-  | ServiceFunctionRecipe
-  | ServiceObjectRecipe;
+export type ServiceRecipe = ServiceClassRecipe | ServiceFunctionRecipe | ServiceObjectRecipe;
 
 export interface FiberProvideOptions {
   readonly config?: unknown;
@@ -176,10 +173,7 @@ export function isServiceRecipe(ctor: any): ctor is ServiceClassRecipe {
 }
 
 export function isClassRecipe(recipe: unknown): recipe is ServiceClassRecipe {
-  return (
-    typeof recipe === 'function' &&
-    Object.prototype.hasOwnProperty.call(recipe, 'prototype')
-  );
+  return typeof recipe === 'function' && Object.prototype.hasOwnProperty.call(recipe, 'prototype');
 }
 
 export type BufferedOp = (runtime: Fiber) => void;
@@ -241,7 +235,10 @@ export function setFiberEventResolver(resolver: FiberEventResolver | undefined):
   _eventResolver = resolver;
 }
 
-export function bindServiceUnit(instance: UnitInternals & IDisposable, frame: ConstructionFrame): void {
+export function bindServiceUnit(
+  instance: UnitInternals & IDisposable,
+  frame: ConstructionFrame,
+): void {
   const buffer = instance.takeUnitBuffer();
   if (buffer === null) {
     return;
@@ -362,7 +359,10 @@ export class FiberRuntime implements Fiber {
       }
       return this._provideTokenInstance(first, second);
     }
-    return this._provideAnonymous(first as ServiceRecipe, second as FiberProvideOptions | undefined);
+    return this._provideAnonymous(
+      first as ServiceRecipe,
+      second as FiberProvideOptions | undefined,
+    );
   }
 
   effect(body: EffectBody, label?: string): FiberHandle {
@@ -399,7 +399,8 @@ export class FiberRuntime implements Fiber {
     } else {
       throw new FiberProtocolError(`unsupported event source for unit '${this.name}'`);
     }
-    const label = typeof event === 'string' ? `on:${event}` : `on:${event.constructor?.name ?? 'emitter'}`;
+    const label =
+      typeof event === 'string' ? `on:${event}` : `on:${event.constructor?.name ?? 'emitter'}`;
     const entry = this._book.register(() => {
       subscription.dispose();
     }, label);
@@ -487,14 +488,20 @@ export class FiberRuntime implements Fiber {
     });
   }
 
-  private _provideAnonymous(recipe: ServiceRecipe, opts: FiberProvideOptions | undefined): FiberHandle {
+  private _provideAnonymous(
+    recipe: ServiceRecipe,
+    opts: FiberProvideOptions | undefined,
+  ): FiberHandle {
     if (isClassRecipe(recipe)) {
       return this._provideAnonymousClass(recipe, opts);
     }
     return this._provideFunction(recipe, opts);
   }
 
-  private _provideAnonymousClass(recipe: ServiceClassRecipe, opts: FiberProvideOptions | undefined): FiberHandle {
+  private _provideAnonymousClass(
+    recipe: ServiceClassRecipe,
+    opts: FiberProvideOptions | undefined,
+  ): FiberHandle {
     const name = recipeName(recipe);
     let config = validateConfig(recipe.Config, opts?.config, name);
     let state = FiberState.Activating;
@@ -517,7 +524,9 @@ export class FiberRuntime implements Fiber {
       failure = error;
       throw error;
     }
-    for (const dependency of _util.getInstanceDependencies(recipe as unknown as _util.DI_TARGET_OBJ)) {
+    for (const dependency of _util.getInstanceDependencies(
+      recipe as unknown as _util.DI_TARGET_OBJ,
+    )) {
       this._host.recordInstanceEdge(this._edgeNode, dependency.id);
     }
     return new BasicFiberHandle({
@@ -546,7 +555,10 @@ export class FiberRuntime implements Fiber {
     });
   }
 
-  private _provideFunction(recipe: ServiceFunctionRecipe | ServiceObjectRecipe, opts: FiberProvideOptions | undefined): FiberHandle {
+  private _provideFunction(
+    recipe: ServiceFunctionRecipe | ServiceObjectRecipe,
+    opts: FiberProvideOptions | undefined,
+  ): FiberHandle {
     const name = recipeName(recipe);
     const config = validateConfig(recipe.Config, opts?.config, name);
     const book = new Ledger(`unit:${name}`);
@@ -656,7 +668,11 @@ class BasicFiberHandle<T> implements FiberHandle<T> {
     onfulfilled?: ((value: FiberHandle<T>) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): PromiseLike<TResult1 | TResult2> {
-    return thenSettle(this._parts.whenActive().then(() => settledView(this)), onfulfilled, onrejected);
+    return thenSettle(
+      this._parts.whenActive().then(() => settledView(this)),
+      onfulfilled,
+      onrejected,
+    );
   }
 }
 

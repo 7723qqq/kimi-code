@@ -2,13 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
-
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;

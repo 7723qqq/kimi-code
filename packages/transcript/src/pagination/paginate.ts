@@ -35,10 +35,16 @@ export function paginateTurns(items: readonly TranscriptItem[], query: TurnPageQ
   if (query.afterTurn !== undefined) {
     // The leading non-turn unit is the oldest content; it only travels with
     // before-cursor (older) paging, not with after-cursor (newer) paging.
-    return page(segments.filter((seg) => seg.turnId && compareTurnIds(seg.turnId, query.afterTurn!) > 0), pageSize, 'newer');
+    return page(
+      segments.filter((seg) => seg.turnId && compareTurnIds(seg.turnId, query.afterTurn!) > 0),
+      pageSize,
+      'newer',
+    );
   }
   if (query.beforeTurn !== undefined) {
-    const older = segments.filter((seg) => !seg.turnId || compareTurnIds(seg.turnId, query.beforeTurn!) < 0);
+    const older = segments.filter(
+      (seg) => !seg.turnId || compareTurnIds(seg.turnId, query.beforeTurn!) < 0,
+    );
     return page(older, pageSize, 'older');
   }
   return page(segments, pageSize, 'older');
@@ -74,7 +80,11 @@ function splitSegments(items: readonly TranscriptItem[]): Segment[] {
   return segments;
 }
 
-function page(segments: readonly Segment[], pageSize: number, direction: 'older' | 'newer'): TurnPage {
+function page(
+  segments: readonly Segment[],
+  pageSize: number,
+  direction: 'older' | 'newer',
+): TurnPage {
   // The leading non-turn unit is not a turn slot: pages are counted in turn
   // segments, and the unit rides along only with the page that reaches the
   // first turn (the oldest page).

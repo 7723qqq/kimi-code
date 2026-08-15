@@ -2,8 +2,9 @@
  * `skillCatalog` domain — builtin `check-kimi-code-docs` skill definition.
  */
 
-import type { SkillDefinition } from '#/app/skillCatalog/types';
 import { parseSkillText } from '#/app/skillCatalog/parser';
+import type { SkillDefinition } from '#/app/skillCatalog/types';
+
 import CHECK_KIMI_CODE_DOCS_BODY from './check-kimi-code-docs.md?raw';
 
 const PSEUDO_PATH = 'builtin://check-kimi-code-docs';

@@ -30,8 +30,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -232,7 +232,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     await ensureMainAgent(id);
 
     // First read binds the transcript (empty).
-    const empty = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const empty = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     expect(empty.body.code).toBe(0);
     expect(empty.body.data.items).toEqual([]);
     expect(empty.body.data.has_more).toBe(false);
@@ -251,7 +253,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
         args: { command: 'ls' },
       }),
     );
-    bus.publish(serverEvent({ type: 'tool.result', turnId: 1, toolCallId: 'call_1', output: 'a.txt' }));
+    bus.publish(
+      serverEvent({ type: 'tool.result', turnId: 1, toolCallId: 'call_1', output: 'a.txt' }),
+    );
     bus.publish(serverEvent({ type: 'turn.step.completed', turnId: 1, step: 1 }));
     bus.publish(serverEvent({ type: 'turn.ended', turnId: 1, reason: 'completed' }));
 
@@ -266,9 +270,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     expect(turn!.state).toBe('completed');
     expect(turn!.steps).toHaveLength(1);
     const frames = turn!.steps[0]!.frames;
-    expect(frames).toContainEqual(
-      expect.objectContaining({ kind: 'text', text: 'Hello world' }),
-    );
+    expect(frames).toContainEqual(expect.objectContaining({ kind: 'text', text: 'Hello world' }));
     expect(frames).toContainEqual(
       expect.objectContaining({
         kind: 'tool',
@@ -319,7 +321,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       origin: { agentId: 'main', turnId: 1 },
     });
 
-    let { body } = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    let { body } = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     expect(body.data.pending_interactions).toEqual(['apr-1']);
     expect(body.data.interactions).toContainEqual(
       expect.objectContaining({
@@ -331,7 +335,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     );
 
     interactions.respond('apr-1', { decision: 'approved' });
-    ({ body } = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`));
+    ({ body } = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    ));
     expect(body.data.pending_interactions).toEqual([]);
     expect(body.data.interactions).toContainEqual(
       expect.objectContaining({ interactionId: 'apr-1', state: 'approved' }),
@@ -362,7 +368,10 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     const older = await getJson<TranscriptContract>(
       `/api/v1/sessions/${id}/transcript?agent_id=main&page_size=2&before_turn=t3`,
     );
-    expect(older.body.data.items.map((item) => (item as TurnContract).turnId)).toEqual(['t1', 't2']);
+    expect(older.body.data.items.map((item) => (item as TurnContract).turnId)).toEqual([
+      't1',
+      't2',
+    ]);
     expect(older.body.data.has_more).toBe(false);
 
     // Unknown agent id on a live session pages empty instead of 404ing.
@@ -422,7 +431,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     );
 
     // Cold reads of an agent without any records page empty.
-    const sub = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=sub-1`);
+    const sub = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=sub-1`,
+    );
     expect(sub.body.code).toBe(0);
     expect(sub.body.data.items).toEqual([]);
     expect(sub.body.data.has_more).toBe(false);
@@ -462,7 +473,10 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     const again = await getJson<TranscriptContract>(
       `/api/v1/sessions/${id}/transcript?agent_id=main`,
     );
-    expect(again.body.data.items.map((item) => (item as TurnContract).turnId)).toEqual(['t0', 't1']);
+    expect(again.body.data.items.map((item) => (item as TurnContract).turnId)).toEqual([
+      't0',
+      't1',
+    ]);
   });
 
   it('rebuilds a subagent for a cold session from its own wire records', async () => {
@@ -470,12 +484,18 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     await ensureMainAgent(id);
     const session = getLiveSessionById(server!.core.accessor, id);
     const sub = await session!.accessor.get(IAgentLifecycleService).create({ agentId: 'sub-1' });
-    sub.accessor
-      .get(IAgentContextMemoryService)
-      .append(
-        { role: 'user', content: [{ type: 'text', text: 'scan the repo' }], toolCalls: [] } as ContextMessage,
-        { role: 'assistant', content: [{ type: 'text', text: 'scanning' }], toolCalls: [] } as ContextMessage,
-      );
+    sub.accessor.get(IAgentContextMemoryService).append(
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'scan the repo' }],
+        toolCalls: [],
+      } as ContextMessage,
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'scanning' }],
+        toolCalls: [],
+      } as ContextMessage,
+    );
     await sub.accessor.get(IWireService).flush();
 
     // Reboot on the same home — the session drops out of memory.
@@ -493,7 +513,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     expect(turn).toBeDefined();
     expect(turn!.prompt).toBe('scan the repo');
     // An agent without any records still pages empty.
-    const none = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=nope`);
+    const none = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=nope`,
+    );
     expect(none.body.code).toBe(0);
     expect(none.body.data.items).toEqual([]);
   });
@@ -503,12 +525,18 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     await ensureMainAgent(id);
     const session = getLiveSessionById(server!.core.accessor, id);
     const sub = await session!.accessor.get(IAgentLifecycleService).create({ agentId: 'sub-1' });
-    sub.accessor
-      .get(IAgentContextMemoryService)
-      .append(
-        { role: 'user', content: [{ type: 'text', text: 'scan the repo' }], toolCalls: [] } as ContextMessage,
-        { role: 'assistant', content: [{ type: 'text', text: 'scanning' }], toolCalls: [] } as ContextMessage,
-      );
+    sub.accessor.get(IAgentContextMemoryService).append(
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'scan the repo' }],
+        toolCalls: [],
+      } as ContextMessage,
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'scanning' }],
+        toolCalls: [],
+      } as ContextMessage,
+    );
     await sub.accessor.get(IWireService).flush();
 
     // Reboot + resume: the subagent is not materialized again, but its
@@ -543,18 +571,20 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     const sub = await session!.accessor
       .get(IAgentLifecycleService)
       .create({ agentId: 'sub-1', labels: { parentAgentId: 'main' } });
-    sub.accessor
-      .get(IAgentContextMemoryService)
-      .append(
-        { role: 'user', content: [{ type: 'text', text: 'scan the repo' }], toolCalls: [] } as ContextMessage,
-      );
+    sub.accessor.get(IAgentContextMemoryService).append({
+      role: 'user',
+      content: [{ type: 'text', text: 'scan the repo' }],
+      toolCalls: [],
+    } as ContextMessage);
     await sub.accessor.get(IWireService).flush();
 
     // The roster seeds from session metadata when the transcript binds; the
     // subsequent on-demand backfill for the subagent must not downgrade the
     // descriptor back to `{ agentId, type }`.
     await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
-    const { body } = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=sub-1`);
+    const { body } = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=sub-1`,
+    );
     expect(body.code).toBe(0);
     expect(body.data.agents).toContainEqual(
       expect.objectContaining({ agentId: 'sub-1', type: 'sub', parentAgentId: 'main' }),
@@ -571,7 +601,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       {
         role: 'assistant',
         content: [{ type: 'text', text: 'running' }],
-        toolCalls: [{ type: 'function', id: 'call_9', name: 'Bash', arguments: '{"command":"ls"}' }],
+        toolCalls: [
+          { type: 'function', id: 'call_9', name: 'Bash', arguments: '{"command":"ls"}' },
+        ],
       },
     ]);
 
@@ -586,7 +618,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
 
     // Binding defers the announce until after the backfill, so the entity
     // anchors at the backfilled tool call and resolve can back-link it.
-    const { body } = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const { body } = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     expect(body.data.pending_interactions).toEqual(['apr-1']);
     expect(body.data.interactions).toContainEqual(
       expect.objectContaining({
@@ -598,7 +632,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     );
 
     session!.accessor.get(ISessionInteractionService).respond('apr-1', { decision: 'approved' });
-    const after = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const after = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     const turnAfter = after.body.data.items.find(
       (item): item is TurnContract => item.kind === 'turn' && item.turnId === 't0',
     );
@@ -612,12 +648,16 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     await ensureMainAgent(id);
 
     // Probing a nonexistent agent pages empty (no wire records)…
-    const none = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=nope`);
+    const none = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=nope`,
+    );
     expect(none.body.code).toBe(0);
     expect(none.body.data.items).toEqual([]);
 
     // …but must not conjure a ghost roster entry.
-    const main = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const main = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     expect(main.body.data.agents.map((a) => a.agentId)).not.toContain('nope');
   });
 
@@ -626,16 +666,14 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     await ensureMainAgent(id);
     const session = getLiveSessionById(server!.core.accessor, id);
     const sub = await session!.accessor.get(IAgentLifecycleService).create({ agentId: 'sub-1' });
-    sub.accessor
-      .get(IAgentContextMemoryService)
-      .append(
-        { role: 'user', content: [{ type: 'text', text: 'scan' }], toolCalls: [] } as ContextMessage,
-        {
-          role: 'assistant',
-          content: [],
-          toolCalls: [{ type: 'function', id: 'call_q', name: 'AskUserQuestion', arguments: '{}' }],
-        } as ContextMessage,
-      );
+    sub.accessor.get(IAgentContextMemoryService).append(
+      { role: 'user', content: [{ type: 'text', text: 'scan' }], toolCalls: [] } as ContextMessage,
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [{ type: 'function', id: 'call_q', name: 'AskUserQuestion', arguments: '{}' }],
+      } as ContextMessage,
+    );
     await sub.accessor.get(IWireService).flush();
 
     // The subagent's question is pending BEFORE the transcript binds.
@@ -652,10 +690,14 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
 
     // Binding seeds only main-owned pendings after the main backfill — the
     // subagent's question waits for its own history.
-    const mainBody = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const mainBody = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     expect(mainBody.body.data.pending_interactions).toEqual([]);
 
-    const subBody = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=sub-1`);
+    const subBody = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=sub-1`,
+    );
     expect(subBody.body.data.pending_interactions).toEqual(['call_q']);
     expect(subBody.body.data.interactions).toContainEqual(
       expect.objectContaining({
@@ -683,7 +725,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     server = undefined;
     await boot();
 
-    const none = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=nope`);
+    const none = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=nope`,
+    );
     expect(none.body.code).toBe(0);
     expect(none.body.data.items).toEqual([]);
     // No ghost entry for the probe — and the roster still comes from the
@@ -706,7 +750,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     ]);
 
     // Bind the live store; the backfill serves the persisted turn.
-    const bound = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const bound = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     expect(bound.body.data.items).toHaveLength(1);
 
     // A live-only turn (never persisted) distinguishes the stale store from
@@ -717,7 +763,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
 
     await closeSessionById(server!.core.accessor, id);
 
-    const { body } = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const { body } = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     expect(body.code).toBe(0);
     expect(body.data.items.map((item) => (item as TurnContract).turnId)).toEqual(['t0']);
     const turn = body.data.items[0] as TurnContract;
@@ -748,7 +796,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     // suffix-only.
     await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
     bus.publish(serverEvent({ type: 'assistant.delta', turnId: 0, delta: 'world' }));
-    const suffix = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const suffix = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     const suffixTurn = suffix.body.data.items.find(
       (item): item is TurnContract => item.kind === 'turn' && item.turnId === 't0',
     );
@@ -821,7 +871,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       { agentId: 'sub-1' },
     );
 
-    const subBody = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=sub-1`);
+    const subBody = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=sub-1`,
+    );
     expect(subBody.body.data.pending_interactions).toEqual(['call_q']);
     expect(subBody.body.data.interactions).toContainEqual(
       expect.objectContaining({
@@ -832,7 +884,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       }),
     );
 
-    const mainBody = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const mainBody = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     expect(mainBody.body.data.pending_interactions).toEqual([]);
 
     questions.dismiss('call_q');
@@ -859,7 +913,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     const id = await createSession();
     await ensureMainAgent(id);
 
-    const bound = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const bound = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     expect(bound.body.data.seq).toBeTypeOf('number');
     const base = bound.body.data.seq!;
 
@@ -867,7 +923,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     bus.publish(serverEvent({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
     bus.publish(serverEvent({ type: 'turn.ended', turnId: 1, reason: 'completed' }));
 
-    const after = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const after = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     expect(after.body.data.seq).toBeGreaterThan(base);
   });
 
@@ -876,7 +934,9 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     await ensureMainAgent(id);
 
     // Bind the transcript and read the baseline watermark.
-    const bound = await getJson<TranscriptContract>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
+    const bound = await getJson<TranscriptContract>(
+      `/api/v1/sessions/${id}/transcript?agent_id=main`,
+    );
     const base = bound.body.data.seq!;
 
     const bus = mainAgentBus(id);
@@ -988,14 +1048,18 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     await ensureMainAgent(id);
     const session = getLiveSessionById(server!.core.accessor, id);
     const sub = await session!.accessor.get(IAgentLifecycleService).create({ agentId: 'sub-1' });
-    sub.accessor
-      .get(IAgentContextMemoryService)
-      .append({ role: 'user', content: [{ type: 'text', text: 'scan the repo' }], toolCalls: [] } as ContextMessage);
+    sub.accessor.get(IAgentContextMemoryService).append({
+      role: 'user',
+      content: [{ type: 'text', text: 'scan the repo' }],
+      toolCalls: [],
+    } as ContextMessage);
     await sub.accessor.get(IWireService).flush();
 
     // Bind the transcript BEFORE publishing live turns (an unbound store
     // cannot project bus events, and live-only turns never reach the disk).
-    const bound = await getJson<UserMessagesContract>(`/api/v1/sessions/${id}/transcript/user-messages`);
+    const bound = await getJson<UserMessagesContract>(
+      `/api/v1/sessions/${id}/transcript/user-messages`,
+    );
     const boundByAgent = new Map(bound.body.data.agents.map((a) => [a.agent_id, a]));
     expect(boundByAgent.get('main')!.messages).toEqual([]);
     // The agent_id-less read backfills sub-1 on demand: its persisted run
@@ -1004,7 +1068,12 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
 
     const bus = mainAgentBus(id);
     bus.publish(
-      serverEvent({ type: 'turn.started', turnId: 1, origin: { kind: 'user' }, prompt: 'hello main' }),
+      serverEvent({
+        type: 'turn.started',
+        turnId: 1,
+        origin: { kind: 'user' },
+        prompt: 'hello main',
+      }),
     );
     bus.publish(serverEvent({ type: 'turn.ended', turnId: 1, reason: 'completed' }));
 
@@ -1048,9 +1117,11 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     ]);
     const session = getLiveSessionById(server!.core.accessor, id);
     const sub = await session!.accessor.get(IAgentLifecycleService).create({ agentId: 'sub-1' });
-    sub.accessor
-      .get(IAgentContextMemoryService)
-      .append({ role: 'user', content: [{ type: 'text', text: 'scan the repo' }], toolCalls: [] } as ContextMessage);
+    sub.accessor.get(IAgentContextMemoryService).append({
+      role: 'user',
+      content: [{ type: 'text', text: 'scan the repo' }],
+      toolCalls: [],
+    } as ContextMessage);
     await sub.accessor.get(IWireService).flush();
 
     // Reboot on the same home — the session drops out of memory (cold path).
@@ -1107,7 +1178,12 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
 
     const bus = mainAgentBus(id);
     bus.publish(
-      serverEvent({ type: 'turn.started', turnId: 1, origin: { kind: 'user' }, prompt: 'build it' }),
+      serverEvent({
+        type: 'turn.started',
+        turnId: 1,
+        origin: { kind: 'user' },
+        prompt: 'build it',
+      }),
     );
     bus.publish(serverEvent({ type: 'turn.step.started', turnId: 1, step: 1 }));
     bus.publish(
@@ -1312,9 +1388,17 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     bus.publish(serverEvent({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
     bus.publish(serverEvent({ type: 'turn.step.started', turnId: 1, step: 1 }));
     bus.publish(
-      serverEvent({ type: 'tool.call.started', turnId: 1, toolCallId: 'call_bash', name: 'Bash', args: {} }),
+      serverEvent({
+        type: 'tool.call.started',
+        turnId: 1,
+        toolCallId: 'call_bash',
+        name: 'Bash',
+        args: {},
+      }),
     );
-    bus.publish(serverEvent({ type: 'tool.result', turnId: 1, toolCallId: 'call_bash', output: 'ok' }));
+    bus.publish(
+      serverEvent({ type: 'tool.result', turnId: 1, toolCallId: 'call_bash', output: 'ok' }),
+    );
 
     // Unknown tool call.
     const unknown = await getJson<null>(
@@ -1356,9 +1440,17 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       }),
     );
     bus.publish(
-      serverEvent({ type: 'tool.call.started', turnId: 1, toolCallId: 'call_bash', name: 'Bash', args: {} }),
+      serverEvent({
+        type: 'tool.call.started',
+        turnId: 1,
+        toolCallId: 'call_bash',
+        name: 'Bash',
+        args: {},
+      }),
     );
-    bus.publish(serverEvent({ type: 'tool.result', turnId: 1, toolCallId: 'call_bash', output: 'ok' }));
+    bus.publish(
+      serverEvent({ type: 'tool.result', turnId: 1, toolCallId: 'call_bash', output: 'ok' }),
+    );
     bus.publish(serverEvent({ type: 'turn.step.completed', turnId: 1, step: 1 }));
     bus.publish(serverEvent({ type: 'turn.step.started', turnId: 1, step: 2 }));
     bus.publish(

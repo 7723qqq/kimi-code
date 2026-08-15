@@ -3,6 +3,7 @@
 // supersede, and the async `action` flow (busy state, close-on-settle,
 // rejection propagation).
 import { beforeEach, describe, expect, it } from 'vitest';
+
 import { useConfirmDialog } from '../src/composables/useConfirmDialog';
 
 function deferred<T = void>(): {

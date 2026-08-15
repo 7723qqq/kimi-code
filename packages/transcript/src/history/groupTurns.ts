@@ -28,11 +28,11 @@
  * assignable without a dependency from this package onto the engine.
  */
 
-import type { AgentTranscriptSnapshot } from '../ops/operation';
 import type { TranscriptAttachment } from '../model/attachment';
 import type { TranscriptFrame } from '../model/frame';
 import type { TranscriptItem, TranscriptMarker } from '../model/item';
 import type { TurnOrigin } from '../model/turn';
+import type { AgentTranscriptSnapshot } from '../ops/operation';
 
 export type HistoryMediaSource =
   | { readonly kind: 'url'; readonly url: string }
@@ -123,8 +123,7 @@ export function groupMessagesIntoSnapshot(
         const source = part.source as HistoryMediaSource;
         const entity: TranscriptAttachment = {
           attachmentId: `att_${attachments.length + 1}`,
-          mediaType:
-            source.kind === 'base64' ? source.media_type : `${part.type}/*`,
+          mediaType: source.kind === 'base64' ? source.media_type : `${part.type}/*`,
           source:
             source.kind === 'url'
               ? { kind: 'url', url: source.url }
@@ -219,9 +218,24 @@ export function groupMessagesIntoSnapshot(
         return `${step.stepId}.f${frameCount}`;
       };
       for (const part of message.content ?? []) {
-        if (part.type === 'text' && 'text' in part && typeof part.text === 'string' && part.text.length > 0) {
-          step.frames.push({ kind: 'text', frameId: nextFrameId(), role: 'assistant', text: part.text });
-        } else if (part.type === 'think' && 'think' in part && typeof part.think === 'string' && part.think.length > 0) {
+        if (
+          part.type === 'text' &&
+          'text' in part &&
+          typeof part.text === 'string' &&
+          part.text.length > 0
+        ) {
+          step.frames.push({
+            kind: 'text',
+            frameId: nextFrameId(),
+            role: 'assistant',
+            text: part.text,
+          });
+        } else if (
+          part.type === 'think' &&
+          'think' in part &&
+          typeof part.think === 'string' &&
+          part.think.length > 0
+        ) {
           step.frames.push({ kind: 'thinking', frameId: nextFrameId(), text: part.think });
         }
       }
@@ -296,7 +310,11 @@ function mapOrigin(message: HistoryMessage): TurnOrigin {
     case 'cron_job':
     case 'cron_missed': {
       const jobId = (origin as { jobId?: unknown }).jobId;
-      return { kind: 'cron', taskId: typeof jobId === 'string' ? jobId : undefined, payload: origin };
+      return {
+        kind: 'cron',
+        taskId: typeof jobId === 'string' ? jobId : undefined,
+        payload: origin,
+      };
     }
     case 'task':
     case 'background_task': {
@@ -324,7 +342,10 @@ function mapOrigin(message: HistoryMessage): TurnOrigin {
 
 function textOf(message: HistoryMessage): string {
   return (message.content ?? [])
-    .filter((part): part is { readonly type: 'text'; readonly text: string } => part.type === 'text' && 'text' in part)
+    .filter(
+      (part): part is { readonly type: 'text'; readonly text: string } =>
+        part.type === 'text' && 'text' in part,
+    )
     .map((part) => part.text)
     .join('');
 }
@@ -364,7 +385,10 @@ function syncTurnItem(items: TranscriptItem[], draft: TurnDraft): void {
   if (index >= 0) items[index] = draftToTurnItem(draft);
 }
 
-function currentTurnToolFrame(turn: TurnDraft | undefined, toolCallId: string | undefined): TranscriptFrame | undefined {
+function currentTurnToolFrame(
+  turn: TurnDraft | undefined,
+  toolCallId: string | undefined,
+): TranscriptFrame | undefined {
   if (!turn || toolCallId === undefined) return undefined;
   for (let s = turn.steps.length - 1; s >= 0; s -= 1) {
     const frames = turn.steps[s]?.frames ?? [];
@@ -380,7 +404,9 @@ function replaceToolFrame(turn: TurnDraft, toolCallId: string, next: TranscriptF
   for (let s = turn.steps.length - 1; s >= 0; s -= 1) {
     const step = turn.steps[s];
     if (!step) continue;
-    const index = step.frames.findIndex((frame) => frame.kind === 'tool' && frame.toolCallId === toolCallId);
+    const index = step.frames.findIndex(
+      (frame) => frame.kind === 'tool' && frame.toolCallId === toolCallId,
+    );
     if (index >= 0) {
       step.frames[index] = next;
       return;

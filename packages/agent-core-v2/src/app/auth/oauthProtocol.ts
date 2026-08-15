@@ -95,7 +95,6 @@ export type RefreshOAuthProviderModelsResponse = z.infer<
   typeof refreshOAuthProviderModelsResponseSchema
 >;
 
-
 export const usageWindowSchema = z.object({
   duration: z.number().int(),
   unit: z.enum(['minute', 'hour', 'day', 'week']),
@@ -141,7 +140,6 @@ export const managedUsageResultSchema = z.discriminatedUnion('kind', [
   managedUsageErrorSchema,
 ]);
 export type ManagedUsageResult = z.infer<typeof managedUsageResultSchema>;
-
 
 export {
   managedUserInfoResultSchema,

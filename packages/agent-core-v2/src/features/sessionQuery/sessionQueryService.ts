@@ -11,18 +11,22 @@
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Service } from '#/_base/di/service';
-import { Error2 } from '#/errors';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { ISessionIndex, PARENT_SESSION_ID_KEY, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
+import {
+  ISessionIndex,
+  PARENT_SESSION_ID_KEY,
+  type SessionSummary,
+} from '#/app/sessionIndex/sessionIndex';
 import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
+import { Error2 } from '#/errors';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 
+import { SessionSearchCursor } from './cursor';
 import { SessionQueryErrors } from './errors';
+import { SessionEventIndex } from './eventIndex';
 import { filterSessionResults, materializeSessionResultFilters } from './filters';
 import { traceLineage } from './lineage';
-import { SessionEventIndex } from './eventIndex';
 import { filterSessionEvents, searchEventDocuments } from './search';
-import { SessionSearchCursor } from './cursor';
 import type {
   SessionEventSearchDocument,
   SessionEventResultFilter,
@@ -76,9 +80,7 @@ export interface ISessionQueryService {
    * @param request - session, query, optional metadata filters, page size and cursor.
    * @returns the ranked page with an opaque continuation cursor.
    */
-  searchEvents(
-    request: SessionEventSearchRequest,
-  ): Promise<SessionEventSearchPage>;
+  searchEvents(request: SessionEventSearchRequest): Promise<SessionEventSearchPage>;
 
   /**
    * Cross-session full-text search. The corpus is narrowed by
@@ -145,9 +147,7 @@ export class SessionQueryService extends Service implements ISessionQueryService
     return filterSessionEvents(documents, filters);
   }
 
-  async searchEvents(
-    request: SessionEventSearchRequest,
-  ): Promise<SessionEventSearchPage> {
+  async searchEvents(request: SessionEventSearchRequest): Promise<SessionEventSearchPage> {
     const documents = await this.eventDocumentsOf(request.sessionId);
     const filtered = filterSessionEvents(documents, request.filters ?? []);
     const { items, nextCursor } = searchEventDocuments(

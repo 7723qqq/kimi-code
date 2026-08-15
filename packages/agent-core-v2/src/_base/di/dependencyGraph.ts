@@ -30,11 +30,14 @@ export interface DependencyEdge {
 }
 
 export class PairIndex<V> {
-  private readonly _map = new Map<object, Map<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ServiceIdentifier<any>,
-    V
-  >>();
+  private readonly _map = new Map<
+    object,
+    Map<
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ServiceIdentifier<any>,
+      V
+    >
+  >();
 
   get(scope: object, token: ServiceIdentifier<unknown>): V | undefined {
     return this._map.get(scope)?.get(token);
@@ -190,8 +193,7 @@ export class DependencyGraph {
         if (mark === 'done') continue;
         if (mark === 'visiting') {
           const start = path.findIndex(
-            (entry) =>
-              entry.scope === dependency.scope && entry.token === dependency.token,
+            (entry) => entry.scope === dependency.scope && entry.token === dependency.token,
           );
           return [...path.slice(start), dependency].map(label);
         }

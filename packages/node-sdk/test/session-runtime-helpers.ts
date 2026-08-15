@@ -1,7 +1,8 @@
 import { readFile, rm, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, normalize } from 'pathe';
 import { setTimeout as delay } from 'node:timers/promises';
+
+import { join, normalize } from 'pathe';
 
 import type { Event } from '#/index';
 

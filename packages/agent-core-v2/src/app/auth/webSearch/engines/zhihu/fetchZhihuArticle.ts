@@ -22,7 +22,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const FALLBACK_HEADERS: Record<string, string> = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-  'Accept':
+  Accept:
     'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
   'cache-control': 'max-age=0',
   'sec-ch-ua': '"Chromium";v="145", "Google Chrome";v="145", "Not:A-Brand";v="99"',
@@ -55,8 +55,8 @@ const BOT_KEYWORDS = [
 
 function normalizeExtractedText(text: string): string {
   return text
-    .replaceAll(/\r\n/g, '\n')
-    .replaceAll(/\u00A0/g, ' ')
+    .replaceAll('\r\n', '\n')
+    .replaceAll('\u00A0', ' ')
     .replaceAll(/[ \t]+\n/g, '\n')
     .replaceAll(/\n[ \t]+/g, '\n')
     .replaceAll(/[ \t]{2,}/g, ' ')
@@ -92,7 +92,9 @@ function looksLikeBotChallengePage(html: string): boolean {
 }
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 async function fetchArticleHtml(url: string, options: SearchEngineOptions): Promise<string> {
@@ -130,11 +132,15 @@ async function fetchArticleHtml(url: string, options: SearchEngineOptions): Prom
     );
   }
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Zhihu article request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `Zhihu article request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
-  return  response.text();
+  return response.text();
 }
 
 async function fetchZhihuArticleImpl(
@@ -153,4 +159,5 @@ async function fetchZhihuArticleImpl(
   return { content };
 }
 
-export const fetchZhihuArticle: ArticleFetchFn = (url, options = {}) => fetchZhihuArticleImpl(url, options);
+export const fetchZhihuArticle: ArticleFetchFn = (url, options = {}) =>
+  fetchZhihuArticleImpl(url, options);

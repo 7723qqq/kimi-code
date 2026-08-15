@@ -40,7 +40,8 @@ export default {
   mergeSkills: '合并所有可用 Skills',
   mergeSkillsHint: '让项目、插件和用户 Skills 一起出现在可用列表中',
   telemetry: '使用数据改进产品',
-  telemetryHint: '开启后，我们会收集您的匿名交互数据（如点击、打断、功能使用等），用于改进产品体验。您可以随时关闭。',
+  telemetryHint:
+    '开启后，我们会收集您的匿名交互数据（如点击、打断、功能使用等），用于改进产品体验。您可以随时关闭。',
   telemetryRestartHint: '更改后需重启服务生效。',
   credentialReady: '凭据已配置',
   credentialMissing: '缺少凭据',

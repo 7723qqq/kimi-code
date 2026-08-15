@@ -12,6 +12,7 @@
  * entry per name. Readiness and startup duration aggregate both managers.
  */
 
+import { abortable } from '#/_base/utils/abort';
 import type {
   McpConnectionManager,
   McpConnectionView,
@@ -19,7 +20,6 @@ import type {
   McpStatusListener,
 } from '#/mcpCore/connection-manager';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
-import { abortable } from '#/_base/utils/abort';
 
 export class MergedMcpConnectionView implements McpConnectionView {
   constructor(

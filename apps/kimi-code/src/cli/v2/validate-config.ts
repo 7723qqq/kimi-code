@@ -23,14 +23,7 @@
  *    warning rule.
  */
 
-import { parse as parseToml } from 'smol-toml';
-import { z } from 'zod';
-
-import {
-  ConfigRegistry,
-  type AnyEnvBindings,
-  type EnvBinding,
-} from '@moonshot-ai/agent-core-v2';
+import { ConfigRegistry, type AnyEnvBindings, type EnvBinding } from '@moonshot-ai/agent-core-v2';
 import { collectKeyDeprecations } from '@moonshot-ai/agent-core-v2/app/config/deprecations';
 import {
   camelToSnake,
@@ -38,6 +31,8 @@ import {
   isPlainObject,
   transformTomlData,
 } from '@moonshot-ai/agent-core-v2/app/config/toml';
+import { parse as parseToml } from 'smol-toml';
+import { z } from 'zod';
 
 /**
  * Top-level domains the v2 engine reads via `IConfigService.get` / `inspect`
@@ -173,10 +168,7 @@ function isEnvBinding(value: AnyEnvBindings): value is EnvBinding {
   return typeof value === 'string' || (isPlainObject(value) && 'env' in value);
 }
 
-function walkEnvBindings(
-  bindings: AnyEnvBindings,
-  visit: (binding: EnvBinding) => void,
-): void {
+function walkEnvBindings(bindings: AnyEnvBindings, visit: (binding: EnvBinding) => void): void {
   if (isEnvBinding(bindings)) {
     visit(bindings);
     return;

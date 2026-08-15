@@ -1,10 +1,6 @@
 import { log, type Logger } from '@moonshot-ai/kimi-code-sdk';
 import { track as trackTelemetry, type TelemetryProperties } from '@moonshot-ai/kimi-telemetry';
 
-import { t } from '#/i18n';
-import { refreshUpdateCache } from '#/cli/update/refresh';
-import { selectUpdateTarget } from '#/cli/update/select';
-import { detectInstallSource } from '#/cli/update/source';
 import {
   canAutoInstall,
   installCommandFor,
@@ -17,11 +13,11 @@ import {
   type InstallPromptChoiceValue,
   type InstallPromptOptions,
 } from '#/cli/update/prompt';
-import {
-  NPM_PACKAGE_NAME,
-  type InstallSource,
-  type UpdateCache,
-} from '#/cli/update/types';
+import { refreshUpdateCache } from '#/cli/update/refresh';
+import { selectUpdateTarget } from '#/cli/update/select';
+import { detectInstallSource } from '#/cli/update/source';
+import { NPM_PACKAGE_NAME, type InstallSource, type UpdateCache } from '#/cli/update/types';
+import { t } from '#/i18n';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -81,7 +77,11 @@ export async function handleUpgrade(
     logUpgradeInfo(deps.logger, 'manual upgrade no update', {
       currentVersion,
     });
-    deps.stdout.write(t('tui.statusMessages.upgradeAlreadyUpToDate', { version: formatDisplayVersion(currentVersion) }) + '\n');
+    deps.stdout.write(
+      t('tui.statusMessages.upgradeAlreadyUpToDate', {
+        version: formatDisplayVersion(currentVersion),
+      }) + '\n',
+    );
     return 0;
   }
 
@@ -208,7 +208,11 @@ function trackUpgradeEvent(
   }
 }
 
-function logUpgradeInfo(logger: UpgradeLogger, message: string, payload: Record<string, unknown>): void {
+function logUpgradeInfo(
+  logger: UpgradeLogger,
+  message: string,
+  payload: Record<string, unknown>,
+): void {
   try {
     logger.info(message, payload);
   } catch {
@@ -216,7 +220,11 @@ function logUpgradeInfo(logger: UpgradeLogger, message: string, payload: Record<
   }
 }
 
-function logUpgradeWarn(logger: UpgradeLogger, message: string, payload: Record<string, unknown>): void {
+function logUpgradeWarn(
+  logger: UpgradeLogger,
+  message: string,
+  payload: Record<string, unknown>,
+): void {
   try {
     logger.warn(message, payload);
   } catch {

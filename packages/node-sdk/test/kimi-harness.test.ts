@@ -4,7 +4,13 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, ImageLimits, KimiHarness, SDKRpcClientBase, type SessionSummary } from '#/index';
+import {
+  createKimiHarness,
+  ImageLimits,
+  KimiHarness,
+  SDKRpcClientBase,
+  type SessionSummary,
+} from '#/index';
 
 import { removeTempDirs } from './session-runtime-helpers';
 import { recordingTelemetry } from './telemetry';

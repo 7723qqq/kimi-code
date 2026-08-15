@@ -98,10 +98,13 @@ describe('runCodeInWorker', () => {
   });
 
   it('fails with output-limit when logs exhaust the shared budget', async () => {
-    const outcome = await runCodeInWorker(`
+    const outcome = await runCodeInWorker(
+      `
       for (let i = 0; i < 1000; i++) console.log('line-' + i);
       return 'ok';
-    `, { maxOutputChars: 2000 });
+    `,
+      { maxOutputChars: 2000 },
+    );
     expect(outcome.error?.kind).toBe('output-limit');
     expect(outcome.logs.join('\n').length).toBeLessThanOrEqual(2000);
   });
@@ -136,7 +139,10 @@ describe('RunCodeTool', () => {
 
   it('marks a failing program as an error result', async () => {
     const tool = new RunCodeTool(configStub);
-    const execution = tool.resolveExecution({ code: "throw new Error('nope');", timeout_ms: 30_000 });
+    const execution = tool.resolveExecution({
+      code: "throw new Error('nope');",
+      timeout_ms: 30_000,
+    });
     if (!('execute' in execution)) throw new Error('expected a runnable execution');
     const result = await execution.execute({
       toolCallId: 't2',

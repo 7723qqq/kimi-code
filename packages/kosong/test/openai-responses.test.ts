@@ -1,3 +1,5 @@
+import { describe, it, expect, vi } from 'vitest';
+
 import {
   APIContextOverflowError,
   APIProviderQuotaExhaustedError,
@@ -8,19 +10,24 @@ import {
 } from '#/errors';
 import { generate } from '#/generate';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
+import type { GenerateOptions } from '#/provider';
 import {
   OpenAIResponsesChatProvider,
   OpenAIResponsesStreamedMessage,
 } from '#/providers/openai-responses';
-import type { GenerateOptions } from '#/provider';
 import type { Tool } from '#/tool';
-import { describe, it, expect, vi } from 'vitest';
 
 // The Rust native LLM stream replaces the mock SDK client with real network
 // calls when the addon is loadable; force the TS/SDK fallback in tests.
 vi.mock('../src/providers/native-stream', async () => {
-  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>('../src/providers/native-stream');
-  return { ...actual, tryNativeLlmStream: () => undefined, tryNativeLlmStreamIncremental: () => undefined };
+  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>(
+    '../src/providers/native-stream',
+  );
+  return {
+    ...actual,
+    tryNativeLlmStream: () => undefined,
+    tryNativeLlmStreamIncremental: () => undefined,
+  };
 });
 
 function makeResponsesAPIResponse() {
@@ -425,7 +432,8 @@ describe('OpenAIResponsesChatProvider', () => {
             {
               type: 'function',
               id: 'call_x',
-              name: 'lookup', arguments: '{}',
+              name: 'lookup',
+              arguments: '{}',
             },
           ],
         },
@@ -474,9 +482,7 @@ describe('OpenAIResponsesChatProvider', () => {
         },
         {
           role: 'tool',
-          content: [
-            { type: 'image_url', imageUrl: { url: 'https://example.com/shot.png' } },
-          ],
+          content: [{ type: 'image_url', imageUrl: { url: 'https://example.com/shot.png' } }],
           toolCallId: 'call_shot',
           toolCalls: [],
         },
@@ -527,9 +533,7 @@ describe('OpenAIResponsesChatProvider', () => {
         },
         {
           role: 'tool',
-          content: [
-            { type: 'video_url', videoUrl: { url: 'https://example.com/rec.mp4' } },
-          ],
+          content: [{ type: 'video_url', videoUrl: { url: 'https://example.com/rec.mp4' } }],
           toolCallId: 'call_rec',
           toolCalls: [],
         },
@@ -541,9 +545,7 @@ describe('OpenAIResponsesChatProvider', () => {
       expect(fnOutput).toEqual({
         type: 'function_call_output',
         call_id: 'call_rec',
-        output: [
-          { type: 'input_text', text: '(video omitted: not supported by this provider)' },
-        ],
+        output: [{ type: 'input_text', text: '(video omitted: not supported by this provider)' }],
       });
     });
 
@@ -562,12 +564,14 @@ describe('OpenAIResponsesChatProvider', () => {
             {
               type: 'function',
               id: 'call_add',
-              name: 'add', arguments: '{"a": 2, "b": 3}',
+              name: 'add',
+              arguments: '{"a": 2, "b": 3}',
             },
             {
               type: 'function',
               id: 'call_mul',
-              name: 'multiply', arguments: '{"a": 4, "b": 5}',
+              name: 'multiply',
+              arguments: '{"a": 4, "b": 5}',
             },
           ],
         },
@@ -697,7 +701,8 @@ describe('OpenAIResponsesChatProvider', () => {
       const toolCall: ToolCall = {
         type: 'function',
         id: 'call_abc123',
-        name: 'add', arguments: '{"a": 2, "b": 3}',
+        name: 'add',
+        arguments: '{"a": 2, "b": 3}',
       };
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Add 2 and 3' }], toolCalls: [] },
@@ -837,7 +842,8 @@ describe('OpenAIResponsesChatProvider', () => {
       const toolCall: ToolCall = {
         type: 'function',
         id: 'call_audio',
-        name: 'tts', arguments: '{"text":"hi"}',
+        name: 'tts',
+        arguments: '{"text":"hi"}',
       };
       const dataUrl = 'data:audio/mp3;base64,QUJD';
       const httpsUrl = 'https://example.com/speech.wav';
@@ -880,7 +886,8 @@ describe('OpenAIResponsesChatProvider', () => {
       const toolCall: ToolCall = {
         type: 'function',
         id: 'call_abc123',
-        name: 'add', arguments: '{"a": 2, "b": 3}',
+        name: 'add',
+        arguments: '{"a": 2, "b": 3}',
       };
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Add 2 and 3' }], toolCalls: [] },
@@ -1246,7 +1253,8 @@ describe('OpenAIResponsesChatProvider', () => {
         {
           type: 'function',
           id: 'call_xyz',
-          name: 'lookup', arguments: '{"q":"hi"}',
+          name: 'lookup',
+          arguments: '{"q":"hi"}',
         },
       ]);
     });
@@ -1579,7 +1587,8 @@ describe('OpenAIResponsesChatProvider', () => {
         {
           type: 'function',
           id: 'call_123',
-          name: 'add', arguments: '',
+          name: 'add',
+          arguments: '',
           _streamIndex: 'item_123',
         },
         { type: 'tool_call_part', argumentsPart: '{"a":', index: 'item_123' },
@@ -1635,7 +1644,8 @@ describe('OpenAIResponsesChatProvider', () => {
         {
           type: 'function',
           id: 'call_done_only',
-          name: 'add', arguments: '{"a": 2, "b": 3}',
+          name: 'add',
+          arguments: '{"a": 2, "b": 3}',
           extras: undefined,
         },
       ]);
@@ -2062,7 +2072,8 @@ describe('OpenAIResponsesChatProvider', () => {
             status: 'failed',
             error: {
               code: 'insufficient_quota',
-              message: 'You exceeded your current quota, please check your plan and billing details.',
+              message:
+                'You exceeded your current quota, please check your plan and billing details.',
             },
           },
         },

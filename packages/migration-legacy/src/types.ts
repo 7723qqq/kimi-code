@@ -126,7 +126,10 @@ export interface SessionsSummary {
   readonly sessionsSkippedEmpty: number;
   readonly sessionsSkippedMalformed: number;
   readonly sessionsFailed: readonly SessionMigrationFailure[];
-  readonly sessionsConflicts: ReadonlyArray<{ readonly sourcePath: string; readonly targetPath: string }>;
+  readonly sessionsConflicts: ReadonlyArray<{
+    readonly sourcePath: string;
+    readonly targetPath: string;
+  }>;
 }
 
 export interface MigrationNotices {

@@ -1,10 +1,10 @@
 import { isKimiError } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
 import {
   STREAMING_ARGS_FIELD_RE,
   STREAMING_ARGS_PREVIEW_MAX_CHARS,
 } from '#/tui/constant/streaming';
-import { t } from '#/i18n';
 
 export function appendStreamingArgsPreview(
   current: string | undefined,

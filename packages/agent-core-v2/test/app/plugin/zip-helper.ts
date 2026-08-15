@@ -11,8 +11,8 @@
 import { createReadStream, readdirSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
-import { promisify } from 'node:util';
 import { pipeline } from 'node:stream';
+import { promisify } from 'node:util';
 import { deflateRaw } from 'node:zlib';
 
 const pipe = promisify(pipeline);
@@ -47,7 +47,12 @@ function uint16LE(v: number): Buffer {
   return buf;
 }
 
-function localFileHeader(name: string, compressedSize: number, uncompressedSize: number, crc: number): Buffer {
+function localFileHeader(
+  name: string,
+  compressedSize: number,
+  uncompressedSize: number,
+  crc: number,
+): Buffer {
   const nameBuf = Buffer.from(name, 'utf8');
   return Buffer.concat([
     uint32LE(LOCAL_FILE_HEADER_SIG),
@@ -65,7 +70,13 @@ function localFileHeader(name: string, compressedSize: number, uncompressedSize:
   ]);
 }
 
-function centralDirEntry(name: string, compressedSize: number, uncompressedSize: number, crc: number, localOffset: number): Buffer {
+function centralDirEntry(
+  name: string,
+  compressedSize: number,
+  uncompressedSize: number,
+  crc: number,
+  localOffset: number,
+): Buffer {
   const nameBuf = Buffer.from(name, 'utf8');
   return Buffer.concat([
     uint32LE(CENTRAL_DIR_SIG),
@@ -89,7 +100,11 @@ function centralDirEntry(name: string, compressedSize: number, uncompressedSize:
   ]);
 }
 
-function endCentralDir(numEntries: number, centralDirSize: number, centralDirOffset: number): Buffer {
+function endCentralDir(
+  numEntries: number,
+  centralDirSize: number,
+  centralDirOffset: number,
+): Buffer {
   return Buffer.concat([
     uint32LE(END_CENTRAL_DIR_SIG),
     uint16LE(0), // disk number
@@ -121,7 +136,7 @@ export async function createZipFromDir(sourceDir: string): Promise<Buffer> {
   const centralEntries: Buffer[] = [];
   let localOffset = 0;
 
-  for (const filePath of files.sort()) {
+  for (const filePath of files.toSorted()) {
     const name = relative(sourceDir, filePath).split(sep).join('/');
     const data = await readFile(filePath);
     const crc = crc32(data);

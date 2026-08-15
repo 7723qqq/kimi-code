@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 
 import { t } from '#/i18n';
+
 import { clipboard } from './clipboard-native';
 import { writeClipboardOSC52 } from './clipboard-osc52';
 

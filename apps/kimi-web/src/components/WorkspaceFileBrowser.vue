@@ -7,16 +7,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import { getKimiWebApi } from '../api';
 import { isDaemonApiError } from '../api/errors';
 import {
   createFileTreeBrowserStore,
   provideFileTreeBrowser,
 } from '../composables/useFileTreeBrowser';
+import FileTreeRow from './fileTree/FileTreeRow.vue';
 import Dialog from './ui/Dialog.vue';
 import Icon from './ui/Icon.vue';
 import Spinner from './ui/Spinner.vue';
-import FileTreeRow from './fileTree/FileTreeRow.vue';
 
 const props = defineProps<{
   /** Session whose cwd is browsed. When unset the browser shows an empty state. */
@@ -164,7 +165,9 @@ onBeforeUnmount(() => {
       <div class="wfb-head">
         <div>
           <div class="wfb-title">{{ t('fileTree.title') }}</div>
-          <div v-if="workspaceRoot" class="wfb-root" :title="workspaceRoot">{{ workspaceRoot }}</div>
+          <div v-if="workspaceRoot" class="wfb-root" :title="workspaceRoot">
+            {{ workspaceRoot }}
+          </div>
         </div>
         <div class="wfb-head-actions">
           <input
@@ -184,18 +187,18 @@ onBeforeUnmount(() => {
     <div class="wfb-body">
       <!-- Left: directory tree -->
       <div class="wfb-tree">
-        <div v-if="store.loadingDirs.value.has('') && store.dirCache.value.get('') === undefined" class="wfb-loading">
+        <div
+          v-if="store.loadingDirs.value.has('') && store.dirCache.value.get('') === undefined"
+          class="wfb-loading"
+        >
           <Spinner size="sm" />
           <span>{{ t('fileTree.loading') }}</span>
         </div>
         <template v-else>
-          <div v-if="store.dirChildren('').length === 0" class="wfb-empty">{{ t('fileTree.empty') }}</div>
-          <FileTreeRow
-            v-else
-            :dir-path="''"
-            :filter="filter"
-            @open-file="openFile"
-          />
+          <div v-if="store.dirChildren('').length === 0" class="wfb-empty">
+            {{ t('fileTree.empty') }}
+          </div>
+          <FileTreeRow v-else :dir-path="''" :filter="filter" @open-file="openFile" />
           <div v-if="store.treeError" class="wfb-error">{{ store.treeError }}</div>
         </template>
       </div>
@@ -281,7 +284,9 @@ onBeforeUnmount(() => {
   padding: 4px 9px;
   outline: none;
 }
-.wfb-filter:focus { border-color: var(--color-accent); }
+.wfb-filter:focus {
+  border-color: var(--color-accent);
+}
 .wfb-refresh {
   flex: none;
   background: var(--color-surface-sunken);
@@ -437,13 +442,17 @@ onBeforeUnmount(() => {
 
 /* Mobile: stack the two columns. */
 @media (max-width: 640px) {
-  .wfb-body { flex-direction: column; }
+  .wfb-body {
+    flex-direction: column;
+  }
   .wfb-tree {
     width: 100%;
     max-height: 40%;
     border-right: none;
     border-bottom: 1px solid var(--color-line);
   }
-  .wfb-filter { width: 120px; }
+  .wfb-filter {
+    width: 120px;
+  }
 }
 </style>

@@ -14,15 +14,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
+
 import { toolGlyph, toolLabel } from '../../../lib/toolMeta';
-import {
-  answerFor,
-  parseAskInput,
-  parseAskOutput,
-  resolveAnswer,
-} from './askUserToolParse';
+import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
 import ToolRow from '../ToolRow.vue';
+import { answerFor, parseAskInput, parseAskOutput, resolveAnswer } from './askUserToolParse';
 
 const props = withDefaults(
   defineProps<{
@@ -53,10 +49,15 @@ const questions = computed(() => parseAskInput(props.tool.arg));
 const output = computed(() => parseAskOutput(props.tool.output));
 const recognized = computed(() => output.value.recognized);
 const isDismissed = computed(
-  () => recognized.value && Object.keys(output.value.answers).length === 0 && output.value.note.length > 0,
+  () =>
+    recognized.value &&
+    Object.keys(output.value.answers).length === 0 &&
+    output.value.note.length > 0,
 );
 const resolved = computed(() =>
-  questions.value.map((q, i) => resolveAnswer(answerFor(output.value.answers, q.question, i), q.options)),
+  questions.value.map((q, i) =>
+    resolveAnswer(answerFor(output.value.answers, q.question, i), q.options),
+  ),
 );
 const answeredCount = computed(() => Object.keys(output.value.answers).length);
 
@@ -70,7 +71,7 @@ function isIndeterminate(qi: number): boolean {
   return resolved.value[qi]?.indeterminate ?? false;
 }
 function glyphFor(multiSelect: boolean, on: boolean): string {
-  return multiSelect ? (on ? '■' : '□') : (on ? '●' : '○');
+  return multiSelect ? (on ? '■' : '□') : on ? '●' : '○';
 }
 
 const summary = computed(() => {
@@ -97,7 +98,9 @@ const canExpand = computed(
 );
 const open = ref(props.tool.defaultExpanded === true && canExpand.value);
 
-const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
+const status = computed<'running' | 'ok' | 'error'>(
+  () => props.tool.status as 'running' | 'ok' | 'error',
+);
 const label = computed(() => toolLabel(props.tool.name));
 const glyph = computed(() => toolGlyph(props.tool.name));
 

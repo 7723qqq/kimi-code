@@ -4,22 +4,29 @@
 // acquire timeout, per-shard independence, read-only coexistence, lock lease
 // renewal, and writer handoff after close.
 
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
+import { test } from 'vitest';
+
 import { ClusterDb } from '../../src/cluster/index.js';
 import { ShardLockPool } from '../../src/cluster/lock-pool.js';
 import { shardDirName } from '../../src/cluster/utils.js';
 import { tmpDir, rmrf } from '../e2e/helpers/tmp.js';
-import { keyOnShard, sleep } from './helpers.js';
 import { deferred } from '../helpers.js';
+import { keyOnShard, sleep } from './helpers.js';
 
 test('two writers contend on the same shard; loser times out with LockError', async () => {
   const dir = await tmpDir('minidb-cluster-');
   try {
     const db1 = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json' });
-    const db2 = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json', lockAcquireTimeoutMs: 150 });
+    const db2 = await ClusterDb.open({
+      dir,
+      shardCount: 4,
+      valueCodec: 'json',
+      lockAcquireTimeoutMs: 150,
+    });
 
     const kOnShard0a = keyOnShard('lock', 0, 4);
     const kOnShard0b = keyOnShard('lockx', 0, 4);
@@ -34,7 +41,10 @@ test('two writers contend on the same shard; loser times out with LockError', as
     // The pool retries with backoff and gives up on the first attempt whose
     // next delay would cross the deadline, so effective waits undershoot the
     // configured timeout slightly.
-    assert.ok(waited >= 50 && waited < 5_000, `waited roughly the acquire timeout (${Math.round(waited)}ms)`);
+    assert.ok(
+      waited >= 50 && waited < 5_000,
+      `waited roughly the acquire timeout (${Math.round(waited)}ms)`,
+    );
 
     // A key routed to a different shard is unaffected by the contention.
     const kOther = keyOnShard('other', 1, 4);
@@ -56,7 +66,12 @@ test('writer handoff: after close, another instance takes the shard over', async
     await db1.set(key, { n: 1 });
     await db1.close();
 
-    const db2 = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json', lockAcquireTimeoutMs: 500 });
+    const db2 = await ClusterDb.open({
+      dir,
+      shardCount: 4,
+      valueCodec: 'json',
+      lockAcquireTimeoutMs: 500,
+    });
     assert.deepEqual(await db2.get(key), { n: 1 });
     await db2.set(key, { n: 2 });
     assert.deepEqual(await db2.get(key), { n: 2 });
@@ -96,12 +111,19 @@ test('read-only instance coexists with a live writer and sees its commits', asyn
 test('lock lease: db.lock timestamp advances while a writer is held', async () => {
   const dir = await tmpDir('minidb-cluster-');
   try {
-    const db = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json', lockRenewMs: 80, lockHoldMs: 0 });
+    const db = await ClusterDb.open({
+      dir,
+      shardCount: 4,
+      valueCodec: 'json',
+      lockRenewMs: 80,
+      lockHoldMs: 0,
+    });
     const key = keyOnShard('lease', 1, 4);
     await db.set(key, { v: 1 }); // grabs shard 1 and starts the lease timer
 
     const lockPath = path.join(dir, shardDirName(1, 4), 'db.lock');
-    const read = async () => JSON.parse(await fs.readFile(lockPath, 'utf8')) as { pid: number; ts: number };
+    const read = async () =>
+      JSON.parse(await fs.readFile(lockPath, 'utf8')) as { pid: number; ts: number };
     const first = await read();
     assert.equal(first.pid, process.pid);
     await sleep(300);
@@ -126,7 +148,12 @@ test('close releases every shard lock it holds', async () => {
     await db1.close();
 
     // Nothing left locked: a fresh instance with a tiny timeout can write all shards.
-    const db2 = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json', lockAcquireTimeoutMs: 100 });
+    const db2 = await ClusterDb.open({
+      dir,
+      shardCount: 4,
+      valueCodec: 'json',
+      lockAcquireTimeoutMs: 100,
+    });
     await db2.mset([
       [keyOnShard('c', 0, 4), { v: 10 }],
       [keyOnShard('c', 1, 4), { v: 11 }],
@@ -150,7 +177,13 @@ test('close() waits for an in-flight shard open and releases its lock', async ()
 
     // lockHoldMs: 0 — an acquired writer never auto-yields, so a leaked handle
     // would hold the shard lock indefinitely.
-    const db2 = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json', lockAcquireTimeoutMs: 5_000, lockHoldMs: 0 });
+    const db2 = await ClusterDb.open({
+      dir,
+      shardCount: 4,
+      valueCodec: 'json',
+      lockAcquireTimeoutMs: 5_000,
+      lockHoldMs: 0,
+    });
     // db2's shard-0 open is now stuck in the lock-retry loop behind db1.
     const pendingSet = db2.set(key, { holder: 2 });
     await sleep(50);
@@ -164,10 +197,19 @@ test('close() waits for an in-flight shard open and releases its lock', async ()
     await pendingSet.catch(() => {}); // may resolve or reject; either is fine
     await closing;
     const waited = performance.now() - t0;
-    assert.ok(waited >= 80, `close() waited for the in-flight open to settle (${Math.round(waited)}ms)`);
+    assert.ok(
+      waited >= 80,
+      `close() waited for the in-flight open to settle (${Math.round(waited)}ms)`,
+    );
 
     // No leaked handle holds the shard lock: a fresh instance writes at once.
-    const db3 = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json', lockAcquireTimeoutMs: 300, lockHoldMs: 0 });
+    const db3 = await ClusterDb.open({
+      dir,
+      shardCount: 4,
+      valueCodec: 'json',
+      lockAcquireTimeoutMs: 300,
+      lockHoldMs: 0,
+    });
     await db3.set(key, { holder: 3 });
     assert.deepEqual(await db3.get(key), { holder: 3 });
     await db3.close();
@@ -220,13 +262,20 @@ test('closeAll() drains in-flight callbacks before closing handles — no MiniDb
     assert.equal(closeReturned, false, 'closeAll waits for the in-flight callback');
 
     gate.resolve();
-    assert.deepEqual(await op, { v: 1 }, 'the in-flight callback ran to completion on a live handle');
+    assert.deepEqual(
+      await op,
+      { v: 1 },
+      'the in-flight callback ran to completion on a live handle',
+    );
     await closing;
     assert.equal(opSettled, true, 'every callback is settled by the time closeAll returns');
 
     // New ops reject at the closed gate; the shard lock is released for the
     // next pool.
-    await assert.rejects(pool.withWriter(2, shardDir, (db) => db.get('x')), /ClusterDb is closed/);
+    await assert.rejects(
+      pool.withWriter(2, shardDir, (db) => db.get('x')),
+      /ClusterDb is closed/,
+    );
     const pool2 = new ShardLockPool({
       writerOpts: { valueCodec: 'json' },
       readerOpts: { valueCodec: 'json' },
@@ -238,7 +287,11 @@ test('closeAll() drains in-flight callbacks before closing handles — no MiniDb
       readOnly: false,
       applyDefs: async () => {},
     });
-    assert.deepEqual(await pool2.withWriter(2, shardDir, (db) => db.get('late')), { v: 1 }, 'the callback’s write is durable');
+    assert.deepEqual(
+      await pool2.withWriter(2, shardDir, (db) => db.get('late')),
+      { v: 1 },
+      'the callback’s write is durable',
+    );
     await pool2.closeAll();
   } finally {
     await rmrf(dir);

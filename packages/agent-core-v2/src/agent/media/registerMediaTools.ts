@@ -10,18 +10,17 @@
  * closure; media tooling doesn't need to know about tokens.
  */
 
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ModelRequester } from '#/kosong/model/modelRequester';
+import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import type { VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
+import { ReadMediaFileTool } from '#/agent/tools/read-media-file/readMediaFileTool';
 import type { VideoUploadEvent } from '#/app/telemetry/events';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
-
-import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import type { WorkspaceConfig } from '#/tool/path-access';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { ModelCapability } from '#/kosong/contract/capability';
+import type { ModelRequester } from '#/kosong/model/modelRequester';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { ReadMediaFileTool } from '#/agent/tools/read-media-file/readMediaFileTool';
-import type { VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { WorkspaceConfig } from '#/tool/path-access';
 
 export interface RegisterMediaToolsDeps {
   readonly fs: IHostFileSystem;
@@ -72,8 +71,7 @@ export function createVideoUploader(
     const track = (props: VideoUploadEvent): void => {
       try {
         telemetry.client.track2('video_upload', props);
-      } catch {
-      }
+      } catch {}
     };
     try {
       const part = await bound(input, options);

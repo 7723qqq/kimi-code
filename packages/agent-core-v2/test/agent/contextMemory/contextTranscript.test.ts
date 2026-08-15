@@ -262,7 +262,11 @@ describe('reduceContextTranscript', () => {
       appendMessage(userMessage('q')),
       loopEvent({ type: 'step.begin', uuid: 's1' }),
       loopEvent({ type: 'step.begin', uuid: 's2' }),
-      loopEvent({ type: 'content.part', stepUuid: 's2', part: { type: 'text', text: 'recovered' } }),
+      loopEvent({
+        type: 'content.part',
+        stepUuid: 's2',
+        part: { type: 'text', text: 'recovered' },
+      }),
       loopEvent({ type: 'step.end', uuid: 's2' }),
     ]);
     expect(result.entries.map((m) => m.role)).toEqual(['user', 'assistant']);
@@ -288,7 +292,12 @@ describe('reduceContextTranscript', () => {
       loopEvent({ type: 'content.part', stepUuid: 's3', part: { type: 'text', text: 'answer' } }),
       loopEvent({ type: 'step.end', uuid: 's3' }),
     ]);
-    expect(result.entries.map((m) => m.role)).toEqual(['user', 'assistant', 'assistant', 'assistant']);
+    expect(result.entries.map((m) => m.role)).toEqual([
+      'user',
+      'assistant',
+      'assistant',
+      'assistant',
+    ]);
     expect(result.foldedLength).toBe(4);
   });
 });

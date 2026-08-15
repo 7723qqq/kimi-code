@@ -1,4 +1,5 @@
-import { normalizeKimiToolSchema } from './kimi-schema';
+import OpenAI from 'openai';
+
 import { parseTraceId } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import type {
@@ -14,15 +15,15 @@ import type {
 } from '#/provider';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
-import OpenAI from 'openai';
-import { createSharedFetch } from '../http/undici-agent';
 
-import { classifyKimiQuotaError } from './kimi-errors';
-import { KimiFiles } from './kimi-files';
+import { createSharedFetch } from '../http/undici-agent';
 import {
   convertChatCompletionStreamToolCall,
   type BufferedChatCompletionToolCall,
 } from './chat-completions-stream';
+import { classifyKimiQuotaError } from './kimi-errors';
+import { KimiFiles } from './kimi-files';
+import { normalizeKimiToolSchema } from './kimi-schema';
 import {
   convertContentPart,
   convertOpenAIError,
@@ -505,8 +506,7 @@ export class KimiChatProvider implements ChatProvider {
       messages.push({ role: 'system', content: systemPrompt });
     }
     const thinking = this._generationKwargs.extra_body?.thinking;
-    const preservedThinkingEnabled =
-      thinking?.keep === 'all' && thinking.type !== 'disabled';
+    const preservedThinkingEnabled = thinking?.keep === 'all' && thinking.type !== 'disabled';
     // The kimi provider never pins an explicit reasoning key, so the dialect
     // always resolves to one of the known wire keys.
     const reasoningKey = this._reasoningKeyDialect.outboundKey() as ReasoningKey;
@@ -532,10 +532,7 @@ export class KimiChatProvider implements ChatProvider {
     // wins (confirmed against the live Moonshot API). When neither is
     // set, send no cap — the upstream loop is responsible for clamping
     // against the current input size and model context window.
-    if (
-      kwargs['max_completion_tokens'] === undefined &&
-      kwargs['max_tokens'] !== undefined
-    ) {
+    if (kwargs['max_completion_tokens'] === undefined && kwargs['max_tokens'] !== undefined) {
       kwargs['max_completion_tokens'] = kwargs['max_tokens'];
     }
     // eslint-disable-next-line @typescript-eslint/no-dynamic-delete

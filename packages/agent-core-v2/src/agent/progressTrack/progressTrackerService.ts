@@ -11,19 +11,16 @@
  * injected at most once per turn; a verification run resets the debt.
  */
 
-import { Service } from '#/_base/di/service';
 import { createDecorator } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
-import { IEventBus } from '#/app/event/eventBus';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 
-import {
-  ProgressTracker,
-  type ToolReceipt,
-} from './progressTracker';
+import { ProgressTracker, type ToolReceipt } from './progressTracker';
 
 export const EBM_REMINDER_VARIANT = 'progress-track-ebm';
 
@@ -41,13 +38,11 @@ export interface IProgressTrackerService {
   readonly _serviceBrand: undefined;
 }
 
-export const IProgressTrackerService =
-  createDecorator<IProgressTrackerService>('agentProgressTrackerService');
+export const IProgressTrackerService = createDecorator<IProgressTrackerService>(
+  'agentProgressTrackerService',
+);
 
-export class ProgressTrackerService
-  extends Service
-  implements IProgressTrackerService
-{
+export class ProgressTrackerService extends Service implements IProgressTrackerService {
   declare readonly _serviceBrand: undefined;
 
   private readonly tracker = new ProgressTracker();
@@ -60,13 +55,10 @@ export class ProgressTrackerService
   ) {
     super();
     this._register(
-      toolExecutor.hooks.onDidExecuteTool.register(
-        'progress-track',
-        async (ctx, next) => {
-          this.observeToolRound(ctx);
-          await next(ctx);
-        },
-      ),
+      toolExecutor.hooks.onDidExecuteTool.register('progress-track', async (ctx, next) => {
+        this.observeToolRound(ctx);
+        await next(ctx);
+      }),
     );
     this._register(
       eventBus.subscribe('turn.started', () => {
@@ -95,8 +87,7 @@ export class ProgressTrackerService
 
 function receiptFromContext(ctx: ToolDidExecuteContext): ToolReceipt {
   const args = ctx.args as Record<string, unknown> | undefined;
-  const command =
-    typeof args?.['command'] === 'string' ? (args['command'] as string) : undefined;
+  const command = typeof args?.['command'] === 'string' ? (args['command'] as string) : undefined;
   const read: string[] = [];
   const write: string[] = [];
   for (const access of ctx.accesses ?? []) {

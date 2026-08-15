@@ -1,11 +1,13 @@
-// test/indexes.test.js
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { MiniDb } from '../src/index.js';
+
+// test/indexes.test.js
+import { test } from 'vitest';
+
 import { UniqueViolationError } from '../src/index-manager.js';
+import { MiniDb } from '../src/index.js';
 
 async function tmpDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'minidb-idx-'));
@@ -19,7 +21,10 @@ test('equality index findEq', async () => {
     await db.set('u1', { name: 'Ann', city: 'Paris' });
     await db.set('u2', { name: 'Bob', city: 'Paris' });
     await db.set('u3', { name: 'Eve', city: 'London' });
-    const res = db.findEq('byCity', 'Paris').map((r) => r.key).sort();
+    const res = db
+      .findEq('byCity', 'Paris')
+      .map((r) => r.key)
+      .toSorted();
     assert.deepEqual(res, ['u1', 'u2']);
     await db.close();
   } finally {
@@ -78,8 +83,17 @@ test('array field is indexed per element', async () => {
     await db.createIndex('byTag', { field: 'tags' });
     await db.set('a', { tags: ['red', 'blue'] });
     await db.set('b', { tags: ['blue', 'green'] });
-    assert.deepEqual(db.findEq('byTag', 'red').map((r) => r.key), ['a']);
-    assert.deepEqual(db.findEq('byTag', 'blue').map((r) => r.key).sort(), ['a', 'b']);
+    assert.deepEqual(
+      db.findEq('byTag', 'red').map((r) => r.key),
+      ['a'],
+    );
+    assert.deepEqual(
+      db
+        .findEq('byTag', 'blue')
+        .map((r) => r.key)
+        .toSorted(),
+      ['a', 'b'],
+    );
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -95,12 +109,14 @@ test('index definitions + data rebuild across reopen', async () => {
     await db.close();
 
     db = await MiniDb.open({ dir, valueCodec: 'json' });
-    assert.deepEqual(db.listIndexes().map((i) => i.name), ['byAge']);
-    assert.deepEqual(db.findRange('byAge', { min: 2, max: 4 }).map((r) => r.key), [
-      'p2',
-      'p3',
-      'p4',
-    ]);
+    assert.deepEqual(
+      db.listIndexes().map((i) => i.name),
+      ['byAge'],
+    );
+    assert.deepEqual(
+      db.findRange('byAge', { min: 2, max: 4 }).map((r) => r.key),
+      ['p2', 'p3', 'p4'],
+    );
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

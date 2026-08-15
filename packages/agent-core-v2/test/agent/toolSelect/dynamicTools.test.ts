@@ -9,6 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
   collectLoadedDynamicToolNames,
   foldAnnouncedToolNames,
@@ -18,7 +19,6 @@ import {
   renderLoadableToolsAnnouncement,
   stripDynamicToolContext,
 } from '#/agent/toolSelect/dynamicTools';
-import type { ContextMessage } from '#/agent/contextMemory/types';
 
 function announcement(added: readonly string[], removed: readonly string[]): ContextMessage {
   const text = `<system-reminder>\n${renderLoadableToolsAnnouncement(added, removed).trim()}\n</system-reminder>`;

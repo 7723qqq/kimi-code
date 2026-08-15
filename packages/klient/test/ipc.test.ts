@@ -1,31 +1,31 @@
 import { readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { defineKlientConformance } from './helpers/conformance.js';
 import { createKlient, serveKlientIpc, type KlientIpcHost } from '../src/transports/ipc/index.js';
+import { defineKlientConformance } from './helpers/conformance.js';
 import { makeEngine, type TestEngine } from './helpers/engine.js';
 
 // Windows cannot listen on Unix-socket paths at all (Node throws EACCES),
 // so the whole socket-behavior suite is POSIX-only.
 if (process.platform !== 'win32') {
   defineKlientConformance('ipc', async () => {
-  const { homeDir, app } = await makeEngine();
-  const socketPath = join(homeDir, 'klient.sock');
-  const host = await serveKlientIpc({ scope: app, socketPath });
-  const klient = createKlient({ socketPath, token: host.token });
-  return {
-    klient,
-    app,
-    cleanup: async () => {
-      await klient.close();
-      await host.close();
-      app.dispose();
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
-    },
-  };
+    const { homeDir, app } = await makeEngine();
+    const socketPath = join(homeDir, 'klient.sock');
+    const host = await serveKlientIpc({ scope: app, socketPath });
+    const klient = createKlient({ socketPath, token: host.token });
+    return {
+      klient,
+      app,
+      cleanup: async () => {
+        await klient.close();
+        await host.close();
+        app.dispose();
+        await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+      },
+    };
   });
 }
 

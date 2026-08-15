@@ -286,12 +286,7 @@ export interface TranscriptEntry {
   pluginCommandData?: PluginCommandTranscriptData;
 }
 
-export type LivePaneMode =
-  | 'idle'
-  | 'waiting'
-  | 'thinking'
-  | 'tool'
-  | 'session';
+export type LivePaneMode = 'idle' | 'waiting' | 'thinking' | 'tool' | 'session';
 
 export interface LivePaneState {
   mode: LivePaneMode;

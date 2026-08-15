@@ -16,6 +16,7 @@
 
 import fs from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
+
 import { encodeFrame, HEADER_SIZE, TYPE_SET } from './codec.js';
 import type { Store, ValueLoc } from './store.js';
 
@@ -96,7 +97,12 @@ export async function writeSnapshot(
     batchBytes = 0;
   };
 
-  const writeRecord = async (key: Buffer, value: Buffer, expireAt: number, dt: Record<string, number> | null): Promise<void> => {
+  const writeRecord = async (
+    key: Buffer,
+    value: Buffer,
+    expireAt: number,
+    dt: Record<string, number> | null,
+  ): Promise<void> => {
     const meta = dt ? Buffer.from(JSON.stringify({ dt })) : null;
     const frame = encodeFrame({ type: TYPE_SET, key, value, expireAt, meta });
     const frameOff = bytes + batchBytes;
@@ -134,7 +140,9 @@ export async function writeSnapshot(
     if (diskRecs.length > 0) {
       // Group by source file, sort by offset: the async reads below then hit
       // each file in ascending-offset order (sequential I/O), never random.
-      diskRecs.sort((a, b) => (a.loc!.file < b.loc!.file ? -1 : a.loc!.file > b.loc!.file ? 1 : a.loc!.off - b.loc!.off));
+      diskRecs.sort((a, b) =>
+        a.loc!.file < b.loc!.file ? -1 : a.loc!.file > b.loc!.file ? 1 : a.loc!.off - b.loc!.off,
+      );
       if (!opts.readValueAsync) {
         // Legacy fallback: no async reader wired — synchronous materialize
         // per record (the pre-stage-6 behavior), one record at a time.
@@ -159,14 +167,17 @@ export async function writeSnapshot(
           const slice = diskRecs.slice(i, j);
           const values: (Buffer | undefined)[] = Array.from({ length: slice.length });
           let cursor = 0;
-          const workers = Array.from({ length: Math.min(readConcurrency, slice.length) }, async () => {
-            for (;;) {
-              const idx = cursor++;
-              if (idx >= slice.length) return;
-              const rec = slice[idx]!;
-              values[idx] = await readValue(rec.loc!);
-            }
-          });
+          const workers = Array.from(
+            { length: Math.min(readConcurrency, slice.length) },
+            async () => {
+              for (;;) {
+                const idx = cursor++;
+                if (idx >= slice.length) return;
+                const rec = slice[idx]!;
+                values[idx] = await readValue(rec.loc!);
+              }
+            },
+          );
           await Promise.all(workers);
           for (let k = 0; k < slice.length; k++) {
             const value = values[k];

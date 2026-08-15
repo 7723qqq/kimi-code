@@ -1,4 +1,8 @@
-import { effectiveModelAlias, type ModelAlias, type ThinkingEffort } from '@moonshot-ai/kimi-code-sdk';
+import {
+  effectiveModelAlias,
+  type ModelAlias,
+  type ThinkingEffort,
+} from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Key,
@@ -10,9 +14,9 @@ import {
 } from '@moonshot-ai/pi-tui';
 
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '#/constant/app';
+import { t } from '#/i18n';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import { t } from '#/i18n';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
 import type { ChoiceOption } from './choice-picker';
@@ -304,14 +308,19 @@ export class ModelSelectorComponent extends Container implements Focusable {
     const hintParts: string[] = [];
     if (this.opts.providerSwitchHint) hintParts.push(t('tui.dialogs.modelSelector.hintTab'));
     hintParts.push(t('tui.dialogs.modelSelector.hintNavigate'));
-    if (searchable && view.query.length > 0) hintParts.push(t('tui.dialogs.modelSelector.hintBackspace'));
+    if (searchable && view.query.length > 0)
+      hintParts.push(t('tui.dialogs.modelSelector.hintBackspace'));
     hintParts.push(t('tui.dialogs.modelSelector.hintSelect'));
-    if (this.opts.onSessionOnlySelect !== undefined) hintParts.push(t('tui.dialogs.modelSelector.hintSessionOnly'));
+    if (this.opts.onSessionOnlySelect !== undefined)
+      hintParts.push(t('tui.dialogs.modelSelector.hintSessionOnly'));
     hintParts.push(t('tui.dialogs.modelSelector.hintCancel'));
 
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', this.opts.title ?? ` ${t('tui.dialogs.modelSelector.title')}`) + titleSuffix,
+      currentTheme.boldFg(
+        'primary',
+        this.opts.title ?? ` ${t('tui.dialogs.modelSelector.title')}`,
+      ) + titleSuffix,
       currentTheme.fg('textMuted', ' ' + hintParts.join(' · ')),
     ];
     if (this.opts.warning !== undefined) {
@@ -322,7 +331,10 @@ export class ModelSelectorComponent extends Container implements Focusable {
     lines.push('');
 
     if (searchable && view.query.length > 0) {
-      lines.push(currentTheme.fg('primary', ` ${t('tui.dialogs.modelSelector.searchLabel')}`) + currentTheme.fg('text', view.query));
+      lines.push(
+        currentTheme.fg('primary', ` ${t('tui.dialogs.modelSelector.searchLabel')}`) +
+          currentTheme.fg('text', view.query),
+      );
     }
 
     if (view.items.length === 0) {
@@ -347,7 +359,10 @@ export class ModelSelectorComponent extends Container implements Focusable {
         const truncatedName = truncateToWidth(choice.name, nameWidth, '…');
         const namePad = ' '.repeat(Math.max(0, nameWidth - visibleWidth(truncatedName)));
         let line = currentTheme.fg(isSelected ? 'primary' : 'textDim', `  ${pointer} `);
-        line += (isSelected ? currentTheme.boldFg('primary', truncatedName) : currentTheme.fg('text', truncatedName)) + namePad;
+        line +=
+          (isSelected
+            ? currentTheme.boldFg('primary', truncatedName)
+            : currentTheme.fg('text', truncatedName)) + namePad;
         line += '  ' + currentTheme.fg('textMuted', choice.provider);
         if (isCurrent) {
           line += ' ' + currentTheme.fg('success', getCurrentMark());
@@ -369,7 +384,9 @@ export class ModelSelectorComponent extends Container implements Focusable {
       const below = view.items.length - view.page.end;
       if (below > 0) {
         lines.push('');
-        lines.push(currentTheme.fg('textMuted', ` ${t('tui.dialogs.modelSelector.more', { count: below })}`));
+        lines.push(
+          currentTheme.fg('textMuted', ` ${t('tui.dialogs.modelSelector.more', { count: below })}`),
+        );
       }
     }
 
@@ -377,7 +394,9 @@ export class ModelSelectorComponent extends Container implements Focusable {
     const selected = this.selectedChoice();
     if (selected !== undefined && this.opts.thinkingControl !== false) {
       const canSwitch = segmentsFor(selected.model).length > 1;
-      const thinkingHeader = canSwitch ? t('tui.dialogs.modelSelector.thinkingSwitchable') : t('tui.dialogs.modelSelector.thinking');
+      const thinkingHeader = canSwitch
+        ? t('tui.dialogs.modelSelector.thinkingSwitchable')
+        : t('tui.dialogs.modelSelector.thinking');
       lines.push(currentTheme.fg('textMuted', thinkingHeader));
       lines.push(this.renderThinkingControl(selected));
       lines.push('');
@@ -398,10 +417,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
     // The whole segment is muted, suffix included, so the disabled side reads
     // as a single greyed-out control rather than a selectable option.
     const unavailable = (label: string): string =>
-      currentTheme.fg(
-        'textMuted',
-        `  ${label} (${t('tui.dialogs.modelSelector.unsupported')})  `,
-      );
+      currentTheme.fg('textMuted', `  ${label} (${t('tui.dialogs.modelSelector.unsupported')})  `);
 
     // Non-effort always-on / unsupported models keep the original On/Off layout
     // so the control never shifts while moving across legacy models.

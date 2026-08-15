@@ -133,10 +133,7 @@ export const configUpdate = ProfileModel.defineOp('config.update', {
         renderGeneration: p.renderGeneration ?? s.renderGeneration + 1,
       };
     }
-    if (
-      p.agentsMdPaths !== undefined &&
-      !stringArrayEqual(p.agentsMdPaths, s.agentsMdPaths)
-    ) {
+    if (p.agentsMdPaths !== undefined && !stringArrayEqual(p.agentsMdPaths, s.agentsMdPaths)) {
       next = { ...(next ?? s), agentsMdPaths: p.agentsMdPaths };
     }
     if (
@@ -158,9 +155,7 @@ function stringArrayEqual(
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
-function configUpdateThinkingLevel(
-  p: PayloadOf<typeof configUpdate>,
-): ThinkingEffort | undefined {
+function configUpdateThinkingLevel(p: PayloadOf<typeof configUpdate>): ThinkingEffort | undefined {
   if (p.thinkingEffort !== undefined && p.thinkingLevel !== undefined) {
     if (p.thinkingEffort !== p.thinkingLevel) {
       throw new ProfileError(

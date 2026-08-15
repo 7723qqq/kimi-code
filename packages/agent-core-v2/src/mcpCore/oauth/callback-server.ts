@@ -177,5 +177,7 @@ function isLocalhostOrigin(origin: string): boolean {
     return false;
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-  return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
+  return (
+    parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1'
+  );
 }

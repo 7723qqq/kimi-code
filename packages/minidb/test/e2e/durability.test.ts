@@ -2,10 +2,12 @@
 //
 // Durability semantics for the three fsync policies and close().
 
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
+import { test } from 'vitest';
+
 import { MiniDb } from '../../src/index.js';
 import { tmpDir, rmrf } from './helpers/tmp.js';
 

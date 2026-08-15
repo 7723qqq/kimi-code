@@ -53,9 +53,7 @@ function parseProviderType(raw: string | undefined): ProviderType {
   if (raw === undefined) return 'kimi';
   const normalized = raw.toLowerCase() as ProviderType;
   if (!ALLOWED_TYPES.includes(normalized)) {
-    fail(
-      `KIMI_MODEL_PROVIDER_TYPE must be one of ${ALLOWED_TYPES.join(', ')}, got "${raw}".`,
-    );
+    fail(`KIMI_MODEL_PROVIDER_TYPE must be one of ${ALLOWED_TYPES.join(', ')}, got "${raw}".`);
   }
   return normalized;
 }

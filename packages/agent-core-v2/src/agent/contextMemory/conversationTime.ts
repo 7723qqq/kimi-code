@@ -24,10 +24,7 @@ export function isUndoAnchor(message: ContextMessage): boolean {
   );
 }
 
-export function isPromptOwnedInjection(
-  message: ContextMessage,
-  prompt: ContextMessage,
-): boolean {
+export function isPromptOwnedInjection(message: ContextMessage, prompt: ContextMessage): boolean {
   const origin = message.origin;
   return (
     origin?.kind === 'injection' &&
@@ -58,35 +55,31 @@ export function defineCheckpointedModel<T>(
   opts?: CheckpointModelOptions<T>,
 ): ModelDef<Checkpointed<T>> {
   const customReducers = opts?.reducers ?? {};
-  const def = defineModel<Checkpointed<T>>(
-    name,
-    () => ({ current: initial(), checkpoints: [] }),
-    {
-      reducers: {
-        ...customReducers,
-        'context.append_message': (state, { message }) => {
-          if (isUndoAnchor(message)) {
-            return { ...state, checkpoints: [...state.checkpoints, state.current] };
-          }
-          if (opts?.onAppendMessage === undefined) return state;
-          const current = opts.onAppendMessage(state.current, message);
-          return current === state.current ? state : { ...state, current };
-        },
-        'context.apply_compaction': (state) =>
-          state.checkpoints.length === 0 ? state : { ...state, checkpoints: [] },
-        'context.clear': (state) =>
-          state.checkpoints.length === 0 ? state : { ...state, checkpoints: [] },
-        'context.undo': (state, { count }) => {
-          if (!isValidUndoCount(count) || state.checkpoints.length < count) return state;
-          const checkpointIndex = state.checkpoints.length - count;
-          return {
-            current: state.checkpoints[checkpointIndex]!,
-            checkpoints: state.checkpoints.slice(0, checkpointIndex),
-          };
-        },
+  const def = defineModel<Checkpointed<T>>(name, () => ({ current: initial(), checkpoints: [] }), {
+    reducers: {
+      ...customReducers,
+      'context.append_message': (state, { message }) => {
+        if (isUndoAnchor(message)) {
+          return { ...state, checkpoints: [...state.checkpoints, state.current] };
+        }
+        if (opts?.onAppendMessage === undefined) return state;
+        const current = opts.onAppendMessage(state.current, message);
+        return current === state.current ? state : { ...state, current };
+      },
+      'context.apply_compaction': (state) =>
+        state.checkpoints.length === 0 ? state : { ...state, checkpoints: [] },
+      'context.clear': (state) =>
+        state.checkpoints.length === 0 ? state : { ...state, checkpoints: [] },
+      'context.undo': (state, { count }) => {
+        if (!isValidUndoCount(count) || state.checkpoints.length < count) return state;
+        const checkpointIndex = state.checkpoints.length - count;
+        return {
+          current: state.checkpoints[checkpointIndex]!,
+          checkpoints: state.checkpoints.slice(0, checkpointIndex),
+        };
       },
     },
-  );
+  });
   CHECKPOINTED_MODELS.push(def as ModelDef<Checkpointed<unknown>>);
   return def;
 }

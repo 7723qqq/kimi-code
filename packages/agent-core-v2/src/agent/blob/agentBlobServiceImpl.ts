@@ -8,16 +8,14 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { ContentPart } from '#/kosong/contract/message';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { LifecycleScope } from '#/app/scopes';
+import type { ContentPart } from '#/kosong/contract/message';
 import { IBlobStore } from '#/persistence/interface/blobStore';
-import {
-  BLOBREF_PROTOCOL,
-  IAgentBlobService,
-  MISSING_MEDIA_PLACEHOLDER,
-} from './agentBlobService';
+
+import { BLOBREF_PROTOCOL, IAgentBlobService, MISSING_MEDIA_PLACEHOLDER } from './agentBlobService';
 import { ByteLruCache } from './byteLruCache';
 
 const DEFAULT_THRESHOLD = 4096;

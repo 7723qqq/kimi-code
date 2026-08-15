@@ -15,12 +15,12 @@ import { randomUUID } from 'node:crypto';
 import { IConfigService } from '#/app/config/config';
 import type { ISessionProcessRunner } from '#/session/process/processRunner';
 
+import { CodexWire } from './codexWire';
 import {
   SUBAGENT_BACKEND_SECTION,
   type CodexBackendConfig,
   type SubagentBackendConfig,
 } from './configSection';
-import { CodexWire } from './codexWire';
 import type {
   ISubagentBackend,
   SubagentBackendResult,
@@ -81,7 +81,11 @@ export class CodexBackend implements ISubagentBackend {
             },
             controller.signal,
           );
-          const thread = (await wire.request('startThread', { cwd: request.cwd }, controller.signal)) as {
+          const thread = (await wire.request(
+            'startThread',
+            { cwd: request.cwd },
+            controller.signal,
+          )) as {
             readonly threadId: string;
           };
           const threadId = thread.threadId;

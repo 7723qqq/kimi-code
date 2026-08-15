@@ -1362,7 +1362,13 @@ export class SearchIndexCore {
     // the same 'building' the first-sync window uses, whatever the process role.
     const building = db.textIndexBuilding(TEXT_INDEX_NAME) || db.textIndexBuilding(TRI_INDEX_NAME);
     return {
-      state: building ? 'building' : db.readOnly ? 'readonly' : this.fullSyncDone ? 'ready' : 'building',
+      state: building
+        ? 'building'
+        : db.readOnly
+          ? 'readonly'
+          : this.fullSyncDone
+            ? 'ready'
+            : 'building',
       indexedSessions: indexed,
       documents,
       readOnly: db.readOnly,

@@ -38,7 +38,8 @@ function safePreviewMime(name: string | undefined, mediaType: string | undefined
   const ext = name?.match(/\.([A-Za-z0-9]{1,8})$/)?.[1]?.toLowerCase();
   if (ext === undefined) return null;
   if (TEXT_PREVIEW_EXT_RE.test(ext)) return TEXT_PLAIN;
-  if (IMAGE_PREVIEW_EXT_RE.test(ext)) return `image/${ext === 'jpg' ? 'jpeg' : ext === 'ico' ? 'x-icon' : ext}`;
+  if (IMAGE_PREVIEW_EXT_RE.test(ext))
+    return `image/${ext === 'jpg' ? 'jpeg' : ext === 'ico' ? 'x-icon' : ext}`;
   if (ext === 'pdf') return 'application/pdf';
   return null;
 }
@@ -61,7 +62,9 @@ export async function openFileAttachment(
   // whitelist is what actually keeps the new tab inert.
   const win = window.open('', '_blank');
   if (win !== null) win.opener = null;
-  const blob = await getKimiWebApi().getFileBlob(fileId).catch(() => null);
+  const blob = await getKimiWebApi()
+    .getFileBlob(fileId)
+    .catch(() => null);
   if (blob === null) {
     win?.close();
     return 'failed';

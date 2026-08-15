@@ -1,3 +1,5 @@
+import { describe, expect, it, vi } from 'vitest';
+
 /**
  * Scenario: exercise the Anthropic adapter over a real local HTTP connection.
  * Responsibilities: verify public-provider request serialization and response parsing at the wire.
@@ -8,13 +10,18 @@ import type { Message, StreamedMessagePart, ToolCall } from '#/message';
 import { AnthropicChatProvider } from '#/providers/anthropic';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
-import { describe, expect, it, vi } from 'vitest';
 
 // The Rust native LLM stream replaces the mock SDK client with real network
 // calls when the addon is loadable; force the TS/SDK fallback in tests.
 vi.mock('../../src/providers/native-stream', async () => {
-  const actual = await vi.importActual<typeof import('../../src/providers/native-stream')>('../../src/providers/native-stream');
-  return { ...actual, tryNativeLlmStream: () => undefined, tryNativeLlmStreamIncremental: () => undefined };
+  const actual = await vi.importActual<typeof import('../../src/providers/native-stream')>(
+    '../../src/providers/native-stream',
+  );
+  return {
+    ...actual,
+    tryNativeLlmStream: () => undefined,
+    tryNativeLlmStreamIncremental: () => undefined,
+  };
 });
 
 import { createFakeProviderHarness } from './fake-provider-harness';
@@ -145,9 +152,7 @@ describe('e2e: Anthropic adapter bridge', () => {
       ]);
       expect(harness.requests).toHaveLength(1);
       expect(harness.requests[0]!.search).toBe('?beta=true');
-      expect(harness.requests[0]!.headers['anthropic-beta']).toBe(
-        'context-management-2025-06-27',
-      );
+      expect(harness.requests[0]!.headers['anthropic-beta']).toBe('context-management-2025-06-27');
       expect(harness.requests[0]!.bodyJson).toMatchObject({
         model: 'compatible-preserved-thinking-model',
         max_tokens: 128000,
@@ -318,7 +323,8 @@ describe('e2e: Anthropic adapter bridge', () => {
         {
           type: 'function',
           id: 'toolu_1',
-          name: 'add', arguments: '',
+          name: 'add',
+          arguments: '',
           _streamIndex: 1,
         } satisfies ToolCall,
         { type: 'tool_call_part', argumentsPart: '{"a":2', index: 1 },

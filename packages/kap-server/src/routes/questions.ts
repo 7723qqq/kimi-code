@@ -62,6 +62,11 @@ import {
   type QuestionResult,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { z } from 'zod';
+
+import { errEnvelope, okEnvelope } from '../envelope';
+import { requestLog } from '../lib/requestLog';
+import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   type QuestionItem as ProtocolQuestionItem,
@@ -77,11 +82,6 @@ import {
   questionResolveRequestSchema,
   questionResolveResultSchema,
 } from '../protocol/rest-question';
-import { z } from 'zod';
-
-import { errEnvelope, okEnvelope } from '../envelope';
-import { requestLog } from '../lib/requestLog';
-import { defineRoute } from '../middleware/defineRoute';
 import { parseActionSuffix } from './action-suffix';
 
 interface QuestionRouteHost {
@@ -143,7 +143,11 @@ export function registerQuestionsRoutes(app: QuestionRouteHost, core: Scope): vo
       reply.send(okEnvelope({ items }, req.id));
     },
   );
-  app.get(listRoute.path, listRoute.options, listRoute.handler as Parameters<QuestionRouteHost['get']>[2]);
+  app.get(
+    listRoute.path,
+    listRoute.options,
+    listRoute.handler as Parameters<QuestionRouteHost['get']>[2],
+  );
 
   const resolveRoute = defineRoute(
     {
@@ -382,8 +386,7 @@ function toInProcessResponse(
     const key = item?.question ?? qid;
     // Resolve option ids only within the answered question's own options
     // (at most 4, so a linear scan is fine).
-    const optionText = (id: string): string =>
-      item?.options.find((o) => o.id === id)?.label ?? id;
+    const optionText = (id: string): string => item?.options.find((o) => o.id === id)?.label ?? id;
     switch (ans.kind) {
       case 'single':
         flattened[key] = optionText(ans.option_id);

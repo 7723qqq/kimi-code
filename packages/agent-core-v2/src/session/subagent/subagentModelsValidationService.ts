@@ -14,18 +14,16 @@
  * `assertValidSubagentModelConfig` (configSection). Bound at Session scope.
  */
 
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
 import { IModelCatalog } from '#/kosong/model/catalog';
 
 import { assertValidSubagentModelConfig } from './configSection';
 import { ISessionSubagentModelsValidationService } from './subagentModelsValidation';
 
-export class SessionSubagentModelsValidationService
-  implements ISessionSubagentModelsValidationService
-{
+export class SessionSubagentModelsValidationService implements ISessionSubagentModelsValidationService {
   declare readonly _serviceBrand: undefined;
 
   constructor(

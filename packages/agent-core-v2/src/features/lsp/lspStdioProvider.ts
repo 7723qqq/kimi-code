@@ -15,13 +15,18 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { toDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { IConfigService } from '#/app/config/config';
-import { ILspService, type LspProvider, type LspProviderQuery, type LspQueryResult } from '#/features/lsp/lsp';
+import {
+  ILspService,
+  type LspProvider,
+  type LspProviderQuery,
+  type LspQueryResult,
+} from '#/features/lsp/lsp';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionProcessRunner } from '#/session/process/processRunner';
 
 import { LSP_SECTION, type LspConfig, type LspServerConfig } from './configSection';
-import { LspInstance } from './lspInstance';
 import { LspTransportClosedError } from './lspConnection';
+import { LspInstance } from './lspInstance';
 
 export class LspStdioProvider implements LspProvider {
   private readonly instances = new Map<string, LspInstance>();

@@ -13,8 +13,8 @@ import { LifecycleScope } from '#/app/scopes';
 import { Feature } from '#/features/feature';
 import { registerFeature } from '#/features/featureRegistry';
 
-import { IAttachmentService } from './types';
 import { AttachmentService } from './attachmentService';
+import { IAttachmentService } from './types';
 
 const ATTACHMENT_SECTION = 'attachment';
 

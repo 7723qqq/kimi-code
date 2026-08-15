@@ -53,7 +53,10 @@ export async function runCodeInWorker(
   code: string,
   options: CodeRunOptions = {},
 ): Promise<CodeRunOutcome> {
-  const timeoutMs = Math.min(Math.max(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000), MAX_TIMEOUT_MS);
+  const timeoutMs = Math.min(
+    Math.max(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000),
+    MAX_TIMEOUT_MS,
+  );
   const maxOutputChars = options.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
   const worker = new Worker(CODE_WORKER_SOURCE, {
     eval: true,

@@ -7,8 +7,9 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { IEventBus } from '#/app/event/eventBus';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IEventBus } from '#/app/event/eventBus';
+
 import { IAgentKnowledgeService } from './knowledge';
 
 /** Patterns that indicate the user is correcting the agent */
@@ -32,9 +33,7 @@ export class KnowledgeLearner extends Disposable {
     @IAgentContextMemoryService private readonly contextMemory: IAgentContextMemoryService,
   ) {
     super();
-    this._register(
-      this.eventBus.subscribe('turn.ended', () => this.onTurnEnded()),
-    );
+    this._register(this.eventBus.subscribe('turn.ended', () => this.onTurnEnded()));
   }
 
   private onTurnEnded(): void {
@@ -61,7 +60,10 @@ export class KnowledgeLearner extends Disposable {
 
   private learnFromCorrection(text: string): void {
     // Extract a title from the correction (first 60 chars)
-    const title = text.slice(0, 60).replace(/[\n\r]/g, ' ').trim();
+    const title = text
+      .slice(0, 60)
+      .replaceAll(/[\n\r]/g, ' ')
+      .trim();
     if (title.length < 5) return;
 
     // Detect category

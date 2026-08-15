@@ -9,9 +9,9 @@
  * - React `useLocale()` hook via `subscribe`
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { createI18n } from '@moonshot-ai/i18n-shared/web';
 import type { Locale, TranslationKey as SharedTranslationKey } from '@moonshot-ai/i18n-shared';
+import { createI18n } from '@moonshot-ai/i18n-shared/web';
+import { useCallback, useEffect, useState } from 'react';
 
 import en from './locales/en';
 import zh from './locales/zh';
@@ -19,10 +19,7 @@ import zh from './locales/zh';
 export type { Locale };
 export type TranslationKey = SharedTranslationKey<typeof en>;
 
-const i18n = createI18n(
-  { en, zh },
-  { storageKey: 'kimi-inspect.locale' },
-);
+const i18n = createI18n({ en, zh }, { storageKey: 'kimi-inspect.locale' });
 
 export const t = i18n.t;
 export const setLocale = i18n.setLocale;

@@ -2,12 +2,7 @@
  * Localized port of v1's secondary-model runtime overlay
  * (`agent-core/src/config/secondary-model.ts`).
  */
-import type {
-  KimiConfig,
-  ModelAlias,
-  ModelAliasOverrides,
-  SecondaryModelConfig,
-} from './schema';
+import type { KimiConfig, ModelAlias, ModelAliasOverrides, SecondaryModelConfig } from './schema';
 
 /**
  * Secondary-model runtime overlay.
@@ -83,7 +78,8 @@ export function applySecondaryModelConfig(config: KimiConfig, env: Env = process
     };
   }
 
-  let next = secondary === config.secondaryModel ? config : { ...config, secondaryModel: secondary };
+  let next =
+    secondary === config.secondaryModel ? config : { ...config, secondaryModel: secondary };
 
   const patch = secondaryModelPatch(secondary);
   const baseId = secondary?.model;
@@ -116,10 +112,7 @@ export function applySecondaryModelConfig(config: KimiConfig, env: Env = process
  * — e.g. a `/secondary-model` pick made under `KIMI_SECONDARY_MODEL` — does
  * reach the disk, mirroring the pointer check in `stripEnvModelConfig`).
  */
-export function stripSecondaryModelConfig(
-  config: KimiConfig,
-  env: Env = process.env,
-): KimiConfig {
+export function stripSecondaryModelConfig(config: KimiConfig, env: Env = process.env): KimiConfig {
   let next = config;
 
   if (next.models !== undefined && SECONDARY_DERIVED_MODEL_ALIAS in next.models) {

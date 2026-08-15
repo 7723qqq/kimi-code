@@ -17,8 +17,8 @@
  * these are plain runtime objects, not DI services.
  */
 
-import { USER_PROMPT_ORIGIN, type ContextMessage } from '#/agent/contextMemory/types';
 import { newMessageId } from '#/agent/contextMemory/messageId';
+import { USER_PROMPT_ORIGIN, type ContextMessage } from '#/agent/contextMemory/types';
 import { StepRequest, type StepRequestOptions, type TurnSeed } from '#/agent/loop/stepRequest';
 import { gateImageFormatParts } from '#/agent/media/image-compress';
 import type { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';

@@ -23,20 +23,20 @@
  * section read are deterministic. Bound at Workspace scope.
  */
 
+import { dirname } from 'pathe';
+
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { TimeoutTimer } from '#/_base/utils/timer';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
-import { dirname } from 'pathe';
-
-import type { McpServerConfig } from '#/mcpCore/config-schema';
-import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
+import { TimeoutTimer } from '#/_base/utils/timer';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
 import { IPluginService } from '#/app/plugin/plugin';
+import { LifecycleScope } from '#/app/scopes';
+import type { McpServerConfig } from '#/mcpCore/config-schema';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';

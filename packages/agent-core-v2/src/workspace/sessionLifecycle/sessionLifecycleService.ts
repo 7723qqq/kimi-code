@@ -109,7 +109,6 @@ import { ulid } from 'ulid';
 
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import {
   createScopedChildHandle,
   type ISessionScopeHandle,
@@ -118,13 +117,14 @@ import {
 } from '#/_base/di/scope';
 import { unwrapErrorCause } from '#/_base/errors/errors';
 import { AsyncEmitter, Emitter, type Event, type IWaitUntil } from '#/_base/event';
-import { DEFAULT_PLAN_MODE_SECTION } from '#/features/plan/configSection';
-import { IAgentPlanService } from '#/features/plan/plan';
+import { IAgentActivityView } from '#/agent/activityView/activityView';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
 import { CRON_SESSION_TAG, type CronTask } from '#/app/cron/cronTask';
 import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
-import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
+import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
 import {
   CHILD_SESSION_KIND,
   CHILD_SESSION_KIND_KEY,
@@ -134,6 +134,11 @@ import {
 } from '#/app/sessionIndex/sessionIndex';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
+import { DEFAULT_PLAN_MODE_SECTION } from '#/features/plan/configSection';
+import { IAgentPlanService } from '#/features/plan/plan';
+import { IModelCatalog } from '#/kosong/model/catalog';
+import { IModelService } from '#/kosong/model/model';
+import { IProviderService } from '#/kosong/provider/provider';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem, type HostDirEntry } from '#/os/interface/hostFileSystem';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -141,39 +146,27 @@ import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStor
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
 import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
-import { ISessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
 import { sessionEphemeralMcpServersSeed } from '#/session/mcp/ephemeralMcpServers';
-import { sessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
-import { installSessionSeedAdapters } from '#/session/sessionSeed/sessionSeedAdapters';
-import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { drainSessionMetadataWrites, toEpochMs } from '#/session/sessionMetadata/sessionMetadataService';
 import { ISessionProcessRunner } from '#/session/process/processRunner';
+import { sessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
+import { ISessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
+import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
+import {
+  drainSessionMetadataWrites,
+  toEpochMs,
+} from '#/session/sessionMetadata/sessionMetadataService';
+import { installSessionSeedAdapters } from '#/session/sessionSeed/sessionSeedAdapters';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
-import { IWireService } from '#/wire/wire';
-import {
-  AGENT_WIRE_RECORD_KEY,
-  createWireMetadataRecord,
-  type WireRecord,
-} from '#/wire/record';
-import { IModelCatalog } from '#/kosong/model/catalog';
-import { IModelService } from '#/kosong/model/model';
-import { IProviderService } from '#/kosong/provider/provider';
-import { IFlagService } from '#/app/flag/flag';
 import { assertValidSubagentModelConfig } from '#/session/subagent/configSection';
-import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { AGENT_WIRE_RECORD_KEY, createWireMetadataRecord, type WireRecord } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
+import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
+import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
 import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
-import {
-  IExplicitAgentProfileLoader,
-} from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
-import {
-  IExtraAgentProfileLoader,
-} from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
-import {
-  IWorkspaceAgentProfileLoader,
-} from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
+import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
+import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
-import { IAgentActivityView } from '#/agent/activityView/activityView';
 
 import {
   agentScopeOf,
@@ -210,11 +203,8 @@ const NO_ABORT = new AbortController().signal;
 export class SessionLifecycleService extends Disposable implements ISessionLifecycleService {
   declare readonly _serviceBrand: undefined;
   private readonly sessions = new Map<string, ISessionScopeHandle>();
-  private readonly _onWillCreateSession = this._register(
-    new Emitter<SessionWillCreateEvent>(),
-  );
-  readonly onWillCreateSession: Event<SessionWillCreateEvent> =
-    this._onWillCreateSession.event;
+  private readonly _onWillCreateSession = this._register(new Emitter<SessionWillCreateEvent>());
+  readonly onWillCreateSession: Event<SessionWillCreateEvent> = this._onWillCreateSession.event;
   private readonly _onDidCreateSession = this._register(
     new AsyncEmitter<SessionCreatedEvent & IWaitUntil>(),
   );
@@ -414,11 +404,9 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     if (live !== undefined) return Promise.resolve(live);
     const promise = this.doResume(sessionId, opts)
       .catch((error: unknown) => {
-        this.telemetry
-          .withContext({ sessionId })
-          .track2('session_load_failed', {
-            reason: isError2(error) ? error.code : error instanceof Error ? error.name : 'unknown',
-          });
+        this.telemetry.withContext({ sessionId }).track2('session_load_failed', {
+          reason: isError2(error) ? error.code : error instanceof Error ? error.name : 'unknown',
+        });
         throw error;
       })
       .finally(() => this.resuming.delete(sessionId));
@@ -582,10 +570,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       targetId = opts.newSessionId ?? createSessionId();
       assertValidSessionId(targetId);
       if (this.sessions.has(targetId) || (await this.index.get(targetId)) !== undefined) {
-        throw new Error2(
-          ErrorCodes.SESSION_ALREADY_EXISTS,
-          `Session "${targetId}" already exists`,
-        );
+        throw new Error2(ErrorCodes.SESSION_ALREADY_EXISTS, `Session "${targetId}" already exists`);
       }
 
       const turnSlice =
@@ -685,8 +670,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       if (target !== undefined) {
         try {
           target.dispose();
-        } catch {
-        }
+        } catch {}
       }
       if (targetSessionDir !== undefined) {
         await this.hostFs.remove(targetSessionDir).catch(() => {});
@@ -802,7 +786,12 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   ): Promise<void> {
     for (const entry of entries) {
       const rel = relBase === '' ? entry.name : `${relBase}/${entry.name}`;
-      if (rel === 'state.json' || rel === 'logs' || rel === 'upcoming-goals.json' || entry.name === AGENT_WIRE_RECORD_KEY) {
+      if (
+        rel === 'state.json' ||
+        rel === 'logs' ||
+        rel === 'upcoming-goals.json' ||
+        entry.name === AGENT_WIRE_RECORD_KEY
+      ) {
         continue;
       }
       if (entry.isSymbolicLink === true) continue;

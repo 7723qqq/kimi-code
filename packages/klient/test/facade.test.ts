@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type {
-  EventSourceRef,
-  IDisposable,
-  KlientChannel,
-  ScopeRef,
-} from '../src/core/channel.js';
+import type { EventSourceRef, IDisposable, KlientChannel, ScopeRef } from '../src/core/channel.js';
 import { createKlientFromChannel } from '../src/core/klient.js';
 import { KlientValidationError } from '../src/core/validation.js';
 
@@ -32,7 +27,12 @@ class FakeChannel implements KlientChannel {
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
-  async *stream(_scope: ScopeRef, _service: string, _method: string, _args: unknown[]): AsyncIterableIterator<unknown> {
+  async *stream(
+    _scope: ScopeRef,
+    _service: string,
+    _method: string,
+    _args: unknown[],
+  ): AsyncIterableIterator<unknown> {
     // stub — streaming is not exercised in facade tests
   }
 
@@ -273,7 +273,12 @@ describe('session skills routing', () => {
       },
       { scope, service: 'agentLoopService', method: 'cancelFromUser', args: [2] },
       { scope, service: 'agentLoopService', method: 'cancelFromUser', args: [] },
-      { scope, service: 'agentPermissionModeService', method: 'setModeAndBroadcast', args: ['yolo'] },
+      {
+        scope,
+        service: 'agentPermissionModeService',
+        method: 'setModeAndBroadcast',
+        args: ['yolo'],
+      },
       { scope, service: 'agentCommandService', method: 'list', args: [] },
       { scope, service: 'agentCommandService', method: 'run', args: ['cmd', 'a b'] },
       { scope, service: 'agentCommandService', method: 'run', args: ['plain'] },
@@ -305,9 +310,7 @@ describe('agent mcp / compaction routing', () => {
     const klient = createKlientFromChannel(channel);
     const agent = klient.session('s1').agent('main');
 
-    const entries = [
-      { name: 'mock', transport: 'stdio', status: 'pending', toolCount: 0 },
-    ];
+    const entries = [{ name: 'mock', transport: 'stdio', status: 'pending', toolCount: 0 }];
     channel.results.set('agentMcpService.list', entries);
     await expect(agent.getMcpServers()).resolves.toEqual(entries);
     expect(channel.calls[0]).toEqual({
@@ -497,8 +500,8 @@ describe('event hub', () => {
     const seen: unknown[] = [];
     const errors: Error[] = [];
     klient.events.onError((error) => {
-        errors.push(error);
-      });
+      errors.push(error);
+    });
 
     klient.events.on('kosong.providers.changed', (event) => seen.push(event));
     expect(channel.subscriptions[0]?.source).toEqual({
@@ -527,7 +530,10 @@ describe('event hub', () => {
     expect(channel.subscriptions[0]?.source).toEqual({ kind: 'stream', name: 'events' });
 
     channel.emit(0, { type: 'event.session.archived', payload: { sessionId: 's1' } });
-    channel.emit(0, { type: 'event.model_catalog.changed', payload: { changed: [], unchanged: [], failed: [] } });
+    channel.emit(0, {
+      type: 'event.model_catalog.changed',
+      payload: { changed: [], unchanged: [], failed: [] },
+    });
     channel.emit(0, { type: 'unrelated.type', payload: {} });
     await tick();
     expect(archived).toEqual([{ sessionId: 's1' }]);
@@ -612,7 +618,13 @@ describe('event hub', () => {
     expect(channel.subscriptions[0]?.scope).toEqual({ sessionId: 's1', agentId: 'main' });
     expect(channel.subscriptions[0]?.source).toEqual({ kind: 'stream', name: 'events' });
 
-    const delta = { type: 'tool.call.delta', turnId: 1, toolCallId: 'tc1', name: 'Bash', argumentsPart: '{"command":' };
+    const delta = {
+      type: 'tool.call.delta',
+      turnId: 1,
+      toolCallId: 'tc1',
+      name: 'Bash',
+      argumentsPart: '{"command":',
+    };
     const progress = {
       type: 'tool.progress',
       turnId: 1,

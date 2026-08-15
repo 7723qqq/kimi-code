@@ -1,3 +1,4 @@
+import { ErrorCode } from '@moonshot-ai/protocol';
 /**
  * Live-server invariant for uploaded image files in prompt content (v1 REST
  * surface only — the facade has no file-upload method):
@@ -10,8 +11,6 @@
  * no server is reachable at `KIMI_SERVER_URL`.
  */
 import { describe, expect, it } from 'vitest';
-
-import { ErrorCode } from '@moonshot-ai/protocol';
 
 import { DaemonClient, EnvelopeError } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';

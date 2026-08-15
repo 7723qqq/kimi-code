@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest';
 
 import { isError2 } from '#/_base/errors/errors';
 import type { ILogService, LogPayload } from '#/_base/log/log';
-import { CapabilityErrors } from '#/app/capability/errors';
 import { CapabilityService } from '#/app/capability/capabilityService';
+import { CapabilityErrors } from '#/app/capability/errors';
 import type {
   CapabilityDetectResult,
   CapabilityEntry,
@@ -31,10 +31,7 @@ function fakeEntry(overrides: {
     displayName: overrides.id,
     description: 'fake',
     supported: overrides.supported ?? true,
-    detect: () =>
-      Promise.resolve(
-        overrides.detect ?? { steps: [{ id: 'plugin', state: 'ok' }] },
-      ),
+    detect: () => Promise.resolve(overrides.detect ?? { steps: [{ id: 'plugin', state: 'ok' }] }),
     install: overrides.install ?? (() => Promise.resolve(undefined)),
   };
 }
@@ -246,7 +243,10 @@ describe('CapabilityService', () => {
     }
 
     expect(seen[0]).toEqual({ id: 'kimi-cu', install: { running: true } });
-    expect(seen).toContainEqual({ id: 'kimi-cu', install: { running: true, step: 'download', percent: 42 } });
+    expect(seen).toContainEqual({
+      id: 'kimi-cu',
+      install: { running: true, step: 'download', percent: 42 },
+    });
     expect(seen.at(-1)).toEqual({ id: 'kimi-cu', install: { running: false } });
   });
 
@@ -273,9 +273,7 @@ describe('CapabilityService', () => {
         id: 'kimi-cu',
         install: () => {
           attempts += 1;
-          return attempts === 1
-            ? Promise.reject(new Error('boom'))
-            : Promise.resolve(undefined);
+          return attempts === 1 ? Promise.reject(new Error('boom')) : Promise.resolve(undefined);
         },
       }),
     ]);

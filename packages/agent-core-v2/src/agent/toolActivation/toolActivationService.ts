@@ -33,15 +33,15 @@
 import { type CollectionView } from '#/_base/di/collection';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { type IDisposable } from '#/_base/di/lifecycle';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import { IEventBus } from '#/app/event/eventBus';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { isToolActive } from '#/agent/toolPolicy/evaluate';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 
 import { IAgentToolActivationService } from './toolActivation';

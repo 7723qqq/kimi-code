@@ -5,11 +5,7 @@ import { join, resolve } from 'node:path';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  handleDoctor,
-  registerDoctorCommand,
-  type DoctorDeps,
-} from '#/cli/sub/doctor';
+import { handleDoctor, registerDoctorCommand, type DoctorDeps } from '#/cli/sub/doctor';
 
 let dir: string;
 

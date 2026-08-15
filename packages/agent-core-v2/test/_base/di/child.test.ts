@@ -1,9 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest';
 
-import {
-  resetUnexpectedErrorHandler,
-  setUnexpectedErrorHandler,
-} from '#/_base/errors/unexpectedError';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import {
   IInstantiationService,
@@ -13,6 +9,10 @@ import {
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
 
 interface ILogger {
   log(msg: string): void;
@@ -79,9 +79,7 @@ describe('InstantiationService.createChild', () => {
         [IParentOwned, new SyncDescriptor(ParentOwned)],
       ),
     );
-    const child = parent.createChild(
-      new ServiceCollection([IDep, new SyncDescriptor(ChildDep)]),
-    );
+    const child = parent.createChild(new ServiceCollection([IDep, new SyncDescriptor(ChildDep)]));
 
     const fromChild = child.invokeFunction((a) => a.get(IParentOwned));
     const fromParent = parent.invokeFunction((a) => a.get(IParentOwned));
@@ -205,9 +203,7 @@ describe('InstantiationService.createChild', () => {
         events.push('disposed');
       }
     }
-    const ix = new InstantiationService(
-      new ServiceCollection([IFoo, new SyncDescriptor(Foo)]),
-    );
+    const ix = new InstantiationService(new ServiceCollection([IFoo, new SyncDescriptor(Foo)]));
     ix.invokeFunction((a) => a.get(IFoo));
     ix.dispose();
     ix.dispose();
@@ -266,9 +262,7 @@ describe('InstantiationService.createChild', () => {
     }
 
     const parent = new InstantiationService();
-    const child = parent.createChild(
-      new ServiceCollection([ISvc, new SyncDescriptor(Svc)]),
-    );
+    const child = parent.createChild(new ServiceCollection([ISvc, new SyncDescriptor(Svc)]));
     child.invokeFunction((a) => a.get(ISvc));
     child.dispose();
     parent.dispose();
@@ -282,9 +276,11 @@ describe('InstantiationService.createChild', () => {
       ix.invokeFunction((_a) => undefined);
     }).toThrowError(/disposed/);
     expect(() => {
-      ix.createInstance(class A {
-        value = 'a';
-      });
+      ix.createInstance(
+        class A {
+          value = 'a';
+        },
+      );
     }).toThrowError(/disposed/);
     expect(() => {
       ix.createChild(new ServiceCollection());
@@ -490,7 +486,9 @@ describe('Disposable base class', () => {
       }
     }
     const o = new Owner();
-    expect(() => { o.dispose(); }).not.toThrow();
+    expect(() => {
+      o.dispose();
+    }).not.toThrow();
     expect(events).toEqual(['tail', 'bad-attempted', 'good']);
     expect(reported).toHaveLength(1);
     expect((reported[0] as Error).message).toContain('boom');

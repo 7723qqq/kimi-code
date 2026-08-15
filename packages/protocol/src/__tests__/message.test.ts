@@ -159,9 +159,9 @@ describe('messageSchema', () => {
   });
 
   it('rejects bad ISO timestamp', () => {
-    expect(
-      messageSchema.safeParse({ ...validMessage, created_at: 'yesterday' }).success,
-    ).toBe(false);
+    expect(messageSchema.safeParse({ ...validMessage, created_at: 'yesterday' }).success).toBe(
+      false,
+    );
   });
 
   it('accepts tool message with tool_result content', () => {

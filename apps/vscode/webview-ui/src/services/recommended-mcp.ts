@@ -1,4 +1,4 @@
-import type { MCPServerConfig } from "shared/legacy-sdk";
+import type { MCPServerConfig } from 'shared/legacy-sdk';
 
 export interface RecommendedMCPServer {
   id: string;
@@ -11,35 +11,35 @@ export interface RecommendedMCPServer {
 
 export const RECOMMENDED_MCP_SERVERS: RecommendedMCPServer[] = [
   {
-    id: "playwright",
-    name: "Playwright",
-    description: "Browser automation and web scraping with headless Chrome",
-    command: "npx",
-    args: ["-y", "@playwright/mcp@latest", "--allow-unrestricted-file-access"],
-    github: "https://github.com/microsoft/playwright-mcp",
+    id: 'playwright',
+    name: 'Playwright',
+    description: 'Browser automation and web scraping with headless Chrome',
+    command: 'npx',
+    args: ['-y', '@playwright/mcp@latest', '--allow-unrestricted-file-access'],
+    github: 'https://github.com/microsoft/playwright-mcp',
   },
   {
-    id: "context7",
-    name: "Context7",
-    description: "Up-to-date documentation for any library directly in your prompt",
-    command: "npx",
-    args: ["-y", "@upstash/context7-mcp@latest"],
-    github: "https://github.com/upstash/context7",
+    id: 'context7',
+    name: 'Context7',
+    description: 'Up-to-date documentation for any library directly in your prompt',
+    command: 'npx',
+    args: ['-y', '@upstash/context7-mcp@latest'],
+    github: 'https://github.com/upstash/context7',
   },
   {
-    id: "github",
-    name: "GitHub",
-    description: "Repository management, file operations, and GitHub API integration",
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-github@latest"],
-    github: "https://github.com/modelcontextprotocol/servers",
+    id: 'github',
+    name: 'GitHub',
+    description: 'Repository management, file operations, and GitHub API integration',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-github@latest'],
+    github: 'https://github.com/modelcontextprotocol/servers',
   },
 ];
 
 export function recommendedToConfig(server: RecommendedMCPServer): MCPServerConfig {
   return {
     name: server.id,
-    transport: "stdio",
+    transport: 'stdio',
     command: server.command,
     args: server.args,
   };

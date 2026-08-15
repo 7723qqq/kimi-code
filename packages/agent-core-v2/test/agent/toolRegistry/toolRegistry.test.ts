@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import type { ExecutableTool, ToolExecution } from '#/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import type { ExecutableTool, ToolExecution } from '#/tool/toolContract';
 
 class StubTool implements ExecutableTool<unknown> {
   readonly parameters = { type: 'object', additionalProperties: true };

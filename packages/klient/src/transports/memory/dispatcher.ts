@@ -17,12 +17,12 @@
  */
 
 import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2/_base/di/instantiation';
-import { IWorkspaceLifecycleService } from '@moonshot-ai/agent-core-v2/app/workspaceLifecycle/workspaceLifecycle';
+import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
 import { getLiveSessionById } from '@moonshot-ai/agent-core-v2/app/workspaceLifecycle/sessionLookup';
+import { IWorkspaceLifecycleService } from '@moonshot-ai/agent-core-v2/app/workspaceLifecycle/workspaceLifecycle';
 import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
 import { ensureMainAgent } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/mainAgent';
 import { ISessionInteractionService } from '@moonshot-ai/agent-core-v2/session/interaction/interaction';
-import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
 
 import type { EventSourceRef, IDisposable, ScopeRef } from '../../core/channel.js';
 import { RPCError } from '../../core/errors.js';
@@ -198,13 +198,12 @@ export function createMemoryDispatcher(
                 const resolved = await resolveScope(scope);
                 const catalog = resolveService(resolved, 'modelResolver');
                 const [modelId, input, params] = args;
-                const requester = (catalog as { getRequester(id: string): { request(...a: unknown[]): AsyncIterable<unknown> } })
-                  .getRequester(modelId as string);
-                const iterable = requester.request(
-                  clone(input),
-                  controller.signal,
-                  clone(params),
-                );
+                const requester = (
+                  catalog as {
+                    getRequester(id: string): { request(...a: unknown[]): AsyncIterable<unknown> };
+                  }
+                ).getRequester(modelId as string);
+                const iterable = requester.request(clone(input), controller.signal, clone(params));
                 source = iterable[Symbol.asyncIterator]();
               })();
               // `next()` observes the rejection through the awaited return;

@@ -11,7 +11,6 @@
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-
 import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
 
 export type { WebSearchProvider, WebSearchResult } from '#/agent/tools/web-search/web-search';

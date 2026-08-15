@@ -1,11 +1,13 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+
+import { targetSessionsDir } from '../../src/paths.js';
 import { migrateOneSession, type MigrateOneResult } from '../../src/sessions/migrate-one.js';
 import { computeWorkdirBucket } from '../../src/sessions/workdir-bucket.js';
-import { targetSessionsDir } from '../../src/paths.js';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures', import.meta.url));
 

@@ -4,7 +4,6 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -14,7 +13,12 @@ import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
+import {
+  drainSessionIndexMirror,
+  SessionIndexMirror,
+} from '#/app/sessionIndex/sessionIndexMirrorService';
 import {
   SESSION_INDEX_MANIFEST,
   sessionCollection,
@@ -22,15 +26,14 @@ import {
   type SessionWorkspaceCounts,
 } from '#/app/sessionIndex/sessionIndexModel';
 import {
-  drainSessionIndexMirror,
-  SessionIndexMirror,
-} from '#/app/sessionIndex/sessionIndexMirrorService';
-import { drainQueryStoreDisposals, MiniDbQueryStore } from '#/persistence/backends/minidb/miniDbQueryStore';
+  drainQueryStoreDisposals,
+  MiniDbQueryStore,
+} from '#/persistence/backends/minidb/miniDbQueryStore';
 import { IQueryStore } from '#/persistence/interface/queryStore';
 
+import { stubLog } from '../../_base/log/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubFlag } from '../flag/stubs';
-import { stubLog } from '../../_base/log/stubs';
 
 const WORKSPACE = 'wd_test';
 const GENERATION = 1;
@@ -104,7 +107,12 @@ describe('SessionIndexMirror', () => {
     mirror.record(summary('a', { title: 'first', updatedAt: 1 }));
     mirror.record(summary('a', { title: 'latest', updatedAt: 5 }));
     mirror.record(summary('b', { archived: true, updatedAt: 3 }));
-    expect(mirror.pending().map((s) => s.id).sort()).toEqual(['a', 'b']);
+    expect(
+      mirror
+        .pending()
+        .map((s) => s.id)
+        .toSorted(),
+    ).toEqual(['a', 'b']);
 
     await mirror.drain();
     expect(mirror.pending()).toEqual([]);

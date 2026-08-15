@@ -855,9 +855,7 @@ describe('buildWebUrl', () => {
 
   it('normalizes a trailing slash', async () => {
     const { buildWebUrl } = await import('#/cli/sub/web/run');
-    expect(buildWebUrl('http://127.0.0.1:58627/', 't')).toBe(
-      'http://127.0.0.1:58627/#token=t',
-    );
+    expect(buildWebUrl('http://127.0.0.1:58627/', 't')).toBe('http://127.0.0.1:58627/#token=t');
   });
 });
 
@@ -876,9 +874,7 @@ describe('accessUrlLines', () => {
   it('returns a single Local line for a loopback bind', async () => {
     const { accessUrlLines } = await import('#/cli/sub/web/access-urls');
     const lines = accessUrlLines('127.0.0.1', 58627, 'tok');
-    expect(lines).toEqual([
-      { label: 'Local:    ', url: 'http://127.0.0.1:58627/#token=tok' },
-    ]);
+    expect(lines).toEqual([{ label: 'Local:    ', url: 'http://127.0.0.1:58627/#token=tok' }]);
   });
 
   it('returns a single URL line for a specific host (no token)', async () => {

@@ -10,13 +10,13 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IEventBus } from '#/app/event/eventBus';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentUsageService } from '#/agent/usage/usage';
+import { IEventBus } from '#/app/event/eventBus';
 import type { generate as kosongGenerate } from '#/kosong/contract/generate';
 import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { permissionModeServices, type TestAgentContext } from '../../harness';
 
+import { permissionModeServices, type TestAgentContext } from '../../harness';
 import { createLoopTestAgent, makeEchoTool, nextTurnMessage, registerTool } from './helpers';
 
 type GenerateFn = typeof kosongGenerate;

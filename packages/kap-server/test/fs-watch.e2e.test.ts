@@ -272,11 +272,19 @@ describe('WS fs watch (kap-server)', () => {
     await helloAndSubscribe(b, 'B', sid);
 
     a.ws.send(
-      JSON.stringify({ type: 'watch_fs_add', id: 'wA', payload: { session_id: sid, paths: ['src'] } }),
+      JSON.stringify({
+        type: 'watch_fs_add',
+        id: 'wA',
+        payload: { session_id: sid, paths: ['src'] },
+      }),
     );
     await receiveType(a, 'ack', 1000);
     b.ws.send(
-      JSON.stringify({ type: 'watch_fs_add', id: 'wB', payload: { session_id: sid, paths: ['docs'] } }),
+      JSON.stringify({
+        type: 'watch_fs_add',
+        id: 'wB',
+        payload: { session_id: sid, paths: ['docs'] },
+      }),
     );
     await receiveType(b, 'ack', 1000);
 
@@ -342,11 +350,19 @@ describe('WS fs watch (kap-server)', () => {
     await helloAndSubscribe(conn, 'A', sid);
 
     conn.ws.send(
-      JSON.stringify({ type: 'watch_fs_add', id: 'w1', payload: { session_id: sid, paths: ['src'] } }),
+      JSON.stringify({
+        type: 'watch_fs_add',
+        id: 'w1',
+        payload: { session_id: sid, paths: ['src'] },
+      }),
     );
     await receiveType(conn, 'ack', 1000);
     conn.ws.send(
-      JSON.stringify({ type: 'watch_fs_add', id: 'w2', payload: { session_id: sid, paths: ['src'] } }),
+      JSON.stringify({
+        type: 'watch_fs_add',
+        id: 'w2',
+        payload: { session_id: sid, paths: ['src'] },
+      }),
     );
     const ack = await receiveType(conn, 'ack', 1000);
     expect((ack.payload as { current_count: number }).current_count).toBe(1);

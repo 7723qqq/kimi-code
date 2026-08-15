@@ -18,32 +18,29 @@
  * load.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
 import { dirname } from 'pathe';
 
+import { unwrapErrorCause } from '#/_base/errors/errors';
+import { tryNativeWrite } from '#/_base/native-tools';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IConfigService } from '#/app/config/config';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { unwrapErrorCause } from '#/_base/errors/errors';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import {
-  ToolAccesses,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   extendWorkspaceWithSkillRoots,
   resolvePathAccessPath,
   type WorkspaceConfig,
 } from '#/tool/path-access';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
-import { t } from '@moonshot-ai/kimi-i18n';
-import { IConfigService } from '#/app/config/config';
+import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
 import { resolveSandboxPolicy, sandboxWriteGuard } from '#/workspace/sandbox/sandbox';
+
 import { IWriteTool, WriteInputSchema, type WriteInput } from './write';
 import WRITE_DESCRIPTION from './write.md?raw';
-import { tryNativeWrite } from '#/_base/native-tools';
 
 export class WriteTool implements IWriteTool {
   declare readonly _serviceBrand: undefined;
@@ -123,7 +120,10 @@ export class WriteTool implements IWriteTool {
       }
       const verb = args.mode === 'append' ? 'writeAppended' : 'writeWrote';
       return {
-        output: t(`toolsV2.${verb}` as any, { bytes: String(nativeResult.bytesWritten), path: args.path }),
+        output: t(`toolsV2.${verb}` as any, {
+          bytes: String(nativeResult.bytesWritten),
+          path: args.path,
+        }),
       };
     }
     // Native unavailable — fall through to TS path.
@@ -142,9 +142,10 @@ export class WriteTool implements IWriteTool {
       }
       const bytesWritten = Buffer.byteLength(args.content, 'utf8');
       return {
-        output: mode === 'append'
-          ? t('toolsV2.writeAppended', { bytes: String(bytesWritten), path: args.path })
-          : t('toolsV2.writeWrote', { bytes: String(bytesWritten), path: args.path }),
+        output:
+          mode === 'append'
+            ? t('toolsV2.writeAppended', { bytes: String(bytesWritten), path: args.path })
+            : t('toolsV2.writeWrote', { bytes: String(bytesWritten), path: args.path }),
       };
     } catch (error) {
       const code = (unwrapErrorCause(error) as { code?: unknown } | null)?.code;

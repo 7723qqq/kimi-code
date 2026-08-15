@@ -19,18 +19,12 @@ import type { SessionEventResultFilter, SessionResultFilter } from './types';
 export const sessionSearchInputSchema = z
   .object({
     query: z.string().describe('Literal full-text query over prior session history.'),
-    session_ids: z
-      .array(z.string())
-      .optional()
-      .describe('Optional session ids to include.'),
+    session_ids: z.array(z.string()).optional().describe('Optional session ids to include.'),
     created_at_from: z
       .string()
       .optional()
       .describe('Inclusive ISO 8601 creation-time lower bound (e.g. 2026-08-01T00:00:00Z).'),
-    created_at_to: z
-      .string()
-      .optional()
-      .describe('Inclusive ISO 8601 creation-time upper bound.'),
+    created_at_to: z.string().optional().describe('Inclusive ISO 8601 creation-time upper bound.'),
     parent_session_ids: z
       .array(z.string())
       .optional()
@@ -55,30 +49,28 @@ export const sessionSearchInputSchema = z
       .nonnegative()
       .optional()
       .describe('Inclusive event sequence upper bound.'),
-    event_time_from: z
-      .string()
-      .optional()
-      .describe('Inclusive ISO 8601 event-time lower bound.'),
-    event_time_to: z
-      .string()
-      .optional()
-      .describe('Inclusive ISO 8601 event-time upper bound.'),
-    event_types: z
-      .array(z.string())
-      .optional()
-      .describe('Event types to include.'),
+    event_time_from: z.string().optional().describe('Inclusive ISO 8601 event-time lower bound.'),
+    event_time_to: z.string().optional().describe('Inclusive ISO 8601 event-time upper bound.'),
+    event_types: z.array(z.string()).optional().describe('Event types to include.'),
   })
   .strict();
 
 export const eventSearchInputSchema = z
   .object({
-    session_id: z
-      .string()
-      .optional()
-      .describe('Target session id. Omit for the current session.'),
+    session_id: z.string().optional().describe('Target session id. Omit for the current session.'),
     query: z.string().describe('Literal full-text query over the target session.'),
-    seq_from: z.number().int().nonnegative().optional().describe('Inclusive event sequence lower bound.'),
-    seq_to: z.number().int().nonnegative().optional().describe('Inclusive event sequence upper bound.'),
+    seq_from: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe('Inclusive event sequence lower bound.'),
+    seq_to: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe('Inclusive event sequence upper bound.'),
     time_from: z.string().optional().describe('Inclusive ISO 8601 event-time lower bound.'),
     time_to: z.string().optional().describe('Inclusive ISO 8601 event-time upper bound.'),
     event_types: z.array(z.string()).optional().describe('Event types to include.'),
@@ -184,7 +176,10 @@ export function normalizeQuery(value: string): string {
   return query;
 }
 
-function sequenceRange(from: number | undefined, to: number | undefined): { from?: number; to?: number } {
+function sequenceRange(
+  from: number | undefined,
+  to: number | undefined,
+): { from?: number; to?: number } {
   if (from !== undefined) assertNonNegativeSafeInteger('sequence lower bound', from);
   if (to !== undefined) assertNonNegativeSafeInteger('sequence upper bound', to);
   if (from !== undefined && to !== undefined && from > to) {
@@ -234,10 +229,7 @@ function invalidRange(name: string, detail: string): Error2 {
 }
 
 function invalidQuery(detail: string): Error2 {
-  return new Error2(
-    SessionQueryErrors.codes.SESSION_QUERY_INVALID_FILTER,
-    detail,
-  );
+  return new Error2(SessionQueryErrors.codes.SESSION_QUERY_INVALID_FILTER, detail);
 }
 
 function assertNonEmptyArray(name: string, values: readonly unknown[]): void {

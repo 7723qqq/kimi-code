@@ -20,14 +20,24 @@ defineProps<{ width?: string; height?: string; circle?: boolean }>();
   background: var(--color-surface-sunken);
   animation: ui-skeleton-breathe 1.2s var(--ease-in-out) infinite;
 }
-.ui-skeleton.is-circle { border-radius: var(--radius-full); }
+.ui-skeleton.is-circle {
+  border-radius: var(--radius-full);
+}
 
 @keyframes ui-skeleton-breathe {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ui-skeleton { animation: none; opacity: 0.6; }
+  .ui-skeleton {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 </style>

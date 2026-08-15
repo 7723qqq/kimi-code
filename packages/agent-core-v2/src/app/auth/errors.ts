@@ -3,6 +3,7 @@
  */
 
 import { t } from '@moonshot-ai/kimi-i18n';
+
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const AuthErrors = {

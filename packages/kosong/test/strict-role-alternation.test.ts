@@ -1,7 +1,8 @@
+import { describe, expect, it, vi } from 'vitest';
+
 import type { Message } from '#/message';
 import { AnthropicChatProvider } from '#/providers/anthropic';
 import { GoogleGenAIChatProvider } from '#/providers/google-genai';
-import { describe, expect, it, vi } from 'vitest';
 
 /**
  * Conformance suite: strict providers (those whose APIs require alternating

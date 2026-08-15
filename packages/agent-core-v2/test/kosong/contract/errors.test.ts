@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import type { ChatProviderError } from '#/kosong/contract/errors';
 import {
   APIConnectionError,
   APIContextOverflowError,
@@ -18,7 +19,6 @@ import {
   APIProviderRateLimitError,
   APIStatusError,
   APITimeoutError,
-  ChatProviderError,
   classifyApiError,
   createAbortError,
   isAbortError,
@@ -116,12 +116,8 @@ describe('isRetryableGenerateError', () => {
   it('retries transient failures', () => {
     expect(isRetryableGenerateError(new APIConnectionError('Connection error.'))).toBe(true);
     expect(isRetryableGenerateError(new APITimeoutError('Request timed out.'))).toBe(true);
-    expect(isRetryableGenerateError(new APIProviderRateLimitError('Too many requests'))).toBe(
-      true,
-    );
-    expect(isRetryableGenerateError(new APIProviderOverloadedError(529, 'Overloaded'))).toBe(
-      true,
-    );
+    expect(isRetryableGenerateError(new APIProviderRateLimitError('Too many requests'))).toBe(true);
+    expect(isRetryableGenerateError(new APIProviderOverloadedError(529, 'Overloaded'))).toBe(true);
     expect(isRetryableGenerateError(new APIStatusError(503, 'Service unavailable'))).toBe(true);
   });
 

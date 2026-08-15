@@ -7,8 +7,8 @@ import {
   ChatProviderError,
 } from '@moonshot-ai/kosong';
 
-import { KimiError } from './kimi-error';
 import { ErrorCodes, KIMI_ERROR_INFO, type KimiErrorCode } from './error-codes';
+import { KimiError } from './kimi-error';
 
 /**
  * Wire-safe payload of a Kimi error.

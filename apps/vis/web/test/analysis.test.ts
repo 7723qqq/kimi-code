@@ -16,19 +16,94 @@ describe('analyzeWire', () => {
   it('folds a session into turns/steps/tools with derived metrics', () => {
     line = 0;
     const entries: WireEntry[] = [
-      e({ type: 'turn.prompt', input: [{ type: 'text', text: 'hello' }], origin: { kind: 'user' } }, 1000),
+      e(
+        { type: 'turn.prompt', input: [{ type: 'text', text: 'hello' }], origin: { kind: 'user' } },
+        1000,
+      ),
       loop({ type: 'step.begin', uuid: 's1', turnId: 'T1', step: 0 }, 1100),
-      loop({ type: 'tool.call', uuid: 'tc1', turnId: 'T1', step: 0, stepUuid: 's1', toolCallId: 'c1', name: 'Read' }, 1200),
-      loop({ type: 'tool.result', parentUuid: 'tc1', toolCallId: 'c1', result: { output: 'x'.repeat(50), truncated: true } }, 1500),
-      loop({ type: 'step.end', uuid: 's1', turnId: 'T1', step: 0, finishReason: 'tool_use', llmFirstTokenLatencyMs: 40, usage: { inputOther: 100, output: 20, inputCacheRead: 80, inputCacheCreation: 10 } }, 1600),
+      loop(
+        {
+          type: 'tool.call',
+          uuid: 'tc1',
+          turnId: 'T1',
+          step: 0,
+          stepUuid: 's1',
+          toolCallId: 'c1',
+          name: 'Read',
+        },
+        1200,
+      ),
+      loop(
+        {
+          type: 'tool.result',
+          parentUuid: 'tc1',
+          toolCallId: 'c1',
+          result: { output: 'x'.repeat(50), truncated: true },
+        },
+        1500,
+      ),
+      loop(
+        {
+          type: 'step.end',
+          uuid: 's1',
+          turnId: 'T1',
+          step: 0,
+          finishReason: 'tool_use',
+          llmFirstTokenLatencyMs: 40,
+          usage: { inputOther: 100, output: 20, inputCacheRead: 80, inputCacheCreation: 10 },
+        },
+        1600,
+      ),
       loop({ type: 'step.begin', uuid: 's2', turnId: 'T1', step: 1 }, 1700),
-      loop({ type: 'step.end', uuid: 's2', turnId: 'T1', step: 1, finishReason: 'end_turn', usage: { inputOther: 200, output: 50, inputCacheRead: 150, inputCacheCreation: 0 } }, 2000),
+      loop(
+        {
+          type: 'step.end',
+          uuid: 's2',
+          turnId: 'T1',
+          step: 1,
+          finishReason: 'end_turn',
+          usage: { inputOther: 200, output: 50, inputCacheRead: 150, inputCacheCreation: 0 },
+        },
+        2000,
+      ),
       // Big idle gap → waiting for the user, then a second turn that errors.
-      e({ type: 'turn.prompt', input: [{ type: 'text', text: 'again' }], origin: { kind: 'user' } }, 10000),
+      e(
+        { type: 'turn.prompt', input: [{ type: 'text', text: 'again' }], origin: { kind: 'user' } },
+        10000,
+      ),
       loop({ type: 'step.begin', uuid: 's3', turnId: 'T2', step: 0 }, 10100),
-      loop({ type: 'tool.call', uuid: 'tc2', turnId: 'T2', step: 0, stepUuid: 's3', toolCallId: 'c2', name: 'Read' }, 10200),
-      loop({ type: 'tool.result', parentUuid: 'tc2', toolCallId: 'c2', result: { output: 'y'.repeat(10), isError: true } }, 10250),
-      loop({ type: 'step.end', uuid: 's3', turnId: 'T2', step: 0, finishReason: 'filtered', usage: { inputOther: 300, output: 0, inputCacheRead: 0, inputCacheCreation: 0 } }, 10300),
+      loop(
+        {
+          type: 'tool.call',
+          uuid: 'tc2',
+          turnId: 'T2',
+          step: 0,
+          stepUuid: 's3',
+          toolCallId: 'c2',
+          name: 'Read',
+        },
+        10200,
+      ),
+      loop(
+        {
+          type: 'tool.result',
+          parentUuid: 'tc2',
+          toolCallId: 'c2',
+          result: { output: 'y'.repeat(10), isError: true },
+        },
+        10250,
+      ),
+      loop(
+        {
+          type: 'step.end',
+          uuid: 's3',
+          turnId: 'T2',
+          step: 0,
+          finishReason: 'filtered',
+          usage: { inputOther: 300, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },
+        },
+        10300,
+      ),
     ];
 
     const a = analyzeWire(entries);
@@ -54,12 +129,22 @@ describe('analyzeWire', () => {
     expect(a.contextSeries.map((p) => p.contextTokens)).toEqual([210, 400, 300]);
 
     // Per-turn token cost = sum of step usages
-    expect(a.turns[0]!.tokens).toEqual({ inputOther: 300, output: 70, inputCacheRead: 230, inputCacheCreation: 10 });
+    expect(a.turns[0]!.tokens).toEqual({
+      inputOther: 300,
+      output: 70,
+      inputCacheRead: 230,
+      inputCacheCreation: 10,
+    });
 
     // Idle / wait
     expect(a.turns[1]!.waitBeforeMs).toBe(8000);
     expect(a.idleGaps).toHaveLength(1);
-    expect(a.idleGaps[0]).toMatchObject({ gapMs: 8000, kind: 'between_turns', afterLineNo: 7, beforeLineNo: 8 });
+    expect(a.idleGaps[0]).toMatchObject({
+      gapMs: 8000,
+      kind: 'between_turns',
+      afterLineNo: 7,
+      beforeLineNo: 8,
+    });
 
     // Errors
     expect(a.turns[1]!.steps[0]!.isError).toBe(true); // finishReason 'filtered'
@@ -95,7 +180,17 @@ describe('analyzeWire', () => {
     const a = analyzeWire([
       e({ type: 'turn.prompt', input: [{ type: 'text', text: 'q' }], origin: { kind: 'user' } }, 0),
       loop({ type: 'step.begin', uuid: 'x', turnId: 'A', step: 0 }, 1),
-      loop({ type: 'step.end', uuid: 'x', turnId: 'A', step: 0, finishReason: 'end_turn', usage: { inputOther: 25, output: 5, inputCacheRead: 75, inputCacheCreation: 0 } }, 2),
+      loop(
+        {
+          type: 'step.end',
+          uuid: 'x',
+          turnId: 'A',
+          step: 0,
+          finishReason: 'end_turn',
+          usage: { inputOther: 25, output: 5, inputCacheRead: 75, inputCacheCreation: 0 },
+        },
+        2,
+      ),
     ]);
     // hitRate = 75 / (75 + 0) = 1.0 (plain input excluded from the cache ratio)
     expect(a.cache.hitRate).toBeCloseTo(1, 5);
@@ -104,7 +199,15 @@ describe('analyzeWire', () => {
   it('collects config.update changes', () => {
     line = 0;
     const a = analyzeWire([
-      e({ type: 'config.update', modelAlias: 'opus', thinkingEffort: 'high', systemPrompt: 'x'.repeat(120) }, 0),
+      e(
+        {
+          type: 'config.update',
+          modelAlias: 'opus',
+          thinkingEffort: 'high',
+          systemPrompt: 'x'.repeat(120),
+        },
+        0,
+      ),
       e({ type: 'config.update', modelAlias: 'sonnet' }, 10),
     ]);
     expect(a.configChanges).toHaveLength(2);
@@ -121,10 +224,30 @@ describe('analyzeWire', () => {
     const a = analyzeWire([
       e({ type: 'turn.prompt', input: [{ type: 'text', text: 'q' }], origin: { kind: 'user' } }, 0),
       loop({ type: 'step.begin', uuid: 's1', turnId: 'T', step: 0 }, 1),
-      loop({ type: 'step.end', uuid: 's1', turnId: 'T', step: 0, finishReason: 'tool_use', usage: { inputOther: 100, output: 20, inputCacheRead: 80, inputCacheCreation: 0 } }, 2),
+      loop(
+        {
+          type: 'step.end',
+          uuid: 's1',
+          turnId: 'T',
+          step: 0,
+          finishReason: 'tool_use',
+          usage: { inputOther: 100, output: 20, inputCacheRead: 80, inputCacheCreation: 0 },
+        },
+        2,
+      ),
       loop({ type: 'step.begin', uuid: 's2', turnId: 'T', step: 1 }, 3),
       // content-filtered: usage all zero — must keep the prior 200, not drop to 0.
-      loop({ type: 'step.end', uuid: 's2', turnId: 'T', step: 1, finishReason: 'filtered', usage: { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 } }, 4),
+      loop(
+        {
+          type: 'step.end',
+          uuid: 's2',
+          turnId: 'T',
+          step: 1,
+          finishReason: 'filtered',
+          usage: { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 },
+        },
+        4,
+      ),
     ]);
     expect(a.turns[0]!.steps[0]!.contextTokens).toBe(200);
     expect(a.turns[0]!.steps[1]!.contextTokens).toBe(200); // carried, not 0
@@ -134,9 +257,7 @@ describe('analyzeWire', () => {
 
   it('uses context.update_token_count as the absolute context-window fill', () => {
     line = 0;
-    const a = analyzeWire([
-      e({ type: 'context.update_token_count', tokenCount: 42 }, 1),
-    ]);
+    const a = analyzeWire([e({ type: 'context.update_token_count', tokenCount: 42 }, 1)]);
 
     expect(a.summary.contextTokens).toBe(42);
     expect(a.summary.peakContextTokens).toBe(42);

@@ -24,11 +24,7 @@ const emit = defineEmits<{
 
 // Live window while streaming, teaser afterwards. The 0.25s grid transition
 // between the two states (fa8b305) plays on the class flip.
-const paragraphs = computed(() =>
-  props.text
-    .split(/\n{2,}/)
-    .filter((p) => p.trim().length > 0),
-);
+const paragraphs = computed(() => props.text.split(/\n{2,}/).filter((p) => p.trim().length > 0));
 
 /** Single-paragraph thinking has nothing to fold — show it straight. */
 const isFoldable = computed(() => props.foldable && paragraphs.value.length > 1);

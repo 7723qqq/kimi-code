@@ -57,14 +57,18 @@ function makeCallback(
       if (result instanceof Promise) {
         result.then(
           (res) => mod.resolveCallback(callbackId, null, res),
-          (err: unknown) =>
-            mod.resolveCallback(callbackId, err instanceof Error ? err.message : String(err), null),
+          (error: unknown) =>
+            mod.resolveCallback(
+              callbackId,
+              error instanceof Error ? error.message : String(error),
+              null,
+            ),
         );
       } else {
         mod.resolveCallback(callbackId, null, result);
       }
-    } catch (err: unknown) {
-      mod.resolveCallback(callbackId, err instanceof Error ? err.message : String(err), null);
+    } catch (error: unknown) {
+      mod.resolveCallback(callbackId, error instanceof Error ? error.message : String(error), null);
     }
   };
 }
@@ -94,7 +98,11 @@ describe('napi native module', () => {
     const result = mod.runTurnRust(
       validParams,
       makeCallback(mod, (_req) =>
-        JSON.stringify({ tool_calls: [], finish_reason: 'stop', usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } }),
+        JSON.stringify({
+          tool_calls: [],
+          finish_reason: 'stop',
+          usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+        }),
       ),
       makeCallback(mod, (_req) => JSON.stringify({ content: '', is_error: false })),
     );
@@ -142,7 +150,8 @@ describe('napi runTurnRust — basic turn', () => {
     );
 
     const validReasons = ['EndTurn', 'MaxTokens', 'Filtered', 'Paused', 'Aborted', 'BudgetLimited'];
-    const isValid = validReasons.some((r) => result.stopReason === r) || result.stopReason.startsWith('Error:');
+    const isValid =
+      validReasons.some((r) => result.stopReason === r) || result.stopReason.startsWith('Error:');
     expect(isValid).toBe(true);
   });
 });
@@ -215,7 +224,11 @@ describe('napi runTurnRust — tool execution', () => {
         ...validParams,
         maxSteps: 3,
         tools: [
-          { name: 'echo', description: 'Echo back input', inputSchema: '{"type":"object","properties":{"text":{"type":"string"}}}' },
+          {
+            name: 'echo',
+            description: 'Echo back input',
+            inputSchema: '{"type":"object","properties":{"text":{"type":"string"}}}',
+          },
         ],
       },
       makeCallback(mod, (req) => {
@@ -254,9 +267,7 @@ describe('napi runTurnRust — tool execution', () => {
       {
         ...validParams,
         maxSteps: 3,
-        tools: [
-          { name: 'fail', description: 'Always fails', inputSchema: '{"type":"object"}' },
-        ],
+        tools: [{ name: 'fail', description: 'Always fails', inputSchema: '{"type":"object"}' }],
       },
       makeCallback(mod, (_req) =>
         JSON.stringify({
@@ -265,7 +276,9 @@ describe('napi runTurnRust — tool execution', () => {
           usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
         }),
       ),
-      makeCallback(mod, (_req) => JSON.stringify({ content: 'something went wrong', is_error: true })),
+      makeCallback(mod, (_req) =>
+        JSON.stringify({ content: 'something went wrong', is_error: true }),
+      ),
     );
 
     expect(result).toBeDefined();
@@ -295,9 +308,7 @@ describe('napi runTurnRust — error handling', () => {
         {
           ...validParams,
           maxSteps: 3,
-          tools: [
-            { name: 'crash', description: 'Crashes', inputSchema: '{"type":"object"}' },
-          ],
+          tools: [{ name: 'crash', description: 'Crashes', inputSchema: '{"type":"object"}' }],
         },
         makeCallback(mod, (_req) =>
           JSON.stringify({
@@ -335,9 +346,7 @@ describe('napi runTurnRust — max steps enforcement', () => {
       {
         ...validParams,
         maxSteps: 2,
-        tools: [
-          { name: 'loop', description: 'Loops', inputSchema: '{"type":"object"}' },
-        ],
+        tools: [{ name: 'loop', description: 'Loops', inputSchema: '{"type":"object"}' }],
       },
       makeCallback(mod, (_req) => {
         llmCallCount++;

@@ -8,16 +8,14 @@ import fs, { existsSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Spy on `node:fs` so the UNC path tests can treat an unreachable network
 // share as a missing file without hitting the real (slow, UNKNOWN) stat error.
 vi.mock('node:fs', { spy: true });
 
-import {
-  BaselineManager,
-  type BaselineSession,
-} from '../src/managers/baseline.manager';
+import { BaselineManager, type BaselineSession } from '../src/managers/baseline.manager';
 
 let root: string;
 let workDir: string;
@@ -305,9 +303,7 @@ describe('baseline boundaries (errors, cleanup, and platform paths)', () => {
         await expect(manager.capture(session, filePath)).rejects.toThrow(
           'Unable to capture original file',
         );
-        await expect(manager.getContent(session, filePath)).rejects.toThrow(
-          'No baseline exists',
-        );
+        await expect(manager.getContent(session, filePath)).rejects.toThrow('No baseline exists');
       } finally {
         await chmod(filePath, 0o600);
       }
@@ -319,12 +315,8 @@ describe('baseline boundaries (errors, cleanup, and platform paths)', () => {
     const directoryPath = join(workDir, 'not-a-file');
     await mkdir(directoryPath);
 
-    await expect(manager.capture(session, directoryPath)).rejects.toThrow(
-      'is not a regular file',
-    );
-    await expect(manager.getContent(session, directoryPath)).rejects.toThrow(
-      'No baseline exists',
-    );
+    await expect(manager.capture(session, directoryPath)).rejects.toThrow('is not a regular file');
+    await expect(manager.getContent(session, directoryPath)).rejects.toThrow('No baseline exists');
   });
 
   it('throws a clear error when requested baseline content does not exist', async () => {
@@ -343,9 +335,7 @@ describe('baseline boundaries (errors, cleanup, and platform paths)', () => {
     const session: BaselineSession = { id: 'ses-windows', workDir: 'C:\\Workspace' };
     await manager.capture(session, 'C:\\Workspace\\src\\new.ts');
 
-    await expect(
-      manager.getContent(session, 'c:\\WORKSPACE\\SRC\\NEW.ts'),
-    ).resolves.toBe('');
+    await expect(manager.getContent(session, 'c:\\WORKSPACE\\SRC\\NEW.ts')).resolves.toBe('');
   });
 
   it('rejects a Windows path on another drive', async () => {

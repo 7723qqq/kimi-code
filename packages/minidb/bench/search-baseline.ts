@@ -10,8 +10,8 @@
 // Run:  node --import tsx bench/search-baseline.ts [--data ~/.kimi-code]
 
 import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
 import os from 'node:os';
+import path from 'node:path';
 
 const argv = process.argv.slice(2);
 const arg = (name: string, def: string) => {
@@ -63,7 +63,12 @@ function extractWireText(wirePath: string, full: boolean): string {
         if (typeof v === 'string' && v) bits.push(v.length > 2000 ? v.slice(0, 2000) : v);
       }
       parts.push(bits.join(' '));
-    } else if (full && o.type === 'context.append_loop_event' && o.event && o.event.type === 'tool.result') {
+    } else if (
+      full &&
+      o.type === 'context.append_loop_event' &&
+      o.event &&
+      o.event.type === 'tool.result'
+    ) {
       const r = o.event.result;
       let out = '';
       if (typeof r === 'string') out = r;
@@ -172,7 +177,14 @@ async function main() {
   console.log(`  heap used      : ${mib(process.memoryUsage().heapUsed)}`);
 
   // ---- naive full-text searches ----
-  const queries = ['lark-approval', 'database compaction', '北京', 'Redis 持久化', 'worktree init', 'nonexistentxyz123'];
+  const queries = [
+    'lark-approval',
+    'database compaction',
+    '北京',
+    'Redis 持久化',
+    'worktree init',
+    'nonexistentxyz123',
+  ];
   console.log(`\n=== naive full-text search (full scan, median of 7) ===`);
   for (const q of queries) {
     const { value: res, ms } = med(() => naiveTextSearch(docs, q, 5));
@@ -189,7 +201,9 @@ async function main() {
       hit.sort((a, b) => a.workspaceName.localeCompare(b.workspaceName));
       return hit.slice(0, 5);
     });
-    console.log(`\n  naive composed (text "database" + sort) -> ${res.length} in ${ms.toFixed(2)} ms`);
+    console.log(
+      `\n  naive composed (text "database" + sort) -> ${res.length} in ${ms.toFixed(2)} ms`,
+    );
   }
 
   // ---- naive dt range: updated in last 7 days ----
@@ -200,19 +214,23 @@ async function main() {
       hit.sort((a, b) => b.updated - a.updated);
       return hit.slice(0, 10);
     });
-    console.log(`  naive dt range (updated in last 7d) -> ${res.length} shown in ${ms.toFixed(2)} ms`);
+    console.log(
+      `  naive dt range (updated in last 7d) -> ${res.length} shown in ${ms.toFixed(2)} ms`,
+    );
   }
 
   // ---- naive secondary index lookup: workspaceName ----
   {
     const { value: res, ms } = med(() => docs.filter((d) => d.workspaceName === 'kimi-code-dev-1'));
-    console.log(`  naive lookup (workspace=kimi-code-dev-1) -> ${res.length} in ${ms.toFixed(2)} ms`);
+    console.log(
+      `  naive lookup (workspace=kimi-code-dev-1) -> ${res.length} in ${ms.toFixed(2)} ms`,
+    );
   }
 
   console.log(`\ndone.`);
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

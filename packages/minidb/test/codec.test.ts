@@ -1,6 +1,8 @@
+import assert from 'node:assert/strict';
+
 // test/codec.test.js
 import { test } from 'vitest';
-import assert from 'node:assert/strict';
+
 import {
   encodeFrame,
   encodeBatchOps,
@@ -71,11 +73,14 @@ test('crc mismatch throws CorruptFrameError with offset', () => {
   const f = encodeFrame({ type: TYPE_SET, key: B('bad'), value: B('data') });
   const corrupted = Buffer.from(f);
   corrupted[HEADER_SIZE + 1] ^= 0xff; // flip a byte inside the payload
-  assert.throws(() => [...new FrameParser().feed(corrupted)], (e) => {
-    assert.ok(e instanceof CorruptFrameError);
-    assert.equal(e.offset, 0);
-    return true;
-  });
+  assert.throws(
+    () => [...new FrameParser().feed(corrupted)],
+    (e) => {
+      assert.ok(e instanceof CorruptFrameError);
+      assert.equal(e.offset, 0);
+      return true;
+    },
+  );
 });
 
 test('finish() reports a torn trailing partial frame at the valid-data offset', () => {
@@ -117,15 +122,23 @@ function rawBatchBody(ops) {
   }
   const body = Buffer.alloc(total);
   let o = 0;
-  body.writeUInt16LE(parts.length, o); o += 2;
+  body.writeUInt16LE(parts.length, o);
+  o += 2;
   for (const op of parts) {
-    body.writeUInt8(op.type, o); o += 1;
-    body.writeUInt16LE(op.key.length, o); o += 2;
-    body.writeUInt32LE(op.value.length, o); o += 4;
-    body.writeUInt32LE(0, o); o += 4; // metaLen
-    body.writeBigInt64LE(0n, o); o += 8; // expireAt
-    op.key.copy(body, o); o += op.key.length;
-    op.value.copy(body, o); o += op.value.length;
+    body.writeUInt8(op.type, o);
+    o += 1;
+    body.writeUInt16LE(op.key.length, o);
+    o += 2;
+    body.writeUInt32LE(op.value.length, o);
+    o += 4;
+    body.writeUInt32LE(0, o);
+    o += 4; // metaLen
+    body.writeBigInt64LE(0n, o);
+    o += 8; // expireAt
+    op.key.copy(body, o);
+    o += op.key.length;
+    op.value.copy(body, o);
+    o += op.value.length;
   }
   return body;
 }
@@ -155,7 +168,9 @@ test('batch decoders reject an unknown sub-op type', () => {
 });
 
 test('batch decoders reject trailing bytes after the last op', () => {
-  const valid = encodeBatchOps([{ type: TYPE_SET, key: B('a'), value: B('1'), meta: null, expireAt: 0 }]);
+  const valid = encodeBatchOps([
+    { type: TYPE_SET, key: B('a'), value: B('1'), meta: null, expireAt: 0 },
+  ]);
   const body = Buffer.concat([valid, Buffer.from([0xde, 0xad])]);
   assert.throws(() => decodeBatchOps(body), /batch body has 2 trailing byte\(s\)/);
   assert.throws(() => scanBatchOpRefs(body, 0), /batch body has 2 trailing byte\(s\)/);

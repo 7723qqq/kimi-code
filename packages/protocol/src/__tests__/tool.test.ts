@@ -58,12 +58,9 @@ describe('toolDescriptorSchema', () => {
 });
 
 describe('mcpServerStatusSchema', () => {
-  it.each(['connected', 'connecting', 'disconnected', 'error'] as const)(
-    'accepts %s',
-    (s) => {
-      expect(mcpServerStatusSchema.parse(s)).toBe(s);
-    },
-  );
+  it.each(['connected', 'connecting', 'disconnected', 'error'] as const)('accepts %s', (s) => {
+    expect(mcpServerStatusSchema.parse(s)).toBe(s);
+  });
 
   it("rejects agent-core's 'pending' literal (adapter maps to 'connecting')", () => {
     expect(mcpServerStatusSchema.safeParse('pending').success).toBe(false);

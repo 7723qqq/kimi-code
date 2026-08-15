@@ -1,6 +1,7 @@
 import { createI18n } from 'vue-i18n';
-import { messages } from './locales';
+
 import { safeGetString, safeSetString, STORAGE_KEYS } from '../lib/storage';
+import { messages } from './locales';
 
 export const availableLocales = [
   { code: 'en', label: 'English' },

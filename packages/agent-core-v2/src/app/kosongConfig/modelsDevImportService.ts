@@ -44,24 +44,25 @@ import {
   type CustomRegistrySource,
   type ManagedKimiConfigShape,
 } from '@moonshot-ai/kimi-code-oauth';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { type ModelsSection } from '#/kosong/model/model';
 import { type ProviderConfig, type ProvidersSection } from '#/kosong/provider/provider';
-import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
-
-import { DEFAULT_MODEL_SECTION, MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
-import { ModelsDevImportErrors } from './errors';
-import { IKosongConfigService } from './kosongConfig';
 import {
   SECONDARY_MODEL_SECTION,
   cascadeSubagentModelPool,
   type SecondaryModelConfig,
 } from '#/session/subagent/configSection';
+
+import { DEFAULT_MODEL_SECTION, MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
+import { ModelsDevImportErrors } from './errors';
+import { IKosongConfigService } from './kosongConfig';
+import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
 import {
   IModelsDevImportService,
   PROVIDER_ID_PATTERN,
@@ -107,10 +108,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const catalog = await getModelsDevCatalog(await this.outboundUserAgent());
     const entry = modelsDevEntry(catalog, catalogId);
     if (entry === undefined) {
-      throw new Error2(
-        codes.CATALOG_ENTRY_NOT_FOUND,
-        `catalog entry ${catalogId} does not exist`,
-      );
+      throw new Error2(codes.CATALOG_ENTRY_NOT_FOUND, `catalog entry ${catalogId} does not exist`);
     }
     return toModelsDevProviderItem(catalogId, entry);
   }
@@ -121,9 +119,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     return this.enqueueWrite(() => this.doImportModelsDevProvider(options));
   }
 
-  importCustomRegistry(
-    options: ImportCustomRegistryOptions,
-  ): Promise<ImportCustomRegistryResult> {
+  importCustomRegistry(options: ImportCustomRegistryOptions): Promise<ImportCustomRegistryResult> {
     return this.enqueueWrite(() => this.doImportCustomRegistry(options));
   }
 
@@ -162,10 +158,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const catalog = await getModelsDevCatalog(await this.outboundUserAgent());
     const entry = modelsDevEntry(catalog, catalogId);
     if (entry === undefined) {
-      throw new Error2(
-        codes.CATALOG_ENTRY_NOT_FOUND,
-        `catalog entry ${catalogId} does not exist`,
-      );
+      throw new Error2(codes.CATALOG_ENTRY_NOT_FOUND, `catalog entry ${catalogId} does not exist`);
     }
 
     const resolution = resolveModelsDevImport(entry, options.baseUrl);
@@ -338,10 +331,7 @@ async function seedDefaultModelWhenUnset(config: IConfigService, alias: string):
   await config.replace(DEFAULT_MODEL_SECTION, alias);
 }
 
-function registryKeyFromExisting(
-  providers: ProvidersSection,
-  url: string,
-): string | undefined {
+function registryKeyFromExisting(providers: ProvidersSection, url: string): string | undefined {
   for (const provider of Object.values(providers)) {
     if (!isRecord(provider)) continue;
     const source = provider['source'];

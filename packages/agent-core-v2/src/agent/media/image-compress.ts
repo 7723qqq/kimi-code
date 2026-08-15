@@ -39,6 +39,7 @@
 
 import type { ContentPart } from '#/kosong/contract/message';
 
+import { tryNativeCompressImage, tryNativeCropImage } from '../../_base/native-tools';
 import { sniffImageDimensions } from './file-type';
 import {
   buildMalformedImageNotice,
@@ -53,7 +54,6 @@ import {
 } from './image-format-policy';
 import { isAnimatedWebp } from './webp-animated';
 import { decodeWebp } from './webp-decode';
-import { tryNativeCompressImage, tryNativeCropImage } from '../../_base/native-tools';
 
 export const MAX_IMAGE_EDGE_PX = 2000;
 
@@ -84,8 +84,7 @@ export const READ_IMAGE_BYTE_BUDGET = 256 * 1024;
 let configuredReadImageByteBudget: number | undefined;
 
 export function setConfiguredReadImageByteBudget(value: number | undefined): void {
-  configuredReadImageByteBudget =
-    value !== undefined && isPositiveInt(value) ? value : undefined;
+  configuredReadImageByteBudget = value !== undefined && isPositiveInt(value) ? value : undefined;
 }
 
 export const READ_IMAGE_BYTE_BUDGET_ENV = 'KIMI_IMAGE_READ_BYTE_BUDGET';
@@ -425,7 +424,11 @@ export async function compressImageContentParts(
     if (part.type === 'image_url') {
       const parsed = parseImageDataUrl(part.imageUrl.url);
       if (parsed !== null) {
-        const result = await compressBase64ForModel(parsed.base64, parsed.mimeType, compressOptions);
+        const result = await compressBase64ForModel(
+          parsed.base64,
+          parsed.mimeType,
+          compressOptions,
+        );
         if (result.changed) {
           if (annotate !== undefined) {
             let originalPath: string | null = null;
@@ -473,7 +476,6 @@ export async function compressImageContentParts(
 export interface CompressAnnotateOptions {
   readonly persistOriginal?: (bytes: Uint8Array, mimeType: string) => Promise<string | null>;
 }
-
 
 export interface ImageCropRegion {
   readonly x: number;
@@ -540,9 +542,7 @@ export async function cropImageForModel(
   if (normalizedMime === 'image/webp' && isAnimatedWebp(bytes)) {
     return fail('unsupported_format', 'Cropping is not supported for animated WebP images.');
   }
-  if (
-    ![region.x, region.y, region.width, region.height].every((value) => Number.isFinite(value))
-  ) {
+  if (![region.x, region.y, region.width, region.height].every((value) => Number.isFinite(value))) {
     return fail(
       'region_invalid',
       `Region coordinates must be finite numbers; got x=${String(region.x)}, ` +
@@ -680,7 +680,6 @@ export async function cropImageForModel(
   }
 }
 
-
 export interface ImageVariantDescription {
   readonly width: number;
   readonly height: number;
@@ -744,7 +743,6 @@ export function formatByteSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${String(Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-
 
 type JimpImage = Awaited<ReturnType<(typeof import('jimp'))['Jimp']['fromBuffer']>>;
 
@@ -841,7 +839,6 @@ function fitWithinEdge(image: JimpImage, edge: number): boolean {
   return true;
 }
 
-
 type CropErrorKind =
   | 'empty'
   | 'unsupported_format'
@@ -887,8 +884,7 @@ function reportCompressEvent(
       exif_transposed: input.exifTransposed,
       duration_ms: Date.now() - input.startedAt,
     });
-  } catch {
-  }
+  } catch {}
 }
 
 function reportCropEvent(
@@ -903,8 +899,7 @@ function reportCropEvent(
   if (telemetry === undefined) return;
   try {
     const { result } = input;
-    const originalPixels =
-      result === undefined ? 0 : result.originalWidth * result.originalHeight;
+    const originalPixels = result === undefined ? 0 : result.originalWidth * result.originalHeight;
     telemetry.client.track('image_crop', {
       source: telemetry.source,
       ok: input.ok,
@@ -919,6 +914,5 @@ function reportCropEvent(
       final_bytes: result?.finalByteLength,
       duration_ms: Date.now() - input.startedAt,
     });
-  } catch {
-  }
+  } catch {}
 }

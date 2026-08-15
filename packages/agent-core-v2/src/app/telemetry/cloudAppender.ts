@@ -17,7 +17,6 @@ import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-import type { ITelemetryAppender, TelemetryContextPatch, TelemetryProperties } from './telemetry';
 import {
   type CloudContext,
   type CloudPrimitive,
@@ -28,6 +27,7 @@ import {
 } from './cloudTransport';
 import { resolveCoreVersion } from './coreVersion';
 import { cleanTelemetryProperties } from './privacy';
+import type { ITelemetryAppender, TelemetryContextPatch, TelemetryProperties } from './telemetry';
 
 export interface CloudAppenderOptions {
   readonly storage: IFileSystemStorageService;

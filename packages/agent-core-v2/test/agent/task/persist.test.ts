@@ -9,17 +9,14 @@
 
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
+import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import {
-  AgentTaskPersistence,
-  type AgentTaskInfo,
-} from '#/agent/task/task';
+import { AgentTaskPersistence, type AgentTaskInfo } from '#/agent/task/task';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
@@ -34,7 +31,9 @@ let docs: IAtomicDocumentStore;
 let bytes: IFileSystemStorageService;
 let persistence: AgentTaskPersistence;
 
-function sample(overrides: Partial<Extract<AgentTaskInfo, { kind: 'process' }>> = {}): Extract<AgentTaskInfo, { kind: 'process' }> {
+function sample(
+  overrides: Partial<Extract<AgentTaskInfo, { kind: 'process' }>> = {},
+): Extract<AgentTaskInfo, { kind: 'process' }> {
   return {
     taskId: 'bash-11111111',
     kind: 'process',
@@ -113,10 +112,7 @@ describe('AgentTaskPersistence', () => {
     await persistence.writeTask(sample({ taskId: 'bash-22222222', command: 'pnpm test' }));
     const all = await persistence.listTasks();
     expect(all).toHaveLength(2);
-    expect(all.map((task) => task.taskId).toSorted()).toEqual([
-      'bash-11111111',
-      'bash-22222222',
-    ]);
+    expect(all.map((task) => task.taskId).toSorted()).toEqual(['bash-11111111', 'bash-22222222']);
   });
 
   it('listTasks returns empty when tasks dir does not exist', async () => {
@@ -125,22 +121,29 @@ describe('AgentTaskPersistence', () => {
 
   it('listTasks skips corrupt files', async () => {
     await persistence.writeTask(sample());
-    await writeFile(join(sessionDir, SESSION_SCOPE, 'tasks', 'bash-baaaaaaa.json'), '{not json', 'utf-8');
+    await writeFile(
+      join(sessionDir, SESSION_SCOPE, 'tasks', 'bash-baaaaaaa.json'),
+      '{not json',
+      'utf-8',
+    );
     const all = await persistence.listTasks();
     expect(all.map((task) => task.taskId)).toEqual(['bash-11111111']);
   });
 
-  it.skipIf(process.platform === 'win32')('writeTask creates tasks dir with mode 0700', async () => {
-    await persistence.writeTask(sample());
-    const st = await stat(join(sessionDir, SESSION_SCOPE, 'tasks'));
-    // eslint-disable-next-line no-bitwise
-    expect(st.mode & 0o777).toBe(0o700);
-  });
+  it.skipIf(process.platform === 'win32')(
+    'writeTask creates tasks dir with mode 0700',
+    async () => {
+      await persistence.writeTask(sample());
+      const st = await stat(join(sessionDir, SESSION_SCOPE, 'tasks'));
+      // eslint-disable-next-line no-bitwise
+      expect(st.mode & 0o777).toBe(0o700);
+    },
+  );
 
   it('rejects path-traversal task ids', async () => {
-    await expect(
-      persistence.writeTask(sample({ taskId: '../../etc/passwd' })),
-    ).rejects.toThrow(/Invalid task id/);
+    await expect(persistence.writeTask(sample({ taskId: '../../etc/passwd' }))).rejects.toThrow(
+      /Invalid task id/,
+    );
     await expect(persistence.readTask('../etc/passwd')).rejects.toThrow(/Invalid task id/);
     expect(() => persistence.taskOutputFile('../etc/passwd')).toThrow(/Invalid task id/);
   });

@@ -8,14 +8,17 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { LifecycleScope } from '#/app/scopes';
+
+import { join } from 'pathe';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { ExecutableToolResult } from '#/tool/toolContract';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import type { ContentPart } from '#/kosong/contract/message';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { join } from 'pathe';
+import type { ExecutableToolResult } from '#/tool/toolContract';
+
 import {
   IAgentToolResultTruncationService,
   type ToolResultTruncationInput,
@@ -104,8 +107,8 @@ function renderPersistedToolResult(
 
 function safeToolResultFileStem(toolName: string, toolCallId: string): string {
   const label = `${toolName}-${toolCallId}`
-    .replace(/[^a-zA-Z0-9._-]+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replaceAll(/[^a-zA-Z0-9._-]+/g, '_')
+    .replaceAll(/^_+|_+$/g, '')
     .slice(0, 80);
   return label || 'tool-result';
 }

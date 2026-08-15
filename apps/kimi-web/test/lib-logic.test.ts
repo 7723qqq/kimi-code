@@ -1,36 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  collectFilePathAliases,
-  findFilePathLinks,
-  parseFilePathLinkCandidate,
-} from '../src/lib/filePathLinks';
-import { parseDiff } from '../src/lib/parseDiff';
-import { buildDiffLines } from '../src/lib/diffLines';
-import { buildEditDiffLines } from '../src/lib/toolDiff';
-import { createCoalescedAsyncRunner } from '../src/lib/snapshotSync';
-import { mergeSnapshotMessages } from '../src/lib/snapshotMessages';
-import { keepLiveSubagents, mergeSnapshotSubagents } from '../src/lib/taskMerge';
-import { normalizeToolName, toolSummary } from '../src/lib/toolMeta';
-import { collapsePrompt, humanizeCron } from '../src/lib/cronHumanize';
-import {
-  currentValidatedWorkspacePath,
-  isWorkspacePathInput,
-  joinWorkspacePathCandidate,
-  parseWorkspacePathInput,
-} from '../src/lib/workspacePathInput';
-import {
-  commitLevel,
-  defaultThinkingLevelFor,
-  effortLabel,
-  modelThinkingAvailability,
-  segmentsFor,
-} from '../src/lib/modelThinking';
+
 import type { AppMessage, AppModel, AppTask } from '../src/api/types';
-import { resolveToolRenderer } from '../src/components/chat/tool-calls/toolRegistry';
 import AgentTool from '../src/components/chat/tool-calls/AgentTool.vue';
 import EditTool from '../src/components/chat/tool-calls/EditTool.vue';
 import GenericTool from '../src/components/chat/tool-calls/GenericTool.vue';
-import type { ToolCall } from '../src/types';
+import { resolveToolRenderer } from '../src/components/chat/tool-calls/toolRegistry';
 import {
   clearTrace,
   installClientErrorCapture,
@@ -43,6 +17,33 @@ import {
   traceToJsonl,
   traceWsIn,
 } from '../src/debug/trace';
+import { collapsePrompt, humanizeCron } from '../src/lib/cronHumanize';
+import { buildDiffLines } from '../src/lib/diffLines';
+import {
+  collectFilePathAliases,
+  findFilePathLinks,
+  parseFilePathLinkCandidate,
+} from '../src/lib/filePathLinks';
+import {
+  commitLevel,
+  defaultThinkingLevelFor,
+  effortLabel,
+  modelThinkingAvailability,
+  segmentsFor,
+} from '../src/lib/modelThinking';
+import { parseDiff } from '../src/lib/parseDiff';
+import { mergeSnapshotMessages } from '../src/lib/snapshotMessages';
+import { createCoalescedAsyncRunner } from '../src/lib/snapshotSync';
+import { keepLiveSubagents, mergeSnapshotSubagents } from '../src/lib/taskMerge';
+import { buildEditDiffLines } from '../src/lib/toolDiff';
+import { normalizeToolName, toolSummary } from '../src/lib/toolMeta';
+import {
+  currentValidatedWorkspacePath,
+  isWorkspacePathInput,
+  joinWorkspacePathCandidate,
+  parseWorkspacePathInput,
+} from '../src/lib/workspacePathInput';
+import type { ToolCall } from '../src/types';
 
 // The trace tests exercise its exported recording/serialization contract:
 // session exports receive only bounded, explicitly selected metadata.
@@ -95,7 +96,9 @@ describe('bounded Web trace', () => {
   });
 
   it('caps object keys and reports how many were omitted', () => {
-    const input = Object.fromEntries(Array.from({ length: 60 }, (_, index) => [`key${index}`, index]));
+    const input = Object.fromEntries(
+      Array.from({ length: 60 }, (_, index) => [`key${index}`, index]),
+    );
 
     const result = sanitizeForTrace(input) as Record<string, unknown>;
 
@@ -108,7 +111,9 @@ describe('bounded Web trace', () => {
       traceKeyEvent('ws:connection', { status: String(index) });
     }
 
-    const exported = sessionExportTraceToJsonl().split('\n').map((line) => JSON.parse(line));
+    const exported = sessionExportTraceToJsonl()
+      .split('\n')
+      .map((line) => JSON.parse(line));
     expect(exported).toHaveLength(500);
     expect(exported[0]).toMatchObject({ status: '1' });
     expect(exported.at(-1)).toMatchObject({ status: '500' });
@@ -201,7 +206,9 @@ describe('workspace path input', () => {
 
   it('normalizes separators without changing UNC roots or POSIX backslashes', () => {
     expect(parseWorkspacePathInput('/tmp//project/', '').target).toBe('/tmp/project');
-    expect(parseWorkspacePathInput('//server//share/project/', '').target).toBe('//server/share/project');
+    expect(parseWorkspacePathInput('//server//share/project/', '').target).toBe(
+      '//server/share/project',
+    );
     expect(parseWorkspacePathInput('///tmp//project/', '').target).toBe('/tmp/project');
     expect(parseWorkspacePathInput('/tmp/project\\', '').target).toBe('/tmp/project\\');
     expect(parseWorkspacePathInput('~/project', '/home/alice').target).toBe('/home/alice/project');
@@ -240,7 +247,9 @@ describe('workspace path input', () => {
 
   it('builds completion paths from the lexical parent', () => {
     const parsed = parseWorkspacePathInput('/tmp/link/proje', '');
-    expect(joinWorkspacePathCandidate(parsed.parent, 'project', parsed.separator)).toBe('/tmp/link/project');
+    expect(joinWorkspacePathCandidate(parsed.parent, 'project', parsed.separator)).toBe(
+      '/tmp/link/project',
+    );
   });
 
   it('only returns a validated path while it still matches the current input', () => {
@@ -330,14 +339,24 @@ describe('buildEditDiffLines', () => {
   });
 
   it('falls back to output for replace_all edits', () => {
-    const arg = JSON.stringify({ path: 'a.ts', old_string: 'a', new_string: 'b', replace_all: true });
+    const arg = JSON.stringify({
+      path: 'a.ts',
+      old_string: 'a',
+      new_string: 'b',
+      replace_all: true,
+    });
     expect(buildEditDiffLines({ name: 'Edit', arg })).toBeNull();
   });
 
   it('falls back to output for every Write (new file or overwrite)', () => {
-    expect(buildEditDiffLines({ name: 'Write', arg: JSON.stringify({ path: 'a.ts', content: 'x' }) })).toBeNull();
     expect(
-      buildEditDiffLines({ name: 'Write', arg: JSON.stringify({ path: 'a.ts', content: 'x', mode: 'append' }) }),
+      buildEditDiffLines({ name: 'Write', arg: JSON.stringify({ path: 'a.ts', content: 'x' }) }),
+    ).toBeNull();
+    expect(
+      buildEditDiffLines({
+        name: 'Write',
+        arg: JSON.stringify({ path: 'a.ts', content: 'x', mode: 'append' }),
+      }),
     ).toBeNull();
   });
 
@@ -356,9 +375,7 @@ describe('filePathLinks', () => {
     const aliases = collectFilePathAliases('<img src="/assets/demo.png">');
     expect(aliases.get('demo.png')).toBe('/assets/demo.png');
 
-    expect(
-      findFilePathLinks('Open src/a.ts#L12 and demo.png.', { aliases }),
-    ).toMatchObject([
+    expect(findFilePathLinks('Open src/a.ts#L12 and demo.png.', { aliases })).toMatchObject([
       { path: 'src/a.ts', line: 12, text: 'src/a.ts#L12' },
       { path: '/assets/demo.png', text: 'demo.png' },
     ]);
@@ -374,14 +391,14 @@ describe('toolMeta', () => {
   });
 
   it('summarizes tool arguments for card headers', () => {
-    expect(
-      toolSummary('Read', JSON.stringify({ path: 'src/a.ts', offset: 10, limit: 5 })),
-    ).toBe('src/a.ts:10-15');
+    expect(toolSummary('Read', JSON.stringify({ path: 'src/a.ts', offset: 10, limit: 5 }))).toBe(
+      'src/a.ts:10-15',
+    );
     expect(toolSummary('Read', '{}')).toBe('');
     expect(toolSummary('Bash', JSON.stringify({ command: 'pnpm test' }))).toBe('pnpm test');
-    expect(
-      toolSummary('WebFetch', JSON.stringify({ url: 'https://example.com/path/to' })),
-    ).toBe('example.com/path');
+    expect(toolSummary('WebFetch', JSON.stringify({ url: 'https://example.com/path/to' }))).toBe(
+      'example.com/path',
+    );
   });
 });
 
@@ -503,7 +520,9 @@ describe('modelThinking', () => {
       expect(modelThinkingAvailability(unsupportedModel())).toBe('unsupported');
     });
     it('toggle when adaptiveThinking is set', () => {
-      expect(modelThinkingAvailability({ ...unsupportedModel(), adaptiveThinking: true })).toBe('toggle');
+      expect(modelThinkingAvailability({ ...unsupportedModel(), adaptiveThinking: true })).toBe(
+        'toggle',
+      );
     });
   });
 
@@ -635,10 +654,7 @@ describe('mergeSnapshotMessages', () => {
       msg('old-2', '2026-01-02T00:00:00.000Z'),
       msg('recent-live', '2026-01-03T00:00:00.000Z'),
     ];
-    const snapshot = [
-      msg('m0', '2026-01-03T00:00:00.000Z'),
-      msg('m1', '2026-01-04T00:00:00.000Z'),
-    ];
+    const snapshot = [msg('m0', '2026-01-03T00:00:00.000Z'), msg('m1', '2026-01-04T00:00:00.000Z')];
     expect(mergeSnapshotMessages(loaded, snapshot).map((m) => m.id)).toEqual([
       'old-1',
       'old-2',
@@ -649,10 +665,7 @@ describe('mergeSnapshotMessages', () => {
 
   it('returns the snapshot when there is no older loaded prefix', () => {
     const loaded = [msg('recent-live', '2026-01-03T00:00:00.000Z')];
-    const snapshot = [
-      msg('m0', '2026-01-03T00:00:00.000Z'),
-      msg('m1', '2026-01-04T00:00:00.000Z'),
-    ];
+    const snapshot = [msg('m0', '2026-01-03T00:00:00.000Z'), msg('m1', '2026-01-04T00:00:00.000Z')];
     expect(mergeSnapshotMessages(loaded, snapshot)).toBe(snapshot);
   });
 
@@ -662,7 +675,12 @@ describe('mergeSnapshotMessages', () => {
     expect(mergeSnapshotMessages(snapshot, [])).toEqual([]);
   });
 
-  function optimisticUser(id: string, createdAt: string, text: string, promptId: string): AppMessage {
+  function optimisticUser(
+    id: string,
+    createdAt: string,
+    text: string,
+    promptId: string,
+  ): AppMessage {
     return {
       id,
       sessionId: 's1',
@@ -693,7 +711,10 @@ describe('mergeSnapshotMessages', () => {
   it('keeps an optimistic user message when a different snapshot message repeats its content', () => {
     const loaded = [optimisticUser('msg_opt_1', '2026-01-02T23:59:59.000Z', 'hello', 'msg_8')];
     const snapshot = [realUser('msg_9', '2026-01-03T00:00:00.000Z', 'hello')];
-    expect(mergeSnapshotMessages(loaded, snapshot).map((m) => m.id)).toEqual(['msg_opt_1', 'msg_9']);
+    expect(mergeSnapshotMessages(loaded, snapshot).map((m) => m.id)).toEqual([
+      'msg_opt_1',
+      'msg_9',
+    ]);
   });
 });
 
@@ -752,7 +773,6 @@ describe('mergeSnapshotSubagents', () => {
     expect(mergeSnapshotSubagents([], existing)).toBe(existing);
   });
 });
-
 
 describe('keepLiveSubagents', () => {
   function subagent(id: string, overrides: Partial<AppTask> = {}): AppTask {

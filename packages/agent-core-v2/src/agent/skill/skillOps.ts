@@ -13,9 +13,8 @@
 
 import { z } from 'zod';
 
-import { defineModel } from '#/wire/model';
-
 import type { SkillActivationOrigin, SkillSource } from '#/agent/contextMemory/types';
+import { defineModel } from '#/wire/model';
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {

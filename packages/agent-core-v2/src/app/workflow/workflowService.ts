@@ -6,19 +6,19 @@
  * survive across agent turns.
  */
 
+import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { createDecorator } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
 import { ILogService } from '#/_base/log/log';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import type { ISessionSubagentService } from '#/session/subagent/subagent';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
+import type { ISessionSubagentService } from '#/session/subagent/subagent';
 
-import type { WorkflowMeta, WorkflowRunEntry, WorkflowRunResult } from './workflowTypes';
 import { executeWorkflow, type WorkflowRuntimeDeps } from './workflowRuntime';
+import type { WorkflowMeta, WorkflowRunEntry, WorkflowRunResult } from './workflowTypes';
 
 export interface WorkflowStartInput {
   readonly script: string;
@@ -52,13 +52,15 @@ export class WorkflowService extends Disposable implements IWorkflowService {
     @IWebSearchProviderService private readonly webSearchProvider: IWebSearchProviderService,
   ) {
     super();
-    this._register(toDisposable(() => {
-      for (const entry of this.runs.values()) {
-        if (entry.status === 'running') {
-          entry.abortController.abort();
+    this._register(
+      toDisposable(() => {
+        for (const entry of this.runs.values()) {
+          if (entry.status === 'running') {
+            entry.abortController.abort();
+          }
         }
-      }
-    }));
+      }),
+    );
   }
 
   async start(input: WorkflowStartInput): Promise<{ runId: string }> {
@@ -73,9 +75,9 @@ export class WorkflowService extends Disposable implements IWorkflowService {
     this.runs.set(runId, entry);
 
     // Fork execution — don't await.
-    void this.runWorkflow(runId, input, entry).catch((err) => {
+    void this.runWorkflow(runId, input, entry).catch((error) => {
       entry.status = 'failed';
-      entry.error = err instanceof Error ? err.message : String(err);
+      entry.error = error instanceof Error ? error.message : String(error);
       entry.finishedAt = Date.now();
       this.log.error('workflow.run.uncaught', { runId, error: entry.error });
     });
@@ -109,12 +111,12 @@ export class WorkflowService extends Disposable implements IWorkflowService {
       entry.result = result;
       entry.finishedAt = Date.now();
       this.log.info('workflow.run.completed', { runId, agentCount: entry.agentCount });
-    } catch (err) {
+    } catch (error) {
       if (entry.abortController.signal.aborted) {
         entry.status = 'cancelled';
       } else {
         entry.status = 'failed';
-        entry.error = err instanceof Error ? err.message : String(err);
+        entry.error = error instanceof Error ? error.message : String(error);
       }
       entry.finishedAt = Date.now();
       this.log.warn('workflow.run.failed', { runId, error: entry.error });
@@ -130,7 +132,13 @@ export class WorkflowService extends Disposable implements IWorkflowService {
   async wait(runId: string, timeoutMs?: number): Promise<WorkflowRunResult> {
     const entry = this.runs.get(runId);
     if (entry === undefined) {
-      return { runId, status: 'failed', error: 'Workflow run not found', agentCount: 0, startedAt: 0 };
+      return {
+        runId,
+        status: 'failed',
+        error: 'Workflow run not found',
+        agentCount: 0,
+        startedAt: 0,
+      };
     }
 
     if (entry.status !== 'running') {

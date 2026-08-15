@@ -145,7 +145,8 @@ describe('translateProviderError — classification', () => {
 
 describe('sanitizeStatusErrorMessage', () => {
   it('extracts the title text from an HTML error page', () => {
-    const html = '<html>\r\n<head><title>429 Too Many Requests</title></head>\r\n<body>...</body></html>';
+    const html =
+      '<html>\r\n<head><title>429 Too Many Requests</title></head>\r\n<body>...</body></html>';
     expect(sanitizeStatusErrorMessage(html)).toBe('429 Too Many Requests');
   });
 

@@ -40,7 +40,8 @@ export default {
   mergeSkills: 'Merge all available skills',
   mergeSkillsHint: 'Show project, plugin, and user skills together',
   telemetry: 'Improve product with usage data',
-  telemetryHint: 'When on, we collect anonymous interaction data (such as clicks, interruptions, and feature usage) to improve the product experience. You can turn it off at any time.',
+  telemetryHint:
+    'When on, we collect anonymous interaction data (such as clicks, interruptions, and feature usage) to improve the product experience. You can turn it off at any time.',
   telemetryRestartHint: 'Takes effect after restarting the service.',
   credentialReady: 'Credential configured',
   credentialMissing: 'Missing credential',
@@ -55,11 +56,13 @@ export default {
   conversationToc: 'Show conversation outline',
   conversationTocHint: 'Show a clickable outline in the right margin to jump between messages',
   enterBehavior: 'Enter while the agent is working',
-  enterBehaviorHint: 'When the session is busy, Enter either queues the message or steers it into the running turn',
+  enterBehaviorHint:
+    'When the session is busy, Enter either queues the message or steers it into the running turn',
   enterQueue: 'Queue',
   enterSteer: 'Steer',
   archivedTitle: 'Archived sessions',
-  archivedDesc: 'Browse archived sessions, see their workspace path, name, and archive time, and restore them to the session list.',
+  archivedDesc:
+    'Browse archived sessions, see their workspace path, name, and archive time, and restore them to the session list.',
   archivedSearch: 'Search archived sessions',
   archivedAllWorkspaces: 'All workspaces',
   archivedSortLabel: 'Sort by',

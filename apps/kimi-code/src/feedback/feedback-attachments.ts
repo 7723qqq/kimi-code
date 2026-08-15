@@ -163,7 +163,10 @@ async function logFeedbackUploadError(error: unknown): Promise<void> {
     const logDir = getLogDir();
     await mkdir(logDir, { recursive: true });
     const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
-    await appendFile(join(logDir, 'feedback-upload.log'), `${new Date().toISOString()} ${message}\n`);
+    await appendFile(
+      join(logDir, 'feedback-upload.log'),
+      `${new Date().toISOString()} ${message}\n`,
+    );
   } catch {
     // best-effort logging only
   }

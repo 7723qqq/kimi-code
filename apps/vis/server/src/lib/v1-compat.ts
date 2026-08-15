@@ -561,16 +561,11 @@ export function buildCompactionElisionText(omittedTokens: number): string {
   ].join('\n');
 }
 
-function isCompactionSummaryMessage(message: {
-  origin?: { kind?: string };
-}): boolean {
+function isCompactionSummaryMessage(message: { origin?: { kind?: string } }): boolean {
   return message.origin?.kind === 'compaction_summary';
 }
 
-export function isRealUserInput(message: {
-  role?: string;
-  origin?: { kind?: string };
-}): boolean {
+export function isRealUserInput(message: { role?: string; origin?: { kind?: string } }): boolean {
   if (message.role !== 'user') return false;
   const origin = message.origin;
   if (origin === undefined) return true;
@@ -686,10 +681,9 @@ function extractText(content: readonly ContentPart[]): string {
   return text;
 }
 
-function replaceMessageText<T extends { content?: readonly ContentPart[]; toolCalls?: readonly unknown[] }>(
-  message: T,
-  text: string,
-): T {
+function replaceMessageText<
+  T extends { content?: readonly ContentPart[]; toolCalls?: readonly unknown[] },
+>(message: T, text: string): T {
   return {
     ...message,
     content: [{ type: 'text' as const, text }],
@@ -714,7 +708,12 @@ export function selectRecentUserMessages<
       selected.push(message);
       remaining -= tokens;
     } else {
-      selected.push(replaceMessageText(message, truncateTextToTokens(extractText(message.content ?? []), remaining)));
+      selected.push(
+        replaceMessageText(
+          message,
+          truncateTextToTokens(extractText(message.content ?? []), remaining),
+        ),
+      );
       break;
     }
   }
@@ -783,7 +782,12 @@ export function selectCompactionUserMessages<
       head.push(message);
       headRemaining -= tokens;
     } else {
-      head.push(replaceMessageText(message, truncateTextToTokens(extractText(message.content ?? []), headRemaining)));
+      head.push(
+        replaceMessageText(
+          message,
+          truncateTextToTokens(extractText(message.content ?? []), headRemaining),
+        ),
+      );
       break;
     }
   }

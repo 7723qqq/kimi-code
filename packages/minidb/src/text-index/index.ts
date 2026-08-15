@@ -38,6 +38,15 @@
 
 import { PostingsFile } from '../text-postings.js';
 import type { PostingEntry } from '../text-postings.js';
+import { feedBuild, StagedBuild } from './builder.js';
+import {
+  attachImage as attachImageImpl,
+  attachImageAsync as attachImageAsyncImpl,
+  exportImageState as exportImageStateImpl,
+  exportImageStateAsync as exportImageStateAsyncImpl,
+  repointPostings as repointPostingsImpl,
+} from './image.js';
+import type { AttachImageRaw, TextIndexImage } from './image.js';
 import { extractText, MAX_TERM_BYTES, tokenize, yieldToLoop } from './tokenize.js';
 import { EMPTY_MAP, TopK } from './types.js';
 import type {
@@ -48,15 +57,6 @@ import type {
   TextIndexBuild,
   TextIndexOptions,
 } from './types.js';
-import { feedBuild, StagedBuild } from './builder.js';
-import {
-  attachImage as attachImageImpl,
-  attachImageAsync as attachImageAsyncImpl,
-  exportImageState as exportImageStateImpl,
-  exportImageStateAsync as exportImageStateAsyncImpl,
-  repointPostings as repointPostingsImpl,
-} from './image.js';
-import type { AttachImageRaw, TextIndexImage } from './image.js';
 
 export * from './tokenize.js';
 export * from './types.js';
@@ -209,7 +209,10 @@ export class TextIndex {
     const bytes = TextIndex.cacheEntryBytes(term, arr);
     this.cache.set(term, { arr, bytes });
     this.cacheBytes += bytes;
-    while (this.cache.size > this.cacheTerms || (this.cacheBytesCap > 0 && this.cacheBytes > this.cacheBytesCap)) {
+    while (
+      this.cache.size > this.cacheTerms ||
+      (this.cacheBytesCap > 0 && this.cacheBytes > this.cacheBytesCap)
+    ) {
       if (this.cache.size === 0) break;
       const oldest = this.cache.keys().next().value as string;
       const ev = this.cache.get(oldest)!;
@@ -239,7 +242,9 @@ export class TextIndex {
     if (this.customTokenizer) {
       for (const t of tokens) {
         if (Buffer.byteLength(t, 'utf8') > MAX_TERM_BYTES) {
-          throw new RangeError(`text index tokenizer produced a term longer than ${MAX_TERM_BYTES} utf8 bytes`);
+          throw new RangeError(
+            `text index tokenizer produced a term longer than ${MAX_TERM_BYTES} utf8 bytes`,
+          );
         }
       }
     }
@@ -339,7 +344,15 @@ export class TextIndex {
     return new StagedBuild({
       tokensFor: (value) => this.tokensFor(value),
       commit: (staged) =>
-        this.commitBuild(queue, staged.agg, staged.keys, staged.keyToId, staged.docLens, staged.n, opts.postingsPath),
+        this.commitBuild(
+          queue,
+          staged.agg,
+          staged.keys,
+          staged.keyToId,
+          staged.docLens,
+          staged.n,
+          opts.postingsPath,
+        ),
       disarm,
     });
   }
@@ -485,7 +498,12 @@ export class TextIndex {
     keys: (string | undefined)[],
     docLens: Map<number, number>,
     opts: { sliceEvery?: number } = {},
-  ): Promise<{ postings: Map<string, PostingEntry>; keys: (string | undefined)[]; keyToId: Map<string, number>; docLens: Map<number, number> }> {
+  ): Promise<{
+    postings: Map<string, PostingEntry>;
+    keys: (string | undefined)[];
+    keyToId: Map<string, number>;
+    docLens: Map<number, number>;
+  }> {
     const sliceEvery = opts.sliceEvery ?? 65536;
     const postings = new Map<string, PostingEntry>();
     let n = 0;
@@ -510,7 +528,12 @@ export class TextIndex {
    *  were already applied to it, exactly like a failed commitBuild. */
   commitRebase(base: {
     postingsPath: string;
-    containers: { postings: Map<string, PostingEntry>; keys: (string | undefined)[]; keyToId: Map<string, number>; docLens: Map<number, number> };
+    containers: {
+      postings: Map<string, PostingEntry>;
+      keys: (string | undefined)[];
+      keyToId: Map<string, number>;
+      docLens: Map<number, number>;
+    };
     liveCount: number;
     postingsFileInfo: { bytes: number; crc32: number };
   }): void {
@@ -537,7 +560,13 @@ export class TextIndex {
     this.pf = newPf;
     this.postingsFileInfo = { ...base.postingsFileInfo };
 
-    this.swapDocStateAndReplay(queue, base.containers.keys, base.containers.keyToId, base.containers.docLens, base.liveCount);
+    this.swapDocStateAndReplay(
+      queue,
+      base.containers.keys,
+      base.containers.keyToId,
+      base.containers.docLens,
+      base.liveCount,
+    );
   }
 
   /** Discard the rebase capture without swapping (worker failed/cancelled):

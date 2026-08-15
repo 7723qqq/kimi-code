@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { darkColors, lightColors } from '#/tui/theme';
 import {
   getCustomThemesDir,
   listCustomThemes,
@@ -11,7 +12,6 @@ import {
   loadCustomTheme,
   loadCustomThemeMerged,
 } from '#/tui/theme/custom-theme-loader';
-import { darkColors, lightColors } from '#/tui/theme';
 
 let home: string;
 const originalHome = process.env['KIMI_CODE_HOME'];

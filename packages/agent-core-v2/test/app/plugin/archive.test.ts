@@ -32,7 +32,9 @@ describe('plugin archive extraction', () => {
     const detectedRoot = await extractZip(zip, outDir);
 
     expect(detectedRoot).toBe(join(outDir, 'plugin'));
-    await expect(readFile(join(detectedRoot, 'kimi.plugin.json'), 'utf8')).resolves.toContain('zip-demo');
+    await expect(readFile(join(detectedRoot, 'kimi.plugin.json'), 'utf8')).resolves.toContain(
+      'zip-demo',
+    );
   });
 
   it('refuses zip downloads advertised above the cap via content-length', async () => {

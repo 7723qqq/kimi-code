@@ -1,4 +1,15 @@
 import {
+  APIConnectionError as AnthropicConnectionError,
+  APIConnectionTimeoutError as AnthropicTimeoutError,
+  APIError as AnthropicAPIError,
+  AnthropicError,
+  APIUserAbortError as AnthropicUserAbortError,
+  AuthenticationError as AnthropicAuthenticationError,
+  RateLimitError as AnthropicRateLimitError,
+} from '@anthropic-ai/sdk';
+import { describe, it, expect, vi } from 'vitest';
+
+import {
   APIConnectionError,
   APIContextOverflowError,
   APIProviderQuotaExhaustedError,
@@ -10,22 +21,18 @@ import {
 } from '#/errors';
 import { convertAnthropicError, AnthropicChatProvider } from '#/providers/anthropic';
 import { classifyKimiQuotaError } from '#/providers/kimi-errors';
-import {
-  APIConnectionError as AnthropicConnectionError,
-  APIConnectionTimeoutError as AnthropicTimeoutError,
-  APIError as AnthropicAPIError,
-  AnthropicError,
-  APIUserAbortError as AnthropicUserAbortError,
-  AuthenticationError as AnthropicAuthenticationError,
-  RateLimitError as AnthropicRateLimitError,
-} from '@anthropic-ai/sdk';
-import { describe, it, expect, vi } from 'vitest';
 
 // The Rust native LLM stream replaces the mock SDK client with real network
 // calls when the addon is loadable; force the TS/SDK fallback in tests.
 vi.mock('../src/providers/native-stream', async () => {
-  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>('../src/providers/native-stream');
-  return { ...actual, tryNativeLlmStream: () => undefined, tryNativeLlmStreamIncremental: () => undefined };
+  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>(
+    '../src/providers/native-stream',
+  );
+  return {
+    ...actual,
+    tryNativeLlmStream: () => undefined,
+    tryNativeLlmStreamIncremental: () => undefined,
+  };
 });
 describe('convertAnthropicError', () => {
   it('APIConnectionTimeoutError -> APITimeoutError (not misclassified as connection)', () => {

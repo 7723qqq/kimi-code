@@ -1,14 +1,15 @@
-import { create } from "zustand";
-import { produce } from "immer";
-import { bridge } from "@/services";
-import { Content } from "@/lib/content";
-import { useApprovalStore } from "./approval.store";
-import { toast } from "@/components/ui/sonner";
+import { produce } from 'immer';
+import type { StatusUpdate, ContentPart, QuestionRequest, ToolResult } from 'shared/legacy-sdk';
+import type { UIStreamEvent } from 'shared/types';
+import { create } from 'zustand';
 
-import { useSettingsStore } from "./settings.store";
-import { processEvent } from "./event-handlers";
-import type { StatusUpdate, ContentPart, QuestionRequest, ToolResult } from "shared/legacy-sdk";
-import type { UIStreamEvent } from "shared/types";
+import { toast } from '@/components/ui/sonner';
+import { Content } from '@/lib/content';
+import { bridge } from '@/services';
+
+import { useApprovalStore } from './approval.store';
+import { processEvent } from './event-handlers';
+import { useSettingsStore } from './settings.store';
 
 const HANDSHAKE_TIMEOUT_MS = 30_000;
 
@@ -31,21 +32,21 @@ export interface InlineError {
 }
 
 export type UIStepItem =
-  | { type: "thinking"; content: string; finished?: boolean }
-  | { type: "text"; content: string; finished?: boolean }
-  | { type: "compaction" }
-  | { type: "steer"; content: string | ContentPart[] }
+  | { type: 'thinking'; content: string; finished?: boolean }
+  | { type: 'text'; content: string; finished?: boolean }
+  | { type: 'compaction' }
+  | { type: 'steer'; content: string | ContentPart[] }
   | {
-      type: "tool_use";
+      type: 'tool_use';
       id: string;
       call: UIToolCall;
-      result?: ToolResult["return_value"];
+      result?: ToolResult['return_value'];
       subagent_steps?: UIStep[];
     };
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: 'user' | 'assistant';
   content: string | ContentPart[];
   timestamp: number;
   steps?: UIStep[];
@@ -151,10 +152,10 @@ function doSend(state: ChatState, content: string | ContentPart[], model: string
     if (s.isStreaming && !s.handshakeReceived) {
       void bridge.abortChat().catch(() => undefined);
       s.processEvent({
-        type: "error",
-        code: "HANDSHAKE_TIMEOUT",
-        message: "Connection timed out.",
-        phase: "runtime",
+        type: 'error',
+        code: 'HANDSHAKE_TIMEOUT',
+        message: 'Connection timed out.',
+        phase: 'runtime',
       });
     }
   }, HANDSHAKE_TIMEOUT_MS);
@@ -164,11 +165,11 @@ function doSend(state: ChatState, content: string | ContentPart[], model: string
     .catch((error: unknown) => {
       const detail = error instanceof Error ? error.message : String(error);
       useChatStore.getState().processEvent({
-        type: "error",
-        code: "internal",
-        message: "Unable to send the message.",
+        type: 'error',
+        code: 'internal',
+        message: 'Unable to send the message.',
         detail,
-        phase: "preflight",
+        phase: 'preflight',
       });
     });
 }
@@ -235,9 +236,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         draft.isStreaming = true;
         draft.handshakeReceived = false;
         const lastAssistant = draft.messages.at(-1);
-        if (lastAssistant?.role === "assistant" && lastAssistant.inlineError) {
+        if (lastAssistant?.role === 'assistant' && lastAssistant.inlineError) {
           draft.messages.pop();
-          if (draft.messages.at(-1)?.role === "user") {
+          if (draft.messages.at(-1)?.role === 'user') {
             draft.messages.pop();
           }
         }
@@ -252,16 +253,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Mid-turn warnings (terminal === false) leave the turn, the composer, and
     // the queued messages untouched — the engine is still streaming, so they
     // are surfaced as a transient toast only.
-    if (event.type === "error" && "terminal" in event && event.terminal === false) {
+    if (event.type === 'error' && 'terminal' in event && event.terminal === false) {
       clearHandshakeTimer();
       toast.warning(event.message);
       return;
     }
     // Clear handshake timeout on receiving valid response
-    if (event.type === "TurnBegin" || event.type === "StepBegin" || event.type === "ContentPart") {
+    if (event.type === 'TurnBegin' || event.type === 'StepBegin' || event.type === 'ContentPart') {
       clearHandshakeTimer();
       set({ handshakeReceived: true });
-    } else if (event.type === "stream_complete" || event.type === "error") {
+    } else if (event.type === 'stream_complete' || event.type === 'error') {
       clearHandshakeTimer();
     }
 
@@ -272,7 +273,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     );
 
     // Auto-send next queued item when streaming ends (complete or error)
-    if (event.type === "stream_complete" || event.type === "error") {
+    if (event.type === 'stream_complete' || event.type === 'error') {
       const { queue, isStreaming: stillStreaming } = get();
       if (!stillStreaming && queue.length > 0) {
         setTimeout(() => get().sendNextQueued(), 50);
@@ -317,7 +318,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (msg.steps) {
             for (const step of msg.steps) {
               for (const item of step.items) {
-                if (item.type === "text" || item.type === "thinking") {
+                if (item.type === 'text' || item.type === 'thinking') {
                   item.finished = true;
                 }
               }
@@ -396,9 +397,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (!item.dataUri) {
         continue;
       }
-      if (item.dataUri.startsWith("data:image/")) {
+      if (item.dataUri.startsWith('data:image/')) {
         hasImage = true;
-      } else if (item.dataUri.startsWith("data:video/")) {
+      } else if (item.dataUri.startsWith('data:video/')) {
         hasVideo = true;
       }
     }

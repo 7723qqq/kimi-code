@@ -14,10 +14,10 @@
 
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
+import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LifecycleScope } from '#/app/scopes';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -26,89 +26,102 @@ import {
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { McpConnectionManager } from '#/mcpCore/connection-manager';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { AgentIdentityService } from '#/app/agentIdentity/agentIdentityService';
 import { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
 import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { BuiltinAgentProfileLoaderService } from '#/app/agentProfileCatalog/builtinAgentProfileLoaderService';
-import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
-import { UserAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoaderService';
-import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
-import { PluginAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoaderService';
 import { IBootstrapService, resolveHostArgs } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { IModelCatalog } from '#/kosong/model/catalog';
-import { IModelService } from '#/kosong/model/model';
-import { IProviderService } from '#/kosong/provider/provider';
-import { stubProviderService } from '../app/provider/stubs';
-import { IFlagService } from '#/app/flag/flag';
 import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
 import { IEventService } from '#/app/event/event';
+import { IFlagService } from '#/app/flag/flag';
+import { IMcpOAuthStore, McpOAuthStoreAdapter } from '#/app/mcpConfig/oauthStore';
 import { IPluginService } from '#/app/plugin/plugin';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { BuiltinSkillSource, IBuiltinSkillSource } from '#/app/skillCatalog/builtinSkillSource';
 import { FileSkillDiscovery } from '#/app/skillCatalog/fileSkillDiscovery';
 import { InMemorySkillDiscovery } from '#/app/skillCatalog/inMemorySkillDiscovery';
 import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
-import { BuiltinSkillSource, IBuiltinSkillSource } from '#/app/skillCatalog/builtinSkillSource';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { AgentIdentityService } from '#/app/agentIdentity/agentIdentityService';
 import { IUserFileSkillSource, UserFileSkillSource } from '#/app/skillCatalog/userFileSkillSource';
+import { IAppStateService } from '#/app/state/appState';
+import { AppStateService } from '#/app/state/appStateService';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
 import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
 import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
-import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
-import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import { IModelCatalog } from '#/kosong/model/catalog';
+import { IModelService } from '#/kosong/model/model';
+import { IProviderService } from '#/kosong/provider/provider';
+import { McpConnectionManager } from '#/mcpCore/connection-manager';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFsWatchService } from '#/os/backends/node-local/hostFsWatchService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
-import { HostFsWatchService } from '#/os/backends/node-local/hostFsWatchService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import '#/session/agentLifecycle/profile/profiles';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
+import { ISessionProcessRunner } from '#/session/process/processRunner';
+import '#/session/agentLifecycle/profile/profiles';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { SessionSkillCatalogService } from '#/session/sessionSkillCatalog/skillCatalogService';
+import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { IAppStateService } from '#/app/state/appState';
-import { AppStateService } from '#/app/state/appStateService';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
-import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
-import { ISessionProcessRunner } from '#/session/process/processRunner';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
-import { IWorkspaceToolPolicy } from '#/workspace/workspaceToolPolicy/workspaceToolPolicy';
-import { WorkspaceToolPolicyService } from '#/workspace/workspaceToolPolicy/workspaceToolPolicyService';
-import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
-import { WorkspaceAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoaderService';
-import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
-import { ExtraAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoaderService';
+import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
+import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
 import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
 import { ExplicitAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoaderService';
+import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
+import { ExtraAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoaderService';
+import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
+import { PluginAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoaderService';
+import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { UserAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoaderService';
+import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
+import { WorkspaceAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoaderService';
+import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
+import { WorkspaceDirsService } from '#/workspace/workspaceDirs/workspaceDirsService';
 import { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
 import { WorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructionsService';
 import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
 import { WorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcpService';
-import { IMcpOAuthStore, McpOAuthStoreAdapter } from '#/app/mcpConfig/oauthStore';
 import { IWorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
 import { WorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
-import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
-import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
-import { WorkspaceDirsService } from '#/workspace/workspaceDirs/workspaceDirsService';
+import {
+  ExplicitFileSkillSource,
+  IExplicitFileSkillSource,
+} from '#/workspace/workspaceSkillCatalog/explicitFileSkillSource';
+import {
+  ExtraFileSkillSource,
+  IExtraFileSkillSource,
+} from '#/workspace/workspaceSkillCatalog/extraFileSkillSource';
+import {
+  IPluginSkillSource,
+  PluginSkillSource,
+} from '#/workspace/workspaceSkillCatalog/pluginSkillSource';
+import {
+  IWorkspaceRootSkillSource,
+  WorkspaceRootSkillSource,
+} from '#/workspace/workspaceSkillCatalog/rootFileSkillSource';
 import { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalog';
 import { WorkspaceSkillCatalogService } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalogService';
-import { ExplicitFileSkillSource, IExplicitFileSkillSource } from '#/workspace/workspaceSkillCatalog/explicitFileSkillSource';
-import { ExtraFileSkillSource, IExtraFileSkillSource } from '#/workspace/workspaceSkillCatalog/extraFileSkillSource';
-import { IPluginSkillSource, PluginSkillSource } from '#/workspace/workspaceSkillCatalog/pluginSkillSource';
-import { IWorkspaceRootSkillSource, WorkspaceRootSkillSource } from '#/workspace/workspaceSkillCatalog/rootFileSkillSource';
+import { IWorkspaceToolPolicy } from '#/workspace/workspaceToolPolicy/workspaceToolPolicy';
+import { WorkspaceToolPolicyService } from '#/workspace/workspaceToolPolicy/workspaceToolPolicyService';
+import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
 
 import { stubLog } from '../_base/log/stubs';
 import { stubFlag } from '../app/flag/stubs';
+import { stubProviderService } from '../app/provider/stubs';
 import { stubSkill } from '../app/skillCatalog/stubs';
 import { stdioFixture } from '../mcpCore/stubs';
 
@@ -212,10 +225,34 @@ describe('workspace resource sharing (handler chain)', () => {
       ScopeActivation.OnScopeCreated,
       'workspaceSkillCatalog',
     );
-    registerScopedService(LifecycleScope.Workspace, IExplicitFileSkillSource, ExplicitFileSkillSource, ScopeActivation.OnScopeCreated, 'workspaceSkillCatalog');
-    registerScopedService(LifecycleScope.Workspace, IExtraFileSkillSource, ExtraFileSkillSource, ScopeActivation.OnScopeCreated, 'workspaceSkillCatalog');
-    registerScopedService(LifecycleScope.Workspace, IWorkspaceRootSkillSource, WorkspaceRootSkillSource, ScopeActivation.OnScopeCreated, 'workspaceSkillCatalog');
-    registerScopedService(LifecycleScope.Workspace, IPluginSkillSource, PluginSkillSource, ScopeActivation.OnScopeCreated, 'workspaceSkillCatalog');
+    registerScopedService(
+      LifecycleScope.Workspace,
+      IExplicitFileSkillSource,
+      ExplicitFileSkillSource,
+      ScopeActivation.OnScopeCreated,
+      'workspaceSkillCatalog',
+    );
+    registerScopedService(
+      LifecycleScope.Workspace,
+      IExtraFileSkillSource,
+      ExtraFileSkillSource,
+      ScopeActivation.OnScopeCreated,
+      'workspaceSkillCatalog',
+    );
+    registerScopedService(
+      LifecycleScope.Workspace,
+      IWorkspaceRootSkillSource,
+      WorkspaceRootSkillSource,
+      ScopeActivation.OnScopeCreated,
+      'workspaceSkillCatalog',
+    );
+    registerScopedService(
+      LifecycleScope.Workspace,
+      IPluginSkillSource,
+      PluginSkillSource,
+      ScopeActivation.OnScopeCreated,
+      'workspaceSkillCatalog',
+    );
     registerScopedService(
       LifecycleScope.Workspace,
       IWorkspaceAgentProfileLoader,
@@ -223,10 +260,34 @@ describe('workspace resource sharing (handler chain)', () => {
       ScopeActivation.OnScopeCreated,
       'workspaceAgentProfileLoader',
     );
-    registerScopedService(LifecycleScope.Workspace, IExtraAgentProfileLoader, ExtraAgentProfileLoaderService, ScopeActivation.OnScopeCreated, 'workspaceAgentProfileLoader');
-    registerScopedService(LifecycleScope.Workspace, IExplicitAgentProfileLoader, ExplicitAgentProfileLoaderService, ScopeActivation.OnScopeCreated, 'workspaceAgentProfileLoader');
-    registerScopedService(LifecycleScope.Workspace, IUserAgentProfileLoader, UserAgentProfileLoaderService, ScopeActivation.OnScopeCreated, 'workspaceAgentProfileLoader');
-    registerScopedService(LifecycleScope.Workspace, IPluginAgentProfileLoader, PluginAgentProfileLoaderService, ScopeActivation.OnScopeCreated, 'workspaceAgentProfileLoader');
+    registerScopedService(
+      LifecycleScope.Workspace,
+      IExtraAgentProfileLoader,
+      ExtraAgentProfileLoaderService,
+      ScopeActivation.OnScopeCreated,
+      'workspaceAgentProfileLoader',
+    );
+    registerScopedService(
+      LifecycleScope.Workspace,
+      IExplicitAgentProfileLoader,
+      ExplicitAgentProfileLoaderService,
+      ScopeActivation.OnScopeCreated,
+      'workspaceAgentProfileLoader',
+    );
+    registerScopedService(
+      LifecycleScope.Workspace,
+      IUserAgentProfileLoader,
+      UserAgentProfileLoaderService,
+      ScopeActivation.OnScopeCreated,
+      'workspaceAgentProfileLoader',
+    );
+    registerScopedService(
+      LifecycleScope.Workspace,
+      IPluginAgentProfileLoader,
+      PluginAgentProfileLoaderService,
+      ScopeActivation.OnScopeCreated,
+      'workspaceAgentProfileLoader',
+    );
     registerScopedService(
       LifecycleScope.Workspace,
       IWorkspaceInstructionsService,
@@ -269,15 +330,69 @@ describe('workspace resource sharing (handler chain)', () => {
       ScopeActivation.OnScopeCreated,
       'workspaceDirs',
     );
-    registerScopedService(LifecycleScope.Session, ISessionSkillCatalog, SessionSkillCatalogService, ScopeActivation.OnScopeCreated, 'sessionSkillCatalog');
-    registerScopedService(LifecycleScope.App, IAppStateService, AppStateService, ScopeActivation.OnScopeCreated, 'state');
-    registerScopedService(LifecycleScope.Workspace, IWorkspaceStateService, WorkspaceStateService, ScopeActivation.OnScopeCreated, 'state');
-    registerScopedService(LifecycleScope.Session, ISessionStateService, SessionStateService, ScopeActivation.OnScopeCreated, 'state');
-    registerScopedService(LifecycleScope.App, IAgentIdentity, AgentIdentityService, ScopeActivation.OnDemand, 'agentIdentity');
-    registerScopedService(LifecycleScope.App, IBuiltinSkillSource, BuiltinSkillSource, ScopeActivation.OnDemand, 'skillCatalog');
-    registerScopedService(LifecycleScope.App, IUserFileSkillSource, UserFileSkillSource, ScopeActivation.OnDemand, 'skillCatalog');
-    registerScopedService(LifecycleScope.App, IAgentProfileRegistry, AgentProfileRegistryService, ScopeActivation.OnDemand, 'agentProfileCatalog');
-    registerScopedService(LifecycleScope.App, IBuiltinAgentProfileLoader, BuiltinAgentProfileLoaderService, ScopeActivation.OnDemand, 'agentProfileCatalog');
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionSkillCatalog,
+      SessionSkillCatalogService,
+      ScopeActivation.OnScopeCreated,
+      'sessionSkillCatalog',
+    );
+    registerScopedService(
+      LifecycleScope.App,
+      IAppStateService,
+      AppStateService,
+      ScopeActivation.OnScopeCreated,
+      'state',
+    );
+    registerScopedService(
+      LifecycleScope.Workspace,
+      IWorkspaceStateService,
+      WorkspaceStateService,
+      ScopeActivation.OnScopeCreated,
+      'state',
+    );
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionStateService,
+      SessionStateService,
+      ScopeActivation.OnScopeCreated,
+      'state',
+    );
+    registerScopedService(
+      LifecycleScope.App,
+      IAgentIdentity,
+      AgentIdentityService,
+      ScopeActivation.OnDemand,
+      'agentIdentity',
+    );
+    registerScopedService(
+      LifecycleScope.App,
+      IBuiltinSkillSource,
+      BuiltinSkillSource,
+      ScopeActivation.OnDemand,
+      'skillCatalog',
+    );
+    registerScopedService(
+      LifecycleScope.App,
+      IUserFileSkillSource,
+      UserFileSkillSource,
+      ScopeActivation.OnDemand,
+      'skillCatalog',
+    );
+    registerScopedService(
+      LifecycleScope.App,
+      IAgentProfileRegistry,
+      AgentProfileRegistryService,
+      ScopeActivation.OnDemand,
+      'agentProfileCatalog',
+    );
+    registerScopedService(
+      LifecycleScope.App,
+      IBuiltinAgentProfileLoader,
+      BuiltinAgentProfileLoaderService,
+      ScopeActivation.OnDemand,
+      'agentProfileCatalog',
+    );
   });
 
   afterEach(async () => {
@@ -322,7 +437,10 @@ describe('workspace resource sharing (handler chain)', () => {
         ready: Promise.resolve(),
       } as unknown as IModelService),
       stubPair(IProviderService, stubProviderService()),
-      stubPair(IFlagService, stubFlag(() => false)),
+      stubPair(
+        IFlagService,
+        stubFlag(() => false),
+      ),
       stubPair(ITelemetryService, noopTelemetryService),
       stubPair(ISkillDiscovery, discovery),
       stubPair(IPluginService, pluginStub()),

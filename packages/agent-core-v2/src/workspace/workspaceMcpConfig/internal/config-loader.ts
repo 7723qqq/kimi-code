@@ -13,16 +13,16 @@
  * the caller. Pure functions — no scoped state.
  */
 
-import { dirname, isAbsolute, join, normalize, resolve } from 'pathe';
-
-import { findGitWorkTree } from '#/app/git/workTree';
-import { resolveKimiHome } from '#/app/bootstrap/bootstrap';
-import { OsFsErrors, HostFsError } from '#/os/interface/hostFsErrors';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { McpServerConfigSchema, type McpServerConfig } from '#/mcpCore/config-schema';
-import { ErrorCodes, Error2 } from '#/errors';
 import { t } from '@moonshot-ai/kimi-i18n';
+import { dirname, isAbsolute, join, normalize, resolve } from 'pathe';
 import { z } from 'zod';
+
+import { resolveKimiHome } from '#/app/bootstrap/bootstrap';
+import { findGitWorkTree } from '#/app/git/workTree';
+import { ErrorCodes, Error2 } from '#/errors';
+import { McpServerConfigSchema, type McpServerConfig } from '#/mcpCore/config-schema';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { OsFsErrors, HostFsError } from '#/os/interface/hostFsErrors';
 
 const McpJsonFileSchema = z.object({
   mcpServers: z.record(z.string(), McpServerConfigSchema).default({}),
@@ -100,8 +100,10 @@ export async function loadMcpServersWithSources(
   ]);
   const merged: Record<string, SourcedMcpServerConfig> = {};
   for (const [name, config] of Object.entries(user)) merged[name] = { config, source: 'user' };
-  for (const [name, config] of Object.entries(projectRoot)) merged[name] = { config, source: 'project-root' };
-  for (const [name, config] of Object.entries(project)) merged[name] = { config, source: 'project' };
+  for (const [name, config] of Object.entries(projectRoot))
+    merged[name] = { config, source: 'project-root' };
+  for (const [name, config] of Object.entries(project))
+    merged[name] = { config, source: 'project' };
   return merged;
 }
 
@@ -119,9 +121,13 @@ async function readMcpJson(
     text = await fs.readText(filePath);
   } catch (error: unknown) {
     if (isFileNotFound(error)) return {};
-    throw new Error2(ErrorCodes.CONFIG_INVALID, t('v2Errors.mcpFileReadFailed', { filePath, error: String(error) }), {
-      cause: error,
-    });
+    throw new Error2(
+      ErrorCodes.CONFIG_INVALID,
+      t('v2Errors.mcpFileReadFailed', { filePath, error: String(error) }),
+      {
+        cause: error,
+      },
+    );
   }
 
   if (text.trim().length === 0) return {};
@@ -130,17 +136,25 @@ async function readMcpJson(
   try {
     data = JSON.parse(text);
   } catch (error: unknown) {
-    throw new Error2(ErrorCodes.CONFIG_INVALID, t('v2Errors.mcpJsonParseFailed', { filePath, error: String(error) }), {
-      cause: error,
-    });
+    throw new Error2(
+      ErrorCodes.CONFIG_INVALID,
+      t('v2Errors.mcpJsonParseFailed', { filePath, error: String(error) }),
+      {
+        cause: error,
+      },
+    );
   }
 
   try {
     return normalizeMcpServers(McpJsonFileSchema.parse(data).mcpServers, options);
   } catch (error: unknown) {
-    throw new Error2(ErrorCodes.CONFIG_INVALID, t('v2Errors.mcpSchemaInvalid', { filePath, error: String(error) }), {
-      cause: error,
-    });
+    throw new Error2(
+      ErrorCodes.CONFIG_INVALID,
+      t('v2Errors.mcpSchemaInvalid', { filePath, error: String(error) }),
+      {
+        cause: error,
+      },
+    );
   }
 }
 
@@ -152,7 +166,10 @@ function normalizeMcpServers(
   if (stdioCwdBase === undefined) return servers;
 
   return Object.fromEntries(
-    Object.entries(servers).map(([name, config]) => [name, normalizeStdioCwd(config, stdioCwdBase)]),
+    Object.entries(servers).map(([name, config]) => [
+      name,
+      normalizeStdioCwd(config, stdioCwdBase),
+    ]),
   );
 }
 

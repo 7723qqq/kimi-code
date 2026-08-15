@@ -1,12 +1,4 @@
 import {
-  loadRuntimeConfigSafe,
-  readConfigFile,
-  readConfigFileForUpdate,
-  writeConfigFile,
-  type KimiConfig,
-  type OAuthRef,
-} from '#/config-local';
-import {
   applyManagedKimiCodeConfig,
   applyManagedKimiCodeLogoutConfig,
   KIMI_CODE_PROVIDER_NAME,
@@ -25,6 +17,14 @@ import {
   type OAuthRefreshOutcome,
 } from '@moonshot-ai/kimi-code-oauth';
 
+import {
+  loadRuntimeConfigSafe,
+  readConfigFile,
+  readConfigFileForUpdate,
+  writeConfigFile,
+  type KimiConfig,
+  type OAuthRef,
+} from '#/config-local';
 import { mapOAuthTokenError } from '#/oauth-error';
 
 export interface KimiAuthSubmitFeedbackInput {

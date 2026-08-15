@@ -1,13 +1,26 @@
-import { useState, useEffect } from "react";
-import { IconFolder, IconFolderOpen, IconCheck, IconHome } from "@tabler/icons-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { useSettingsStore, useChatStore } from "@/stores";
-import { bridge } from "@/services";
-import { cn } from "@/lib/utils";
+import { IconFolder, IconFolderOpen, IconCheck, IconHome } from '@tabler/icons-react';
+import { useState, useEffect } from 'react';
+
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
+import { bridge } from '@/services';
+import { useSettingsStore, useChatStore } from '@/stores';
 
 export function WorkDirModal() {
-  const { workDirModalOpen, setWorkDirModalOpen, currentWorkDir, workspaceRoot, setCurrentWorkDir } = useSettingsStore();
+  const {
+    workDirModalOpen,
+    setWorkDirModalOpen,
+    currentWorkDir,
+    workspaceRoot,
+    setCurrentWorkDir,
+  } = useSettingsStore();
   const { startNewConversation } = useChatStore();
   const [workDirs, setWorkDirs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -48,8 +61,8 @@ export function WorkDirModal() {
 
   const displayPath = (fullPath: string) => {
     if (!workspaceRoot) return fullPath;
-    if (fullPath === workspaceRoot) return fullPath.split("/").pop() || fullPath;
-    return fullPath.replace(workspaceRoot, ".");
+    if (fullPath === workspaceRoot) return fullPath.split('/').pop() || fullPath;
+    return fullPath.replace(workspaceRoot, '.');
   };
 
   const isSelected = (dir: string) => {
@@ -73,9 +86,9 @@ export function WorkDirModal() {
               }}
               disabled={loading}
               className={cn(
-                "w-full flex items-center gap-2 px-3 py-2 rounded-md text-left text-sm transition-colors",
-                isSelected(dir) ? "bg-accent" : "hover:bg-accent/50",
-                loading && "opacity-50 cursor-not-allowed",
+                'w-full flex items-center gap-2 px-3 py-2 rounded-md text-left text-sm transition-colors',
+                isSelected(dir) ? 'bg-accent' : 'hover:bg-accent/50',
+                loading && 'opacity-50 cursor-not-allowed',
               )}
             >
               {dir === workspaceRoot ? (
@@ -85,7 +98,9 @@ export function WorkDirModal() {
               )}
               <span className="flex-1 truncate">{displayPath(dir)}</span>
               {isSelected(dir) && <IconCheck className="size-4 text-blue-500 shrink-0" />}
-              {dir === workspaceRoot && <span className="text-xs text-muted-foreground">(root)</span>}
+              {dir === workspaceRoot && (
+                <span className="text-xs text-muted-foreground">(root)</span>
+              )}
             </button>
           ))}
         </div>

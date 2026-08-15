@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref, type Ref } from 'vue';
+
 import { useMentionMenu } from '../src/composables/useMentionMenu';
 import type { FileItem } from '../src/types';
 
@@ -21,7 +22,9 @@ function setup(initialText = '', searchFiles?: (q: string) => Promise<FileItem[]
     focus: () => {},
   };
   const text = ref(initialText);
-  const textareaRef = ref(textarea as unknown as HTMLTextAreaElement) as Ref<HTMLTextAreaElement | null>;
+  const textareaRef = ref(
+    textarea as unknown as HTMLTextAreaElement,
+  ) as Ref<HTMLTextAreaElement | null>;
   const mention = useMentionMenu({
     text,
     textareaRef,

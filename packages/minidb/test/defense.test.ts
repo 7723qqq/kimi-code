@@ -1,19 +1,21 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+
 // Exercises defensive input/state-validation branches that are reachable
 // through the public/direct API but were not covered by the functional tests.
 // Fault-injection-only branches (writev short-write, fsync failure, >64MB
 // RESP payload, cross-user EPERM, process-exit hook) are intentionally not
 // covered here — see the coverage summary in the commit message.
 import { expect, test } from 'vitest';
-import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import net from 'node:net';
-import { WAL } from '../src/wal.js';
+
 import { encodeFrame, decodeBatchOps, TYPE_SET } from '../src/codec.js';
 import { MiniDb } from '../src/index.js';
 import { LockFile } from '../src/lockfile.js';
 import { startServer } from '../src/server.js';
+import { WAL } from '../src/wal.js';
 
 async function tmpDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'minidb-defense-'));
@@ -24,7 +26,10 @@ const B = (s: string) => Buffer.from(s);
 // --- codec.encodeFrame input validation ------------------------------------
 
 test('encodeFrame rejects a non-buffer key', () => {
-  assert.throws(() => encodeFrame({ type: TYPE_SET, key: 'x' as unknown as Buffer, value: B('v') }), /key must be a Buffer/);
+  assert.throws(
+    () => encodeFrame({ type: TYPE_SET, key: 'x' as unknown as Buffer, value: B('v') }),
+    /key must be a Buffer/,
+  );
 });
 
 test('encodeFrame rejects an oversized key', () => {
@@ -41,7 +46,8 @@ test('encodeFrame rejects a SET with a non-buffer value', () => {
 
 test('encodeFrame rejects a non-buffer meta', () => {
   assert.throws(
-    () => encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v'), meta: 'x' as unknown as Buffer }),
+    () =>
+      encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v'), meta: 'x' as unknown as Buffer }),
     /meta must be a Buffer/,
   );
 });
@@ -66,10 +72,14 @@ test('decodeBatchOps throws on a truncated op payload', () => {
   // Build one op header claiming a 100-byte key, then cut the body short.
   const header = Buffer.alloc(1 + 2 + 4 + 4 + 8);
   let o = 0;
-  header.writeUInt8(TYPE_SET, o); o += 1;
-  header.writeUInt16LE(100, o); o += 2;
-  header.writeUInt32LE(0, o); o += 4;
-  header.writeUInt32LE(0, o); o += 4;
+  header.writeUInt8(TYPE_SET, o);
+  o += 1;
+  header.writeUInt16LE(100, o);
+  o += 2;
+  header.writeUInt32LE(0, o);
+  o += 4;
+  header.writeUInt32LE(0, o);
+  o += 4;
   header.writeBigInt64LE(0n, o);
   const body = Buffer.concat([Buffer.from([1, 0]), header]); // count=1 + header, no payload
   assert.throws(() => decodeBatchOps(body), /batch op payload truncated/);
@@ -199,7 +209,10 @@ test('set rejects an empty key', async () => {
 test('batch rejects an empty key', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'string' });
-  await assert.rejects(() => db.batch([{ op: 'set', key: '', value: 'v' }]), /key must be non-empty/);
+  await assert.rejects(
+    () => db.batch([{ op: 'set', key: '', value: 'v' }]),
+    /key must be non-empty/,
+  );
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });

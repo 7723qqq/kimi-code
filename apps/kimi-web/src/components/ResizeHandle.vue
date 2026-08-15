@@ -6,6 +6,7 @@
 <script setup lang="ts">
 import { watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import { useResizable } from '../composables/useResizable';
 
 const props = withDefaults(

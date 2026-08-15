@@ -14,7 +14,11 @@ import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import { readUpdateCache } from './cache';
 import { tryAcquireUpdateInstallLock } from './install-lock';
-import { emptyUpdateInstallState, readUpdateInstallState, writeUpdateInstallState } from './install-state';
+import {
+  emptyUpdateInstallState,
+  readUpdateInstallState,
+  writeUpdateInstallState,
+} from './install-state';
 import {
   CHANGELOG_URL,
   promptForInstallChoice,
@@ -119,11 +123,20 @@ export function spawnForSource(
 ): SpawnCommand {
   switch (source) {
     case 'npm-global':
-      return { cmd: withCmdSuffix('npm', platform), args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
+      return {
+        cmd: withCmdSuffix('npm', platform),
+        args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`],
+      };
     case 'pnpm-global':
-      return { cmd: withCmdSuffix('pnpm', platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
+      return {
+        cmd: withCmdSuffix('pnpm', platform),
+        args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`],
+      };
     case 'yarn-global':
-      return { cmd: withCmdSuffix('yarn', platform), args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`] };
+      return {
+        cmd: withCmdSuffix('yarn', platform),
+        args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`],
+      };
     case 'bun-global':
       return { cmd: bunCommand(platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
     case 'homebrew':
@@ -279,7 +292,13 @@ function refreshAndMaybeInstallInBackground(
       new Date(),
       bypassRollout,
     );
-    logRolloutDecision('background-refresh', currentVersion, refreshed.latest, refreshed.manifest, decision);
+    logRolloutDecision(
+      'background-refresh',
+      currentVersion,
+      refreshed.latest,
+      refreshed.manifest,
+      decision,
+    );
     const target = decision.target;
     if (target === null) return;
     const source = await detectInstallSource().catch(() => 'unsupported' as const);
@@ -324,7 +343,13 @@ async function refreshUserVisibleUpdateTarget(
           new Date(),
           bypassRollout,
         );
-        logRolloutDecision('prompt-refresh', currentVersion, refreshed.latest, refreshed.manifest, decision);
+        logRolloutDecision(
+          'prompt-refresh',
+          currentVersion,
+          refreshed.latest,
+          refreshed.manifest,
+          decision,
+        );
         return {
           target: decision.target,
           manifest: refreshed.manifest,
@@ -478,7 +503,11 @@ function trackUpdateEvent(
   }
 }
 
-function logUpdateInfo(logger: UpdateLogger, message: string, payload: Record<string, unknown>): void {
+function logUpdateInfo(
+  logger: UpdateLogger,
+  message: string,
+  payload: Record<string, unknown>,
+): void {
   try {
     logger.info(message, payload);
   } catch {
@@ -486,7 +515,11 @@ function logUpdateInfo(logger: UpdateLogger, message: string, payload: Record<st
   }
 }
 
-function logUpdateWarn(logger: UpdateLogger, message: string, payload: Record<string, unknown>): void {
+function logUpdateWarn(
+  logger: UpdateLogger,
+  message: string,
+  payload: Record<string, unknown>,
+): void {
   try {
     logger.warn(message, payload);
   } catch {
@@ -593,24 +626,24 @@ async function startBackgroundInstall(
 
       const nextState: UpdateInstallState = succeeded
         ? {
-          ...startedState,
-          active: null,
-          lastFailure: null,
-          lastSuccess: {
-            version: target.version,
-            installedAt: nowIso(),
-            notifiedAt: null,
-          },
-        }
+            ...startedState,
+            active: null,
+            lastFailure: null,
+            lastSuccess: {
+              version: target.version,
+              installedAt: nowIso(),
+              notifiedAt: null,
+            },
+          }
         : {
-          ...startedState,
-          active: null,
-          lastFailure: {
-            version: target.version,
-            failedAt: nowIso(),
-            attempts,
-          },
-        };
+            ...startedState,
+            active: null,
+            lastFailure: {
+              version: target.version,
+              failedAt: nowIso(),
+              attempts,
+            },
+          };
       void writeUpdateInstallState(nextState).catch(() => {});
       if (succeeded) {
         trackUpdateEvent(track, 'update_background_install_succeeded', {
@@ -652,8 +685,12 @@ async function startBackgroundInstall(
       // the silent updater stays silent.
       windowsHide: platform === 'win32' ? true : undefined,
     });
-    child.once('error', () => { finish(false); });
-    child.once('exit', (code) => { finish(code === 0); });
+    child.once('error', () => {
+      finish(false);
+    });
+    child.once('exit', (code) => {
+      finish(code === 0);
+    });
     child.unref();
   } finally {
     await lock.release().catch(() => {});
@@ -671,9 +708,7 @@ async function tryStartAutomaticBackgroundInstall(
   rolloutTelemetry: RolloutTelemetry,
 ): Promise<boolean> {
   const sourceCanAutoInstall = canAutoInstall(source, platform);
-  const autoInstallUpdates = sourceCanAutoInstall
-    ? await shouldAutoInstallUpdates(logger)
-    : false;
+  const autoInstallUpdates = sourceCanAutoInstall ? await shouldAutoInstallUpdates(logger) : false;
   if (!autoInstallUpdates || !sourceCanAutoInstall) return false;
   if (failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD) {
     return false;
@@ -717,8 +752,7 @@ export async function runUpdatePreflight(
   }
 
   try {
-    const isInteractive =
-      options.isTTY ?? (process.stdin.isTTY && process.stdout.isTTY);
+    const isInteractive = options.isTTY ?? (process.stdin.isTTY && process.stdout.isTTY);
     const deviceId = resolveUpdateDeviceId();
     const bypassRollout = isRolloutBypassedByExperimentalEnv();
     let installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
@@ -742,7 +776,13 @@ export async function runUpdatePreflight(
       new Date(),
       bypassRollout,
     );
-    logRolloutDecision('startup-cache', currentVersion, cache?.latest ?? null, cachedManifest, cachedDecision);
+    logRolloutDecision(
+      'startup-cache',
+      currentVersion,
+      cache?.latest ?? null,
+      cachedManifest,
+      cachedDecision,
+    );
     const target = cachedDecision.target;
     if (target === null) {
       refreshAndMaybeInstallInBackground(
@@ -758,10 +798,9 @@ export async function runUpdatePreflight(
       return 'continue';
     }
 
-    const source: InstallSource =
-      !isInteractive
-        ? 'unsupported'
-        : await detectInstallSource().catch(() => 'unsupported' as const);
+    const source: InstallSource = !isInteractive
+      ? 'unsupported'
+      : await detectInstallSource().catch(() => 'unsupported' as const);
 
     const decision = decideUpdateAction(target, isInteractive, source, platform);
     if (decision === 'none') {
@@ -816,15 +855,19 @@ export async function runUpdatePreflight(
     }
 
     const installCommand = installCommandFor(source, userVisibleTarget.version, platform);
-    trackUpdatePrompted(options.track, currentVersion, userVisibleTarget, source, decision, userVisibleRollout);
+    trackUpdatePrompted(
+      options.track,
+      currentVersion,
+      userVisibleTarget,
+      source,
+      decision,
+      userVisibleRollout,
+    );
 
     if (decision === 'manual-command') {
-      stdout.write(renderManualUpdateMessage(
-        currentVersion,
-        userVisibleTarget,
-        source,
-        installCommand,
-      ));
+      stdout.write(
+        renderManualUpdateMessage(currentVersion, userVisibleTarget, source, installCommand),
+      );
       return 'continue';
     }
 

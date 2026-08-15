@@ -2,8 +2,8 @@
  * Shared stubs for goal tests.
  */
 
-import type { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import type { IAgentGoalJudgeService, JudgeVerdict } from '#/agent/goal/judge/goalJudgeService';
+import type { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 
 export function stubAgentSwarm(): IAgentSwarmService {
   return {

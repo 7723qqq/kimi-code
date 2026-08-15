@@ -60,5 +60,6 @@ export interface IAgentTokenCountingService {
   estimateTools(tools: readonly Tool[]): number;
 }
 
-export const IAgentTokenCountingService =
-  createDecorator<IAgentTokenCountingService>('agentTokenCountingService');
+export const IAgentTokenCountingService = createDecorator<IAgentTokenCountingService>(
+  'agentTokenCountingService',
+);

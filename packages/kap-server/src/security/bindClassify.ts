@@ -43,7 +43,7 @@ function ipv4ToInt(ip: string): number {
 /** True when `ip` falls inside the IPv4 CIDR `base/prefix`. */
 function ipv4InCidr(ip: string, base: string, prefix: number): boolean {
   const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
-  return ((ipv4ToInt(ip) & mask) >>> 0) === ((ipv4ToInt(base) & mask) >>> 0);
+  return (ipv4ToInt(ip) & mask) >>> 0 === (ipv4ToInt(base) & mask) >>> 0;
 }
 
 /**

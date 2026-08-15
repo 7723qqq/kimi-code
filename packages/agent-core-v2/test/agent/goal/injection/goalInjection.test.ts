@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ToolCall } from '#/kosong/contract/message';
 
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -7,6 +6,8 @@ import { IAgentGoalService } from '#/agent/goal/goal';
 import { type AgentGoalService } from '#/agent/goal/goalService';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import type { ToolCall } from '#/kosong/contract/message';
+
 import {
   InMemoryWireRecordPersistence,
   agentService,
@@ -134,7 +135,9 @@ describe('GoalInjection content', () => {
         completionCriterion: 'tests pass',
       });
     }))!;
-    expect(text).toContain('<untrusted_completion_criterion>\ntests pass\n</untrusted_completion_criterion>');
+    expect(text).toContain(
+      '<untrusted_completion_criterion>\ntests pass\n</untrusted_completion_criterion>',
+    );
   });
 
   it('escapes objective and completion criterion delimiters inside untrusted wrappers', async () => {
@@ -410,5 +413,4 @@ describe('GoalInjection integration', () => {
       await expect(flushedGoalReminderRecords(ctx, persistence)).resolves.toHaveLength(0);
     });
   });
-
 });

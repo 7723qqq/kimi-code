@@ -1,16 +1,11 @@
-import {
-  ErrorCodes,
-  KimiError,
-  log,
-  withTelemetryContext,
-} from '#/legacy';
 import type { ImageLimits } from '@moonshot-ai/agent-core-v2';
 import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
 import type { Kaos } from '@moonshot-ai/kaos';
 
-import { capabilityRpc, Session } from '#/session';
 import type { KimiAuthFacade } from '#/auth';
+import { ErrorCodes, KimiError, log, withTelemetryContext } from '#/legacy';
 import type { SDKRpcClientBase } from '#/rpc';
+import { capabilityRpc, Session } from '#/session';
 import type {
   AuthenticateMcpServerOptions,
   CapabilityStatus,
@@ -160,7 +155,11 @@ export class KimiHarness {
     // the engine serializes behind that close.
     if (active !== undefined && !active.isClosed) {
       if (kaos !== undefined || persistenceKaos !== undefined) {
-        await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
+        await this.rpc.resumeSessionWithKaos(
+          { ...resumeInput, id },
+          kaos ?? (persistenceKaos as Kaos),
+          persistenceKaos,
+        );
       } else if (input.agentProfile !== undefined || (input.additionalDirs?.length ?? 0) > 0) {
         // Re-resume so the engine applies the deltas (profile re-select,
         // additional-dir merge) instead of silently dropping them.
@@ -192,7 +191,11 @@ export class KimiHarness {
     const summary =
       kaos === undefined && persistenceKaos === undefined
         ? await this.rpc.resumeSession({ ...resumeInput, id })
-        : await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
+        : await this.rpc.resumeSessionWithKaos(
+            { ...resumeInput, id },
+            kaos ?? (persistenceKaos as Kaos),
+            persistenceKaos,
+          );
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -291,9 +294,7 @@ export class KimiHarness {
 
   async renameSession(input: RenameSessionInput): Promise<void> {
     await this.rpc.renameSession(input);
-    this.activeSessions
-      .get(input.id)
-      ?.emitMetaUpdated({ title: input.title, isCustomTitle: true });
+    this.activeSessions.get(input.id)?.emitMetaUpdated({ title: input.title, isCustomTitle: true });
   }
 
   /**
@@ -479,10 +480,7 @@ export class KimiHarness {
     return this.rpc.removeGlobalMcpServer(name);
   }
 
-  async authenticateMcpServer(
-    name: string,
-    options: AuthenticateMcpServerOptions,
-  ): Promise<void> {
+  async authenticateMcpServer(name: string, options: AuthenticateMcpServerOptions): Promise<void> {
     const started = await this.rpc.beginGlobalMcpServerAuth(name);
     if (started.status === 'already-authorized') return;
     try {
@@ -504,10 +502,7 @@ export class KimiHarness {
     return this.rpc.resetGlobalMcpServerAuth(name);
   }
 
-  async testMcpServer(
-    name: string,
-    options: TestMcpServerOptions = {},
-  ): Promise<McpTestResult> {
+  async testMcpServer(name: string, options: TestMcpServerOptions = {}): Promise<McpTestResult> {
     return this.rpc.testGlobalMcpServer(name, options);
   }
 
@@ -583,4 +578,3 @@ function normalizeSessionId(value: string): string {
   }
   return normalized;
 }
-

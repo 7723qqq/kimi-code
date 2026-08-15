@@ -19,12 +19,12 @@
  * reference and the `hooks` slot. Bound at Agent scope.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
-import { extractImageCompressionCaptions } from '#/agent/media/image-compress';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { newMessageId } from '#/agent/contextMemory/messageId';
@@ -32,24 +32,25 @@ import { USER_PROMPT_ORIGIN, type ContextMessage } from '#/agent/contextMemory/t
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService, type Turn, type TurnResult } from '#/agent/loop/loop';
 import { steerTurn } from '#/agent/loop/turnOps';
+import { extractImageCompressionCaptions } from '#/agent/media/image-compress';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
-import type { ExecutableToolResult } from '#/tool/toolContract';
-import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type { ContentPart } from '#/kosong/contract/message';
-import { IEventBus } from '#/app/event/eventBus';
+import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IEventService } from '#/app/event/event';
-import { ErrorCodes, Error2, isError2 } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
-import { OrderedHookSlot } from '#/hooks';
-import { IWireService } from '#/wire/wire';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ErrorCodes, Error2, isError2 } from '#/errors';
+import { OrderedHookSlot } from '#/hooks';
+import type { ContentPart } from '#/kosong/contract/message';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import type { ExecutableToolResult } from '#/tool/toolContract';
+import { IWireService } from '#/wire/wire';
 
 import {
   IAgentPromptService,
@@ -69,14 +70,34 @@ import { PromptStepRequest, RetryStepRequest, SteerStepRequest } from './promptS
 
 declare module '#/app/event/eventBus' {
   interface DomainEventMap {
-    'prompt.completed': { type: 'prompt.completed'; promptId: string; finishedAt: string; reason: 'completed' | 'failed' | 'blocked' };
+    'prompt.completed': {
+      type: 'prompt.completed';
+      promptId: string;
+      finishedAt: string;
+      reason: 'completed' | 'failed' | 'blocked';
+    };
     'prompt.aborted': { type: 'prompt.aborted'; promptId: string; abortedAt: string };
-    'prompt.steered': { type: 'prompt.steered'; activePromptId: string; promptIds: string[]; content: ContentPart[]; steeredAt: string };
-    'prompt.queued': { type: 'prompt.queued'; promptId: string; content: ContentPart[]; queueLength: number };
+    'prompt.steered': {
+      type: 'prompt.steered';
+      activePromptId: string;
+      promptIds: string[];
+      content: ContentPart[];
+      steeredAt: string;
+    };
+    'prompt.queued': {
+      type: 'prompt.queued';
+      promptId: string;
+      content: ContentPart[];
+      queueLength: number;
+    };
   }
 }
 
-interface Deferred<T> { readonly promise: Promise<T>; resolve(value: T): void; reject(reason: unknown): void }
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+  reject(reason: unknown): void;
+}
 interface Record extends PromptSnapshot {
   state: PromptState;
   readonly launchedDeferred: Deferred<Turn | undefined>;
@@ -132,13 +153,31 @@ export class AgentPromptService implements IAgentPromptService {
     const completionDeferred = deferred<PromptCompletion>();
     const record = {} as Record;
     Object.assign(record, {
-      id, userMessageId: id, createdAt: new Date().toISOString(), state: 'pending', message,
-      launchedDeferred, completionDeferred,
+      id,
+      userMessageId: id,
+      createdAt: new Date().toISOString(),
+      state: 'pending',
+      message,
+      launchedDeferred,
+      completionDeferred,
     });
     record.handle = {
-      get id() { return record.id; }, get userMessageId() { return record.userMessageId; },
-      get createdAt() { return record.createdAt; }, get state() { return record.state; },
-      get message() { return record.message; }, launched: launchedDeferred.promise,
+      get id() {
+        return record.id;
+      },
+      get userMessageId() {
+        return record.userMessageId;
+      },
+      get createdAt() {
+        return record.createdAt;
+      },
+      get state() {
+        return record.state;
+      },
+      get message() {
+        return record.message;
+      },
+      launched: launchedDeferred.promise,
       completion: completionDeferred.promise,
     };
     this.pending.push(record);
@@ -157,12 +196,14 @@ export class AgentPromptService implements IAgentPromptService {
 
   async submit(payload: PromptPayload): Promise<PromptLaunchResult | undefined> {
     await this.updatePromptMetadata(promptMetadataTextFromContentParts(payload.input));
-    const handle = await this.enqueue({ message: {
-      role: 'user',
-      content: [...payload.input],
-      toolCalls: [],
-      origin: { kind: 'user' },
-    } });
+    const handle = await this.enqueue({
+      message: {
+        role: 'user',
+        content: [...payload.input],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+    });
     if (handle.state === 'pending') return undefined;
     const turn = await handle.launched;
     return turn === undefined ? undefined : { turn_id: turn.id };
@@ -174,11 +215,13 @@ export class AgentPromptService implements IAgentPromptService {
     // first turn (e.g. goal mode) — so keep title/lastPrompt in sync the same
     // way, matching v1.
     await this.updatePromptMetadata(promptMetadataTextFromContentParts(payload.input));
-    const queued = await this.enqueue({ message: {
-      role: 'user',
-      content: [...payload.input],
-      toolCalls: [],
-    } });
+    const queued = await this.enqueue({
+      message: {
+        role: 'user',
+        content: [...payload.input],
+        toolCalls: [],
+      },
+    });
     if (queued.state !== 'pending') {
       // No active prompt at enqueue time, so the enqueue itself already
       // launched this input as its own turn (idle session, or a goal-turn
@@ -214,32 +257,64 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   list(): PromptQueueSnapshot {
-    return { active: this.active === undefined ? undefined : snapshot(this.active), pending: this.pending.map(snapshot) };
+    return {
+      active: this.active === undefined ? undefined : snapshot(this.active),
+      pending: this.pending.map(snapshot),
+    };
   }
 
   async steer(promptIds: readonly string[]): Promise<readonly PromptHandle[]> {
-    if (promptIds.length === 0) throw new Error2(ErrorCodes.REQUEST_INVALID, t('v2Errors.promptIdsEmpty'));
-    if (this.active === undefined) throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, t('v2Errors.noActivePrompt'));
+    if (promptIds.length === 0)
+      throw new Error2(ErrorCodes.REQUEST_INVALID, t('v2Errors.promptIdsEmpty'));
+    if (this.active === undefined)
+      throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, t('v2Errors.noActivePrompt'));
     const ids = new Set(promptIds);
-    if (ids.size !== promptIds.length || this.pending.filter((item) => ids.has(item.id)).length !== ids.size) {
+    if (
+      ids.size !== promptIds.length ||
+      this.pending.filter((item) => ids.has(item.id)).length !== ids.size
+    ) {
       throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, t('v2Errors.promptsNotPending'));
     }
     const selected = this.pending.filter((item) => ids.has(item.id));
     const selectedIndices = selected.map((item) => this.pending.indexOf(item));
     for (const item of selected) this.pending.splice(this.pending.indexOf(item), 1);
     const message: ContextMessage = {
-      role: 'user', content: selected.flatMap((item) => item.message.content), toolCalls: [], origin: USER_PROMPT_ORIGIN,
+      role: 'user',
+      content: selected.flatMap((item) => item.message.content),
+      toolCalls: [],
+      origin: USER_PROMPT_ORIGIN,
     };
     const { message: rerouted, captions } = this.extractCompressionCaptions(message);
-    const request = new SteerStepRequest(rerouted, captions, this.reminders, (materialized) => {
-      this.wire.dispatch(steerTurn({ input: materialized.content, origin: materialized.origin ?? USER_PROMPT_ORIGIN }));
-    }, () => {});
+    const request = new SteerStepRequest(
+      rerouted,
+      captions,
+      this.reminders,
+      (materialized) => {
+        this.wire.dispatch(
+          steerTurn({
+            input: materialized.content,
+            origin: materialized.origin ?? USER_PROMPT_ORIGIN,
+          }),
+        );
+      },
+      () => {},
+    );
     try {
       const turn = (await this.loop.enqueue(request).assigned).turn;
-      if (turn === undefined) throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, t('v2Errors.noActiveTurnToSteer'));
-      for (const item of selected) { item.state = 'steered'; item.launchedDeferred.resolve(turn); }
+      if (turn === undefined)
+        throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, t('v2Errors.noActiveTurnToSteer'));
+      for (const item of selected) {
+        item.state = 'steered';
+        item.launchedDeferred.resolve(turn);
+      }
       this.steered.set(this.active.id, [...(this.steered.get(this.active.id) ?? []), ...selected]);
-      this.eventBus.publish({ type: 'prompt.steered', activePromptId: this.active.id, promptIds: selected.map((x) => x.id), content: rerouted.content as ContentPart[], steeredAt: new Date().toISOString() });
+      this.eventBus.publish({
+        type: 'prompt.steered',
+        activePromptId: this.active.id,
+        promptIds: selected.map((x) => x.id),
+        content: rerouted.content as ContentPart[],
+        steeredAt: new Date().toISOString(),
+      });
       return selected.map((item) => item.handle);
     } catch (error) {
       // The loop refused the steer (BugIndicatingError / PROMPT_NOT_FOUND):
@@ -254,11 +329,15 @@ export class AgentPromptService implements IAgentPromptService {
   }
 
   abort(promptId: string, reason: Error = userCancellationReason()): boolean {
-    if (this.active?.id === promptId) { this.loop.cancel(this.active.turn.id, reason); return true; }
+    if (this.active?.id === promptId) {
+      this.loop.cancel(this.active.turn.id, reason);
+      return true;
+    }
     const index = this.pending.findIndex((item) => item.id === promptId);
     if (index < 0) throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, `prompt ${promptId} not found`);
     const [item] = this.pending.splice(index, 1) as [Record];
-    item.state = 'cancelled'; item.launchedDeferred.resolve(undefined as never);
+    item.state = 'cancelled';
+    item.launchedDeferred.resolve(undefined as never);
     item.completionDeferred.resolve({ promptId, result: undefined, state: 'cancelled' });
     this.publishAborted(promptId);
     return true;
@@ -266,13 +345,27 @@ export class AgentPromptService implements IAgentPromptService {
 
   async inject(message: ContextMessage): Promise<Turn | undefined> {
     const { message: rerouted, captions } = this.extractCompressionCaptions(message);
-    const request = new SteerStepRequest(rerouted, captions, this.reminders, (materialized) => {
-      this.wire.dispatch(steerTurn({ input: materialized.content, origin: materialized.origin ?? USER_PROMPT_ORIGIN }));
-    }, () => {}, 'activeOrNewTurn');
+    const request = new SteerStepRequest(
+      rerouted,
+      captions,
+      this.reminders,
+      (materialized) => {
+        this.wire.dispatch(
+          steerTurn({
+            input: materialized.content,
+            origin: materialized.origin ?? USER_PROMPT_ORIGIN,
+          }),
+        );
+      },
+      () => {},
+      'activeOrNewTurn',
+    );
     return (await this.loop.enqueue(request).assigned).turn;
   }
 
-  async retry(): Promise<Turn | undefined> { return (await this.loop.enqueue(new RetryStepRequest()).assigned).turn; }
+  async retry(): Promise<Turn | undefined> {
+    return (await this.loop.enqueue(new RetryStepRequest()).assigned).turn;
+  }
 
   clear(): void {
     for (const item of this.pending.slice()) this.abort(item.id);
@@ -282,19 +375,33 @@ export class AgentPromptService implements IAgentPromptService {
 
   private async startNext(): Promise<void> {
     if (this.active !== undefined || this.launching) return;
-    const item = this.pending.shift(); if (item === undefined) return;
+    const item = this.pending.shift();
+    if (item === undefined) return;
     this.launching = true;
     try {
-      if (this.fullCompaction.compacting !== null && this.loop.status().state !== 'running') { this.pending.unshift(item); return; }
+      if (this.fullCompaction.compacting !== null && this.loop.status().state !== 'running') {
+        this.pending.unshift(item);
+        return;
+      }
       const { message, captions } = this.extractCompressionCaptions(item.message);
       if (await this.blockedByHook(message, false)) {
-        this.appendPrompt(message, captions); item.state = 'blocked'; item.launchedDeferred.resolve(undefined as never);
+        this.appendPrompt(message, captions);
+        item.state = 'blocked';
+        item.launchedDeferred.resolve(undefined as never);
         item.completionDeferred.resolve({ promptId: item.id, result: undefined, state: 'blocked' });
-        this.publishCompleted(item.id, 'blocked'); return;
+        this.publishCompleted(item.id, 'blocked');
+        return;
       }
-      const turn = (await this.loop.enqueue(new PromptStepRequest(message, captions, this.reminders)).assigned).turn;
-      if (turn === undefined) { this.pending.unshift(item); return; }
-      item.state = 'running'; item.launchedDeferred.resolve(turn); this.active = Object.assign(item, { turn });
+      const turn = (
+        await this.loop.enqueue(new PromptStepRequest(message, captions, this.reminders)).assigned
+      ).turn;
+      if (turn === undefined) {
+        this.pending.unshift(item);
+        return;
+      }
+      item.state = 'running';
+      item.launchedDeferred.resolve(turn);
+      this.active = Object.assign(item, { turn });
       void turn.result.then((result) => this.settle(item, result));
     } catch (error) {
       this.log.error('prompt launch failed', { promptId: item.id, error });
@@ -313,30 +420,50 @@ export class AgentPromptService implements IAgentPromptService {
   private settle(item: Record, result: TurnResult): void {
     if (this.active?.id !== item.id) return;
     this.active = undefined;
-    const state = result.type === 'cancelled' ? 'cancelled' : result.type === 'failed' ? 'failed' : 'completed';
-    item.state = state; item.completionDeferred.resolve({ promptId: item.id, result, state });
-    for (const child of this.steered.get(item.id) ?? []) { child.state = state; child.completionDeferred.resolve({ promptId: child.id, result, state }); }
+    const state =
+      result.type === 'cancelled' ? 'cancelled' : result.type === 'failed' ? 'failed' : 'completed';
+    item.state = state;
+    item.completionDeferred.resolve({ promptId: item.id, result, state });
+    for (const child of this.steered.get(item.id) ?? []) {
+      child.state = state;
+      child.completionDeferred.resolve({ promptId: child.id, result, state });
+    }
     this.steered.delete(item.id);
-    if (state === 'cancelled') this.publishAborted(item.id); else this.publishCompleted(item.id, state);
+    if (state === 'cancelled') this.publishAborted(item.id);
+    else this.publishCompleted(item.id, state);
     void this.startNext();
   }
 
   private async blockedByHook(promptMessage: ContextMessage, isSteer: boolean): Promise<boolean> {
-    const ctx = { promptMessage, isSteer, block: false }; await this.hooks.onBeforeSubmitPrompt.run(ctx); return ctx.block;
+    const ctx = { promptMessage, isSteer, block: false };
+    await this.hooks.onBeforeSubmitPrompt.run(ctx);
+    return ctx.block;
   }
   private get fullCompaction(): IAgentFullCompactionService {
     if (this.fullCompactionService === undefined) {
-      this.fullCompactionService = this.instantiation.invokeFunction((a) => a.get(IAgentFullCompactionService));
-      this.fullCompactionService.onDidFinishCompaction(() => { void this.startNext(); });
+      this.fullCompactionService = this.instantiation.invokeFunction((a) =>
+        a.get(IAgentFullCompactionService),
+      );
+      this.fullCompactionService.onDidFinishCompaction(() => {
+        void this.startNext();
+      });
     }
     return this.fullCompactionService;
   }
-  private extractCompressionCaptions(message: ContextMessage): { message: ContextMessage; captions: readonly string[] } {
+  private extractCompressionCaptions(message: ContextMessage): {
+    message: ContextMessage;
+    captions: readonly string[];
+  } {
     if ((message.origin ?? USER_PROMPT_ORIGIN).kind !== 'user') return { message, captions: [] };
-    const captions: string[] = []; const parts: ContentPart[] = [];
+    const captions: string[] = [];
+    const parts: ContentPart[] = [];
     for (const part of message.content) {
-      if (part.type !== 'text') { parts.push(part); continue; }
-      const extracted = extractImageCompressionCaptions(part.text); captions.push(...extracted.captions);
+      if (part.type !== 'text') {
+        parts.push(part);
+        continue;
+      }
+      const extracted = extractImageCompressionCaptions(part.text);
+      captions.push(...extracted.captions);
       if (extracted.text.trim().length > 0) parts.push({ type: 'text', text: extracted.text });
     }
     return { message: captions.length === 0 ? message : { ...message, content: parts }, captions };
@@ -353,20 +480,56 @@ export class AgentPromptService implements IAgentPromptService {
     if (message.content.length > 0) this.context.append({ ...message, id: ownerPromptId });
   }
   private async deliverToolResult(ctx: ToolDidExecuteContext): Promise<void> {
-    const delivery = ctx.result.delivery; if (delivery === undefined) return;
-    const { delivery: _delivery, ...rest } = ctx.result; ctx.result = rest as ExecutableToolResult;
+    const delivery = ctx.result.delivery;
+    if (delivery === undefined) return;
+    const { delivery: _delivery, ...rest } = ctx.result;
+    ctx.result = rest as ExecutableToolResult;
     if (delivery.kind === 'steer') await this.inject(delivery.message as ContextMessage);
   }
-  private publishCompleted(promptId: string, reason: 'completed' | 'failed' | 'blocked'): void { this.eventBus.publish({ type: 'prompt.completed', promptId, finishedAt: new Date().toISOString(), reason }); }
+  private publishCompleted(promptId: string, reason: 'completed' | 'failed' | 'blocked'): void {
+    this.eventBus.publish({
+      type: 'prompt.completed',
+      promptId,
+      finishedAt: new Date().toISOString(),
+      reason,
+    });
+  }
   private publishQueued(record: Record): void {
     if ((record.message.origin ?? USER_PROMPT_ORIGIN).kind !== 'user') return;
-    this.eventBus.publish({ type: 'prompt.queued', promptId: record.id, content: record.message.content, queueLength: this.pending.length });
+    this.eventBus.publish({
+      type: 'prompt.queued',
+      promptId: record.id,
+      content: record.message.content,
+      queueLength: this.pending.length,
+    });
   }
-  private publishAborted(promptId: string): void { this.eventBus.publish({ type: 'prompt.aborted', promptId, abortedAt: new Date().toISOString() }); }
+  private publishAborted(promptId: string): void {
+    this.eventBus.publish({
+      type: 'prompt.aborted',
+      promptId,
+      abortedAt: new Date().toISOString(),
+    });
+  }
 }
 
-function snapshot(item: Record): PromptSnapshot { return { id: item.id, userMessageId: item.userMessageId, createdAt: item.createdAt, state: item.state, message: item.message }; }
-function deferred<T>(): Deferred<T> { let resolve!: (value: T) => void; let reject!: (reason: unknown) => void; const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; }); return { promise, resolve, reject }; }
+function snapshot(item: Record): PromptSnapshot {
+  return {
+    id: item.id,
+    userMessageId: item.userMessageId,
+    createdAt: item.createdAt,
+    state: item.state,
+    message: item.message,
+  };
+}
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 registerScopedService(
   LifecycleScope.Agent,

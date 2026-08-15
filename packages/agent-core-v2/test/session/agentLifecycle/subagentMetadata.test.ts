@@ -8,13 +8,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import {
   assertSubagentDepthAllowed,
   MAX_SUBAGENT_DEPTH,
   subagentDepthOf,
   subagentLabels,
 } from '#/session/agentLifecycle/subagentMetadata';
+import type { AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 
 function metaWith(labels: Record<string, string> | undefined): AgentMeta {
   return { labels } as AgentMeta;

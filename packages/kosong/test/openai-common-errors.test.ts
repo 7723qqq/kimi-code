@@ -1,4 +1,12 @@
 import {
+  APIError as OpenAIAPIError,
+  APIConnectionError as OpenAIConnectionError,
+  APIConnectionTimeoutError as OpenAITimeoutError,
+  APIUserAbortError as OpenAIUserAbortError,
+} from 'openai';
+import { describe, it, expect } from 'vitest';
+
+import {
   APIConnectionError,
   APIContextOverflowError,
   APIProviderQuotaExhaustedError,
@@ -11,19 +19,9 @@ import {
 } from '#/errors';
 import type { ContentPart } from '#/message';
 import { classifyKimiQuotaError } from '#/providers/kimi-errors';
-import {
-  convertContentPart,
-  convertOpenAIError,
-} from '#/providers/openai-common';
+import { convertContentPart, convertOpenAIError } from '#/providers/openai-common';
 import { OpenAILegacyChatProvider, OpenAILegacyStreamedMessage } from '#/providers/openai-legacy';
 import { ReasoningKeyDialect } from '#/providers/reasoning-key';
-import {
-  APIError as OpenAIAPIError,
-  APIConnectionError as OpenAIConnectionError,
-  APIConnectionTimeoutError as OpenAITimeoutError,
-  APIUserAbortError as OpenAIUserAbortError,
-} from 'openai';
-import { describe, it, expect } from 'vitest';
 describe('OpenAI client creation', () => {
   it('does not inject max_retries into OpenAI client', () => {
     // The OpenAI constructor is called with apiKey and baseURL only —

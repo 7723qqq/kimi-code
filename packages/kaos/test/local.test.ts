@@ -3,9 +3,10 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { afterEach, beforeEach, describe, expect, it, test } from 'vitest';
+
 import { KaosFileExistsError } from '#/errors';
 import { LocalKaos } from '#/local';
-import { afterEach, beforeEach, describe, expect, it, test } from 'vitest';
 
 // LocalKaos normalizes every path to forward slashes (pathe). Mirror that in
 // path assertions so they hold on Windows, where node:path/node:os produce
@@ -240,7 +241,10 @@ describe('LocalKaos', () => {
 
     it('throws lazily when strict UTF-8 errors appear after the first line', async () => {
       const filePath = join(tempDir, 'invalid-after-first-line.txt');
-      await kaos.writeBytes(filePath, Buffer.concat([Buffer.from('ok\n', 'utf-8'), Buffer.from([0xff])]));
+      await kaos.writeBytes(
+        filePath,
+        Buffer.concat([Buffer.from('ok\n', 'utf-8'), Buffer.from([0xff])]),
+      );
       const gen = kaos.readLines(filePath);
       await expect(gen.next()).resolves.toMatchObject({ value: 'ok\n', done: false });
       await expect(gen.next()).rejects.toThrow();
@@ -831,7 +835,9 @@ describe('LocalKaos', () => {
 
       const first = await envKaos.exec('node', '-e', printEnv);
       expect(await first.wait()).toBe(0);
-      expect((await streamToBuffer(first.stdout)).toString('utf-8')).toBe('initial|configured|undefined');
+      expect((await streamToBuffer(first.stdout)).toString('utf-8')).toBe(
+        'initial|configured|undefined',
+      );
 
       const second = await envKaos.execWithEnv(['node', '-e', printEnv], {
         ...(process.env as Record<string, string>),
@@ -839,12 +845,16 @@ describe('LocalKaos', () => {
         KAOS_CALL_ENV: 'call',
       });
       expect(await second.wait()).toBe(0);
-      expect((await streamToBuffer(second.stdout)).toString('utf-8')).toBe('initial|configured|call');
+      expect((await streamToBuffer(second.stdout)).toString('utf-8')).toBe(
+        'initial|configured|call',
+      );
 
       env.KAOS_BASE_ENV = 'updated';
       const third = await envKaos.exec('node', '-e', printEnv);
       expect(await third.wait()).toBe(0);
-      expect((await streamToBuffer(third.stdout)).toString('utf-8')).toBe('updated|configured|undefined');
+      expect((await streamToBuffer(third.stdout)).toString('utf-8')).toBe(
+        'updated|configured|undefined',
+      );
     });
   });
 });

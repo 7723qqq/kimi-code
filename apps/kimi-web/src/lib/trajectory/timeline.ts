@@ -44,17 +44,13 @@ function finite(value: number | null | undefined): value is number {
 
 function recordRange(record: TrajectoryRecord): TrajectoryTimeRange | null {
   if (!finite(record.startedAt)) return null;
-  const durationMs = finite(record.timeSeconds)
-    ? Math.max(0, record.timeSeconds * 1_000)
-    : 0;
+  const durationMs = finite(record.timeSeconds) ? Math.max(0, record.timeSeconds * 1_000) : 0;
   return { start: record.startedAt, end: record.startedAt + durationMs };
 }
 
 function visibleRecords(turns: readonly TrajectoryTurnModel[]): TrajectoryRecord[] {
   return turns.flatMap((turn) =>
-    turn.groups.flatMap((group) =>
-      group.records.filter((record) => record.requestOnly !== true),
-    ),
+    turn.groups.flatMap((group) => group.records.filter((record) => record.requestOnly !== true)),
   );
 }
 
@@ -122,15 +118,17 @@ function deriveTimedTimeline(
         const range = recordRange(record);
         return range === null
           ? []
-          : [{
-              ...range,
-              index: record.index,
-              isError: record.isError === true,
-              kind: record.kind,
-              label: record.text,
-              lane: laneFor(record.kind),
-              startedAt: record.startedAt,
-            }];
+          : [
+              {
+                ...range,
+                index: record.index,
+                isError: record.isError === true,
+                kind: record.kind,
+                label: record.text,
+                lane: laneFor(record.kind),
+                startedAt: record.startedAt,
+              },
+            ];
       }),
     );
     return rawSpans.length === 0 ? [] : [{ turn: turn.turn, rawSpans }];
@@ -148,8 +146,7 @@ function deriveTimedTimeline(
       removedIdle += span.start - coveredUntil;
     }
     removedIdleBySpan.set(span, removedIdle);
-    coveredUntil =
-      coveredUntil === null ? span.end : Math.max(coveredUntil, span.end);
+    coveredUntil = coveredUntil === null ? span.end : Math.max(coveredUntil, span.end);
   }
 
   const spans: TrajectoryTimelineSpan[] = [];

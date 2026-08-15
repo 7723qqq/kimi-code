@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { isVolatileEventType, VOLATILE_EVENT_TYPES } from '../events';
-import {
-  inFlightTurnSchema,
-  sessionSnapshotResponseSchema,
-} from '../rest/snapshot';
+import { inFlightTurnSchema, sessionSnapshotResponseSchema } from '../rest/snapshot';
 
 const TS = '2026-06-11T10:30:00.000Z';
 
@@ -165,9 +162,7 @@ describe('rest/snapshot — session snapshot', () => {
   });
 
   it('in_flight_turn requires accumulated text fields', () => {
-    expect(
-      inFlightTurnSchema.safeParse({ turn_id: 1, running_tools: [] }).success,
-    ).toBe(false);
+    expect(inFlightTurnSchema.safeParse({ turn_id: 1, running_tools: [] }).success).toBe(false);
   });
 });
 

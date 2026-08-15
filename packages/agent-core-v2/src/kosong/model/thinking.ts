@@ -33,9 +33,7 @@ import type { ThinkingEffort } from '#/kosong/contract/provider';
 import type { IProtocolAdapterRegistry, Protocol } from '#/kosong/protocol/protocol';
 
 import { getProviderDefinitions } from '../provider/providerDefinition';
-
 import type { ModelThinkingMetadata, ThinkingDefaults } from './model.types';
-
 
 export interface ThinkingConfig {
   enabled?: boolean;
@@ -43,7 +41,6 @@ export interface ThinkingConfig {
   forcedEffort?: string;
   keep?: string;
 }
-
 
 export function drivesThinkingThroughTraits(providerType: string | undefined): boolean {
   if (providerType === undefined) return false;
@@ -81,7 +78,6 @@ export function requiresStrictThinkingValidation(
 export function wireHasProtocolThinkingDisable(protocol: string | undefined): boolean {
   return protocol === 'anthropic' || protocol === 'kimi';
 }
-
 
 function nonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -152,9 +148,11 @@ export function defaultThinkingEffortForModel(
   const efforts = effortsFor(model);
   if (efforts.length > 0) {
     const declaredDefault = nonEmpty(model.defaultEffort);
-    return (declaredDefault !== undefined && efforts.includes(declaredDefault)
-      ? declaredDefault
-      : middleOf(efforts)) as ThinkingEffort;
+    return (
+      declaredDefault !== undefined && efforts.includes(declaredDefault)
+        ? declaredDefault
+        : middleOf(efforts)
+    ) as ThinkingEffort;
   }
   return 'on';
 }
@@ -178,9 +176,7 @@ function normalizeThinkingEffortForModel(
   if (effort === 'off' && model?.alwaysThinking !== true) return 'off';
   const efforts = effortsFor(model);
   if (!strictValidation) {
-    return effort === 'on' && efforts.length > 0
-      ? defaultThinkingEffortForModel(model)
-      : effort;
+    return effort === 'on' && efforts.length > 0 ? defaultThinkingEffortForModel(model) : effort;
   }
   if (!modelSupportsThinking(model)) return 'off';
   if (efforts.length === 0) return 'on';
@@ -215,7 +211,6 @@ export function resolveThinkingEffortForModel(
   }
   return normalizeThinkingEffortForModel(effort, model, strictValidation);
 }
-
 
 const KEEP_OFF_VALUES = new Set(['0', 'false', 'no', 'off', 'none', 'null']);
 

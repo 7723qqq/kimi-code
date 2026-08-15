@@ -142,10 +142,7 @@ function sketchFromJsonSchema(schema: unknown, root: JsonSchema, depth: number):
 }
 
 /** Build the payload Sketch tree for one op (all three data paths converge). */
-function buildPayloadSketch(
-  schema: unknown,
-  staticSketch?: string | Map<string, Sketch>,
-): Sketch {
+function buildPayloadSketch(schema: unknown, staticSketch?: string | Map<string, Sketch>): Sketch {
   const jsonSchema = toJsonSchema(schema);
   if (jsonSchema === undefined) {
     if (typeof staticSketch === 'string') return staticSketch;
@@ -250,10 +247,12 @@ function emitTsDict(lines: string[], dict: SketchDict, indent: string): void {
     const fieldKey = tsFieldKey(optional ? key.slice(0, -1) : key);
     const { doc, lines: typeLines } = renderTsType(sketch, indent);
     if (doc !== undefined) lines.push(`${indent}/** ${doc} */`);
-    lines.push(`${indent}${fieldKey}${optional ? '?' : ''}: ${typeLines[0]}${typeLines.length === 1 ? ';' : ''}`);
+    lines.push(
+      `${indent}${fieldKey}${optional ? '?' : ''}: ${typeLines[0]}${typeLines.length === 1 ? ';' : ''}`,
+    );
     if (typeLines.length > 1) {
       lines.push(...typeLines.slice(1, -1));
-      lines.push(`${typeLines[typeLines.length - 1]};`);
+      lines.push(`${typeLines.at(-1)};`);
     }
   }
 }
@@ -296,7 +295,7 @@ function renderPayloadDecl(
       ...header,
       `type ${name} = { ${nameField} } & (${lines[0]}`,
       ...lines.slice(1, -1),
-      `${lines[lines.length - 1]});`,
+      `${lines.at(-1)});`,
       '',
     ];
   }
@@ -382,7 +381,7 @@ function splitObjectFields(body: string): Map<string, string> {
   for (const part of splitTopLevel(body)) {
     const keyMatch = /^([$\w]+|'[^']+'|"[^"]+")\s*:/.exec(part);
     if (keyMatch?.[1] !== undefined) {
-      const key = keyMatch[1].replace(/^['"]|['"]$/g, '');
+      const key = keyMatch[1].replaceAll(/^['"]|['"]$/g, '');
       fields.set(key, part.slice(keyMatch[0].length).trim());
     } else if (part.startsWith('...')) {
       fields.set(part, '');
@@ -495,7 +494,7 @@ function splitTsTypeFields(body: string): Map<string, TsField> {
   for (const part of splitTopLevel(body, [';', ','])) {
     const m = /^(?:readonly\s+)?([$\w]+|'[^']+'|"[^"]+")\s*(\?)?\s*:\s*(.+)$/.exec(part);
     if (m?.[1] !== undefined && m[3] !== undefined) {
-      fields.set(m[1].replace(/^['"]|['"]$/g, ''), {
+      fields.set(m[1].replaceAll(/^['"]|['"]$/g, ''), {
         type: m[3].trim(),
         optional: m[2] !== undefined,
       });
@@ -504,7 +503,16 @@ function splitTsTypeFields(body: string): Map<string, TsField> {
   return fields;
 }
 
-const TS_PRIMITIVES = new Set(['string', 'number', 'boolean', 'unknown', 'any', 'null', 'undefined', 'void']);
+const TS_PRIMITIVES = new Set([
+  'string',
+  'number',
+  'boolean',
+  'unknown',
+  'any',
+  'null',
+  'undefined',
+  'void',
+]);
 
 function renderTsFields(
   fields: Map<string, TsField>,
@@ -538,7 +546,9 @@ function findTsTypeDef(name: string, file: string): string | undefined {
   const typeRe = new RegExp(`(?:export\\s+)?type\\s+${name}(?:<[^>;=]*>)?\\s*=\\s*`);
   const m = typeRe.exec(source);
   if (m !== null) return readExpression(source, m.index + m[0].length).trim();
-  const ifaceRe = new RegExp(`(?:export\\s+)?interface\\s+${name}(?:<[^>]*>)?(?:\\s+extends[^{]+)?\\s*\\{`);
+  const ifaceRe = new RegExp(
+    `(?:export\\s+)?interface\\s+${name}(?:<[^>]*>)?(?:\\s+extends[^{]+)?\\s*\\{`,
+  );
   const im = ifaceRe.exec(source);
   if (im !== null) {
     const body = objectBody(source, im.index + im[0].length - 1);
@@ -589,7 +599,9 @@ function summarizeTsUnion(
     }
     return t;
   });
-  const bodies = resolved.map((m) => (m.trim().startsWith('{') ? objectBody(m.trim(), 0) : undefined));
+  const bodies = resolved.map((m) =>
+    m.trim().startsWith('{') ? objectBody(m.trim(), 0) : undefined,
+  );
   if (bodies.length > 0 && bodies.every((b) => b !== undefined)) {
     const fieldMaps = bodies.map((b) => splitTsTypeFields(b!));
     // Discriminated union: one field is a string literal in every member.
@@ -644,7 +656,9 @@ function summarizeTsTypeExpr(
   const intersections = splitTopLevel(text, ['&']);
   if (intersections.length > 1) {
     if (!spend(budget)) return truncate(text, 80);
-    const sides = intersections.map((m) => summarizeTsTypeExpr(m, file, budget, charBudget, depth + 1));
+    const sides = intersections.map((m) =>
+      summarizeTsTypeExpr(m, file, budget, charBudget, depth + 1),
+    );
     // An intersection of object shapes merges into one dictionary.
     if (sides.every((side) => typeof side !== 'string' && !Array.isArray(side))) {
       return Object.assign({}, ...sides) as SketchDict;

@@ -1,7 +1,4 @@
-import {
-  MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
-  type Event,
-} from '@moonshot-ai/kimi-code-sdk';
+import { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE, type Event } from '@moonshot-ai/kimi-code-sdk';
 
 type ToolProgressEvent = Extract<Event, { type: 'tool.progress' }>;
 type ToolUpdate = ToolProgressEvent['update'];

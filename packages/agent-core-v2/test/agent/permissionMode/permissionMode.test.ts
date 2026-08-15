@@ -7,19 +7,19 @@ import {
   IAgentContextInjectorService,
   type ContextInjectionProvider,
 } from '#/agent/contextInjector/contextInjector';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { PermissionModeInjection } from '#/agent/permissionMode/injection/permissionModeInjection';
-import { AgentPermissionModeService } from '#/agent/permissionMode/permissionModeService';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { PermissionModeModel } from '#/agent/permissionMode/permissionModeOps';
+import { AgentPermissionModeService } from '#/agent/permissionMode/permissionModeService';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
 
 import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
 
@@ -72,7 +72,10 @@ afterEach(() => disposables.dispose());
 async function readRecords(): Promise<WireRecord[]> {
   await ix.get(IWireService).flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, KEY), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, KEY),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -207,17 +210,17 @@ describe('AgentPermissionModeService (wire-backed)', () => {
       log: log2,
     });
 
-    await restoreTestAgentWire(
-      fresh,
-      log2,
-      testWireScope(SCOPE, 'permission-mode-replay'),
-      [{ type: 'permission.set_mode', mode: 'auto' }],
-    );
+    await restoreTestAgentWire(fresh, log2, testWireScope(SCOPE, 'permission-mode-replay'), [
+      { type: 'permission.set_mode', mode: 'auto' },
+    ]);
 
     expect(fresh.getModel(PermissionModeModel)).toBe('auto');
 
     const written: WireRecord[] = [];
-    for await (const record of log2.read<WireRecord>(testWireScope(SCOPE, 'permission-mode-replay'), AGENT_WIRE_RECORD_KEY)) {
+    for await (const record of log2.read<WireRecord>(
+      testWireScope(SCOPE, 'permission-mode-replay'),
+      AGENT_WIRE_RECORD_KEY,
+    )) {
       written.push(record);
     }
     expect(written[0]).toMatchObject({ type: 'metadata' });
@@ -238,9 +241,11 @@ describe('AgentPermissionModeService (wire-backed)', () => {
 
   it('multiple setMode calls to the same mode fire only one event', () => {
     const changes: { mode: PermissionMode; previousMode: PermissionMode }[] = [];
-    disposables.add(svc.onDidChangeMode((ctx) => {
-      changes.push({ mode: ctx.mode, previousMode: ctx.previousMode });
-    }));
+    disposables.add(
+      svc.onDidChangeMode((ctx) => {
+        changes.push({ mode: ctx.mode, previousMode: ctx.previousMode });
+      }),
+    );
     svc.setMode('auto');
     svc.setMode('auto');
     expect(changes).toHaveLength(1);

@@ -4,10 +4,7 @@ import { resolve } from 'node:path';
 
 import { nativeIntermediatesDir, nativeJsBundlePath } from './paths.mjs';
 
-const builtins = new Set([
-  ...builtinModules,
-  ...builtinModules.map((name) => `node:${name}`),
-]);
+const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
 
 const optionalRuntimeRequires = new Set([
   'ajv-formats/dist/formats',
@@ -48,7 +45,11 @@ function checkBundle(bundlePath, { worker = false } = {}) {
       if (!allowedRelative.has(specifier)) errors.push(`relative ${kind} remains: ${specifier}`);
       return;
     }
-    if (!builtins.has(specifier) && !specifier.startsWith('node:') && !allowedExternal.has(specifier)) {
+    if (
+      !builtins.has(specifier) &&
+      !specifier.startsWith('node:') &&
+      !allowedExternal.has(specifier)
+    ) {
       errors.push(`external ${kind} remains: ${specifier}`);
     }
   };

@@ -15,7 +15,10 @@ import { SessionBtwService } from '#/features/btw/btwService';
 import type { ToolCall } from '#/kosong/contract/message';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
-import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
+import {
+  stubToolExecutorEvents,
+  type ToolExecutorEventStubs,
+} from '../../agent/toolExecutor/stubs';
 
 describe('SessionBtwService', () => {
   let disposables: DisposableStore;

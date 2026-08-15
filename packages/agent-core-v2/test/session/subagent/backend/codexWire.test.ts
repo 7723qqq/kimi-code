@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
-
 import { createInterface } from 'node:readline';
 import { PassThrough } from 'node:stream';
 
-import { CodexWire, CodexWireClosedError } from '#/session/subagent/backend/codexWire';
+import { describe, expect, it } from 'vitest';
+
 import type { IProcess } from '#/session/process/processRunner';
+import { CodexWire, CodexWireClosedError } from '#/session/subagent/backend/codexWire';
 
 interface WireHarness {
   readonly wire: CodexWire;
@@ -46,7 +46,11 @@ describe('CodexWire', () => {
     const promise = harness.wire.request('initialize', { protocolVersion: 1 });
     const request = harness.requests.at(-1);
     expect(request).toMatchObject({ jsonrpc: '2.0', method: 'initialize' });
-    harness.write({ jsonrpc: '2.0', id: (request as { id: number }).id, result: { protocolVersion: 1 } });
+    harness.write({
+      jsonrpc: '2.0',
+      id: (request as { id: number }).id,
+      result: { protocolVersion: 1 },
+    });
     await expect(promise).resolves.toEqual({ protocolVersion: 1 });
   });
 

@@ -19,6 +19,7 @@
 // entry.
 
 import { computed, nextTick, ref, watch, type Ref } from 'vue';
+
 import { STORAGE_KEYS, safeGetJson, safeSetJson } from '../lib/storage';
 
 /** Cap each session's persisted history so storage can't grow without bound. */

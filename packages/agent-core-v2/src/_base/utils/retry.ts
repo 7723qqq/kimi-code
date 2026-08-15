@@ -48,22 +48,27 @@ export function retryBackoffDelays(maxAttempts: number): number[] {
   return delays;
 }
 
-function tieredBackoffDelay(
-  attempt: number,
-  base: number,
-  max: number,
-  factor: number,
-): number {
+function tieredBackoffDelay(attempt: number, base: number, max: number, factor: number): number {
   const raw = Math.min(base * Math.pow(factor, attempt - 1), max);
   return raw + Math.random() * JITTER_FACTOR * raw;
 }
 
 export function overloadBackoffDelay(attempt: number): number {
-  return tieredBackoffDelay(attempt, OVERLOAD_BASE_DELAY_MS, OVERLOAD_MAX_DELAY_MS, OVERLOAD_RETRY_FACTOR);
+  return tieredBackoffDelay(
+    attempt,
+    OVERLOAD_BASE_DELAY_MS,
+    OVERLOAD_MAX_DELAY_MS,
+    OVERLOAD_RETRY_FACTOR,
+  );
 }
 
 export function rateLimitBackoffDelay(attempt: number): number {
-  return tieredBackoffDelay(attempt, RATE_LIMIT_BASE_DELAY_MS, RATE_LIMIT_MAX_DELAY_MS, RATE_LIMIT_RETRY_FACTOR);
+  return tieredBackoffDelay(
+    attempt,
+    RATE_LIMIT_BASE_DELAY_MS,
+    RATE_LIMIT_MAX_DELAY_MS,
+    RATE_LIMIT_RETRY_FACTOR,
+  );
 }
 
 export function isOverloadError(error: unknown): boolean {
@@ -73,7 +78,8 @@ export function isOverloadError(error: unknown): boolean {
     if (statusCode === 503) return true;
     if (statusCode === 529) return true;
     if (statusCode === 500) {
-      const message = error instanceof Error ? error.message : JSON.stringify(error) ?? 'unknown error';
+      const message =
+        error instanceof Error ? error.message : (JSON.stringify(error) ?? 'unknown error');
       return /overload/i.test(message);
     }
   }

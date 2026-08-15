@@ -49,8 +49,7 @@ export interface AcpClient extends IAcpFsClient, IAcpTerminalClient {
 export function acpClientFromContext(client: AgentContext): AcpClient {
   return {
     sessionUpdate: (params) => client.notify(methods.client.session.update, params),
-    requestPermission: (params) =>
-      client.request(methods.client.session.requestPermission, params),
+    requestPermission: (params) => client.request(methods.client.session.requestPermission, params),
     createElicitation: (params) => client.request(methods.client.elicitation.create, params),
     readTextFile: (params) => client.request(methods.client.fs.readTextFile, params),
     writeTextFile: (params) => client.request(methods.client.fs.writeTextFile, params),

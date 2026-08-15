@@ -48,7 +48,11 @@ describe('snipLargeToolResults', () => {
 
   it('does not touch results that are long but few-line (single huge line)', () => {
     const singleLine = toolMessage('x'.repeat(10_000));
-    const result = snipLargeToolResults([singleLine], { minBytes: 100, headLines: 40, tailLines: 40 });
+    const result = snipLargeToolResults([singleLine], {
+      minBytes: 100,
+      headLines: 40,
+      tailLines: 40,
+    });
     expect(result).toEqual([singleLine]);
     expect((result[0]!.content[0] as { text: string }).text.length).toBe(10_000);
   });

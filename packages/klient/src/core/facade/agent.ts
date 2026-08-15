@@ -11,15 +11,15 @@
 import type { IAgentCommandService } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
 import type { IAgentContextMemoryService } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextMemory';
 import type { IAgentMcpService } from '@moonshot-ai/agent-core-v2/agent/mcp/mcp';
-import type { IAgentPromptService } from '@moonshot-ai/agent-core-v2/agent/prompt/prompt';
-import type { IAgentTokenCountingService } from '@moonshot-ai/agent-core-v2/agent/tokenCounting/tokenCounting';
-import type { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
+import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
 import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
+import type { IAgentPromptService } from '@moonshot-ai/agent-core-v2/agent/prompt/prompt';
 import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommand';
 import type { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
+import type { IAgentTokenCountingService } from '@moonshot-ai/agent-core-v2/agent/tokenCounting/tokenCounting';
 import type { IAgentUsageService } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
+import type { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
 import type { ContentPart } from '@moonshot-ai/agent-core-v2/kosong/contract/message';
-import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
 
 import type { ScopeRef } from '../channel.js';
 import type { ScopedCaller } from './session.js';
@@ -94,7 +94,12 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
     cancel: (input) =>
       // No turnId sends an empty arg list: `[undefined]` would cross the wire
       // as `[null]`, and `cancelFromUser(null)` would not match the active turn.
-      call(scope, 'agentLoopService', 'cancelFromUser', input?.turnId === undefined ? [] : [input.turnId]) as Promise<void>,
+      call(
+        scope,
+        'agentLoopService',
+        'cancelFromUser',
+        input?.turnId === undefined ? [] : [input.turnId],
+      ) as Promise<void>,
     runShellCommand: (input) =>
       call(scope, 'agentShellCommandService', 'run', [input]) as Promise<ShellCommandResult>,
     cancelShellCommand: (input) =>
@@ -130,8 +135,7 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
     getPlan: () => call(scope, 'agentPlanService', 'status', []) as Promise<PlanData>,
     enterPlan: () => call(scope, 'agentPlanService', 'enter', []) as Promise<void>,
     clearPlan: () => call(scope, 'agentPlanService', 'clear', []) as Promise<void>,
-    cancelPlan: (input) =>
-      call(scope, 'agentPlanService', 'cancel', [input?.id]) as Promise<void>,
+    cancelPlan: (input) => call(scope, 'agentPlanService', 'cancel', [input?.id]) as Promise<void>,
     getTasks: (input) =>
       call(scope, 'agentTaskService', 'list', [
         input?.activeOnly ?? false,

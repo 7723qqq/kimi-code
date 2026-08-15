@@ -16,8 +16,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -356,7 +356,9 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       unchanged: ['moonshot-cn'],
       failed: [],
     }));
-    const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
+    const seeds = [
+      [IProviderDiscoveryService, discoveryStub(refreshProviderModels)],
+    ] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
     const { status, body } = await postJson('/api/v1/providers:refresh', {});
@@ -371,7 +373,9 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       unchanged: [],
       failed: [],
     }));
-    const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
+    const seeds = [
+      [IProviderDiscoveryService, discoveryStub(refreshProviderModels)],
+    ] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
     const { status, body } = await postJson('/api/v1/providers/managed%3Akimi-code:refresh', {});
@@ -386,7 +390,9 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       unchanged: [],
       failed: [],
     }));
-    const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
+    const seeds = [
+      [IProviderDiscoveryService, discoveryStub(refreshProviderModels)],
+    ] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
     const { body } = await postJson('/api/v1/providers/foo:bogus', {});

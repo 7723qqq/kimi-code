@@ -21,12 +21,7 @@ interface GoalSnapshotView {
   readonly terminalReason?: string | undefined;
 }
 
-const GOAL_TOOLS = new Set<string>([
-  'CreateGoal',
-  'GetGoal',
-  'SetGoalBudget',
-  'UpdateGoal',
-]);
+const GOAL_TOOLS = new Set<string>(['CreateGoal', 'GetGoal', 'SetGoalBudget', 'UpdateGoal']);
 
 export function isGoalToolName(toolName: string): toolName is GoalToolName {
   return GOAL_TOOLS.has(toolName);
@@ -77,9 +72,7 @@ function formatGoalBudgetArg(args: Record<string, unknown>): string | undefined 
     return undefined;
   }
   if (unit.length === 0) return undefined;
-  const normalized = unit === 'turns' || unit === 'tokens'
-    ? Math.max(1, Math.round(value))
-    : value;
+  const normalized = unit === 'turns' || unit === 'tokens' ? Math.max(1, Math.round(value)) : value;
   const singular = unit.endsWith('s') ? unit.slice(0, -1) : unit;
   return `${String(normalized)} ${normalized === 1 ? singular : unit}`;
 }
@@ -122,9 +115,17 @@ function goalToolLabel(
   const finished = result !== undefined;
   switch (toolName) {
     case 'CreateGoal':
-      return failed ? t('tui.messages.goalToolCouldNotStart') : finished ? t('tui.messages.goalToolStarted') : t('tui.messages.goalToolStarting');
+      return failed
+        ? t('tui.messages.goalToolCouldNotStart')
+        : finished
+          ? t('tui.messages.goalToolStarted')
+          : t('tui.messages.goalToolStarting');
     case 'GetGoal':
-      return failed ? t('tui.messages.goalToolCouldNotCheck') : finished ? t('tui.messages.goalToolChecked') : t('tui.messages.goalToolChecking');
+      return failed
+        ? t('tui.messages.goalToolCouldNotCheck')
+        : finished
+          ? t('tui.messages.goalToolChecked')
+          : t('tui.messages.goalToolChecking');
     case 'SetGoalBudget':
       return failed
         ? t('tui.messages.goalToolCouldNotSetBudget')

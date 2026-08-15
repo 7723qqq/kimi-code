@@ -45,7 +45,10 @@ const cache = new Map<string, { readonly fetchedAt: number; readonly data: unkno
 /** Insert or replace a cache entry, evicting the oldest when full.
  *  Always moves the entry to the MRU position (Map insertion-order tail)
  *  so that frequently-accessed configs survive eviction. */
-function touchCache(name: string, entry: { readonly fetchedAt: number; readonly data: unknown }): void {
+function touchCache(
+  name: string,
+  entry: { readonly fetchedAt: number; readonly data: unknown },
+): void {
   if (cache.size >= CONFIG_CACHE_MAX_ENTRIES && !cache.has(name)) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);

@@ -26,6 +26,7 @@
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
+
 import type { AgentProfileContribution } from './agentProfileContribution';
 
 export interface AgentProfileRegistration {

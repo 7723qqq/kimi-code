@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
 
+import { t } from '../../i18n';
 import type { ImportInfo } from '../../types';
 import { formatAbsoluteTime, formatRelativeTime } from '../../util/time';
 import { CopyButton } from '../shared/CopyButton';
 import { JsonViewer } from '../shared/JsonViewer';
 import { Pill } from '../shared/Pill';
-import { t } from '../../i18n';
 
 interface StateTabProps {
   state: unknown;
@@ -74,9 +74,7 @@ export function StateTab({ state, importMeta }: StateTabProps) {
 
         <Card label={t('state.forkedFrom')}>
           {s.forkedFrom !== undefined && s.forkedFrom !== '' ? (
-            <span className="font-mono text-[12px] text-fg-0 break-all">
-              {s.forkedFrom}
-            </span>
+            <span className="font-mono text-[12px] text-fg-0 break-all">{s.forkedFrom}</span>
           ) : (
             <span className="font-mono text-[12px] text-fg-3">{t('shared.none')}</span>
           )}
@@ -92,10 +90,7 @@ export function StateTab({ state, importMeta }: StateTabProps) {
 
         <Card label={t('state.lastPrompt')}>
           {s.lastPrompt !== undefined && s.lastPrompt !== '' ? (
-            <span
-              className="font-mono text-[12px] text-fg-0 line-clamp-3"
-              title={s.lastPrompt}
-            >
+            <span className="font-mono text-[12px] text-fg-0 line-clamp-3" title={s.lastPrompt}>
               {s.lastPrompt}
             </span>
           ) : (
@@ -151,9 +146,7 @@ export function StateTab({ state, importMeta }: StateTabProps) {
 function Card({ label, children }: { label: string; children: import('react').ReactNode }) {
   return (
     <div className="border border-border bg-surface-0 px-3 py-2">
-      <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-fg-3">
-        {label}
-      </div>
+      <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-fg-3">{label}</div>
       <div className="mt-1 flex flex-wrap items-center gap-2">{children}</div>
     </div>
   );
@@ -170,10 +163,24 @@ function ManifestCard({ meta }: { meta: ImportInfo }) {
     [t('state.node'), m?.nodejsVersion],
     [t('state.installSource'), m?.installSource],
     [t('state.workspace'), m?.workspaceDir],
-    [t('state.exportedAt'), m?.exportedAt ? `${formatAbsoluteTime(Date.parse(m.exportedAt))} (${formatRelativeTime(Date.parse(m.exportedAt))})` : undefined],
-    [t('state.firstActivity'), m?.sessionFirstActivity ? formatAbsoluteTime(Date.parse(m.sessionFirstActivity)) : undefined],
-    [t('state.lastActivity'), m?.sessionLastActivity ? formatAbsoluteTime(Date.parse(m.sessionLastActivity)) : undefined],
-    [t('state.importedAt'), `${formatAbsoluteTime(Date.parse(meta.importedAt))} (${formatRelativeTime(Date.parse(meta.importedAt))})`],
+    [
+      t('state.exportedAt'),
+      m?.exportedAt
+        ? `${formatAbsoluteTime(Date.parse(m.exportedAt))} (${formatRelativeTime(Date.parse(m.exportedAt))})`
+        : undefined,
+    ],
+    [
+      t('state.firstActivity'),
+      m?.sessionFirstActivity ? formatAbsoluteTime(Date.parse(m.sessionFirstActivity)) : undefined,
+    ],
+    [
+      t('state.lastActivity'),
+      m?.sessionLastActivity ? formatAbsoluteTime(Date.parse(m.sessionLastActivity)) : undefined,
+    ],
+    [
+      t('state.importedAt'),
+      `${formatAbsoluteTime(Date.parse(meta.importedAt))} (${formatRelativeTime(Date.parse(meta.importedAt))})`,
+    ],
     [t('state.originalFile'), meta.originalName ?? undefined],
   ];
   const rows = candidates
@@ -183,14 +190,22 @@ function ManifestCard({ meta }: { meta: ImportInfo }) {
   return (
     <section className="mb-5 border border-[var(--color-cat-subagent)] bg-[color-mix(in_oklab,var(--color-cat-subagent)_8%,transparent)] p-3">
       <div className="flex items-center gap-2">
-        <Pill tone="subagent" variant="outline">{t('state.importedBundle')}</Pill>
-        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">{t('state.manifest')}</span>
-        <span className="ml-auto"><CopyButton value={JSON.stringify(meta, null, 2)} label={t('state.copyManifest')} /></span>
+        <Pill tone="subagent" variant="outline">
+          {t('state.importedBundle')}
+        </Pill>
+        <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">
+          {t('state.manifest')}
+        </span>
+        <span className="ml-auto">
+          <CopyButton value={JSON.stringify(meta, null, 2)} label={t('state.copyManifest')} />
+        </span>
       </div>
       <div className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 md:grid-cols-2">
         {rows.map((r) => (
           <div key={r.label} className="flex items-baseline gap-2 font-mono text-[11px]">
-            <span className="w-32 shrink-0 text-[10px] uppercase tracking-[0.1em] text-fg-3">{r.label}</span>
+            <span className="w-32 shrink-0 text-[10px] uppercase tracking-[0.1em] text-fg-3">
+              {r.label}
+            </span>
             <span className="min-w-0 break-all text-fg-1">{r.value}</span>
           </div>
         ))}
@@ -214,12 +229,8 @@ function TsValue({ ms, raw }: { ms: number | null; raw: string | undefined }) {
   }
   return (
     <span className="flex flex-wrap items-center gap-2">
-      <span className="font-mono text-[12px] text-fg-0 tabular">
-        {formatAbsoluteTime(ms)}
-      </span>
-      <span className="font-mono text-[11px] text-fg-3">
-        ({formatRelativeTime(ms)})
-      </span>
+      <span className="font-mono text-[12px] text-fg-0 tabular">{formatAbsoluteTime(ms)}</span>
+      <span className="font-mono text-[11px] text-fg-3">({formatRelativeTime(ms)})</span>
     </span>
   );
 }

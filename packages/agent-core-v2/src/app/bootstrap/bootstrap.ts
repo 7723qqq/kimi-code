@@ -20,19 +20,16 @@
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 
-import { join } from 'pathe';
-
 import type { KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
+import { join } from 'pathe';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { createAppScope, type Scope, type ScopeSeed } from '#/_base/di/scope';
-import {
-  IFileSystemStorageService,
-} from '#/persistence/interface/storage';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { FileSkillDiscovery } from '#/app/skillCatalog/fileSkillDiscovery';
 import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 export interface HostArgs {
   readonly agentFiles?: readonly string[];
@@ -140,12 +137,7 @@ export function resolveBootstrapOptions(input: BootstrapInput): IBootstrapOption
 }
 
 export function bootstrapSeed(input: BootstrapInput): ScopeSeed {
-  return [
-    [
-      IBootstrapOptions as ServiceIdentifier<unknown>,
-      resolveBootstrapOptions(input),
-    ],
-  ];
+  return [[IBootstrapOptions as ServiceIdentifier<unknown>, resolveBootstrapOptions(input)]];
 }
 
 export interface BootstrapResult {
@@ -163,17 +155,12 @@ export function bootstrap(input: BootstrapInput, extraSeeds: ScopeSeed = []): Bo
 function storageSeed(options: IBootstrapOptions): ScopeSeed {
   const file = (): SyncDescriptor<IFileSystemStorageService> =>
     new SyncDescriptor(FileStorageService, [options.homeDir, 0o700, 0o600]);
-  return [
-    [IFileSystemStorageService as ServiceIdentifier<unknown>, file()],
-  ];
+  return [[IFileSystemStorageService as ServiceIdentifier<unknown>, file()]];
 }
 
 function skillSeed(): ScopeSeed {
   return [
-    [
-      ISkillDiscovery as ServiceIdentifier<unknown>,
-      new SyncDescriptor(FileSkillDiscovery, []),
-    ],
+    [ISkillDiscovery as ServiceIdentifier<unknown>, new SyncDescriptor(FileSkillDiscovery, [])],
   ];
 }
 

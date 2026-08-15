@@ -10,13 +10,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { connectionsListResponseSchema } from '../src/protocol/rest-connection';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
+import { connectionsListResponseSchema } from '../src/protocol/rest-connection';
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -33,7 +33,13 @@ describe('server-v2 GET /api/v1/connections', () => {
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-connections-'));
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     base = `http://127.0.0.1:${server.port}`;
     wsUrl = `ws://127.0.0.1:${server.port}/api/v1/ws`;
   });

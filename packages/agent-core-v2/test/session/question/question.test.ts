@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import {
   _clearScopedRegistryForTests,
   ScopeActivation,
@@ -10,6 +9,7 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair, type ScopedTestHost } from '#/_base/di/test';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { SessionInteractionService } from '#/session/interaction/interactionService';
 import {
@@ -49,9 +49,27 @@ describe('ISessionQuestionService (Session scope facade over the interaction ker
 
   beforeEach(() => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.Session, ISessionStateService, SessionStateService, ScopeActivation.OnScopeCreated, 'state');
-    registerScopedService(LifecycleScope.Session, ISessionInteractionService, SessionInteractionService, ScopeActivation.OnDemand, 'interaction');
-    registerScopedService(LifecycleScope.Session, ISessionQuestionService, SessionQuestionService, ScopeActivation.OnDemand, 'question');
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionStateService,
+      SessionStateService,
+      ScopeActivation.OnScopeCreated,
+      'state',
+    );
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionInteractionService,
+      SessionInteractionService,
+      ScopeActivation.OnDemand,
+      'interaction',
+    );
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionQuestionService,
+      SessionQuestionService,
+      ScopeActivation.OnDemand,
+      'question',
+    );
 
     disposables = new DisposableStore();
     host = createScopedTestHost([stubPair(IEventBus, noopEventBus)]);

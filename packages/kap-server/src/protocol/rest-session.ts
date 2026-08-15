@@ -15,9 +15,6 @@
  *   POST    /v1/sessions/{id}:restore     -                     data: Session
  */
 
-import { z } from 'zod';
-
-import { messageSchema } from './message';
 import {
   sessionStatusResponseSchema,
   sessionWarningSchema,
@@ -25,8 +22,10 @@ import {
   updateSessionProfileRequestSchema,
   type UpdateSessionProfileRequest,
 } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import { z } from 'zod';
 
 import { goalSnapshotSchema } from './goal';
+import { messageSchema } from './message';
 import { cursorQuerySchema, pageResponseSchema } from './pagination';
 import {
   sessionChildCreateSchema,
@@ -54,14 +53,11 @@ export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export const createSessionResponseSchema = sessionSchema;
 export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
 
-const booleanQueryParam = z.preprocess(
-  (value) => {
-    if (value === 'true' || value === '1' || value === 1 || value === true) return true;
-    if (value === 'false' || value === '0' || value === 0 || value === false) return false;
-    return value;
-  },
-  z.boolean().optional(),
-);
+const booleanQueryParam = z.preprocess((value) => {
+  if (value === 'true' || value === '1' || value === 1 || value === true) return true;
+  if (value === 'false' || value === '0' || value === 0 || value === false) return false;
+  return value;
+}, z.boolean().optional());
 
 export const listSessionsQuerySchema = cursorQuerySchema.and(
   z.object({
@@ -154,7 +150,7 @@ export const getSessionGoalResponseSchema = goalSnapshotSchema.nullable();
 export type GetSessionGoalResponse = z.infer<typeof getSessionGoalResponseSchema>;
 
 export const compactSessionRequestSchema = z.preprocess(
-  (value) => value === undefined ? {} : value,
+  (value) => (value === undefined ? {} : value),
   z.object({
     instruction: z.string().optional(),
   }),
@@ -165,7 +161,7 @@ export const compactSessionResponseSchema = z.object({});
 export type CompactSessionResponse = z.infer<typeof compactSessionResponseSchema>;
 
 export const undoSessionRequestSchema = z.preprocess(
-  (value) => value === undefined ? {} : value,
+  (value) => (value === undefined ? {} : value),
   z.object({
     count: z.number().int().positive().default(1),
     page_size: z.number().int().min(1).max(100).optional(),

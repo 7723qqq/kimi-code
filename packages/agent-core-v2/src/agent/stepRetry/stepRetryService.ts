@@ -16,7 +16,6 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/_base/state/stateRegistry';
 import {
@@ -26,16 +25,14 @@ import {
   retryErrorFields,
   sleepForRetry,
 } from '#/_base/utils/retry';
-import { isRetryableGenerateError } from '#/kosong/contract/errors';
+import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
+import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { unwrapErrorCause } from '#/errors';
-import {
-  IAgentLoopService,
-  type LoopErrorContext,
-} from '#/agent/loop/loop';
-import { LOOP_CONTROL_SECTION, type LoopControl } from '#/agent/loop/configSection';
-import { IAgentStateService } from '#/agent/state/agentState';
+import { isRetryableGenerateError } from '#/kosong/contract/errors';
 
 import { IAgentStepRetryService } from './stepRetry';
 
@@ -63,10 +60,7 @@ export const stepRetryLastFailedDriverIdKey = defineState<string | undefined>(
   'stepRetry.lastFailedDriverId',
   () => undefined as string | undefined,
 );
-export const stepRetryFailedAttemptsKey = defineState<number>(
-  'stepRetry.failedAttempts',
-  () => 0,
-);
+export const stepRetryFailedAttemptsKey = defineState<number>('stepRetry.failedAttempts', () => 0);
 
 // NOTE: stays Disposable — its own 'config' collides with the Fiber
 export class AgentStepRetryService extends Disposable implements IAgentStepRetryService {

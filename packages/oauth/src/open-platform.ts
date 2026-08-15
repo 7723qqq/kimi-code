@@ -8,16 +8,17 @@ import {
   ASTRON_REASONING_EFFORT_MODEL_IDS,
   type AstronModelDef,
 } from '@moonshot-ai/kosong/providers/astron-models';
+
 import { readApiErrorMessage } from './api-error';
-import { isRecord } from './utils';
 import { parseKimiCodeCustomHeaders } from './identity';
 import { parseSupportsThinkingType, parseThinkEfforts } from './managed-kimi-code';
-import { MANAGED_KIMI_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import type {
   ManagedKimiCodeModelInfo,
   ManagedKimiConfigShape,
   ManagedKimiModelAlias,
 } from './managed-kimi-code';
+import { MANAGED_KIMI_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
+import { isRecord } from './utils';
 
 export type { ManagedKimiConfigShape };
 
@@ -132,10 +133,7 @@ export class OpenPlatformApiError extends Error {
 
 // ── System CA fetch for providers with non-Mozilla CAs (e.g. xfyun.cn) ──────
 
-const SYSTEM_CA_PATHS = [
-  '/etc/ssl/certs/ca-certificates.crt',
-  '/etc/pki/tls/certs/ca-bundle.crt',
-];
+const SYSTEM_CA_PATHS = ['/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt'];
 
 let _systemCaCerts: string[] | undefined;
 let _systemCaLoadedAt = 0;
@@ -153,7 +151,9 @@ function loadSystemCAs(): string[] {
       try {
         systemCerts = readFileSync(path, 'utf-8');
         break;
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
   _systemCaCerts = [systemCerts, ...rootCertificates].filter(Boolean);
@@ -242,7 +242,8 @@ export async function fetchOpenPlatformModels(
 
   // Astron's xfyun.cn uses a Chinese CA not in the Mozilla store; fall back
   // to a system-CA fetch unless the caller explicitly provided one.
-  const effectiveFetch = fetchImpl ?? (platform.id === 'astron' ? systemCaFetch as typeof fetch : fetch);
+  const effectiveFetch =
+    fetchImpl ?? (platform.id === 'astron' ? (systemCaFetch as typeof fetch) : fetch);
   const res = await effectiveFetch(`${platform.baseUrl.replace(/\/+$/, '')}/models`, {
     headers: {
       ...parseKimiCodeCustomHeaders(),
@@ -346,10 +347,7 @@ export function applyOpenPlatformConfig(
   return { defaultModel: modelKey, defaultThinking: options.thinking };
 }
 
-export function removeOpenPlatformConfig(
-  config: ManagedKimiConfigShape,
-  platformId: string,
-): void {
+export function removeOpenPlatformConfig(config: ManagedKimiConfigShape, platformId: string): void {
   delete config.providers[platformId];
 
   let removedDefault = false;

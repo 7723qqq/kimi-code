@@ -33,12 +33,15 @@ export const KNOWN_DIFFERENCES: readonly KnownDifference[] = [
   {
     id: 'heredoc-tail-statements',
     readmeAnchor: 'Statements after a heredoc on the same line',
-    summary: 'cat <<EOF; echo x — the tail is absorbed into heredoc_redirect (the reference errors).',
+    summary:
+      'cat <<EOF; echo x — the tail is absorbed into heredoc_redirect (the reference errors).',
   },
   {
     id: 'heredoc-content-chunks',
-    readmeAnchor: 'every plain text chunk — including the leading one — becomes a `heredoc_content` node',
-    summary: 'Unquoted heredoc_body: leading content chunk and backtick substitutions are nodes here.',
+    readmeAnchor:
+      'every plain text chunk — including the leading one — becomes a `heredoc_content` node',
+    summary:
+      'Unquoted heredoc_body: leading content chunk and backtick substitutions are nodes here.',
   },
   {
     id: 'heredoc-at-statement-start',
@@ -48,12 +51,14 @@ export const KNOWN_DIFFERENCES: readonly KnownDifference[] = [
   {
     id: 'heredoc-body-dollar-quote',
     readmeAnchor: "A `$'` sequence inside an unquoted heredoc body",
-    summary: "$' inside a heredoc body is plain text here; the reference errors when it starts a body line.",
+    summary:
+      "$' inside a heredoc body is plain text here; the reference errors when it starts a body line.",
   },
   {
     id: 'recovery-partial-nodes',
     readmeAnchor: 'Unterminated or invalid constructs keep their partial nodes',
-    summary: 'Invalid input keeps partial nodes with hasError; the reference degrades to ERROR nodes differently.',
+    summary:
+      'Invalid input keeps partial nodes with hasError; the reference degrades to ERROR nodes differently.',
   },
   {
     id: 'trailing-connector',
@@ -63,12 +68,14 @@ export const KNOWN_DIFFERENCES: readonly KnownDifference[] = [
   {
     id: 'empty-backtick',
     readmeAnchor: 'An empty backtick substitution',
-    summary: '`` (and whitespace-only pairs) parse as an empty command_substitution; the reference has a single `` token.',
+    summary:
+      '`` (and whitespace-only pairs) parse as an empty command_substitution; the reference has a single `` token.',
   },
   {
     id: 'empty-command-substitution',
     readmeAnchor: 'An empty command substitution (`$( )`)',
-    summary: '$( ) is a clean empty command_substitution; the reference inserts a zero-width command.',
+    summary:
+      '$( ) is a clean empty command_substitution; the reference inserts a zero-width command.',
   },
   {
     id: 'arithmetic-hex',
@@ -83,7 +90,8 @@ export const KNOWN_DIFFERENCES: readonly KnownDifference[] = [
   {
     id: 'test-extglob-rejected-group',
     readmeAnchor: 'An extglob group the reference rejects',
-    summary: 'Groups after a literal or dot (x@(y|z)w, *.@(a)) are errors in the reference; recovery shapes differ.',
+    summary:
+      'Groups after a literal or dot (x@(y|z)w, *.@(a)) are errors in the reference; recovery shapes differ.',
   },
   {
     id: 'test-negative-decimal',
@@ -103,7 +111,8 @@ export const KNOWN_DIFFERENCES: readonly KnownDifference[] = [
   {
     id: 'test-pattern-two-constructs',
     readmeAnchor: 'A comparison right side with TWO substitutions or quotes',
-    summary: '*${x}*${y} / *"s"*"t" — the reference recovers with a nested binary_expression; shapes differ.',
+    summary:
+      '*${x}*${y} / *"s"*"t" — the reference recovers with a nested binary_expression; shapes differ.',
   },
   {
     id: 'string-content-newlines',
@@ -113,22 +122,26 @@ export const KNOWN_DIFFERENCES: readonly KnownDifference[] = [
   {
     id: 'expansion-bang-hash-special',
     readmeAnchor: '`${!# }` and `${!## }`',
-    summary: 'Pathological ${!#…} forms: the reference recovers with zero-width tokens; shapes differ.',
+    summary:
+      'Pathological ${!#…} forms: the reference recovers with zero-width tokens; shapes differ.',
   },
   {
     id: 'number-base-with-expansion',
     readmeAnchor: 'A base prefix fused with an expansion (`10#${x}`)',
-    summary: 'The reference wraps the whole thing in a number node (a quirk); this parser a concatenation.',
+    summary:
+      'The reference wraps the whole thing in a number node (a quirk); this parser a concatenation.',
   },
   {
     id: 'expansion-default-array',
     readmeAnchor: '`${v:-(default)}`',
-    summary: 'A parenthesized default value is a word here; the reference parses an array node (a quirk).',
+    summary:
+      'A parenthesized default value is a word here; the reference parses an array node (a quirk).',
   },
   {
     id: 'escaped-space-argument',
     readmeAnchor: 'An escaped space or tab between arguments',
-    summary: 'The reference drops escaped spaces/tabs as extras (its tree has gaps, words split); this parser keeps them in the word.',
+    summary:
+      'The reference drops escaped spaces/tabs as extras (its tree has gaps, words split); this parser keeps them in the word.',
   },
   {
     id: 'expansion-equals-operator',
@@ -138,32 +151,38 @@ export const KNOWN_DIFFERENCES: readonly KnownDifference[] = [
   {
     id: 'dollar-backtick-substitution',
     readmeAnchor: 'A `$` directly fused with a backtick substitution',
-    summary: '$`cmd` is one command_substitution with a $` token in the reference; here $ + command_substitution.',
+    summary:
+      '$`cmd` is one command_substitution with a $` token in the reference; here $ + command_substitution.',
   },
   {
     id: 'cfor-compound-assign-negative',
     readmeAnchor: 'A negative literal after a compound assignment in a c-style for header',
-    summary: 'j *= -1: the reference folds the sign into a number "-1"; this parser a unary_expression.',
+    summary:
+      'j *= -1: the reference folds the sign into a number "-1"; this parser a unary_expression.',
   },
   {
     id: 'case-short-option-pattern',
     readmeAnchor: 'A single-dash short-option case pattern',
-    summary: '-o) is a word here (its usual reference form); the reference flips to extglob_pattern in some scanner states.',
+    summary:
+      '-o) is a word here (its usual reference form); the reference flips to extglob_pattern in some scanner states.',
   },
   {
     id: 'case-pattern-after-continuation',
     readmeAnchor: 'A case pattern directly after a line continuation',
-    summary: 'A pattern after \\<newline> is a word in the reference (scanner-state quirk); a continuation INSIDE a pattern is an error there. This parser classifies by content and keeps continuations.',
+    summary:
+      'A pattern after \\<newline> is a word in the reference (scanner-state quirk); a continuation INSIDE a pattern is an error there. This parser classifies by content and keeps continuations.',
   },
   {
     id: 'nonascii-identifier-assignment',
     readmeAnchor: 'A non-ASCII “identifier” in assignment position',
-    summary: '变量=值 is a hasError variable_assignment in the reference; this parser keeps it a plain command word (bash itself rejects such names).',
+    summary:
+      '变量=值 is a hasError variable_assignment in the reference; this parser keeps it a plain command word (bash itself rejects such names).',
   },
   {
     id: 'case-rejected-group',
     readmeAnchor: 'An extglob group the reference rejects in a case pattern',
-    summary: 'x@(y)): the reference reparses the group as a new case item; this parser degrades the whole pattern to ERROR.',
+    summary:
+      'x@(y)): the reference reparses the group as a new case item; this parser degrades the whole pattern to ERROR.',
   },
   {
     id: 'expansion-replacement-escaped-backslash',
@@ -172,7 +191,9 @@ export const KNOWN_DIFFERENCES: readonly KnownDifference[] = [
   },
 ];
 
-const KNOWN_DIFFERENCE_IDS: ReadonlySet<string> = new Set(KNOWN_DIFFERENCES.map((entry) => entry.id));
+const KNOWN_DIFFERENCE_IDS: ReadonlySet<string> = new Set(
+  KNOWN_DIFFERENCES.map((entry) => entry.id),
+);
 
 export function isKnownDifferenceId(id: string): boolean {
   return KNOWN_DIFFERENCE_IDS.has(id);

@@ -30,11 +30,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { configureTextBuildWorkerRuntime } from '@moonshot-ai/minidb/worker-runtime';
 
 import { GlobalSearchError, type GlobalSearchErrorReason } from '../contract.ts';
-import {
-  SearchIndexCore,
-  type CoreSearchParams,
-  type SyncSessionInput,
-} from '../indexCore.ts';
+import { SearchIndexCore, type CoreSearchParams, type SyncSessionInput } from '../indexCore.ts';
 import {
   SEARCH_WORKER_PROTOCOL_VERSION,
   type SearchWorkerData,

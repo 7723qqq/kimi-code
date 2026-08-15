@@ -4,34 +4,38 @@
      Includes focus trap, Esc-to-close, and optional overlay-click-to-close. -->
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import { openDialogCount } from '../../composables/dialogStack';
-import IconButton from './IconButton.vue';
-import Icon from './Icon.vue';
 
-const props = withDefaults(defineProps<{
-  open: boolean;
-  title?: string;
-  description?: string;
-  closeOnOverlay?: boolean;
-  closeOnEsc?: boolean;
-  /** md 440 (default) · lg 640 · xl 760 (var(--p-content-max)). */
-  size?: 'md' | 'lg' | 'xl';
-  /** auto (default) = height tracks content up to max-height; fixed = constant
-   *  height so the frame never resizes between tabs/content (body scrolls). */
-  height?: 'auto' | 'fixed';
-  /** When false, the body has no padding so the consumer controls layout
-   *  (e.g. a full-bleed side-nav). */
-  padded?: boolean;
-  /** Element (or selector / resolver) to receive focus when the dialog opens.
-   *  Falls back to the first focusable element, then the dialog panel. */
-  initialFocus?: HTMLElement | string | (() => HTMLElement | null | undefined);
-}>(), {
-  closeOnOverlay: true,
-  closeOnEsc: true,
-  size: 'md',
-  height: 'auto',
-  padded: true,
-});
+import { openDialogCount } from '../../composables/dialogStack';
+import Icon from './Icon.vue';
+import IconButton from './IconButton.vue';
+
+const props = withDefaults(
+  defineProps<{
+    open: boolean;
+    title?: string;
+    description?: string;
+    closeOnOverlay?: boolean;
+    closeOnEsc?: boolean;
+    /** md 440 (default) · lg 640 · xl 760 (var(--p-content-max)). */
+    size?: 'md' | 'lg' | 'xl';
+    /** auto (default) = height tracks content up to max-height; fixed = constant
+     *  height so the frame never resizes between tabs/content (body scrolls). */
+    height?: 'auto' | 'fixed';
+    /** When false, the body has no padding so the consumer controls layout
+     *  (e.g. a full-bleed side-nav). */
+    padded?: boolean;
+    /** Element (or selector / resolver) to receive focus when the dialog opens.
+     *  Falls back to the first focusable element, then the dialog panel. */
+    initialFocus?: HTMLElement | string | (() => HTMLElement | null | undefined);
+  }>(),
+  {
+    closeOnOverlay: true,
+    closeOnEsc: true,
+    size: 'md',
+    height: 'auto',
+    padded: true,
+  },
+);
 
 const emit = defineEmits<{
   'update:open': [value: boolean];
@@ -137,7 +141,10 @@ onBeforeUnmount(() => {
       <div
         ref="panel"
         class="ui-dialog"
-        :class="[`ui-dialog--${size}`, { 'ui-dialog--flush': !padded, 'ui-dialog--fixed-height': height === 'fixed' }]"
+        :class="[
+          `ui-dialog--${size}`,
+          { 'ui-dialog--flush': !padded, 'ui-dialog--fixed-height': height === 'fixed' },
+        ]"
         role="dialog"
         aria-modal="true"
         tabindex="-1"
@@ -173,8 +180,12 @@ onBeforeUnmount(() => {
   animation: kimi-dialog-overlay-in var(--duration-base) var(--ease-out);
 }
 @keyframes kimi-dialog-overlay-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 .ui-dialog {
   max-height: calc(100vh - var(--space-8) * 2);
@@ -188,27 +199,53 @@ onBeforeUnmount(() => {
   overflow: hidden;
   animation: kimi-card-in var(--duration-slow) var(--ease-out);
 }
-.ui-dialog--md { width: min(440px, 100%); }
-.ui-dialog--lg { width: min(640px, 100%); }
-.ui-dialog--xl { width: min(var(--p-content-max), 100%); }
-.ui-dialog--fixed-height { height: min(680px, calc(100vh - var(--space-8) * 2)); }
-.ui-dialog--flush .ui-dialog__body { padding: 0; }
+.ui-dialog--md {
+  width: min(440px, 100%);
+}
+.ui-dialog--lg {
+  width: min(640px, 100%);
+}
+.ui-dialog--xl {
+  width: min(var(--p-content-max), 100%);
+}
+.ui-dialog--fixed-height {
+  height: min(680px, calc(100vh - var(--space-8) * 2));
+}
+.ui-dialog--flush .ui-dialog__body {
+  padding: 0;
+}
 .ui-dialog__head {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
   padding: 20px 22px 14px;
 }
-.ui-dialog__titles { flex: 1; min-width: 0; }
+.ui-dialog__titles {
+  flex: 1;
+  min-width: 0;
+}
 .ui-dialog__title {
   font-size: var(--text-lg);
   font-weight: 500;
   color: var(--color-text);
   line-height: var(--leading-tight);
 }
-.ui-dialog__desc { margin-top: 4px; font-size: var(--text-base); color: var(--color-text-muted); }
-.ui-dialog__close { flex: none; margin-top: -2px; }
-.ui-dialog__body { flex: 1; min-height: 0; padding: 4px 22px 18px; color: var(--color-text); overflow: auto; }
+.ui-dialog__desc {
+  margin-top: 4px;
+  font-size: var(--text-base);
+  color: var(--color-text-muted);
+}
+.ui-dialog__close {
+  flex: none;
+  margin-top: -2px;
+}
+.ui-dialog__body {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 22px 18px;
+  color: var(--color-text);
+  overflow: auto;
+}
 .ui-dialog__foot {
   display: flex;
   align-items: center;

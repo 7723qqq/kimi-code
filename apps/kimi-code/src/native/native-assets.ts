@@ -12,9 +12,11 @@ import {
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, win32 as pathWin32 } from 'node:path';
+
 import { join as joinPosix } from 'pathe';
 
 import { KIMI_BUILD_INFO } from '#/cli/build-info';
+
 import {
   KAP_SEARCH_WORKER_ASSET,
   MINIDB_TEXT_BUILD_WORKER_ASSET,
@@ -151,14 +153,18 @@ function validateAssetFile(
   relativePaths.add(portableRelativePath);
   const fileSha256 = file['sha256'];
   if (typeof fileSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(fileSha256)) {
-    throw new Error(`Invalid native asset manifest: ${label}.sha256 must be 64 lowercase hex characters`);
+    throw new Error(
+      `Invalid native asset manifest: ${label}.sha256 must be 64 lowercase hex characters`,
+    );
   }
   const mode = file['mode'];
   if (
     mode !== undefined &&
     (!Number.isInteger(mode) || (mode as number) < 0 || (mode as number) > 0o777)
   ) {
-    throw new Error(`Invalid native asset manifest: ${label}.mode must be an integer between 0 and 0777`);
+    throw new Error(
+      `Invalid native asset manifest: ${label}.mode must be an integer between 0 and 0777`,
+    );
   }
   return {
     assetKey,
@@ -240,7 +246,12 @@ export function validateNativeAssetManifest(
 function resolveAssetPath(cacheRoot: string, relativePath: string): string {
   const path = resolve(cacheRoot, ...relativePath.split(/[\\/]/));
   const fromRoot = relative(cacheRoot, path);
-  if (fromRoot === '..' || fromRoot.startsWith('../') || fromRoot.startsWith('..\\') || isAbsolute(fromRoot)) {
+  if (
+    fromRoot === '..' ||
+    fromRoot.startsWith('../') ||
+    fromRoot.startsWith('..\\') ||
+    isAbsolute(fromRoot)
+  ) {
     throw new Error(`Native asset path escapes cache root: ${relativePath}`);
   }
   return path;
@@ -367,17 +378,13 @@ export function ensureNativeAssetTree(options: NativeAssetOptions = {}): string 
   const source = options.source ?? getSeaAssetSource();
   if (source === null) return null;
 
-  const rawManifest =
-    options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
+  const rawManifest = options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
   if (rawManifest === null) return null;
   const manifest = validateNativeAssetManifest(rawManifest);
 
   const cacheRoot = getNativeAssetCacheRoot(rawManifest, options);
   const sourceKeys = new Set(source.getAssetKeys());
-  const files = [
-    ...manifest.packages.flatMap((pkg) => pkg.files),
-    ...manifest.runtimeFiles,
-  ];
+  const files = [...manifest.packages.flatMap((pkg) => pkg.files), ...manifest.runtimeFiles];
   for (const file of files) {
     if (!sourceKeys.has(file.assetKey)) {
       throw new Error(`Native asset is missing: ${file.assetKey}`);
@@ -395,15 +402,11 @@ export function ensureNativeAssetTree(options: NativeAssetOptions = {}): string 
   return cacheRoot;
 }
 
-export function getNativeRuntimeFile(
-  key: string,
-  options: NativeAssetOptions = {},
-): string | null {
+export function getNativeRuntimeFile(key: string, options: NativeAssetOptions = {}): string | null {
   const source = options.source ?? getSeaAssetSource();
   if (source === null) return null;
 
-  const rawManifest =
-    options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
+  const rawManifest = options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
   if (rawManifest === null) return null;
   const manifest = validateNativeAssetManifest(rawManifest);
 
@@ -414,9 +417,7 @@ export function getNativeRuntimeFile(
   return cacheRoot === null ? null : resolveAssetPath(cacheRoot, file.relativePath);
 }
 
-export function getMinidbTextBuildWorkerFile(
-  options: NativeAssetOptions = {},
-): string | null {
+export function getMinidbTextBuildWorkerFile(options: NativeAssetOptions = {}): string | null {
   return getNativeRuntimeFile(MINIDB_TEXT_BUILD_WORKER_ASSET.key, options);
 }
 
@@ -431,8 +432,7 @@ export function getNativePackageRoot(
   const source = options.source ?? getSeaAssetSource();
   if (source === null) return null;
 
-  const rawManifest =
-    options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
+  const rawManifest = options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
   if (rawManifest === null) return null;
   const manifest = validateNativeAssetManifest(rawManifest);
 

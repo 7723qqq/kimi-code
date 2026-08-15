@@ -1,14 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { setLocale } from '@moonshot-ai/kimi-i18n';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
+import { DiscussionContext } from '#/agent/discussion/context';
+import { SwarmDiscussionCoordinator } from '#/agent/discussion/coordinator';
+import { StructuredDebateCoordinator } from '#/agent/discussion/debate-coordinator';
 import type { TokenUsage } from '#/kosong/contract/usage';
 import type {
   PersistentSubagentHost,
   PersistentSubagentSpawnOptions,
 } from '#/session/subagent/persistentSubagent';
-import { SwarmDiscussionCoordinator } from '#/agent/discussion/coordinator';
-import { StructuredDebateCoordinator } from '#/agent/discussion/debate-coordinator';
-import { DiscussionContext } from '#/agent/discussion/context';
 
 interface StubHostState {
   readonly host: PersistentSubagentHost;
@@ -64,7 +64,12 @@ function createStubHost(
   };
 }
 
-const ZERO_USAGE: TokenUsage = { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 };
+const ZERO_USAGE: TokenUsage = {
+  inputOther: 0,
+  output: 0,
+  inputCacheRead: 0,
+  inputCacheCreation: 0,
+};
 
 function sumUsage(...usages: readonly TokenUsage[]): TokenUsage {
   return usages.reduce<TokenUsage>(
@@ -147,8 +152,18 @@ describe('SwarmDiscussionCoordinator', () => {
   });
 
   it('runs round-robin rounds, aggregates usage, and destroys all participants', async () => {
-    const usageA: TokenUsage = { inputOther: 100, output: 50, inputCacheRead: 10, inputCacheCreation: 5 };
-    const usageB: TokenUsage = { inputOther: 200, output: 80, inputCacheRead: 20, inputCacheCreation: 0 };
+    const usageA: TokenUsage = {
+      inputOther: 100,
+      output: 50,
+      inputCacheRead: 10,
+      inputCacheCreation: 5,
+    };
+    const usageB: TokenUsage = {
+      inputOther: 200,
+      output: 80,
+      inputCacheRead: 20,
+      inputCacheCreation: 0,
+    };
     const stub = createStubHost({ usages: { 'agent-0': usageA, 'agent-1': usageB } });
     const coordinator = new SwarmDiscussionCoordinator(stub.host);
 
@@ -178,12 +193,16 @@ describe('SwarmDiscussionCoordinator', () => {
 
     // First turn prompt: role + topic + first-speaker hint
     expect(stub.turns[0]!.prompt).toContain('[System] Your role:\nYou are a database researcher.');
-    expect(stub.turns[0]!.prompt).toContain('Discussion topic:\nHow should we optimize the database?');
+    expect(stub.turns[0]!.prompt).toContain(
+      'Discussion topic:\nHow should we optimize the database?',
+    );
     expect(stub.turns[0]!.prompt).toContain('You are the first to speak.');
 
     // Later turn prompt: full transcript + continuation hint
     expect(stub.turns[1]!.prompt).toContain('[coder] Speech 0 from agent-0');
-    expect(stub.turns[1]!.prompt).toContain('Continue the discussion based on what has been said so far.');
+    expect(stub.turns[1]!.prompt).toContain(
+      'Continue the discussion based on what has been said so far.',
+    );
 
     expect(result.transcript).toHaveLength(4);
     expect(result.transcript[0]).toMatchObject({ speaker: 'coder', round: 1 });

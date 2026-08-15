@@ -16,11 +16,12 @@ import {
   visibleWidth,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
+
+import { t } from '#/i18n';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme, type ColorToken } from '#/tui/theme';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
-import { t } from '#/i18n';
 
 export interface ChoiceOption {
   /** Value passed to onSelect (e.g. the actual editor command string). */
@@ -139,7 +140,9 @@ export class ChoicePickerComponent extends Container implements Focusable {
     const hint = this.opts.hint ?? t('tui.dialogs.choicePicker.navHint');
 
     const titleSuffix =
-      searchable && view.query.length === 0 ? currentTheme.fg('textMuted', `  (${t('tui.dialogs.choicePicker.searchHint')})`) : '';
+      searchable && view.query.length === 0
+        ? currentTheme.fg('textMuted', `  (${t('tui.dialogs.choicePicker.searchHint')})`)
+        : '';
     const hintLines = hint.split(/\r?\n/);
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
@@ -194,7 +197,8 @@ export class ChoicePickerComponent extends Container implements Focusable {
     lines.push('');
     if (view.page.pageCount > 1) {
       lines.push(
-        currentTheme.fg('textMuted',
+        currentTheme.fg(
+          'textMuted',
           ` ${t('tui.dialogs.choicePicker.page', { page: view.page.page + 1, pageCount: view.page.pageCount })}`,
         ),
       );
@@ -204,10 +208,7 @@ export class ChoicePickerComponent extends Container implements Focusable {
   }
 }
 
-function optionLabelStyle(
-  option: ChoiceOption,
-  selected: boolean,
-): (text: string) => string {
+function optionLabelStyle(option: ChoiceOption, selected: boolean): (text: string) => string {
   if (option.tone === 'danger') {
     return selected
       ? (text) => currentTheme.boldFg('error', text)

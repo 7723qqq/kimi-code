@@ -11,14 +11,14 @@
  * rubber-stamping.
  */
 
+import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IEventBus } from '#/app/event/eventBus';
-import { createDecorator } from '#/_base/di/instantiation';
+import { LifecycleScope } from '#/app/scopes';
 import type { Message } from '#/kosong/contract/message';
 
 export const GUARDIAN_REVIEW_MAX_TOKENS = 256;
@@ -152,8 +152,7 @@ export class GuardianService extends Disposable implements IAgentGuardianService
         : {
             verdict: 'deny',
             riskLevel: assessment?.riskLevel ?? 'high',
-            rationale:
-              assessment?.rationale ?? 'guardian verdict unparseable — treated as deny',
+            rationale: assessment?.rationale ?? 'guardian verdict unparseable — treated as deny',
           };
 
     if (verdict.verdict === 'deny') this.recordDenial();

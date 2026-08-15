@@ -30,16 +30,21 @@
  * expression parsing and timestamp formatting. Bound at Agent scope.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import type { ToolExecution } from '#/tool/toolContract';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import {
+  computeNextCronRun,
+  cronToHuman,
+  hasFireWithinYears,
+  parseCronExpression,
+  type ParsedCronExpression,
+} from '#/app/cron/cron-expr';
+import { formatLocalIsoWithOffset } from '#/app/cron/format';
+import { LifecycleScope } from '#/app/scopes';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern } from '#/tool/rule-match';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { ISessionCronService } from '#/session/cron/sessionCronService';
-import { computeNextCronRun, cronToHuman, hasFireWithinYears, parseCronExpression, type ParsedCronExpression } from '#/app/cron/cron-expr';
-import { formatLocalIsoWithOffset } from '#/app/cron/format';
+import type { ToolExecution } from '#/tool/toolContract';
 
 import {
   ICronCreateTool,
@@ -51,7 +56,6 @@ import {
 } from './cron-create';
 import CRON_CREATE_DESCRIPTION from './cron-create.md?raw';
 
-
 const ONE_SHOT_MAX_FUTURE_MS = 350 * 24 * 60 * 60 * 1000;
 
 export class CronCreateTool implements ICronCreateTool {
@@ -59,9 +63,7 @@ export class CronCreateTool implements ICronCreateTool {
 
   readonly name = 'CronCreate' as const;
   readonly description = CRON_CREATE_DESCRIPTION;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(
-    CronCreateInputSchema,
-  );
+  readonly parameters: Record<string, unknown> = toInputJsonSchema(CronCreateInputSchema);
 
   constructor(
     @ISessionCronService private readonly cron: ISessionCronService,
@@ -81,12 +83,10 @@ export class CronCreateTool implements ICronCreateTool {
     let parsed: ParsedCronExpression;
     try {
       parsed = parseCronExpression(normalizedCron);
-    } catch (err) {
+    } catch (error) {
       return {
         isError: true,
-        output: `Invalid cron expression: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        output: `Invalid cron expression: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
 
@@ -103,9 +103,7 @@ export class CronCreateTool implements ICronCreateTool {
     if (this.cron.list().length >= MAX_CRON_JOBS_PER_SESSION) {
       return {
         isError: true,
-        output: `Cron job cap reached (max ${String(
-          MAX_CRON_JOBS_PER_SESSION,
-        )} per session).`,
+        output: `Cron job cap reached (max ${String(MAX_CRON_JOBS_PER_SESSION)} per session).`,
       };
     }
 
@@ -113,9 +111,7 @@ export class CronCreateTool implements ICronCreateTool {
     if (byteLen > MAX_PROMPT_BYTES) {
       return {
         isError: true,
-        output: `Prompt exceeds ${String(
-          MAX_PROMPT_BYTES,
-        )} bytes (got ${String(byteLen)}).`,
+        output: `Prompt exceeds ${String(MAX_PROMPT_BYTES)} bytes (got ${String(byteLen)}).`,
       };
     }
 
@@ -123,10 +119,7 @@ export class CronCreateTool implements ICronCreateTool {
 
     if (!recurring) {
       const firstFire = computeNextCronRun(parsed, nowAtPrepare);
-      if (
-        firstFire !== null &&
-        firstFire - nowAtPrepare > ONE_SHOT_MAX_FUTURE_MS
-      ) {
+      if (firstFire !== null && firstFire - nowAtPrepare > ONE_SHOT_MAX_FUTURE_MS) {
         return {
           isError: true,
           output: `One-shot cron ${JSON.stringify(
@@ -156,9 +149,7 @@ export class CronCreateTool implements ICronCreateTool {
         if (this.cron.list().length >= MAX_CRON_JOBS_PER_SESSION) {
           return {
             isError: true,
-            output: `Cron job cap reached (max ${String(
-              MAX_CRON_JOBS_PER_SESSION,
-            )} per session).`,
+            output: `Cron job cap reached (max ${String(MAX_CRON_JOBS_PER_SESSION)} per session).`,
           };
         }
 
@@ -199,9 +190,7 @@ function formatOutput(o: CronCreateOutput): string {
     `cron: ${o.cron}`,
     `humanSchedule: ${o.humanSchedule}`,
     `recurring: ${String(o.recurring)}`,
-    `nextFireAt: ${
-      o.nextFireAt === null ? 'null' : formatLocalIsoWithOffset(o.nextFireAt)
-    }`,
+    `nextFireAt: ${o.nextFireAt === null ? 'null' : formatLocalIsoWithOffset(o.nextFireAt)}`,
   ];
   return lines.join('\n');
 }

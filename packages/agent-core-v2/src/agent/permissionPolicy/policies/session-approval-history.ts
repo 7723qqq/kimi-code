@@ -1,10 +1,7 @@
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
 import { matchPermissionRule } from '#/agent/permissionRules/matchesRule';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
-import type {
-  PermissionPolicy,
-  PermissionPolicyResult,
-} from '#/agent/permissionPolicy/types';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 
 export class SessionApprovalHistoryPermissionPolicyService implements PermissionPolicy {
   readonly name = 'session-approval-history';

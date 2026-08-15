@@ -33,9 +33,7 @@ function middleOf(efforts: readonly string[]): string {
  *  - effort model          → defaultEffort, else the middle declared effort
  *  - boolean model         → 'on'
  */
-export function defaultThinkingLevelFor(
-  model: ModelThinkingInfo | undefined,
-): ThinkingLevel {
+export function defaultThinkingLevelFor(model: ModelThinkingInfo | undefined): ThinkingLevel {
   if (modelThinkingAvailability(model) === 'unsupported') return 'off';
   const efforts = effortsOf(model);
   if (efforts.length > 0) return model?.defaultEffort ?? middleOf(efforts);
@@ -71,10 +69,7 @@ export function isThinkingOn(level: ThinkingLevel): boolean {
 }
 
 /** True when the level is selectable for the model (one of its UI segments). */
-export function levelDeclaredBy(
-  model: ModelThinkingInfo | undefined,
-  level: string,
-): boolean {
+export function levelDeclaredBy(model: ModelThinkingInfo | undefined, level: string): boolean {
   return segmentsFor(model).includes(level);
 }
 
@@ -82,10 +77,7 @@ export function levelDeclaredBy(
  * Normalize a UI draft before it crosses the component boundary. 'on' never
  * leaks out of the control — it becomes the model's default level.
  */
-export function commitLevel(
-  model: ModelThinkingInfo | undefined,
-  draft: string,
-): ThinkingLevel {
+export function commitLevel(model: ModelThinkingInfo | undefined, draft: string): ThinkingLevel {
   if (draft === 'off') return 'off';
   if (draft === 'on') return defaultThinkingLevelFor(model);
   return draft;

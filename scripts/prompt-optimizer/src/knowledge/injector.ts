@@ -40,14 +40,18 @@ const DEFAULT_CONFIG: InjectorConfig = {
  * Extract search signals from the current context.
  * Combines file paths (for scope matching) and user message keywords (for FTS).
  */
-function extractSearchSignals(ctx: InjectorContext): { query: string; scopePath?: string; tags: string[] } {
+function extractSearchSignals(ctx: InjectorContext): {
+  query: string;
+  scopePath?: string;
+  tags: string[];
+} {
   // Use the most specific file path as scope
   const scopePath = ctx.filePaths.length > 0 ? ctx.filePaths[0] : undefined;
 
   // Extract keywords from user message (simple: first 50 chars, split on spaces)
   const words = ctx.userMessage
     .slice(0, 200)
-    .replace(/[`"'()[\]{}]/g, ' ')
+    .replaceAll(/[`"'()[\]{}]/g, ' ')
     .split(/\s+/)
     .filter((w) => w.length > 2);
   const query = words.slice(0, 10).join(' ');

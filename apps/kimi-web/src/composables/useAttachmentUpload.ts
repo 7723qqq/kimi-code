@@ -12,6 +12,7 @@
 // paste listener + object-URL cleanup lifecycle.
 
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+
 import { getKimiWebApi } from '../api';
 
 export interface Attachment {
@@ -68,7 +69,11 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
 
   function revokeAttachment(att: Attachment): void {
     if (att.previewUrl === undefined) return;
-    try { URL.revokeObjectURL(att.previewUrl); } catch { /* ignore */ }
+    try {
+      URL.revokeObjectURL(att.previewUrl);
+    } catch {
+      /* ignore */
+    }
   }
 
   function attachmentKind(mime: string): 'image' | 'video' | 'file' {
@@ -105,31 +110,35 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
       setForSession(sid, [...(attachmentsBySession.value[sid] ?? []), att]);
 
       // Upload in background; update the attachment when done.
-      upload(file, file.name).then((result) => {
-        const current = attachmentsBySession.value[sid] ?? [];
-        setForSession(
-          sid,
-          current.map((a) =>
-            a.localId === localId
-              ? {
-                  ...a,
-                  uploading: false,
-                  fileId: result?.fileId,
-                  // Adopt the server-recorded MIME when available — the
-                  // server's file meta is what the prompt route reads.
-                  mediaType: result?.mediaType ?? a.mediaType,
-                  error: result === null,
-                }
-              : a,
-          ),
-        );
-      }).catch(() => {
-        const current = attachmentsBySession.value[sid] ?? [];
-        setForSession(
-          sid,
-          current.map((a) => (a.localId === localId ? { ...a, uploading: false, error: true } : a)),
-        );
-      });
+      upload(file, file.name)
+        .then((result) => {
+          const current = attachmentsBySession.value[sid] ?? [];
+          setForSession(
+            sid,
+            current.map((a) =>
+              a.localId === localId
+                ? {
+                    ...a,
+                    uploading: false,
+                    fileId: result?.fileId,
+                    // Adopt the server-recorded MIME when available — the
+                    // server's file meta is what the prompt route reads.
+                    mediaType: result?.mediaType ?? a.mediaType,
+                    error: result === null,
+                  }
+                : a,
+            ),
+          );
+        })
+        .catch(() => {
+          const current = attachmentsBySession.value[sid] ?? [];
+          setForSession(
+            sid,
+            current.map((a) =>
+              a.localId === localId ? { ...a, uploading: false, error: true } : a,
+            ),
+          );
+        });
     }
   }
 
@@ -139,7 +148,10 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
     const att = current.find((a) => a.localId === localId);
     if (previewAttachment.value?.localId === localId) previewAttachment.value = null;
     if (att) revokeAttachment(att);
-    setForSession(sid, current.filter((a) => a.localId !== localId));
+    setForSession(
+      sid,
+      current.filter((a) => a.localId !== localId),
+    );
   }
 
   function openAttachmentPreview(att: Attachment): void {
@@ -186,7 +198,8 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
     for (const item of Array.from(cd.items)) {
       if (item.kind === 'file') {
         const blob = item.getAsFile();
-        if (blob) addBlob(blob, blob.name || `paste-${Date.now()}.${item.type.split('/')[1] ?? 'png'}`);
+        if (blob)
+          addBlob(blob, blob.name || `paste-${Date.now()}.${item.type.split('/')[1] ?? 'png'}`);
       }
     }
 
@@ -299,7 +312,9 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
    *  fetch an authenticated blob URL so the thumbnail doesn't 401. Replaces any
    *  unsent draft attachments (mirroring loadForEdit(text), which overwrites) so
    *  a later submit sends exactly the edited message's files, not a mix. */
-  function loadAttachments(atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[]): void {
+  function loadAttachments(
+    atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[],
+  ): void {
     const sid = sessionId() ?? '';
     for (const existing of attachmentsBySession.value[sid] ?? []) revokeAttachment(existing);
     setForSession(sid, []);
@@ -322,17 +337,20 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
         };
         setForSession(sid, [...(attachmentsBySession.value[sid] ?? []), entry]);
         if (att.kind !== 'file' && !isData && !isBlob) {
-          void getKimiWebApi().getFileBlob(att.fileId).then((blob) => {
-            const blobUrl = URL.createObjectURL(blob);
-            const current = attachmentsBySession.value[sid] ?? [];
-            if (!current.some((a) => a.localId === localId)) {
-              URL.revokeObjectURL(blobUrl);
-              return;
-            }
-            patchAttachment(sid, localId, { previewUrl: blobUrl });
-          }).catch(() => {
-            // Keep the fallback previewUrl (honest broken state if it 401s).
-          });
+          void getKimiWebApi()
+            .getFileBlob(att.fileId)
+            .then((blob) => {
+              const blobUrl = URL.createObjectURL(blob);
+              const current = attachmentsBySession.value[sid] ?? [];
+              if (!current.some((a) => a.localId === localId)) {
+                URL.revokeObjectURL(blobUrl);
+                return;
+              }
+              patchAttachment(sid, localId, { previewUrl: blobUrl });
+            })
+            .catch(() => {
+              // Keep the fallback previewUrl (honest broken state if it 401s).
+            });
         }
       } else {
         // No fileId (e.g. a server-base64-inlined image, or a URL-backed source
@@ -362,14 +380,20 @@ export function useAttachmentUpload(deps: AttachmentUploadDeps) {
           .then((result) => {
             if (result === null) {
               const current = attachmentsBySession.value[sid] ?? [];
-              setForSession(sid, current.filter((a) => a.localId !== localId));
+              setForSession(
+                sid,
+                current.filter((a) => a.localId !== localId),
+              );
               return;
             }
             patchAttachment(sid, localId, { uploading: false, fileId: result.fileId });
           })
           .catch(() => {
             const current = attachmentsBySession.value[sid] ?? [];
-            setForSession(sid, current.filter((a) => a.localId !== localId));
+            setForSession(
+              sid,
+              current.filter((a) => a.localId !== localId),
+            );
           });
       }
     }

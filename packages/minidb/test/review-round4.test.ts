@@ -1,3 +1,8 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 // Regression tests for the fourth deep-review round:
 //   A) Text AND search must be empty when any query term is absent.
 //   B) Query $regex must not be fooled by stateful (global/sticky) RegExp.
@@ -5,10 +10,7 @@
 //   D) Equality index must match objects regardless of property order.
 //   E) Index query methods must exclude expired keys (no ghost entries).
 import { test } from 'vitest';
-import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
+
 import { MiniDb } from '../src/index.js';
 
 async function tmpDir() {
@@ -25,12 +27,24 @@ test('text AND search is empty when a query term is absent', async () => {
     await db.set('a', { bio: 'hello world' });
     await db.set('b', { bio: 'hello there' });
     // 'zzznope' is in no document, so a true AND must yield nothing.
-    assert.deepEqual(db.search('bio', 'hello zzznope', { op: 'AND' }).map((r) => r.key), []);
-    assert.deepEqual(db.search('bio', 'zzznope hello', { op: 'AND' }).map((r) => r.key), []);
+    assert.deepEqual(
+      db.search('bio', 'hello zzznope', { op: 'AND' }).map((r) => r.key),
+      [],
+    );
+    assert.deepEqual(
+      db.search('bio', 'zzznope hello', { op: 'AND' }).map((r) => r.key),
+      [],
+    );
     // Default operator is AND.
-    assert.deepEqual(db.search('bio', 'hello zzznope').map((r) => r.key), []);
+    assert.deepEqual(
+      db.search('bio', 'hello zzznope').map((r) => r.key),
+      [],
+    );
     // Sanity: when every term is present the intersection is correct.
-    assert.deepEqual(db.search('bio', 'hello world', { op: 'AND' }).map((r) => r.key), ['a']);
+    assert.deepEqual(
+      db.search('bio', 'hello world', { op: 'AND' }).map((r) => r.key),
+      ['a'],
+    );
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -63,12 +77,21 @@ test('range index dedupes repeated array elements', async () => {
   await db.createIndex('byScore', { field: 'scores', type: 'range' });
   try {
     await db.set('a', { scores: [10, 10, 10] });
-    assert.deepEqual(db.findRange('byScore', { min: 10, max: 10 }).map((r) => r.key), ['a']);
+    assert.deepEqual(
+      db.findRange('byScore', { min: 10, max: 10 }).map((r) => r.key),
+      ['a'],
+    );
     assert.equal(db.findRange('byScore', { min: 0, max: 100 }).length, 1);
     // Updating the array must not leave stale duplicate nodes behind.
     await db.set('a', { scores: [20, 20] });
-    assert.deepEqual(db.findRange('byScore', { min: 10, max: 10 }).map((r) => r.key), []);
-    assert.deepEqual(db.findRange('byScore', { min: 20, max: 20 }).map((r) => r.key), ['a']);
+    assert.deepEqual(
+      db.findRange('byScore', { min: 10, max: 10 }).map((r) => r.key),
+      [],
+    );
+    assert.deepEqual(
+      db.findRange('byScore', { min: 20, max: 20 }).map((r) => r.key),
+      ['a'],
+    );
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -83,10 +106,16 @@ test('equality index matches objects regardless of key order', async () => {
   await db.createIndex('byMeta', { field: 'meta' });
   try {
     await db.set('k1', { meta: { a: 1, b: 2 } });
-    assert.deepEqual(db.findEq('byMeta', { b: 2, a: 1 }).map((r) => r.key), ['k1']);
+    assert.deepEqual(
+      db.findEq('byMeta', { b: 2, a: 1 }).map((r) => r.key),
+      ['k1'],
+    );
     // Nested objects must also be canonicalized.
     await db.set('k2', { meta: { nested: { x: 1, y: 2 } } });
-    assert.deepEqual(db.findEq('byMeta', { nested: { y: 2, x: 1 } }).map((r) => r.key), ['k2']);
+    assert.deepEqual(
+      db.findEq('byMeta', { nested: { y: 2, x: 1 } }).map((r) => r.key),
+      ['k2'],
+    );
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });

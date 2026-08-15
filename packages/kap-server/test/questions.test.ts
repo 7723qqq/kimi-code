@@ -11,8 +11,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -302,9 +302,7 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
     const sid = await createSession();
     const resultPromise: Promise<QuestionResult> = questionService(sid).request(makeRequest('q-4'));
 
-    const { body } = await postJson<DismissWire>(
-      `/api/v1/sessions/${sid}/questions/q-4:dismiss`,
-    );
+    const { body } = await postJson<DismissWire>(`/api/v1/sessions/${sid}/questions/q-4:dismiss`);
     expect(body.code).toBe(40909);
     expect(body.data.dismissed).toBe(true);
     expect(Number.isNaN(Date.parse(body.data.dismissed_at))).toBe(false);

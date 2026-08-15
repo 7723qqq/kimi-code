@@ -9,11 +9,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import AuthMedia from './AuthMedia.vue';
+
+import type { IconName } from '../../lib/icons';
 import Icon from '../ui/Icon.vue';
 import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
-import type { IconName } from '../../lib/icons';
+import AuthMedia from './AuthMedia.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -79,12 +80,7 @@ const title = computed(() => {
 </script>
 
 <template>
-  <span
-    class="att-chip"
-    :class="{ 'is-error': error, uploading }"
-    :title="title"
-    :data-kind="kind"
-  >
+  <span class="att-chip" :class="{ 'is-error': error, uploading }" :title="title" :data-kind="kind">
     <button type="button" class="att-activate" :aria-label="title" @click="emit('activate')">
       <span class="att-tile">
         <AuthMedia
@@ -104,7 +100,12 @@ const title = computed(() => {
       <span v-else-if="error" class="att-err"><Icon name="info" size="sm" /></span>
     </button>
     <Tooltip v-if="removable" :text="removeLabel ?? t('composer.remove')">
-      <button type="button" class="att-rm" :aria-label="removeLabel ?? t('composer.remove')" @click="emit('remove')">
+      <button
+        type="button"
+        class="att-rm"
+        :aria-label="removeLabel ?? t('composer.remove')"
+        @click="emit('remove')"
+      >
         <Icon name="close" size="sm" />
       </button>
     </Tooltip>

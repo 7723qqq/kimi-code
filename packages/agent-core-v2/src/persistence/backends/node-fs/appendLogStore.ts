@@ -15,15 +15,14 @@
  */
 
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { LifecycleScope } from '#/app/scopes';
 import {
   AppendLogCorruptedError,
   IAppendLogStore,
   type AppendLogOptions,
 } from '#/persistence/interface/appendLogStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 const textEncoder = new TextEncoder();
 

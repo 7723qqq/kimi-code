@@ -12,18 +12,19 @@ import {
 } from '@moonshot-ai/kimi-code-oauth';
 import { log } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
+
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/kimi-tui';
-import { t } from '#/i18n';
-import { formatErrorMessage } from '../utils/event-payload';
 import type { LoginProgressSpinnerHandle } from '../types';
+import { formatErrorMessage } from '../utils/event-payload';
+import type { SlashCommandHost } from './dispatch';
 import {
   promptApiKey,
   promptLogoutProviderSelection,
   promptModelSelectionForOpenPlatform,
   promptPlatformSelection,
 } from './prompts';
-import type { SlashCommandHost } from './dispatch';
 
 // ---------------------------------------------------------------------------
 // Auth: login / logout
@@ -83,7 +84,9 @@ async function handleKimiCodeOAuthLogin(host: SlashCommandHost): Promise<void> {
     const cancelled = controller.signal.aborted;
     spinner?.stop({
       ok: false,
-      label: cancelled ? t('tui.statusMessages.loginCancelled') : t('tui.statusMessages.loginFailed'),
+      label: cancelled
+        ? t('tui.statusMessages.loginCancelled')
+        : t('tui.statusMessages.loginFailed'),
     });
     spinner = undefined;
     if (cancelled) return;
@@ -112,9 +115,10 @@ async function handleOpenPlatformLogin(
   }
 
   const consoleHost = platform.consoleUrl?.replace(/^https?:\/\//, '') ?? '';
-  const platformName = consoleHost.length > 0
-        ? t('tui.statusMessages.kimiPlatformDisplayWithHost', { host: consoleHost })
-        : t('tui.statusMessages.kimiPlatformDisplay');
+  const platformName =
+    consoleHost.length > 0
+      ? t('tui.statusMessages.kimiPlatformDisplayWithHost', { host: consoleHost })
+      : t('tui.statusMessages.kimiPlatformDisplay');
   const subtitleLines = [
     `${'base_url'.padEnd(12)}${platform.baseUrl}`,
     `${t('tui.statusMessages.savedToLabel').padEnd(12)}~/.kimi-code/config.toml`,
@@ -136,10 +140,7 @@ async function handleOpenPlatformLogin(
     if (controller.signal.aborted) return;
     const msg = formatErrorMessage(error);
     host.showError(t('tui.statusMessages.failedToVerifyApiKey', { error: msg }));
-    if (
-      error instanceof OpenPlatformApiError &&
-      error.status === 401
-    ) {
+    if (error instanceof OpenPlatformApiError && error.status === 401) {
       host.showStatus(t('tui.statusMessages.hintUseKimiCodeInstead'));
     }
     return;
@@ -169,9 +170,7 @@ async function handleOpenPlatformLogin(
     selectedModel: selection.model,
     thinking: selection.thinking !== 'off',
     effort:
-      selection.thinking !== 'off' && selection.thinking !== 'on'
-        ? selection.thinking
-        : undefined,
+      selection.thinking !== 'off' && selection.thinking !== 'on' ? selection.thinking : undefined,
     apiKey,
   });
 
@@ -184,7 +183,12 @@ async function handleOpenPlatformLogin(
 
   await host.authFlow.refreshConfigAfterLogin();
   host.track('login', { provider: platform.id, method: 'api_key' });
-  host.showStatus(t('tui.statusMessages.setupComplete', { platformName: platform.name, modelId: selection.model.id }));
+  host.showStatus(
+    t('tui.statusMessages.setupComplete', {
+      platformName: platform.name,
+      modelId: selection.model.id,
+    }),
+  );
 }
 
 async function handleAstronPlatformLogin(
@@ -192,9 +196,10 @@ async function handleAstronPlatformLogin(
   platform: OpenPlatformDefinition,
 ): Promise<void> {
   const consoleHost = platform.consoleUrl?.replace(/^https?:\/\//, '') ?? '';
-  const platformName = consoleHost.length > 0
-        ? t('tui.statusMessages.kimiPlatformDisplayWithHost', { host: consoleHost })
-        : t('tui.statusMessages.kimiPlatformDisplay');
+  const platformName =
+    consoleHost.length > 0
+      ? t('tui.statusMessages.kimiPlatformDisplayWithHost', { host: consoleHost })
+      : t('tui.statusMessages.kimiPlatformDisplay');
   const subtitleLines = [
     `${'base_url'.padEnd(12)}${platform.baseUrl}`,
     `${t('tui.statusMessages.savedToLabel').padEnd(12)}~/.kimi-code/config.toml`,
@@ -215,19 +220,13 @@ async function handleAstronPlatformLogin(
       signal: controller.signal,
     });
     if (!res.ok) {
-      throw new OpenPlatformApiError(
-        `Failed to verify API key (HTTP ${res.status}).`,
-        res.status,
-      );
+      throw new OpenPlatformApiError(`Failed to verify API key (HTTP ${res.status}).`, res.status);
     }
   } catch (error) {
     if (controller.signal.aborted) return;
     const msg = formatErrorMessage(error);
     host.showError(t('tui.statusMessages.failedToVerifyApiKey', { error: msg }));
-    if (
-      error instanceof OpenPlatformApiError &&
-      error.status === 401
-    ) {
+    if (error instanceof OpenPlatformApiError && error.status === 401) {
       host.showStatus(t('tui.statusMessages.hintUseKimiCodeInstead'));
     }
     return;
@@ -295,7 +294,12 @@ async function handleAstronPlatformLogin(
 
   await host.authFlow.refreshConfigAfterLogin();
   host.track('login', { provider: platform.id, method: 'api_key' });
-  host.showStatus(t('tui.statusMessages.setupComplete', { platformName: platform.name, modelId: selection.model.id }));
+  host.showStatus(
+    t('tui.statusMessages.setupComplete', {
+      platformName: platform.name,
+      modelId: selection.model.id,
+    }),
+  );
 }
 
 export async function handleLogoutCommand(host: SlashCommandHost): Promise<void> {

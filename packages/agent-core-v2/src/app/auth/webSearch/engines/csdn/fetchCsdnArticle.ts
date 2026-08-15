@@ -17,9 +17,9 @@ import type { ArticleFetchFn, SearchEngineOptions } from '../types';
 const REQUEST_TIMEOUT_MS = 30_000;
 
 const FALLBACK_HEADERS: Record<string, string> = {
-  'Accept': '*/*',
-  'Host': 'blog.csdn.net',
-  'Connection': 'keep-alive',
+  Accept: '*/*',
+  Host: 'blog.csdn.net',
+  Connection: 'keep-alive',
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
 };
@@ -42,8 +42,8 @@ const BOT_KEYWORDS = [
 
 function normalizeExtractedText(text: string): string {
   return text
-    .replaceAll(/\r\n/g, '\n')
-    .replaceAll(/\u00A0/g, ' ')
+    .replaceAll('\r\n', '\n')
+    .replaceAll('\u00A0', ' ')
     .replaceAll(/[ \t]+\n/g, '\n')
     .replaceAll(/\n[ \t]+/g, '\n')
     .replaceAll(/[ \t]{2,}/g, ' ')
@@ -70,7 +70,9 @@ function looksLikeBotChallengePage(html: string): boolean {
 }
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 async function fetchArticleHtml(url: string, options: SearchEngineOptions): Promise<string> {
@@ -108,11 +110,15 @@ async function fetchArticleHtml(url: string, options: SearchEngineOptions): Prom
     );
   }
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `CSDN article request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `CSDN article request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
-  return  response.text();
+  return response.text();
 }
 
 async function fetchCsdnArticleImpl(
@@ -127,4 +133,5 @@ async function fetchCsdnArticleImpl(
   return { content };
 }
 
-export const fetchCsdnArticle: ArticleFetchFn = (url, options = {}) => fetchCsdnArticleImpl(url, options);
+export const fetchCsdnArticle: ArticleFetchFn = (url, options = {}) =>
+  fetchCsdnArticleImpl(url, options);

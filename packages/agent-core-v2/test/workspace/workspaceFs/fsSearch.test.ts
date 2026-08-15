@@ -158,9 +158,7 @@ describe('rgPath', () => {
   });
 
   it('decodes the bytes field as base64', () => {
-    expect(rgPath({ bytes: Buffer.from('src/a.ts', 'utf-8').toString('base64') })).toBe(
-      'src/a.ts',
-    );
+    expect(rgPath({ bytes: Buffer.from('src/a.ts', 'utf-8').toString('base64') })).toBe('src/a.ts');
   });
 
   it('returns undefined for missing input', () => {
@@ -168,9 +166,9 @@ describe('rgPath', () => {
   });
 
   it('decodes the bytes field as base64 with special characters', () => {
-    expect(rgPath({ bytes: Buffer.from('path/with spaces/file.js', 'utf-8').toString('base64') })).toBe(
-      'path/with spaces/file.js',
-    );
+    expect(
+      rgPath({ bytes: Buffer.from('path/with spaces/file.js', 'utf-8').toString('base64') }),
+    ).toBe('path/with spaces/file.js');
   });
 });
 

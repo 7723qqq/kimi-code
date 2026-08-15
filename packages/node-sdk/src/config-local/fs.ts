@@ -4,8 +4,8 @@
  * file behind.
  */
 import { randomBytes } from 'node:crypto';
-import { open, rename, unlink } from 'node:fs/promises';
 import { fsync } from 'node:fs';
+import { open, rename, unlink } from 'node:fs/promises';
 
 function syncFd(fd: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -19,10 +19,7 @@ function syncFd(fd: number): Promise<void> {
   });
 }
 
-export async function atomicWrite(
-  filePath: string,
-  content: string | Uint8Array,
-): Promise<void> {
+export async function atomicWrite(filePath: string, content: string | Uint8Array): Promise<void> {
   const hex = randomBytes(4).toString('hex');
   const tmpPath = `${filePath}.tmp.${process.pid}.${hex}`;
   let renamed = false;

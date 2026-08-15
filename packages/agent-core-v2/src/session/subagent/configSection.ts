@@ -99,9 +99,6 @@
 
 import { z } from 'zod';
 
-import { Error2, ErrorCodes, isError2 } from '#/errors';
-import { isPlainObject } from '#/app/config/toml';
-import type { IFlagService } from '#/app/flag/flag';
 import {
   type EnvBindings,
   envBindings,
@@ -109,6 +106,9 @@ import {
   type IConfigService,
 } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
+import { isPlainObject } from '#/app/config/toml';
+import type { IFlagService } from '#/app/flag/flag';
+import { Error2, ErrorCodes, isError2 } from '#/errors';
 import type { IModelCatalog } from '#/kosong/model/catalog';
 
 import { SECONDARY_MODEL_FLAG_ID } from './flag';
@@ -154,12 +154,9 @@ function parseTimeoutMsEnv(raw: string): number | undefined {
   return valid ? parsed : undefined;
 }
 
-export const subagentEnvBindings: EnvBindings<SubagentConfig> = envBindings(
-  SubagentConfigSchema,
-  {
-    timeoutMs: { env: SUBAGENT_TIMEOUT_ENV, parse: parseTimeoutMsEnv },
-  },
-);
+export const subagentEnvBindings: EnvBindings<SubagentConfig> = envBindings(SubagentConfigSchema, {
+  timeoutMs: { env: SUBAGENT_TIMEOUT_ENV, parse: parseTimeoutMsEnv },
+});
 
 export const stripSubagentEnv = stripEnvBoundFields(subagentEnvBindings);
 

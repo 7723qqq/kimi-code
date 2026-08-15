@@ -3,7 +3,13 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 
-import type { SessionSummary, SessionDetail, AgentInfo, SessionHealth, ImportInfo } from './agent-record-types';
+import type {
+  SessionSummary,
+  SessionDetail,
+  AgentInfo,
+  SessionHealth,
+  ImportInfo,
+} from './agent-record-types';
 import { compareAgentIds } from './agent-tree';
 import { importedDirOf, isImportId, listImportedIds, readImportMeta } from './import-store';
 
@@ -34,7 +40,14 @@ interface StateJson {
   // Agent metadata comes from an untrusted state.json (a corrupt or imported
   // bundle may hold non-object entries like `{ "main": null }`), so the value
   // type allows null and inventoryAgents skips anything that isn't an object.
-  agents?: Record<string, { type: 'main' | 'sub' | 'independent'; parentAgentId?: string | null; swarmItem?: string } | null>;
+  agents?: Record<
+    string,
+    {
+      type: 'main' | 'sub' | 'independent';
+      parentAgentId?: string | null;
+      swarmItem?: string;
+    } | null
+  >;
   custom?: Record<string, unknown>;
 }
 
@@ -61,14 +74,20 @@ export async function listSessions(home: string): Promise<SessionSummary[]> {
     const dir = importedDirOf(home, importId);
     const meta = await readImportMeta(home, importId);
     const workDir = meta?.manifest?.workspaceDir ?? '';
-    const summary = await tryReadSummary(dir, importId, workDir, { imported: true, importMeta: meta });
+    const summary = await tryReadSummary(dir, importId, workDir, {
+      imported: true,
+      importMeta: meta,
+    });
     if (summary !== null) out.push(summary);
   }
   out.sort((a, b) => b.updatedAt - a.updatedAt);
   return out;
 }
 
-export async function readSessionDetail(home: string, sessionId: string): Promise<SessionDetail | null> {
+export async function readSessionDetail(
+  home: string,
+  sessionId: string,
+): Promise<SessionDetail | null> {
   if (isImportId(sessionId)) return readImportedDetail(home, sessionId);
   const sessionDir = await findSessionDir(home, sessionId);
   if (sessionDir === null) return null;
@@ -82,7 +101,15 @@ export async function readSessionDetail(home: string, sessionId: string): Promis
   // still inspect the wire/context of a session whose state is corrupt.
   if (state === null) {
     const agents = await discoverAgentsFromDisk(sessionDir);
-    return { sessionId, sessionDir, workDir, state: null, agents, imported: false, importMeta: null };
+    return {
+      sessionId,
+      sessionDir,
+      workDir,
+      state: null,
+      agents,
+      imported: false,
+      importMeta: null,
+    };
   }
   if (state.custom?.['imported_from_kimi_cli'] === true) return null;
   const agents = await inventoryAgents(sessionDir, state);
@@ -103,7 +130,15 @@ async function readImportedDetail(home: string, importId: string): Promise<Sessi
   const state = await readState(sessionDir);
   if (state === null) {
     const agents = await discoverAgentsFromDisk(sessionDir);
-    return { sessionId: importId, sessionDir, workDir, state: null, agents, imported: true, importMeta: meta };
+    return {
+      sessionId: importId,
+      sessionDir,
+      workDir,
+      state: null,
+      agents,
+      imported: true,
+      importMeta: meta,
+    };
   }
   // State is best-effort in a bundle: a readable state.json may still omit the
   // `agents` map. When the inventory comes back empty, fall back to probing
@@ -113,7 +148,15 @@ async function readImportedDetail(home: string, importId: string): Promise<Sessi
   if (agents.length === 0) {
     agents = await discoverAgentsFromDisk(sessionDir);
   }
-  return { sessionId: importId, sessionDir, workDir, state, agents, imported: true, importMeta: meta };
+  return {
+    sessionId: importId,
+    sessionDir,
+    workDir,
+    state,
+    agents,
+    imported: true,
+    importMeta: meta,
+  };
 }
 
 /** Fallback inventory used when `state.json` is unreadable: walk
@@ -138,7 +181,10 @@ async function discoverAgentsFromDisk(sessionDir: string): Promise<AgentInfo[]> 
     const wirePath = join(agentsDir, id, 'wire.jsonl');
     const exists = await pathExists(wirePath);
     let readable = exists;
-    let info: { count: number; protocolVersion: string | null } = { count: 0, protocolVersion: null };
+    let info: { count: number; protocolVersion: string | null } = {
+      count: 0,
+      protocolVersion: null,
+    };
     if (exists) {
       try {
         info = await scanWire(wirePath);
@@ -159,7 +205,7 @@ async function discoverAgentsFromDisk(sessionDir: string): Promise<AgentInfo[]> 
       swarmItem: null,
     });
   }
-  return out.sort((a, b) => compareAgentIds(a.agentId, b.agentId));
+  return out.toSorted((a, b) => compareAgentIds(a.agentId, b.agentId));
 }
 
 async function tryReadSummary(
@@ -225,12 +271,21 @@ function brokenStateSummary(
   importMeta: ImportInfo | null = null,
 ): SessionSummary {
   return {
-    sessionId, sessionDir, workDir,
-    title: null, lastPrompt: null, isCustomTitle: false,
-    createdAt: 0, updatedAt: 0,
-    agentCount: 0, mainAgentExists: false, mainWireRecordCount: 0,
-    wireProtocolVersion: null, health: 'broken_state',
-    imported, importMeta,
+    sessionId,
+    sessionDir,
+    workDir,
+    title: null,
+    lastPrompt: null,
+    isCustomTitle: false,
+    createdAt: 0,
+    updatedAt: 0,
+    agentCount: 0,
+    mainAgentExists: false,
+    mainWireRecordCount: 0,
+    wireProtocolVersion: null,
+    health: 'broken_state',
+    imported,
+    importMeta,
   };
 }
 
@@ -244,18 +299,26 @@ async function readSessionIndex(home: string): Promise<Map<string, SessionIndexE
   let raw: string;
   try {
     raw = await readFile(join(home, 'session_index.jsonl'), 'utf8');
-  } catch { return out; }
+  } catch {
+    return out;
+  }
   for (const line of raw.split(/\r?\n/)) {
     if (!line.trim()) continue;
     try {
-      const entry = JSON.parse(line) as { sessionId?: string; sessionDir?: string; workDir?: string };
+      const entry = JSON.parse(line) as {
+        sessionId?: string;
+        sessionDir?: string;
+        workDir?: string;
+      };
       if (typeof entry.sessionId === 'string' && typeof entry.sessionDir === 'string') {
         out.set(entry.sessionId, {
           sessionDir: entry.sessionDir,
           workDir: typeof entry.workDir === 'string' ? entry.workDir : '',
         });
       }
-    } catch { /* skip malformed */ }
+    } catch {
+      /* skip malformed */
+    }
   }
   return out;
 }
@@ -271,7 +334,10 @@ async function inventoryAgents(sessionDir: string, state: StateJson): Promise<Ag
     const wirePath = join(sessionDir, 'agents', id, 'wire.jsonl');
     const exists = await pathExists(wirePath);
     let readable = exists;
-    let info: { count: number; protocolVersion: string | null } = { count: 0, protocolVersion: null };
+    let info: { count: number; protocolVersion: string | null } = {
+      count: 0,
+      protocolVersion: null,
+    };
     if (exists) {
       try {
         info = await scanWire(wirePath);
@@ -294,13 +360,15 @@ async function inventoryAgents(sessionDir: string, state: StateJson): Promise<Ag
       swarmItem: meta.swarmItem ?? null,
     });
   }
-  return result.sort((a, b) => compareAgentIds(a.agentId, b.agentId));
+  return result.toSorted((a, b) => compareAgentIds(a.agentId, b.agentId));
 }
 
 async function readState(sessionDir: string): Promise<StateJson | null> {
   try {
     return JSON.parse(await readFile(join(sessionDir, 'state.json'), 'utf8')) as StateJson;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 async function findSessionDir(home: string, sessionId: string): Promise<string | null> {
@@ -322,7 +390,9 @@ async function findSessionDir(home: string, sessionId: string): Promise<string |
       if (candidate.split(sep).pop() !== sessionId) continue;
       if (await pathExists(candidate)) return candidate;
     }
-  } catch { /* no index */ }
+  } catch {
+    /* no index */
+  }
   // Fall back to scanning buckets
   const buckets = await readdir(sessionsRoot, { withFileTypes: true }).catch(() => []);
   for (const bucket of buckets) {
@@ -371,5 +441,10 @@ function parseTs(input: string | number | undefined): number {
 }
 
 async function pathExists(p: string): Promise<boolean> {
-  try { await stat(p); return true; } catch { return false; }
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -50,15 +50,16 @@ import {
   type RefreshProviderHost,
   type RefreshResult,
 } from '@moonshot-ai/kimi-code-oauth';
-import { LifecycleScope } from '#/app/scopes';
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IOAuthService } from '#/app/auth/auth';
 import { AuthErrors } from '#/app/auth/errors';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
+import { LifecycleScope } from '#/app/scopes';
 import { ModelCatalogErrors } from '#/kosong/model/errors';
 import { type ModelRecord } from '#/kosong/model/model';
 import {
@@ -68,6 +69,11 @@ import {
   type ProviderConfig,
 } from '#/kosong/provider/provider';
 import { getProviderDefinition } from '#/kosong/provider/providerDefinition';
+import {
+  SECONDARY_MODEL_SECTION,
+  cascadeSubagentModelPool,
+  type SecondaryModelConfig,
+} from '#/session/subagent/configSection';
 
 import {
   DEFAULT_MODEL_SECTION,
@@ -75,11 +81,6 @@ import {
   PROVIDERS_SECTION,
   THINKING_SECTION,
 } from './configSection';
-import {
-  SECONDARY_MODEL_SECTION,
-  cascadeSubagentModelPool,
-  type SecondaryModelConfig,
-} from '#/session/subagent/configSection';
 import {
   IProviderDiscoveryService,
   type RefreshProviderModelsOptions,
@@ -138,10 +139,13 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
 
     const exclusion = this.computeStaticExclusion();
     const { outboundUserAgent } = await this.identity.resolved();
-    const result = await refreshProviderModels(this.buildRefreshHost(exclusion, outboundUserAgent), {
-      scope: options.scope,
-      providerId: options.providerId,
-    });
+    const result = await refreshProviderModels(
+      this.buildRefreshHost(exclusion, outboundUserAgent),
+      {
+        scope: options.scope,
+        providerId: options.providerId,
+      },
+    );
     const response = mapRefreshResult(result);
     if (response.changed.length > 0) {
       this.events.publish({ type: 'event.model_catalog.changed', payload: response });
@@ -169,8 +173,7 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
       const provider = providers[id];
       if (provider !== undefined) excludedProviders[id] = provider;
     }
-    const models =
-      this.config.inspect<Record<string, ModelRecord>>(MODELS_SECTION).userValue ?? {};
+    const models = this.config.inspect<Record<string, ModelRecord>>(MODELS_SECTION).userValue ?? {};
     const excludedModels: Record<string, ModelRecord> = {};
     for (const [modelId, record] of Object.entries(models)) {
       if (record.provider !== undefined && record.provider in excludedProviders) {
@@ -178,16 +181,14 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
       }
     }
     const defaultModel = this.config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
-    const thinking = this.config.inspect<ManagedKimiConfigShape['thinking']>(
-      THINKING_SECTION,
-    ).userValue;
+    const thinking =
+      this.config.inspect<ManagedKimiConfigShape['thinking']>(THINKING_SECTION).userValue;
     return {
       providers: excludedProviders,
       models: excludedModels,
       defaultModel:
         defaultModel !== undefined && defaultModel in excludedModels ? defaultModel : undefined,
-      thinking:
-        defaultModel !== undefined && defaultModel in excludedModels ? thinking : undefined,
+      thinking: defaultModel !== undefined && defaultModel in excludedModels ? thinking : undefined,
     };
   }
 
@@ -201,11 +202,12 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
     };
   }
 
-  private readUserConfigShape(exclusion: StaticExclusion = EMPTY_EXCLUSION): ManagedKimiConfigShape {
+  private readUserConfigShape(
+    exclusion: StaticExclusion = EMPTY_EXCLUSION,
+  ): ManagedKimiConfigShape {
     const providers =
       this.config.inspect<Record<string, ProviderConfig>>(PROVIDERS_SECTION).userValue ?? {};
-    const models =
-      this.config.inspect<Record<string, ModelRecord>>(MODELS_SECTION).userValue ?? {};
+    const models = this.config.inspect<Record<string, ModelRecord>>(MODELS_SECTION).userValue ?? {};
     const defaultModel = this.config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
     const thinking =
       this.config.inspect<ManagedKimiConfigShape['thinking']>(THINKING_SECTION).userValue;
@@ -308,9 +310,13 @@ export class ProviderDiscoveryService implements IProviderDiscoveryService {
       oauthRef as unknown as OAuthRef | undefined,
     );
     if (tokenProvider === undefined) {
-      throw new Error2(AuthErrors.codes.AUTH_TOKEN_MISSING, t('v2Errors.oauthTokenProviderNotConfigured'), {
-        details: { provider_id: providerName },
-      });
+      throw new Error2(
+        AuthErrors.codes.AUTH_TOKEN_MISSING,
+        t('v2Errors.oauthTokenProviderNotConfigured'),
+        {
+          details: { provider_id: providerName },
+        },
+      );
     }
     return tokenProvider.getAccessToken();
   }

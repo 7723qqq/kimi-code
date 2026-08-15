@@ -14,7 +14,7 @@
 ///
 /// If neither is available, it falls back to the JS implementation.
 
-import type { ChildProcess} from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -392,13 +392,16 @@ class NapiEngine {
         const payload = nativeModule.getCallbackPayload(callbackId);
         if (!payload) return;
         handler(payload).then(
-          (result) =>{  nativeModule.resolveCallback(callbackId, null, result); },
-          (error: unknown) =>{ 
+          (result) => {
+            nativeModule.resolveCallback(callbackId, null, result);
+          },
+          (error: unknown) => {
             nativeModule.resolveCallback(
               callbackId,
               error instanceof Error ? error.message : String(error),
               null,
-            ); },
+            );
+          },
         );
       };
     };
@@ -757,8 +760,7 @@ export function createRunTurnOverride(
   return async (input) => {
     // Resolve nativeLlm fresh per turn: when a function is provided it
     // re-reads the config file so TUI model switches are reflected.
-    const resolvedNativeLlm =
-      typeof nativeLlmOpt === 'function' ? nativeLlmOpt() : nativeLlmOpt;
+    const resolvedNativeLlm = typeof nativeLlmOpt === 'function' ? nativeLlmOpt() : nativeLlmOpt;
 
     // Guard: when the user switches models in the TUI, the session's LLM
     // adapter (input.llm) is updated to the new provider/model, but the
@@ -766,8 +768,7 @@ export function createRunTurnOverride(
     // provider. If the models don't match, fall back to the host proxy
     // (host/llm_chat) which always follows the session's current model.
     const nativeLlm =
-      resolvedNativeLlm !== undefined &&
-      resolvedNativeLlm.model !== input.llm.modelName
+      resolvedNativeLlm !== undefined && resolvedNativeLlm.model !== input.llm.modelName
         ? undefined
         : resolvedNativeLlm;
 
@@ -1145,7 +1146,10 @@ export function createRunTurnOverride(
           signal: input.signal,
         });
       } catch (error) {
-        rawResult = { output: error instanceof Error ? error.message : String(error), isError: true };
+        rawResult = {
+          output: error instanceof Error ? error.message : String(error),
+          isError: true,
+        };
       }
 
       const finalized =
@@ -1277,9 +1281,7 @@ export function createRunTurnOverride(
 /**
  * Map Rust-style stop reason to JS LoopTurnStopReason.
  */
-export function mapStopReason(
-  reason: string,
-): RunTurnOverrideResult['stopReason'] {
+export function mapStopReason(reason: string): RunTurnOverrideResult['stopReason'] {
   switch (reason) {
     case 'EndTurn':
       return 'end_turn' as never;

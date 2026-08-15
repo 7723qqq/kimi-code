@@ -239,7 +239,8 @@ export class AgentSwarmProgressEstimator {
 
   hasPendingCatchup(): boolean {
     return Array.from(this.members.values()).some(
-      (state) => state.lastTargetTicks !== undefined && state.lastTargetTicks > state.displayTicks + 0.1,
+      (state) =>
+        state.lastTargetTicks !== undefined && state.lastTargetTicks > state.displayTicks + 0.1,
     );
   }
 
@@ -341,11 +342,7 @@ export class AgentSwarmProgressEstimator {
       prior,
       completedConfidence,
     );
-    return Math.max(
-      boundedTotalToolCalls,
-      state.rawTicks / this.unfinishedProgressCap,
-      1,
-    );
+    return Math.max(boundedTotalToolCalls, state.rawTicks / this.unfinishedProgressCap, 1);
   }
 
   private softBoundTotalToolCalls(
@@ -360,10 +357,7 @@ export class AgentSwarmProgressEstimator {
     return geometricInterpolate(totalToolCalls, bounded, completedConfidence);
   }
 
-  private estimateLocalRatePerMs(
-    state: MemberProgressState,
-    elapsedMs: number,
-  ): number {
+  private estimateLocalRatePerMs(state: MemberProgressState, elapsedMs: number): number {
     if (elapsedMs <= 0 || state.toolCallActiveTimesMs.length === 0) return 0;
     let decayedToolCalls = 0;
     for (const timeMs of state.toolCallActiveTimesMs) {

@@ -3,6 +3,25 @@
   "version": "0.1.1",
   "private": true,
   "license": "MIT",
+  "workspaces": {
+    "packages": [
+      "packages/*",
+      "apps/*",
+      "apps/vis/server",
+      "apps/vis/web",
+      "docs"
+    ],
+    "catalog": {
+      "zod": "4.3.6",
+      "pathe": "^2.0.3",
+      "smol-toml": "^1.6.1",
+      "jimp": "^1.6.1",
+      "yazl": "^3.3.1",
+      "ulid": "^3.0.1",
+      "ws": "^8.18.0",
+      "tsx": "^4.21.0"
+    }
+  },
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/fix-node-pty-perms.mjs",
@@ -46,6 +65,7 @@
     "@types/node": "^22.15.3",
     "@vitest/coverage-v8": "4.1.10",
     "lint-staged": "16.4.0",
+    "oxfmt": "^0.63.0",
     "oxlint": "1.59.0",
     "oxlint-tsgolint": "0.20.0",
     "pkg-pr-new": "0.0.75",
@@ -59,13 +79,17 @@
     "vite": "^6.4.3",
     "vitest": "4.1.10"
   },
+  "overrides": {
+    "ssh2@1.17.0>cpu-features": "-",
+    "ssh2@1.17.0>nan": "-"
+  },
   "simple-git-hooks": {
     "pre-commit": "npx lint-staged"
   },
   "lint-staged": {
     "concurrent": "false",
     "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}": [
-      "oxlint --fix --quiet",
+      "oxlint --quiet",
       "oxlint --type-aware --quiet"
     ]
   },
@@ -73,29 +97,6 @@
     "node": ">=24.15.0"
   },
   "packageManager": "pnpm@10.33.0",
-  "workspaces": {
-    "packages": [
-      "packages/*",
-      "apps/*",
-      "apps/vis/server",
-      "apps/vis/web",
-      "docs"
-    ],
-    "catalog": {
-      "zod": "4.3.6",
-      "pathe": "^2.0.3",
-      "smol-toml": "^1.6.1",
-      "jimp": "^1.6.1",
-      "yazl": "^3.3.1",
-      "ulid": "^3.0.1",
-      "ws": "^8.18.0",
-      "tsx": "^4.21.0"
-    }
-  },
-  "overrides": {
-    "ssh2@1.17.0>cpu-features": "-",
-    "ssh2@1.17.0>nan": "-"
-  },
   "pnpm": {
     "overrides": {
       "protobufjs": ">=7.5.5",

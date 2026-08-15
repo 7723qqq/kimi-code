@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
 import type { SkillDefinition, SkillSource } from '#/app/skillCatalog/types';
+
 import { stubSkill } from './stubs';
 
 describe('InMemorySkillCatalog skill listing', () => {
@@ -257,9 +258,7 @@ describe('InMemorySkillCatalog prompt rendering', () => {
       { sessionId: 'ses_1' },
     );
 
-    expect(rendered).toBe(
-      'Use /skills/review/references/checklist.md.\n\nARGUMENTS: src/app.ts',
-    );
+    expect(rendered).toBe('Use /skills/review/references/checklist.md.\n\nARGUMENTS: src/app.ts');
   });
 
   it('does not treat longer variable names as declared argument placeholders', () => {
@@ -347,10 +346,17 @@ describe('InMemorySkillCatalog plugin lookup', () => {
     const registry = new InMemorySkillCatalog();
     registry.register(makeSkill('review', 'project', 'project skill'));
     registry.register(
-      makeSkill('review', 'extra', 'plugin skill', undefined, {}, {
-        id: 'superpowers',
-        instructions: 'Use the plugin instructions.',
-      }),
+      makeSkill(
+        'review',
+        'extra',
+        'plugin skill',
+        undefined,
+        {},
+        {
+          id: 'superpowers',
+          instructions: 'Use the plugin instructions.',
+        },
+      ),
     );
 
     expect(registry.getSkill('review')).toMatchObject({
@@ -367,14 +373,28 @@ describe('InMemorySkillCatalog plugin lookup', () => {
   it('replaces both global and plugin indexes when requested', () => {
     const registry = new InMemorySkillCatalog();
     registry.register(
-      makeSkill('review', 'extra', 'first', undefined, {}, {
-        id: 'superpowers',
-      }),
+      makeSkill(
+        'review',
+        'extra',
+        'first',
+        undefined,
+        {},
+        {
+          id: 'superpowers',
+        },
+      ),
     );
     registry.register(
-      makeSkill('review', 'extra', 'second', undefined, {}, {
-        id: 'superpowers',
-      }),
+      makeSkill(
+        'review',
+        'extra',
+        'second',
+        undefined,
+        {},
+        {
+          id: 'superpowers',
+        },
+      ),
       { replace: true },
     );
 

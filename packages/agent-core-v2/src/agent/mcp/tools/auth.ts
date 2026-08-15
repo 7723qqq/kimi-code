@@ -24,17 +24,17 @@
  * the old one.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
 import { z } from 'zod';
 
+import { AlreadyAuthorizedError, type McpOAuthService } from '#/mcpCore/oauth/service';
+import { qualifyMcpToolName } from '#/mcpCore/tool-naming';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   type ExecutableTool,
   type ExecutableToolContext,
   type ExecutableToolResult,
 } from '#/tool/toolContract';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { AlreadyAuthorizedError, type McpOAuthService } from '#/mcpCore/oauth/service';
-import { qualifyMcpToolName } from '#/mcpCore/tool-naming';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 export const MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE = 'mcp.oauth.authorization_url';
 
@@ -152,9 +152,7 @@ function errorResult(
 ): ExecutableToolResult {
   const message = error instanceof Error ? error.message : String(error);
   const suffix =
-    authorizationUrl !== undefined
-      ? t('v2Mcp.authErrorUrlSuffix', { authorizationUrl })
-      : '';
+    authorizationUrl !== undefined ? t('v2Mcp.authErrorUrlSuffix', { authorizationUrl }) : '';
   return {
     isError: true,
     output: t('v2Mcp.oauthFailed', { serverName, message }) + suffix,

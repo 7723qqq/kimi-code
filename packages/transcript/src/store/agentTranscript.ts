@@ -11,8 +11,16 @@
  * returned array/object is never mutated by later applies.
  */
 
-import type { AgentId, AttachmentId, InteractionId, PromptId, TaskId, TodoId, TurnId } from '../model/ids';
 import type { TranscriptAttachment } from '../model/attachment';
+import type {
+  AgentId,
+  AttachmentId,
+  InteractionId,
+  PromptId,
+  TaskId,
+  TodoId,
+  TurnId,
+} from '../model/ids';
 import type { TranscriptInteraction } from '../model/interaction';
 import type { TranscriptItem } from '../model/item';
 import type { TranscriptMeta } from '../model/meta';
@@ -20,11 +28,7 @@ import type { TranscriptPrompt } from '../model/prompt';
 import type { TranscriptTask } from '../model/task';
 import type { TranscriptTodo } from '../model/todo';
 import type { TranscriptTurn } from '../model/turn';
-import {
-  EMPTY_AGENT_STATE,
-  applyOperation,
-  type AgentState,
-} from '../ops/apply';
+import { EMPTY_AGENT_STATE, applyOperation, type AgentState } from '../ops/apply';
 import type {
   AgentTranscriptSnapshot,
   AppendTarget,

@@ -10,19 +10,20 @@
  *   - the `dynamically_loaded_tools` capability bit (unknown/default-off semantics).
  */
 
+import { describe, expect, it, vi } from 'vitest';
+
 import { UNKNOWN_CAPABILITY, isUnknownCapability } from '#/capability';
 import { catalogModelToCapability } from '#/catalog';
 import { generate } from '#/generate';
 import { isToolDeclarationOnlyMessage } from '#/message';
 import type { Message, StreamedMessagePart } from '#/message';
+import type { ChatProvider, StreamedMessage, ThinkingEffort } from '#/provider';
 import { AnthropicChatProvider } from '#/providers/anthropic';
 import { messagesToGoogleGenAIContents } from '#/providers/google-genai';
 import { KimiChatProvider } from '#/providers/kimi';
 import { OpenAILegacyChatProvider } from '#/providers/openai-legacy';
 import { OpenAIResponsesChatProvider } from '#/providers/openai-responses';
-import type { ChatProvider, StreamedMessage, ThinkingEffort } from '#/provider';
 import type { Tool } from '#/tool';
-import { describe, expect, it, vi } from 'vitest';
 
 const ADD_TOOL: Tool = {
   name: 'add',
@@ -199,9 +200,12 @@ describe('generate() deferred tool stripping', () => {
 
   it('strips deferred tools before the provider builds the request', async () => {
     const { provider, seenTools } = createCapturingProvider();
-    await generate(provider, 'sys', [ADD_TOOL, { ...BUILTIN_TOOL, deferred: true }], [
-      { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
-    ]);
+    await generate(
+      provider,
+      'sys',
+      [ADD_TOOL, { ...BUILTIN_TOOL, deferred: true }],
+      [{ role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] }],
+    );
     expect(seenTools()).toEqual([ADD_TOOL]);
   });
 
@@ -262,7 +266,11 @@ describe('providers without message-level tool declarations', () => {
   });
 
   it('openai chat completions skips the message instead of sending a content-free system entry', async () => {
-    const provider = new OpenAILegacyChatProvider({ model: 'gpt-4.1', apiKey: 'test-key', stream: false });
+    const provider = new OpenAILegacyChatProvider({
+      model: 'gpt-4.1',
+      apiKey: 'test-key',
+      stream: false,
+    });
     let captured: Record<string, unknown> | undefined;
     (provider as any)._client.chat.completions.create = vi
       .fn()
@@ -347,9 +355,7 @@ describe('dynamically_loaded_tools capability bit', () => {
   });
 
   it('a capability that only has the bit set is not "unknown"', () => {
-    expect(isUnknownCapability({ ...BASE_CAPABILITY, dynamically_loaded_tools: true })).toBe(
-      false,
-    );
+    expect(isUnknownCapability({ ...BASE_CAPABILITY, dynamically_loaded_tools: true })).toBe(false);
   });
 
   it('catalog entries map the capability, defaulting to false', () => {

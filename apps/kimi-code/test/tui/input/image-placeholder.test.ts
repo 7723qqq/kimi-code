@@ -7,10 +7,7 @@ import { describe, it, expect } from 'vitest';
 
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
-import {
-  extractMediaAttachments,
-  rewriteMediaPlaceholders,
-} from '#/tui/utils/image-placeholder';
+import { extractMediaAttachments, rewriteMediaPlaceholders } from '#/tui/utils/image-placeholder';
 import { getCacheDir } from '#/utils/paths';
 
 function storeWith(
@@ -47,9 +44,7 @@ type VideoUrlPart = { type: 'video_url'; videoUrl: { url: string } };
 // local `file://` reference to the cache copy; decode it back to a filesystem
 // path for assertions.
 function videoPathFromParts(parts: unknown[]): string {
-  const part = parts.find(
-    (p): p is VideoUrlPart => (p as VideoUrlPart).type === 'video_url',
-  );
+  const part = parts.find((p): p is VideoUrlPart => (p as VideoUrlPart).type === 'video_url');
   if (!part) throw new Error(`no video_url part found in: ${JSON.stringify(parts)}`);
   return fileURLToPath(part.videoUrl.url);
 }
@@ -322,8 +317,7 @@ describe('rewriteMediaPlaceholders', () => {
       // Skill args pass through XML escaping, so the reference must not
       // contain any tag/attribute boundary characters.
       expect(r.text).not.toMatch(/[<>&"]/);
-      const m =
-        /^look at Attached image file: (\S+) \(open it with ReadMediaFile\)$/.exec(r.text);
+      const m = /^look at Attached image file: (\S+) \(open it with ReadMediaFile\)$/.exec(r.text);
       if (!m) throw new Error(`no plain reference found in: ${r.text}`);
       expect(m[1]!.startsWith(getCacheDir())).toBe(true);
       expect(new Uint8Array(readFileSync(m[1]!))).toEqual(bytes);
@@ -353,7 +347,7 @@ describe('rewriteMediaPlaceholders', () => {
     }
   });
 
-  it("sanitizes XML boundary chars out of plain-style video cache names", () => {
+  it('sanitizes XML boundary chars out of plain-style video cache names', () => {
     const { cleanup } = setupTempCache();
     const srcDir = makeTempDir();
     try {

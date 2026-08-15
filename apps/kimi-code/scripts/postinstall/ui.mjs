@@ -111,8 +111,7 @@ function boxBorder(left, right, fill = '─') {
 
 function boxLine(content = '') {
   const visible = visibleLength(content);
-  const padding =
-    visible < BOX_INNER ? ' '.repeat(BOX_INNER - visible) : '';
+  const padding = visible < BOX_INNER ? ' '.repeat(BOX_INNER - visible) : '';
   return color(C_DIM, '│') + content + padding + color(C_DIM, '│');
 }
 
@@ -182,14 +181,8 @@ function warningHeading(text) {
  */
 export function logMigrationDone(outcomes, pm) {
   const reinstallCmd = pmGlobalInstallCommand(pm, '@moonshot-ai/kimi-code');
-  const {
-    renames,
-    consolidates,
-    skippedForeignTarget,
-    deletes,
-    blockedHarmless,
-    errors,
-  } = outcomes;
+  const { renames, consolidates, skippedForeignTarget, deletes, blockedHarmless, errors } =
+    outcomes;
 
   const lines = [successHeading('kimi now runs the new version'), ''];
 
@@ -232,8 +225,8 @@ export function logMigrationDone(outcomes, pm) {
   }
 
   if (blockedHarmless.length > 0) {
-    lines.push(pad('   Note: we can\'t change these files, but it\'s OK —'));
-    lines.push(pad('   they won\'t run instead of the new kimi:'));
+    lines.push(pad("   Note: we can't change these files, but it's OK —"));
+    lines.push(pad("   they won't run instead of the new kimi:"));
     for (const c of blockedHarmless) {
       lines.push(pathInBox(c.shimPath));
     }
@@ -241,11 +234,9 @@ export function logMigrationDone(outcomes, pm) {
   }
 
   if (errors.length > 0) {
-    lines.push(pad('   Some changes didn\'t go through:'));
+    lines.push(pad("   Some changes didn't go through:"));
     for (const e of errors) {
-      lines.push(
-        pathInBox(e.shimPath + '  (' + (e.message ?? e.code ?? 'error') + ')'),
-      );
+      lines.push(pathInBox(e.shimPath + '  (' + (e.message ?? e.code ?? 'error') + ')'));
     }
     lines.push('');
   }
@@ -289,8 +280,8 @@ export function logMigrationDone(outcomes, pm) {
       pad('   from the old version will be moved over the first time'),
       pad('   you run `kimi`.'),
       '',
-      pad('   We couldn\'t save the old kimi as `kimi-legacy` because'),
-      pad('   that name was already taken by a file you\'d created.'),
+      pad("   We couldn't save the old kimi as `kimi-legacy` because"),
+      pad("   that name was already taken by a file you'd created."),
       pad('   If you need the old kimi back, install it again with'),
       pad('   `uv tool install kimi-cli` (or pipx / pip).'),
       '',
@@ -325,11 +316,11 @@ export function logMigrationBlocked(blocked, actionable, pm) {
   const reinstallCmd = pmGlobalInstallCommand(pm, '@moonshot-ai/kimi-code');
 
   const lines = [
-    warningHeading('Can\'t switch to the new kimi yet'),
+    warningHeading("Can't switch to the new kimi yet"),
     '',
-    pad('   There\'s an old kimi on your computer that we can\'t change.'),
-    pad('   As long as it\'s there, typing `kimi` will still run the old'),
-    pad('   version. Files we can\'t change:'),
+    pad("   There's an old kimi on your computer that we can't change."),
+    pad("   As long as it's there, typing `kimi` will still run the old"),
+    pad("   version. Files we can't change:"),
   ];
 
   for (const c of blocked) {
@@ -387,11 +378,11 @@ export function logForeignKimiInTheWay(foreignPath, pm) {
   const reinstallCmd = pmGlobalInstallCommand(pm, '@moonshot-ai/kimi-code');
   emit(
     renderBox([
-      warningHeading('Can\'t switch to the new kimi yet'),
+      warningHeading("Can't switch to the new kimi yet"),
       '',
-      pad('   There\'s another file called `kimi` on your computer that\'s'),
+      pad("   There's another file called `kimi` on your computer that's"),
       pad('   not the new CLI and not the old one — it looks like'),
-      pad('   something you set up yourself. As long as it\'s there,'),
+      pad("   something you set up yourself. As long as it's there,"),
       pad('   typing `kimi` will run it instead of the new version.'),
       '',
       pad('   We found it at:'),
@@ -437,17 +428,17 @@ export function logNewCliNotOnPath(detection, pm) {
 
   emit(
     renderBox([
-      warningHeading('New kimi is installed, but your terminal can\'t find it'),
+      warningHeading("New kimi is installed, but your terminal can't find it"),
       '',
       pad('   The old kimi is still here:'),
       pathInBox(detection.shimPath),
       '',
       pad('   The new kimi was installed by ' + pm + ', but it landed in a'),
-      pad('   folder your terminal doesn\'t search. (Your terminal looks'),
+      pad("   folder your terminal doesn't search. (Your terminal looks"),
       pad('   for commands in folders listed in your PATH.) If we removed'),
-      pad('   the old kimi now, typing `kimi` wouldn\'t find anything.'),
+      pad("   the old kimi now, typing `kimi` wouldn't find anything."),
       '',
-      pad('   Add the new kimi\'s folder to your PATH (and save the change'),
+      pad("   Add the new kimi's folder to your PATH (and save the change"),
       pad('   in your ' + rcLabel + ' so it sticks), then install again:'),
       pathInBox(newPathHint),
       pathInBox(reinstallCmd),

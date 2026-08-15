@@ -3,15 +3,12 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path';
 
 import { KIMI_BUILD_INFO } from '#/cli/build-info';
-import {
-  getNativeCacheBase,
-  getSeaAssetSource,
-  type NativeAssetSource,
-} from './native-assets';
+
 import {
   WEB_ASSET_MANIFEST_VERSION as MANIFEST_VERSION,
   buildWebManifestKey,
 } from './manifest-keys';
+import { getNativeCacheBase, getSeaAssetSource, type NativeAssetSource } from './native-assets';
 
 export const WEB_ASSET_MANIFEST_VERSION = MANIFEST_VERSION;
 

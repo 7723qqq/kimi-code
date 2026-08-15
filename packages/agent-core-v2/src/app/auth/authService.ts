@@ -33,38 +33,30 @@ import {
   type DeviceAuthorization,
   type ManagedKimiConfigShape,
 } from '@moonshot-ai/kimi-code-oauth';
-import type {
-  OAuthFlowSnapshot,
-  OAuthFlowStart,
-  OAuthFlowStartPending,
-  OAuthFlowStatus,
-  OAuthLoginCancelResponse,
-  OAuthLogoutResponse,
-  RefreshOAuthProviderModelsResponse,
-} from './oauthProtocol';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Error2, ErrorCodes } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
+import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
-import { ILogService } from '#/_base/log/log';
-import {
-  deriveProviderId,
-  effectiveModelConfig,
-  nonEmpty,
-  resolveModelAuthMaterial,
-} from '#/kosong/model/modelAuth';
-import { IModelService, type ModelRecord } from '#/kosong/model/model';
 import {
   DEFAULT_MODEL_SECTION,
   MODELS_SECTION,
   PROVIDERS_SECTION,
   THINKING_SECTION,
 } from '#/app/kosongConfig/configSection';
+import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { Error2, ErrorCodes } from '#/errors';
+import { IModelService, type ModelRecord } from '#/kosong/model/model';
+import {
+  deriveProviderId,
+  effectiveModelConfig,
+  nonEmpty,
+  resolveModelAuthMaterial,
+} from '#/kosong/model/modelAuth';
 import {
   IProviderService,
   type OAuthRef,
@@ -72,7 +64,6 @@ import {
   type ProvidersChangedEvent,
 } from '#/kosong/provider/provider';
 import { isOAuthCatalogVendor } from '#/kosong/provider/providerDefinition';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
 
 import {
   AuthModelNotResolvedError,
@@ -83,6 +74,15 @@ import {
   IOAuthService,
   IOAuthToolkit,
 } from './auth';
+import type {
+  OAuthFlowSnapshot,
+  OAuthFlowStart,
+  OAuthFlowStartPending,
+  OAuthFlowStatus,
+  OAuthLoginCancelResponse,
+  OAuthLogoutResponse,
+  RefreshOAuthProviderModelsResponse,
+} from './oauthProtocol';
 
 const TERMINAL_RETENTION_MS = 5 * 60 * 1000;
 const DEFAULT_DEVICE_EXPIRES_IN_SEC = 15 * 60;
@@ -118,9 +118,11 @@ export class OAuthService extends Disposable implements IOAuthService {
     @IEventService private readonly events: IEventService,
   ) {
     super();
-    this._register(providerService.onDidChangeProviders((event) => {
-      this.invalidateFlows(event);
-    }));
+    this._register(
+      providerService.onDidChangeProviders((event) => {
+        this.invalidateFlows(event);
+      }),
+    );
   }
 
   async startLogin(provider = KIMI_CODE_PROVIDER_NAME): Promise<OAuthFlowStart> {
@@ -173,9 +175,12 @@ export class OAuthService extends Disposable implements IOAuthService {
     });
     const fastPath: Promise<OAuthFlowStart | undefined> = loginPromise.then(async () => {
       if (state.device !== undefined) return;
-      this.log.info('oauth startLogin: toolkit resolved without device code (already authenticated)', {
-        provider,
-      });
+      this.log.info(
+        'oauth startLogin: toolkit resolved without device code (already authenticated)',
+        {
+          provider,
+        },
+      );
       await this.completeAlreadyAuthenticatedLogin(state);
       return {
         flow_id: state.flowId,
@@ -266,7 +271,10 @@ export class OAuthService extends Disposable implements IOAuthService {
   }
 
   getCachedAccessToken(provider: string, oauthRef?: OAuthRef): Promise<string | undefined> {
-    return this.toolkit.getCachedAccessToken(provider, this.resolveRuntimeOAuthRef(provider, oauthRef));
+    return this.toolkit.getCachedAccessToken(
+      provider,
+      this.resolveRuntimeOAuthRef(provider, oauthRef),
+    );
   }
 
   getManagedUsage(provider = KIMI_CODE_PROVIDER_NAME): Promise<AuthManagedUsageResult> {
@@ -321,9 +329,13 @@ export class OAuthService extends Disposable implements IOAuthService {
       });
       const tokenProvider = this.resolveTokenProvider(KIMI_CODE_PROVIDER_NAME, auth.oauthRef);
       if (tokenProvider === undefined) {
-        throw new Error2(ErrorCodes.AUTH_TOKEN_MISSING, t('v2Errors.oauthTokenProviderNotConfigured'), {
-          details: { provider_id: KIMI_CODE_PROVIDER_NAME },
-        });
+        throw new Error2(
+          ErrorCodes.AUTH_TOKEN_MISSING,
+          t('v2Errors.oauthTokenProviderNotConfigured'),
+          {
+            details: { provider_id: KIMI_CODE_PROVIDER_NAME },
+          },
+        );
       }
       const token = await tokenProvider.getAccessToken();
       const models = await fetchManagedKimiCodeModels({
@@ -787,8 +799,7 @@ function providerModelSnapshot(
       alias,
       model: {
         ...model,
-        capabilities:
-          model.capabilities === undefined ? undefined : model.capabilities.toSorted(),
+        capabilities: model.capabilities === undefined ? undefined : model.capabilities.toSorted(),
       },
     });
   }
@@ -853,10 +864,7 @@ function clampDanglingDefault(config: ManagedKimiConfigShape): void {
   }
 }
 
-function managedModel(
-  config: ManagedKimiConfigShape,
-  alias: string,
-): ManagedModel | undefined {
+function managedModel(config: ManagedKimiConfigShape, alias: string): ManagedModel | undefined {
   return config.models?.[alias] as ManagedModel | undefined;
 }
 
@@ -867,6 +875,24 @@ class OAuthToolkitService extends KimiOAuthToolkit implements IOAuthToolkit {
   }
 }
 
-registerScopedService(LifecycleScope.App, IOAuthService, OAuthService, ScopeActivation.OnScopeCreated, 'auth');
-registerScopedService(LifecycleScope.App, IOAuthToolkit, OAuthToolkitService, ScopeActivation.OnScopeCreated, 'auth');
-registerScopedService(LifecycleScope.App, IAuthSummaryService, AuthSummaryService, ScopeActivation.OnScopeCreated, 'auth');
+registerScopedService(
+  LifecycleScope.App,
+  IOAuthService,
+  OAuthService,
+  ScopeActivation.OnScopeCreated,
+  'auth',
+);
+registerScopedService(
+  LifecycleScope.App,
+  IOAuthToolkit,
+  OAuthToolkitService,
+  ScopeActivation.OnScopeCreated,
+  'auth',
+);
+registerScopedService(
+  LifecycleScope.App,
+  IAuthSummaryService,
+  AuthSummaryService,
+  ScopeActivation.OnScopeCreated,
+  'auth',
+);

@@ -8,11 +8,7 @@
 
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import type {
-  LspHover,
-  LspLocation,
-  LspLocationLink,
-} from './protocol';
+import type { LspHover, LspLocation, LspLocationLink } from './protocol';
 
 export function normalizeLocationsResponse(response: unknown): LspLocation[] {
   if (response === null || response === undefined) return [];

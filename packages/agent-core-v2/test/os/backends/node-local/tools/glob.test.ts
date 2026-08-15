@@ -13,28 +13,28 @@ import os from 'node:os';
 import { Readable, type Writable } from 'node:stream';
 
 import { dirname, join } from 'pathe';
-
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ensureRgPath, type RgProbe } from '#/os/backends/node-local/tools/rgLocator';
-import { PathSecurityError, type PathClass } from '#/tool/path-access';
-import { noopTelemetryService } from '#/app/telemetry/telemetry';
-import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
-import {
-  type GlobInput,
-  GlobInputSchema,
-  MAX_MATCHES,
-} from '#/agent/tools/os/glob/glob';
+import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
+import { type GlobInput, GlobInputSchema, MAX_MATCHES } from '#/agent/tools/os/glob/glob';
 import { GlobTool, splitCompletePaths } from '#/agent/tools/os/glob/globTool';
+import { noopTelemetryService } from '#/app/telemetry/telemetry';
+import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { ensureRgPath, type RgProbe } from '#/os/backends/node-local/tools/rgLocator';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
-import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
-import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { PathSecurityError, type PathClass } from '#/tool/path-access';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
+import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 
 vi.mock('#/os/backends/node-local/tools/rgLocator', () => ({
   ensureRgPath: vi.fn(async (): Promise<{ path: string; source: string }> => ({
@@ -56,7 +56,9 @@ function fileStat(): HostFileStat {
   return { isFile: true, isDirectory: false, size: 0 };
 }
 
-function createTestFs(opts: { stat?: ReturnType<typeof vi.fn>; readdir?: ReturnType<typeof vi.fn> } = {}) {
+function createTestFs(
+  opts: { stat?: ReturnType<typeof vi.fn>; readdir?: ReturnType<typeof vi.fn> } = {},
+) {
   const stat = opts.stat ?? vi.fn(async (): Promise<HostFileStat> => dirStat());
   const readdir = opts.readdir ?? vi.fn(async (): Promise<readonly string[]> => []);
   const fs = { stat, readdir } as unknown as IHostFileSystem;
@@ -112,21 +114,23 @@ function createRealRgProbe(processService: IHostProcessService): RgProbe {
       const proc = await processService.spawn(command, rest);
       try {
         proc.stdin.end();
-      } catch {
-      }
+      } catch {}
       proc.stdout.resume();
       proc.stderr.resume();
       const exitCode = await proc.wait();
       try {
         proc.dispose();
-      } catch {
-      }
+      } catch {}
       return { exitCode };
     },
   };
 }
 
-function withCwdOf(exec: ReturnType<typeof vi.fn>): { toHaveBeenCalledWith: (dir: string) => void; toHaveBeenCalled: () => void; not: { toHaveBeenCalled: () => void; toHaveBeenCalledWith: (dir: string) => void } } {
+function withCwdOf(exec: ReturnType<typeof vi.fn>): {
+  toHaveBeenCalledWith: (dir: string) => void;
+  toHaveBeenCalled: () => void;
+  not: { toHaveBeenCalled: () => void; toHaveBeenCalledWith: (dir: string) => void };
+} {
   const cwds = () =>
     (
       exec.mock.calls as unknown as ReadonlyArray<
@@ -171,7 +175,9 @@ function telemetryStub(
   };
 }
 
-function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
+function isPromiseLike(
+  value: ToolExecution | Promise<ToolExecution>,
+): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -287,10 +293,10 @@ describe('GlobTool', () => {
 
   it('uses the backend path class when displaying paths relative to a windows root', async () => {
     const exec = execReturning('C:\\workspace\\src\\old.ts\n');
-    const { tool, withCwd } = makeTool(
-      stubWorkspaceContext('C:\\workspace'),
-      { pathClass: 'win32', exec },
-    );
+    const { tool, withCwd } = makeTool(stubWorkspaceContext('C:\\workspace'), {
+      pathClass: 'win32',
+      exec,
+    });
 
     const result = await execute(tool, { pattern: 'src/**/*.ts', path: 'C:\\WORKSPACE' });
 
@@ -532,10 +538,9 @@ describe('GlobTool', () => {
 
     it('rejects a relative path that escapes both workspace and additionalDirs', async () => {
       const exec = vi.fn();
-      const { tool, withCwd } = makeTool(
-        stubWorkspaceContext('/workspace/project', ['/skills']),
-        { exec },
-      );
+      const { tool, withCwd } = makeTool(stubWorkspaceContext('/workspace/project', ['/skills']), {
+        exec,
+      });
 
       const result = await execute(tool, { pattern: '*.py', path: '../../tmp/evil' });
 
@@ -719,7 +724,9 @@ describe('GlobTool', () => {
   });
 
   it('handles include_ignored with sensitive file filtering', async () => {
-    const exec = execReturning('/workspace/.env\n/workspace/src/app.ts\n/workspace/dist/bundle.js\n');
+    const exec = execReturning(
+      '/workspace/.env\n/workspace/src/app.ts\n/workspace/dist/bundle.js\n',
+    );
     const { tool } = makeTool(workspace, { exec });
 
     const result = await execute(tool, { pattern: '**', include_ignored: true });
@@ -750,10 +757,7 @@ describe('GlobTool', () => {
 
   it('shows absolute paths when explicit search root is outside all workspace roots', async () => {
     const exec = execReturning('/extra/test.py\n');
-    const { tool, withCwd } = makeTool(
-      stubWorkspaceContext('/workspace'),
-      { exec },
-    );
+    const { tool, withCwd } = makeTool(stubWorkspaceContext('/workspace'), { exec });
 
     const result = await execute(tool, { pattern: '*.py', path: '/extra' });
     expect(result.isError).toBeFalsy();
@@ -785,10 +789,10 @@ describe('GlobTool', () => {
 
   it('expands a leading "~/" path before searching outside the workspace', async () => {
     const exec = execReturning('');
-    const { tool, withCwd } = makeTool(
-      stubWorkspaceContext('/workspace'),
-      { home: '/home/test', exec },
-    );
+    const { tool, withCwd } = makeTool(stubWorkspaceContext('/workspace'), {
+      home: '/home/test',
+      exec,
+    });
 
     const result = await execute(tool, { pattern: '*.py', path: '~/' });
 
@@ -800,10 +804,7 @@ describe('GlobTool', () => {
 
   it('allows a path sharing the workspace prefix when it is absolute', async () => {
     const exec = execReturning('');
-    const { tool, withCwd } = makeTool(
-      stubWorkspaceContext('/parent/workdir'),
-      { exec },
-    );
+    const { tool, withCwd } = makeTool(stubWorkspaceContext('/parent/workdir'), { exec });
 
     const result = await execute(tool, { pattern: '*.py', path: '/parent/workdir-sneaky' });
 
@@ -824,10 +825,7 @@ describe('GlobTool', () => {
   });
 
   it('mentions Windows path forms in the description on win32 backends', () => {
-    const { tool } = makeTool(
-      stubWorkspaceContext('C:\\workspace'),
-      { pathClass: 'win32' },
-    );
+    const { tool } = makeTool(stubWorkspaceContext('C:\\workspace'), { pathClass: 'win32' });
 
     expect(tool.description).toContain('C:\\Users\\foo');
     expect(tool.description).toContain('/c/Users/foo');
@@ -857,7 +855,6 @@ describe('splitCompletePaths', () => {
 });
 
 describe('GlobTool integration (real ripgrep)', () => {
-
   let tmpDir: string | undefined;
   let realEnv: IHostEnvironment;
   let realProcessService: IHostProcessService;
@@ -866,17 +863,16 @@ describe('GlobTool integration (real ripgrep)', () => {
 
   beforeAll(async () => {
     try {
-      const actual = await vi.importActual<typeof import('#/os/backends/node-local/tools/rgLocator')>(
-        '#/os/backends/node-local/tools/rgLocator',
-      );
+      const actual = await vi.importActual<
+        typeof import('#/os/backends/node-local/tools/rgLocator')
+      >('#/os/backends/node-local/tools/rgLocator');
       const probeProcessService = new HostProcessService();
       const resolution = await actual.ensureRgPath(createRealRgProbe(probeProcessService), {
         allowCachedFallback: false,
       });
       vi.mocked(ensureRgPath).mockResolvedValue(resolution);
       runRealRg = true;
-    } catch {
-    }
+    } catch {}
   });
 
   beforeEach(async (testCtx) => {

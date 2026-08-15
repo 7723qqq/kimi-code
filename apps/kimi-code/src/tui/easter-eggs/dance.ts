@@ -9,10 +9,11 @@
  * skill always wins.
  */
 
-import chalk from 'chalk';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
 
 import { t } from '#/i18n';
+
 import type { SlashCommandHost } from '../commands/dispatch';
 import type { ParsedSlashInput } from '../commands/types';
 import { currentTheme } from '../theme';

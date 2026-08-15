@@ -67,11 +67,7 @@ export interface TerminalExitMessage {
 export type TerminalFrame = TerminalOutputMessage | TerminalExitMessage;
 
 function isAbsolutePath(value: string): boolean {
-  return (
-    value.startsWith('/') ||
-    value.startsWith('\\') ||
-    /^[A-Za-z]:[\\/]/.test(value)
-  );
+  return value.startsWith('/') || value.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(value);
 }
 
 export interface TerminalAttachSink {

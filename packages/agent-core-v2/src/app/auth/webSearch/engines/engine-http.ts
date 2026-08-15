@@ -44,7 +44,10 @@ let dispatcherCache: Dispatcher | undefined;
 function dispatcherFor(url: string): Dispatcher | undefined {
   if (!isProxyConfigured(process.env)) return undefined;
   const proxyUrl =
-    process.env['HTTPS_PROXY'] ?? process.env['https_proxy'] ?? process.env['HTTP_PROXY'] ?? process.env['http_proxy'];
+    process.env['HTTPS_PROXY'] ??
+    process.env['https_proxy'] ??
+    process.env['HTTP_PROXY'] ??
+    process.env['http_proxy'];
   if (proxyUrl === undefined || proxyUrl === '') return undefined;
   const noProxy = makeNoProxyMatcher(resolveNoProxy(process.env));
   const parsed = new URL(url);
@@ -60,7 +63,9 @@ export async function engineFetch(
 ): Promise<EngineHttpResponse> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() =>{  controller.abort(); }, timeoutMs);
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
   const dispatcher = dispatcherFor(url);
   // POST / body requests previously dropped the signal entirely; they now get
   // the same timeout, and any caller-provided signal is combined with it.
@@ -73,7 +78,7 @@ export async function engineFetch(
       method: options.method ?? 'GET',
       headers: {
         'User-Agent': DEFAULT_USER_AGENT,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         ...options.headers,
       },

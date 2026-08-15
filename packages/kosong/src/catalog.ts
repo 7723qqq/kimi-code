@@ -341,8 +341,7 @@ export function catalogModelToCapability(model: CatalogModelEntry): CatalogModel
       // Declaring concrete effort levels (or a toggle) implies thinking
       // support even when the `reasoning` boolean is absent (mirrors the
       // api.json importer).
-      thinking:
-        Boolean(model.reasoning) || thinking.efforts !== undefined || thinking.hasToggle,
+      thinking: Boolean(model.reasoning) || thinking.efforts !== undefined || thinking.hasToggle,
       tool_use: model.tool_call ?? true,
       max_context_tokens: context,
       max_input_tokens: maxInputTokens,
@@ -366,7 +365,12 @@ function catalogThinkingOptions(options: CatalogModelEntry['reasoning_options'])
   readonly alwaysThinking: boolean | undefined;
 } {
   if (!Array.isArray(options)) {
-    return { efforts: undefined, offEffort: undefined, hasToggle: false, alwaysThinking: undefined };
+    return {
+      efforts: undefined,
+      offEffort: undefined,
+      hasToggle: false,
+      alwaysThinking: undefined,
+    };
   }
   let efforts: readonly string[] | undefined;
   let offEffort: string | undefined;
@@ -411,7 +415,9 @@ function catalogReasoningKey(interleaved: CatalogModelEntry['interleaved']): str
 export function catalogProviderModels(entry: CatalogProviderEntry): CatalogModel[] {
   const providerWire = resolveCatalogWire(entry);
   return Object.values(entry.models ?? {})
-    .map((raw) => applyModelProviderOverride(catalogModelToCapability(raw), raw, entry, providerWire))
+    .map((raw) =>
+      applyModelProviderOverride(catalogModelToCapability(raw), raw, entry, providerWire),
+    )
     .filter((model): model is CatalogModel => model !== undefined)
     .map((model) => {
       // The always-thinking inference ("effort levels, no toggle, no 'none'
@@ -425,10 +431,7 @@ export function catalogProviderModels(entry: CatalogProviderEntry): CatalogModel
       // merely with thoughts hidden) — so there the marker keeps the UI from
       // offering an off that does not exist.
       const protocol = model.protocol ?? providerWire;
-      if (
-        model.alwaysThinking === true &&
-        (protocol === 'anthropic' || protocol === 'kimi')
-      ) {
+      if (model.alwaysThinking === true && (protocol === 'anthropic' || protocol === 'kimi')) {
         const { alwaysThinking: _dropped, ...rest } = model;
         return rest as CatalogModel;
       }
@@ -495,7 +498,11 @@ function applyModelProviderOverride(
   // google-vertex (whose wire here is Gemini-mode Vertex), or a google-genai
   // override on an OpenAI gateway.
   if (overrideWire === 'anthropic' && usableApi !== undefined) {
-    return { ...model, protocol: 'anthropic', baseUrl: adaptBaseUrlForWire(usableApi, 'anthropic') };
+    return {
+      ...model,
+      protocol: 'anthropic',
+      baseUrl: adaptBaseUrlForWire(usableApi, 'anthropic'),
+    };
   }
   return undefined;
 }

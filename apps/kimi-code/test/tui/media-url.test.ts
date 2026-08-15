@@ -29,9 +29,7 @@ describe('mediaUrlPartToText', () => {
   });
 
   it('handles empty base64 payload', () => {
-    expect(mediaUrlPartToText('image', 'data:image/png;base64,')).toBe(
-      '[image image/png, 0 B]',
-    );
+    expect(mediaUrlPartToText('image', 'data:image/png;base64,')).toBe('[image image/png, 0 B]');
   });
 
   it('handles very large payload sizes with MB formatting', () => {
@@ -41,7 +39,7 @@ describe('mediaUrlPartToText', () => {
   });
 
   it('escapes special characters in non-data URLs', () => {
-    expect(mediaUrlPartToText('image', 'file:///tmp/a<b>c&d\'.png')).toBe(
+    expect(mediaUrlPartToText('image', "file:///tmp/a<b>c&d'.png")).toBe(
       '<image url="file:///tmp/a&lt;b&gt;c&amp;d&apos;.png">',
     );
   });

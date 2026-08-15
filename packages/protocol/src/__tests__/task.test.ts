@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  taskKindSchema,
-  taskSchema,
-  taskStatusSchema,
-  type Task,
-} from '../task';
+import { taskKindSchema, taskSchema, taskStatusSchema, type Task } from '../task';
 
 describe('taskKindSchema', () => {
   it.each(['subagent', 'bash', 'tool'] as const)('accepts %s', (k) => {
@@ -20,12 +15,9 @@ describe('taskKindSchema', () => {
 });
 
 describe('taskStatusSchema', () => {
-  it.each(['running', 'completed', 'failed', 'cancelled'] as const)(
-    'accepts %s',
-    (s) => {
-      expect(taskStatusSchema.parse(s)).toBe(s);
-    },
-  );
+  it.each(['running', 'completed', 'failed', 'cancelled'] as const)('accepts %s', (s) => {
+    expect(taskStatusSchema.parse(s)).toBe(s);
+  });
 
   it("rejects agent-core's 'timed_out' / 'killed' / 'lost' literals (adapter maps)", () => {
     expect(taskStatusSchema.safeParse('timed_out').success).toBe(false);

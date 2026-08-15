@@ -327,7 +327,12 @@ export function encodePageToken(
   generation: string | undefined,
 ): string {
   return Buffer.from(
-    JSON.stringify({ v: PAGE_TOKEN_VERSION, f: tokenFingerprint(q, source), g: generation, b: boundary }),
+    JSON.stringify({
+      v: PAGE_TOKEN_VERSION,
+      f: tokenFingerprint(q, source),
+      g: generation,
+      b: boundary,
+    }),
   ).toString('base64url');
 }
 

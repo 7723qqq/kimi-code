@@ -13,12 +13,12 @@ import {
   planModeExit,
   planRevision,
 } from '#/features/plan/planOps';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import type { IWireService } from '#/wire/wire';
 
 import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
 
@@ -53,7 +53,10 @@ afterEach(() => disposables.dispose());
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await wire.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -171,12 +174,7 @@ describe('plan ops (wire-backed)', () => {
     host.eventBus.subscribe((e) => {
       emissions.push(e.type);
     });
-    await restoreTestAgentWire(
-      host.wire,
-      host.log,
-      testWireScope(SCOPE, 'plan-replay'),
-      records,
-    );
+    await restoreTestAgentWire(host.wire, host.log, testWireScope(SCOPE, 'plan-replay'), records);
     expect(host.wire.getModel(PlanModel).current).toEqual({
       active: true,
       id: 'p1',
@@ -189,8 +187,8 @@ describe('plan ops (wire-backed)', () => {
       cancelled.log,
       testWireScope(SCOPE, 'plan-replay-cancel'),
       [
-      { type: 'plan_mode.enter', id: 'p1', planFilePath: '/w/plan/p1.md' },
-      { type: 'plan_mode.cancel', id: 'p1' },
+        { type: 'plan_mode.enter', id: 'p1', planFilePath: '/w/plan/p1.md' },
+        { type: 'plan_mode.cancel', id: 'p1' },
       ],
     );
     expect(cancelled.wire.getModel(PlanModel).current.active).toBe(false);
@@ -270,9 +268,7 @@ describe('plan ops (wire-backed)', () => {
     host.wire.dispatch(planModeEnter({ id: 'p1' }));
     expect(host.wire.getModel(PlanModel).current.revisionCount).toEqual({ p1: 1 });
 
-    expect(
-      emissions.filter((e) => (e as { type: string }).type === 'plan.revision'),
-    ).toEqual([
+    expect(emissions.filter((e) => (e as { type: string }).type === 'plan.revision')).toEqual([
       {
         type: 'plan.revision',
         id: 'p1',

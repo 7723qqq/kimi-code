@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ref, type Ref } from 'vue';
+
 import { useInputHistory } from '../src/composables/useInputHistory';
 import { STORAGE_KEYS } from '../src/lib/storage';
 
@@ -21,8 +22,15 @@ function setup(initialText = '', caret = 0, sessionId: string | null = 'test-ses
     },
   };
   const text = ref(initialText);
-  const textareaRef = ref(textarea as unknown as HTMLTextAreaElement) as Ref<HTMLTextAreaElement | null>;
-  const history = useInputHistory({ text, textareaRef, autosize: () => {}, sessionId: () => sessionId ?? undefined });
+  const textareaRef = ref(
+    textarea as unknown as HTMLTextAreaElement,
+  ) as Ref<HTMLTextAreaElement | null>;
+  const history = useInputHistory({
+    text,
+    textareaRef,
+    autosize: () => {},
+    sessionId: () => sessionId ?? undefined,
+  });
   return { text, textarea, history };
 }
 

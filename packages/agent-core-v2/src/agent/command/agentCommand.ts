@@ -7,8 +7,8 @@
  * Bound at Agent scope.
  */
 
-import type { Event } from '#/_base/event';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { Event } from '#/_base/event';
 
 export interface AgentCommandInfo {
   readonly name: string;

@@ -1,15 +1,22 @@
+import { describe, it, expect, vi } from 'vitest';
+
 import { generate } from '#/generate';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
-import { OpenAILegacyChatProvider } from '#/providers/openai-legacy';
 import type { GenerateOptions } from '#/provider';
+import { OpenAILegacyChatProvider } from '#/providers/openai-legacy';
 import type { Tool } from '#/tool';
-import { describe, it, expect, vi } from 'vitest';
 
 // The Rust native LLM stream replaces the mock SDK client with real network
 // calls when the addon is loadable; force the TS/SDK fallback in tests.
 vi.mock('../src/providers/native-stream', async () => {
-  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>('../src/providers/native-stream');
-  return { ...actual, tryNativeLlmStream: () => undefined, tryNativeLlmStreamIncremental: () => undefined };
+  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>(
+    '../src/providers/native-stream',
+  );
+  return {
+    ...actual,
+    tryNativeLlmStream: () => undefined,
+    tryNativeLlmStreamIncremental: () => undefined,
+  };
 });
 
 function makeChatCompletionResponse(model: string = 'test-model') {
@@ -479,9 +486,7 @@ describe('OpenAILegacyChatProvider', () => {
         },
         {
           role: 'tool',
-          content: [
-            { type: 'image_url', imageUrl: { url: 'https://example.com/first.png' } },
-          ],
+          content: [{ type: 'image_url', imageUrl: { url: 'https://example.com/first.png' } }],
           toolCallId: 'call_first',
           toolCalls: [],
         },
@@ -905,9 +910,7 @@ describe('OpenAILegacyChatProvider', () => {
     );
 
     it('keeps max_tokens for OpenAI-compatible non-OpenAI reasoning models', async () => {
-      const provider = createProvider({ model: 'deepseek-reasoner' }).withMaxCompletionTokens(
-        1024,
-      );
+      const provider = createProvider({ model: 'deepseek-reasoner' }).withMaxCompletionTokens(1024);
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
       ];
@@ -1508,9 +1511,7 @@ describe('OpenAILegacyChatProvider', () => {
         yield { id: 'c1', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] };
       }
 
-      (provider as any)._client.chat.completions.create = vi
-        .fn()
-        .mockResolvedValue(mockedStream());
+      (provider as any)._client.chat.completions.create = vi.fn().mockResolvedValue(mockedStream());
 
       const stream = await provider.generate(
         '',
@@ -1538,9 +1539,7 @@ describe('OpenAILegacyChatProvider', () => {
         yield { id: 'c1', choices: [{ index: 0, delta: { reasoning_content: '' } }] };
       }
 
-      (provider as any)._client.chat.completions.create = vi
-        .fn()
-        .mockResolvedValue(mockedStream());
+      (provider as any)._client.chat.completions.create = vi.fn().mockResolvedValue(mockedStream());
 
       const stream = await provider.generate('', [], []);
       const parts: StreamedMessagePart[] = [];

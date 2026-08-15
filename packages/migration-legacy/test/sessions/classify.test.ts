@@ -1,7 +1,9 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+
 import { classifySessionDir } from '../../src/sessions/classify.js';
 
 let dir: string;
@@ -41,7 +43,8 @@ describe('classifySessionDir', () => {
   it('real: context.jsonl carries a user/assistant/tool message', async () => {
     const p = await makeSession('uuid4', {
       'state.json': '{}',
-      'context.jsonl': '{"role":"_system_prompt","content":"hi"}\n{"role":"user","content":"hello"}\n',
+      'context.jsonl':
+        '{"role":"_system_prompt","content":"hi"}\n{"role":"user","content":"hello"}\n',
       'wire.jsonl': '',
     });
     expect(await classifySessionDir(p)).toBe('real');

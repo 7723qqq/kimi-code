@@ -1,9 +1,11 @@
-// Regression tests for the deep-review fixes.
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
+// Regression tests for the deep-review fixes.
+import { test } from 'vitest';
+
 import { MiniDb } from '../src/index.js';
 import { WAL } from '../src/wal.js';
 import { barrier } from './helpers.js';

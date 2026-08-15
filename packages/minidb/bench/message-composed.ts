@@ -17,10 +17,11 @@
 //
 // Run:  node --import tsx bench/message-composed.ts
 
-import fs from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
+import fs from 'node:fs/promises';
 import os from 'node:os';
+import path from 'node:path';
+
 import { MiniDb } from '../src/index.js';
 
 const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -76,7 +77,12 @@ function loadAllMessages(): Msg[] {
         o.event.part.type === 'text' &&
         typeof o.event.part.text === 'string'
       ) {
-        out.push({ id: `${meta.sessionId}:a${out.length}`, ts, role: 'assistant', text: o.event.part.text });
+        out.push({
+          id: `${meta.sessionId}:a${out.length}`,
+          ts,
+          role: 'assistant',
+          text: o.event.part.text,
+        });
       }
     }
   }
@@ -137,7 +143,10 @@ async function runCase(label: string, msgs: Msg[]) {
     }).length;
   });
   const aNaive = med(() => {
-    aHits = msgs.filter((m) => m.role === 'user' && m.ts >= since).sort((a, b) => b.ts - a.ts).slice(0, LIMIT).length;
+    aHits = msgs
+      .filter((m) => m.role === 'user' && m.ts >= since)
+      .toSorted((a, b) => b.ts - a.ts)
+      .slice(0, LIMIT).length;
   });
 
   // B. ALL user in window (no limit)
@@ -167,7 +176,9 @@ async function runCase(label: string, msgs: Msg[]) {
   await fs.rm(dir, { recursive: true, force: true });
 
   console.log(`\n--- ${label}: N=${fmt(msgs.length)} msgs (user=${fmt(userTotal)}) ---`);
-  console.log(`  build: minidb ${(buildMs / 1000).toFixed(2)}s | heap ${(heap / 1024 / 1024).toFixed(0)} MiB`);
+  console.log(
+    `  build: minidb ${(buildMs / 1000).toFixed(2)}s | heap ${(heap / 1024 / 1024).toFixed(0)} MiB`,
+  );
   console.log(
     `  A top-${LIMIT}:  minidb ${aDb.toFixed(3)} ms  vs  naive ${aNaive.toFixed(3)} ms  ->  ${(aNaive / aDb).toFixed(1)}x  (hits ${aHits})`,
   );
@@ -190,7 +201,7 @@ async function main() {
   console.log('\ndone.');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

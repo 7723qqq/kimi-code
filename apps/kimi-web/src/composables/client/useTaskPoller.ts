@@ -3,6 +3,7 @@
 // running-task elapsed timers live in the UI.
 
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue';
+
 import { getKimiWebApi } from '../../api';
 import type { AppTask } from '../../api/types';
 import { keepLiveSubagents } from '../../lib/taskMerge';
@@ -49,10 +50,7 @@ export function useTaskPoller(
    * outputLines. Called once after loading the task list so already-completed
    * tasks are clickable immediately.
    */
-  async function fetchTerminalTaskOutputs(
-    sessionId: string,
-    taskList?: AppTask[],
-  ): Promise<void> {
+  async function fetchTerminalTaskOutputs(sessionId: string, taskList?: AppTask[]): Promise<void> {
     if (rawState.activeSessionId !== sessionId) return;
 
     const tasks = taskList ?? rawState.tasksBySession[sessionId] ?? [];
@@ -99,9 +97,7 @@ export function useTaskPoller(
         // and never refetched (the REST id is already marked as fetched).
         const polled =
           outputByTaskId.get(t.id) ??
-          (t.backgroundTaskId !== undefined
-            ? outputByTaskId.get(t.backgroundTaskId)
-            : undefined);
+          (t.backgroundTaskId !== undefined ? outputByTaskId.get(t.backgroundTaskId) : undefined);
         if (!polled) return t;
         return { ...t, outputPreview: polled.preview, outputBytes: polled.bytes };
       }),

@@ -18,8 +18,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Frame {
   type: string;
@@ -117,7 +117,13 @@ describe('server-v2 /api/v1/ws resync', () => {
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-wsv1-test-'));
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     base = `http://127.0.0.1:${server.port}`;
     wsUrl = `ws://127.0.0.1:${server.port}/api/v1/ws`;
   });
@@ -190,7 +196,11 @@ describe('server-v2 /api/v1/ws resync', () => {
     await ensureMainAgent(sid);
     const c = await openConn(wsUrl, server!.authTokenService.getToken());
     await c.next((f) => f.type === 'server_hello');
-    c.send({ type: 'client_hello', id: 'h1', payload: withToken({ client_id: 'cli', subscriptions: [sid] }) });
+    c.send({
+      type: 'client_hello',
+      id: 'h1',
+      payload: withToken({ client_id: 'cli', subscriptions: [sid] }),
+    });
     await c.next((f) => f.type === 'ack' && f.id === 'h1');
 
     emitAgentEvent(sid, { type: 'turn.started', turnId: 1 } as unknown as DomainEvent);
@@ -211,7 +221,11 @@ describe('server-v2 /api/v1/ws resync', () => {
     // First connection — subscribe, generate two durable events.
     const c1 = await openConn(wsUrl, server!.authTokenService.getToken());
     await c1.next((f) => f.type === 'server_hello');
-    c1.send({ type: 'client_hello', id: 'h1', payload: withToken({ client_id: 'cli', subscriptions: [sid] }) });
+    c1.send({
+      type: 'client_hello',
+      id: 'h1',
+      payload: withToken({ client_id: 'cli', subscriptions: [sid] }),
+    });
     await c1.next((f) => f.type === 'ack' && f.id === 'h1');
     emitAgentEvent(sid, { type: 'turn.started', turnId: 1 } as unknown as DomainEvent);
     emitAgentEvent(sid, { type: 'turn.ended', turnId: 1 } as unknown as DomainEvent);
@@ -225,7 +239,11 @@ describe('server-v2 /api/v1/ws resync', () => {
     c2.send({
       type: 'client_hello',
       id: 'h2',
-      payload: withToken({ client_id: 'cli', subscriptions: [sid], cursors: { [sid]: { seq: 1 } } }),
+      payload: withToken({
+        client_id: 'cli',
+        subscriptions: [sid],
+        cursors: { [sid]: { seq: 1 } },
+      }),
     });
     const replayed = await c2.next((f) => f.type === 'turn.ended');
     expect(replayed.seq).toBeGreaterThanOrEqual(2);

@@ -17,24 +17,38 @@
  * at Agent scope.
  */
 
-import { toDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { AsyncEmitter, type Event } from '#/_base/event';
-import { defineState } from '#/_base/state/stateRegistry';
-import type { ContentPart, ToolCall } from '#/kosong/contract/message';
 import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
+import { toDisposable } from '#/_base/di/lifecycle';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { AsyncEmitter, type Event } from '#/_base/event';
+import { ILogService } from '#/_base/log/log';
+import { defineState } from '#/_base/state/stateRegistry';
+import { createDeadlineAbortSignal, isAbortError, isUserCancellation } from '#/_base/utils/abort';
+import { IAgentStateService } from '#/agent/state/agentState';
+import type {
+  BeforeToolExecuteEvent,
+  ResolvedToolExecutionHookContext,
+  ToolDidExecuteContext,
+  ToolExecutionOutcome,
+  WillExecuteToolEvent,
+} from '#/agent/toolExecutor/toolHooks';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
+import type { ToolCallEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { OrderedHookSlot } from '#/hooks';
+import type { ContentPart, ToolCall } from '#/kosong/contract/message';
 import {
   compileToolArgsValidator,
   validateToolArgs,
   type JsonType,
   type ToolArgsValidator,
 } from '#/tool/args-validator';
-import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import { PathSecurityError } from '#/tool/path-access';
-import { createDeadlineAbortSignal, isAbortError, isUserCancellation } from '#/_base/utils/abort';
-import { IEventBus } from '#/app/event/eventBus';
+import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import {
   ToolAccesses,
   type ExecutableTool,
@@ -44,20 +58,7 @@ import {
   type ToolResult,
   type ToolUpdate,
 } from '#/tool/toolContract';
-import type {
-  BeforeToolExecuteEvent,
-  ResolvedToolExecutionHookContext,
-  ToolDidExecuteContext,
-  ToolExecutionOutcome,
-  WillExecuteToolEvent,
-} from '#/agent/toolExecutor/toolHooks';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { ILogService } from '#/_base/log/log';
-import type { ToolCallEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { OrderedHookSlot } from '#/hooks';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+
 import { BeforeToolExecuteEmitter } from './beforeToolExecuteEvent';
 import {
   IAgentToolExecutorService,
@@ -526,11 +527,8 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   ): Promise<ToolExecutionRunResult> {
     if (signal.aborted) {
       return {
-        result: makeErrorToolResult(
-          call,
-          call.args,
-          abortedToolOutput(call.toolName, signal),
-        ).result,
+        result: makeErrorToolResult(call, call.args, abortedToolOutput(call.toolName, signal))
+          .result,
         outcome: 'aborted',
       };
     }
@@ -702,9 +700,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       display: result.display,
       approvalRule: result.approvalRule,
       stopTurn:
-        result.stopTurn === true ||
-        didCtx.stopTurn === true ||
-        effectiveResult.stopTurn === true,
+        result.stopTurn === true || didCtx.stopTurn === true || effectiveResult.stopTurn === true,
       stopBatchAfterThis: result.stopBatchAfterThis,
       delivery: coercedResult.delivery,
     };
@@ -742,7 +738,10 @@ interface PreparedToolResult {
   readonly stopTurn?: boolean;
 }
 
-type ToolCallDisplayFields = { description?: string | undefined; display?: ToolInputDisplay | undefined };
+type ToolCallDisplayFields = {
+  description?: string | undefined;
+  display?: ToolInputDisplay | undefined;
+};
 
 function buildBeforeExecuteContext(
   call: RunnableToolCall,
@@ -1025,8 +1024,7 @@ async function raceWithAbortGrace<Result>(
     if (onAbort !== undefined) {
       try {
         signal.removeEventListener('abort', onAbort);
-      } catch {
-      }
+      } catch {}
     }
   }
 }
@@ -1042,4 +1040,3 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'toolExecutor',
 );
-

@@ -17,14 +17,12 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { rootCertificates } from 'node:tls';
+
 import { Agent, buildConnector, fetch as undiciFetch } from 'undici';
 
 // ── System CA loading (for providers with non-public CAs, e.g. xfyun.cn) ────
 
-const SYSTEM_CA_PATHS = [
-  '/etc/ssl/certs/ca-certificates.crt',
-  '/etc/pki/tls/certs/ca-bundle.crt',
-];
+const SYSTEM_CA_PATHS = ['/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt'];
 
 let _systemCaCerts: string[] | undefined;
 
@@ -44,7 +42,9 @@ export function loadSystemCAs(): string[] {
       try {
         systemCerts = readFileSync(path, 'utf-8');
         break;
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
   _systemCaCerts = [systemCerts, ...rootCertificates].filter(Boolean);

@@ -10,6 +10,7 @@
  */
 
 import { promises as fs } from 'node:fs';
+
 import path from 'pathe';
 
 import { ILogService, type LogPayload } from '#/_base/log/log';
@@ -236,9 +237,7 @@ function hasSubSkillEnabled(skill: SkillDefinition): boolean {
         (nested as Record<string, unknown>)['hasSubSkill'] === true
       : false;
   return (
-    skill.metadata['has-sub-skill'] === true ||
-    skill.metadata['hasSubSkill'] === true ||
-    nestedFlag
+    skill.metadata['has-sub-skill'] === true || skill.metadata['hasSubSkill'] === true || nestedFlag
   );
 }
 

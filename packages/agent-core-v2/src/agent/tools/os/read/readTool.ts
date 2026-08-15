@@ -25,26 +25,10 @@
  * load.
  */
 
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import { unwrapErrorCause } from '#/_base/errors/errors';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import {
-  ToolAccesses,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import {
-  extendWorkspaceWithSkillRoots,
-  resolvePathAccessPath,
-  type WorkspaceConfig,
-} from '#/tool/path-access';
-import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
-import { makeCarriageReturnsVisible, splitLinesKeepingTerminator, type LineEndingStyle } from '#/_base/text/line-endings';
+import { tryNativeRead } from '#/_base/native-tools';
 import {
   decodeUtf8Lenient,
   decodeUtfText,
@@ -52,9 +36,26 @@ import {
   detectTextEncoding,
   type UtfTextEncoding,
 } from '#/_base/text/encoding';
+import {
+  makeCarriageReturnsVisible,
+  splitLinesKeepingTerminator,
+  type LineEndingStyle,
+} from '#/_base/text/line-endings';
 import { renderPrompt } from '#/_base/utils/render-prompt';
-import { t } from '@moonshot-ai/kimi-i18n';
-import { tryNativeRead } from '#/_base/native-tools';
+import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import {
+  extendWorkspaceWithSkillRoots,
+  resolvePathAccessPath,
+  type WorkspaceConfig,
+} from '#/tool/path-access';
+import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
+import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
 
 import {
   IReadTool,
@@ -448,7 +449,11 @@ export class ReadTool implements IReadTool {
     const bytes = await this.fs.readBytes(safePath);
     const legacy = detectLegacyTextEncoding(bytes);
     if (legacy !== null) {
-      return this.readDecodedText(args, new TextDecoder('gbk', { fatal: false }).decode(bytes), legacy);
+      return this.readDecodedText(
+        args,
+        new TextDecoder('gbk', { fatal: false }).decode(bytes),
+        legacy,
+      );
     }
 
     const lenient = decodeUtf8Lenient(bytes);
@@ -661,7 +666,7 @@ export class ReadTool implements IReadTool {
     }
     if (input.detectedEncoding === 'gbk') {
       parts.push(
-        'Detected GBK/GB18030 encoding; content transcoded to UTF-8 for display. Edit and Write expect UTF-8 — convert the file\'s encoding first (e.g. `iconv` via Bash).',
+        "Detected GBK/GB18030 encoding; content transcoded to UTF-8 for display. Edit and Write expect UTF-8 — convert the file's encoding first (e.g. `iconv` via Bash).",
       );
     } else if (input.detectedEncoding === 'utf-8-lenient') {
       parts.push(

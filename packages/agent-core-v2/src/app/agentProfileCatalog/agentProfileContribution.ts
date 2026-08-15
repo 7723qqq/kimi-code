@@ -17,6 +17,7 @@
  */
 
 import { collection } from '#/_base/di/collection';
+
 import type { AgentProfile } from './agentProfileCatalog';
 
 export interface SkippedAgentFile {

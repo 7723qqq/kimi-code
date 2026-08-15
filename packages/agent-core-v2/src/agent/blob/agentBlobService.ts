@@ -5,9 +5,8 @@
  * loads them back on read. Bound at Agent scope.
  */
 
+import { createDecorator } from '#/_base/di/instantiation';
 import type { ContentPart } from '#/kosong/contract/message';
-
-import { createDecorator } from "#/_base/di/instantiation";
 
 export const BLOBREF_PROTOCOL = 'blobref:';
 export const MISSING_MEDIA_PLACEHOLDER = '[media missing]';
@@ -20,6 +19,4 @@ export interface IAgentBlobService {
   isBlobRef(url: string): boolean;
 }
 
-export const IAgentBlobService = createDecorator<IAgentBlobService>(
-  'agentBlobService',
-);
+export const IAgentBlobService = createDecorator<IAgentBlobService>('agentBlobService');

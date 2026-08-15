@@ -7,8 +7,9 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { CLUSTER_META_FILE, shardDirName } from './utils.js';
+
 import type { ClusterMeta, ClusterOpenOptions } from './types.js';
+import { CLUSTER_META_FILE, shardDirName } from './utils.js';
 
 const META_VERSION = 1;
 const DEFAULT_SHARD_COUNT = 16;
@@ -26,7 +27,10 @@ export class Topology {
    *  is on disk; unspecified values inherit the disk topology. */
   static async open(dir: string, opts: TopologyOpts): Promise<Topology> {
     if (!dir) throw new TypeError('Topology.open: dir is required');
-    if (opts.shardCount !== undefined && (!Number.isInteger(opts.shardCount) || opts.shardCount < 1)) {
+    if (
+      opts.shardCount !== undefined &&
+      (!Number.isInteger(opts.shardCount) || opts.shardCount < 1)
+    ) {
       throw new RangeError(`shardCount must be a positive integer, got ${opts.shardCount}`);
     }
     await fs.mkdir(dir, { recursive: true });
@@ -48,8 +52,8 @@ export class Topology {
       await fs.writeFile(tmpPath, JSON.stringify(requested, null, 2));
       await fs.link(tmpPath, metaPath);
       return new Topology(dir, requested);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     } finally {
       await fs.unlink(tmpPath).catch(() => {});
     }
@@ -62,13 +66,19 @@ export class Topology {
       throw new Error(`invalid shardCount in ${metaPath}`);
     }
     if (opts.shardCount !== undefined && opts.shardCount !== loaded.shardCount) {
-      throw new RangeError(`cluster was created with shardCount=${loaded.shardCount}, got ${opts.shardCount}`);
+      throw new RangeError(
+        `cluster was created with shardCount=${loaded.shardCount}, got ${opts.shardCount}`,
+      );
     }
     if (opts.valueCodec !== undefined && opts.valueCodec !== loaded.valueCodec) {
-      throw new RangeError(`cluster was created with valueCodec=${loaded.valueCodec}, got ${opts.valueCodec}`);
+      throw new RangeError(
+        `cluster was created with valueCodec=${loaded.valueCodec}, got ${opts.valueCodec}`,
+      );
     }
     if (opts.fsyncPolicy !== undefined && opts.fsyncPolicy !== loaded.fsyncPolicy) {
-      throw new RangeError(`cluster was created with fsyncPolicy=${loaded.fsyncPolicy}, got ${opts.fsyncPolicy}`);
+      throw new RangeError(
+        `cluster was created with fsyncPolicy=${loaded.fsyncPolicy}, got ${opts.fsyncPolicy}`,
+      );
     }
     return new Topology(dir, loaded);
   }

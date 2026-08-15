@@ -123,40 +123,11 @@ import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import {
-  ErrorCodes,
-  ensureConfigFile,
-  getRootLogger,
-  HookDefSchema,
-  KimiError,
-  limitAgentReplayByTurns,
-  log,
-  noopTelemetryClient,
-} from '#/legacy';
 import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
 import { ImageLimits } from '@moonshot-ai/agent-core-v2';
 // `getContext`'s return type is the v2 engine's own `AgentContextData` (the
 // shape the v1 client used is field-identical; the v1 type is gone with it).
 import type { AgentContextData } from '@moonshot-ai/agent-core-v2';
-import type { BeginGlobalMcpServerAuthResult } from '#/types';
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
-import { MCP_SECTION, type McpSection } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
-import { IAgentIdentity } from '@moonshot-ai/agent-core-v2/app/agentIdentity/agentIdentity';
-import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
-import {
-  AlreadyAuthorizedError,
-  McpOAuthService,
-  type BeginAuthorizationResult,
-} from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
-import {
-  McpOAuthCoordinator,
-  type McpOAuthCredentialsChangedEvent,
-} from '@moonshot-ai/agent-core-v2/mcpCore/oauth/coordinator';
-import { IPluginService } from '@moonshot-ai/agent-core-v2/app/plugin/plugin';
-import { createMcpOAuthStore } from '@moonshot-ai/agent-core-v2/app/mcpConfig/oauthStore';
-import { IAtomicDocumentStore } from '@moonshot-ai/agent-core-v2/persistence/interface/atomicDocumentStore';
-import { loadMcpServers } from '@moonshot-ai/agent-core-v2/workspace/workspaceMcpConfig/internal/config-loader';
-import type { McpServerConfig as WorkspaceMcpServerConfig } from '@moonshot-ai/agent-core-v2/mcpCore/config-schema';
 import {
   bootstrap,
   DEFAULT_AGENT_PROFILE_NAME,
@@ -235,13 +206,44 @@ import {
   type ServicesAccessor,
   type SessionSummary as V2SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
+import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { IAgentIdentity } from '@moonshot-ai/agent-core-v2/app/agentIdentity/agentIdentity';
+import {
+  MCP_SECTION,
+  type McpSection,
+} from '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
+import { createMcpOAuthStore } from '@moonshot-ai/agent-core-v2/app/mcpConfig/oauthStore';
+import { IPluginService } from '@moonshot-ai/agent-core-v2/app/plugin/plugin';
+import type { McpServerConfig as WorkspaceMcpServerConfig } from '@moonshot-ai/agent-core-v2/mcpCore/config-schema';
+import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
+import {
+  McpOAuthCoordinator,
+  type McpOAuthCredentialsChangedEvent,
+} from '@moonshot-ai/agent-core-v2/mcpCore/oauth/coordinator';
+import {
+  AlreadyAuthorizedError,
+  McpOAuthService,
+  type BeginAuthorizationResult,
+} from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
+import { IAtomicDocumentStore } from '@moonshot-ai/agent-core-v2/persistence/interface/atomicDocumentStore';
+import { loadMcpServers } from '@moonshot-ai/agent-core-v2/workspace/workspaceMcpConfig/internal/config-loader';
+import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 import type { AgentHandle, Klient } from '@moonshot-ai/klient';
 import { createKlient } from '@moonshot-ai/klient/memory';
-import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 
-import { readConfigFile, resolveConfigPath, resolveKimiHome } from '#/config-local';
 import { KimiAuthFacade } from '#/auth';
+import { readConfigFile, resolveConfigPath, resolveKimiHome } from '#/config-local';
 import { KimiHarness } from '#/kimi-harness';
+import {
+  ErrorCodes,
+  ensureConfigFile,
+  getRootLogger,
+  HookDefSchema,
+  KimiError,
+  limitAgentReplayByTurns,
+  log,
+  noopTelemetryClient,
+} from '#/legacy';
 import {
   SDKRpcClientBase,
   type ActivatePluginCommandRpcInput,
@@ -260,6 +262,7 @@ import {
   type SetSessionThinkingRpcInput,
   type UpdateSessionMetadataRpcInput,
 } from '#/rpc';
+import type { BeginGlobalMcpServerAuthResult } from '#/types';
 import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
@@ -313,8 +316,6 @@ import {
   planProviderRemoval,
   resolvedConfigToKimiConfig,
 } from '#/v2/config-mapper';
-import { assertImportFits, buildImportContextMessage } from '#/v2/import-context';
-import { foldAgentWireReplay } from '#/v2/resume-replay';
 import {
   GlobalMcpConfigStore,
   appMcpServerDescriptors,
@@ -328,6 +329,8 @@ import {
   standaloneMcpTestResult,
   type McpServerLocator,
 } from '#/v2/global-mcp';
+import { assertImportFits, buildImportContextMessage } from '#/v2/import-context';
+import { foldAgentWireReplay } from '#/v2/resume-replay';
 import {
   normalizeWorkDir,
   v2MetaToSessionMeta,
@@ -466,7 +469,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     // log service to the same global path (logSeed below) — both sinks
     // append to the same file, matching the v1 single-sink layout as closely
     // as the dual-engine migration allows.
-    void getRootLogger().configure(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }));
+    void getRootLogger().configure(
+      resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }),
+    );
 
     const identity = assertKimiHostIdentity(this.identity);
     const { app } = bootstrap(
@@ -496,19 +501,20 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       app.accessor.get(IModelService).ready,
       app.accessor.get(IProviderService).ready,
     ]).then(() => {});
-    this.appSubscriptions.push({
-      // Credential changes from the client-side global OAuth flows reach the
-      // engine through every live workspace handler's MCP service, which
-      // reconnects the affected server (v1's session-layer seam).
-      dispose: this.mcpOAuthCoordinator.onCredentialsChanged((event) => {
-        void this.reconnectMcpAfterCredentialsChanged(event).catch((error: unknown) => {
-          console.warn('mcp reconnect after credentials change failed', {
-            server: event.serverName,
-            error,
+    this.appSubscriptions.push(
+      {
+        // Credential changes from the client-side global OAuth flows reach the
+        // engine through every live workspace handler's MCP service, which
+        // reconnects the affected server (v1's session-layer seam).
+        dispose: this.mcpOAuthCoordinator.onCredentialsChanged((event) => {
+          void this.reconnectMcpAfterCredentialsChanged(event).catch((error: unknown) => {
+            console.warn('mcp reconnect after credentials change failed', {
+              server: event.serverName,
+              error,
+            });
           });
-        });
-      }),
-    },
+        }),
+      },
       // v1's stream carries `session.meta.updated` (the prompt metadata
       // path) — the one v1-visible fact the v2 engine publishes on the
       // process-global IEventService rather than a per-agent bus. Every other
@@ -944,7 +950,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * sorted order so concurrent multi-key operations (fork A→B vs fork B→A)
    * cannot deadlock.
    */
-  private runSessionAccessAll<T>(sessionIds: readonly string[], work: () => Promise<T>): Promise<T> {
+  private runSessionAccessAll<T>(
+    sessionIds: readonly string[],
+    work: () => Promise<T>,
+  ): Promise<T> {
     const keys = [...new Set(sessionIds)].toSorted();
     let chained: () => Promise<T> = work;
     for (const key of [...keys].toReversed()) {
@@ -962,10 +971,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * {@link runSessionAccess} — the queue is what makes the resume/close pair
    * atomic against the public lifecycle operations.
    */
-  private async withTemporarySession<T>(
-    sessionId: string,
-    action: () => Promise<T>,
-  ): Promise<T> {
+  private async withTemporarySession<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
     if (this.liveSession(sessionId) !== undefined) return action();
     const handle = await resumeSessionById(this.engineAccessor, sessionId);
     if (handle === undefined) throw SDKRpcClientV2.sessionNotFound(sessionId);
@@ -1127,12 +1133,15 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     ]);
     const profile = agent.accessor.get(IAgentProfileService).data();
     const toolPolicy = agent.accessor.get(IAgentToolPolicyService);
-    const tools = agent.accessor.get(IAgentToolRegistryService).list().map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      active: toolPolicy.isToolActive(tool.name, tool.source),
-      source: tool.source,
-    }));
+    const tools = agent.accessor
+      .get(IAgentToolRegistryService)
+      .list()
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        active: toolPolicy.isToolActive(tool.name, tool.source),
+        source: tool.source,
+      }));
     return {
       type,
       config: {
@@ -1145,7 +1154,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
         systemPrompt: profile.systemPrompt,
       },
       context: context as unknown as ResumedAgentState['context'],
-      replay: limitAgentReplayByTurns(folded.replay, replayTurnLimit) as unknown as ResumedAgentState['replay'],
+      replay: limitAgentReplayByTurns(
+        folded.replay,
+        replayTurnLimit,
+      ) as unknown as ResumedAgentState['replay'],
       permission: {
         mode: agent.accessor.get(IAgentPermissionModeService).mode,
         rules: [...agent.accessor.get(IAgentPermissionRulesService).rules],
@@ -1289,8 +1301,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const workDir = normalizeRequiredWorkDir('createSession', input.workDir);
     if (input.id !== undefined) {
       const existing =
-        this.liveSession(input.id) ??
-        (await this.engineAccessor.get(ISessionIndex).get(input.id));
+        this.liveSession(input.id) ?? (await this.engineAccessor.get(ISessionIndex).get(input.id));
       if (existing !== undefined) {
         throw new KimiError(
           ErrorCodes.SESSION_ALREADY_EXISTS,
@@ -1550,9 +1561,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    */
   override async addAdditionalDir(input: AddAdditionalDirInput): Promise<AddAdditionalDirResult> {
     const handle = this.requireLiveSession(input.id);
-    return handle.accessor
-      .get(IWorkspaceDirs)
-      .addDir({ path: input.path, persist: input.persist });
+    return handle.accessor.get(IWorkspaceDirs).addDir({ path: input.path, persist: input.persist });
   }
 
   /**
@@ -2355,9 +2364,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * fallback credential check for unreachable servers) are preserved exactly
    * as v1 shaped them.
    */
-  override async listGlobalMcpServerAuthStatuses(): Promise<
-    readonly GlobalMcpServerAuthStatus[]
-  > {
+  override async listGlobalMcpServerAuthStatuses(): Promise<readonly GlobalMcpServerAuthStatus[]> {
     const globals = await this.globalMcpConfig.list();
     const oauth = await this.globalMcpOAuthService();
     const pluginRuntimes = await this.engineAccessor.get(IPluginService).mcpServers();
@@ -2387,7 +2394,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return Promise.all(
       globals.map(async (server) => {
         const knownAuthStatus = authStatuses.get(server.name);
-        if (knownAuthStatus !== undefined) return { name: server.name, authStatus: knownAuthStatus };
+        if (knownAuthStatus !== undefined)
+          return { name: server.name, authStatus: knownAuthStatus };
         const inspection = inspectionsByName.get(server.name)!;
         const credentialPresent =
           inspection.authStatus === 'unavailable' &&
@@ -2401,15 +2409,18 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     );
   }
 
-  private async mcpStartupTimeouts(): Promise<{ startupTimeoutMs?: number; toolTimeoutMs?: number }> {
+  private async mcpStartupTimeouts(): Promise<{
+    startupTimeoutMs?: number;
+    toolTimeoutMs?: number;
+  }> {
     await this.configReady;
-    const section = this.engineAccessor.get(IConfigService).get<McpSection | undefined>(MCP_SECTION);
+    const section = this.engineAccessor
+      .get(IConfigService)
+      .get<McpSection | undefined>(MCP_SECTION);
     return { startupTimeoutMs: section?.startupTimeoutMs, toolTimeoutMs: section?.toolTimeoutMs };
   }
 
-  override async addGlobalMcpServer(
-    server: McpServerConfig,
-  ): Promise<readonly McpServerConfig[]> {
+  override async addGlobalMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]> {
     return this.globalMcpConfig.add(server);
   }
 
@@ -2508,7 +2519,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     inspect: (manager: McpConnectionManager) => T,
   ): Promise<T> {
     await this.configReady;
-    const section = this.engineAccessor.get(IConfigService).get<McpSection | undefined>(MCP_SECTION);
+    const section = this.engineAccessor
+      .get(IConfigService)
+      .get<McpSection | undefined>(MCP_SECTION);
     const manager = new McpConnectionManager({
       stdioCwd: cwd,
       oauthService: await this.globalMcpOAuthService(),

@@ -17,8 +17,9 @@ import type { Component } from '@moonshot-ai/pi-tui';
 import { Text } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
-import type { ChipProvider } from './chip';
 import { t } from '#/i18n';
+
+import type { ChipProvider } from './chip';
 import { renderTruncated } from './truncated';
 import type { ResultRenderer } from './types';
 
@@ -119,7 +120,9 @@ export const readMediaChip: ChipProvider = (_toolCall, result) => {
   if (summary === null) return '';
   const meta = metaSegments(summary);
   if (meta.length === 0) {
-    return summary.url !== undefined ? `${summary.kind} · ${t('tui.statusMessages.mediaUploaded')}` : summary.kind;
+    return summary.url !== undefined
+      ? `${summary.kind} · ${t('tui.statusMessages.mediaUploaded')}`
+      : summary.kind;
   }
   return `${summary.kind} (${meta.join(', ')})`;
 };

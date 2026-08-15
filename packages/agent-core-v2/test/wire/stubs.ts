@@ -2,17 +2,16 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { toDisposable } from '#/_base/di/lifecycle';
 import type { ServiceRegistration, TestInstantiationService } from '#/_base/di/test';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
-import { IAgentScopeContext, type IAgentScopeContext as AgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import {
+  IAgentScopeContext,
+  type IAgentScopeContext as AgentScopeContext,
+} from '#/agent/scopeContext/scopeContext';
 import { IEventBus } from '#/app/event/eventBus';
 import { createHooks } from '#/hooks';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import {
-  IWireService,
-  type IWireService as AgentWire,
-  type WireHooks,
-} from '#/wire/wire';
-import { WireService } from '#/wire/wireService';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import { IWireService, type IWireService as AgentWire, type WireHooks } from '#/wire/wire';
+import { WireService } from '#/wire/wireService';
 
 interface TestAgentWireDependencies {
   readonly log?: IAppendLogStore;
@@ -91,9 +90,7 @@ export async function restoreTestAgentWire(
   await wire.restore();
 }
 
-export function stubAgentWire(
-  flush: () => Promise<void> = async () => {},
-): AgentWire {
+export function stubAgentWire(flush: () => Promise<void> = async () => {}): AgentWire {
   return {
     _serviceBrand: undefined,
     hooks: createHooks<WireHooks, keyof WireHooks>(['onDidRestore']),

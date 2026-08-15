@@ -7,10 +7,10 @@
  * replaying, duplicating, or reordering them converges to the same store.
  */
 
-import type { AttachmentId, InteractionId, PromptId, TaskId, TodoId, TurnId } from '../model/ids';
-import { turnOrdinal } from '../model/ids';
 import type { TranscriptAttachment } from '../model/attachment';
 import type { TranscriptFrame } from '../model/frame';
+import type { AttachmentId, InteractionId, PromptId, TaskId, TodoId, TurnId } from '../model/ids';
+import { turnOrdinal } from '../model/ids';
 import type { TranscriptInteraction } from '../model/interaction';
 import type { TranscriptItem } from '../model/item';
 import type { TranscriptMeta, TranscriptMetaMerge } from '../model/meta';
@@ -18,12 +18,7 @@ import type { TranscriptPrompt } from '../model/prompt';
 import type { TranscriptTask } from '../model/task';
 import type { TranscriptTodo } from '../model/todo';
 import type { TranscriptStep, TranscriptTurn } from '../model/turn';
-import type {
-  AppendOp,
-  TranscriptOperation,
-  TurnHeader,
-  StepHeader,
-} from './operation';
+import type { AppendOp, TranscriptOperation, TurnHeader, StepHeader } from './operation';
 
 /** Mutable-free aggregate state behind one AgentTranscript. */
 export interface AgentState {
@@ -99,7 +94,10 @@ export function applyOperation(state: AgentState, op: TranscriptOperation): Appl
 
 // ---------------------------------------------------------------- reset
 
-function applyReset(state: AgentState, op: Extract<TranscriptOperation, { op: 'reset' }>): ApplyResult {
+function applyReset(
+  state: AgentState,
+  op: Extract<TranscriptOperation, { op: 'reset' }>,
+): ApplyResult {
   // Pending derives from the global interaction entities (the only channel —
   // interactions are never step frames).
   const pending = new Set<InteractionId>();
@@ -154,7 +152,10 @@ function getTurn(state: AgentState, turnId: TurnId): TranscriptTurn | undefined 
 }
 
 /** Insert a new turn keeping turns ordered by ordinal; markers stay put. */
-function insertTurn(items: readonly TranscriptItem[], turn: TranscriptTurn): readonly TranscriptItem[] {
+function insertTurn(
+  items: readonly TranscriptItem[],
+  turn: TranscriptTurn,
+): readonly TranscriptItem[] {
   const next = [...items];
   let at = next.length;
   for (let i = 0; i < next.length; i += 1) {
@@ -226,7 +227,9 @@ function applyStepUpsert(state: AgentState, turnId: TurnId, header: StepHeader):
       steps = turn.steps;
     } else {
       steps = turn.steps.map((step) =>
-        step.stepId === header.stepId ? { ...header, kind: 'step' as const, frames: step.frames } : step,
+        step.stepId === header.stepId
+          ? { ...header, kind: 'step' as const, frames: step.frames }
+          : step,
       );
     }
   } else {
@@ -262,7 +265,8 @@ function applyFrameUpsert(
   op: Extract<TranscriptOperation, { op: 'frame.upsert' }>,
 ): ApplyResult {
   const turn = getTurn(state, op.turnId) ?? skeletonTurn(op.turnId);
-  const step = turn.steps.find((entry) => entry.stepId === op.stepId) ?? skeletonStep(op.stepId, op.turnId);
+  const step =
+    turn.steps.find((entry) => entry.stepId === op.stepId) ?? skeletonStep(op.stepId, op.turnId);
   const existing = step.frames.findIndex((frame) => frame.frameId === op.frame.frameId);
   let frames: readonly TranscriptFrame[];
   if (existing >= 0) {
@@ -381,7 +385,8 @@ export function appendAtOffset(
   offset: number,
   chunk: string,
 ): { text: string; changed: boolean; gap?: { expected: number; got: number } } {
-  if (offset > local.length) return { text: local, changed: false, gap: { expected: local.length, got: offset } };
+  if (offset > local.length)
+    return { text: local, changed: false, gap: { expected: local.length, got: offset } };
   if (local.slice(offset, offset + chunk.length) === chunk) {
     return { text: local, changed: false };
   }
@@ -530,10 +535,7 @@ function interactionEquals(a: TranscriptInteraction, b: TranscriptInteraction): 
   );
 }
 
-function applyAttachmentUpsert(
-  state: AgentState,
-  attachment: TranscriptAttachment,
-): ApplyResult {
+function applyAttachmentUpsert(state: AgentState, attachment: TranscriptAttachment): ApplyResult {
   const current = state.attachments.get(attachment.attachmentId);
   if (current && attachmentEquals(current, attachment)) return { state, changed: false };
   const attachments = new Map(state.attachments);
@@ -605,7 +607,8 @@ function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResu
     meta.modes !== undefined
       ? {
           plan: meta.modes.plan === null ? undefined : (meta.modes.plan ?? state.meta.modes?.plan),
-          swarm: meta.modes.swarm === null ? undefined : (meta.modes.swarm ?? state.meta.modes?.swarm),
+          swarm:
+            meta.modes.swarm === null ? undefined : (meta.modes.swarm ?? state.meta.modes?.swarm),
         }
       : state.meta.modes;
   // The agent status arrives in slices (`agent.status.updated` carries only
@@ -616,7 +619,10 @@ function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResu
   const next: TranscriptMeta = {
     goal: meta.goal ?? state.meta.goal,
     activity: meta.activity ?? state.meta.activity,
-    modes: modes !== undefined && modes.plan === undefined && modes.swarm === undefined ? undefined : modes,
+    modes:
+      modes !== undefined && modes.plan === undefined && modes.swarm === undefined
+        ? undefined
+        : modes,
     agent,
   };
   if (

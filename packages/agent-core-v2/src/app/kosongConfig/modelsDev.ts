@@ -14,9 +14,8 @@
  */
 
 import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ProviderType } from '#/kosong/provider/provider';
-
 import { wireHasProtocolThinkingDisable } from '#/kosong/model/thinking';
+import type { ProviderType } from '#/kosong/provider/provider';
 
 export interface ModelsDevModelEntry {
   readonly id?: string;
@@ -226,8 +225,7 @@ export function modelsDevModelToCapability(model: ModelsDevModelEntry): ModelsDe
       image_in: inputs.includes('image'),
       video_in: inputs.includes('video'),
       audio_in: inputs.includes('audio'),
-      thinking:
-        Boolean(model.reasoning) || thinking.efforts !== undefined || thinking.hasToggle,
+      thinking: Boolean(model.reasoning) || thinking.efforts !== undefined || thinking.hasToggle,
       tool_use: model.tool_call ?? true,
       max_context_tokens: context,
       max_input_tokens: maxInputTokens,
@@ -243,7 +241,12 @@ function modelsDevThinkingOptions(options: ModelsDevModelEntry['reasoning_option
   readonly alwaysThinking: boolean | undefined;
 } {
   if (!Array.isArray(options)) {
-    return { efforts: undefined, offEffort: undefined, hasToggle: false, alwaysThinking: undefined };
+    return {
+      efforts: undefined,
+      offEffort: undefined,
+      hasToggle: false,
+      alwaysThinking: undefined,
+    };
   }
   let efforts: readonly string[] | undefined;
   let offEffort: string | undefined;
@@ -269,7 +272,9 @@ function modelsDevThinkingOptions(options: ModelsDevModelEntry['reasoning_option
   return { efforts, offEffort, hasToggle, alwaysThinking };
 }
 
-function modelsDevReasoningKey(interleaved: ModelsDevModelEntry['interleaved']): string | undefined {
+function modelsDevReasoningKey(
+  interleaved: ModelsDevModelEntry['interleaved'],
+): string | undefined {
   if (typeof interleaved !== 'object' || interleaved === null) return undefined;
   const field = interleaved.field?.trim();
   return field !== undefined && field.length > 0 ? field : undefined;
@@ -278,7 +283,9 @@ function modelsDevReasoningKey(interleaved: ModelsDevModelEntry['interleaved']):
 export function modelsDevProviderModels(entry: ModelsDevProviderEntry): ModelsDevModel[] {
   const providerWire = resolveModelsDevWire(entry);
   return Object.values(entry.models ?? {})
-    .map((raw) => applyModelProviderOverride(modelsDevModelToCapability(raw), raw, entry, providerWire))
+    .map((raw) =>
+      applyModelProviderOverride(modelsDevModelToCapability(raw), raw, entry, providerWire),
+    )
     .filter((model): model is ModelsDevModel => model !== undefined)
     .map((model) => {
       const protocol = model.protocol ?? providerWire;
@@ -323,7 +330,11 @@ function applyModelProviderOverride(
   }
 
   if (overrideWire === 'anthropic' && usableApi !== undefined) {
-    return { ...model, protocol: 'anthropic', baseUrl: adaptBaseUrlForWire(usableApi, 'anthropic') };
+    return {
+      ...model,
+      protocol: 'anthropic',
+      baseUrl: adaptBaseUrlForWire(usableApi, 'anthropic'),
+    };
   }
   return undefined;
 }

@@ -23,6 +23,7 @@
 
 import { z } from 'zod';
 
+import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
 import {
   type ConfigEffectiveOverlay,
   type ConfigStripEnv,
@@ -41,7 +42,6 @@ import {
   snakeToCamel,
   transformPlainObject,
 } from '#/app/config/toml';
-import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
 import type { OAuthRef } from '#/kosong/provider/provider';
 
 export const SERVICES_SECTION = 'services';
@@ -94,13 +94,10 @@ const moonshotFetchEnvBindings = envBindings(MoonshotServiceConfigSchema, {
   apiKey: { env: WEB_FETCH_API_KEY_ENV, parse: nonBlankEnv },
 });
 
-export const servicesEnvBindings: EnvBindings<ServicesConfig> = envBindings(
-  ServicesConfigSchema,
-  {
-    moonshotSearch: moonshotSearchEnvBindings,
-    moonshotFetch: moonshotFetchEnvBindings,
-  },
-);
+export const servicesEnvBindings: EnvBindings<ServicesConfig> = envBindings(ServicesConfigSchema, {
+  moonshotSearch: moonshotSearchEnvBindings,
+  moonshotFetch: moonshotFetchEnvBindings,
+});
 
 const servicesCredentialEnvOverlay: ConfigEffectiveOverlay = {
   apply(effective, getEnv, validate) {

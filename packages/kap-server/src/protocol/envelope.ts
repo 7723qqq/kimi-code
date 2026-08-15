@@ -60,7 +60,13 @@ export function errEnvelope(
   requestId: string,
   stack?: string,
 ): Envelope<null> {
-  return { code, msg, data: null, request_id: requestId, stack: stackTracesEnabled ? stack : undefined };
+  return {
+    code,
+    msg,
+    data: null,
+    request_id: requestId,
+    stack: stackTracesEnabled ? stack : undefined,
+  };
 }
 
 /**

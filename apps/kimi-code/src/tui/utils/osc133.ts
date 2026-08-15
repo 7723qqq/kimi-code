@@ -5,14 +5,10 @@
  * survive every container between the message component and the ScrollView.
  */
 
-import {
-  OSC133_ZONE_END,
-  OSC133_ZONE_FINAL,
-  OSC133_ZONE_START,
-} from '#/tui/constant/rendering';
+import { OSC133_ZONE_END, OSC133_ZONE_FINAL, OSC133_ZONE_START } from '#/tui/constant/rendering';
 
 // One or more consecutive A/B/C zone markers anchored at the line start.
-const OSC133_ZONE_PREFIX = /^(?:\x1B\]133;[ABC](?:\x07|\x1B\\))+/;
+const OSC133_ZONE_PREFIX = /^(?:\u001B\]133;[ABC](?:\u0007|\u001B\\))+/;
 
 /**
  * Mark a message's rendered lines as a semantic zone: A on the first line,

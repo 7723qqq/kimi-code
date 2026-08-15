@@ -27,11 +27,11 @@
  */
 
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IntervalTimer } from '#/_base/utils/timer';
 import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
 import { IQueryStore } from '#/persistence/interface/queryStore';
 
 import { ISessionIndexMirror, type SessionSummary } from './sessionIndex';
@@ -214,9 +214,12 @@ export class SessionIndexMirror extends Disposable implements ISessionIndexMirro
         error: String(error),
       });
       if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-        this.log.warn('session index mirror giving up until the next record; reconciliation will heal', {
-          pending: this.pendingMap.size,
-        });
+        this.log.warn(
+          'session index mirror giving up until the next record; reconciliation will heal',
+          {
+            pending: this.pendingMap.size,
+          },
+        );
       }
     }
   }

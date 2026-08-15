@@ -20,7 +20,12 @@ describe('resolveGithubSource', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
-      resolveGithubSource({ kind: 'github', owner: 'owner', repo: 'repo', ref: { kind: 'tag', value: 'release#1' } }),
+      resolveGithubSource({
+        kind: 'github',
+        owner: 'owner',
+        repo: 'repo',
+        ref: { kind: 'tag', value: 'release#1' },
+      }),
     ).resolves.toEqual({
       tarballUrl: 'https://codeload.github.com/owner/repo/zip/refs/tags/release%231',
       displayVersion: 'release#1',
@@ -33,9 +38,11 @@ describe('resolveGithubSource', () => {
     const sha = '1111111111111111111111111111111111111111';
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(`<entry><id>tag:github.com,2008:Grit::Commit/${sha}</id></entry>`),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(`<entry><id>tag:github.com,2008:Grit::Commit/${sha}</id></entry>`),
+        ),
     );
 
     await expect(resolveGithubCommitSha('owner', 'repo', 'feature/demo')).resolves.toBe(sha);
@@ -57,7 +64,9 @@ describe('resolveGithubSource', () => {
       }),
     );
 
-    await expect(resolveGithubSource({ kind: 'github', owner: 'owner', repo: 'repo' })).resolves.toEqual({
+    await expect(
+      resolveGithubSource({ kind: 'github', owner: 'owner', repo: 'repo' }),
+    ).resolves.toEqual({
       tarballUrl: 'https://codeload.github.com/owner/repo/zip/refs/tags/v1.2.3',
       displayVersion: 'v1.2.3',
       ref: { kind: 'tag', value: 'v1.2.3' },
@@ -73,7 +82,9 @@ describe('resolveGithubSource', () => {
         .mockResolvedValueOnce({ status: 200, ok: true, headers: new Headers() }),
     );
 
-    await expect(resolveGithubSource({ kind: 'github', owner: 'owner', repo: 'repo' })).resolves.toEqual({
+    await expect(
+      resolveGithubSource({ kind: 'github', owner: 'owner', repo: 'repo' }),
+    ).resolves.toEqual({
       tarballUrl: 'https://codeload.github.com/owner/repo/zip/HEAD',
       displayVersion: 'HEAD',
       ref: { kind: 'branch', value: 'HEAD' },
@@ -106,7 +117,11 @@ describe('resolveGithubSource', () => {
       }),
     );
 
-    const result = await resolveGithubSource({ kind: 'github', owner: 'obra', repo: 'superpowers' });
+    const result = await resolveGithubSource({
+      kind: 'github',
+      owner: 'obra',
+      repo: 'superpowers',
+    });
     expect(result.tarballUrl).toBe(
       'https://codeload.github.com/obra/superpowers/zip/refs/tags/v5.1.0',
     );

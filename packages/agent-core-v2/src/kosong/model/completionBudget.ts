@@ -47,7 +47,7 @@ export function computeCompletionBudgetCap(args: {
   const maxCtx = args.capability?.max_context_tokens ?? 0;
   const cap =
     args.budget.hardCap ??
-    (maxCtx > 0 ? maxCtx : args.budget.fallback ?? DEFAULT_UNKNOWN_CONTEXT_FALLBACK);
+    (maxCtx > 0 ? maxCtx : (args.budget.fallback ?? DEFAULT_UNKNOWN_CONTEXT_FALLBACK));
   return Math.max(MIN_FLOOR, cap);
 }
 

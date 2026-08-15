@@ -70,16 +70,16 @@ import {
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import {
-  fsBrowseQuerySchema,
-  fsBrowseResponseSchema,
-  fsHomeResponseSchema,
-} from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
-import {
   buildEtag,
   detectBinary,
   FS_BINARY_SAMPLE_BYTES,
   guessMime,
 } from '@moonshot-ai/agent-core-v2/_base/utils/fileMeta';
+import {
+  fsBrowseQuerySchema,
+  fsBrowseResponseSchema,
+  fsHomeResponseSchema,
+} from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -263,9 +263,7 @@ async function handleFsContent(
   }
 
   if (st.isDirectory) {
-    reply.send(
-      errEnvelope(ErrorCode.FS_IS_DIRECTORY, `path is a directory: ${path}`, requestId),
-    );
+    reply.send(errEnvelope(ErrorCode.FS_IS_DIRECTORY, `path is a directory: ${path}`, requestId));
     return;
   }
   // Only regular files are served: device nodes (/dev/zero streams forever),
@@ -273,11 +271,7 @@ async function handleFsContent(
   // would otherwise hang or produce malformed responses.
   if (!st.isFile) {
     reply.send(
-      errEnvelope(
-        ErrorCode.VALIDATION_FAILED,
-        `path is not a regular file: ${path}`,
-        requestId,
-      ),
+      errEnvelope(ErrorCode.VALIDATION_FAILED, `path is not a regular file: ${path}`, requestId),
     );
     return;
   }
@@ -287,8 +281,7 @@ async function handleFsContent(
   let isBinary = false;
   try {
     const sampleSize = Math.min(FS_BINARY_SAMPLE_BYTES, st.size);
-    const sample =
-      sampleSize === 0 ? new Uint8Array() : await hostFs.readBytes(abs, sampleSize);
+    const sample = sampleSize === 0 ? new Uint8Array() : await hostFs.readBytes(abs, sampleSize);
     isBinary = detectBinary(sample);
   } catch (error) {
     sendOsFsError(reply, requestId, error, path);
@@ -406,9 +399,7 @@ function sendOsFsError(
     switch (err.code) {
       case ErrorCodes.OS_FS_NOT_FOUND:
       case ErrorCodes.OS_FS_NOT_DIRECTORY:
-        reply.send(
-          errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, `path not found: ${path}`, requestId),
-        );
+        reply.send(errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, `path not found: ${path}`, requestId));
         return;
       case ErrorCodes.OS_FS_PERMISSION_DENIED:
         reply.send(

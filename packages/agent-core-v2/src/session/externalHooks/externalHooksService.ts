@@ -23,15 +23,13 @@
  * live in the runner. Bound at Session scope.
  */
 
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { IntervalTimer } from '#/_base/utils/timer';
 import { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
+import { LifecycleScope } from '#/app/scopes';
 import { IModelService } from '#/kosong/model/model';
-import {
-  ISessionAgentProfileCatalog,
-} from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import {
@@ -51,10 +49,7 @@ type SessionStartHookSource = Exclude<SessionCreateSource, 'fork'>;
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
-export class SessionExternalHooksService
-  extends Service
-  implements ISessionExternalHooksService
-{
+export class SessionExternalHooksService extends Service implements ISessionExternalHooksService {
   declare readonly _serviceBrand: undefined;
 
   private sessionTitle: string | undefined;
@@ -114,9 +109,7 @@ export class SessionExternalHooksService
     // SessionHeartbeat hook never hold a recurring timer. Re-sync on every
     // hook-index reload (plugin reload) so late-registered heartbeat hooks
     // still arm, and removed ones disarm.
-    void this.runner.ready
-      .then(() => this.syncHeartbeat())
-      .catch(() => undefined);
+    void this.runner.ready.then(() => this.syncHeartbeat()).catch(() => undefined);
     this._register(this.runner.onDidReload(() => this.syncHeartbeat()));
   }
 

@@ -1,4 +1,5 @@
 import { t } from '#/i18n';
+
 import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
 import type { SlashCommandHost } from './dispatch';
 
@@ -17,7 +18,7 @@ export async function handleWorkflowCommand(host: SlashCommandHost, args: string
     host.showError(getNoActiveSessionMessage());
     return;
   }
-const trimmed = args.trim();
+  const trimmed = args.trim();
 
   // No args → show usage.
   if (trimmed.length === 0) {
@@ -87,9 +88,10 @@ const trimmed = args.trim();
   const workflowName = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
   const workflowArgs = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim();
 
-  const prompt = workflowArgs.length > 0
-    ? t('tui.messages.workflowRunHintPattern', { name: workflowName }) + ` ${workflowArgs}`
-    : t('tui.messages.workflowRunHintPattern', { name: workflowName });
+  const prompt =
+    workflowArgs.length > 0
+      ? t('tui.messages.workflowRunHintPattern', { name: workflowName }) + ` ${workflowArgs}`
+      : t('tui.messages.workflowRunHintPattern', { name: workflowName });
 
   host.sendNormalUserInput(prompt);
 }

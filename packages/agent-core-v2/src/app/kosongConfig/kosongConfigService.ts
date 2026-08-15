@@ -28,24 +28,23 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { retryBackoffDelays, sleepForRetry } from '#/_base/utils/retry';
-
 import { type ConfigSectionChangedEvent, IConfigService } from '#/app/config/config';
 import { describeUnknownError } from '#/app/config/configPure';
 import { deepEqual } from '#/app/config/sectionDiff';
+import { LifecycleScope } from '#/app/scopes';
 import { IModelService, type ModelsSection } from '#/kosong/model/model';
 import { IProviderService, type ProvidersSection } from '#/kosong/provider/provider';
 
-import { IKosongConfigService } from './kosongConfig';
 import {
   DEFAULT_MODEL_SECTION,
   DEFAULT_PROVIDER_SECTION,
   MODELS_SECTION,
   PROVIDERS_SECTION,
 } from './configSection';
+import { IKosongConfigService } from './kosongConfig';
 
 const PERSIST_MAX_ATTEMPTS = 3;
 
@@ -86,7 +85,10 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
     this._register(
       this.providers.onDidChangeProviders((e) => {
         if (
-          deepEqual(this.config.get<ProvidersSection>(PROVIDERS_SECTION) ?? {}, this.providers.list())
+          deepEqual(
+            this.config.get<ProvidersSection>(PROVIDERS_SECTION) ?? {},
+            this.providers.list(),
+          )
         ) {
           return;
         }
@@ -115,7 +117,6 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
     );
   }
 
-
   private onConfigSectionChanged(e: ConfigSectionChangedEvent): void {
     switch (e.domain) {
       case PROVIDERS_SECTION:
@@ -142,7 +143,6 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
         break;
     }
   }
-
 
   private enqueuePersistProviders(): Promise<void> {
     return this.enqueue(async () => {
@@ -171,9 +171,7 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
           .setDefaultProvider(effective)
           .catch((error) => this.logPersistFailure(error));
       } else if (domain === DEFAULT_MODEL_SECTION) {
-        void this.models
-          .setDefaultModel(effective)
-          .catch((error) => this.logPersistFailure(error));
+        void this.models.setDefaultModel(effective).catch((error) => this.logPersistFailure(error));
       }
     });
   }
@@ -193,7 +191,9 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
   }
 
   private enqueue(task: () => Promise<void>): Promise<void> {
-    this.persistChain = this.persistChain.then(task).catch((error) => this.logPersistFailure(error));
+    this.persistChain = this.persistChain
+      .then(task)
+      .catch((error) => this.logPersistFailure(error));
     return this.persistChain;
   }
 

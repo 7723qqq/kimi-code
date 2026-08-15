@@ -2,8 +2,10 @@
 //
 // Boundary / resource edge cases.
 
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
+
+import { test } from 'vitest';
+
 import { MiniDb } from '../../src/index.js';
 import { tmpDir, rmrf } from './helpers/tmp.js';
 

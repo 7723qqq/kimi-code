@@ -29,12 +29,7 @@ import type { ChatProvider } from '#/kosong/contract/provider';
 
 import type { ProtocolBaseId, ResolvedAdapterIdentity } from './protocolBase';
 
-export const ProtocolSchema = z.enum([
-  'anthropic',
-  'openai',
-  'openai_responses',
-  'google-genai',
-]);
+export const ProtocolSchema = z.enum(['anthropic', 'openai', 'openai_responses', 'google-genai']);
 
 export type Protocol = z.infer<typeof ProtocolSchema>;
 
@@ -75,11 +70,7 @@ export interface IProtocolAdapterRegistry {
 
   resolveProviderBaseId(protocol: Protocol, providerType?: string): ProtocolBaseId;
 
-  resolveCapability(
-    protocol: Protocol,
-    modelName: string,
-    providerType?: string,
-  ): ModelCapability;
+  resolveCapability(protocol: Protocol, modelName: string, providerType?: string): ModelCapability;
 
   explainCapability(
     protocol: Protocol,

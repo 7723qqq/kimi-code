@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { AgentTranscript } from '#/store/agentTranscript';
-import { TranscriptStore } from '#/store/transcriptStore';
-import { appendAtOffset } from '#/ops/apply';
-import type {
-  FrameUpsertOp,
-  TurnUpsertOp,
-  TranscriptOperation,
-} from '#/ops/operation';
 import type { ThinkingFrame, ToolCallFrame } from '#/model/frame';
 import type { TranscriptInteraction } from '#/model/interaction';
 import type { TranscriptItem } from '#/model/item';
+import { appendAtOffset } from '#/ops/apply';
+import type { FrameUpsertOp, TurnUpsertOp, TranscriptOperation } from '#/ops/operation';
+import { AgentTranscript } from '#/store/agentTranscript';
+import { TranscriptStore } from '#/store/transcriptStore';
 
 /** Display id for order assertions across the item union. */
 function itemLabel(item: TranscriptItem): string {
@@ -21,7 +17,14 @@ function itemLabel(item: TranscriptItem): string {
 
 const turn1: TurnUpsertOp = {
   op: 'turn.upsert',
-  turn: { kind: 'turn', turnId: 't1', ordinal: 1, state: 'running', origin: { kind: 'user' }, prompt: 'hi' },
+  turn: {
+    kind: 'turn',
+    turnId: 't1',
+    ordinal: 1,
+    state: 'running',
+    origin: { kind: 'user' },
+    prompt: 'hi',
+  },
 };
 
 const doneThinking: FrameUpsertOp = {
@@ -121,7 +124,12 @@ describe('AgentTranscript', () => {
       },
     ]);
     const gap = tx.apply([
-      { op: 'append', target: { type: 'frame', turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' }, offset: 5, text: 'late' },
+      {
+        op: 'append',
+        target: { type: 'frame', turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' },
+        offset: 5,
+        text: 'late',
+      },
     ]);
     expect(gap.gap).toEqual({
       target: { type: 'frame', turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' },
@@ -130,8 +138,18 @@ describe('AgentTranscript', () => {
     });
 
     const ok = tx.apply([
-      { op: 'append', target: { type: 'frame', turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' }, offset: 0, text: 'hello ' },
-      { op: 'append', target: { type: 'frame', turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' }, offset: 6, text: 'world' },
+      {
+        op: 'append',
+        target: { type: 'frame', turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' },
+        offset: 0,
+        text: 'hello ',
+      },
+      {
+        op: 'append',
+        target: { type: 'frame', turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' },
+        offset: 6,
+        text: 'world',
+      },
     ]);
     expect(ok.gap).toBeUndefined();
     const turn = tx.getTurn('t1');
@@ -140,7 +158,12 @@ describe('AgentTranscript', () => {
 
     // duplicate delivery is absorbed
     const dup = tx.apply([
-      { op: 'append', target: { type: 'frame', turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' }, offset: 6, text: 'world' },
+      {
+        op: 'append',
+        target: { type: 'frame', turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' },
+        offset: 6,
+        text: 'world',
+      },
     ]);
     expect(dup.accepted).toHaveLength(0);
   });
@@ -224,7 +247,11 @@ describe('AgentTranscript', () => {
     // Re-applying the identical entity is a no-op (idempotent upsert).
     expect(tx.apply([{ op: 'prompt.upsert', prompt: queued }]).accepted).toHaveLength(0);
     // Same id, new state: whole-entity replace.
-    const running = { ...queued, status: 'running' as const, steeredAt: '2026-07-22T00:00:01.000Z' };
+    const running = {
+      ...queued,
+      status: 'running' as const,
+      steeredAt: '2026-07-22T00:00:01.000Z',
+    };
     expect(tx.apply([{ op: 'prompt.upsert', prompt: running }]).accepted).toHaveLength(1);
     expect(tx.getPrompt('p1')?.status).toBe('running');
     expect(tx.getPrompt('p1')?.steeredAt).toBe('2026-07-22T00:00:01.000Z');
@@ -247,8 +274,19 @@ describe('AgentTranscript', () => {
         op: 'step.upsert',
         turnId: 't1',
         step: {
-          kind: 'step', stepId: 't1.1', turnId: 't1', ordinal: 1, state: 'running',
-          retry: { failedAttempt: 1, nextAttempt: 2, maxAttempts: 3, delayMs: 500, errorName: 'RateLimit', errorMessage: 'slow down' },
+          kind: 'step',
+          stepId: 't1.1',
+          turnId: 't1',
+          ordinal: 1,
+          state: 'running',
+          retry: {
+            failedAttempt: 1,
+            nextAttempt: 2,
+            maxAttempts: 3,
+            delayMs: 500,
+            errorName: 'RateLimit',
+            errorMessage: 'slow down',
+          },
         },
       },
     ]);
@@ -261,7 +299,11 @@ describe('AgentTranscript', () => {
         op: 'step.upsert',
         turnId: 't1',
         step: {
-          kind: 'step', stepId: 't1.1', turnId: 't1', ordinal: 1, state: 'completed',
+          kind: 'step',
+          stepId: 't1.1',
+          turnId: 't1',
+          ordinal: 1,
+          state: 'completed',
           usage: { inputOther: 10, output: 5, inputCacheRead: 3, inputCacheCreation: 2 },
           finishReason: 'stop',
           timing: { llmFirstTokenLatencyMs: 120 },
@@ -280,7 +322,10 @@ describe('AgentTranscript', () => {
     const tx = new AgentTranscript('main');
     tx.apply([turn1]);
     const failed = tx.apply([
-      { op: 'turn.upsert', turn: { ...turn1.turn, state: 'failed', durationMs: 1500, error: 'boom' } },
+      {
+        op: 'turn.upsert',
+        turn: { ...turn1.turn, state: 'failed', durationMs: 1500, error: 'boom' },
+      },
     ]);
     expect(failed.accepted).toHaveLength(1);
     const turn = tx.getTurn('t1');
@@ -291,17 +336,24 @@ describe('AgentTranscript', () => {
   it('tool frames keep streamed inputText and the newest progress update', () => {
     const tx = new AgentTranscript('main');
     tx.apply(toolFrame('running'));
-    const streamed = (frame: Partial<ToolCallFrame> & Pick<ToolCallFrame, 'inputText' | 'state'>): TranscriptOperation => ({
+    const streamed = (
+      frame: Partial<ToolCallFrame> & Pick<ToolCallFrame, 'inputText' | 'state'>,
+    ): TranscriptOperation => ({
       op: 'frame.upsert',
       turnId: 't1',
       stepId: 't1.1',
       frame: {
-        kind: 'tool', frameId: 't1.1.call_1', toolCallId: 'call_1', name: 'Read',
+        kind: 'tool',
+        frameId: 't1.1.call_1',
+        toolCallId: 'call_1',
+        name: 'Read',
         ...frame,
       },
     });
     // Delta accumulation: inputText grows while the frame stays running.
-    expect(tx.apply([streamed({ inputText: '{"path"', state: 'running' })]).accepted).toHaveLength(1);
+    expect(tx.apply([streamed({ inputText: '{"path"', state: 'running' })]).accepted).toHaveLength(
+      1,
+    );
     tx.apply([streamed({ inputText: '{"path":"/a"}', state: 'running' })]);
     // `tool.call.started` lands with the parsed input but keeps the raw text.
     tx.apply([
@@ -322,13 +374,26 @@ describe('AgentTranscript', () => {
   it('task upserts carry resultSummary/error/stateReason/usage', () => {
     const tx = new AgentTranscript('main');
     tx.apply([
-      { op: 'task.upsert', task: { taskId: 'task1', kind: 'subagent', state: 'running', detached: false, outputTail: '' } },
+      {
+        op: 'task.upsert',
+        task: {
+          taskId: 'task1',
+          kind: 'subagent',
+          state: 'running',
+          detached: false,
+          outputTail: '',
+        },
+      },
     ]);
     const done = tx.apply([
       {
         op: 'task.upsert',
         task: {
-          taskId: 'task1', kind: 'subagent', state: 'completed', detached: false, outputTail: '',
+          taskId: 'task1',
+          kind: 'subagent',
+          state: 'completed',
+          detached: false,
+          outputTail: '',
           resultSummary: 'scanned 12 files',
           usage: { inputOther: 100, output: 40, inputCacheRead: 10, inputCacheCreation: 5 },
         },
@@ -382,13 +447,21 @@ describe('AgentTranscript', () => {
         { op: 'marker.upsert', item: { kind: 'marker', markerId: `m${n}`, marker: 'goal' } },
         {
           op: 'turn.upsert',
-          turn: { kind: 'turn', turnId: `t${n}`, ordinal: n, state: 'completed', origin: { kind: 'user' } },
+          turn: {
+            kind: 'turn',
+            turnId: `t${n}`,
+            ordinal: n,
+            state: 'completed',
+            origin: { kind: 'user' },
+          },
         },
       ]);
     }
     const snapshot = tx.snapshot({ tailTurns: 2 });
     expect(snapshot.hasMoreOlder).toBe(true);
-    expect(snapshot.items.filter((i) => i.kind === 'turn').map((i) => i.kind === 'turn' && i.turnId)).toEqual(['t4', 't5']);
+    expect(
+      snapshot.items.filter((i) => i.kind === 'turn').map((i) => i.kind === 'turn' && i.turnId),
+    ).toEqual(['t4', 't5']);
     // markers between kept turns survive; the one before t4's segment does not…
     expect(snapshot.items.filter((i) => i.kind === 'marker').length).toBeGreaterThan(0);
 
@@ -411,9 +484,21 @@ describe('AgentTranscript', () => {
   it('task upsert + append keeps output tail globally, detached flips freely', () => {
     const tx = new AgentTranscript('main');
     tx.apply([
-      { op: 'task.upsert', task: { taskId: 'task1', kind: 'shell', state: 'running', detached: false, outputTail: '' } },
+      {
+        op: 'task.upsert',
+        task: { taskId: 'task1', kind: 'shell', state: 'running', detached: false, outputTail: '' },
+      },
       { op: 'append', target: { type: 'task', taskId: 'task1' }, offset: 0, text: 'line1\n' },
-      { op: 'task.upsert', task: { taskId: 'task1', kind: 'shell', state: 'running', detached: true, outputTail: 'line1\n' } },
+      {
+        op: 'task.upsert',
+        task: {
+          taskId: 'task1',
+          kind: 'shell',
+          state: 'running',
+          detached: true,
+          outputTail: 'line1\n',
+        },
+      },
     ]);
     const task = tx.getTask('task1');
     expect(task?.detached).toBe(true);
@@ -451,9 +536,7 @@ describe('AgentTranscript', () => {
     expect(tx.getMeta().agent).toEqual({ model: 'k2', permission: 'auto', contextTokens: 1234 });
 
     // Same-named fields are overwritten by the newer slice.
-    tx.apply([
-      { op: 'meta.merge', meta: { agent: { model: 'k3', phase: { kind: 'idle' } } } },
-    ]);
+    tx.apply([{ op: 'meta.merge', meta: { agent: { model: 'k3', phase: { kind: 'idle' } } } }]);
     expect(tx.getMeta().agent).toEqual({
       model: 'k3',
       permission: 'auto',
@@ -483,7 +566,13 @@ describe('AgentTranscript', () => {
     tx.apply([
       {
         op: 'turn.upsert',
-        turn: { kind: 'turn', turnId: 't2', ordinal: 2, state: 'running', origin: { kind: 'user' } },
+        turn: {
+          kind: 'turn',
+          turnId: 't2',
+          ordinal: 2,
+          state: 'running',
+          origin: { kind: 'user' },
+        },
       },
     ]);
     // Backfill replays history: t0, a marker between t0/t1, t1, and a
@@ -491,7 +580,13 @@ describe('AgentTranscript', () => {
     tx.apply([
       {
         op: 'turn.upsert',
-        turn: { kind: 'turn', turnId: 't0', ordinal: 0, state: 'completed', origin: { kind: 'user' } },
+        turn: {
+          kind: 'turn',
+          turnId: 't0',
+          ordinal: 0,
+          state: 'completed',
+          origin: { kind: 'user' },
+        },
       },
       {
         op: 'marker.upsert',
@@ -500,7 +595,13 @@ describe('AgentTranscript', () => {
       },
       {
         op: 'turn.upsert',
-        turn: { kind: 'turn', turnId: 't1', ordinal: 1, state: 'completed', origin: { kind: 'user' } },
+        turn: {
+          kind: 'turn',
+          turnId: 't1',
+          ordinal: 1,
+          state: 'completed',
+          origin: { kind: 'user' },
+        },
       },
       {
         op: 'taskref.upsert',
@@ -516,7 +617,13 @@ describe('AgentTranscript', () => {
     tx.apply([
       {
         op: 'turn.upsert',
-        turn: { kind: 'turn', turnId: 't0', ordinal: 0, state: 'completed', origin: { kind: 'user' } },
+        turn: {
+          kind: 'turn',
+          turnId: 't0',
+          ordinal: 0,
+          state: 'completed',
+          origin: { kind: 'user' },
+        },
       },
       {
         op: 'marker.upsert',
@@ -540,7 +647,10 @@ describe('AgentTranscript', () => {
 
   it('appends standalone items without an anchor at the end (live order)', () => {
     const tx = new AgentTranscript('main');
-    tx.apply([turn1, { op: 'marker.upsert', item: { kind: 'marker', markerId: 'm9', marker: 'notice' } }]);
+    tx.apply([
+      turn1,
+      { op: 'marker.upsert', item: { kind: 'marker', markerId: 'm9', marker: 'notice' } },
+    ]);
     const items = tx.getItems();
     expect(items.at(-1)?.kind).toBe('marker');
   });

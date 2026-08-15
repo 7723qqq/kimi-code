@@ -42,7 +42,10 @@ export function resolveResultUrl(rawUrl: string): string {
   try {
     const absoluteUrl = new URL(trimmed, SOGOU_SEARCH_URL).toString();
     const parsed = new URL(absoluteUrl);
-    const target = (parsed.searchParams.get('url') ?? parsed.searchParams.get('u')) ?? parsed.searchParams.get('link');
+    const target =
+      parsed.searchParams.get('url') ??
+      parsed.searchParams.get('u') ??
+      parsed.searchParams.get('link');
     if (target && /^https?:\/\//i.test(target)) {
       return target;
     }
@@ -80,7 +83,9 @@ export function parseSogouSearchResults(html: string): SogouSearchResult[] {
     '.results .rb',
   ].join(',');
   $(resultSelectors).each((_, element) => {
-    const titleLink = element.querySelector('h3 a[href], h2 a[href], .vr-title a[href], .pt a[href]');
+    const titleLink = element.querySelector(
+      'h3 a[href], h2 a[href], .vr-title a[href], .pt a[href]',
+    );
     const rawUrl = titleLink?.getAttribute('href') ?? '';
     const url = resolveResultUrl(rawUrl);
     const title = normalizeText(titleLink?.textContent ?? '');
@@ -90,7 +95,10 @@ export function parseSogouSearchResults(html: string): SogouSearchResult[] {
     const description = normalizeText(
       element.querySelector('.str_info, .ft, .text-layout, .fz-mid, p')?.textContent ?? '',
     );
-    const source = extractSource(url, element.querySelector('cite, .citeurl, .g, .url')?.textContent ?? '');
+    const source = extractSource(
+      url,
+      element.querySelector('cite, .citeurl, .g, .url')?.textContent ?? '',
+    );
     seenUrls.add(url);
     results.push({
       title,

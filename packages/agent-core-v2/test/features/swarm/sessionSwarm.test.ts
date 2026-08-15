@@ -1,43 +1,25 @@
 import { createControlledPromise } from '@antfu/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
+import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
+import { Error2 } from '#/_base/errors/errors';
 import { Event } from '#/_base/event';
+import { ILogService } from '#/_base/log/log';
 import { userCancellationReason } from '#/_base/utils/abort';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
-import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
 import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { APIProviderRateLimitError } from '#/kosong/contract/errors';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
+import { IConfigService } from '#/app/config/config';
+import { ConfigErrors } from '#/app/config/errors';
+import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import {
-  IAgentLifecycleService,
-  type CreateAgentOptions,
-} from '#/session/agentLifecycle/agentLifecycle';
-import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
-import { createHooks } from '#/hooks';
-import {
-  type AgentTaskHooks,
-  ISessionSubagentService,
-} from '#/session/subagent/subagent';
-import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import {
-  ISessionMetadata,
-  type AgentMeta,
-  type SessionMetadataChangedEvent,
-} from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionProcessRunner } from '#/session/process/processRunner';
-import { ILogService } from '#/_base/log/log';
 import {
   AgentRunBatch,
   resolveSwarmMaxConcurrency,
@@ -49,10 +31,29 @@ import {
   type AgentSpawnAttemptOptions,
   type QueuedAgentRunTask,
 } from '#/features/swarm/session/agentRunBatch';
-import { ISessionSwarmService, type SessionSwarmSpawnTask, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
-import { Error2 } from '#/_base/errors/errors';
-import { ConfigErrors } from '#/app/config/errors';
+import {
+  ISessionSwarmService,
+  type SessionSwarmSpawnTask,
+  type SessionSwarmTask,
+} from '#/features/swarm/session/sessionSwarm';
 import { SessionSwarmService } from '#/features/swarm/session/sessionSwarmService';
+import { createHooks } from '#/hooks';
+import { APIProviderRateLimitError } from '#/kosong/contract/errors';
+import { IModelCatalog, type Model } from '#/kosong/model/catalog';
+import {
+  IAgentLifecycleService,
+  type CreateAgentOptions,
+} from '#/session/agentLifecycle/agentLifecycle';
+import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
+import { ISessionProcessRunner } from '#/session/process/processRunner';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import {
+  ISessionMetadata,
+  type AgentMeta,
+  type SessionMetadataChangedEvent,
+} from '#/session/sessionMetadata/sessionMetadata';
+import { type AgentTaskHooks, ISessionSubagentService } from '#/session/subagent/subagent';
 
 import { stubLog } from '../../_base/log/stubs';
 import { stubFlag } from '../../app/flag/stubs';
@@ -941,7 +942,10 @@ describe('SessionSwarmService metadata compatibility', () => {
     });
     ix.stub(ILogService, stubLog());
     ix.stub(IConfigService, new StubConfigService({}));
-    ix.stub(IFlagService, stubFlag(() => false));
+    ix.stub(
+      IFlagService,
+      stubFlag(() => false),
+    );
     ix.stub(IModelCatalog, {
       _serviceBrand: undefined,
       get: (alias: string) => {
@@ -1064,9 +1068,13 @@ describe('SessionSwarmService metadata compatibility', () => {
     const childUserTools = userToolServiceStub();
     handles.set(
       'main',
-      agentHandle('main', lifecycle, eventBus, {}, new Map([
-        [IAgentUserToolService, parentUserTools],
-      ])),
+      agentHandle(
+        'main',
+        lifecycle,
+        eventBus,
+        {},
+        new Map([[IAgentUserToolService, parentUserTools]]),
+      ),
     );
     createAgent.mockImplementationOnce((opts: CreateAgentOptions = {}) => {
       const id = opts.agentId ?? 'agent-new';
@@ -1232,9 +1240,7 @@ describe('SessionSwarmService metadata compatibility', () => {
             agentId,
             turn: {} as never,
             completion:
-              retryRuns === 1
-                ? rateLimited
-                : Promise.resolve({ summary: 'recovered summary' }),
+              retryRuns === 1 ? rateLimited : Promise.resolve({ summary: 'recovered summary' }),
           };
         }
         return { agentId, turn: {} as never, completion: blocker };
@@ -1273,15 +1279,26 @@ describe('SessionSwarmService metadata compatibility', () => {
     };
     handles.set(
       'agent-existing',
-      agentHandle('agent-existing', lifecycle, eventBus, {}, new Map([
-        [
-          IAgentLoopService,
-          {
-            _serviceBrand: undefined,
-            status: () => ({ state: 'running', activeTurnId: 1, pendingTurnIds: [], hasPendingRequests: true }),
-          },
-        ],
-      ])),
+      agentHandle(
+        'agent-existing',
+        lifecycle,
+        eventBus,
+        {},
+        new Map([
+          [
+            IAgentLoopService,
+            {
+              _serviceBrand: undefined,
+              status: () => ({
+                state: 'running',
+                activeTurnId: 1,
+                pendingTurnIds: [],
+                hasPendingRequests: true,
+              }),
+            },
+          ],
+        ]),
+      ),
     );
     const service = ix.get(ISessionSwarmService);
 
@@ -1294,8 +1311,7 @@ describe('SessionSwarmService metadata compatibility', () => {
       {
         status: 'failed',
         state: 'not_started',
-        error:
-          'Agent instance "agent-existing" is already running and cannot run concurrently',
+        error: 'Agent instance "agent-existing" is already running and cannot run concurrently',
       },
     ]);
     expect(runAgent).not.toHaveBeenCalled();
@@ -1479,9 +1495,7 @@ type MockAgentRunBatchRunnerOptions = {
   readonly maxConcurrency?: number;
 };
 
-function createMockAgentRunBatchRunner(
-  options: MockAgentRunBatchRunnerOptions = {},
-): {
+function createMockAgentRunBatchRunner(options: MockAgentRunBatchRunnerOptions = {}): {
   readonly runBatch: <T>(
     tasks: readonly QueuedAgentRunTask<T>[],
     options?: { readonly signal?: AbortSignal },
@@ -1491,7 +1505,7 @@ function createMockAgentRunBatchRunner(
   const attempts: MockAgentRunAttemptRecord[] = [];
   let activeTasks: readonly QueuedAgentRunTask<unknown>[] = [];
 
-  const createHandle = <T,>(
+  const createHandle = <T>(
     runOptions: AgentRunAttemptOptions,
     agentId: string,
     profileName: string,
@@ -1537,7 +1551,7 @@ function createMockAgentRunBatchRunner(
   };
 
   return {
-    runBatch: <T,>(
+    runBatch: <T>(
       tasks: readonly QueuedAgentRunTask<T>[],
       runOptions?: { readonly signal?: AbortSignal },
     ) => {

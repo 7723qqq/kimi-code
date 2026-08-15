@@ -1,8 +1,5 @@
+import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
-import type {
-  PermissionPolicy,
-  PermissionPolicyResult,
-} from '#/agent/permissionPolicy/types';
 import { GITHUB_READONLY_TOOL_NAMES } from '#/agent/tools/github/github-tools';
 
 const DEFAULT_APPROVE_TOOLS = new Set([
@@ -37,8 +34,6 @@ export class DefaultToolApprovePermissionPolicyService implements PermissionPoli
   readonly name = 'default-tool-approve';
 
   evaluate(context: ResolvedToolExecutionHookContext): PermissionPolicyResult | undefined {
-    return DEFAULT_APPROVE_TOOLS.has(context.toolCall.name)
-      ? { kind: 'approve' }
-      : undefined;
+    return DEFAULT_APPROVE_TOOLS.has(context.toolCall.name) ? { kind: 'approve' } : undefined;
   }
 }

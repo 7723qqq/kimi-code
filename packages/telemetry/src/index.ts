@@ -1,12 +1,6 @@
-import {
-  flushSync,
-  setContext,
-  shutdown,
-  track as trackEvent,
-  withContext,
-} from './client';
-import type { TelemetryProperties as TelemetryPropertiesType } from './types';
+import { flushSync, setContext, shutdown, track as trackEvent, withContext } from './client';
 import type { TelemetryContextIds, TelemetryClient } from './client';
+import type { TelemetryProperties as TelemetryPropertiesType } from './types';
 
 export function track(event: string, properties: TelemetryPropertiesType = {}): void {
   trackEvent(event, properties);

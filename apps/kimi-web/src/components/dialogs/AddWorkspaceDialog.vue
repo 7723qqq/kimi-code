@@ -10,6 +10,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { FsBrowseEntry, FsBrowseResult } from '../../api/types';
 import {
   currentValidatedWorkspacePath,
@@ -18,11 +19,11 @@ import {
   parseWorkspacePathInput,
   type WorkspacePathSeparator,
 } from '../../lib/workspacePathInput';
-import Dialog from '../ui/Dialog.vue';
 import Button from '../ui/Button.vue';
+import Dialog from '../ui/Dialog.vue';
+import Icon from '../ui/Icon.vue';
 import IconButton from '../ui/IconButton.vue';
 import Spinner from '../ui/Spinner.vue';
-import Icon from '../ui/Icon.vue';
 import Tooltip from '../ui/Tooltip.vue';
 
 const { t } = useI18n();
@@ -61,7 +62,11 @@ const entries = ref<FsBrowseEntry[]>([]);
 // dialog never resizes while searching.
 const filter = ref('');
 const searching = ref(false);
-interface SearchHit { path: string; name: string; rel: string }
+interface SearchHit {
+  path: string;
+  name: string;
+  rel: string;
+}
 const searchResults = ref<SearchHit[]>([]);
 const isSearching = computed(() => filter.value.trim().length > 0);
 let searchToken = 0;
@@ -356,23 +361,30 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <Dialog v-model:open="open" :title="t('workspace.addTitle')" size="lg" height="fixed" @close="emit('close')">
+  <Dialog
+    v-model:open="open"
+    :title="t('workspace.addTitle')"
+    size="lg"
+    height="fixed"
+    @close="emit('close')"
+  >
     <div class="aw">
       <!-- Breadcrumb + up (hidden when the daemon can't browse) -->
       <div v-if="!browseFailed" class="crumbbar">
-        <IconButton
-          size="sm"
-          :disabled="!parentPath"
-          :label="t('workspace.up')"
-          @click="goUp"
-        >
+        <IconButton size="sm" :disabled="!parentPath" :label="t('workspace.up')" @click="goUp">
           <Icon name="arrow-up" size="md" />
         </IconButton>
         <div class="crumbs">
           <template v-for="(c, i) in crumbs" :key="c.path">
             <!-- crumbs[0] is the root "/" itself, so skip the separator before crumbs[1]. -->
             <span v-if="i > 1" class="crumb-sep">/</span>
-            <button class="crumb" :class="{ last: i === crumbs.length - 1 }" @click="navigate(c.path)">{{ c.label }}</button>
+            <button
+              class="crumb"
+              :class="{ last: i === crumbs.length - 1 }"
+              @click="navigate(c.path)"
+            >
+              {{ c.label }}
+            </button>
           </template>
         </div>
       </div>
@@ -407,9 +419,13 @@ onUnmounted(() => {
         <!-- Path mode: validation states. A valid path live-follows, so it falls
              through to the browse rows below. -->
         <template v-else-if="isPathMode && pathState !== 'valid'">
-          <div v-if="pathState === 'checking'" class="fl-loading">{{ t('workspace.checkingPath') }}</div>
+          <div v-if="pathState === 'checking'" class="fl-loading">
+            {{ t('workspace.checkingPath') }}
+          </div>
           <template v-else-if="pathState === 'not-found'">
-            <div v-if="pathCandidates.length > 0" class="fl-note">{{ t('workspace.pathPickHint') }}</div>
+            <div v-if="pathCandidates.length > 0" class="fl-note">
+              {{ t('workspace.pathPickHint') }}
+            </div>
             <button
               v-for="c in pathCandidates"
               :key="c.path"
@@ -439,8 +455,12 @@ onUnmounted(() => {
             <Icon class="dir-icon" name="folder-closed" size="sm" />
             <span class="folder-name search-rel">{{ hit.rel }}</span>
           </button>
-          <div v-if="!searching && searchResults.length === 0" class="fl-empty">{{ t('workspace.noFilterMatch', { q: filter.trim() }) }}</div>
-          <div v-else-if="searching && searchResults.length === 0" class="fl-loading">{{ t('workspace.searching') }}</div>
+          <div v-if="!searching && searchResults.length === 0" class="fl-empty">
+            {{ t('workspace.noFilterMatch', { q: filter.trim() }) }}
+          </div>
+          <div v-else-if="searching && searchResults.length === 0" class="fl-loading">
+            {{ t('workspace.searching') }}
+          </div>
         </template>
 
         <!-- Browse mode: the current folder's subfolders -->
@@ -473,7 +493,8 @@ onUnmounted(() => {
             variant="primary"
             :disabled="!canOpen"
             @click="openThisFolder"
-          >{{ t('workspace.openThisFolder') }}</Button>
+            >{{ t('workspace.openThisFolder') }}</Button
+          >
         </Tooltip>
         <Button variant="secondary" @click="emit('close')">{{ t('workspace.cancel') }}</Button>
       </div>
@@ -508,7 +529,9 @@ onUnmounted(() => {
   min-width: 0;
   font-size: var(--text-sm);
 }
-.crumb-sep { color: var(--color-text-muted); }
+.crumb-sep {
+  color: var(--color-text-muted);
+}
 .crumb {
   background: none;
   border: none;
@@ -519,8 +542,14 @@ onUnmounted(() => {
   padding: 1px var(--space-1);
   border-radius: var(--radius-xs);
 }
-.crumb:hover { color: var(--color-accent); background: var(--color-surface-sunken); }
-.crumb.last { color: var(--color-text); font-weight: var(--weight-medium); }
+.crumb:hover {
+  color: var(--color-accent);
+  background: var(--color-surface-sunken);
+}
+.crumb.last {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
 
 /* Subfolder filter — composite inline search (icon + input + spinner). */
 .filterbar {
@@ -530,7 +559,12 @@ onUnmounted(() => {
   padding: var(--space-2) var(--space-5);
   border-bottom: 1px solid var(--color-line);
 }
-.filter-icon { flex: none; width: var(--p-ic-sm); height: var(--p-ic-sm); color: var(--color-text-muted); }
+.filter-icon {
+  flex: none;
+  width: var(--p-ic-sm);
+  height: var(--p-ic-sm);
+  color: var(--color-text-muted);
+}
 .filter-input {
   flex: 1;
   min-width: 0;
@@ -542,12 +576,20 @@ onUnmounted(() => {
   color: var(--color-text);
   outline: none;
 }
-.filter-input::placeholder { color: var(--color-text-muted); }
-.search-rel { color: var(--color-text); }
+.filter-input::placeholder {
+  color: var(--color-text-muted);
+}
+.search-rel {
+  color: var(--color-text);
+}
 
 /* Path-mode error: tint the shared box's border + icon. */
-.filterbar.has-error { border-bottom-color: var(--color-danger); }
-.filterbar.has-error .filter-icon { color: var(--color-danger); }
+.filterbar.has-error {
+  border-bottom-color: var(--color-danger);
+}
+.filterbar.has-error .filter-icon {
+  color: var(--color-danger);
+}
 
 /* Folder list */
 .folder-list {
@@ -555,7 +597,8 @@ onUnmounted(() => {
   overflow-y: auto;
   padding: var(--space-1) var(--space-2);
 }
-.fl-loading, .fl-empty {
+.fl-loading,
+.fl-empty {
   padding: var(--space-6) var(--space-4);
   text-align: center;
   color: var(--color-text-muted);
@@ -566,7 +609,9 @@ onUnmounted(() => {
   font-size: var(--text-sm);
   color: var(--color-text-muted);
 }
-.fl-error { color: var(--color-danger); }
+.fl-error {
+  color: var(--color-danger);
+}
 .folder-row {
   display: flex;
   align-items: center;
@@ -582,9 +627,18 @@ onUnmounted(() => {
   padding: var(--space-1) var(--space-4);
   border-radius: var(--radius-md);
 }
-.folder-row:hover { background: var(--color-surface-sunken); }
-.dir-icon { flex: none; width: var(--p-ic-sm); height: var(--p-ic-sm); color: var(--color-text-muted); }
-.folder-row:hover .dir-icon { color: var(--color-accent); }
+.folder-row:hover {
+  background: var(--color-surface-sunken);
+}
+.dir-icon {
+  flex: none;
+  width: var(--p-ic-sm);
+  height: var(--p-ic-sm);
+  color: var(--color-text-muted);
+}
+.folder-row:hover .dir-icon {
+  color: var(--color-accent);
+}
 .folder-name {
   flex: 1;
   min-width: 0;

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { parseBingSearchResults } from '#/app/auth/webSearch/engines/bing/parser';
+import { parseDuckDuckGoResults } from '#/app/auth/webSearch/engines/duckduckgo/parser';
 import {
   LocalWebSearchProvider,
   resolveResultLimit,
   resolveSearchEngines,
 } from '#/app/auth/webSearch/providers/local-web-search';
-import { parseBingSearchResults } from '#/app/auth/webSearch/engines/bing/parser';
-import { parseDuckDuckGoResults } from '#/app/auth/webSearch/engines/duckduckgo/parser';
 
 describe('local web search engines', () => {
   it('parses DuckDuckGo HTML results and decodes the redirector', () => {

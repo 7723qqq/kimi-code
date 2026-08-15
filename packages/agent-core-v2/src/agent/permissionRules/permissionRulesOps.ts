@@ -29,10 +29,13 @@ export interface PermissionRulesModelState {
   readonly sessionApprovalRulePatterns: readonly string[];
 }
 
-export const PermissionRulesModel = defineModel<PermissionRulesModelState>('permissionRules', () => ({
-  rules: [],
-  sessionApprovalRulePatterns: [],
-}));
+export const PermissionRulesModel = defineModel<PermissionRulesModelState>(
+  'permissionRules',
+  () => ({
+    rules: [],
+    sessionApprovalRulePatterns: [],
+  }),
+);
 
 declare module '#/wire/types' {
   interface PersistedOpMap {

@@ -13,17 +13,13 @@
  */
 
 import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  ScopeActivation,
-  registerScopedService,
-  type IAgentScopeHandle,
-} from '#/_base/di/scope';
+import { ScopeActivation, registerScopedService, type IAgentScopeHandle } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
 import { defineState } from '#/_base/state/stateRegistry';
-import { IEventBus } from '#/app/event/eventBus';
 import { IAgentActivityView, type AgentActivityState } from '#/agent/activityView/activityView';
 import type { TurnEndReason } from '#/agent/loop/turnEvents';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionInteractionService, type Interaction } from '#/session/interaction/interaction';
 import { ISessionStateService } from '#/session/state/sessionState';
@@ -47,12 +43,15 @@ export const sessionActivityFoldsKey = defineState<Map<string, AgentWorkFold>>(
   'sessionActivity.folds',
   () => new Map(),
 );
-export const sessionActivityCurrentKey = defineState<SessionActivityState>('sessionActivity.current', () => ({
-  busy: false,
-  mainTurnActive: false,
-  pendingInteraction: 'none',
-  lastTurnReason: undefined,
-}));
+export const sessionActivityCurrentKey = defineState<SessionActivityState>(
+  'sessionActivity.current',
+  () => ({
+    busy: false,
+    mainTurnActive: false,
+    pendingInteraction: 'none',
+    lastTurnReason: undefined,
+  }),
+);
 
 // NOTE: stays Disposable — its own 'state' collides with the Fiber
 export class SessionActivityView extends Disposable implements ISessionActivityView {
@@ -174,7 +173,9 @@ function foldOf(
     turnActive: activity?.turn !== undefined,
     background: activity?.background?.length ?? 0,
     lastTurnReason:
-      agentId === MAIN_AGENT_ID ? mapTurnReason(activity?.lastTurn?.reason) : previous?.lastTurnReason,
+      agentId === MAIN_AGENT_ID
+        ? mapTurnReason(activity?.lastTurn?.reason)
+        : previous?.lastTurnReason,
   };
 }
 

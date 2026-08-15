@@ -8,12 +8,6 @@
 import { createInterface } from 'node:readline/promises';
 
 import {
-  setTelemetryContext,
-  shutdownTelemetry,
-  track,
-  withTelemetryContext,
-} from '@moonshot-ai/kimi-telemetry';
-import {
   createKimiHarnessV2,
   type ExportSessionInput,
   type ExportSessionResult,
@@ -22,13 +16,19 @@ import {
   type ShellEnvironment,
   type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
+import {
+  setTelemetryContext,
+  shutdownTelemetry,
+  track,
+  withTelemetryContext,
+} from '@moonshot-ai/kimi-telemetry';
 import type { Command } from 'commander';
 
-import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
-import { t } from '#/i18n';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
 import { detectInstallSource } from '#/cli/update/source';
 import { createKimiCodeHostIdentity } from '#/cli/version';
+import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
+import { t } from '#/i18n';
 import { detectShellEnvironment } from '#/utils/process/shell-env';
 
 interface WritableLike {
@@ -79,7 +79,9 @@ export async function handleExport(
     }
     resolvedId = previousSummary.id;
     if (!opts.yes) {
-      const confirmed = await deps.confirmPreviousSession(toPreviousSessionSummary(previousSummary));
+      const confirmed = await deps.confirmPreviousSession(
+        toPreviousSessionSummary(previousSummary),
+      );
       if (!confirmed) {
         deps.stdout.write(t('tui.statusMessages.exportCancelled') + '\n');
         return;
@@ -111,10 +113,7 @@ export function registerExportCommand(parent: Command, deps?: Partial<ExportDeps
     .description(t('cli.commandDescriptions.exportCmd'))
     .option('-o, --output <path>', t('cli.optionDescriptions.exportOutput'))
     .option('-y, --yes', t('cli.optionDescriptions.exportYes'))
-    .option(
-      '--no-include-global-log',
-      t('cli.optionDescriptions.exportNoIncludeGlobalLog'),
-    )
+    .option('--no-include-global-log', t('cli.optionDescriptions.exportNoIncludeGlobalLog'))
     .argument('[sessionId]', t('cli.optionDescriptions.exportSessionId'))
     .action(
       async (
@@ -216,9 +215,9 @@ function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDep
   };
 }
 
-async function findPreviousSession(deps: Pick<ExportDeps, 'cwd' | 'listSessions'>): Promise<
-  SessionSummary | undefined
-> {
+async function findPreviousSession(
+  deps: Pick<ExportDeps, 'cwd' | 'listSessions'>,
+): Promise<SessionSummary | undefined> {
   const sessions = await deps.listSessions(deps.cwd());
   return sessions[0];
 }
@@ -240,7 +239,8 @@ function normalizeOptionalSessionId(sessionId: string | undefined): string | und
 async function confirmPreviousSession(summary: PreviousSessionSummary): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   try {
-    const title = summary.title === undefined ? summary.sessionId : `${summary.title} (${summary.sessionId})`;
+    const title =
+      summary.title === undefined ? summary.sessionId : `${summary.title} (${summary.sessionId})`;
     const answer = await rl.question(t('tui.statusMessages.exportConfirmPrompt', { title }));
     const trimmed = answer.trim().toLowerCase();
     return trimmed === '' || trimmed === 'y' || trimmed === 'yes';

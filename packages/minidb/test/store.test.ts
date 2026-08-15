@@ -1,6 +1,8 @@
+import assert from 'node:assert/strict';
+
 // test/store.test.js
 import { test } from 'vitest';
-import assert from 'node:assert/strict';
+
 import { Store } from '../src/store.js';
 
 const B = (s) => Buffer.from(s);
@@ -101,7 +103,10 @@ test('delete removes key from the ordered index', () => {
   const s = new Store({ activeExpireIntervalMs: 0 });
   ['a', 'b', 'c'].forEach((k) => s.set(k, B(k)));
   s.del('b');
-  assert.deepEqual([...s.scan()].map((r) => r.key.toString()), ['a', 'c']);
+  assert.deepEqual(
+    [...s.scan()].map((r) => r.key.toString()),
+    ['a', 'c'],
+  );
 });
 
 test('has() does not materialize disk-backed values', () => {
@@ -214,7 +219,12 @@ test('bulkLoadRefsAsync pauses active expiry: a TTL expiring mid-load cannot div
   // load keeps the resulting state identical to the sync bulk load.
   const short = 'a-short-ttl'; // sorts before every kNNNNN
   const records = [
-    { kstr: short, ref: { kind: 'memory' as const, value: B('v0') }, expireAt: Date.now() + 1, dt: null },
+    {
+      kstr: short,
+      ref: { kind: 'memory' as const, value: B('v0') },
+      expireAt: Date.now() + 1,
+      dt: null,
+    },
     ...Array.from({ length: 20000 }, (_, i) => ({
       kstr: `k${String(i).padStart(5, '0')}`,
       ref: { kind: 'memory' as const, value: B(`v${i}`) },

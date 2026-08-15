@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
+
 import { normalizeContentPart } from '../../src/sessions/content-part.js';
 
 describe('normalizeContentPart', () => {
   it('text part: identity', () => {
-    expect(normalizeContentPart({ type: 'text', text: 'hi' })).toEqual({ type: 'text', text: 'hi' });
+    expect(normalizeContentPart({ type: 'text', text: 'hi' })).toEqual({
+      type: 'text',
+      text: 'hi',
+    });
   });
 
   it('think part: preserves think text, encrypted becomes undefined if null', () => {

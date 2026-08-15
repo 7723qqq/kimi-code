@@ -9,13 +9,14 @@
 // deterministic mid-build crash points.
 
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
+import fs from 'node:fs/promises';
 import path from 'node:path';
+
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { MiniDb } from '../src/index.js';
-import { TextIndex } from '../src/text-index/index.js';
-import { SkipList, cmpNumber, cmpString } from '../src/skiplist.js';
+
+import { CompoundIndexManager } from '../src/compound-index.js';
+import { crc32 } from '../src/crc32.js';
 import {
   GenerationCorruptError,
   parseGenerationBuffer,
@@ -36,11 +37,12 @@ import {
   writeTextDocsImage,
 } from '../src/gen-codec.js';
 import type { StoreImageRecord } from '../src/gen-codec.js';
-import { crc32 } from '../src/crc32.js';
-import { Store } from '../src/store.js';
-import { IndexManager } from '../src/index-manager.js';
-import { CompoundIndexManager } from '../src/compound-index.js';
 import { readManifest, listGenerations } from '../src/generation-files.js';
+import { IndexManager } from '../src/index-manager.js';
+import { MiniDb } from '../src/index.js';
+import { SkipList, cmpNumber, cmpString } from '../src/skiplist.js';
+import { Store } from '../src/store.js';
+import { TextIndex } from '../src/text-index/index.js';
 import { tmpDir, rmrf, waitFor, deferred } from './helpers.js';
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -62,7 +64,11 @@ async function closeAll(...dbs: (AnyDb | undefined)[]): Promise<void> {
 
 /** Patch fs.open so handles for paths matching `pred` get their writev/sync
  *  replaced by `fail` (once). Returns a restore function. */
-function failFileWrites(pred: (p: string) => boolean, fail: 'writev' | 'sync', error: unknown): () => void {
+function failFileWrites(
+  pred: (p: string) => boolean,
+  fail: 'writev' | 'sync',
+  error: unknown,
+): () => void {
   const original = fs.open;
   let fired = false;
   (fs as unknown as Record<string, unknown>).open = async (p: fsSync.PathLike, flags?: string) => {
@@ -99,7 +105,12 @@ async function seedIndexedDb(db: MiniDb<Record<string, unknown>>, n = 2000): Pro
   for (let i = 0; i < n; i++) {
     await db.set(
       `k${i}`,
-      { kind: `t${i % 7}`, score: i % 100, ts: 1700000000000 + i, text: `hello world doc ${i} 持久化 索引 ${i % 13}` },
+      {
+        kind: `t${i % 7}`,
+        score: i % 100,
+        ts: 1700000000000 + i,
+        text: `hello world doc ${i} 持久化 索引 ${i % 13}`,
+      },
       { dt: { ts: 1700000000000 + i } },
     );
   }
@@ -109,13 +120,21 @@ async function seedIndexedDb(db: MiniDb<Record<string, unknown>>, n = 2000): Pro
  *  defaults to n but callers that added/removed keys after seeding pass the
  *  expected live count explicitly; `dtTail` likewise covers the dt-window
  *  assertion when extra keys carry newer dt values. */
-function assertSeededDb(db: MiniDb<Record<string, unknown>>, n = 2000, size = n, dtTail = 10, k0Present = true): void {
+function assertSeededDb(
+  db: MiniDb<Record<string, unknown>>,
+  n = 2000,
+  size = n,
+  dtTail = 10,
+  k0Present = true,
+): void {
   const eqT3 = [...Array(n)].filter((_, i) => i % 7 === 3).length;
   expect(db.size).toBe(size);
   if (k0Present) expect(db.get('k0')).toMatchObject({ kind: 't0', score: 0 });
   expect(db.get(`k${n - 1}`)).toMatchObject({ kind: `t${(n - 1) % 7}` });
   expect(db.findEq('byKind', 't3').length).toBe(eqT3);
-  expect(db.findRange('byScore', { min: 42, max: 42 }).length).toBe(Math.floor(n / 100) + (n % 100 > 42 ? 1 : 0));
+  expect(db.findRange('byScore', { min: 42, max: 42 }).length).toBe(
+    Math.floor(n / 100) + (n % 100 > 42 ? 1 : 0),
+  );
   expect(db.compoundRange('byKindTime', 't2', { limit: 5 }).length).toBe(5);
   expect(db.dtRange('ts', { gte: 1700000000000 + n - 10 }).length).toBe(dtTail);
   expect(db.search('ft', '持久化').length).toBeGreaterThan(0);
@@ -139,8 +158,12 @@ describe('skiplist bulkLoad', () => {
     }
     expect(bulk.getByRank(0)).toEqual(inc.getByRank(0));
     expect(bulk.getByRank(4999)).toEqual(inc.getByRank(4999));
-    expect(bulk.range({ gte: 100, lte: 200, count: 7 })).toEqual(inc.range({ gte: 100, lte: 200, count: 7 }));
-    expect([...bulk.iterate({ reverse: true, count: 5 })]).toEqual([...inc.iterate({ reverse: true, count: 5 })]);
+    expect(bulk.range({ gte: 100, lte: 200, count: 7 })).toEqual(
+      inc.range({ gte: 100, lte: 200, count: 7 }),
+    );
+    expect([...bulk.iterate({ reverse: true, count: 5 })]).toEqual([
+      ...inc.iterate({ reverse: true, count: 5 }),
+    ]);
     // Mutations after the bulk load keep every invariant.
     bulk.insert(3, 'v-new');
     bulk.delete(100, 'v50');
@@ -174,7 +197,11 @@ describe('skiplist bulkLoad', () => {
       if (i % 997 === 0) entries.push({ key: i * 2, val: `v${i}` }); // exact duplicates
     }
     const sync = SkipList.bulkLoad(entries, { compareKey: cmpNumber, compareVal: cmpString });
-    const asyncList = await SkipList.bulkLoadAsync(entries, { compareKey: cmpNumber, compareVal: cmpString }, { sliceEvery: 1 });
+    const asyncList = await SkipList.bulkLoadAsync(
+      entries,
+      { compareKey: cmpNumber, compareVal: cmpString },
+      { sliceEvery: 1 },
+    );
     expect(asyncList.length).toBe(sync.length);
     expect(asyncList.toArray()).toEqual(sync.toArray());
     for (const probe of [0, 1, 42, 2499, 4999]) {
@@ -183,7 +210,9 @@ describe('skiplist bulkLoad', () => {
     }
     expect(asyncList.getByRank(0)).toEqual(sync.getByRank(0));
     expect(asyncList.getByRank(asyncList.length - 1)).toEqual(sync.getByRank(sync.length - 1));
-    expect(asyncList.range({ gte: 100, lte: 200, count: 7 })).toEqual(sync.range({ gte: 100, lte: 200, count: 7 }));
+    expect(asyncList.range({ gte: 100, lte: 200, count: 7 })).toEqual(
+      sync.range({ gte: 100, lte: 200, count: 7 }),
+    );
     // Mutations after the sliced bulk load keep every invariant.
     asyncList.insert(3, 'v-new');
     asyncList.delete(100, 'v50');
@@ -204,9 +233,24 @@ describe('gen-codec', () => {
     const kstr = (s: string): string => Buffer.from(s, 'utf8').toString('binary');
     const records: StoreImageRecord[] = [
       { kstr: 'a', ref: { kind: 'memory', value: Buffer.from('v1') }, expireAt: 0, dt: null },
-      { kstr: 'b', ref: { kind: 'disk', loc: { file: 'snapshot', off: 123, len: 45 } }, expireAt: 9999999999999, dt: { ts: 7 } },
-      { kstr: 'c', ref: { kind: 'disk', loc: { file: 'wal', off: 9999999999, len: 1 } }, expireAt: 0, dt: null },
-      { kstr: kstr('é-key-键'), ref: { kind: 'memory', value: Buffer.from('utf8 value ✓') }, expireAt: 0, dt: null },
+      {
+        kstr: 'b',
+        ref: { kind: 'disk', loc: { file: 'snapshot', off: 123, len: 45 } },
+        expireAt: 9999999999999,
+        dt: { ts: 7 },
+      },
+      {
+        kstr: 'c',
+        ref: { kind: 'disk', loc: { file: 'wal', off: 9999999999, len: 1 } },
+        expireAt: 0,
+        dt: null,
+      },
+      {
+        kstr: kstr('é-key-键'),
+        ref: { kind: 'memory', value: Buffer.from('utf8 value ✓') },
+        expireAt: 0,
+        dt: null,
+      },
     ];
     const info = await writeStoreImage(path.join(dir, 'store'), records);
     const buf = await fs.readFile(path.join(dir, 'store'));
@@ -244,12 +288,28 @@ describe('gen-codec', () => {
   test('dt / secondary / compound / text-docs images round-trip', async () => {
     const dir = await openTmp('codec-indexes');
     await writeDtIndexImage(path.join(dir, 'dt'), [
-      { name: 'ts', entries: [{ ms: 1, key: 'a' }, { ms: 2, key: 'b' }, { ms: 2, key: 'c' }] },
+      {
+        name: 'ts',
+        entries: [
+          { ms: 1, key: 'a' },
+          { ms: 2, key: 'b' },
+          { ms: 2, key: 'c' },
+        ],
+      },
       { name: 'created', entries: [{ ms: 9, key: 'z' }] },
     ]);
-    const dt = readDtIndexImage(parseGenerationBuffer(await fs.readFile(path.join(dir, 'dt')), 'MDGD', 1).payload);
+    const dt = readDtIndexImage(
+      parseGenerationBuffer(await fs.readFile(path.join(dir, 'dt')), 'MDGD', 1).payload,
+    );
     expect(dt).toEqual([
-      { name: 'ts', entries: [{ ms: 1, key: 'a' }, { ms: 2, key: 'b' }, { ms: 2, key: 'c' }] },
+      {
+        name: 'ts',
+        entries: [
+          { ms: 1, key: 'a' },
+          { ms: 2, key: 'b' },
+          { ms: 2, key: 'c' },
+        ],
+      },
       { name: 'created', entries: [{ ms: 9, key: 'z' }] },
     ]);
 
@@ -270,12 +330,29 @@ describe('gen-codec', () => {
         unique: false,
         sparse: true,
         equality: null,
-        range: [{ value: 1.5, pk: 'a' }, { value: 2, pk: 'b' }],
+        range: [
+          { value: 1.5, pk: 'a' },
+          { value: 2, pk: 'b' },
+        ],
       },
     ]);
-    const sec = readSecondaryIndexImage(parseGenerationBuffer(await fs.readFile(path.join(dir, 'sec')), 'MDSI', 1).payload);
-    expect(sec[0]).toMatchObject({ name: 'byKind', unique: true, sparse: false, equality: [{ scalarKey: 'string:t1', pks: ['a', 'b'] }] });
-    expect(sec[1]).toMatchObject({ name: 'byScore', type: 'range', range: [{ value: 1.5, pk: 'a' }, { value: 2, pk: 'b' }] });
+    const sec = readSecondaryIndexImage(
+      parseGenerationBuffer(await fs.readFile(path.join(dir, 'sec')), 'MDSI', 1).payload,
+    );
+    expect(sec[0]).toMatchObject({
+      name: 'byKind',
+      unique: true,
+      sparse: false,
+      equality: [{ scalarKey: 'string:t1', pks: ['a', 'b'] }],
+    });
+    expect(sec[1]).toMatchObject({
+      name: 'byScore',
+      type: 'range',
+      range: [
+        { value: 1.5, pk: 'a' },
+        { value: 2, pk: 'b' },
+      ],
+    });
 
     await writeCompoundIndexImage(path.join(dir, 'cmp'), [
       {
@@ -284,7 +361,13 @@ describe('gen-codec', () => {
         orderBy: 'ts',
         orderType: 'number',
         groups: [
-          { group: 't1', entries: [{ order: 5, pk: 'a' }, { order: 6, pk: 'b' }] },
+          {
+            group: 't1',
+            entries: [
+              { order: 5, pk: 'a' },
+              { order: 6, pk: 'b' },
+            ],
+          },
           { group: 42, entries: [{ order: 1, pk: 'z' }] },
           { group: null, entries: [] },
           { group: true, entries: [{ order: 2, pk: 'y' }] },
@@ -298,8 +381,16 @@ describe('gen-codec', () => {
         groups: [{ group: 't1', entries: [{ order: 'abc', pk: 'a' }] }],
       },
     ]);
-    const cmp = readCompoundIndexImage(parseGenerationBuffer(await fs.readFile(path.join(dir, 'cmp')), 'MDCI', 1).payload);
-    expect(cmp[0]!.groups[0]).toEqual({ group: 't1', entries: [{ order: 5, pk: 'a' }, { order: 6, pk: 'b' }] });
+    const cmp = readCompoundIndexImage(
+      parseGenerationBuffer(await fs.readFile(path.join(dir, 'cmp')), 'MDCI', 1).payload,
+    );
+    expect(cmp[0]!.groups[0]).toEqual({
+      group: 't1',
+      entries: [
+        { order: 5, pk: 'a' },
+        { order: 6, pk: 'b' },
+      ],
+    });
     expect(cmp[0]!.groups[1]).toEqual({ group: 42, entries: [{ order: 1, pk: 'z' }] });
     expect(cmp[0]!.groups[2]).toEqual({ group: null, entries: [] });
     expect(cmp[0]!.groups[3]).toEqual({ group: true, entries: [{ order: 2, pk: 'y' }] });
@@ -312,7 +403,9 @@ describe('gen-codec', () => {
       removed: [1],
       delta: [{ term: 'hello', docs: [{ docID: 2, freq: 4 }] }],
     });
-    const docs = readTextDocsImage(parseGenerationBuffer(await fs.readFile(path.join(dir, 'docs')), 'MDTC', 1).payload);
+    const docs = readTextDocsImage(
+      parseGenerationBuffer(await fs.readFile(path.join(dir, 'docs')), 'MDTC', 1).payload,
+    );
     expect(docs.keys).toEqual(['a', undefined, 'c']);
     expect(docs.docLens).toEqual([10, undefined, 3]);
     expect(docs.liveCount).toBe(2);
@@ -336,16 +429,22 @@ describe('sliced open-path variants', () => {
     await verifyFileIntegrityAsync(p, good);
     expect(() => verifyFileIntegritySync(p, good)).not.toThrow();
 
-    const sizeErr = await verifyFileIntegrityAsync(p, { bytes: good.bytes + 1, crc32: good.crc32 }).catch((error) => error);
+    const sizeErr = await verifyFileIntegrityAsync(p, {
+      bytes: good.bytes + 1,
+      crc32: good.crc32,
+    }).catch((error) => error);
     expect(sizeErr).toBeInstanceOf(GenerationCorruptError);
     expect((sizeErr as Error).message).toBe('file size does not match manifest record');
 
-    const crcErr = await verifyFileIntegrityAsync(p, { bytes: good.bytes, crc32: (good.crc32 ^ 1) >>> 0 }).catch((error) => error);
+    const crcErr = await verifyFileIntegrityAsync(p, {
+      bytes: good.bytes,
+      crc32: (good.crc32 ^ 1) >>> 0,
+    }).catch((error) => error);
     expect(crcErr).toBeInstanceOf(GenerationCorruptError);
     expect((crcErr as Error).message).toBe('file crc does not match manifest record');
-    expect(() => verifyFileIntegritySync(p, { bytes: good.bytes, crc32: (good.crc32 ^ 1) >>> 0 })).toThrow(
-      'file crc does not match manifest record',
-    );
+    expect(() =>
+      verifyFileIntegritySync(p, { bytes: good.bytes, crc32: (good.crc32 ^ 1) >>> 0 }),
+    ).toThrow('file crc does not match manifest record');
 
     // An empty file is a valid edge: zero chunks, crc of nothing.
     const empty = path.join(dir, 'empty.bin');
@@ -383,9 +482,16 @@ describe('sliced open-path variants', () => {
       },
     ];
     await writeSecondaryIndexImage(path.join(dir, 'sec'), secImage);
-    const secPayload = parseGenerationBuffer(await fs.readFile(path.join(dir, 'sec')), 'MDSI', 1).payload;
+    const secPayload = parseGenerationBuffer(
+      await fs.readFile(path.join(dir, 'sec')),
+      'MDSI',
+      1,
+    ).payload;
     const secSync = readSecondaryIndexImage(secPayload);
-    const secAsync = await readSecondaryIndexImageAsync(parseGenerationBuffer(await fs.readFile(path.join(dir, 'sec')), 'MDSI', 1).payload, 1);
+    const secAsync = await readSecondaryIndexImageAsync(
+      parseGenerationBuffer(await fs.readFile(path.join(dir, 'sec')), 'MDSI', 1).payload,
+      1,
+    );
     expect(secAsync).toEqual(secSync);
 
     const cmpImage = [
@@ -408,8 +514,13 @@ describe('sliced open-path variants', () => {
       },
     ];
     await writeCompoundIndexImage(path.join(dir, 'cmp'), cmpImage);
-    const cmpSync = readCompoundIndexImage(parseGenerationBuffer(await fs.readFile(path.join(dir, 'cmp')), 'MDCI', 1).payload);
-    const cmpAsync = await readCompoundIndexImageAsync(parseGenerationBuffer(await fs.readFile(path.join(dir, 'cmp')), 'MDCI', 1).payload, 1);
+    const cmpSync = readCompoundIndexImage(
+      parseGenerationBuffer(await fs.readFile(path.join(dir, 'cmp')), 'MDCI', 1).payload,
+    );
+    const cmpAsync = await readCompoundIndexImageAsync(
+      parseGenerationBuffer(await fs.readFile(path.join(dir, 'cmp')), 'MDCI', 1).payload,
+      1,
+    );
     expect(cmpAsync).toEqual(cmpSync);
 
     const docsImage = {
@@ -429,8 +540,13 @@ describe('sliced open-path variants', () => {
       ],
     };
     await writeTextDocsImage(path.join(dir, 'docs'), docsImage);
-    const docsSync = readTextDocsImage(parseGenerationBuffer(await fs.readFile(path.join(dir, 'docs')), 'MDTC', 1).payload);
-    const docsAsync = await readTextDocsImageAsync(parseGenerationBuffer(await fs.readFile(path.join(dir, 'docs')), 'MDTC', 1).payload, 1);
+    const docsSync = readTextDocsImage(
+      parseGenerationBuffer(await fs.readFile(path.join(dir, 'docs')), 'MDTC', 1).payload,
+    );
+    const docsAsync = await readTextDocsImageAsync(
+      parseGenerationBuffer(await fs.readFile(path.join(dir, 'docs')), 'MDTC', 1).payload,
+      1,
+    );
     expect(docsAsync).toEqual(docsSync);
     expect(docsAsync).toEqual(docsImage);
   });
@@ -456,7 +572,10 @@ describe('sliced open-path variants', () => {
       expect(asyncStore.size).toBe(syncStore.size);
       expect(asyncStore.bytes).toBe(syncStore.bytes);
       expect(asyncStore.get('k0007')).toEqual(syncStore.get('k0007'));
-      expect(asyncStore.getRecord('k0150')).toMatchObject({ expireAt: 9999999999999, dt: { ts: 150 } });
+      expect(asyncStore.getRecord('k0150')).toMatchObject({
+        expireAt: 9999999999999,
+        dt: { ts: 150 },
+      });
     } finally {
       syncStore.close();
       asyncStore.close();
@@ -465,7 +584,8 @@ describe('sliced open-path variants', () => {
 
   test('loadImageAsync (secondary + compound) builds the same queryable state', async () => {
     const docs = [];
-    for (let i = 0; i < 200; i++) docs.push({ pk: `k${i}`, doc: { kind: `t${i % 7}`, score: i % 100, ts: 1700000000000 + i } });
+    for (let i = 0; i < 200; i++)
+      docs.push({ pk: `k${i}`, doc: { kind: `t${i % 7}`, score: i % 100, ts: 1700000000000 + i } });
 
     const secSrc = new IndexManager();
     secSrc.create('byKind', { field: 'kind' });
@@ -481,14 +601,23 @@ describe('sliced open-path variants', () => {
     secDst.create('byKind', { field: 'kind' });
     secDst.create('byScore', { field: 'score', type: 'range' });
     for (const image of secSrc.exportImage()) await secDst.loadImageAsync(image, { sliceEvery: 1 });
-    expect(secDst.findEq('byKind', 't3').toSorted()).toEqual(secSrc.findEq('byKind', 't3').toSorted());
-    expect(secDst.findRange('byScore', { min: 10, max: 42 })).toEqual(secSrc.findRange('byScore', { min: 10, max: 42 }));
+    expect(secDst.findEq('byKind', 't3').toSorted()).toEqual(
+      secSrc.findEq('byKind', 't3').toSorted(),
+    );
+    expect(secDst.findRange('byScore', { min: 10, max: 42 })).toEqual(
+      secSrc.findRange('byScore', { min: 10, max: 42 }),
+    );
 
     const cmpDst = new CompoundIndexManager();
     cmpDst.create('byKindTime', { groupBy: 'kind', orderBy: 'ts' });
-    for (const image of cmpSrc.exportImage().images) await cmpDst.loadImageAsync(image, { sliceEvery: 1 });
-    expect(cmpDst.range('byKindTime', 't2', { limit: 5 })).toEqual(cmpSrc.range('byKindTime', 't2', { limit: 5 }));
-    expect(cmpDst.range('byKindTime', 't5', { limit: 50 })).toEqual(cmpSrc.range('byKindTime', 't5', { limit: 50 }));
+    for (const image of cmpSrc.exportImage().images)
+      await cmpDst.loadImageAsync(image, { sliceEvery: 1 });
+    expect(cmpDst.range('byKindTime', 't2', { limit: 5 })).toEqual(
+      cmpSrc.range('byKindTime', 't2', { limit: 5 }),
+    );
+    expect(cmpDst.range('byKindTime', 't5', { limit: 50 })).toEqual(
+      cmpSrc.range('byKindTime', 't5', { limit: 50 }),
+    );
   });
 
   test('TextIndex.attachImageAsync attaches the same base as attachImage', async () => {
@@ -499,7 +628,8 @@ describe('sliced open-path variants', () => {
     const asyncTi = new TextIndex({ name: 'ft', fields: ['text'] });
     try {
       const corpus = [];
-      for (let i = 0; i < 300; i++) corpus.push({ key: `k${i}`, value: { text: `hello world ${i} 持久化 ${i % 7}` } });
+      for (let i = 0; i < 300; i++)
+        corpus.push({ key: `k${i}`, value: { text: `hello world ${i} 持久化 ${i % 7}` } });
       await src.build(corpus);
       src.add('late1', { text: 'late write walrus' }); // lands in the delta
       src.remove('k5'); // tombstone
@@ -515,10 +645,21 @@ describe('sliced open-path variants', () => {
         })(),
         liveCount: image.liveCount,
         removed: [...image.removed],
-        delta: [...image.delta].map(([term, m]) => ({ term, docs: [...m].map(([docID, freq]) => ({ docID, freq })) })),
+        delta: [...image.delta].map(([term, m]) => ({
+          term,
+          docs: [...m].map(([docID, freq]) => ({ docID, freq })),
+        })),
       };
-      const dictEntries = [...image.dict].map(([term, e]) => ({ term, off: e.off, len: e.len, df: e.df }));
-      await asyncTi.attachImageAsync({ postingsPath, dictEntries, docs: docsImage }, { sliceEvery: 1 });
+      const dictEntries = [...image.dict].map(([term, e]) => ({
+        term,
+        off: e.off,
+        len: e.len,
+        df: e.df,
+      }));
+      await asyncTi.attachImageAsync(
+        { postingsPath, dictEntries, docs: docsImage },
+        { sliceEvery: 1 },
+      );
 
       expect(asyncTi.exportImageState()).toEqual(syncTi.exportImageState());
       expect(asyncTi.N).toBe(syncTi.N);
@@ -548,7 +689,11 @@ describe('generation build + load', () => {
     expect(fsSync.existsSync(path.join(dir, 'generations', gen!.id, 'manifest.json'))).toBe(true);
     // WAL delta after the checkpoint.
     for (let i = 2000; i < 2100; i++) {
-      await db.set(`k${i}`, { kind: 't1', score: 1, ts: 1700000000000 + i, text: `delta ${i} 增量` }, { dt: { ts: 1700000000000 + i } });
+      await db.set(
+        `k${i}`,
+        { kind: 't1', score: 1, ts: 1700000000000 + i, text: `delta ${i} 增量` },
+        { dt: { ts: 1700000000000 + i } },
+      );
     }
     await db.del('k0');
     await db.close();
@@ -570,11 +715,19 @@ describe('generation build + load', () => {
 
   test('disk valueMode round-trips through a generation', async () => {
     const dir = await openTmp('disk-mode');
-    let db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', valueMode: 'disk' });
+    let db = await MiniDb.open<Record<string, unknown>>({
+      dir,
+      valueCodec: 'json',
+      valueMode: 'disk',
+    });
     await seedIndexedDb(db, 500);
     await db.rebuildGeneration();
     for (let i = 500; i < 550; i++) {
-      await db.set(`k${i}`, { kind: 't1', score: 2, ts: 1700000000000 + i, text: `delta disk ${i}` }, { dt: { ts: 1700000000000 + i } });
+      await db.set(
+        `k${i}`,
+        { kind: 't1', score: 2, ts: 1700000000000 + i, text: `delta disk ${i}` },
+        { dt: { ts: 1700000000000 + i } },
+      );
     }
     await db.close();
     db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', valueMode: 'disk' });
@@ -589,7 +742,11 @@ describe('generation build + load', () => {
 
   test('legacy database (generations disabled) gets a background first generation on open', async () => {
     const dir = await openTmp('legacy-first');
-    let db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', indexGenerations: false });
+    let db = await MiniDb.open<Record<string, unknown>>({
+      dir,
+      valueCodec: 'json',
+      indexGenerations: false,
+    });
     await seedIndexedDb(db, 800);
     await db.close();
     expect(fsSync.existsSync(path.join(dir, 'CURRENT'))).toBe(false);
@@ -599,7 +756,10 @@ describe('generation build + load', () => {
     db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
     expect(db.stats.generationLoads).toBe(0);
     assertSeededDb(db, 800);
-    await waitFor(() => fsSync.existsSync(path.join(dir, 'CURRENT')), 'background first generation');
+    await waitFor(
+      () => fsSync.existsSync(path.join(dir, 'CURRENT')),
+      'background first generation',
+    );
     await waitFor(() => db.stats.generationBuilds >= 1, 'generationBuilds stat');
     await db.close();
 
@@ -612,7 +772,11 @@ describe('generation build + load', () => {
 
   test('compaction publishes the generation transactionally (no sync postings tail)', async () => {
     const dir = await openTmp('compact-publish');
-    let db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', compactThresholdBytes: 1 << 30 });
+    let db = await MiniDb.open<Record<string, unknown>>({
+      dir,
+      valueCodec: 'json',
+      compactThresholdBytes: 1 << 30,
+    });
     await seedIndexedDb(db, 1000);
     await db.close();
     db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
@@ -643,7 +807,10 @@ describe('generation build + load', () => {
     const current = db.getIndexGeneration()!.id;
     await waitFor(() => {
       try {
-        return fsSync.readdirSync(path.join(dir, 'generations')).filter((g) => !g.includes('.tmp-')).length <= 2;
+        return (
+          fsSync.readdirSync(path.join(dir, 'generations')).filter((g) => !g.includes('.tmp-'))
+            .length <= 2
+        );
       } catch {
         return false;
       }
@@ -687,7 +854,9 @@ describe('generation build + load', () => {
     expect(db.stats.generationLoads).toBe(1);
     // byNew has no image (created after the build) — exactly one index rebuilt.
     expect(db.stats.generationIndexRebuilds).toBe(1);
-    expect(db.findEq('byNew', 't3').length).toBe([...Array(1000)].filter((_, i) => i % 7 === 3).length);
+    expect(db.findEq('byNew', 't3').length).toBe(
+      [...Array(1000)].filter((_, i) => i % 7 === 3).length,
+    );
     expect(db.findRange('byScore', { min: 42, max: 42 }).length).toBe(10);
     // Text + dt + compound came from the generation (no corpus re-decode for them).
     expect(db.search('ft', '持久化').length).toBeGreaterThan(0);
@@ -700,7 +869,11 @@ describe('generation build + load', () => {
     // must repoint the live handle into the CURRENT generation or the next
     // build's link source is gone.
     const dir = await openTmp('clean-relink');
-    let db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', indexGenerations: false });
+    let db = await MiniDb.open<Record<string, unknown>>({
+      dir,
+      valueCodec: 'json',
+      indexGenerations: false,
+    });
     await db.createTextIndex('ft', { fields: ['text'] });
     for (let i = 0; i < 200; i++) await db.set(`k${i}`, { text: `hello world doc ${i}` });
     await db.close();
@@ -746,13 +919,21 @@ describe('generation build + load', () => {
     await seedIndexedDb(writer, 500);
     await writer.rebuildGeneration();
 
-    const reader = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', readOnly: true });
+    const reader = await MiniDb.open<Record<string, unknown>>({
+      dir,
+      valueCodec: 'json',
+      readOnly: true,
+    });
     expect(reader.stats.generationLoads).toBe(1);
     assertSeededDb(reader, 500);
 
     // The writer publishes a new generation while the reader holds the old one.
     for (let i = 500; i < 600; i++) {
-      await writer.set(`k${i}`, { kind: 't2', score: 3, ts: 1700000000000 + i, text: `second wave ${i}` }, { dt: { ts: 1700000000000 + i } });
+      await writer.set(
+        `k${i}`,
+        { kind: 't2', score: 3, ts: 1700000000000 + i, text: `second wave ${i}` },
+        { dt: { ts: 1700000000000 + i } },
+      );
     }
     await writer.rebuildGeneration();
     // The reader's open handles keep its generation servable: queries keep
@@ -761,7 +942,11 @@ describe('generation build + load', () => {
     expect(reader.get('k250')).toMatchObject({ score: 50 });
     await reader.close();
 
-    const reader2 = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', readOnly: true });
+    const reader2 = await MiniDb.open<Record<string, unknown>>({
+      dir,
+      valueCodec: 'json',
+      readOnly: true,
+    });
     expect(reader2.stats.generationLoads).toBe(1);
     expect(reader2.size).toBe(600);
     expect(reader2.get('k550')).toMatchObject({ kind: 't2' });
@@ -828,32 +1013,37 @@ describe('generation fault matrix', () => {
     // abandoned, never deleted by the load path.
     expect(fsSync.existsSync(path.join(dir, 'db.wal'))).toBe(true);
     for (const g of await listGenerations(dir)) {
-      if (!g.tmp) expect(fsSync.existsSync(path.join(dir, 'generations', g.id, 'store'))).toBe(true);
+      if (!g.tmp)
+        expect(fsSync.existsSync(path.join(dir, 'generations', g.id, 'store'))).toBe(true);
     }
     await db.close();
   });
 
-  test.each(['dt.index', 'secondary.index', 'compound.index', 'text-ft.dictionary', 'text-ft.docs', 'text-ft.postings'])(
-    'corrupt %s rebuilds only that index at load',
-    async (file) => {
-      const dir = await openTmp('corrupt-one');
-      let db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
-      await seedIndexedDb(db, 400);
-      await db.rebuildGeneration();
-      const genId = db.getIndexGeneration()!.id;
-      await db.close();
-      const p = path.join(dir, 'generations', genId, file);
-      const buf = await fs.readFile(p);
-      buf[Math.floor(buf.length / 2)] = buf[Math.floor(buf.length / 2)]! ^ 0xff;
-      await fs.writeFile(p, buf);
+  test.each([
+    'dt.index',
+    'secondary.index',
+    'compound.index',
+    'text-ft.dictionary',
+    'text-ft.docs',
+    'text-ft.postings',
+  ])('corrupt %s rebuilds only that index at load', async (file) => {
+    const dir = await openTmp('corrupt-one');
+    let db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
+    await seedIndexedDb(db, 400);
+    await db.rebuildGeneration();
+    const genId = db.getIndexGeneration()!.id;
+    await db.close();
+    const p = path.join(dir, 'generations', genId, file);
+    const buf = await fs.readFile(p);
+    buf[Math.floor(buf.length / 2)] = buf[Math.floor(buf.length / 2)]! ^ 0xff;
+    await fs.writeFile(p, buf);
 
-      db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
-      expect(db.stats.generationLoads).toBe(1);
-      expect(db.stats.generationIndexRebuilds).toBeGreaterThanOrEqual(1);
-      assertSeededDb(db, 400);
-      await db.close();
-    },
-  );
+    db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
+    expect(db.stats.generationLoads).toBe(1);
+    expect(db.stats.generationIndexRebuilds).toBeGreaterThanOrEqual(1);
+    assertSeededDb(db, 400);
+    await db.close();
+  });
 
   test('interrupted store-image write: no publish, CURRENT keeps the previous generation, next build succeeds', async () => {
     const dir = await openTmp('interrupt-write');
@@ -861,7 +1051,11 @@ describe('generation fault matrix', () => {
     await seedIndexedDb(db, 300);
     await db.rebuildGeneration();
     const first = db.getIndexGeneration()!.id;
-    const restore = failFileWrites((p) => p.includes('.tmp-') && p.endsWith('store'), 'writev', new Error('injected write failure'));
+    const restore = failFileWrites(
+      (p) => p.includes('.tmp-') && p.endsWith('store'),
+      'writev',
+      new Error('injected write failure'),
+    );
     await expect(db.rebuildGeneration()).rejects.toThrow('injected write failure');
     restore();
     expect(db.stats.generationBuildErrors).toBeGreaterThanOrEqual(1);
@@ -881,30 +1075,42 @@ describe('generation fault matrix', () => {
     await db2.close();
   });
 
-  test.each(['store', 'dt.index', 'secondary.index', 'compound.index', 'text-ft.dictionary', 'text-ft.docs'])(
-    'interrupted %s write keeps the previous generation and all data',
-    async (file) => {
-      const dir = await openTmp('interrupt-each');
-      const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
-      await seedIndexedDb(db, 200);
-      await db.rebuildGeneration(); // g-1 published
-      const first = db.getIndexGeneration()!.id;
-      for (let i = 200; i < 260; i++) {
-        await db.set(`k${i}`, { kind: 't2', score: 5, ts: 1700000000000 + i, text: `more ${i}` }, { dt: { ts: 1700000000000 + i } });
-      }
-      const restore = failFileWrites((p) => p.includes('.tmp-') && p.endsWith(file), 'writev', new Error(`injected ${file} failure`));
-      await expect(db.rebuildGeneration()).rejects.toThrow(`injected ${file} failure`);
-      restore();
-      // CURRENT still points at g-1; data is complete either way.
-      expect(db.getIndexGeneration()!.id).toBe(first);
-      await db.close();
-      const db2 = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
-      expect(db2.getIndexGeneration()?.id).toBe(first);
-      expect(db2.size).toBe(260);
-      expect(db2.get('k255')).toMatchObject({ kind: 't2' });
-      await db2.close();
-    },
-  );
+  test.each([
+    'store',
+    'dt.index',
+    'secondary.index',
+    'compound.index',
+    'text-ft.dictionary',
+    'text-ft.docs',
+  ])('interrupted %s write keeps the previous generation and all data', async (file) => {
+    const dir = await openTmp('interrupt-each');
+    const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
+    await seedIndexedDb(db, 200);
+    await db.rebuildGeneration(); // g-1 published
+    const first = db.getIndexGeneration()!.id;
+    for (let i = 200; i < 260; i++) {
+      await db.set(
+        `k${i}`,
+        { kind: 't2', score: 5, ts: 1700000000000 + i, text: `more ${i}` },
+        { dt: { ts: 1700000000000 + i } },
+      );
+    }
+    const restore = failFileWrites(
+      (p) => p.includes('.tmp-') && p.endsWith(file),
+      'writev',
+      new Error(`injected ${file} failure`),
+    );
+    await expect(db.rebuildGeneration()).rejects.toThrow(`injected ${file} failure`);
+    restore();
+    // CURRENT still points at g-1; data is complete either way.
+    expect(db.getIndexGeneration()!.id).toBe(first);
+    await db.close();
+    const db2 = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
+    expect(db2.getIndexGeneration()?.id).toBe(first);
+    expect(db2.size).toBe(260);
+    expect(db2.get('k255')).toMatchObject({ kind: 't2' });
+    await db2.close();
+  });
 
   test('file fsync failure aborts the build without touching CURRENT', async () => {
     const dir = await openTmp('fsync-fail');
@@ -912,7 +1118,11 @@ describe('generation fault matrix', () => {
     await seedIndexedDb(db, 200);
     await db.rebuildGeneration();
     const first = db.getIndexGeneration()!.id;
-    const restore = failFileWrites((p) => p.includes('.tmp-') && p.endsWith('store'), 'sync', new Error('injected fsync failure'));
+    const restore = failFileWrites(
+      (p) => p.includes('.tmp-') && p.endsWith('store'),
+      'sync',
+      new Error('injected fsync failure'),
+    );
     await expect(db.rebuildGeneration()).rejects.toThrow('injected fsync failure');
     restore();
     expect(db.stats.generationBuildErrors).toBeGreaterThanOrEqual(1);
@@ -928,7 +1138,10 @@ describe('generation fault matrix', () => {
     await seedIndexedDb(db, 200);
     await db.rebuildGeneration();
     const first = db.getIndexGeneration()!.id;
-    const restore = failRenames((src) => src.includes('.tmp-'), new Error('injected crash before rename'));
+    const restore = failRenames(
+      (src) => src.includes('.tmp-'),
+      new Error('injected crash before rename'),
+    );
     await expect(db.rebuildGeneration()).rejects.toThrow('injected crash before rename');
     restore();
     expect((await fs.readFile(path.join(dir, 'CURRENT'), 'utf8')).trim()).toBe(first);
@@ -948,7 +1161,10 @@ describe('generation fault matrix', () => {
     await db.rebuildGeneration();
     const first = db.getIndexGeneration()!.id;
     const before = (await listGenerations(dir)).filter((g) => !g.tmp).map((g) => g.id);
-    const restore = failRenames((src, dst) => src.includes('CURRENT.tmp-') || dst.endsWith('CURRENT'), new Error('injected crash before CURRENT'));
+    const restore = failRenames(
+      (src, dst) => src.includes('CURRENT.tmp-') || dst.endsWith('CURRENT'),
+      new Error('injected crash before CURRENT'),
+    );
     await expect(db.rebuildGeneration()).rejects.toThrow('injected crash before CURRENT');
     restore();
     // CURRENT still names the previous generation; a complete-but-unreferenced
@@ -966,7 +1182,10 @@ describe('generation fault matrix', () => {
     await db2.rebuildGeneration();
     await waitFor(() => {
       try {
-        return fsSync.readdirSync(path.join(dir, 'generations')).filter((g) => !g.includes('.tmp-')).length <= 2;
+        return (
+          fsSync.readdirSync(path.join(dir, 'generations')).filter((g) => !g.includes('.tmp-'))
+            .length <= 2
+        );
       } catch {
         return false;
       }
@@ -983,7 +1202,11 @@ describe('generation fault matrix', () => {
     // The writer stays OPEN (its lock held) — as after a crash, the files on
     // disk must already tell the whole story: a read-only peer loads the
     // freshly published generation.
-    const peer = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', onLockFail: 'readonly' });
+    const peer = await MiniDb.open<Record<string, unknown>>({
+      dir,
+      valueCodec: 'json',
+      onLockFail: 'readonly',
+    });
     expect(peer.readOnly).toBe(true);
     expect(peer.getIndexGeneration()?.id).toBe(id);
     expect(peer.stats.generationLoads).toBe(1);
@@ -1023,12 +1246,17 @@ describe('generation fault matrix', () => {
     // Wait until the build has actually registered its mutation queue (the
     // walk is underway), then drive a WAL write failure: the group rollback
     // calls restoreGroupKey, which must abort the in-flight build.
-    await waitFor(() => (db as unknown as { genBuild: unknown }).genBuild !== null, 'generation build registered');
+    await waitFor(
+      () => (db as unknown as { genBuild: unknown }).genBuild !== null,
+      'generation build registered',
+    );
     const origAppend = db.wal.appendLoc.bind(db.wal);
     (db.wal as unknown as { appendLoc: unknown }).appendLoc = () => ({
       offset: -1,
       batchId: -1,
-      done: Promise.reject(Object.assign(new Error('injected WAL failure'), { code: 'WAL_POISONED' })),
+      done: Promise.reject(
+        Object.assign(new Error('injected WAL failure'), { code: 'WAL_POISONED' }),
+      ),
     });
     await expect(db.set('boom', { kind: 't1' })).rejects.toThrow();
     (db.wal as unknown as { appendLoc: unknown }).appendLoc = origAppend;
@@ -1059,13 +1287,18 @@ describe('generation fault matrix', () => {
     // anchor cannot validate — the open must fall back (legacy full recovery
     // or a safe re-checkpoint), never serve a mismatched image, never lose
     // data.
-    const restored = await MiniDb.restore<Record<string, unknown>>(backupDir, destDir, { valueCodec: 'json' });
+    const restored = await MiniDb.restore<Record<string, unknown>>(backupDir, destDir, {
+      valueCodec: 'json',
+    });
     assertSeededDb(restored, 300);
     await restored.close();
     // A reopened writer re-checkpoints in the background.
     const db2 = await MiniDb.open<Record<string, unknown>>({ dir: destDir, valueCodec: 'json' });
     assertSeededDb(db2, 300);
-    await waitFor(() => db2.getIndexGeneration() !== null || db2.stats.generationBuilds >= 1, 'post-restore re-checkpoint');
+    await waitFor(
+      () => db2.getIndexGeneration() !== null || db2.stats.generationBuilds >= 1,
+      'post-restore re-checkpoint',
+    );
     await db2.close();
   });
 
@@ -1073,7 +1306,11 @@ describe('generation fault matrix', () => {
     const dir = await openTmp('reader-during-build');
     const writer = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
     await seedIndexedDb(writer, 1000);
-    const reader = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', readOnly: true });
+    const reader = await MiniDb.open<Record<string, unknown>>({
+      dir,
+      valueCodec: 'json',
+      readOnly: true,
+    });
     assertSeededDb(reader, 1000);
     const build = writer.rebuildGeneration();
     // The reader keeps answering (its view predates the build) while the build
@@ -1092,7 +1329,11 @@ describe('generation fault matrix', () => {
     // No text indexes: nothing needs a worker build — the case that used to
     // skip the seal's WAL flush entirely. fsyncPolicy 'no' means no
     // background sync timer, so the write's batch is exactly the next writev.
-    const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', fsyncPolicy: 'no' });
+    const db = await MiniDb.open<Record<string, unknown>>({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+    });
     await db.set('stable', { kind: 't0', score: 0, ts: 1, text: 'stable doc' });
     await db.rebuildGeneration();
     const first = db.getIndexGeneration()!.id;
@@ -1204,7 +1445,10 @@ describe('stage 6: maintenance shutdown semantics', () => {
     // wait out the building window (BOTH indexes, the task builds them
     // sequentially) before asserting search results.
     if (db2.textIndexBuilding('ft') || db2.textIndexBuilding('tri')) {
-      await waitFor(() => !db2.textIndexBuilding('ft') && !db2.textIndexBuilding('tri'), 'deferred text build');
+      await waitFor(
+        () => !db2.textIndexBuilding('ft') && !db2.textIndexBuilding('tri'),
+        'deferred text build',
+      );
     }
     assertSeededDb(db2, 5000);
     await db2.close();
@@ -1268,7 +1512,9 @@ describe('generation availability triggers (wal-growth + close publish)', () => 
     // boundary and is accounted as a build failure.
     const original = fs.rename;
     (fs as unknown as Record<string, unknown>).rename = (src: string, dst: string) =>
-      String(src).includes('.tmp-') ? Promise.reject(new Error('injected publish failure')) : original(src, dst);
+      String(src).includes('.tmp-')
+        ? Promise.reject(new Error('injected publish failure'))
+        : original(src, dst);
     cleanups.push(() => {
       (fs as unknown as Record<string, unknown>).rename = original;
     });
@@ -1280,7 +1526,11 @@ describe('generation availability triggers (wal-growth + close publish)', () => 
     // Inside the backoff window further writes must NOT re-kick a build.
     await db.set('after-failure', { text: 'y'.repeat(1024) });
     for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
-    const active = db.maintenanceStatus().filter((t) => t.kind === 'generation-build' && (t.state === 'running' || t.state === 'queued'));
+    const active = db
+      .maintenanceStatus()
+      .filter(
+        (t) => t.kind === 'generation-build' && (t.state === 'running' || t.state === 'queued'),
+      );
     expect(active).toEqual([]);
 
     // With the backoff lifted the very next write kicks a successful build.

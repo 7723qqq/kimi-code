@@ -2,13 +2,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { configResponseSchema, type ConfigResponse } from '../src/protocol/rest-config';
-import { ErrorCode } from '../src/protocol/error-codes';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { ErrorCode } from '../src/protocol/error-codes';
+import { configResponseSchema, type ConfigResponse } from '../src/protocol/rest-config';
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authedFetch } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -120,7 +120,10 @@ describe('server-v2 /api/v1/config', () => {
   it('POST { secondary_model } preserves pool alias keys containing underscores', async () => {
     await boot();
     await patchConfig({
-      secondary_model: { default_model: 'provider/fast_model', models: { 'provider/fast_model': '' } },
+      secondary_model: {
+        default_model: 'provider/fast_model',
+        models: { 'provider/fast_model': '' },
+      },
     });
 
     const after = await getConfig();

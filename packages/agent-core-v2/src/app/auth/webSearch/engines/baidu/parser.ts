@@ -50,7 +50,8 @@ export function parseBaiduSearchResults(html: string): BaiduSearchResult[] {
       results.push({
         title: titleElement.textContent ?? '',
         url,
-        description: snippetBaidu?.getAttribute('aria-label') ?? (snippetElement?.textContent ?? '').trim(),
+        description:
+          snippetBaidu?.getAttribute('aria-label') ?? (snippetElement?.textContent ?? '').trim(),
         source: textOfAll(element, '.cosc-source').trim(),
         engine: 'baidu',
       });

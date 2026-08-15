@@ -122,7 +122,11 @@ export class AgentTaskPersistence {
 
   async appendTaskOutput(taskId: string, chunk: string): Promise<void> {
     if (chunk.length === 0) return;
-    await this.bytes.append(this.taskOutputScope(taskId), OUTPUT_LOG_KEY, textEncoder.encode(chunk));
+    await this.bytes.append(
+      this.taskOutputScope(taskId),
+      OUTPUT_LOG_KEY,
+      textEncoder.encode(chunk),
+    );
   }
 
   async taskOutputSizeBytes(taskId: string): Promise<number> {
@@ -201,7 +205,10 @@ export class AgentTaskPersistence {
 
   private async readTaskOutputData(taskId: string): Promise<TaskOutputData | undefined> {
     const primaryRoot = this.primaryRoot();
-    const primary = await this.bytes.read(this.taskOutputScope(taskId, primaryRoot), OUTPUT_LOG_KEY);
+    const primary = await this.bytes.read(
+      this.taskOutputScope(taskId, primaryRoot),
+      OUTPUT_LOG_KEY,
+    );
     if (primary !== undefined) return { root: primaryRoot, data: primary };
     const fallbackRoot = this.fallbackRoot;
     if (fallbackRoot === undefined) return undefined;
@@ -285,10 +292,7 @@ function legacyStatusToCurrent(task: LegacyPersistedTask): AgentTaskStatus {
 }
 
 function isReadablePersistedTask(obj: unknown): obj is DiskPersistedTask {
-  return (
-    isRecord(obj) &&
-    (typeof obj['taskId'] === 'string' || typeof obj['task_id'] === 'string')
-  );
+  return isRecord(obj) && (typeof obj['taskId'] === 'string' || typeof obj['task_id'] === 'string');
 }
 
 function isLegacyPersistedTask(task: DiskPersistedTask): task is LegacyPersistedTask {

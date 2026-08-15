@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { MODEL_CROSS_REDUCERS } from '#/wire/model';
 import { TurnModel, cancelTurn, endTurn, promptTurn } from '#/agent/loop/turnOps';
+import { MODEL_CROSS_REDUCERS } from '#/wire/model';
 
 function foldLoopEvent(s: import('#/agent/loop/turnOps').TurnModelState, turnId: string) {
   const entries = MODEL_CROSS_REDUCERS.get('context.append_loop_event') ?? [];

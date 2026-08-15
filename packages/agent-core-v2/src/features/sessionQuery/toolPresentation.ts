@@ -6,8 +6,8 @@
  * surface tier.
  */
 
-import type { SessionLineageNode, SessionLineageTrace } from './types';
 import type { SessionEventSearchHit, SessionSearchHit } from './events';
+import type { SessionLineageNode, SessionLineageTrace } from './types';
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toISOString();
@@ -18,16 +18,14 @@ export function formatEmptySessionSearch(): string {
 }
 
 /** Render a cross-session search page for the model. */
-export function formatSessionSearch(
-  items: readonly SessionSearchHit[],
-  capped: boolean,
-): string {
+export function formatSessionSearch(items: readonly SessionSearchHit[], capped: boolean): string {
   if (items.length === 0) return formatEmptySessionSearch();
   const lines = [`Session search results (${items.length}):`];
   for (const [index, hit] of items.entries()) {
-    const availability = [hit.live ? 'live' : undefined, hit.persisted ? 'persisted' : undefined]
-      .filter((value): value is string => value !== undefined)
-      .join(', ') || 'unavailable';
+    const availability =
+      [hit.live ? 'live' : undefined, hit.persisted ? 'persisted' : undefined]
+        .filter((value): value is string => value !== undefined)
+        .join(', ') || 'unavailable';
     lines.push(
       '',
       `${index + 1}. Session ${hit.id} — ${hit.cwd ?? '(no cwd)'}`,
@@ -39,7 +37,10 @@ export function formatSessionSearch(
     );
   }
   if (capped) {
-    lines.push('', 'Result cap reached. Narrow the query or add filters to find additional matches.');
+    lines.push(
+      '',
+      'Result cap reached. Narrow the query or add filters to find additional matches.',
+    );
   }
   return lines.join('\n');
 }
@@ -60,15 +61,16 @@ export function formatEventSearch(
     );
   }
   if (capped) {
-    lines.push('', 'Result cap reached. Narrow the query or add filters to find additional matches.');
+    lines.push(
+      '',
+      'Result cap reached. Narrow the query or add filters to find additional matches.',
+    );
   }
   return lines.join('\n');
 }
 
 /** Render a lineage trace for the model. */
-export function formatSessionTrace(
-  trace: SessionLineageTrace,
-): string {
+export function formatSessionTrace(trace: SessionLineageTrace): string {
   const lines = [`Session ${trace.target.id}:`];
   const ancestry = trace.ancestors.map((record) => record.id).toReversed();
   const chain = trace.complete
@@ -80,14 +82,13 @@ export function formatSessionTrace(
   return lines.join('\n');
 }
 
-function formatDescendants(
-  nodes: readonly SessionLineageNode[],
-  depth: number,
-): string {
+function formatDescendants(nodes: readonly SessionLineageNode[], depth: number): string {
   if (nodes.length === 0) return '(none)';
   const parts: string[] = [];
   for (const node of nodes) {
-    parts.push(`\n${'   '.repeat(depth)}${node.session.id}${node.descendants.length > 0 ? formatDescendants(node.descendants, depth + 1) : ''}`);
+    parts.push(
+      `\n${'   '.repeat(depth)}${node.session.id}${node.descendants.length > 0 ? formatDescendants(node.descendants, depth + 1) : ''}`,
+    );
   }
   return parts.join('');
 }

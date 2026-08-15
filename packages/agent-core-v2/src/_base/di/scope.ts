@@ -10,14 +10,14 @@
  */
 
 import { BugIndicatingError } from '../errors/errors';
+import { Ledger, type LedgerEntry } from '../lifecycle/ledger';
 import { SyncDescriptor } from './descriptors';
 import { ScopeActivation, type ProvideAllEntry } from './instantiation';
 import type { ServiceIdentifier, ServicesAccessor, IInstantiationService } from './instantiation';
 import { InstantiationService } from './instantiationService';
 import { DisposableStore, type IDisposable } from './lifecycle';
-import { Ledger, type LedgerEntry } from '../lifecycle/ledger';
-import { ServiceCollection } from './serviceCollection';
 import { watchScopeUnits } from './scopeUnits';
+import { ServiceCollection } from './serviceCollection';
 
 export { ScopeActivation };
 
@@ -149,8 +149,7 @@ export function createScopedChildHandle(
     throw error;
   }
   const accessor: ServicesAccessor = {
-    get: <T>(serviceId: ServiceIdentifier<T>): T =>
-      child.invokeFunction((a) => a.get(serviceId)),
+    get: <T>(serviceId: ServiceIdentifier<T>): T => child.invokeFunction((a) => a.get(serviceId)),
   };
   return { id, kind, accessor, dispose: () => child.dispose() };
 }

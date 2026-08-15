@@ -45,10 +45,7 @@ export async function loadSystemMdProfile(
     if (!(await isFilePath(fs, path))) return undefined;
     text = await fs.readText(path);
   } catch (error) {
-    if (
-      error instanceof HostFsError &&
-      error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE
-    ) {
+    if (error instanceof HostFsError && error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE) {
       throw error;
     }
     warn(`agent SYSTEM.md load failed: ${String(error)} [${path}]`);

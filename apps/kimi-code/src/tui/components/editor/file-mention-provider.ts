@@ -80,23 +80,13 @@ export class FileMentionProvider implements AutocompleteProvider {
       // (e.g. the managed binary was removed or lost execute permission), or if
       // spawning it fails below. A genuine fd no-match still returns null.
       if (this.fdPath === null || !isExecutableFd(this.fdPath)) {
-        return getFsMentionSuggestions(
-          this.workDir,
-          this.additionalDirs,
-          atPrefix,
-          options.signal,
-        );
+        return getFsMentionSuggestions(this.workDir, this.additionalDirs, atPrefix, options.signal);
       }
       try {
         return await this.inner.getSuggestions(lines, cursorLine, cursorCol, options);
       } catch {
         // If fd fails to spawn unexpectedly, keep @ completion usable.
-        return getFsMentionSuggestions(
-          this.workDir,
-          this.additionalDirs,
-          atPrefix,
-          options.signal,
-        );
+        return getFsMentionSuggestions(this.workDir, this.additionalDirs, atPrefix, options.signal);
       }
     }
 
@@ -179,7 +169,10 @@ export class FileMentionProvider implements AutocompleteProvider {
     // a command name (e.g. `/add-dir/...`) completes inside the path instead of
     // returning the command's argument completions.
     if (this.getInputMode() !== 'bash') {
-      const slashArgumentSuggestions = await getSlashArgumentSuggestions(this.slashCommands, textBeforeCursor);
+      const slashArgumentSuggestions = await getSlashArgumentSuggestions(
+        this.slashCommands,
+        textBeforeCursor,
+      );
       if (slashArgumentSuggestions !== null) {
         return slashArgumentSuggestions;
       }
@@ -279,8 +272,7 @@ function applyPathCompletion(
   newLines[cursorLine] = newLine;
   const isDirectory = item.label.endsWith('/');
   const hasTrailingQuote = item.value.endsWith('"');
-  const cursorOffset =
-    isDirectory && hasTrailingQuote ? item.value.length - 1 : item.value.length;
+  const cursorOffset = isDirectory && hasTrailingQuote ? item.value.length - 1 : item.value.length;
   return {
     lines: newLines,
     cursorLine,
@@ -472,7 +464,9 @@ function findSlashCommand(
   slashCommands: readonly SlashAutocompleteCommand[],
   commandName: string,
 ): SlashAutocompleteCommand | undefined {
-  return slashCommands.find((cmd) => cmd.name === commandName || (cmd.aliases ?? []).includes(commandName));
+  return slashCommands.find(
+    (cmd) => cmd.name === commandName || (cmd.aliases ?? []).includes(commandName),
+  );
 }
 
 function shouldSuppressLeadingWhitespaceSlashPath(

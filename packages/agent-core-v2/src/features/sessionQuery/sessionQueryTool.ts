@@ -10,16 +10,22 @@
  * Bound at Agent scope for the main agent only.
  */
 
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { Error2 } from '#/errors';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { t } from '@moonshot-ai/kimi-i18n';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { Error2 } from '#/errors';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
+import DESCRIPTION from './session-query.md?raw';
 import { ISessionQueryService } from './sessionQueryService';
-import type { SessionResultFilter } from './types';
+import { ISessionQueryTool, SessionQueryToolInput } from './toolContract';
 import {
   buildEventFilters,
   buildSessionFilters,
@@ -31,8 +37,7 @@ import {
   type SessionSearchInput,
 } from './toolInput';
 import { formatEventSearch, formatSessionSearch, formatSessionTrace } from './toolPresentation';
-import { ISessionQueryTool, SessionQueryToolInput } from './toolContract';
-import DESCRIPTION from './session-query.md?raw';
+import type { SessionResultFilter } from './types';
 
 const MAX_SEARCH_RESULTS = 20;
 
@@ -143,8 +148,7 @@ export class SessionQueryTool implements ISessionQueryTool {
     if (!parsed.success) {
       return { isError: true, output: formatValidationError(parsed.error.message) };
     }
-    const sessionId =
-      (parsed.data as { session_id?: string }).session_id ?? this.session.sessionId;
+    const sessionId = (parsed.data as { session_id?: string }).session_id ?? this.session.sessionId;
     const trace = await this.query.traceLineage(sessionId);
     return { isError: false, output: formatSessionTrace(trace) };
   }

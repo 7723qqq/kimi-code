@@ -1,6 +1,15 @@
 import { readFile, mkdir } from 'node:fs/promises';
+
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
+
 import { atomicWrite } from '../atomic-write.js';
+import {
+  sourceConfigToml,
+  targetConfigFile,
+  targetTuiFile,
+  siblingConfigToml,
+  siblingTuiToml,
+} from '../paths.js';
 import { DEFAULT_CONFIG_FILE_TEXT, isTuiStubOrMissing } from '../stub-detect.js';
 import {
   FLAG_DEFINITIONS,
@@ -10,25 +19,12 @@ import {
   ProviderConfigSchema,
   transformTomlData,
 } from '../v1-compat.js';
-import {
-  sourceConfigToml,
-  targetConfigFile,
-  targetTuiFile,
-  siblingConfigToml,
-  siblingTuiToml,
-} from '../paths.js';
 
 // `theme` / `default_editor` belong in tui.toml, not config.toml.
 const TUI_TOP_LEVEL_KEYS = new Set(['theme', 'default_editor']);
 const TOP_LEVEL_KEYS_TO_DROP = new Set(['plan_mode', 'yolo']);
-const LOOP_CONTROL_FIELDS_TO_KEEP = new Set([
-  'max_retries_per_step',
-  'reserved_context_size',
-]);
-const BACKGROUND_FIELDS_TO_KEEP = new Set([
-  'max_running_tasks',
-  'keep_alive_on_exit',
-]);
+const LOOP_CONTROL_FIELDS_TO_KEEP = new Set(['max_retries_per_step', 'reserved_context_size']);
+const BACKGROUND_FIELDS_TO_KEEP = new Set(['max_running_tasks', 'keep_alive_on_exit']);
 const REGISTERED_EXPERIMENTAL_FLAGS: ReadonlySet<string> = new Set(
   (FLAG_DEFINITIONS as ReadonlyArray<{ readonly id: string }>).map((definition) => definition.id),
 );
@@ -456,8 +452,7 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
   // not `migratedHooks`.
   const hooksLandedInLiveConfig =
     keptHooks.length > 0 &&
-    (targetMode === 'overwrite' ||
-      (targetMode === 'merge' && targetParsed['hooks'] === undefined));
+    (targetMode === 'overwrite' || (targetMode === 'merge' && targetParsed['hooks'] === undefined));
   const migratedHooks = hooksLandedInLiveConfig ? keptHooks.length : 0;
 
   // In sibling mode, enumerate what landed in the sibling file so the result

@@ -30,9 +30,7 @@ type Paths<T> = T extends MessageValue
   ? T extends string
     ? never
     : {
-        [K in keyof T]-?: K extends string | number
-          ? Join<K, Paths<T[K]>> | K
-          : never;
+        [K in keyof T]-?: K extends string | number ? Join<K, Paths<T[K]>> | K : never;
       }[keyof T]
   : never;
 
@@ -49,7 +47,10 @@ export type TranslationKey<T> = Paths<T>;
 
 export interface I18nInstance<M extends Record<Locale, MessageValue>> {
   /** Translate a key with optional `{{param}}` interpolation. */
-  t: (key: TranslationKey<M['en']> | (string & {}), params?: Record<string, string | number>) => string;
+  t: (
+    key: TranslationKey<M['en']> | (string & {}),
+    params?: Record<string, string | number>,
+  ) => string;
   /** Set the current locale. */
   setLocale: (locale: Locale) => void;
   /** Get the current locale. */

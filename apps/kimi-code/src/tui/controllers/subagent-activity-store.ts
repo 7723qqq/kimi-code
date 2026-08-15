@@ -26,6 +26,7 @@ import {
   SUBAGENT_STEP_TEXT_TAIL_CHARS,
   SUBAGENT_TOOL_OUTPUT_MAX_CHARS,
 } from '#/tui/constant/rendering';
+
 import type { ToolResultBlockData } from '../types';
 import {
   argsRecord,

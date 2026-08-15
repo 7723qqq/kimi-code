@@ -10,10 +10,10 @@
  * the capability set here and fires `onDidChange`. Bound at Workspace scope.
  */
 
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Event } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import type { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import {
   IWorkspaceContext,

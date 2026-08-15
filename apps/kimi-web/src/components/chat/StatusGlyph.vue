@@ -15,7 +15,9 @@ const GLYPH: Record<StatusGlyphStatus, string> = {
 </script>
 
 <template>
-  <span class="status-glyph" :class="`s-${props.status}`" aria-hidden="true">{{ GLYPH[props.status] }}</span>
+  <span class="status-glyph" :class="`s-${props.status}`" aria-hidden="true">{{
+    GLYPH[props.status]
+  }}</span>
 </template>
 
 <style scoped>
@@ -27,8 +29,17 @@ const GLYPH: Record<StatusGlyphStatus, string> = {
   text-align: center;
   user-select: none;
 }
-.status-glyph.s-run { color: var(--color-accent); font-weight: 500; }
-.status-glyph.s-done { color: var(--color-success); }
-.status-glyph.s-fail { color: var(--color-danger); }
-.status-glyph.s-pending { color: var(--color-text-faint); }
+.status-glyph.s-run {
+  color: var(--color-accent);
+  font-weight: 500;
+}
+.status-glyph.s-done {
+  color: var(--color-success);
+}
+.status-glyph.s-fail {
+  color: var(--color-danger);
+}
+.status-glyph.s-pending {
+  color: var(--color-text-faint);
+}
 </style>

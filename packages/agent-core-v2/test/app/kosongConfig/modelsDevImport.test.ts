@@ -19,27 +19,27 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createScopedTestHost } from '#/_base/di/test';
-import type { Error2} from '#/_base/errors/errors';
+import type { Error2 } from '#/_base/errors/errors';
 import { isError2 } from '#/_base/errors/errors';
 import { DEFAULT_IDENTITY_SLUG, IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import {
-  resetModelsDevUpstreamForTest,
-  setModelsDevUpstreamForTest,
-} from '#/app/kosongConfig/modelsDevUpstream';
 import { MODELS_SECTION, PROVIDERS_SECTION } from '#/app/kosongConfig/configSection';
 import { ModelsDevImportErrors } from '#/app/kosongConfig/errors';
 import { IKosongConfigService } from '#/app/kosongConfig/kosongConfig';
 import { IModelsDevImportService } from '#/app/kosongConfig/modelsDevImport';
+import {
+  resetModelsDevUpstreamForTest,
+  setModelsDevUpstreamForTest,
+} from '#/app/kosongConfig/modelsDevUpstream';
 import '#/app/kosongConfig/modelsDevImportService';
 import { IModelCatalog, type ProviderCatalogItem } from '#/kosong/model/catalog';
 import type { ModelsSection } from '#/kosong/model/model';
 import type { ProvidersSection } from '#/kosong/provider/provider';
 
 import { StubConfigService } from '../../kosong/stubs';
-import { stubBootstrap } from '../bootstrap/stubs';
 import { stubAgentIdentity } from '../agentIdentity/stubs';
+import { stubBootstrap } from '../bootstrap/stubs';
 
 const HOST_HEADERS = { 'User-Agent': 'kimi-test/1.0' };
 

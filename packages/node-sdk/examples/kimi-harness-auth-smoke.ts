@@ -101,7 +101,8 @@ function printUsage(usage: Awaited<ReturnType<KimiHarness['auth']['getManagedUsa
     return;
   }
   const w = summary.window;
-  const label = w !== undefined ? `${String(w.duration)}${w.unit} window` : (summary.name ?? 'usage');
+  const label =
+    w !== undefined ? `${String(w.duration)}${w.unit} window` : (summary.name ?? 'usage');
   process.stdout.write(`usage: ${label} ${String(summary.used)}/${String(summary.limit)}\n`);
 }
 

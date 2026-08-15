@@ -3,29 +3,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import type { TestInstantiationService } from '#/_base/di/test';
-import type {
-  BeforeExecuteDecision,
-  ResolvedToolExecutionHookContext,
-} from '#/agent/toolExecutor/toolHooks';
 import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
 import { AgentPermissionGate } from '#/agent/permissionGate/permissionGateService';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { PermissionPolicyEvaluation } from '#/agent/permissionPolicy/permissionPolicy';
-import type { PermissionMode, PermissionPolicyResolution } from '#/agent/permissionPolicy/types';
 import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicy';
+import type { PermissionMode, PermissionPolicyResolution } from '#/agent/permissionPolicy/types';
 import {
   IAgentPermissionRulesService,
   type PermissionRule,
 } from '#/agent/permissionRules/permissionRules';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import type {
+  BeforeExecuteDecision,
+  ResolvedToolExecutionHookContext,
+} from '#/agent/toolExecutor/toolHooks';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ToolCall } from '#/kosong/contract/message';
 
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { stubPermissionModeService } from '../permissionMode/stubs';
 import { stubPermissionPolicyService } from '../permissionPolicy/stubs';
 import { stubPermissionRulesService } from '../permissionRules/stubs';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../toolExecutor/stubs';
 
 function makeContext(
@@ -85,8 +85,14 @@ describe('AgentPermissionGate', () => {
     };
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
-        reg.defineInstance(IAgentPermissionRulesService, stubPermissionRulesService(() => rules));
+        reg.defineInstance(
+          IAgentPermissionModeService,
+          stubPermissionModeService(() => mode),
+        );
+        reg.defineInstance(
+          IAgentPermissionRulesService,
+          stubPermissionRulesService(() => rules),
+        );
         reg.defineInstance(
           IAgentPermissionPolicyService,
           stubPermissionPolicyService(() => policyResult),

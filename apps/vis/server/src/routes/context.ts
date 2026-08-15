@@ -1,11 +1,12 @@
-import { Hono } from 'hono';
 import { join } from 'node:path';
 
+import { Hono } from 'hono';
+
 import { KIMI_CODE_HOME } from '../config';
-import { isSafeAgentId, readSessionDetail } from '../lib/session-store';
 import { rehydrateWireEntries } from '../lib/blob-resolver';
-import { readAgentWire } from '../lib/wire-reader';
 import { projectContext } from '../lib/context-projector';
+import { isSafeAgentId, readSessionDetail } from '../lib/session-store';
+import { readAgentWire } from '../lib/wire-reader';
 
 export function contextRoute(home: string = KIMI_CODE_HOME): Hono {
   const r = new Hono();
@@ -24,9 +25,7 @@ export function contextRoute(home: string = KIMI_CODE_HOME): Hono {
       return c.json({ error: 'agent wire not found', code: 'NOT_FOUND' }, 404);
     }
     try {
-      const wire = await readAgentWire(
-        join(detail.sessionDir, 'agents', agentId, 'wire.jsonl'),
-      );
+      const wire = await readAgentWire(join(detail.sessionDir, 'agents', agentId, 'wire.jsonl'));
       const baseUrl = new URL(c.req.url).origin;
       rehydrateWireEntries(wire.records, id, agentId, baseUrl);
       // `?history=full` reconstructs the FULL pre-compaction/undo/clear history
@@ -45,8 +44,8 @@ export function contextRoute(home: string = KIMI_CODE_HOME): Hono {
         goal: proj.goal,
         swarm: proj.swarm,
       });
-    } catch (err) {
-      const msg = (err as Error).message;
+    } catch (error) {
+      const msg = (error as Error).message;
       return c.json({ error: msg, code: 'READ_ERROR' }, 500);
     }
   });

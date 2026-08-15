@@ -1,5 +1,9 @@
 import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
-import { compressImageForModel, persistOriginalImage, sessionMediaOriginalsDir } from '@moonshot-ai/kimi-code-sdk';
+import {
+  compressImageForModel,
+  persistOriginalImage,
+  sessionMediaOriginalsDir,
+} from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 import { ClipboardMediaError, readClipboardMedia } from '#/utils/clipboard/clipboard-image';
@@ -14,11 +18,11 @@ import {
   getLlmNotSetMessage,
   getNoActiveSessionMessage,
 } from '../constant/kimi-tui';
+import type { TUIState } from '../tui-state';
+import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
 import { extractMediaAttachments } from '../utils/image-placeholder';
-import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
-import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
 
 export interface EditorKeyboardHost {
@@ -292,7 +296,11 @@ export class EditorKeyboardController {
         } catch (error) {
           // Cache copy failed (e.g. the pasted video's source vanished) —
           // leave the queue and the editor draft untouched.
-          host.showError(t('tui.statusMessages.failedToPrepareMediaAttachment', { error: formatErrorMessage(error) }));
+          host.showError(
+            t('tui.statusMessages.failedToPrepareMediaAttachment', {
+              error: formatErrorMessage(error),
+            }),
+          );
           return;
         }
         items.push({
@@ -309,10 +317,7 @@ export class EditorKeyboardController {
         // The editor draft is fresh input: gate it on the model's media
         // capabilities before splicing the queue, so a rejection leaves the
         // queue and the draft untouched.
-        if (
-          editorExtraction !== undefined &&
-          !host.validateMediaCapabilities(editorExtraction)
-        ) {
+        if (editorExtraction !== undefined && !host.validateMediaCapabilities(editorExtraction)) {
           return;
         }
         const session = host.session;
@@ -352,7 +357,8 @@ export class EditorKeyboardController {
 
     editor.onUpArrowEmpty = () => {
       if (host.btwPanelController.scroll('up')) return true;
-      if (host.state.appState.streamingPhase === 'idle' && !host.state.appState.isCompacting) return false;
+      if (host.state.appState.streamingPhase === 'idle' && !host.state.appState.isCompacting)
+        return false;
       const recalled = host.recallLastQueued();
       if (recalled !== undefined) {
         editor.setText(recalled.text);

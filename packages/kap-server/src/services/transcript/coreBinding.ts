@@ -31,7 +31,11 @@ import {
   type Interaction,
   type ISessionScopeHandle,
 } from '@moonshot-ai/agent-core-v2';
-import type { AgentDescriptor, TranscriptChangeEvent, TranscriptStore } from '@moonshot-ai/transcript';
+import type {
+  AgentDescriptor,
+  TranscriptChangeEvent,
+  TranscriptStore,
+} from '@moonshot-ai/transcript';
 
 import { AgentTranscriptProjector, type ProjectorInteraction } from './coreEventMap';
 
@@ -121,7 +125,10 @@ export function bindSessionTranscript(
       // results, instead of clobbering the seeded state or dropping events.
       projector = new AgentTranscriptProjector(agentId, {
         stepFrames: (turnId, stepId) =>
-          store.getAgent(agentId)?.getTurn(turnId)?.steps.find((s) => s.stepId === stepId)?.frames,
+          store
+            .getAgent(agentId)
+            ?.getTurn(turnId)
+            ?.steps.find((s) => s.stepId === stepId)?.frames,
         toolFrame: (toolCallId) => {
           const transcript = store.getAgent(agentId);
           if (transcript === undefined) return undefined;

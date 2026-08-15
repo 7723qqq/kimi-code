@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { migrateV1_2ToV1_3 } from '#/wire/migration/migration';
+
 import { runMigration } from './utils';
 
 describe('1.2 to 1.3', () => {

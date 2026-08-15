@@ -44,5 +44,6 @@ export interface ISessionAgentProfileCatalog {
   reload(): Promise<void>;
 }
 
-export const ISessionAgentProfileCatalog =
-  createDecorator<ISessionAgentProfileCatalog>('sessionAgentProfileCatalog');
+export const ISessionAgentProfileCatalog = createDecorator<ISessionAgentProfileCatalog>(
+  'sessionAgentProfileCatalog',
+);

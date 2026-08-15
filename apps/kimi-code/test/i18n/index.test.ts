@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
 import { t, setLocale, getLocale } from '#/i18n';
 import en from '#/i18n/locales/en';
 import zh from '#/i18n/locales/zh';

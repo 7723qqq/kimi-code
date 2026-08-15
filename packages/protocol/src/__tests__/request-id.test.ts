@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { ulid } from 'ulid';
+import { describe, expect, it } from 'vitest';
 
 import { isUlid, parseOrGenerateRequestId, ulidRegex } from '../request-id';
 

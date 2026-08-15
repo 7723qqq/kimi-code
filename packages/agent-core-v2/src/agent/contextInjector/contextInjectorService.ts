@@ -10,18 +10,18 @@
  * failures through `log`. Bound at Agent scope.
  */
 
-import { toDisposable, type IDisposable } from "#/_base/di/lifecycle";
-import { Service } from "#/_base/di/service";
-import { LifecycleScope } from '#/app/scopes';
+import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { ILogService } from '#/_base/log/log';
-
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { isCompactionSummaryMessage } from '#/agent/contextMemory/compactionHandoff';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type BeforeStepContext } from '#/agent/loop/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IEventBus } from '#/app/event/eventBus';
-import type { ContextMessage } from '#/agent/contextMemory/types';
+import { LifecycleScope } from '#/app/scopes';
+
 import {
   IAgentContextInjectorService,
   type ContextInjectionContent,
@@ -61,10 +61,7 @@ export class AgentContextInjectorService extends Service implements IAgentContex
     );
   }
 
-  register<D = unknown>(
-    name: string,
-    provider: ContextInjectionProvider<D>,
-  ): IDisposable {
+  register<D = unknown>(name: string, provider: ContextInjectionProvider<D>): IDisposable {
     const entry: ContextInjectionEntry = {
       provider: provider as ContextInjectionProvider<unknown>,
       name,
@@ -141,9 +138,7 @@ export class AgentContextInjectorService extends Service implements IAgentContex
       lastInjectedAt,
       lastInjection,
       lastDisclosure:
-        lastInjection?.origin?.kind === 'injection'
-          ? lastInjection.origin.disclosure
-          : undefined,
+        lastInjection?.origin?.kind === 'injection' ? lastInjection.origin.disclosure : undefined,
       isNewTurn,
     };
   }
@@ -218,10 +213,7 @@ function isInjectionResult(
   );
 }
 
-function findInjections(
-  history: readonly ContextMessage[],
-  variant: string,
-): number[] {
+function findInjections(history: readonly ContextMessage[], variant: string): number[] {
   const positions: number[] = [];
   history.forEach((message, index) => {
     if (message.origin?.kind === 'injection' && message.origin.variant === variant) {

@@ -29,7 +29,11 @@ export class LspFeature extends Feature {
   constructor() {
     super();
     this.contributeService(LifecycleScope.Session, ILspService, LspService);
-    this.contributeService(LifecycleScope.Session, ILspStdioProviderService, LspStdioProviderService);
+    this.contributeService(
+      LifecycleScope.Session,
+      ILspStdioProviderService,
+      LspStdioProviderService,
+    );
     this.contributeTool(ILspTool, LspTool, {
       name: 'lsp',
       domain: 'lsp',

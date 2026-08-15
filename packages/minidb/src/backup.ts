@@ -9,6 +9,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
 import { fsyncDir } from './compaction.js';
 import { isPersistentFile } from './generation.js';
 
@@ -38,9 +39,12 @@ export interface BackupDeps {
  *  fence is short (file copies) and retryable, so callers can simply
  *  re-issue the write afterwards. */
 export function backupInProgressError(): Error {
-  return Object.assign(new Error('MiniDb backup is in progress: writes are fenced until it completes'), {
-    code: 'BACKUP_IN_PROGRESS',
-  });
+  return Object.assign(
+    new Error('MiniDb backup is in progress: writes are fenced until it completes'),
+    {
+      code: 'BACKUP_IN_PROGRESS',
+    },
+  );
 }
 
 /** Write a consistent online backup of this database directory.
@@ -57,7 +61,11 @@ export function backupInProgressError(): Error {
  *  restored if the rename fails). A failure anywhere before the rename
  *  leaves the destination untouched and the temp dir removed — never a half
  *  backup. Concurrent backups serialize on serializeBackups. */
-export async function backup(deps: BackupDeps, destDir: string, opts: { compact?: boolean } = {}): Promise<void> {
+export async function backup(
+  deps: BackupDeps,
+  destDir: string,
+  opts: { compact?: boolean } = {},
+): Promise<void> {
   deps.ensureOpen();
   if (!destDir) throw new TypeError('backup: destDir is required');
   if (deps.compacting()) await deps.compactDone();
@@ -126,19 +134,25 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
     for (const name of copied) {
       const h = await fs.open(path.join(tmp, name), 'r');
       try {
-        await h.sync().catch((e: NodeJS.ErrnoException) => {
-          if (e.code !== 'EPERM' && e.code !== 'ENOTSUP' && e.code !== 'EINVAL') throw e;
+        await h.sync().catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== 'EPERM' && error.code !== 'ENOTSUP' && error.code !== 'EINVAL')
+            throw error;
         });
       } finally {
         await h.close();
       }
     }
     const manifest = path.join(tmp, 'backup.manifest.json');
-    await fs.writeFile(manifest, JSON.stringify({ version: 1, createdAt: Date.now(), files: copied }, null, 2), 'utf8');
+    await fs.writeFile(
+      manifest,
+      JSON.stringify({ version: 1, createdAt: Date.now(), files: copied }, null, 2),
+      'utf8',
+    );
     const mh = await fs.open(manifest, 'r');
     try {
-      await mh.sync().catch((e: NodeJS.ErrnoException) => {
-        if (e.code !== 'EPERM' && e.code !== 'ENOTSUP' && e.code !== 'EINVAL') throw e;
+      await mh.sync().catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EPERM' && error.code !== 'ENOTSUP' && error.code !== 'EINVAL')
+          throw error;
       });
     } finally {
       await mh.close();
@@ -151,13 +165,13 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
       try {
         await fs.rename(destDir, aside);
         asideUsed = true;
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
       await fs.rename(tmp, destDir);
-    } catch (err) {
+    } catch (error) {
       if (asideUsed) await fs.rename(aside, destDir).catch(() => {});
-      throw err;
+      throw error;
     }
     await fs.rm(aside, { recursive: true, force: true });
     await fsyncDir(parent, { strict: true, stats: deps.stats });
@@ -183,8 +197,8 @@ async function copyIfExists(dir: string, name: string, destDir: string): Promise
     if (st.isDirectory()) await fs.cp(src, path.join(destDir, name), { recursive: true });
     else await fs.copyFile(src, path.join(destDir, name));
     return true;
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw e;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
   }
 }

@@ -24,8 +24,8 @@ import {
   listCapabilitiesResponseSchema,
 } from '../src/protocol/rest-capability';
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -128,11 +128,10 @@ describe('server-v2 /api/v1 capabilities', () => {
 
   // kimi-cu is supported on macOS and Windows x64 — only genuinely
   // unsupported platforms (Linux, win32-arm64, …) get the 40924 rejection.
-  it.skipIf(process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64'))(
-    'rejects kimi-cu install on unsupported platforms with 40925',
-    async () => {
-      const { body } = await postJson<unknown>('/api/v1/capabilities/kimi-cu:install');
-      expect(body.code).toBe(40925);
-    },
-  );
+  it.skipIf(
+    process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64'),
+  )('rejects kimi-cu install on unsupported platforms with 40925', async () => {
+    const { body } = await postJson<unknown>('/api/v1/capabilities/kimi-cu:install');
+    expect(body.code).toBe(40925);
+  });
 });

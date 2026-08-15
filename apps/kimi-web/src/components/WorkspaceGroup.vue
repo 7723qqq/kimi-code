@@ -7,10 +7,11 @@
 <script setup lang="ts">
 import { computed, type ComponentPublicInstance, type Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { WorkspaceGroup, WorkspaceView } from '../types';
 import SessionRow from './SessionRow.vue';
-import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
+import IconButton from './ui/IconButton.vue';
 import Tooltip from './ui/Tooltip.vue';
 
 const { t } = useI18n();
@@ -77,9 +78,7 @@ const visibleSessions = computed(() => {
   return head;
 });
 // True once more than the first page is loaded — gates the show-less/show-all toggle.
-const canToggleExpand = computed(
-  () => props.group.sessions.length > props.group.initialCount,
-);
+const canToggleExpand = computed(() => props.group.sessions.length > props.group.initialCount);
 function showMoreCount(): number {
   return Math.max(0, props.group.workspace.sessionCount - props.group.sessions.length);
 }
@@ -109,7 +108,10 @@ function onHeaderDragStart(event: DragEvent): void {
   <div class="group" :class="{ dragging }">
     <div
       class="gh"
-      :class="{ on: group.workspace.id === activeWorkspaceId, collapsed: isCollapsed(group.workspace.id) }"
+      :class="{
+        on: group.workspace.id === activeWorkspaceId,
+        collapsed: isCollapsed(group.workspace.id),
+      }"
       draggable="true"
       @click.stop="emit('groupClick', group.workspace.id, $event)"
       @contextmenu="emit('groupContextmenu', group.workspace, $event)"
@@ -196,7 +198,9 @@ function onHeaderDragStart(event: DragEvent): void {
       >
         <span class="show-more-lead" aria-hidden="true"></span>
         <span class="show-more-label">{{
-          group.loadingMore ? t('sidebar.loadingMore') : t('sidebar.showMore', { count: showMoreCount() })
+          group.loadingMore
+            ? t('sidebar.loadingMore')
+            : t('sidebar.showMore', { count: showMoreCount() })
         }}</span>
       </button>
       <button
@@ -211,7 +215,9 @@ function onHeaderDragStart(event: DragEvent): void {
             : t('sidebar.showAll', { count: showAllCount() })
         }}</span>
       </button>
-      <div v-if="group.sessions.length === 0" class="group-empty">{{ t('sidebar.noSessions') }}</div>
+      <div v-if="group.sessions.length === 0" class="group-empty">
+        {{ t('sidebar.noSessions') }}
+      </div>
     </div>
   </div>
 </template>
@@ -220,7 +226,9 @@ function onHeaderDragStart(event: DragEvent): void {
 /* Workspace group. The --sb-* custom properties are inherited from .side in
    Sidebar.vue, so they don't need to be redeclared here. Groups stack flush —
    no bottom gap. */
-.group.dragging { opacity: 0.45; }
+.group.dragging {
+  opacity: 0.45;
+}
 
 /* Session list: collapses/expands via a height transition. `interpolate-size:
    allow-keywords` (set on :root) lets `height: auto` interpolate instead of
@@ -253,8 +261,12 @@ function onHeaderDragStart(event: DragEvent): void {
   /* The header doubles as the drag handle for reordering. */
   cursor: grab;
 }
-.gh:active { cursor: grabbing; }
-.gh:hover { background: var(--sb-hover, var(--color-surface-sunken)); }
+.gh:active {
+  cursor: grabbing;
+}
+.gh:hover {
+  background: var(--sb-hover, var(--color-surface-sunken));
+}
 .gh-top {
   position: relative;
   display: flex;
@@ -330,12 +342,16 @@ function onHeaderDragStart(event: DragEvent): void {
   opacity: 1;
   pointer-events: auto;
 }
-.gh-more.open { color: var(--color-text); background: var(--color-line); }
+.gh-more.open {
+  color: var(--color-text);
+  background: var(--color-line);
+}
 
 .group-empty {
   /* Left padding lands the text at the same x as session titles / the
      show-more label: (pad-x − inset) row padding + gutter + gap. */
-  padding: var(--space-1) var(--space-2) var(--space-1) calc(var(--sb-pad-x) - var(--sb-inset) + var(--sb-gutter) + var(--sb-gap));
+  padding: var(--space-1) var(--space-2) var(--space-1)
+    calc(var(--sb-pad-x) - var(--sb-inset) + var(--sb-gutter) + var(--sb-gap));
   font-size: var(--text-xs);
   color: var(--color-text-faint);
   font-family: var(--font-ui);
@@ -362,9 +378,17 @@ function onHeaderDragStart(event: DragEvent): void {
   text-align: left;
   cursor: pointer;
 }
-.show-more:hover { background: var(--sb-hover, var(--color-surface-sunken)); }
-.show-more:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
-.show-more-lead { width: var(--sb-gutter); flex: none; }
+.show-more:hover {
+  background: var(--sb-hover, var(--color-surface-sunken));
+}
+.show-more:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
+.show-more-lead {
+  width: var(--sb-gutter);
+  flex: none;
+}
 .show-more-label {
   flex: 1;
   min-width: 0;
@@ -388,7 +412,14 @@ function onHeaderDragStart(event: DragEvent): void {
   outline: none;
 }
 
-.gh-rename { border-radius: var(--radius-sm); font-family: var(--sans); }
-.gh-add { color: var(--faint); }
-.gh-add:hover { color: var(--dim); }
+.gh-rename {
+  border-radius: var(--radius-sm);
+  font-family: var(--sans);
+}
+.gh-add {
+  color: var(--faint);
+}
+.gh-add:hover {
+  color: var(--dim);
+}
 </style>

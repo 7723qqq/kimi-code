@@ -1,4 +1,3 @@
-import { t } from '#/i18n';
 import {
   Container,
   Key,
@@ -8,6 +7,7 @@ import {
   type Focusable,
 } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { SearchableList } from '#/tui/utils/searchable-list';
@@ -80,10 +80,7 @@ export class UndoSelectorComponent extends Container implements Focusable {
     } else {
       const visibleCount = Math.min(MAX_VISIBLE_CHOICES, view.items.length);
       const maxStart = view.items.length - visibleCount;
-      const start = Math.min(
-        Math.max(0, view.selectedIndex - PREFERRED_SELECTED_OFFSET),
-        maxStart,
-      );
+      const start = Math.min(Math.max(0, view.selectedIndex - PREFERRED_SELECTED_OFFSET), maxStart);
       const end = start + visibleCount;
 
       for (let i = start; i < end; i++) {
@@ -112,9 +109,7 @@ export class UndoSelectorComponent extends Container implements Focusable {
     const label = truncateToWidth(choice.label, labelBudget, '…');
     const token = isSelected ? 'primary' : inUndoRange ? 'textDim' : 'text';
     let line = currentTheme.fg(isSelected ? 'primary' : 'textDim', prefix);
-    line += isSelected
-      ? currentTheme.boldFg(token, label)
-      : currentTheme.fg(token, label);
+    line += isSelected ? currentTheme.boldFg(token, label) : currentTheme.fg(token, label);
     return line;
   }
 }

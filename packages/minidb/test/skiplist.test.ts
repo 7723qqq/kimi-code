@@ -1,6 +1,8 @@
+import assert from 'node:assert/strict';
+
 // test/skiplist.test.js
 import { test } from 'vitest';
-import assert from 'node:assert/strict';
+
 import { SkipList, cmpNumber, cmpString } from '../src/skiplist.js';
 
 test('numeric: insert keeps order by (key, val)', () => {
@@ -37,15 +39,27 @@ test('getByRank returns the node at rank', () => {
 test('range with gte/lte/gt/lt/offset/count', () => {
   const sl = new SkipList();
   for (let i = 1; i <= 10; i++) sl.insert(i, `v${i}`);
-  assert.deepEqual(sl.range({ gte: 3, lte: 7 }).map((n) => n.key), [3, 4, 5, 6, 7]);
-  assert.deepEqual(sl.range({ gt: 3, lt: 7 }).map((n) => n.key), [4, 5, 6]);
-  assert.deepEqual(sl.range({ gte: 1, lte: 10, offset: 2, count: 3 }).map((n) => n.key), [3, 4, 5]);
+  assert.deepEqual(
+    sl.range({ gte: 3, lte: 7 }).map((n) => n.key),
+    [3, 4, 5, 6, 7],
+  );
+  assert.deepEqual(
+    sl.range({ gt: 3, lt: 7 }).map((n) => n.key),
+    [4, 5, 6],
+  );
+  assert.deepEqual(
+    sl.range({ gte: 1, lte: 10, offset: 2, count: 3 }).map((n) => n.key),
+    [3, 4, 5],
+  );
 });
 
 test('reverse range', () => {
   const sl = new SkipList();
   for (let i = 1; i <= 10; i++) sl.insert(i, `v${i}`);
-  assert.deepEqual(sl.range({ gte: 3, lte: 7, reverse: true }).map((n) => n.key), [7, 6, 5, 4, 3]);
+  assert.deepEqual(
+    sl.range({ gte: 3, lte: 7, reverse: true }).map((n) => n.key),
+    [7, 6, 5, 4, 3],
+  );
 });
 
 test('delete removes and keeps ranks consistent', () => {
@@ -67,7 +81,7 @@ test('string comparator orders keys and supports prefix scans', () => {
   );
   // prefix scan via range [prefix, prefix+\uFFFF]
   const pref = 'user:';
-  const res = sl.range({ gte: pref, lt: pref + '\uffff' }).map((n) => n.key);
+  const res = sl.range({ gte: pref, lt: pref + '\uFFFF' }).map((n) => n.key);
   assert.deepEqual(res, ['user:1', 'user:10', 'user:2', 'user:3']);
 });
 
@@ -124,7 +138,7 @@ test('matches a sorted reference under random operations', () => {
   }
   const sorted = [...ref.entries()]
     .map(([val, key]) => ({ key, val }))
-    .sort((a, b) => (a.key - b.key) || (a.val < b.val ? -1 : a.val > b.val ? 1 : 0));
+    .toSorted((a, b) => a.key - b.key || (a.val < b.val ? -1 : a.val > b.val ? 1 : 0));
   assert.deepEqual(sl.toArray(), sorted);
   assert.equal(sl.length, sorted.length);
 });

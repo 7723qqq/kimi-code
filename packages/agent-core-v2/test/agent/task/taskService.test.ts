@@ -13,41 +13,37 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
-import { ILogService } from '#/_base/log/log';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
+import { ILogService } from '#/_base/log/log';
 import {
   IAgentContextInjectorService,
   type ContextInjectionContext,
   type ContextInjectionProvider,
 } from '#/agent/contextInjector/contextInjector';
-import {
-  IAgentTaskService,
-  type AgentTask,
-  type AgentTaskInfo,
-} from '#/agent/task/task';
-import { renderNotificationXml } from '#/agent/task/notificationXml';
-import { AgentTaskService } from '#/agent/task/taskService';
-import { ProcessTask } from '#/agent/tools/os/bash/process-task';
-import type { IProcess } from '#/session/process/processRunner';
-import { IConfigRegistry, IConfigService } from '#/app/config/config';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { renderNotificationXml } from '#/agent/task/notificationXml';
+import { IAgentTaskService, type AgentTask, type AgentTaskInfo } from '#/agent/task/task';
+import { AgentTaskService } from '#/agent/task/taskService';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { createHooks } from '#/hooks';
-import { IWireService, type WireHooks } from '#/wire/wire';
+import { ProcessTask } from '#/agent/tools/os/bash/process-task';
+import { IConfigRegistry, IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import { ITaskService } from '#/app/task/task';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { createHooks } from '#/hooks';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import type { IProcess } from '#/session/process/processRunner';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import { IWireService, type WireHooks } from '#/wire/wire';
 
 import { stubLog } from '../../_base/log/stubs';
 import { stubContextMemory } from '../contextMemory/stubs';
@@ -183,9 +179,11 @@ describe('AgentTaskService', () => {
     const waited = svc.wait(taskId, 10 * 365 * 24 * 3600 * 1000);
     const early = await Promise.race([
       waited.then(() => 'returned' as const),
-      new Promise<'waiting'>((resolve) => setTimeout(() => {
-        resolve('waiting');
-      }, 50)),
+      new Promise<'waiting'>((resolve) =>
+        setTimeout(() => {
+          resolve('waiting');
+        }, 50),
+      ),
     ]);
     expect(early).toBe('waiting');
     await svc.stop(taskId);
@@ -267,7 +265,7 @@ describe('AgentTaskService', () => {
     const writes: AgentTaskInfo[] = [];
     ix.stub(IAtomicDocumentStore, {
       get: async () => {},
-      set: async <T,>(_scope: string, _key: string, value: T) => {
+      set: async <T>(_scope: string, _key: string, value: T) => {
         writes.push(value as AgentTaskInfo);
       },
       delete: async () => {},
@@ -306,8 +304,7 @@ describe('AgentTaskService', () => {
       const persisted = writes.filter((write) => write.taskId === taskId);
       expect(
         persisted.some(
-          (write) =>
-            write.status === 'running' && write.terminalNotificationSuppressed === true,
+          (write) => write.status === 'running' && write.terminalNotificationSuppressed === true,
         ),
       ).toBe(true);
       expect(persisted.at(-1)).toMatchObject({
@@ -348,9 +345,12 @@ describe('AgentTaskService', () => {
   it('dispose aborts live tasks as a last resort', async () => {
     const svc = ix.get(IAgentTaskService);
     let abortReason: unknown;
-    svc.registerTask(abortObservingTask((reason) => (abortReason = reason)), {
-      timeoutMs: 60_000,
-    });
+    svc.registerTask(
+      abortObservingTask((reason) => (abortReason = reason)),
+      {
+        timeoutMs: 60_000,
+      },
+    );
 
     disposables.dispose();
     await Promise.resolve();
@@ -465,9 +465,9 @@ describe('AgentTaskService', () => {
     const map = new Map<string, unknown>();
     return {
       _serviceBrand: undefined,
-      get: async <T,>(scope: string, key: string): Promise<T | undefined> =>
+      get: async <T>(scope: string, key: string): Promise<T | undefined> =>
         map.get(`${scope}/${key}`) as T | undefined,
-      set: async <T,>(scope: string, key: string, value: T): Promise<void> => {
+      set: async <T>(scope: string, key: string, value: T): Promise<void> => {
         map.set(`${scope}/${key}`, value);
       },
       delete: async (scope: string, key: string): Promise<void> => {
@@ -552,18 +552,13 @@ describe('AgentTaskService', () => {
       detached: true,
     });
 
-    const main = buildAgentIx('main', docs, bytes).get(
-      IAgentTaskService,
-    ) as TaskServiceTestManager;
+    const main = buildAgentIx('main', docs, bytes).get(IAgentTaskService) as TaskServiceTestManager;
     await main.loadFromDisk();
     const lost = await main.reconcile();
 
     expect(lost).toEqual([]);
     expect(main.list(false)).toEqual([]);
-    const untouched = await docs.get<{ status: string }>(
-      `${subScope}/tasks`,
-      'bash-abcdef01.json',
-    );
+    const untouched = await docs.get<{ status: string }>(`${subScope}/tasks`, 'bash-abcdef01.json');
     expect(untouched?.status).toBe('running');
 
     const sub = buildAgentIx('agent-1', docs, bytes).get(
@@ -709,7 +704,6 @@ describe('AgentTaskService', () => {
 
     await svc.stop(taskId);
   });
-
 
   const MiB = 1024 * 1024;
   const LIMIT_BYTES = 16 * MiB;

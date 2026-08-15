@@ -8,10 +8,10 @@
  * registry get no chip at all.
  */
 
+import { t } from '#/i18n';
 import { computeDiffLines } from '#/tui/components/media/diff-preview';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
-import { t } from '#/i18n';
 import { goalStatusChip } from './goal';
 import { readMediaChip } from './media';
 import { strArg } from './types';
@@ -26,7 +26,10 @@ export function countNonEmptyLines(text: string): number {
 }
 
 function pluralize(n: number, singular: string, plural?: string): string {
-  return t('tui.statusMessages.chipMatches', { count: String(n), label: n === 1 ? singular : (plural ?? `${singular}s`) });
+  return t('tui.statusMessages.chipMatches', {
+    count: String(n),
+    label: n === 1 ? singular : (plural ?? `${singular}s`),
+  });
 }
 
 function formatBytes(bytes: number): string {
@@ -108,7 +111,10 @@ const webSearchChip: ChipProvider = (_toolCall, result) => {
   for (const line of lines) {
     if (/^\s*(\d+\.|[-*])\s+/.test(line)) count++;
   }
-  if (count === 0) return lines.length === 0 ? t('tui.statusMessages.chipNoResults') : t('tui.statusMessages.chipWebResult');
+  if (count === 0)
+    return lines.length === 0
+      ? t('tui.statusMessages.chipNoResults')
+      : t('tui.statusMessages.chipWebResult');
   return pluralize(count, 'result');
 };
 

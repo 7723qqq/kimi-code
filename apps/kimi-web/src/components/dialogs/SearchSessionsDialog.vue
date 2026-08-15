@@ -5,8 +5,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { Session } from '../../types';
+
 import { highlightHtml, snippet } from '../../lib/searchHighlight';
+import type { Session } from '../../types';
 import Dialog from '../ui/Dialog.vue';
 import Icon from '../ui/Icon.vue';
 
@@ -188,13 +189,23 @@ onMounted(() => {
             <!-- eslint-disable-next-line vue/no-v-html -- highlightHtml escapes the source before injecting <mark>. -->
             <span
               class="sd-ws"
-              v-html="highlightHtml(hit.session.workspaceName ?? hit.session.workspaceId ?? '', hit.inWorkspace ? query : '')"
+              v-html="
+                highlightHtml(
+                  hit.session.workspaceName ?? hit.session.workspaceId ?? '',
+                  hit.inWorkspace ? query : '',
+                )
+              "
             ></span>
             <span class="sd-time">{{ hit.session.time }}</span>
-            <span v-if="hit.isContentHit" class="sd-content-tag">{{ t('sidebar.searchContentHit') }}</span>
+            <span v-if="hit.isContentHit" class="sd-content-tag">{{
+              t('sidebar.searchContentHit')
+            }}</span>
           </span>
           <!-- eslint-disable-next-line vue/no-v-html -- highlightHtml escapes the source before injecting <mark>. -->
-          <span class="sd-title" v-html="highlightHtml(hit.session.title, hit.inTitle ? query : '')"></span>
+          <span
+            class="sd-title"
+            v-html="highlightHtml(hit.session.title, hit.inTitle ? query : '')"
+          ></span>
           <!-- eslint-disable-next-line vue/no-v-html -- highlightHtml escapes the source before injecting <mark>. -->
           <span
             v-if="hit.snippetText"

@@ -1,8 +1,10 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+
 import { migrateSkillsStep } from '../../src/steps/skills.js';
 
 let src: string;

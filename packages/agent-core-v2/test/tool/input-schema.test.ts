@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import {
-  compileToolArgsValidator,
-  validateToolArgs,
-} from '#/tool/args-validator';
+import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
 import { toInputJsonSchema } from '#/tool/input-schema';
 
 function collectRequired(schema: unknown, acc: string[] = []): string[] {

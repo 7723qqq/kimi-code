@@ -1,7 +1,8 @@
 // apps/kimi-web/src/components/chat/tool-calls/toolRegistry.ts
 import type { Component } from 'vue';
-import type { ToolCall } from '../../../types';
+
 import { normalizeToolName } from '../../../lib/toolMeta';
+import type { ToolCall } from '../../../types';
 import AgentTool from './AgentTool.vue';
 import AskUserTool from './AskUserTool.vue';
 import EditTool from './EditTool.vue';

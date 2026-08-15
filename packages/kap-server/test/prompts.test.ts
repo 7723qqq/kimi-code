@@ -15,8 +15,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -137,7 +137,13 @@ describe('server-v2 /api/v1 prompts', () => {
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-prompts-'));
     await writeFile(join(home, 'config.toml'), PROMPT_TOML, 'utf-8');
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     base = `http://127.0.0.1:${server.port}`;
   });
 
@@ -258,7 +264,11 @@ describe('server-v2 /api/v1 prompts', () => {
 
     // A real upload, but referenced with the wrong media kind.
     const form = new FormData();
-    form.set('file', new Blob([Buffer.from('%PDF-1.4 fake')], { type: 'application/pdf' }), 'spec.pdf');
+    form.set(
+      'file',
+      new Blob([Buffer.from('%PDF-1.4 fake')], { type: 'application/pdf' }),
+      'spec.pdf',
+    );
     const uploadRes = await fetch(`${base}/api/v1/files`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer),
@@ -518,7 +528,13 @@ describe('server-v2 /api/v1 prompts', () => {
     const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
       content: [
         { type: 'text', text: 'summarize this' },
-        { type: 'file', file_id: uploaded.id, name: 'report.pdf', media_type: 'application/pdf', size: pdfBytes.length },
+        {
+          type: 'file',
+          file_id: uploaded.id,
+          name: 'report.pdf',
+          media_type: 'application/pdf',
+          size: pdfBytes.length,
+        },
       ],
     });
     expect(submitted.body.code).toBe(0);
@@ -544,7 +560,9 @@ describe('server-v2 /api/v1 prompts', () => {
     // of dropping them with an "[Image omitted]" notice.
     const id = await createSession(home as string);
     await createMainAgent(id);
-    const svgBytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>');
+    const svgBytes = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
+    );
     const uploaded = await uploadFile(svgBytes, 'image/svg+xml', 'vector.svg');
 
     const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
@@ -607,7 +625,13 @@ describe('server-v2 /api/v1 prompts', () => {
 
     const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
       content: [
-        { type: 'file', file_id: uploaded.id, name: '../../etc/evil.sh', media_type: 'text/plain', size: scriptBytes.length },
+        {
+          type: 'file',
+          file_id: uploaded.id,
+          name: '../../etc/evil.sh',
+          media_type: 'text/plain',
+          size: scriptBytes.length,
+        },
       ],
     });
     expect(submitted.body.code).toBe(0);
@@ -700,9 +724,7 @@ describe('server-v2 /api/v1 prompts', () => {
         .get(IAgentContextMemoryService)
         .get()
         .some(
-          (m) =>
-            m.role === 'user' &&
-            m.content.some((p) => p.type === 'text' && p.text === text),
+          (m) => m.role === 'user' && m.content.some((p) => p.type === 'text' && p.text === text),
         );
 
     // The side-channel child received the prompt.
@@ -835,8 +857,10 @@ describe('server-v2 /api/v1 prompts', () => {
 
     const session = getLiveSessionById(server!.core.accessor, id);
     if (session === undefined) throw new Error(`session ${id} not found`);
-    const toolPolicy = session.accessor.get(IAgentLifecycleService).get('main')?.accessor
-      .get(IAgentToolPolicyService);
+    const toolPolicy = session.accessor
+      .get(IAgentLifecycleService)
+      .get('main')
+      ?.accessor.get(IAgentToolPolicyService);
     expect(toolPolicy?.isToolActive('Bash')).toBe(false);
     expect(toolPolicy?.isToolActive('Read')).toBe(true);
 
@@ -918,8 +942,10 @@ describe('server-v2 /api/v1 prompts', () => {
 
     const session = getLiveSessionById(server!.core.accessor, id);
     if (session === undefined) throw new Error(`session ${id} not found`);
-    const toolPolicy = session.accessor.get(IAgentLifecycleService).get('main')?.accessor
-      .get(IAgentToolPolicyService);
+    const toolPolicy = session.accessor
+      .get(IAgentLifecycleService)
+      .get('main')
+      ?.accessor.get(IAgentToolPolicyService);
     expect(toolPolicy?.isToolActive('Bash')).toBe(false);
     expect(toolPolicy?.isToolActive('Read')).toBe(true);
   });

@@ -308,9 +308,11 @@ describe('KimiTUI signal handlers', () => {
   it('stop() drains terminal input before stopping the UI and exiting', async () => {
     const { driver, tui } = makeDriver();
     const events: string[] = [];
-    const drainInput = vi.spyOn(driver.state.terminal, 'drainInput').mockImplementation(async () => {
-      events.push('drain');
-    });
+    const drainInput = vi
+      .spyOn(driver.state.terminal, 'drainInput')
+      .mockImplementation(async () => {
+        events.push('drain');
+      });
     const uiStop = vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {
       events.push('ui.stop');
     });
@@ -331,9 +333,10 @@ describe('KimiTUI signal handlers', () => {
     // Force the very first awaited call inside start() to reject. We don't
     // care which method blows up — only that the failure surfaces and any
     // listeners we installed up front get cleaned up before the throw escapes.
-    vi.spyOn(tui as unknown as { initMainTui(): Promise<boolean> }, 'initMainTui').mockRejectedValue(
-      new Error('init boom'),
-    );
+    vi.spyOn(
+      tui as unknown as { initMainTui(): Promise<boolean> },
+      'initMainTui',
+    ).mockRejectedValue(new Error('init boom'));
     // Stub state.ui.stop so the failure-path cleanup does not touch the real
     // event loop.
     vi.spyOn(

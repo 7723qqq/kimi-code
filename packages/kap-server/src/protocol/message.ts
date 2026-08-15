@@ -11,9 +11,8 @@
  * the provider keys media by id.
  */
 
-import { z } from 'zod';
-
 import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
+import { z } from 'zod';
 
 export const messageRoleSchema = z.enum(['user', 'assistant', 'tool', 'system']);
 export type MessageRole = z.infer<typeof messageRoleSchema>;

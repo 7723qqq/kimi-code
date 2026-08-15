@@ -12,9 +12,6 @@
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
-
-import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   drainQueryStoreDisposals,
@@ -22,6 +19,8 @@ import {
   ISessionIndex,
   ISessionIndexMirror,
 } from '@moonshot-ai/agent-core-v2';
+import { join } from 'pathe';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createKimiHarness, SDKRpcClientV2 } from '#/index';
 import type { KimiError } from '#/index';
@@ -216,9 +215,10 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
       const created = await client.createSession({ id: 'ses_cursor_probe', workDir });
       await client.closeSession({ sessionId: created.id });
 
-      await expect(
-        client.listSessionsPage({ workDir, before: 'ses_unknown' }),
-      ).resolves.toEqual({ items: [], nextCursor: undefined });
+      await expect(client.listSessionsPage({ workDir, before: 'ses_unknown' })).resolves.toEqual({
+        items: [],
+        nextCursor: undefined,
+      });
     } finally {
       await client.close();
       vi.unstubAllEnvs();

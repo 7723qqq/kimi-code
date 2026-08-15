@@ -8,11 +8,11 @@
 
 import type { Readable } from 'node:stream';
 
+import { t } from '@moonshot-ai/kimi-i18n';
 import { z } from 'zod';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
-import { t } from '@moonshot-ai/kimi-i18n';
 import { Error2 } from '#/_base/errors/errors';
 import { isoDateTimeSchema } from '#/_base/utils/isoDateTime';
 
@@ -50,8 +50,8 @@ export interface IFileService {
   delete(fileId: string): Promise<void>;
 }
 
-export const IFileService: ServiceIdentifier<IFileService> = createDecorator<IFileService>('fileService');
-
+export const IFileService: ServiceIdentifier<IFileService> =
+  createDecorator<IFileService>('fileService');
 
 export const FileErrors = {
   codes: {
@@ -81,9 +81,14 @@ export class FileError extends Error2 {
 }
 
 export function fileNotFoundError(fileId: string): FileError {
-  return new FileError(FileErrors.codes.FILE_NOT_FOUND, t('v2Model.fileNotFound', { fileId }), { fileId });
+  return new FileError(FileErrors.codes.FILE_NOT_FOUND, t('v2Model.fileNotFound', { fileId }), {
+    fileId,
+  });
 }
 
-export function isFileError(error: unknown, code: (typeof FileErrors.codes)[keyof typeof FileErrors.codes]): boolean {
+export function isFileError(
+  error: unknown,
+  code: (typeof FileErrors.codes)[keyof typeof FileErrors.codes],
+): boolean {
   return error instanceof Error2 && error.code === code;
 }

@@ -61,10 +61,13 @@ export class AcpBackend implements ISubagentBackend {
         'the acp subagent backend needs a server configured in the [subagentBackend] config section: `acp = { command = "..." }`',
       );
     }
-    const process = await this.processRunner.exec([this.config.command, ...(this.config.args ?? [])], {
-      cwd: request.cwd,
-      env: this.config.env,
-    });
+    const process = await this.processRunner.exec(
+      [this.config.command, ...(this.config.args ?? [])],
+      {
+        cwd: request.cwd,
+        env: this.config.env,
+      },
+    );
     const controller = new AbortController();
     const abortFromSignal = (): void => {
       controller.abort(request.signal.reason);
@@ -97,7 +100,10 @@ export class AcpBackend implements ISubagentBackend {
           ),
         );
         try {
-          await connection.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} });
+          await connection.initialize({
+            protocolVersion: PROTOCOL_VERSION,
+            clientCapabilities: {},
+          });
           const session = await connection.newSession({ cwd: request.cwd, mcpServers: [] });
           const sessionId: unknown = Reflect.get(session, 'sessionId');
           if (typeof sessionId !== 'string') {

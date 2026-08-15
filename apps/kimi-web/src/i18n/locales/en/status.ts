@@ -93,7 +93,8 @@ export default {
   cronExprLabel: 'Cron expression (5 fields)',
   cronPromptLabel: 'Prompt',
   cronRecurringLabel: 'Repeat (off = one-shot)',
-  cronExprInvalid: 'Cron expression must have exactly 5 fields (minute hour day-of-month month day-of-week)',
+  cronExprInvalid:
+    'Cron expression must have exactly 5 fields (minute hour day-of-month month day-of-week)',
   cronPromptRequired: 'A prompt is required',
   cronDelete: 'Delete',
   cronRecurring: 'recurring',

@@ -256,16 +256,19 @@ export class AcpSession {
      * shared temp-dir fallback applies.
      */
     private readonly resolveOriginalsDir?: (sessionId: string) => string | undefined,
-    private readonly hostCommands:
-      | ReadonlyArray<AvailableCommand>
-      | HostSlashCommandsSnapshot = [],
+    private readonly hostCommands: ReadonlyArray<AvailableCommand> | HostSlashCommandsSnapshot = [],
   ) {
     this.klient = klient;
     this.session = klient.session(sessionId);
     // `main` is auto-materialized by the transport's scope resolution on the
     // first call — no explicit agent bootstrap is needed here.
     this.agent = this.session.agent('main');
-    this.interactionBridge = new AcpInteractionBridge(conn, this.session, sessionId, elicitationForm);
+    this.interactionBridge = new AcpInteractionBridge(
+      conn,
+      this.session,
+      sessionId,
+      elicitationForm,
+    );
   }
 
   /**

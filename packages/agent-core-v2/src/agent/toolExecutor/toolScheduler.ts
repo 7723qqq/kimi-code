@@ -9,7 +9,6 @@
 
 import { ToolAccesses } from '#/tool/toolContract';
 
-
 export interface ToolCallTask<Result> {
   readonly accesses: ToolAccesses;
   readonly start: () => Promise<{ readonly result: Promise<Result> }>;
@@ -55,9 +54,7 @@ export class ToolScheduler<Result> {
     task: ToolCallTask<Result>,
     candidates: readonly ToolCallTask<Result>[],
   ): boolean {
-    return candidates.some((candidate) =>
-      ToolAccesses.conflict(task.accesses, candidate.accesses),
-    );
+    return candidates.some((candidate) => ToolAccesses.conflict(task.accesses, candidate.accesses));
   }
 
   private start(task: ScheduledToolCallTask<Result>): void {

@@ -14,9 +14,8 @@
 import { randomUUID } from 'node:crypto';
 
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { abortable, isUserCancellation } from '#/_base/utils/abort';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type {
@@ -33,6 +32,7 @@ import type {
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionApprovalService } from '#/session/approval/approval';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -160,10 +160,7 @@ export class AgentToolApprovalService extends Service implements IAgentToolAppro
     } else {
       this.eventBus.publish({ type: 'permission.approval.requested', ...approvalContext });
       try {
-        response = await abortable(
-          approvalService.request(approvalRequest),
-          context.signal,
-        );
+        response = await abortable(approvalService.request(approvalRequest), context.signal);
         context.signal.throwIfAborted();
       } catch (error) {
         if (isUserCancellation(error)) throw error;

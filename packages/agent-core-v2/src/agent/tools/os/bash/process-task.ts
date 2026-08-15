@@ -1,13 +1,12 @@
 import type { Readable } from 'node:stream';
 
-import type { IProcess } from '#/session/process/processRunner';
-
 import type {
   AgentTask,
   AgentTaskInfoBase,
   AgentTaskSink,
   AgentTaskSettlement,
 } from '#/agent/task/types';
+import type { IProcess } from '#/session/process/processRunner';
 
 export interface ProcessTaskInfo extends AgentTaskInfoBase {
   readonly kind: 'process';
@@ -24,10 +23,7 @@ declare module '#/agent/task/types' {
 
 export type ProcessTaskOutputKind = 'stdout' | 'stderr';
 
-export type ProcessTaskOutputCallback = (
-  kind: ProcessTaskOutputKind,
-  text: string,
-) => void;
+export type ProcessTaskOutputCallback = (kind: ProcessTaskOutputKind, text: string) => void;
 
 const STREAM_DRAIN_GRACE_MS = 250;
 
@@ -104,8 +100,7 @@ export class ProcessTask implements AgentTask {
   private async disposeProcess(): Promise<void> {
     try {
       await this.proc.dispose();
-    } catch {
-    }
+    } catch {}
   }
 }
 
@@ -127,8 +122,7 @@ async function waitForStreamDrain(streamDrained: Promise<void>): Promise<void> {
 async function waitForStreamDrainSettled(streamDrained: Promise<void>): Promise<void> {
   try {
     await waitForStreamDrain(streamDrained);
-  } catch {
-  }
+  } catch {}
 }
 
 function observeProcessStream(
@@ -267,15 +261,31 @@ function observeProcessStreamRaw(
       stream.removeListener('close', onClose);
       stream.removeListener('error', onError);
     };
-    const done = (): void => { cleanup(); resolve(); };
-    const fail = (error: unknown): void => { cleanup(); reject(error); };
-    const onEnd = (): void => { ended = true; done(); };
+    const done = (): void => {
+      cleanup();
+      resolve();
+    };
+    const fail = (error: unknown): void => {
+      cleanup();
+      reject(error);
+    };
+    const onEnd = (): void => {
+      ended = true;
+      done();
+    };
     const onClose = (): void => {
-      if (ended || signal.aborted) { done(); return; }
+      if (ended || signal.aborted) {
+        done();
+        return;
+      }
       fail(createPrematureCloseError());
     };
     const onError = (error: Error): void => {
-      if (signal.aborted) { done(); } else { fail(error); }
+      if (signal.aborted) {
+        done();
+      } else {
+        fail(error);
+      }
     };
     stream.once('end', onEnd);
     stream.once('close', onClose);
@@ -284,7 +294,9 @@ function observeProcessStreamRaw(
 }
 
 async function disposeProcess(proc: IProcess): Promise<void> {
-  try { await proc.dispose(); } catch {   }
+  try {
+    await proc.dispose();
+  } catch {}
 }
 
 function createPrematureCloseError(): Error {

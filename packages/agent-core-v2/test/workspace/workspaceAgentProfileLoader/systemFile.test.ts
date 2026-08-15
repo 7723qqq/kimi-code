@@ -21,13 +21,13 @@ import {
   normalizeAgentProfile,
   type AgentProfile,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import {
   SYSTEM_MD_FILENAME,
   loadSystemMdProfile,
 } from '#/workspace/workspaceAgentProfileLoader/internal/systemFile';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 
 const hostFs = new HostFileSystem();
 

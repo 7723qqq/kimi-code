@@ -1,5 +1,5 @@
-import { isRecord } from './utils';
 import { redactString } from './redact';
+import { isRecord } from './utils';
 
 const DIRECT_ERROR_KEYS = ['error_description', 'message', 'detail'] as const;
 const NESTED_ERROR_KEYS = ['message', 'error_description', 'detail', 'code', 'type'] as const;
@@ -42,10 +42,7 @@ export function extractApiErrorMessage(value: unknown): string | undefined {
   return undefined;
 }
 
-export async function readApiErrorMessage(
-  response: Response,
-  fallback: string,
-): Promise<string> {
+export async function readApiErrorMessage(response: Response, fallback: string): Promise<string> {
   let parsed: unknown;
   try {
     parsed = await response.json();

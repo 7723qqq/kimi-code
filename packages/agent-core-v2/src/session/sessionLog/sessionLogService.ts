@@ -9,17 +9,15 @@
  * `sessionState` (`ISessionStateService`) and read/written through it.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/_base/state/stateRegistry';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionStateService } from '#/session/state/sessionState';
-
-import { ILogService, type LogLevel } from '#/_base/log/log';
 import { createFileLogWriter, type FileLogWriter } from '#/_base/log/fileLog';
+import { ILogService, type LogLevel } from '#/_base/log/log';
 import { ILogOptions, resolveSessionLogPath } from '#/_base/log/logConfig';
 import { BoundLogger, type LogLevelState } from '#/_base/log/logService';
+import { defineState } from '#/_base/state/stateRegistry';
+import { LifecycleScope } from '#/app/scopes';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionStateService } from '#/session/state/sessionState';
 
 export const sessionLogRootLevelKey = defineState<LogLevelState>('sessionLog.rootLevel', () => ({
   level: 'info',

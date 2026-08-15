@@ -17,15 +17,15 @@
  * Workspace scope.
  */
 
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
-import { TimeoutTimer } from '#/_base/utils/timer';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
+import { TimeoutTimer } from '#/_base/utils/timer';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
+import { LifecycleScope } from '#/app/scopes';
 import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
 import type { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
@@ -72,9 +72,11 @@ export class WorkspaceDirsService extends Service implements IWorkspaceDirs {
     this.projectRoot = workspace.cwd;
     this.configPath = '';
     this.ready = this.enqueue(() => this.reloadFromDisk());
-    void this.ready.then(() => this.watchLocalToml()).catch((error) => {
-      this.log.warn(`workspace dirs load failed: ${String(error)}`);
-    });
+    void this.ready
+      .then(() => this.watchLocalToml())
+      .catch((error) => {
+        this.log.warn(`workspace dirs load failed: ${String(error)}`);
+      });
   }
 
   private get fileDirs(): readonly string[] {
@@ -127,10 +129,7 @@ export class WorkspaceDirsService extends Service implements IWorkspaceDirs {
     const persist = input.persist ?? true;
 
     if (persist) {
-      const persisted = await this.localConfig.appendAdditionalDir(
-        this.workspace.cwd,
-        input.path,
-      );
+      const persisted = await this.localConfig.appendAdditionalDir(this.workspace.cwd, input.path);
       this.projectRoot = persisted.projectRoot;
       this.configPath = persisted.configPath;
       const changed = this.setFileDirs(persisted.additionalDirs);
@@ -148,9 +147,7 @@ export class WorkspaceDirsService extends Service implements IWorkspaceDirs {
     const onDisk = await this.localConfig.readAdditionalDirs(this.workspace.cwd);
     this.projectRoot = onDisk.projectRoot;
     this.configPath = onDisk.configPath;
-    const resolved = await this.localConfig.resolveAdditionalDirs(this.workspace.cwd, [
-      input.path,
-    ]);
+    const resolved = await this.localConfig.resolveAdditionalDirs(this.workspace.cwd, [input.path]);
     const changed = this.unionEphemeral(resolved);
     if (changed) {
       this.onDidChangeEmitter.fire();

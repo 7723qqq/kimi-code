@@ -104,9 +104,7 @@ export function ZipDropOverlay() {
         <div className="font-mono text-[13px] text-fg-0">
           {importing ? t('zipDrop.subtitle') : t('zipDrop.title')}
         </div>
-        <div className="mt-2 font-mono text-[11px] text-fg-3">
-          {t('zipDrop.source')}
-        </div>
+        <div className="mt-2 font-mono text-[11px] text-fg-3">{t('zipDrop.source')}</div>
       </div>
     </div>
   );

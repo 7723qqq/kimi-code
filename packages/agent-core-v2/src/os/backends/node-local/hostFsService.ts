@@ -17,11 +17,15 @@ import {
   stat as nodeStat,
   writeFile,
 } from 'node:fs/promises';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { decodeTextWithErrors, type TextDecodeErrors } from '#/_base/execEnv/decodeText';
-
-import { type HostDirEntry, type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { LifecycleScope } from '#/app/scopes';
+import {
+  type HostDirEntry,
+  type HostFileStat,
+  IHostFileSystem,
+} from '#/os/interface/hostFileSystem';
 import { toHostFsError } from '#/os/interface/hostFsErrors';
 
 const READ_CHUNK_SIZE = 64 * 1024;
@@ -126,10 +130,7 @@ export class HostFileSystem implements IHostFileSystem {
     }
   }
 
-  private async *_readUtf8Lines(
-    path: string,
-    errors: TextDecodeErrors,
-  ): AsyncGenerator<string> {
+  private async *_readUtf8Lines(path: string, errors: TextDecodeErrors): AsyncGenerator<string> {
     const fh = await open(path, 'r');
     try {
       const buf = Buffer.alloc(READ_CHUNK_SIZE);

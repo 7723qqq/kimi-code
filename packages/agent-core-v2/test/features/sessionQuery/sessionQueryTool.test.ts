@@ -7,9 +7,10 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ISessionQueryService } from '#/features/sessionQuery/sessionQueryService';
-import type { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { SessionSearchCursor } from '#/features/sessionQuery/cursor';
+import type { SessionEventSearchHit, SessionSearchHit } from '#/features/sessionQuery/events';
+import type { ISessionQueryService } from '#/features/sessionQuery/sessionQueryService';
 import { SessionQueryTool } from '#/features/sessionQuery/sessionQueryTool';
 import {
   buildEventFilters,
@@ -17,10 +18,13 @@ import {
   normalizeQuery,
   sessionSearchInputSchema,
 } from '#/features/sessionQuery/toolInput';
-import { formatEventSearch, formatSessionSearch, formatSessionTrace } from '#/features/sessionQuery/toolPresentation';
-import { SessionSearchCursor } from '#/features/sessionQuery/cursor';
-import type { SessionEventSearchHit, SessionSearchHit } from '#/features/sessionQuery/events';
+import {
+  formatEventSearch,
+  formatSessionSearch,
+  formatSessionTrace,
+} from '#/features/sessionQuery/toolPresentation';
 import type { SessionLineageTrace, SessionRecord } from '#/features/sessionQuery/types';
+import type { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { ExecutableToolContext } from '#/tool/toolContract';
 
 function sessionContextStub(): ISessionContext {
@@ -57,10 +61,7 @@ function makeTool(query: Partial<ISessionQueryService>): SessionQueryTool {
   );
 }
 
-function hit(
-  id: string,
-  overrides: Partial<SessionSearchHit> = {},
-): SessionSearchHit {
+function hit(id: string, overrides: Partial<SessionSearchHit> = {}): SessionSearchHit {
   return {
     id,
     workspaceId: 'ws',
@@ -68,7 +69,13 @@ function hit(
     createdAt: 1000,
     live: true,
     persisted: true,
-    bestMatch: { sessionId: id, seq: 1, type: 'context.append_message', time: 900, snippet: 'token match here' },
+    bestMatch: {
+      sessionId: id,
+      seq: 1,
+      type: 'context.append_message',
+      time: 900,
+      snippet: 'token match here',
+    },
     ...overrides,
   };
 }
@@ -102,7 +109,9 @@ describe('toolInput', () => {
   });
 
   it('rejects empty filter arrays', () => {
-    expect(() => buildSessionFilters({ query: 'x', session_ids: [] })).toThrowError(/at least one value/);
+    expect(() => buildSessionFilters({ query: 'x', session_ids: [] })).toThrowError(
+      /at least one value/,
+    );
   });
 
   it('builds event filters with inclusive ranges', () => {
@@ -112,10 +121,18 @@ describe('toolInput', () => {
   });
 
   it('parses ISO timestamps and rejects inverted ranges', () => {
-    const filters = buildEventFilters({ timeFrom: '2026-08-01T00:00:00Z', timeTo: '2026-08-02T00:00:00Z' });
-    expect(filters).toContainEqual({ kind: 'time', from: Date.parse('2026-08-01T00:00:00Z'), to: Date.parse('2026-08-02T00:00:00Z') });
-    expect(() => buildEventFilters({ timeFrom: '2026-08-02T00:00:00Z', timeTo: '2026-08-01T00:00:00Z' }))
-      .toThrowError(/less than or equal to/);
+    const filters = buildEventFilters({
+      timeFrom: '2026-08-01T00:00:00Z',
+      timeTo: '2026-08-02T00:00:00Z',
+    });
+    expect(filters).toContainEqual({
+      kind: 'time',
+      from: Date.parse('2026-08-01T00:00:00Z'),
+      to: Date.parse('2026-08-02T00:00:00Z'),
+    });
+    expect(() =>
+      buildEventFilters({ timeFrom: '2026-08-02T00:00:00Z', timeTo: '2026-08-01T00:00:00Z' }),
+    ).toThrowError(/less than or equal to/);
     expect(() => buildEventFilters({ timeFrom: 'not-a-date' })).toThrowError(/ISO 8601/);
   });
 
@@ -126,7 +143,9 @@ describe('toolInput', () => {
   });
 
   it('validates the session-search schema', () => {
-    expect(sessionSearchInputSchema.safeParse({ query: 'x', session_ids: ['a'] }).success).toBe(true);
+    expect(sessionSearchInputSchema.safeParse({ query: 'x', session_ids: ['a'] }).success).toBe(
+      true,
+    );
     expect(sessionSearchInputSchema.safeParse({ query: 'x', unknown_arg: 1 }).success).toBe(false);
   });
 });
@@ -134,7 +153,19 @@ describe('toolInput', () => {
 describe('SessionQueryTool session_search', () => {
   it('searches the workspace and renders hits', async () => {
     const searchSessions = vi.fn(async () => ({
-      items: [hit('sess-a'), hit('sess-b', { live: false, bestMatch: { sessionId: 'sess-b', seq: 3, type: 'llm.request', time: 800, snippet: 'second match' } })],
+      items: [
+        hit('sess-a'),
+        hit('sess-b', {
+          live: false,
+          bestMatch: {
+            sessionId: 'sess-b',
+            seq: 3,
+            type: 'llm.request',
+            time: 800,
+            snippet: 'second match',
+          },
+        }),
+      ],
       nextCursor: undefined,
     }));
     const tool = makeTool({ searchSessions });
@@ -146,7 +177,9 @@ describe('SessionQueryTool session_search', () => {
     expect(result.output).toContain('Snippet: token match here');
     // The caller's cwd is enforced.
     const calls = searchSessions.mock.calls as unknown as [unknown?][];
-    const request = calls[0]?.[0] as { sessionFilters: readonly { kind: string; values: readonly (string | null)[] }[] } | undefined;
+    const request = calls[0]?.[0] as
+      | { sessionFilters: readonly { kind: string; values: readonly (string | null)[] }[] }
+      | undefined;
     expect(request?.sessionFilters).toContainEqual({ kind: 'cwd', values: ['/work'] });
   });
 
@@ -169,7 +202,15 @@ describe('SessionQueryTool event_search', () => {
   it('searches the current session by default', async () => {
     const searchEvents = vi.fn(async () => ({
       sessionId: 'sess-current',
-      items: [{ sessionId: 'sess-current', seq: 4, type: 'context.append_message', time: 500, snippet: 'found it' }],
+      items: [
+        {
+          sessionId: 'sess-current',
+          seq: 4,
+          type: 'context.append_message',
+          time: 500,
+          snippet: 'found it',
+        },
+      ],
       nextCursor: undefined,
     }));
     const tool = makeTool({ searchEvents });
@@ -184,7 +225,11 @@ describe('SessionQueryTool event_search', () => {
   });
 
   it('targets an explicit session id', async () => {
-    const searchEvents = vi.fn(async () => ({ sessionId: 'sess-x', items: [], nextCursor: undefined }));
+    const searchEvents = vi.fn(async () => ({
+      sessionId: 'sess-x',
+      items: [],
+      nextCursor: undefined,
+    }));
     const tool = makeTool({ searchEvents });
     await execute(tool, 'event_search', { query: 'q', session_id: 'sess-x' });
     const calls = searchEvents.mock.calls as unknown as [unknown?][];
@@ -221,7 +266,13 @@ describe('presentation', () => {
   });
 
   it('renders event search', () => {
-    const item: SessionEventSearchHit = { sessionId: 's', seq: 1, type: 't', time: 1, snippet: 'snip' };
+    const item: SessionEventSearchHit = {
+      sessionId: 's',
+      seq: 1,
+      type: 't',
+      time: 1,
+      snippet: 'snip',
+    };
     const output = formatEventSearch('s', [item], false);
     expect(output).toContain('seq 1 | t');
   });

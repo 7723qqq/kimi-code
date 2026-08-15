@@ -15,6 +15,8 @@ import type {
   RegisterAgentTaskOptions,
 } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
+import type { SubagentTaskInfo } from '#/agent/tools/agent/subagent-task';
+import type { ProcessTaskInfo } from '#/agent/tools/os/bash/process-task';
 import { TaskListInputSchema } from '#/agent/tools/task/task-list/task-list';
 import { TaskListTool } from '#/agent/tools/task/task-list/taskListTool';
 import { TaskOutputInputSchema } from '#/agent/tools/task/task-output/task-output';
@@ -23,17 +25,12 @@ import { TaskStopInputSchema } from '#/agent/tools/task/task-stop/task-stop';
 import { TaskStopTool } from '#/agent/tools/task/task-stop/taskStopTool';
 import type { ITaskHandle } from '#/app/task/task';
 import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
-import type { ProcessTaskInfo } from '#/agent/tools/os/bash/process-task';
-import type { SubagentTaskInfo } from '#/agent/tools/agent/subagent-task';
+
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
 
-function context<Input>(
-  toolCallId: string,
-  args: Input,
-  executionSignal: AbortSignal = signal,
-) {
+function context<Input>(toolCallId: string, args: Input, executionSignal: AbortSignal = signal) {
   return { turnId: 0, toolCallId, args, signal: executionSignal };
 }
 
@@ -42,9 +39,7 @@ function outputString(result: { readonly output: string | readonly unknown[] }):
   return result.output as string;
 }
 
-function processTask(
-  overrides: Partial<ProcessTaskInfo> = {},
-): ProcessTaskInfo {
+function processTask(overrides: Partial<ProcessTaskInfo> = {}): ProcessTaskInfo {
   return {
     taskId: 'bash-abc12345',
     kind: 'process',
@@ -60,9 +55,7 @@ function processTask(
   };
 }
 
-function agentTaskInfo(
-  overrides: Partial<SubagentTaskInfo> = {},
-): SubagentTaskInfo {
+function agentTaskInfo(overrides: Partial<SubagentTaskInfo> = {}): SubagentTaskInfo {
   return {
     taskId: 'agent-abc12345',
     kind: 'agent',
@@ -106,10 +99,7 @@ class FakeTaskService implements IAgentTaskService {
 
   private readonly entries = new Map<string, FakeTaskEntry>();
 
-  add(
-    info: AgentTaskInfo,
-    output: AgentTaskOutputSnapshot = outputSnapshot(),
-  ): string {
+  add(info: AgentTaskInfo, output: AgentTaskOutputSnapshot = outputSnapshot()): string {
     this.entries.set(info.taskId, { info, output });
     return info.taskId;
   }
@@ -212,9 +202,7 @@ class FakeTaskService implements IAgentTaskService {
     return this.entries.get(taskId)?.info;
   }
 
-  async waitForForegroundRelease(
-    taskId: string,
-  ): Promise<ForegroundTaskReleaseReason | undefined> {
+  async waitForForegroundRelease(taskId: string): Promise<ForegroundTaskReleaseReason | undefined> {
     return this.entries.has(taskId) ? 'detached' : undefined;
   }
 }
@@ -255,9 +243,7 @@ describe('TaskListTool', () => {
       context('task_list_empty_all', { active_only: false }),
     );
 
-    expect(outputString(result)).toContain(
-      'background_tasks: 0\nNo background tasks found.',
-    );
+    expect(outputString(result)).toContain('background_tasks: 0\nNo background tasks found.');
   });
 
   it('lists active process tasks', async () => {
@@ -283,41 +269,38 @@ describe('TaskListTool', () => {
     expect(output).toContain('description: running list');
   });
 
-  it(
-    'excludes terminal tasks from active_only=true and includes them when all tasks are listed',
-    async () => {
-      const tasks = new FakeTaskService();
-      const taskId = tasks.add(
-        processTask({
-          taskId: 'bash-failed01',
-          command: 'exit 7',
-          description: 'exit code test',
-          status: 'failed',
-          endedAt: 1_700_000_001_000,
-          exitCode: 7,
-        }),
-      );
+  it('excludes terminal tasks from active_only=true and includes them when all tasks are listed', async () => {
+    const tasks = new FakeTaskService();
+    const taskId = tasks.add(
+      processTask({
+        taskId: 'bash-failed01',
+        command: 'exit 7',
+        description: 'exit code test',
+        status: 'failed',
+        endedAt: 1_700_000_001_000,
+        exitCode: 7,
+      }),
+    );
 
-      const active = await executeTool(
-        new TaskListTool(tasks),
-        context('task_list_active_terminal', { active_only: true }),
-      );
-      expect(outputString(active)).toContain(
-        'active_background_tasks: 0\nNo background tasks found.',
-      );
+    const active = await executeTool(
+      new TaskListTool(tasks),
+      context('task_list_active_terminal', { active_only: true }),
+    );
+    expect(outputString(active)).toContain(
+      'active_background_tasks: 0\nNo background tasks found.',
+    );
 
-      const all = await executeTool(
-        new TaskListTool(tasks),
-        context('task_list_all_terminal', { active_only: false }),
-      );
-      const output = outputString(all);
+    const all = await executeTool(
+      new TaskListTool(tasks),
+      context('task_list_all_terminal', { active_only: false }),
+    );
+    const output = outputString(all);
 
-      expect(output).toMatch(/^background_tasks:\s*1/);
-      expect(output).toContain(taskId);
-      expect(output).toContain('status: failed');
-      expect(output).toContain('exit_code: 7');
-    },
-  );
+    expect(output).toMatch(/^background_tasks:\s*1/);
+    expect(output).toContain(taskId);
+    expect(output).toContain('status: failed');
+    expect(output).toContain('exit_code: 7');
+  });
 
   it('honours the limit parameter', async () => {
     const tasks = new FakeTaskService();
@@ -489,7 +472,9 @@ describe('TaskOutputTool', () => {
   });
 
   it('rejects stale block/timeout args at the validator instead of waiting', () => {
-    const validator = compileToolArgsValidator(new TaskOutputTool(new FakeTaskService()).parameters);
+    const validator = compileToolArgsValidator(
+      new TaskOutputTool(new FakeTaskService()).parameters,
+    );
 
     expect(validateToolArgs(validator, { task_id: 'bash-1' })).toBeNull();
     const stale = validateToolArgs(validator, { task_id: 'bash-1', block: true, timeout: 1 });

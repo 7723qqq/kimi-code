@@ -39,7 +39,11 @@ export class StatusMessageComponent extends Container {
       this.color === undefined
         ? currentTheme.fg('textDim', this.content)
         : currentTheme.fg(this.color, this.content);
-    return colored.replaceAll('\r', '').split('\n').map((line) => `  ${line}`).join('\n');
+    return colored
+      .replaceAll('\r', '')
+      .split('\n')
+      .map((line) => `  ${line}`)
+      .join('\n');
   }
 }
 

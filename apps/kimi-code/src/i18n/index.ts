@@ -104,9 +104,10 @@ function ensureNative(): NativeModule {
     // In a SEA binary the module is a native asset, not a bundled JS module.
     // Load it from the extracted cache via getNativePackageRoot.
     const pkgRoot = getNativePackageRoot('@moonshot-ai/kimi-native-tools');
-    if (pkgRoot === null) throw new Error(
-      'Failed to load @moonshot-ai/kimi-native-tools: not available as a bundled module or native asset.',
-    );
+    if (pkgRoot === null)
+      throw new Error(
+        'Failed to load @moonshot-ai/kimi-native-tools: not available as a bundled module or native asset.',
+      );
     const { createRequire } = require('node:module');
     const { join } = require('node:path');
     const cacheRequire = createRequire(join(pkgRoot, 'index.js'));
@@ -117,11 +118,11 @@ function ensureNative(): NativeModule {
   }
 }
 
-function toNativeParams(params?: Record<string, string | number>): Record<string, string> | undefined {
+function toNativeParams(
+  params?: Record<string, string | number>,
+): Record<string, string> | undefined {
   return params
-    ? Object.fromEntries(
-        Object.entries(params).map(([k, v]) => [k, String(v)]),
-      )
+    ? Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)]))
     : undefined;
 }
 
@@ -144,33 +145,20 @@ export interface CreateI18nOptions {
 export function createI18n(options: CreateI18nOptions = {}): I18nInstance {
   // An explicit initialLocale always wins; noDetect only suppresses
   // env-based detection (falling back to 'en') when no locale was given.
-  let currentLocale: Locale = options.initialLocale
-    ?? (options.noDetect ? 'en' : detectLocaleNode());
+  let currentLocale: Locale =
+    options.initialLocale ?? (options.noDetect ? 'en' : detectLocaleNode());
 
   let localeCurrentJson = JSON.stringify(messages[currentLocale]);
 
   return {
-    t(
-      key: TranslationKey | (string & {}),
-      params?: Record<string, string | number>,
-    ): string {
+    t(key: TranslationKey | (string & {}), params?: Record<string, string | number>): string {
       const native = ensureNative();
       const stringParams = toNativeParams(params);
 
       if (native.nativeTranslateCached) {
-        return native.nativeTranslateCached(
-          localeCurrentJson,
-          localeJsonEn!,
-          key,
-          stringParams,
-        );
+        return native.nativeTranslateCached(localeCurrentJson, localeJsonEn!, key, stringParams);
       }
-      return native.nativeTranslate(
-        localeCurrentJson,
-        localeJsonEn!,
-        key,
-        stringParams,
-      );
+      return native.nativeTranslate(localeCurrentJson, localeJsonEn!, key, stringParams);
     },
 
     setLocale(locale: Locale): void {
@@ -215,12 +203,7 @@ export function createI18n(options: CreateI18nOptions = {}): I18nInstance {
         );
       }
       if (native.nativeTranslateBatch) {
-        return native.nativeTranslateBatch(
-          localeCurrentJson,
-          localeJsonEn!,
-          keys,
-          stringParams,
-        );
+        return native.nativeTranslateBatch(localeCurrentJson, localeJsonEn!, keys, stringParams);
       }
       // Last-resort: translate each key individually.
       return keys.map((key) => ({

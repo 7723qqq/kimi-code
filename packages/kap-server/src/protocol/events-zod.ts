@@ -14,7 +14,6 @@ import type {
   TaskOrigin,
   UserPromptOrigin,
 } from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
-import { messageContentSchema } from './message';
 import type { HookResultEvent } from '@moonshot-ai/agent-core-v2/agent/externalHooks/externalHooksService';
 import type {
   CompactionBlockedEvent,
@@ -51,8 +50,8 @@ import type {
 } from '@moonshot-ai/agent-core-v2/agent/mcp/mcpService';
 import type { McpOAuthAuthorizationUrlUpdateData } from '@moonshot-ai/agent-core-v2/agent/mcp/tools/auth';
 import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
-import type { WarningEvent } from '@moonshot-ai/agent-core-v2/agent/profile/profileService';
 import type { PluginCommandActivatedEvent } from '@moonshot-ai/agent-core-v2/agent/pluginCommand/pluginCommand';
+import type { WarningEvent } from '@moonshot-ai/agent-core-v2/agent/profile/profileService';
 import type {
   ShellCompletedEvent,
   ShellOutputEvent,
@@ -66,6 +65,7 @@ import type {
   ToolResultEvent,
 } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 import type { UsageStatus } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
+import type { SubagentSuspendedEvent } from '@moonshot-ai/agent-core-v2/features/swarm/session/sessionSwarmService';
 import type { FinishReason } from '@moonshot-ai/agent-core-v2/kosong/contract/provider';
 import type { TokenUsage } from '@moonshot-ai/agent-core-v2/kosong/contract/usage';
 import type {
@@ -74,7 +74,6 @@ import type {
   SubagentSpawnedEvent,
   SubagentStartedEvent,
 } from '@moonshot-ai/agent-core-v2/session/subagent/mirrorAgentRun';
-import type { SubagentSuspendedEvent } from '@moonshot-ai/agent-core-v2/features/swarm/session/sessionSwarmService';
 import type { ToolUpdate } from '@moonshot-ai/agent-core-v2/tool/toolContract';
 /**
  * Zod schema half of the v1 event catalog (`packages/protocol/src/events.ts`),
@@ -87,6 +86,7 @@ import type { ToolUpdate } from '@moonshot-ai/agent-core-v2/tool/toolContract';
 import { z } from 'zod';
 
 import { ToolInputDisplaySchema } from './display';
+import { messageContentSchema } from './message';
 import { configResponseSchema } from './rest-config';
 import { sessionPendingInteractionSchema, sessionSchema } from './session';
 import { workspaceSchema } from './workspace';
@@ -427,9 +427,7 @@ export const kimiErrorCodeSchema = z.enum([
   'internal',
 ]);
 
-export const kimiErrorPayloadSchema: z.ZodType = z.lazy(
-  () => kimiErrorPayloadObjectSchema,
-);
+export const kimiErrorPayloadSchema: z.ZodType = z.lazy(() => kimiErrorPayloadObjectSchema);
 
 const kimiErrorPayloadObjectSchema = z.object({
   code: kimiErrorCodeSchema,

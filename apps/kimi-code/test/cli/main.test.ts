@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { validateOptions } from '#/cli/options';
 import type { CLIOptions } from '#/cli/options';
@@ -232,7 +232,9 @@ describe('main entry command handling', () => {
 
     expect(exitCode).toBeNull();
     expect(validateOptions).toHaveBeenCalledWith(opts);
-    expect(runUpdatePreflight).toHaveBeenCalledWith('0.0.1-alpha.2', { track: expect.any(Function) });
+    expect(runUpdatePreflight).toHaveBeenCalledWith('0.0.1-alpha.2', {
+      track: expect.any(Function),
+    });
     expect(mocks.runUpdatePreflight.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.runShell.mock.invocationCallOrder[0]!,
     );
@@ -313,9 +315,11 @@ describe('main entry command handling', () => {
     mocks.runUpdatePreflight.mockResolvedValue('continue');
     mocks.runPrompt.mockRejectedValue(new Error('provider failed'));
     mocks.flushDiagnosticLogs.mockImplementation(() => new Promise(() => {}));
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
-      throw new ExitCalled(Number(code ?? 0));
-    });
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((code?: string | number | null) => {
+        throw new ExitCalled(Number(code ?? 0));
+      });
 
     try {
       main();
@@ -388,31 +392,35 @@ describe('main entry command handling', () => {
 
     expect(exitCode).toBe(0);
     expect(mocks.createCliTelemetryBootstrap).toHaveBeenCalledTimes(1);
-    expect(mocks.createKimiHarnessV2).toHaveBeenCalledWith(expect.objectContaining({
-      homeDir: '/tmp/kimi-home',
-      telemetry: {
-        track: mocks.track,
-        withContext: mocks.withTelemetryContext,
-        setContext: mocks.setTelemetryContext,
-      },
-    }));
-    expect(mocks.harness.ensureConfigFile).toHaveBeenCalledTimes(1);
-    expect(mocks.initializeCliTelemetry).toHaveBeenCalledWith(expect.objectContaining({
-      harness: expect.objectContaining({
+    expect(mocks.createKimiHarnessV2).toHaveBeenCalledWith(
+      expect.objectContaining({
         homeDir: '/tmp/kimi-home',
+        telemetry: {
+          track: mocks.track,
+          withContext: mocks.withTelemetryContext,
+          setContext: mocks.setTelemetryContext,
+        },
       }),
-      bootstrap: {
-        homeDir: '/tmp/kimi-home',
-        deviceId: 'device-id',
-        firstLaunch: false,
-      },
-      config: {
-        defaultModel: 'kimi-k2',
-        telemetry: true,
-      },
-      version: '0.0.1-alpha.2',
-      uiMode: 'shell',
-    }));
+    );
+    expect(mocks.harness.ensureConfigFile).toHaveBeenCalledTimes(1);
+    expect(mocks.initializeCliTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        harness: expect.objectContaining({
+          homeDir: '/tmp/kimi-home',
+        }),
+        bootstrap: {
+          homeDir: '/tmp/kimi-home',
+          deviceId: 'device-id',
+          firstLaunch: false,
+        },
+        config: {
+          defaultModel: 'kimi-k2',
+          telemetry: true,
+        },
+        version: '0.0.1-alpha.2',
+        uiMode: 'shell',
+      }),
+    );
     expect(mocks.handleUpgrade).toHaveBeenCalledWith('0.0.1-alpha.2', {
       track: mocks.track,
       logger: mocks.log,

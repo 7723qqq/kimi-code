@@ -38,10 +38,22 @@ function handleMessage(message) {
       return;
     }
     send({ jsonrpc: '2.0', id: message.id, result: { turnId: 'turn-1' } });
-    send({ jsonrpc: '2.0', method: 'turn/updated', params: { threadId: 'thread-1', turnId: 'turn-1', text: 'hello ' } });
-    send({ jsonrpc: '2.0', method: 'turn/updated', params: { threadId: 'thread-1', turnId: 'turn-1', text: 'world' } });
+    send({
+      jsonrpc: '2.0',
+      method: 'turn/updated',
+      params: { threadId: 'thread-1', turnId: 'turn-1', text: 'hello ' },
+    });
+    send({
+      jsonrpc: '2.0',
+      method: 'turn/updated',
+      params: { threadId: 'thread-1', turnId: 'turn-1', text: 'world' },
+    });
     const complete = () => {
-      send({ jsonrpc: '2.0', method: 'turn/complete', params: { threadId: 'thread-1', turnId: 'turn-1', status: 'completed' } });
+      send({
+        jsonrpc: '2.0',
+        method: 'turn/complete',
+        params: { threadId: 'thread-1', turnId: 'turn-1', status: 'completed' },
+      });
     };
     if (slowMs > 0) {
       setTimeout(complete, slowMs);

@@ -11,8 +11,8 @@ import { ISessionIndex, type SessionSummary } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../../src/start';
-import { TEST_HOST_IDENTITY } from '../helpers/hostIdentity';
 import { authedFetch } from '../helpers/auth';
+import { TEST_HOST_IDENTITY } from '../helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -271,60 +271,69 @@ describe('server-v2 session routes with the global search DB unavailable', () =>
     return (await res.json()) as Envelope<T>;
   }
 
-  it('session list / create / get / cold resume pass with the search index down', { timeout: 30_000 }, async () => {
-    await boot();
-    // create (the write path)
-    const created = await postJson<{ id: string }>('/api/v1/sessions', {
-      metadata: { cwd: home },
-    });
-    expect(created.code).toBe(0);
-    const id = created.data.id;
-    // list (the listSessions path)
-    const list = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
-    expect(list.code).toBe(0);
-    expect(list.data.items.map((item) => item.id)).toContain(id);
-    await server!.close();
-    server = undefined;
+  it(
+    'session list / create / get / cold resume pass with the search index down',
+    { timeout: 30_000 },
+    async () => {
+      await boot();
+      // create (the write path)
+      const created = await postJson<{ id: string }>('/api/v1/sessions', {
+        metadata: { cwd: home },
+      });
+      expect(created.code).toBe(0);
+      const id = created.data.id;
+      // list (the listSessions path)
+      const list = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
+      expect(list.code).toBe(0);
+      expect(list.data.items.map((item) => item.id)).toContain(id);
+      await server!.close();
+      server = undefined;
 
-    // A fresh server over the same home: every session is cold, so the
-    // messages route resumes it from authoritative metadata — the
-    // `--resume` / `--continue` equivalent.
-    await boot();
-    const coldList = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
-    expect(coldList.code).toBe(0);
-    expect(coldList.data.items.map((item) => item.id)).toContain(id);
-    const got = await getJson<{ id: string }>(`/api/v1/sessions/${id}`);
-    expect(got.code).toBe(0);
-    const messages = await getJson<{ items: unknown[] }>(`/api/v1/sessions/${id}/messages`);
-    expect(messages.code).toBe(0);
+      // A fresh server over the same home: every session is cold, so the
+      // messages route resumes it from authoritative metadata — the
+      // `--resume` / `--continue` equivalent.
+      await boot();
+      const coldList = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
+      expect(coldList.code).toBe(0);
+      expect(coldList.data.items.map((item) => item.id)).toContain(id);
+      const got = await getJson<{ id: string }>(`/api/v1/sessions/${id}`);
+      expect(got.code).toBe(0);
+      const messages = await getJson<{ items: unknown[] }>(`/api/v1/sessions/${id}/messages`);
+      expect(messages.code).toBe(0);
 
-    // The session flows never opened the search database: the sabotage file
-    // is still exactly what the test planted.
-    const probe = await stat(join(home as string, 'search-index'));
-    expect(probe.isFile()).toBe(true);
-  });
+      // The session flows never opened the search database: the sabotage file
+      // is still exactly what the test planted.
+      const probe = await stat(join(home as string, 'search-index'));
+      expect(probe.isFile()).toBe(true);
+    },
+  );
 
-  it('only the full-text search request reports the index outage', { timeout: 30_000 }, async () => {
-    await boot();
-    const created = await postJson<{ id: string }>('/api/v1/sessions', {
-      metadata: { cwd: home },
-    });
-    expect(created.code).toBe(0);
+  it(
+    'only the full-text search request reports the index outage',
+    { timeout: 30_000 },
+    async () => {
+      await boot();
+      const created = await postJson<{ id: string }>('/api/v1/sessions', {
+        metadata: { cwd: home },
+      });
+      expect(created.code).toBe(0);
 
-    // The search request surfaces the failure (50001) once the boot-time
-    // background open has failed; until then it may answer `building`.
-    await expect
-      .poll(
-        async () => (await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' })).code,
-        { timeout: 10_000, interval: 100 },
-      )
-      .toBe(50001);
-    const search = await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' });
-    expect(search.code).toBe(50001);
-    expect(search.msg).toContain('search index failed to open');
+      // The search request surfaces the failure (50001) once the boot-time
+      // background open has failed; until then it may answer `building`.
+      await expect
+        .poll(
+          async () =>
+            (await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' })).code,
+          { timeout: 10_000, interval: 100 },
+        )
+        .toBe(50001);
+      const search = await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' });
+      expect(search.code).toBe(50001);
+      expect(search.msg).toContain('search index failed to open');
 
-    // Session routes stay green throughout.
-    const list = await getJson<{ items: unknown[] }>('/api/v1/sessions');
-    expect(list.code).toBe(0);
-  });
+      // Session routes stay green throughout.
+      const list = await getJson<{ items: unknown[] }>('/api/v1/sessions');
+      expect(list.code).toBe(0);
+    },
+  );
 });

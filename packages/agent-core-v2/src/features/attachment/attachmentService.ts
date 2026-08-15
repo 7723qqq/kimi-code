@@ -14,9 +14,10 @@
 import { Service } from '#/_base/di/service';
 import { IConfigService } from '#/app/config/config';
 
-import { AttachmentError } from './errors';
 import { detectImage, probeImage } from './attachmentImage';
+import { privateRoot } from './attachmentRoot';
 import { displayName, readObject, saveObject } from './attachmentStore';
+import { AttachmentError } from './errors';
 import {
   type IAttachmentService,
   type ImageAttachmentLimits,
@@ -24,7 +25,6 @@ import {
   type SaveImageAttachment,
   type AttachmentId,
 } from './types';
-import { privateRoot } from './attachmentRoot';
 
 const DEFAULT_LIMITS: ImageAttachmentLimits = {
   maxImageBytes: 20 * 1024 * 1024,
@@ -44,7 +44,9 @@ export class AttachmentService extends Service implements IAttachmentService {
   }
 
   private limits(): ImageAttachmentLimits {
-    const section = this.configService.get<{ limits?: Partial<ImageAttachmentLimits> }>('attachment');
+    const section = this.configService.get<{ limits?: Partial<ImageAttachmentLimits> }>(
+      'attachment',
+    );
     return section?.limits === undefined
       ? DEFAULT_LIMITS
       : { ...DEFAULT_LIMITS, ...section.limits };
@@ -56,7 +58,10 @@ export class AttachmentService extends Service implements IAttachmentService {
       throw new AttachmentError('attachment.invalid_image', 'Image is empty.');
     }
     if (input.data.byteLength > limits.maxImageBytes) {
-      throw new AttachmentError('attachment.image_too_large', 'Image exceeds the configured byte limit.');
+      throw new AttachmentError(
+        'attachment.image_too_large',
+        'Image exceeds the configured byte limit.',
+      );
     }
     if (!limits.mediaTypes.includes(input.mediaType)) {
       throw new AttachmentError(
@@ -82,7 +87,9 @@ export class AttachmentService extends Service implements IAttachmentService {
     };
   }
 
-  async readImage(attachmentId: AttachmentId): Promise<{ ref: ImageAttachmentRef; data: Uint8Array }> {
+  async readImage(
+    attachmentId: AttachmentId,
+  ): Promise<{ ref: ImageAttachmentRef; data: Uint8Array }> {
     const data = await readObject(this.root(), attachmentId);
     const detected = probeImage(data);
     return {

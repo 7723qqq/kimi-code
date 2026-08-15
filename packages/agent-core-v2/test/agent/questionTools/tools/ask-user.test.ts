@@ -10,20 +10,21 @@ import { describe, expect, it, vi } from 'vitest';
 import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
 import { type ILogService } from '#/_base/log/log';
+import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import type { IAgentTaskService } from '#/agent/task/task';
 import {
   AskUserQuestionInputSchema,
   type AskUserQuestionInput,
 } from '#/agent/tools/ask-user-question/ask-user-question';
 import { AskUserQuestionTool } from '#/agent/tools/ask-user-question/askUserQuestionTool';
+import type { QuestionBackgroundTask } from '#/agent/tools/ask-user-question/question-background-task';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { IAgentTaskService } from '#/agent/task/task';
-import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type {
   ISessionQuestionService,
   QuestionRequest,
   QuestionResult,
 } from '#/session/question/question';
-import type { QuestionBackgroundTask } from '#/agent/tools/ask-user-question/question-background-task';
+
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -78,7 +79,14 @@ function makeTool(
   const scopeContext = { agentId: 'main' } as unknown as IAgentScopeContext;
   const log = { warn: vi.fn() } as unknown as ILogService;
   const tool = new AskUserQuestionTool(question, telemetry, tasks, scopeContext, log);
-  return { tool, request, telemetryTrack, registerTask, getTask, lastRegisteredTask: () => lastTask };
+  return {
+    tool,
+    request,
+    telemetryTrack,
+    registerTask,
+    getTask,
+    lastRegisteredTask: () => lastTask,
+  };
 }
 
 describe('AskUserQuestionTool', () => {
@@ -120,9 +128,7 @@ describe('AskUserQuestionTool', () => {
   });
 
   it('rejects empty question text and empty option labels at the schema layer', () => {
-    expect(
-      AskUserQuestionInputSchema.safeParse(input({ question: '' })).success,
-    ).toBe(false);
+    expect(AskUserQuestionInputSchema.safeParse(input({ question: '' })).success).toBe(false);
     expect(
       AskUserQuestionInputSchema.safeParse(
         input({
@@ -176,10 +182,7 @@ describe('AskUserQuestionTool', () => {
 
   it('allows the same option label to appear in different questions', async () => {
     const args: AskUserQuestionInput = {
-      questions: [
-        input().questions[0]!,
-        input({ question: 'Which cache?' }).questions[0]!,
-      ],
+      questions: [input().questions[0]!, input({ question: 'Which cache?' }).questions[0]!],
     };
     expect(AskUserQuestionInputSchema.safeParse(args).success).toBe(true);
 
@@ -410,10 +413,7 @@ describe('AskUserQuestionTool', () => {
   it('returns a distinct hard error when the host signals unsupported', async () => {
     const { tool } = makeTool({
       request: async () => {
-        throw new Error2(
-          CoreErrors.codes.NOT_IMPLEMENTED,
-          'Client does not support questions',
-        );
+        throw new Error2(CoreErrors.codes.NOT_IMPLEMENTED, 'Client does not support questions');
       },
     });
 
@@ -519,7 +519,7 @@ describe('AskUserQuestionTool', () => {
 
     it('tracks individual question answer counts correctly', async () => {
       const { tool, telemetryTrack } = makeTool({
-        request: async () => ({ answers: { Postgres: true } } as QuestionResult),
+        request: async () => ({ answers: { Postgres: true } }) as QuestionResult,
       });
 
       const result = await executeTool(tool, {
@@ -555,11 +555,9 @@ describe('AskUserQuestionTool', () => {
         label: `Option ${String(i)}`,
         description: `Description ${String(i)}`,
       }));
-      expect(
-        AskUserQuestionInputSchema.safeParse(
-          input({ options: manyOptions }),
-        ).success,
-      ).toBe(false);
+      expect(AskUserQuestionInputSchema.safeParse(input({ options: manyOptions })).success).toBe(
+        false,
+      );
     });
   });
 });

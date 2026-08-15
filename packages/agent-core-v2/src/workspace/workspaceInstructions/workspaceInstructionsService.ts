@@ -17,16 +17,16 @@
  * Workspace scope.
  */
 
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
-import { TimeoutTimer } from '#/_base/utils/timer';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
+import { TimeoutTimer } from '#/_base/utils/timer';
 import { agentsMdWatchRoots, loadAgentsMdForRoots } from '#/agent/profile/context';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
@@ -46,10 +46,7 @@ export const workspaceInstructionsCurrentKey = defineState<WorkspaceInstructions
   () => ({ agentsMd: undefined, agentsMdWarning: undefined, agentsMdPaths: undefined }),
 );
 
-export class WorkspaceInstructionsService
-  extends Service
-  implements IWorkspaceInstructionsService
-{
+export class WorkspaceInstructionsService extends Service implements IWorkspaceInstructionsService {
   declare readonly _serviceBrand: undefined;
 
   readonly ready: Promise<void>;
@@ -88,25 +85,27 @@ export class WorkspaceInstructionsService
   }
 
   reload(): Promise<void> {
-    const tail = this.reloadTail.catch(() => {}).then(async () => {
-      const result = await loadAgentsMdForRoots(
-        { fs: this.fs, homeDir: this.env.homeDir },
-        this.bootstrap.homeDir,
-        [this.workspace.cwd],
-      );
-      const next: WorkspaceInstructionsSnapshot = {
-        agentsMd: result.content,
-        agentsMdWarning: result.warning,
-        agentsMdPaths: result.paths,
-      };
-      const changed =
-        next.agentsMd !== this.current.agentsMd ||
-        next.agentsMdWarning !== this.current.agentsMdWarning;
-      this.current = next;
-      if (changed) {
-        this.onDidChangeEmitter.fire();
-      }
-    });
+    const tail = this.reloadTail
+      .catch(() => {})
+      .then(async () => {
+        const result = await loadAgentsMdForRoots(
+          { fs: this.fs, homeDir: this.env.homeDir },
+          this.bootstrap.homeDir,
+          [this.workspace.cwd],
+        );
+        const next: WorkspaceInstructionsSnapshot = {
+          agentsMd: result.content,
+          agentsMdWarning: result.warning,
+          agentsMdPaths: result.paths,
+        };
+        const changed =
+          next.agentsMd !== this.current.agentsMd ||
+          next.agentsMdWarning !== this.current.agentsMdWarning;
+        this.current = next;
+        if (changed) {
+          this.onDidChangeEmitter.fire();
+        }
+      });
     this.reloadTail = tail;
     return tail;
   }

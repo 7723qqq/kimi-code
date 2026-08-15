@@ -2,54 +2,55 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import Sidebar from './components/Sidebar.vue';
-import ResizeHandle from './components/ResizeHandle.vue';
-import ConversationPane from './components/chat/ConversationPane.vue';
-import FilePreview from './components/FilePreview.vue';
-import ThinkingPanel from './components/chat/ThinkingPanel.vue';
-import AgentDetailPanel from './components/chat/AgentDetailPanel.vue';
-import TrajectoryPanel from './components/chat/TrajectoryPanel.vue';
-import SubagentCatalogPanel from './components/chat/SubagentCatalogPanel.vue';
-import ToolDiffPanel from './components/chat/ToolDiffPanel.vue';
-import SideChatPanel from './components/chat/SideChatPanel.vue';
-import DiffView from './components/chat/DiffView.vue';
-import ModelPicker from './components/settings/ModelPicker.vue';
-import ProviderManager from './components/settings/ProviderManager.vue';
-import LoginDialog from './components/dialogs/LoginDialog.vue';
-import SettingsDialog from './components/settings/SettingsDialog.vue';
-import AddWorkspaceDialog from './components/dialogs/AddWorkspaceDialog.vue';
-import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
-import StatusPanel from './components/chat/StatusPanel.vue';
-import WarningToasts from './components/WarningToasts.vue';
-import MobileTopBar from './components/mobile/MobileTopBar.vue';
-import MobileSwitcherSheet from './components/mobile/MobileSwitcherSheet.vue';
-import MobileSettingsSheet from './components/mobile/MobileSettingsSheet.vue';
-import Onboarding from './components/settings/Onboarding.vue';
-import GlobalLoading from './components/GlobalLoading.vue';
-import DebugPanel from './debug/DebugPanel.vue';
-import { isTraceEnabled } from './debug/trace';
-import { useKimiWebClient } from './composables/useKimiWebClient';
-import { useConfirmDialog } from './composables/useConfirmDialog';
-import type { PromptAttachment } from './composables/useKimiWebClient';
-import type { TurnAttachment } from './types';
-import { useAuthGate } from './composables/useAuthGate';
-import { usePageTitle } from './composables/usePageTitle';
-import { useSidebarLayout } from './composables/useSidebarLayout';
-import { useFilePreview, type DetailTarget } from './composables/useFilePreview';
-import { useDetailPanel } from './composables/useDetailPanel';
-import { useIsMobile } from './composables/useIsMobile';
-import { openDialogCount } from './composables/dialogStack';
-import type { SwarmMember } from './composables/swarmGroups';
-import ServerAuthDialog from './components/ServerAuthDialog.vue';
+
 import { initServerAuth, onAuthRequired } from './api/daemon/serverAuth';
 import type { AppConfig, AppSessionUsage, ThinkingLevel } from './api/types';
+import AgentDetailPanel from './components/chat/AgentDetailPanel.vue';
+import ConversationPane from './components/chat/ConversationPane.vue';
+import DiffView from './components/chat/DiffView.vue';
+import SideChatPanel from './components/chat/SideChatPanel.vue';
+import StatusPanel from './components/chat/StatusPanel.vue';
+import SubagentCatalogPanel from './components/chat/SubagentCatalogPanel.vue';
+import ThinkingPanel from './components/chat/ThinkingPanel.vue';
+import ToolDiffPanel from './components/chat/ToolDiffPanel.vue';
+import TrajectoryPanel from './components/chat/TrajectoryPanel.vue';
+import AddWorkspaceDialog from './components/dialogs/AddWorkspaceDialog.vue';
+import ConfirmDialogHost from './components/dialogs/ConfirmDialogHost.vue';
+import LoginDialog from './components/dialogs/LoginDialog.vue';
+import FilePreview from './components/FilePreview.vue';
+import GlobalLoading from './components/GlobalLoading.vue';
+import InternalBuildBanner from './components/InternalBuildBanner.vue';
+import MobileSettingsSheet from './components/mobile/MobileSettingsSheet.vue';
+import MobileSwitcherSheet from './components/mobile/MobileSwitcherSheet.vue';
+import MobileTopBar from './components/mobile/MobileTopBar.vue';
+import ResizeHandle from './components/ResizeHandle.vue';
+import ServerAuthDialog from './components/ServerAuthDialog.vue';
+import ModelPicker from './components/settings/ModelPicker.vue';
+import Onboarding from './components/settings/Onboarding.vue';
+import ProviderManager from './components/settings/ProviderManager.vue';
+import SettingsDialog from './components/settings/SettingsDialog.vue';
+import Sidebar from './components/Sidebar.vue';
+import Button from './components/ui/Button.vue';
+import Icon from './components/ui/Icon.vue';
+import IconButton from './components/ui/IconButton.vue';
+import WarningToasts from './components/WarningToasts.vue';
+import { openDialogCount } from './composables/dialogStack';
+import type { SwarmMember } from './composables/swarmGroups';
+import { useAuthGate } from './composables/useAuthGate';
+import { useConfirmDialog } from './composables/useConfirmDialog';
+import { useDetailPanel } from './composables/useDetailPanel';
+import { useFilePreview, type DetailTarget } from './composables/useFilePreview';
+import { useIsMobile } from './composables/useIsMobile';
+import { useKimiWebClient } from './composables/useKimiWebClient';
+import type { PromptAttachment } from './composables/useKimiWebClient';
+import { usePageTitle } from './composables/usePageTitle';
+import { useSidebarLayout } from './composables/useSidebarLayout';
+import DebugPanel from './debug/DebugPanel.vue';
+import { isTraceEnabled } from './debug/trace';
+import { isMacosDesktop } from './lib/desktopFlag';
 import { commitLevel, effectiveThinkingLevel, segmentsFor } from './lib/modelThinking';
 import { stripSkillPrefix } from './lib/slashCommands';
-import Button from './components/ui/Button.vue';
-import IconButton from './components/ui/IconButton.vue';
-import Icon from './components/ui/Icon.vue';
-import InternalBuildBanner from './components/InternalBuildBanner.vue';
-import { isMacosDesktop } from './lib/desktopFlag';
+import type { TurnAttachment } from './types';
 
 // Hydrate the server-transport credential (fragment token or localStorage)
 // BEFORE the client connects, so the first REST/WS calls already carry it.
@@ -75,9 +76,7 @@ const emptyUsage: AppSessionUsage = {
 const client = useKimiWebClient();
 // When the server runs with `--dangerous-bypass-auth`, `/meta` advertises it
 // and we skip the token prompt entirely — there is no credential to enter.
-const showServerAuth = computed(
-  () => !client.dangerousBypassAuth.value && authRequired.value,
-);
+const showServerAuth = computed(() => !client.dangerousBypassAuth.value && authRequired.value);
 provide('resolveImage', client.resolveImageUrl);
 // Live swarm member roster for the inline AgentSwarm tool card. Sourced from the
 // AppTask store so the card shows each subagent's live phase; on refresh the
@@ -86,7 +85,8 @@ provide('resolveImage', client.resolveImageUrl);
 // which buildSwarmGroups filters out for the badge counter.
 provide(
   'resolveSwarmMembers',
-  (toolCallId: string): SwarmMember[] => client.swarmMembersByToolCallId.value.get(toolCallId) ?? [],
+  (toolCallId: string): SwarmMember[] =>
+    client.swarmMembersByToolCallId.value.get(toolCallId) ?? [],
 );
 const { t } = useI18n();
 const { confirm } = useConfirmDialog();
@@ -120,7 +120,6 @@ const running = computed(() => client.activity.value !== 'idle');
 // still missing, show a full-page login entry instead of an in-app banner.
 const authLogoRef = ref<SVGSVGElement | null>(null);
 const { showAuthGate, blinkAuthLogo } = useAuthGate({ client, authLogoRef });
-
 
 // Static page title (app name only). The session title and workspace name are
 // intentionally excluded so the tab title stays stable. Prefixes an animated
@@ -244,7 +243,9 @@ const detailTarget = ref<DetailTarget | null>(null);
 const panelSwitching = ref(false);
 watch(client.activeSessionId, () => {
   panelSwitching.value = true;
-  void nextTick(() => { panelSwitching.value = false; });
+  void nextTick(() => {
+    panelSwitching.value = false;
+  });
 });
 
 const {
@@ -433,7 +434,12 @@ async function handleComposerSelectModel(modelId: string): Promise<void> {
   }
 }
 
-async function handleAddProvider(input: { type: string; apiKey?: string; baseUrl?: string; defaultModel?: string }): Promise<void> {
+async function handleAddProvider(input: {
+  type: string;
+  apiKey?: string;
+  baseUrl?: string;
+  defaultModel?: string;
+}): Promise<void> {
   await client.addProvider(input);
 }
 
@@ -537,8 +543,10 @@ function handleCommand(cmd: string): void {
     const arg = cmd.slice('/swarm'.length).trim();
     if (arg === 'on') client.setSwarmMode(true);
     else if (arg === 'off') client.setSwarmMode(false);
-    else if (arg) { client.setSwarmMode(true); void client.sendPrompt(arg); }
-    else void client.toggleSwarmMode();
+    else if (arg) {
+      client.setSwarmMode(true);
+      void client.sendPrompt(arg);
+    } else void client.toggleSwarmMode();
     return;
   }
   // `/goal <objective>` creates a goal (and submits it); `/goal pause|resume|cancel`
@@ -728,7 +736,17 @@ function openPr(url: string): void {
     <ServerAuthDialog v-if="showServerAuth" />
     <section v-if="showAuthGate" class="auth-page">
       <div class="auth-page-inner">
-        <svg ref="authLogoRef" class="auth-page-logo ch-logo" viewBox="0 0 32 22" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kimi Code" @mousedown.prevent @click="blinkAuthLogo">
+        <svg
+          ref="authLogoRef"
+          class="auth-page-logo ch-logo"
+          viewBox="0 0 32 22"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          role="img"
+          aria-label="Kimi Code"
+          @mousedown.prevent
+          @click="blinkAuthLogo"
+        >
           <defs>
             <mask id="authKimiEyes" maskUnits="userSpaceOnUse">
               <rect x="0" y="0" width="32" height="22" fill="#fff" />
@@ -738,7 +756,15 @@ function openPr(url: string): void {
               </g>
             </mask>
           </defs>
-          <rect x="1" y="1" width="30" height="20" rx="6" fill="var(--logo)" mask="url(#authKimiEyes)" />
+          <rect
+            x="1"
+            y="1"
+            width="30"
+            height="20"
+            rx="6"
+            fill="var(--logo)"
+            mask="url(#authKimiEyes)"
+          />
         </svg>
         <div class="auth-page-copy">
           <h1>{{ t('app.authPageTitle') }}</h1>
@@ -760,161 +786,163 @@ function openPr(url: string): void {
       }"
       :style="{ '--preview-w': previewPanelWidth + 'px' }"
     >
-    <!-- Desktop navigation: workspace rail + resizable session column. -->
-    <template v-if="!isMobile">
-      <Sidebar
-        :collapsed="sidebarCollapsed"
-        :dragging="sidebarDragging"
-        :col-width="sideWidth"
-        :active-workspace="client.visibleWorkspace.value"
+      <!-- Desktop navigation: workspace rail + resizable session column. -->
+      <template v-if="!isMobile">
+        <Sidebar
+          :collapsed="sidebarCollapsed"
+          :dragging="sidebarDragging"
+          :col-width="sideWidth"
+          :active-workspace="client.visibleWorkspace.value"
+          :active-workspace-id="client.activeWorkspaceId.value"
+          :sessions="client.sessionsForView.value"
+          :groups="client.workspaceGroups.value"
+          :active-id="client.activeSessionId.value"
+          :attention-by-session="client.attentionBySession.value"
+          :pending-by-session="client.pendingBySession.value"
+          :unread-by-session="client.unreadBySession.value"
+          :subagent-activity-by-session="client.subagentActivityBySession.value"
+          :current-messages="currentSearchMessages"
+          :workspace-sort-mode="client.workspaceSortMode.value"
+          :backend="client.backend.value"
+          @select="client.selectSession($event)"
+          @create="handleCreateSession"
+          @create-in-workspace="handleCreateSessionInWorkspace($event)"
+          @select-workspace="client.openWorkspace($event)"
+          @add-workspace="showAddWorkspace = true"
+          @rename="(id, title) => client.renameSession(id, title)"
+          @archive="confirmArchiveSession($event)"
+          @fork="(id) => client.forkSession(id)"
+          @export="(id) => client.exportSession(id)"
+          @rename-workspace="(id, name) => client.renameWorkspace(id, name)"
+          @delete-workspace="confirmDeleteWorkspace($event)"
+          @reorder-workspaces="client.reorderWorkspaces($event)"
+          @set-workspace-sort-mode="client.setWorkspaceSortMode($event)"
+          @load-more-sessions="(id) => void client.loadMoreSessions(id)"
+          @load-all-sessions="void client.loadAllSessions()"
+          @open-settings="showSettings = true"
+          @collapse="toggleSidebarCollapse"
+        />
+        <ResizeHandle
+          v-show="!sidebarCollapsed"
+          class="side-handle"
+          :storage-key="SIDEBAR_WIDTH_KEY"
+          :default-width="SIDEBAR_DEFAULT"
+          :min="SIDEBAR_MIN"
+          :max="sidebarMax"
+          @update:width="sessionColWidth = $event"
+          @update:dragging="sidebarDragging = $event"
+        />
+      </template>
+
+      <!-- Mobile navigation: slim top bar (switcher + settings sheets). -->
+      <MobileTopBar
+        v-else
+        :workspace="client.visibleWorkspace.value"
+        :session-title="activeSessionTitle"
+        :running="running"
+        :branch="client.status.value.branch"
+        :session-count="activeWorkspaceSessionCount"
+        @open-switcher="showMobileSwitcher = true"
+        @open-settings="showMobileSettings = true"
+        @open-trajectory="openTrajectoryPanel()"
+        @open-subagents="openSubagentsPanel()"
+      />
+
+      <ConversationPane
+        ref="conversationPaneRef"
+        :mobile="isMobile"
+        :turns="client.turns.value"
+        :session-id="client.activeSessionId.value"
+        :approvals="client.pendingApprovals.value"
+        :changes="client.changes.value"
+        :git-info="client.gitInfo.value"
+        :tasks="client.tasks.value"
+        :todos="client.todos.value"
+        :goal="client.goal.value"
+        :activation-badges="client.activationBadges.value"
+        :status="client.status.value"
+        :thinking="client.thinking.value"
+        :plan-mode="client.planMode.value"
+        :swarm-mode="client.swarmMode.value"
+        :goal-mode="client.goalMode.value"
+        :session-stats="client.sessionStats.value"
+        :models="client.models.value"
+        :starred-ids="client.starredModelIds.value"
+        :skills="client.skills.value"
+        :questions="client.questions.value"
+        :pending-question-actions="client.pendingQuestionActions"
+        :pending-approval-actions="client.pendingApprovalActions"
+        :running="running"
+        :turn-active="client.turnActive.value"
+        :queued="client.queued.value"
+        :search-files="client.searchFiles"
+        :upload-image="client.uploadImage"
+        :working="client.working.value"
+        :starting="client.isStartingFirstPrompt.value"
+        :fast-moon="client.fastMoon.value"
+        :file-reload-key="client.activeSessionId.value"
+        :session-loading="client.sessionLoading.value"
+        :compaction="client.compaction.value"
+        :has-more-messages="client.hasMoreMessages.value"
+        :loading-more="client.loadingMoreMessages.value"
+        :loading-more-error="client.loadMoreMessagesError.value"
+        :load-older-messages="client.loadOlderMessages"
+        :workspace-name="client.visibleWorkspace.value?.name"
+        :workspace-root="client.visibleWorkspace.value?.root ?? client.status.value.cwd"
+        :git-diff-stats="client.gitDiffStats.value"
+        :workspaces="client.workspacesView.value"
         :active-workspace-id="client.activeWorkspaceId.value"
-        :sessions="client.sessionsForView.value"
-        :groups="client.workspaceGroups.value"
-        :active-id="client.activeSessionId.value"
-        :attention-by-session="client.attentionBySession.value"
-        :pending-by-session="client.pendingBySession.value"
-        :unread-by-session="client.unreadBySession.value"
-        :subagent-activity-by-session="client.subagentActivityBySession.value"
-        :current-messages="currentSearchMessages"
-        :workspace-sort-mode="client.workspaceSortMode.value"
-        :backend="client.backend.value"
-        @select="client.selectSession($event)"
-        @create="handleCreateSession"
-        @create-in-workspace="handleCreateSessionInWorkspace($event)"
-        @select-workspace="client.openWorkspace($event)"
+        :session-title="activeSessionTitle"
+        :pr="client.activePullRequest.value"
+        :conversation-toc="client.conversationToc.value"
+        @open-changes="openDiffDetail()"
+        @select-workspace="handleCreateSessionInWorkspace($event)"
         @add-workspace="showAddWorkspace = true"
-        @rename="(id, title) => client.renameSession(id, title)"
-        @archive="confirmArchiveSession($event)"
-        @fork="(id) => client.forkSession(id)"
-        @export="(id) => client.exportSession(id)"
-        @rename-workspace="(id, name) => client.renameWorkspace(id, name)"
-        @delete-workspace="confirmDeleteWorkspace($event)"
-        @reorder-workspaces="client.reorderWorkspaces($event)"
-        @set-workspace-sort-mode="client.setWorkspaceSortMode($event)"
-        @load-more-sessions="(id) => void client.loadMoreSessions(id)"
-        @load-all-sessions="void client.loadAllSessions()"
-        @open-settings="showSettings = true"
-        @collapse="toggleSidebarCollapse"
+        @open-pr="openPr"
+        @submit="handleSubmit($event)"
+        @steer="client.steerPrompt($event.text, $event.attachments)"
+        @approval="(approvalId, response) => client.respondApproval(approvalId, response)"
+        @cancel-task="client.cancelTask($event)"
+        @answer="(questionId, response) => client.respondQuestion(questionId, response)"
+        @dismiss="(questionId) => client.dismissQuestion(questionId)"
+        @command="handleCommand"
+        @interrupt="client.abortCurrentPrompt()"
+        @unqueue="handleUnqueue"
+        @edit-queued="handleEditQueued"
+        @reorder-queue="handleReorderQueue"
+        @set-permission="client.setPermission($event)"
+        @set-thinking="client.setThinking($event)"
+        @toggle-plan="client.togglePlanMode()"
+        @toggle-swarm="client.toggleSwarmMode()"
+        @toggle-goal="client.toggleGoalMode()"
+        @create-goal="client.createGoal($event)"
+        @control-goal="client.controlGoal($event)"
+        @refresh-git-status="
+          client.activeSessionId.value && client.loadGitStatus(client.activeSessionId.value)
+        "
+        @rename-session="(id, title) => client.renameSession(id, title)"
+        @fork-session="(id) => client.forkSession(id)"
+        @archive-session="confirmArchiveSession($event)"
+        @export-session="(id) => client.exportSession(id)"
+        @create-child-session="onCreateChildSession()"
+        @open-session="(id) => client.selectSession(id)"
+        @open-trajectory="openTrajectoryPanel()"
+        @open-subagents="openSubagentsPanel()"
+        @compact="client.compact()"
+        @pick-model="openModelPicker()"
+        @select-model="handleComposerSelectModel($event)"
+        @open-file="openFilePreview($event)"
+        @open-media="openMediaPreview($event)"
+        @open-thinking="openThinkingPanel($event)"
+        @open-compaction="openCompactionPanel($event)"
+        @continue-turn="handleContinueTurn"
+        @reveal-file="client.revealWorkspaceFile($event)"
+        @open-agent="openAgentPanel($event)"
+        @open-tool-diff="openToolDiff($event)"
+        @edit-message="handleEditMessage"
       />
-      <ResizeHandle
-        v-show="!sidebarCollapsed"
-        class="side-handle"
-        :storage-key="SIDEBAR_WIDTH_KEY"
-        :default-width="SIDEBAR_DEFAULT"
-        :min="SIDEBAR_MIN"
-        :max="sidebarMax"
-        @update:width="sessionColWidth = $event"
-        @update:dragging="sidebarDragging = $event"
-      />
-    </template>
 
-    <!-- Mobile navigation: slim top bar (switcher + settings sheets). -->
-    <MobileTopBar
-      v-else
-      :workspace="client.visibleWorkspace.value"
-      :session-title="activeSessionTitle"
-      :running="running"
-      :branch="client.status.value.branch"
-      :session-count="activeWorkspaceSessionCount"
-      @open-switcher="showMobileSwitcher = true"
-      @open-settings="showMobileSettings = true"
-      @open-trajectory="openTrajectoryPanel()"
-      @open-subagents="openSubagentsPanel()"
-    />
-
-    <ConversationPane
-      ref="conversationPaneRef"
-      :mobile="isMobile"
-      :turns="client.turns.value"
-      :session-id="client.activeSessionId.value"
-      :approvals="client.pendingApprovals.value"
-      :changes="client.changes.value"
-      :git-info="client.gitInfo.value"
-      :tasks="client.tasks.value"
-      :todos="client.todos.value"
-      :goal="client.goal.value"
-      :activation-badges="client.activationBadges.value"
-      :status="client.status.value"
-      :thinking="client.thinking.value"
-      :plan-mode="client.planMode.value"
-      :swarm-mode="client.swarmMode.value"
-      :goal-mode="client.goalMode.value"
-      :session-stats="client.sessionStats.value"
-      :models="client.models.value"
-      :starred-ids="client.starredModelIds.value"
-      :skills="client.skills.value"
-      :questions="client.questions.value"
-      :pending-question-actions="client.pendingQuestionActions"
-      :pending-approval-actions="client.pendingApprovalActions"
-      :running="running"
-      :turn-active="client.turnActive.value"
-      :queued="client.queued.value"
-      :search-files="client.searchFiles"
-      :upload-image="client.uploadImage"
-      :working="client.working.value"
-      :starting="client.isStartingFirstPrompt.value"
-      :fast-moon="client.fastMoon.value"
-      :file-reload-key="client.activeSessionId.value"
-      :session-loading="client.sessionLoading.value"
-      :compaction="client.compaction.value"
-      :has-more-messages="client.hasMoreMessages.value"
-      :loading-more="client.loadingMoreMessages.value"
-      :loading-more-error="client.loadMoreMessagesError.value"
-      :load-older-messages="client.loadOlderMessages"
-      :workspace-name="client.visibleWorkspace.value?.name"
-      :workspace-root="client.visibleWorkspace.value?.root ?? client.status.value.cwd"
-      :git-diff-stats="client.gitDiffStats.value"
-      :workspaces="client.workspacesView.value"
-      :active-workspace-id="client.activeWorkspaceId.value"
-      :session-title="activeSessionTitle"
-      :pr="client.activePullRequest.value"
-      :conversation-toc="client.conversationToc.value"
-      @open-changes="openDiffDetail()"
-      @select-workspace="handleCreateSessionInWorkspace($event)"
-      @add-workspace="showAddWorkspace = true"
-      @open-pr="openPr"
-      @submit="handleSubmit($event)"
-      @steer="client.steerPrompt($event.text, $event.attachments)"
-      @approval="(approvalId, response) => client.respondApproval(approvalId, response)"
-      @cancel-task="client.cancelTask($event)"
-      @answer="(questionId, response) => client.respondQuestion(questionId, response)"
-      @dismiss="(questionId) => client.dismissQuestion(questionId)"
-      @command="handleCommand"
-      @interrupt="client.abortCurrentPrompt()"
-      @unqueue="handleUnqueue"
-      @edit-queued="handleEditQueued"
-      @reorder-queue="handleReorderQueue"
-      @set-permission="client.setPermission($event)"
-      @set-thinking="client.setThinking($event)"
-      @toggle-plan="client.togglePlanMode()"
-      @toggle-swarm="client.toggleSwarmMode()"
-      @toggle-goal="client.toggleGoalMode()"
-      @create-goal="client.createGoal($event)"
-      @control-goal="client.controlGoal($event)"
-      @refresh-git-status="client.activeSessionId.value && client.loadGitStatus(client.activeSessionId.value)"
-      @rename-session="(id, title) => client.renameSession(id, title)"
-      @fork-session="(id) => client.forkSession(id)"
-      @archive-session="confirmArchiveSession($event)"
-      @export-session="(id) => client.exportSession(id)"
-      @create-child-session="onCreateChildSession()"
-      @open-session="(id) => client.selectSession(id)"
-      @open-trajectory="openTrajectoryPanel()"
-      @open-subagents="openSubagentsPanel()"
-      @compact="client.compact()"
-      @pick-model="openModelPicker()"
-      @select-model="handleComposerSelectModel($event)"
-      @open-file="openFilePreview($event)"
-      @open-media="openMediaPreview($event)"
-      @open-thinking="openThinkingPanel($event)"
-      @open-compaction="openCompactionPanel($event)"
-      @continue-turn="handleContinueTurn"
-      @reveal-file="client.revealWorkspaceFile($event)"
-      @open-agent="openAgentPanel($event)"
-      @open-tool-diff="openToolDiff($event)"
-      @edit-message="handleEditMessage"
-    />
-
-    <!-- Sidebar toggle — floating only when the in-header control can't serve:
+      <!-- Sidebar toggle — floating only when the in-header control can't serve:
          on macOS desktop it's RESIDENT (always rendered beside the traffic
          lights, the sidebar slides underneath and only the glyph swaps, so it
          never moves or flashes); on Windows/web the collapse button lives
@@ -924,270 +952,307 @@ function openPr(url: string): void {
          in tree order (drag rects union, no-drag rects subtract), so a no-drag
          element placed before the ChatHeader drag region would have its hole
          painted back over — making the button an inert drag area. -->
-    <IconButton
-      v-if="!isMobile && (isMacosDesktop || sidebarCollapsed)"
-      class="sidebar-toggle-btn"
-      size="sm"
-      :label="sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')"
-      @click="toggleSidebarCollapse"
-    >
-      <Icon :name="sidebarCollapsed ? 'panel-expand' : 'panel-collapse'" />
-    </IconButton>
+      <IconButton
+        v-if="!isMobile && (isMacosDesktop || sidebarCollapsed)"
+        class="sidebar-toggle-btn"
+        size="sm"
+        :label="sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')"
+        @click="toggleSidebarCollapse"
+      >
+        <Icon :name="sidebarCollapsed ? 'panel-expand' : 'panel-collapse'" />
+      </IconButton>
 
-    <ResizeHandle
-      v-if="sidePanelVisible && !isMobile"
-      class="preview-handle"
-      :storage-key="PREVIEW_WIDTH_KEY"
-      :default-width="previewDefaultWidth"
-      :min="PREVIEW_MIN"
-      :max="previewMax"
-      reverse
-      :aria-label="t('layout.resizePreviewAria')"
-      @update:width="previewWidth = $event"
-      @update:dragging="panelDragging = $event"
-    />
+      <ResizeHandle
+        v-if="sidePanelVisible && !isMobile"
+        class="preview-handle"
+        :storage-key="PREVIEW_WIDTH_KEY"
+        :default-width="previewDefaultWidth"
+        :min="PREVIEW_MIN"
+        :max="previewMax"
+        reverse
+        :aria-label="t('layout.resizePreviewAria')"
+        @update:width="previewWidth = $event"
+        @update:dragging="panelDragging = $event"
+      />
 
-    <!-- Desktop: the aside is a PERMANENT grid column whose width transitions
+      <!-- Desktop: the aside is a PERMANENT grid column whose width transitions
          0 ↔ var(--preview-w) — opening genuinely squeezes the chat column over
          (one animation, no slide-over hacks). Mobile mounts only when open
          (full-screen overlay). Content stays v-if'd, so a closed panel is a
          zero-width empty shell. -->
-    <aside
-      v-if="!isMobile || sidePanelVisible"
-      class="global-preview"
-      :class="{ open: sidePanelVisible, mobile: isMobile, 'no-anim': panelDragging || panelSwitching }"
-      role="complementary"
-      :aria-label="t('layout.detailPanelAria')"
-      :aria-hidden="!sidePanelVisible"
-    >
-      <ThinkingPanel
-        v-if="detailTarget === 'thinking' && thinkingVisible"
-        :text="thinkingPanelText ?? ''"
-        @close="closeThinkingPanel"
-      />
-      <ThinkingPanel
-        v-else-if="detailTarget === 'compaction' && compactionPanelVisible"
-        :text="compactionPanelText ?? ''"
-        :subtitle="t('conversation.summaryTitle')"
-        @close="closeCompactionPanel"
-      />
-      <AgentDetailPanel
-        v-else-if="detailTarget === 'agent' && agentPanelMember"
-        :member="agentPanelMember"
-        @close="closeAgentPanel"
-      />
-      <SideChatPanel
-        v-else-if="detailTarget === 'btw' && btwVisible"
-        :turns="client.sideChatTurns.value"
-        :running="client.sideChatRunning.value"
-        :sending="client.sideChatSending.value"
-        @send="client.sendSideChatPrompt($event)"
-        @close="closeSideChat"
-      />
-      <DiffView
-        v-else-if="detailTarget === 'diff'"
-        :mode="detailDiffMode"
-        :changes="client.changes.value"
-        :git-info="client.gitInfo.value"
-        :file-diff="client.fileDiff.value"
-        :selected-diff-path="client.selectedDiffPath.value"
-        :file-diff-loading="client.fileDiffLoading.value"
-        closable
-        @open="selectDiffFile"
-        @back="detailDiffMode = 'list'; detailDiffPath = null; client.clearFileDiff()"
-        @close="closeDiffDetail"
-      />
-      <ToolDiffPanel
-        v-else-if="detailTarget === 'toolDiff' && toolDiffTarget"
-        :target="toolDiffTarget"
-        @close="closeToolDiff"
-      />
-      <TrajectoryPanel
-        v-else-if="detailTarget === 'trajectory' && trajectoryOpen"
-        :frames="(client.activeSessionId.value ? client.ledgers[client.activeSessionId.value]?.frames : null) ?? null"
-        @close="closeTrajectoryPanel"
-        @clear="client.clearLedger(client.activeSessionId.value)"
-      />
-      <SubagentCatalogPanel
-        v-else-if="detailTarget === 'subagents' && subagentsOpen"
-        :tasks="client.activeAppTasks.value"
-        @close="closeSubagentsPanel"
-        @open-agent="openAgentPanel($event)"
-      />
-      <FilePreview
-        v-else-if="detailTarget === 'file'"
-        :file="previewFile"
-        :loading="previewLoading"
-        :error="previewError"
-        :line="previewTarget?.line"
-        :download-url="previewDownloadUrl"
-        closable
-        :external-actions="previewExternalActions"
-        :open-file="openFilePreview"
-        @close="closeFilePreview"
-        @open-external="openPreviewInEditor"
-        @reveal="revealPreviewFile"
-      />
-    </aside>
+      <aside
+        v-if="!isMobile || sidePanelVisible"
+        class="global-preview"
+        :class="{
+          open: sidePanelVisible,
+          mobile: isMobile,
+          'no-anim': panelDragging || panelSwitching,
+        }"
+        role="complementary"
+        :aria-label="t('layout.detailPanelAria')"
+        :aria-hidden="!sidePanelVisible"
+      >
+        <ThinkingPanel
+          v-if="detailTarget === 'thinking' && thinkingVisible"
+          :text="thinkingPanelText ?? ''"
+          @close="closeThinkingPanel"
+        />
+        <ThinkingPanel
+          v-else-if="detailTarget === 'compaction' && compactionPanelVisible"
+          :text="compactionPanelText ?? ''"
+          :subtitle="t('conversation.summaryTitle')"
+          @close="closeCompactionPanel"
+        />
+        <AgentDetailPanel
+          v-else-if="detailTarget === 'agent' && agentPanelMember"
+          :member="agentPanelMember"
+          @close="closeAgentPanel"
+        />
+        <SideChatPanel
+          v-else-if="detailTarget === 'btw' && btwVisible"
+          :turns="client.sideChatTurns.value"
+          :running="client.sideChatRunning.value"
+          :sending="client.sideChatSending.value"
+          @send="client.sendSideChatPrompt($event)"
+          @close="closeSideChat"
+        />
+        <DiffView
+          v-else-if="detailTarget === 'diff'"
+          :mode="detailDiffMode"
+          :changes="client.changes.value"
+          :git-info="client.gitInfo.value"
+          :file-diff="client.fileDiff.value"
+          :selected-diff-path="client.selectedDiffPath.value"
+          :file-diff-loading="client.fileDiffLoading.value"
+          closable
+          @open="selectDiffFile"
+          @back="
+            detailDiffMode = 'list';
+            detailDiffPath = null;
+            client.clearFileDiff();
+          "
+          @close="closeDiffDetail"
+        />
+        <ToolDiffPanel
+          v-else-if="detailTarget === 'toolDiff' && toolDiffTarget"
+          :target="toolDiffTarget"
+          @close="closeToolDiff"
+        />
+        <TrajectoryPanel
+          v-else-if="detailTarget === 'trajectory' && trajectoryOpen"
+          :frames="
+            (client.activeSessionId.value
+              ? client.ledgers[client.activeSessionId.value]?.frames
+              : null) ?? null
+          "
+          @close="closeTrajectoryPanel"
+          @clear="client.clearLedger(client.activeSessionId.value)"
+        />
+        <SubagentCatalogPanel
+          v-else-if="detailTarget === 'subagents' && subagentsOpen"
+          :tasks="client.activeAppTasks.value"
+          @close="closeSubagentsPanel"
+          @open-agent="openAgentPanel($event)"
+        />
+        <FilePreview
+          v-else-if="detailTarget === 'file'"
+          :file="previewFile"
+          :loading="previewLoading"
+          :error="previewError"
+          :line="previewTarget?.line"
+          :download-url="previewDownloadUrl"
+          closable
+          :external-actions="previewExternalActions"
+          :open-file="openFilePreview"
+          @close="closeFilePreview"
+          @open-external="openPreviewInEditor"
+          @reveal="revealPreviewFile"
+        />
+      </aside>
 
-    <!-- Internal-build tag — pinned to the app's bottom-right corner, above
+      <!-- Internal-build tag — pinned to the app's bottom-right corner, above
          whatever pane happens to be there. Purely informational: pointer
          events pass through so it never blocks clicks. -->
-    <InternalBuildBanner class="internal-build-fab" />
+      <InternalBuildBanner class="internal-build-fab" />
 
-    <!-- Model Picker overlay -->
-    <ModelPicker
-      v-if="showModelPicker"
-      :models="client.models.value"
-      :current="client.status.value.modelId"
-      :starred-ids="client.starredModelIds.value"
-      :loading="modelsLoading"
-      :unavailable="modelsUnavailable"
-      @select="handleSelectModel($event)"
-      @toggle-star="client.toggleStarModel($event)"
-      @close="showModelPicker = false"
-    />
+      <!-- Model Picker overlay -->
+      <ModelPicker
+        v-if="showModelPicker"
+        :models="client.models.value"
+        :current="client.status.value.modelId"
+        :starred-ids="client.starredModelIds.value"
+        :loading="modelsLoading"
+        :unavailable="modelsUnavailable"
+        @select="handleSelectModel($event)"
+        @toggle-star="client.toggleStarModel($event)"
+        @close="showModelPicker = false"
+      />
 
-    <!-- Settings page (modal) -->
-    <SettingsDialog
-      v-if="showSettings"
-      :color-scheme="client.colorScheme.value"
-      :accent="client.accent.value"
-      :ui-font-size="client.uiFontSize.value"
-      :auth-ready="client.authReady.value"
-      :account-model="client.defaultModel.value"
-      :notify="client.notifyOnComplete.value"
-      :notify-question="client.notifyOnQuestion.value"
-      :notify-approval="client.notifyOnApproval.value"
-      :notify-permission="client.notifyPermission.value"
-      :sound="client.soundOnComplete.value"
-      :conversation-toc="client.conversationToc.value"
-      :config="client.config.value"
-      :models="client.models.value"
-      :config-saving="configSaving"
-      :server-version="client.serverVersion.value"
-      :backend="client.backend.value"
-      @set-color-scheme="client.setColorScheme($event)"
-      @set-accent="client.setAccent($event)"
-      @set-ui-font-size="client.setUiFontSize($event)"
-      @set-notify="client.setNotifyOnComplete($event)"
-      @set-notify-question="client.setNotifyOnQuestion($event)"
-      @set-notify-approval="client.setNotifyOnApproval($event)"
-      @set-sound="client.setSoundOnComplete($event)"
-      @set-conversation-toc="client.setConversationToc($event)"
-      @update-config="handleUpdateConfig($event)"
-      @login="() => { showSettings = false; openLogin(); }"
-      @logout="client.logout"
-      @open-onboarding="() => { showSettings = false; openOnboarding(); }"
-      @open-providers="() => { showSettings = false; openProviders(); }"
-      @close="showSettings = false"
-    />
+      <!-- Settings page (modal) -->
+      <SettingsDialog
+        v-if="showSettings"
+        :color-scheme="client.colorScheme.value"
+        :accent="client.accent.value"
+        :ui-font-size="client.uiFontSize.value"
+        :auth-ready="client.authReady.value"
+        :account-model="client.defaultModel.value"
+        :notify="client.notifyOnComplete.value"
+        :notify-question="client.notifyOnQuestion.value"
+        :notify-approval="client.notifyOnApproval.value"
+        :notify-permission="client.notifyPermission.value"
+        :sound="client.soundOnComplete.value"
+        :conversation-toc="client.conversationToc.value"
+        :config="client.config.value"
+        :models="client.models.value"
+        :config-saving="configSaving"
+        :server-version="client.serverVersion.value"
+        :backend="client.backend.value"
+        @set-color-scheme="client.setColorScheme($event)"
+        @set-accent="client.setAccent($event)"
+        @set-ui-font-size="client.setUiFontSize($event)"
+        @set-notify="client.setNotifyOnComplete($event)"
+        @set-notify-question="client.setNotifyOnQuestion($event)"
+        @set-notify-approval="client.setNotifyOnApproval($event)"
+        @set-sound="client.setSoundOnComplete($event)"
+        @set-conversation-toc="client.setConversationToc($event)"
+        @update-config="handleUpdateConfig($event)"
+        @login="
+          () => {
+            showSettings = false;
+            openLogin();
+          }
+        "
+        @logout="client.logout"
+        @open-onboarding="
+          () => {
+            showSettings = false;
+            openOnboarding();
+          }
+        "
+        @open-providers="
+          () => {
+            showSettings = false;
+            openProviders();
+          }
+        "
+        @close="showSettings = false"
+      />
 
-    <!-- Provider Manager overlay -->
-    <ProviderManager
-      v-if="showProviders"
-      :providers="client.providers.value"
-      :loading="providersLoading"
-      :unavailable="providersUnavailable"
-      @add="handleAddProvider($event)"
-      @refresh="handleRefreshProvider($event)"
-      @delete="confirmDeleteProvider($event)"
-      @open-login="() => { showProviders = false; openLogin(); }"
-      @close="showProviders = false"
-    />
+      <!-- Provider Manager overlay -->
+      <ProviderManager
+        v-if="showProviders"
+        :providers="client.providers.value"
+        :loading="providersLoading"
+        :unavailable="providersUnavailable"
+        @add="handleAddProvider($event)"
+        @refresh="handleRefreshProvider($event)"
+        @delete="confirmDeleteProvider($event)"
+        @open-login="
+          () => {
+            showProviders = false;
+            openLogin();
+          }
+        "
+        @close="showProviders = false"
+      />
 
-    <!-- Status panel overlay (/status) — renders current client state, no daemon call -->
-    <StatusPanel
-      v-if="showStatusPanel"
-      :status="client.status.value"
-      :thinking="statusPanelThinking"
-      :plan-mode="client.planMode.value"
-      :swarm-mode="client.swarmMode.value"
-      :cost-usd="client.sessionCost.value"
-      :usage="client.activeSessionUsage.value ?? emptyUsage"
-      :last-turn-speed="client.lastTurnSpeed.value"
-      @close="showStatusPanel = false"
-    />
+      <!-- Status panel overlay (/status) — renders current client state, no daemon call -->
+      <StatusPanel
+        v-if="showStatusPanel"
+        :status="client.status.value"
+        :thinking="statusPanelThinking"
+        :plan-mode="client.planMode.value"
+        :swarm-mode="client.swarmMode.value"
+        :cost-usd="client.sessionCost.value"
+        :usage="client.activeSessionUsage.value ?? emptyUsage"
+        :last-turn-speed="client.lastTurnSpeed.value"
+        @close="showStatusPanel = false"
+      />
 
-    <!-- Add Workspace overlay (daemon folder browser + paste-path fallback) -->
-    <AddWorkspaceDialog
-      v-if="showAddWorkspace"
-      :browse-fs="client.browseFs"
-      :get-fs-home="client.getFsHome"
-      :default-path="client.visibleWorkspace.value?.root ?? client.status.value.cwd"
-      :error="addWorkspaceError"
-      @add="handleAddWorkspace($event)"
-      @close="handleCloseAddWorkspace"
-    />
+      <!-- Add Workspace overlay (daemon folder browser + paste-path fallback) -->
+      <AddWorkspaceDialog
+        v-if="showAddWorkspace"
+        :browse-fs="client.browseFs"
+        :get-fs-home="client.getFsHome"
+        :default-path="client.visibleWorkspace.value?.root ?? client.status.value.cwd"
+        :error="addWorkspaceError"
+        @add="handleAddWorkspace($event)"
+        @close="handleCloseAddWorkspace"
+      />
 
-    <!-- Global connecting splash on first load (until the daemon round-trips) -->
-    <Transition name="gload-fade">
-      <GlobalLoading v-if="!client.initialized.value" :issue="client.connectIssue.value" />
-    </Transition>
+      <!-- Global connecting splash on first load (until the daemon round-trips) -->
+      <Transition name="gload-fade">
+        <GlobalLoading v-if="!client.initialized.value" :issue="client.connectIssue.value" />
+      </Transition>
 
-    <!-- First-run onboarding overlay (language + welcome greeting). Held back
+      <!-- First-run onboarding overlay (language + welcome greeting). Held back
          until the first load settled so it can't cover the connecting splash
          (it teleports to <body> and would float above the retry error). -->
-    <Onboarding
-      v-if="client.initialized.value && showOnboarding && !showAuthGate"
-      @complete="completeOnboarding"
-      @skip="completeOnboarding"
-    />
+      <Onboarding
+        v-if="client.initialized.value && showOnboarding && !showAuthGate"
+        @complete="completeOnboarding"
+        @skip="completeOnboarding"
+      />
 
-    <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
-    <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
+      <!-- Floating warnings / agent errors (e.g. a 403 from the model provider) -->
+      <WarningToasts :warnings="client.warnings.value" @dismiss="client.dismissWarning" />
 
-    <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
-    <DebugPanel v-if="debugEnabled" />
+      <!-- KAP/daemon debug panel (opt-in, ?debug=1) -->
+      <DebugPanel v-if="debugEnabled" />
 
-    <!-- Global modal-confirmation host (driven by useConfirmDialog) -->
-    <ConfirmDialogHost />
+      <!-- Global modal-confirmation host (driven by useConfirmDialog) -->
+      <ConfirmDialogHost />
 
-    <!-- Mobile switcher bottom-sheet: workspace groups + sessions (mirrors the
+      <!-- Mobile switcher bottom-sheet: workspace groups + sessions (mirrors the
          desktop sidebar) -->
-    <MobileSwitcherSheet
-      v-if="isMobile"
-      v-model="showMobileSwitcher"
-      :groups="client.workspaceGroups.value"
-      :active-workspace-id="client.activeWorkspaceId.value"
-      :active-id="client.activeSessionId.value"
-      :attention-by-session="client.attentionBySession.value"
-      :attention-by-workspace="client.attentionByWorkspace.value"
-      @select="client.selectSession($event)"
-      @create="handleCreateSession"
-      @create-in-workspace="handleCreateSessionInWorkspace($event)"
-      @add-workspace="showAddWorkspace = true"
-      @rename="(id, title) => client.renameSession(id, title)"
-      @archive="confirmArchiveSession($event)"
-      @delete-workspace="confirmDeleteWorkspace($event)"
-      @load-more="(id) => void client.loadMoreSessions(id)"
-    />
+      <MobileSwitcherSheet
+        v-if="isMobile"
+        v-model="showMobileSwitcher"
+        :groups="client.workspaceGroups.value"
+        :active-workspace-id="client.activeWorkspaceId.value"
+        :active-id="client.activeSessionId.value"
+        :attention-by-session="client.attentionBySession.value"
+        :attention-by-workspace="client.attentionByWorkspace.value"
+        @select="client.selectSession($event)"
+        @create="handleCreateSession"
+        @create-in-workspace="handleCreateSessionInWorkspace($event)"
+        @add-workspace="showAddWorkspace = true"
+        @rename="(id, title) => client.renameSession(id, title)"
+        @archive="confirmArchiveSession($event)"
+        @delete-workspace="confirmDeleteWorkspace($event)"
+        @load-more="(id) => void client.loadMoreSessions(id)"
+      />
 
-    <!-- Mobile settings bottom-sheet: session controls + app prefs + auth -->
-    <MobileSettingsSheet
-      v-if="isMobile"
-      v-model="showMobileSettings"
-      :status="client.status.value"
-      :thinking="client.thinking.value"
-      :models="client.models.value"
-      :plan-mode="client.planMode.value"
-      :swarm-mode="client.swarmMode.value"
-      :color-scheme="client.colorScheme.value"
-      :ui-font-size="client.uiFontSize.value"
-      :auth-ready="client.authReady.value"
-      :conversation-toc="client.conversationToc.value"
-      :server-version="client.serverVersion.value"
-      @pick-model="openModelPicker()"
-      @set-thinking="client.setThinking($event)"
-      @toggle-plan="client.togglePlanMode()"
-      @toggle-swarm="client.toggleSwarmMode()"
-      @set-permission="client.setPermission($event)"
-      @set-color-scheme="client.setColorScheme($event)"
-      @set-ui-font-size="client.setUiFontSize($event)"
-      @set-conversation-toc="client.setConversationToc($event)"
-      @login="() => { showMobileSettings = false; openLogin(); }"
-      @logout="client.logout"
-    />
+      <!-- Mobile settings bottom-sheet: session controls + app prefs + auth -->
+      <MobileSettingsSheet
+        v-if="isMobile"
+        v-model="showMobileSettings"
+        :status="client.status.value"
+        :thinking="client.thinking.value"
+        :models="client.models.value"
+        :plan-mode="client.planMode.value"
+        :swarm-mode="client.swarmMode.value"
+        :color-scheme="client.colorScheme.value"
+        :ui-font-size="client.uiFontSize.value"
+        :auth-ready="client.authReady.value"
+        :conversation-toc="client.conversationToc.value"
+        :server-version="client.serverVersion.value"
+        @pick-model="openModelPicker()"
+        @set-thinking="client.setThinking($event)"
+        @toggle-plan="client.togglePlanMode()"
+        @toggle-swarm="client.toggleSwarmMode()"
+        @set-permission="client.setPermission($event)"
+        @set-color-scheme="client.setColorScheme($event)"
+        @set-ui-font-size="client.setUiFontSize($event)"
+        @set-conversation-toc="client.setConversationToc($event)"
+        @login="
+          () => {
+            showMobileSettings = false;
+            openLogin();
+          }
+        "
+        @logout="client.logout"
+      />
     </div>
     <!-- Login Dialog overlay. It is outside `.app` so `/login` can open it too. -->
     <LoginDialog
@@ -1203,8 +1268,12 @@ function openPr(url: string): void {
 
 <style scoped>
 /* Global connecting splash fade-out (only the leave matters; it mounts instantly). */
-.gload-fade-leave-active { transition: opacity 0.28s ease; }
-.gload-fade-leave-to { opacity: 0; }
+.gload-fade-leave-active {
+  transition: opacity 0.28s ease;
+}
+.gload-fade-leave-to {
+  opacity: 0;
+}
 
 .app-shell {
   /* Pinned to the visual viewport (see setAppHeight): --app-top tracks iOS's
@@ -1304,10 +1373,18 @@ function openPr(url: string): void {
 
 /* Pin every desktop grid child to its track so auto-placement can never
    reshuffle columns when a handle is display:none (v-show/v-if). */
-.app > .side { grid-column: 1; }
-.side-handle { grid-column: 2; }
-.app:not(.mobile) > .con { grid-column: 3; }
-.preview-handle { grid-column: 4; }
+.app > .side {
+  grid-column: 1;
+}
+.side-handle {
+  grid-column: 2;
+}
+.app:not(.mobile) > .con {
+  grid-column: 3;
+}
+.preview-handle {
+  grid-column: 4;
+}
 
 /* Sidebar toggle — floating button pinned to the top-left corner. On macOS
    desktop it is resident (rendered in both states beside the traffic lights);
@@ -1334,7 +1411,9 @@ function openPr(url: string): void {
   animation: none;
 }
 @keyframes sidebar-toggle-btn-in {
-  from { opacity: 0; }
+  from {
+    opacity: 0;
+  }
 }
 
 /* Internal-build tag pinned to the app's bottom-right corner (desktop app
@@ -1392,10 +1471,7 @@ function openPr(url: string): void {
 @media (max-width: 640px) {
   .auth-page {
     align-items: flex-start;
-    padding:
-      max(48px, var(--safe-top))
-      max(20px, var(--safe-right))
-      max(24px, var(--safe-bottom))
+    padding: max(48px, var(--safe-top)) max(20px, var(--safe-right)) max(24px, var(--safe-bottom))
       max(20px, var(--safe-left));
   }
   .auth-page-copy h1 {

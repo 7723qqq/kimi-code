@@ -29,37 +29,33 @@
 
 import { createHash } from 'node:crypto';
 
-import { LifecycleScope } from '#/app/scopes';
+import { type IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/_base/state/stateRegistry';
-import type { Tool as KosongTool } from '#/kosong/contract/tool';
-
-import { type IDisposable } from "#/_base/di/lifecycle";
-import { Service } from "#/_base/di/service";
+import { Service } from '#/_base/di/service';
 import type { KimiErrorPayload } from '#/_base/errors/serialize';
-import { ErrorCodes, makeErrorPayload } from '#/errors';
+import { defineState } from '#/_base/state/stateRegistry';
 import { abortable } from '#/_base/utils/abort';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IEventBus } from '#/app/event/eventBus';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { sessionMediaOriginalsDir } from '#/agent/media/image-originals';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { createMcpAuthTool } from '#/agent/mcp/tools/auth';
 import { createMcpTool } from '#/agent/mcp/tools/mcp';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
+import { sessionMediaOriginalsDir } from '#/agent/media/image-originals';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ErrorCodes, makeErrorPayload } from '#/errors';
+import type { Tool as KosongTool } from '#/kosong/contract/tool';
 import { type McpConnectionManager, type McpServerEntry } from '#/mcpCore/connection-manager';
-import { IAgentMcpService } from './mcp';
 import { qualifyMcpToolName } from '#/mcpCore/tool-naming';
 import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
+import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IWireService } from '#/wire/wire';
-import {
-  McpDiscoveryModel,
-  mcpToolsDiscovered,
-  type McpToolCollision,
-} from './mcpDiscoveryOps';
+
+import { IAgentMcpService } from './mcp';
+import { McpDiscoveryModel, mcpToolsDiscovered, type McpToolCollision } from './mcpDiscoveryOps';
 
 export interface ErrorEvent extends KimiErrorPayload {
   readonly type: 'error';
@@ -357,8 +353,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
             originalsDir: sessionMediaOriginalsDir(this.sessionContext.sessionDir),
             telemetry: this.telemetry,
             reconnect: (signal) => this.reconnectForToolCall(serverName, client, signal),
-            isRemoved: () =>
-              this.mcpHandle.connectionManager.get(serverName)?.status === 'removed',
+            isRemoved: () => this.mcpHandle.connectionManager.get(serverName)?.status === 'removed',
           }),
           { source: 'mcp' },
         ),

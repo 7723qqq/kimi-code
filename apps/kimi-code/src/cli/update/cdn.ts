@@ -55,9 +55,7 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, input: string): Promise
  *
  * `fetchImpl` is injectable for tests; defaults to the global `fetch`.
  */
-export async function fetchLatestVersionFromCdn(
-  fetchImpl: typeof fetch = fetch,
-): Promise<string> {
+export async function fetchLatestVersionFromCdn(fetchImpl: typeof fetch = fetch): Promise<string> {
   const response = await fetchWithTimeout(fetchImpl, KIMI_CODE_CDN_LATEST_URL);
   if (!response.ok) {
     throw new Error(`CDN /latest returned HTTP ${response.status}`);

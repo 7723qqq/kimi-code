@@ -1,5 +1,6 @@
-import { computed, nextTick, reactive } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { computed, nextTick, reactive } from 'vue';
+
 import type { AppModel, AppSession } from '../api/types';
 import {
   useModelProviderState,
@@ -42,7 +43,9 @@ describe('modelThinking', () => {
     });
 
     it('detects always_thinking capability', () => {
-      expect(modelThinkingAvailability(model({ capabilities: ['always_thinking'] }))).toBe('always-on');
+      expect(modelThinkingAvailability(model({ capabilities: ['always_thinking'] }))).toBe(
+        'always-on',
+      );
     });
 
     it('detects thinking capability', () => {
@@ -64,12 +67,28 @@ describe('modelThinking', () => {
     });
 
     it('returns the declared default effort for effort models', () => {
-      expect(defaultThinkingLevelFor(model({ capabilities: ['thinking'], supportEfforts: ['low', 'high', 'max'], defaultEffort: 'high' }))).toBe('high');
+      expect(
+        defaultThinkingLevelFor(
+          model({
+            capabilities: ['thinking'],
+            supportEfforts: ['low', 'high', 'max'],
+            defaultEffort: 'high',
+          }),
+        ),
+      ).toBe('high');
     });
 
     it('falls back to the middle effort when no default is declared', () => {
-      expect(defaultThinkingLevelFor(model({ capabilities: ['thinking'], supportEfforts: ['low', 'high', 'max'] }))).toBe('high');
-      expect(defaultThinkingLevelFor(model({ capabilities: ['thinking'], supportEfforts: ['low', 'high'] }))).toBe('high');
+      expect(
+        defaultThinkingLevelFor(
+          model({ capabilities: ['thinking'], supportEfforts: ['low', 'high', 'max'] }),
+        ),
+      ).toBe('high');
+      expect(
+        defaultThinkingLevelFor(
+          model({ capabilities: ['thinking'], supportEfforts: ['low', 'high'] }),
+        ),
+      ).toBe('high');
     });
 
     it('returns on for boolean thinking models', () => {
@@ -91,18 +110,30 @@ describe('modelThinking', () => {
     });
 
     it('prefixes off to effort lists for toggle effort models', () => {
-      expect(segmentsFor(model({ capabilities: ['thinking'], supportEfforts: ['low', 'high', 'max'] }))).toEqual(['off', 'low', 'high', 'max']);
+      expect(
+        segmentsFor(model({ capabilities: ['thinking'], supportEfforts: ['low', 'high', 'max'] })),
+      ).toEqual(['off', 'low', 'high', 'max']);
     });
 
     it('omits off for always-on effort models', () => {
-      expect(segmentsFor(model({ capabilities: ['always_thinking'], supportEfforts: ['low', 'high'] }))).toEqual(['low', 'high']);
+      expect(
+        segmentsFor(model({ capabilities: ['always_thinking'], supportEfforts: ['low', 'high'] })),
+      ).toEqual(['low', 'high']);
     });
   });
 
-  const effortModel = model({ capabilities: ['thinking'], supportEfforts: ['low', 'high', 'max'], defaultEffort: 'high' });
+  const effortModel = model({
+    capabilities: ['thinking'],
+    supportEfforts: ['low', 'high', 'max'],
+    defaultEffort: 'high',
+  });
   const booleanModel = model({ capabilities: ['thinking'] });
   const alwaysOnModel = model({ capabilities: ['always_thinking'] });
-  const maxOnlyModel = model({ capabilities: ['always_thinking'], supportEfforts: ['max'], defaultEffort: 'max' });
+  const maxOnlyModel = model({
+    capabilities: ['always_thinking'],
+    supportEfforts: ['max'],
+    defaultEffort: 'max',
+  });
   const unsupportedModel = model({ capabilities: [] });
 
   describe('thinkingLevelForModelSwitch', () => {
@@ -131,7 +162,6 @@ describe('modelThinking', () => {
       expect(thinkingLevelForModelSwitch(undefined, 'max', true)).toBe('max');
       expect(thinkingLevelForModelSwitch(undefined, undefined, true)).toBeUndefined();
     });
-
   });
 
   describe('effectiveThinkingLevel', () => {
@@ -285,7 +315,10 @@ describe('useModelProviderState thinking on model selection', () => {
     } as ExtendedState;
   }
 
-  function createModelProvider(state: ExtendedState, depOverrides: Partial<UseModelProviderStateDeps> = {}) {
+  function createModelProvider(
+    state: ExtendedState,
+    depOverrides: Partial<UseModelProviderStateDeps> = {},
+  ) {
     const deps: UseModelProviderStateDeps = {
       pushOperationFailure: vi.fn(),
       refreshSessionStatus: vi.fn().mockResolvedValue(undefined),

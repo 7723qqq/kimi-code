@@ -6,10 +6,10 @@
  * service.
  */
 
-import { BugIndicatingError } from '#/errors';
-
 import { tryNativeWriteToolOutputChunk } from '#/_base/native-tools';
+import { BugIndicatingError } from '#/errors';
 import type { SpillRef } from '#/features/spill/spill';
+
 import type { ExecutableToolErrorResult, ExecutableToolSuccessResult } from './toolContract';
 
 const DEFAULT_MAX_CHARS = 50_000;
@@ -61,7 +61,9 @@ export class ToolResultBuilder {
     this.onTruncated = options.onTruncated;
 
     if (this.maxLineLength !== null && this.maxLineLength <= TRUNCATION_MARKER.length) {
-      throw new BugIndicatingError('maxLineLength must be greater than the truncation marker length.');
+      throw new BugIndicatingError(
+        'maxLineLength must be greater than the truncation marker length.',
+      );
     }
   }
 
@@ -116,9 +118,7 @@ export class ToolResultBuilder {
 
       const remainingChars = this.maxChars - this.nCharsValue;
       const limit =
-        this.maxLineLength === null
-          ? remainingChars
-          : Math.min(remainingChars, this.maxLineLength);
+        this.maxLineLength === null ? remainingChars : Math.min(remainingChars, this.maxLineLength);
       let line = originalLine;
       if (line.length > limit) {
         const lineBreak = /[\r\n]+$/.exec(line)?.[0] ?? '';

@@ -12,12 +12,12 @@
  * agent's wire is indexed; subagent journals are out of scope for stage B.
  */
 
-import { AGENT_WIRE_RECORD_KEY, isWireRecord, isWireMetadataRecord } from '#/wire/record';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { AGENT_WIRE_RECORD_KEY, isWireRecord, isWireMetadataRecord } from '#/wire/record';
 
-import { wireRecordText } from './eventText';
 import type { SessionEventSearchDocument } from './events';
+import { wireRecordText } from './eventText';
 
 /** One cached event source: the journal revision the cache was folded from. */
 interface CachedSession {

@@ -12,23 +12,23 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
 
-import {
-  type QuestionRequest,
-  type QuestionResult,
-  ISessionQuestionService,
-} from './question';
+import { type QuestionRequest, type QuestionResult, ISessionQuestionService } from './question';
 
 export class SessionQuestionService implements ISessionQuestionService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@ISessionInteractionService private readonly interaction: ISessionInteractionService) {}
+  constructor(
+    @ISessionInteractionService private readonly interaction: ISessionInteractionService,
+  ) {}
 
-  request(req: QuestionRequest, options?: { signal?: AbortSignal; agentId?: string }): Promise<QuestionResult> {
+  request(
+    req: QuestionRequest,
+    options?: { signal?: AbortSignal; agentId?: string },
+  ): Promise<QuestionResult> {
     const id = requestId(req);
     const pending = this.interaction.request<QuestionRequest, QuestionResult>({
       id,
@@ -84,4 +84,10 @@ function requestId(req: QuestionRequest): string {
   return req.id ?? `question_${randomUUID()}`;
 }
 
-registerScopedService(LifecycleScope.Session, ISessionQuestionService, SessionQuestionService, ScopeActivation.OnScopeCreated, 'question');
+registerScopedService(
+  LifecycleScope.Session,
+  ISessionQuestionService,
+  SessionQuestionService,
+  ScopeActivation.OnScopeCreated,
+  'question',
+);

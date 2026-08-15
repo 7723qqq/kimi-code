@@ -12,11 +12,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  tryNativeEscapeXml,
-  tryNativeListDirectory,
-  tryNativeRead,
-} from '#/_base/native-tools';
+import { tryNativeEscapeXml, tryNativeListDirectory, tryNativeRead } from '#/_base/native-tools';
 
 const { mockRequire } = vi.hoisted(() => ({
   mockRequire: vi.fn<(id: string) => unknown>(),
@@ -88,9 +84,8 @@ describe('native-tools failure classes', () => {
     // Fresh module instance: the module-load cache is process-global and was
     // already primed by the tests above.
     vi.resetModules();
-    const { tryNativeEscapeXml: freshEscape, tryNativeRead: freshRead } = await import(
-      '#/_base/native-tools'
-    );
+    const { tryNativeEscapeXml: freshEscape, tryNativeRead: freshRead } =
+      await import('#/_base/native-tools');
     mockRequire.mockImplementation(() => {
       throw new Error('MODULE_NOT_FOUND');
     });

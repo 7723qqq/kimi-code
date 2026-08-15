@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 export interface LaunchCommand {
@@ -17,9 +17,8 @@ export function openFileCommandFor(
 ): LaunchCommand {
   const editor = resolveEditorCommand(env);
   if (editor !== undefined) {
-    const target = supportsLineTarget(editor) && line !== undefined
-      ? `${absolutePath}:${line}`
-      : absolutePath;
+    const target =
+      supportsLineTarget(editor) && line !== undefined ? `${absolutePath}:${line}` : absolutePath;
     return {
       command: `${editor} ${quoteShellArg(target, platform)}`,
       args: [],
@@ -61,12 +60,7 @@ export function revealFileCommandFor(
   }
 }
 
-export type OpenInAppId =
-  | 'finder'
-  | 'cursor'
-  | 'vscode'
-  | 'iterm'
-  | 'terminal';
+export type OpenInAppId = 'finder' | 'cursor' | 'vscode' | 'iterm' | 'terminal';
 
 export const OPEN_IN_APP_IDS: readonly OpenInAppId[] = [
   'finder',
@@ -107,10 +101,7 @@ export function getAvailableOpenInApps(
   return OPEN_IN_APP_IDS.filter((appId) => isOpenInAppAvailable(appId, platform));
 }
 
-function isOpenInAppAvailable(
-  appId: OpenInAppId,
-  platform: NodeJS.Platform,
-): boolean {
+function isOpenInAppAvailable(appId: OpenInAppId, platform: NodeJS.Platform): boolean {
   switch (appId) {
     case 'finder':
     case 'terminal':

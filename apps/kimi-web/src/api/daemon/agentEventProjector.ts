@@ -16,6 +16,8 @@
 //   const appEvents = projector.project(rawType, payload, sessionId);
 //   // call reset() when re-subscribing / resyncing a session
 
+import { i18n } from '../../i18n';
+import { toolLabel, toolSummary } from '../../lib/toolMeta';
 import type {
   AppEvent,
   AppGoal,
@@ -25,8 +27,6 @@ import type {
   AppSessionUsage,
   AppTask,
 } from '../types';
-import { i18n } from '../../i18n';
-import { toolLabel, toolSummary } from '../../lib/toolMeta';
 import { toAppMessageContent } from './mappers';
 import type { WireMessageContent } from './wire';
 
@@ -180,27 +180,40 @@ function mapGoalSnapshot(snapshot: unknown): AppGoal | null {
   if (!snapshot || typeof snapshot !== 'object') return null;
   const s = snapshot as Record<string, unknown>;
   const budgetRaw = s['budget'];
-  const budget = budgetRaw && typeof budgetRaw === 'object' ? budgetRaw as Record<string, unknown> : {};
+  const budget =
+    budgetRaw && typeof budgetRaw === 'object' ? (budgetRaw as Record<string, unknown>) : {};
   const status = stringField(s, 'status');
-  if (status !== 'active' && status !== 'paused' && status !== 'blocked' && status !== 'complete') return null;
+  if (status !== 'active' && status !== 'paused' && status !== 'blocked' && status !== 'complete')
+    return null;
   const goalId = stringField(s, 'goalId') ?? stringField(s, 'goal_id') ?? 'goal';
   const objective = stringField(s, 'objective') ?? '';
   return {
     goalId,
     objective,
-    completionCriterion: stringField(s, 'completionCriterion') ?? stringField(s, 'completion_criterion'),
+    completionCriterion:
+      stringField(s, 'completionCriterion') ?? stringField(s, 'completion_criterion'),
     status,
     turnsUsed: numberField(s, 'turnsUsed') ?? numberField(s, 'turns_used') ?? 0,
     tokensUsed: numberField(s, 'tokensUsed') ?? numberField(s, 'tokens_used') ?? 0,
     wallClockMs: numberField(s, 'wallClockMs') ?? numberField(s, 'wall_clock_ms') ?? 0,
     terminalReason: stringField(s, 'terminalReason') ?? stringField(s, 'terminal_reason'),
     budget: {
-      tokenBudget: nullableNumberField(budget, 'tokenBudget') ?? nullableNumberField(budget, 'token_budget'),
-      remainingTokens: nullableNumberField(budget, 'remainingTokens') ?? nullableNumberField(budget, 'remaining_tokens'),
-      turnBudget: nullableNumberField(budget, 'turnBudget') ?? nullableNumberField(budget, 'turn_budget'),
-      remainingTurns: nullableNumberField(budget, 'remainingTurns') ?? nullableNumberField(budget, 'remaining_turns'),
-      wallClockBudgetMs: nullableNumberField(budget, 'wallClockBudgetMs') ?? nullableNumberField(budget, 'wall_clock_budget_ms'),
-      remainingWallClockMs: nullableNumberField(budget, 'remainingWallClockMs') ?? nullableNumberField(budget, 'remaining_wall_clock_ms'),
+      tokenBudget:
+        nullableNumberField(budget, 'tokenBudget') ?? nullableNumberField(budget, 'token_budget'),
+      remainingTokens:
+        nullableNumberField(budget, 'remainingTokens') ??
+        nullableNumberField(budget, 'remaining_tokens'),
+      turnBudget:
+        nullableNumberField(budget, 'turnBudget') ?? nullableNumberField(budget, 'turn_budget'),
+      remainingTurns:
+        nullableNumberField(budget, 'remainingTurns') ??
+        nullableNumberField(budget, 'remaining_turns'),
+      wallClockBudgetMs:
+        nullableNumberField(budget, 'wallClockBudgetMs') ??
+        nullableNumberField(budget, 'wall_clock_budget_ms'),
+      remainingWallClockMs:
+        nullableNumberField(budget, 'remainingWallClockMs') ??
+        nullableNumberField(budget, 'remaining_wall_clock_ms'),
       overBudget: budget['overBudget'] === true || budget['over_budget'] === true,
     },
   };
@@ -213,21 +226,26 @@ function patchSubagent(
   patch: Partial<AppTask>,
 ): AppTask | null {
   if (typeof subagentId !== 'string' || subagentId.length === 0) return null;
-  const prev = state.subagentMeta.get(subagentId) ?? {
-    id: subagentId,
-    sessionId,
-    kind: 'subagent',
-    description: 'Sub Agent',
-    status: 'running',
-    createdAt: new Date().toISOString(),
-    subagentPhase: 'queued',
-  } satisfies AppTask;
+  const prev =
+    state.subagentMeta.get(subagentId) ??
+    ({
+      id: subagentId,
+      sessionId,
+      kind: 'subagent',
+      description: 'Sub Agent',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      subagentPhase: 'queued',
+    } satisfies AppTask);
   const next: AppTask = { ...prev, ...patch, id: subagentId, sessionId, kind: 'subagent' };
   state.subagentMeta.set(subagentId, next);
   return next;
 }
 
-export function subagentProgressText(rawType: string, payload: Record<string, unknown>): string | null {
+export function subagentProgressText(
+  rawType: string,
+  payload: Record<string, unknown>,
+): string | null {
   // "Started a step" fires on every step and adds no information — the phase
   // badge already shows the subagent is working, so skip it to cut the noise.
   if (rawType === 'turn.step.started') return null;
@@ -329,7 +347,13 @@ function projectSubagentProgress(
   });
   const out: AppEvent[] = [];
   if (task) out.push({ type: 'taskCreated', sessionId, task });
-  out.push({ type: 'taskProgress', sessionId, taskId: subagentId, outputChunk: text, stream: 'stdout' });
+  out.push({
+    type: 'taskProgress',
+    sessionId,
+    taskId: subagentId,
+    outputChunk: text,
+    stream: 'stdout',
+  });
   return out;
 }
 
@@ -348,7 +372,11 @@ function cloneMessage(msg: AppMessage): AppMessage {
   return { ...msg, content: msg.content.map((c) => ({ ...c })) };
 }
 
-function startAssistantMessage(state: SessionState, sessionId: string, promptId: string): AppMessage {
+function startAssistantMessage(
+  state: SessionState,
+  sessionId: string,
+  promptId: string,
+): AppMessage {
   const msg: AppMessage = {
     id: ulid('msg_'),
     sessionId,
@@ -409,7 +437,9 @@ function appendAssistantDelta(
     else (last as { type: 'thinking'; thinking: string }).thinking += delta;
     return msg.content.length - 1;
   }
-  msg.content.push(kind === 'text' ? { type: 'text', text: delta } : { type: 'thinking', thinking: delta });
+  msg.content.push(
+    kind === 'text' ? { type: 'text', text: delta } : { type: 'thinking', thinking: delta },
+  );
   return msg.content.length - 1;
 }
 
@@ -426,9 +456,12 @@ function appendToolUse(
   msg.content.push({ type: 'toolUse', toolCallId, toolName, input, outputLines });
 }
 
-function toolProgressOutput(payload: Record<string, unknown>): { outputChunk: string; stream: 'stdout' | 'stderr' } | null {
+function toolProgressOutput(
+  payload: Record<string, unknown>,
+): { outputChunk: string; stream: 'stdout' | 'stderr' } | null {
   const update = payload['update'];
-  const updateRecord = update && typeof update === 'object' ? update as Record<string, unknown> : null;
+  const updateRecord =
+    update && typeof update === 'object' ? (update as Record<string, unknown>) : null;
   const streamRaw = updateRecord?.['stream'] ?? updateRecord?.['kind'] ?? payload['stream'];
   const stream = streamRaw === 'stderr' ? 'stderr' : 'stdout';
   const chunk =
@@ -603,7 +636,11 @@ export function createAgentProjector(): AgentProjector {
       return _project(rawType, payload, sessionId, meta);
     } catch (error) {
       // Defensive: log but never crash the caller
-      console.error('[agentProjector] Error projecting event:', rawType, error instanceof Error ? error.message : error);
+      console.error(
+        '[agentProjector] Error projecting event:',
+        rawType,
+        error instanceof Error ? error.message : error,
+      );
       return [];
     }
   }
@@ -652,7 +689,9 @@ export function createAgentProjector(): AgentProjector {
             type: 'agentDelta' as const,
             sessionId,
             agentId: frameAgentId,
-            delta: { [rawType === 'thinking.delta' ? ('thinking' as const) : ('text' as const)]: deltaText },
+            delta: {
+              [rawType === 'thinking.delta' ? ('thinking' as const) : ('text' as const)]: deltaText,
+            },
           },
         ];
       }
@@ -662,7 +701,14 @@ export function createAgentProjector(): AgentProjector {
         ];
       }
       if (MAIN_AGENT_TRANSCRIPT_FRAMES.has(rawType)) {
-        return projectSubagentProgress(s, sessionId, frameAgentId, rawType, p ?? {}, sideChannelAgents);
+        return projectSubagentProgress(
+          s,
+          sessionId,
+          frameAgentId,
+          rawType,
+          p ?? {},
+          sideChannelAgents,
+        );
       }
     }
 
@@ -915,7 +961,14 @@ export function createAgentProjector(): AgentProjector {
         s.toolStartTimes.delete(toolCallId);
         void (Date.now() - startTime); // duration — unused at client level
 
-        const resultMsg = appendToolResultMessage(s, sessionId, toolCallId, output, isError, promptId);
+        const resultMsg = appendToolResultMessage(
+          s,
+          sessionId,
+          toolCallId,
+          output,
+          isError,
+          promptId,
+        );
         out.push({ type: 'messageCreated', message: cloneMessage(resultMsg) });
 
         // Reset assistant message tracking — next step.started will create a fresh one
@@ -1069,7 +1122,12 @@ export function createAgentProjector(): AgentProjector {
         // 'blocked'), which would otherwise pin the in-flight state forever.
         const promptId: string | undefined = p?.promptId;
         if (typeof promptId === 'string' && promptId.length > 0) {
-          out.push({ type: 'promptCompleted', sessionId, promptId, reason: p?.reason ?? 'completed' });
+          out.push({
+            type: 'promptCompleted',
+            sessionId,
+            promptId,
+            reason: p?.reason ?? 'completed',
+          });
         }
         break;
       }
@@ -1130,17 +1188,22 @@ export function createAgentProjector(): AgentProjector {
 
       // -----------------------------------------------------------------------
       case 'subagent.spawned': {
-        const taskId = typeof p?.subagentId === 'string' && p.subagentId.length > 0 ? p.subagentId : ulid('task_');
+        const taskId =
+          typeof p?.subagentId === 'string' && p.subagentId.length > 0
+            ? p.subagentId
+            : ulid('task_');
         const task: AppTask = {
           id: taskId,
           sessionId,
           kind: 'subagent',
-          description: typeof p?.description === 'string' ? p.description : p?.subagentName ?? 'Sub Agent',
+          description:
+            typeof p?.description === 'string' ? p.description : (p?.subagentName ?? 'Sub Agent'),
           status: 'running',
           createdAt: new Date().toISOString(),
           subagentPhase: 'queued',
           subagentType: typeof p?.subagentName === 'string' ? p.subagentName : undefined,
-          parentToolCallId: typeof p?.parentToolCallId === 'string' ? p.parentToolCallId : undefined,
+          parentToolCallId:
+            typeof p?.parentToolCallId === 'string' ? p.parentToolCallId : undefined,
           swarmIndex: typeof p?.swarmIndex === 'number' ? p.swarmIndex : undefined,
           runInBackground: p?.runInBackground === true,
         };
@@ -1266,9 +1329,7 @@ export function createAgentProjector(): AgentProjector {
         // and keepLiveSubagents folds that copy into this row.
         if (info.kind === 'agent') {
           const agentId =
-            typeof info.agentId === 'string' && info.agentId.length > 0
-              ? info.agentId
-              : undefined;
+            typeof info.agentId === 'string' && info.agentId.length > 0 ? info.agentId : undefined;
           if (agentId !== undefined) {
             // Key by agent id even when the spawn event never reached this
             // client (subscribed late): later agent-scoped progress frames are
@@ -1322,8 +1383,7 @@ export function createAgentProjector(): AgentProjector {
       case 'task.terminated': {
         const info = (p?.info ?? {}) as Record<string, unknown>;
         const failed =
-          info.status === 'failed' ||
-          (typeof info.exitCode === 'number' && info.exitCode !== 0);
+          info.status === 'failed' || (typeof info.exitCode === 'number' && info.exitCode !== 0);
         out.push({
           type: 'taskCompleted',
           sessionId,

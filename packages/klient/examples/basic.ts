@@ -11,11 +11,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
-
-
 import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
 import { createKlient } from '@moonshot-ai/klient/memory';
+
+import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
 
 async function main(): Promise<void> {
   const homeDir = await mkdtemp(join(tmpdir(), 'klient-basic-'));

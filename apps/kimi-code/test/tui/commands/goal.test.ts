@@ -1,6 +1,7 @@
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import {
   dispatchInput,
   goalArgumentCompletions,
@@ -15,7 +16,6 @@ import {
   removeGoalQueueItem,
   updateGoalQueueItem,
 } from '#/tui/goal-queue-store';
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import { getBuiltInPalette } from '#/tui/theme';
 
 vi.mock('#/tui/goal-queue-store', () => ({
@@ -113,7 +113,9 @@ function makeHost(
     session: hasSession ? session : undefined,
     skillCommandMap: new Map<string, string>(),
     requireSession: () => session,
-    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    setAppState: vi.fn((patch: Record<string, unknown>) =>
+      Object.assign(host.state.appState, patch),
+    ),
     showError: vi.fn(),
     showStatus: vi.fn(),
     showNotice: vi.fn(),
@@ -487,9 +489,7 @@ describe('handleGoalCommand', () => {
     expect(session.createGoal).toHaveBeenCalledWith(
       expect.objectContaining({ objective: 'Ship release notes', replace: false }),
     );
-    expect(host.showStatus).toHaveBeenCalledWith(
-      'No active goal. Starting this goal now.',
-    );
+    expect(host.showStatus).toHaveBeenCalledWith('No active goal. Starting this goal now.');
     expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship release notes');
   });
 
@@ -652,14 +652,18 @@ describe('handleGoalCommand', () => {
 
   // No-goal control commands all read as calm status messages, never red errors.
   it('pausing with no goal shows a friendly status, not an error', async () => {
-    session.pauseGoal.mockRejectedValueOnce(new KimiError(ErrorCodes.GOAL_NOT_FOUND, 'No current goal'));
+    session.pauseGoal.mockRejectedValueOnce(
+      new KimiError(ErrorCodes.GOAL_NOT_FOUND, 'No current goal'),
+    );
     await handleGoalCommand(host, 'pause');
     expect(host.showStatus).toHaveBeenCalledWith('No goal to pause.');
     expect(host.showError).not.toHaveBeenCalled();
   });
 
   it('resuming with no goal shows a friendly status, not an error', async () => {
-    session.resumeGoal.mockRejectedValueOnce(new KimiError(ErrorCodes.GOAL_NOT_FOUND, 'No current goal'));
+    session.resumeGoal.mockRejectedValueOnce(
+      new KimiError(ErrorCodes.GOAL_NOT_FOUND, 'No current goal'),
+    );
     await handleGoalCommand(host, 'resume');
     expect(host.showStatus).toHaveBeenCalledWith('No goal to resume.');
     expect(host.showError).not.toHaveBeenCalled();
@@ -667,7 +671,9 @@ describe('handleGoalCommand', () => {
 
   it('`replace` with no objective is a hint (status), not an error', async () => {
     await handleGoalCommand(host, 'replace');
-    expect(host.showStatus).toHaveBeenCalledWith(expect.stringContaining('Provide a goal objective'));
+    expect(host.showStatus).toHaveBeenCalledWith(
+      expect.stringContaining('Provide a goal objective'),
+    );
     expect(host.showError).not.toHaveBeenCalled();
   });
 

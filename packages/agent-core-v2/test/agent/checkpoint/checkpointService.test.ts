@@ -9,14 +9,15 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IEventBus } from '#/app/event/eventBus';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IEventBus } from '#/app/event/eventBus';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import type { ExecutableTool } from '#/tool/toolContract';
 import { ToolAccesses } from '#/tool/toolContract';
+
 import { execEnvServices, permissionModeServices, testAgent } from '../../harness';
 
 let workDir: string;
@@ -101,7 +102,9 @@ describe('file checkpoints', () => {
     await ctx.rpc.undoHistory({ count: 1 });
     const event = (await restored) as { conflicts: Array<{ path: string; reason: string }> };
     expect(await readFile(join(workDir, 'b.txt'), 'utf8')).toBe('manual edit');
-    expect(event.conflicts.some((c) => c.path.endsWith('b.txt') && c.reason === 'manual_edit')).toBe(true);
+    expect(
+      event.conflicts.some((c) => c.path.endsWith('b.txt') && c.reason === 'manual_edit'),
+    ).toBe(true);
   });
 
   it('creates files on restore when the preimage did not exist', async () => {
@@ -159,6 +162,8 @@ describe('file checkpoints', () => {
     await ctx.rpc.undoHistory({ count: 1 });
     const event = (await restored) as { conflicts: Array<{ path: string; reason: string }> };
     expect(await readFile(join(workDir, 'c.txt'), 'utf8')).toBe('modified');
-    expect(event.conflicts.some((c) => c.path.endsWith('c.txt') && c.reason === 'unknown_preimage')).toBe(true);
+    expect(
+      event.conflicts.some((c) => c.path.endsWith('c.txt') && c.reason === 'unknown_preimage'),
+    ).toBe(true);
   });
 });

@@ -34,10 +34,7 @@
 
 import { z } from 'zod';
 
-import {
-  defineCheckpointedModel,
-  type Checkpointed,
-} from '#/agent/contextMemory/conversationTime';
+import { defineCheckpointedModel, type Checkpointed } from '#/agent/contextMemory/conversationTime';
 
 export interface PlanState {
   readonly active: boolean;

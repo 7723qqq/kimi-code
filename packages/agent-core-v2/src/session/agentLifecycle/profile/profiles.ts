@@ -7,7 +7,6 @@
  * child agent no longer inherits the parent's prompt through a runtime overlay.
  */
 
-import { collectGitContext } from './gitContext';
 import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 import {
   renderSystemPromptResult,
@@ -16,6 +15,7 @@ import {
 } from '#/app/agentProfileCatalog/profile-shared';
 
 import EXPLORE_ROLE from './explore-overlay.md?raw';
+import { collectGitContext } from './gitContext';
 import SUMMARY_CONTINUATION_PROMPT from './summary-continuation.md?raw';
 
 const AGENT_TOOLS = [

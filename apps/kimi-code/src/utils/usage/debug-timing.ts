@@ -68,9 +68,7 @@ export function formatStepDebugTiming(input: StepTimingInput): string | undefine
     // is not part of the cache system and must not dilute the ratio.
     let cacheHitRate: number;
     if (cacheCreationTokens > 0) {
-      cacheHitRate = Math.round(
-        (cacheReadTokens / (cacheReadTokens + cacheCreationTokens)) * 100,
-      );
+      cacheHitRate = Math.round((cacheReadTokens / (cacheReadTokens + cacheCreationTokens)) * 100);
     } else if (cacheReadTokens > 0) {
       // No cache-write data reported (the provider never surfaced
       // `cache_creation_input_tokens`): reporting reads/(reads+0) would

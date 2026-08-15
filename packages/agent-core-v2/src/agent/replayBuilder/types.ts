@@ -1,14 +1,14 @@
-import type { AgentTaskInfo } from '#/agent/task/task';
-import type { CompactionResult } from '#/agent/fullCompaction/types';
-import type { AgentConfigData, AgentConfigUpdateData } from '#/agent/profile/profile';
 import type { AgentContextData, ContextMessage } from '#/agent/contextMemory/types';
+import type { CompactionResult } from '#/agent/fullCompaction/types';
 import type { GoalChange, GoalSnapshot } from '#/agent/goal/types';
-import type { PermissionApprovalResultRecord } from '#/agent/permissionRules/permissionRules';
 import type { PermissionData, PermissionMode } from '#/agent/permissionPolicy/types';
-import type { PlanData } from '#/features/plan/plan';
-import type { ToolInfo } from '#/tool/toolContract';
+import type { PermissionApprovalResultRecord } from '#/agent/permissionRules/permissionRules';
+import type { AgentConfigData, AgentConfigUpdateData } from '#/agent/profile/profile';
+import type { AgentTaskInfo } from '#/agent/task/task';
 import type { UsageStatus } from '#/agent/usage/usage';
+import type { PlanData } from '#/features/plan/plan';
 import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
+import type { ToolInfo } from '#/tool/toolContract';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };

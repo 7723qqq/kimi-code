@@ -13,19 +13,13 @@
  */
 
 import multipart from '@fastify/multipart';
-
-import {
-  ErrorCodes,
-  IFileService,
-  Error2,
-  type Scope,
-} from '@moonshot-ai/agent-core-v2';
+import { ErrorCodes, IFileService, Error2, type Scope } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
-import { ErrorCode } from '../protocol/error-codes';
 import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../protocol/envelope';
+import { ErrorCode } from '../protocol/error-codes';
 import {
   deleteFileParamSchema,
   deleteFileResponseSchema,

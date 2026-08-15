@@ -246,8 +246,7 @@ function flushPart(
 function formatFinishReasonHint(stream: StreamedMessage): string {
   if (stream.finishReason === null && stream.rawFinishReason === null) return '';
 
-  const raw =
-    stream.rawFinishReason === null ? '' : `, rawFinishReason=${stream.rawFinishReason}`;
+  const raw = stream.rawFinishReason === null ? '' : `, rawFinishReason=${stream.rawFinishReason}`;
   const filteredHint =
     stream.finishReason === 'filtered'
       ? ' The provider filtered the response before visible output was emitted.'

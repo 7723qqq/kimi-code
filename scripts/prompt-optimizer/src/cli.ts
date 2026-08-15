@@ -10,15 +10,16 @@
 
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { loadConfig } from './config';
-import { loadPrompt, generateBaselineVariant, generatePruneVariant } from './prompt-parser';
+
+import { formatABReport, runABExperiment } from './ab-test/ab-test';
 import { BENCHMARK_CASES } from './benchmark/cases';
 import { runSuite, aggregateResults, dryRunCaller, type RunnerConfig } from './benchmark/runner';
-import { runPruner, formatPruneReport } from './pruner/pruner';
-import { runProbe, formatProbeReport } from './probe/probe';
-import { formatABReport, runABExperiment } from './ab-test/ab-test';
-import { generateComparisonReport, type CompareInput } from './report/report';
+import { loadConfig } from './config';
 import { realCaller, resolveCredentials } from './llm-caller';
+import { runProbe, formatProbeReport } from './probe/probe';
+import { loadPrompt, generateBaselineVariant, generatePruneVariant } from './prompt-parser';
+import { runPruner, formatPruneReport } from './pruner/pruner';
+import { generateComparisonReport, type CompareInput } from './report/report';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -66,13 +67,16 @@ async function main() {
       if (compareArg) {
         // --compare mode: run multiple variants and compare
         const variantNames = compareArg.split(',');
-        console.log(`Comparing variants: ${variantNames.join(' vs ')} (model: ${model}, dry-run: ${isDryRun})`);
+        console.log(
+          `Comparing variants: ${variantNames.join(' vs ')} (model: ${model}, dry-run: ${isDryRun})`,
+        );
         const compareInputs: CompareInput[] = [];
 
         for (const vName of variantNames) {
-          const variant = vName.trim() === 'base'
-            ? generateBaselineVariant(sections)
-            : generatePruneVariant(sections, vName.trim());
+          const variant =
+            vName.trim() === 'base'
+              ? generateBaselineVariant(sections)
+              : generatePruneVariant(sections, vName.trim());
           const results = await runSuite(BENCHMARK_CASES, variant, caller, runnerConfig);
           compareInputs.push({ name: vName.trim(), results });
         }
@@ -80,15 +84,25 @@ async function main() {
         console.log('\n' + generateComparisonReport(compareInputs));
 
         const reportPath = resolve(outputDir, `compare-${model}-${Date.now()}.json`);
-        writeFileSync(reportPath, JSON.stringify(compareInputs.map((c) => ({ name: c.name, aggregate: aggregateResults(c.results) })), null, 2));
+        writeFileSync(
+          reportPath,
+          JSON.stringify(
+            compareInputs.map((c) => ({ name: c.name, aggregate: aggregateResults(c.results) })),
+            null,
+            2,
+          ),
+        );
         console.log(`\nFull report: ${reportPath}`);
       } else {
         // Single variant mode
         const variantName = getArg('variant', 'base')!;
-        console.log(`Running benchmark suite (${BENCHMARK_CASES.length} cases, model: ${model}, variant: ${variantName}, dry-run: ${isDryRun})`);
-        const variant = variantName === 'base'
-          ? generateBaselineVariant(sections)
-          : generatePruneVariant(sections, variantName);
+        console.log(
+          `Running benchmark suite (${BENCHMARK_CASES.length} cases, model: ${model}, variant: ${variantName}, dry-run: ${isDryRun})`,
+        );
+        const variant =
+          variantName === 'base'
+            ? generateBaselineVariant(sections)
+            : generatePruneVariant(sections, variantName);
         const results = await runSuite(BENCHMARK_CASES, variant, caller, runnerConfig);
         const agg = aggregateResults(results);
 
@@ -165,7 +179,14 @@ async function main() {
       console.log('\n' + formatABReport(result));
 
       const reportPath = resolve(outputDir, `ab-${model}-${Date.now()}.json`);
-      writeFileSync(reportPath, JSON.stringify({ ...result, variantResults: Object.fromEntries(result.variantResults) }, null, 2));
+      writeFileSync(
+        reportPath,
+        JSON.stringify(
+          { ...result, variantResults: Object.fromEntries(result.variantResults) },
+          null,
+          2,
+        ),
+      );
       console.log(`\nFull report: ${reportPath}`);
       break;
     }
@@ -210,7 +231,7 @@ Examples:
   }
 }
 
-main().catch((err) => {
-  console.error('Error:', err);
+main().catch((error) => {
+  console.error('Error:', error);
   process.exit(1);
 });

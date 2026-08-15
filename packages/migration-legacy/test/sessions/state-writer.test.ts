@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 /**
  * Scenario: translating legacy session state into the v1 session metadata file.
  * Responsibilities: user-visible metadata and legacy session-scoped fields survive migration.
@@ -5,9 +9,7 @@
  * Run: pnpm exec vitest run packages/migration-legacy/test/sessions/state-writer.test.ts
  */
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+
 import { writeSessionState } from '../../src/sessions/state-writer.js';
 
 let dir: string;

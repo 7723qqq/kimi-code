@@ -12,8 +12,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import type { IConfigService } from '#/app/config/config';
 import { ProbeShellNotFoundError } from '#/_base/execEnv/environmentProbe';
+import type { IConfigService } from '#/app/config/config';
 import { HostEnvironmentService } from '#/os/backends/node-local/hostEnvironmentService';
 import { HostProcessError, OsProcessErrors } from '#/os/interface/hostProcess';
 

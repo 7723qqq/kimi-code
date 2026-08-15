@@ -40,13 +40,20 @@ let cachedScCode: string | undefined;
 let cachedScAt = 0;
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 async function fetchStartpageText(
   url: string,
   options: SearchEngineOptions,
-  init: { method?: 'GET' | 'POST'; headers: Record<string, string>; body?: string; timeoutMs: number },
+  init: {
+    method?: 'GET' | 'POST';
+    headers: Record<string, string>;
+    body?: string;
+    timeoutMs: number;
+  },
 ): Promise<string> {
   let response: EngineHttpResponse;
   try {
@@ -89,11 +96,15 @@ async function fetchStartpageText(
     );
   }
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Startpage request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `Startpage request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
-  return  response.text();
+  return response.text();
 }
 
 async function getScCode(options: SearchEngineOptions): Promise<string> {

@@ -4,12 +4,8 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import type { TestInstantiationService } from '#/_base/di/test';
 import { UserCancellationError } from '#/_base/utils/abort';
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import type {
-  PermissionMode,
-  PermissionPolicyResult,
-} from '#/agent/permissionPolicy/types';
+import type { PermissionMode, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
 import {
   IAgentPermissionRulesService,
   type PermissionApprovalResultRecord,
@@ -17,6 +13,7 @@ import {
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { AgentToolApprovalService } from '#/agent/toolApproval/toolApprovalService';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -29,8 +26,8 @@ import {
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
-import { stubPermissionModeService } from '../permissionMode/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { stubPermissionModeService } from '../permissionMode/stubs';
 
 const RETRY_GUIDANCE =
   "Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
@@ -96,7 +93,10 @@ describe('AgentToolApprovalService', () => {
           IAgentScopeContext,
           makeAgentScopeContext({ agentId: 'main', agentScope: 'main' }),
         );
-        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
+        reg.defineInstance(
+          IAgentPermissionModeService,
+          stubPermissionModeService(() => mode),
+        );
         reg.defineInstance(IAgentPermissionRulesService, {
           _serviceBrand: undefined,
           rules: [],
@@ -106,14 +106,17 @@ describe('AgentToolApprovalService', () => {
             recorded.push(record);
           },
         });
-        reg.defineInstance(ISessionContext, makeSessionContext({
-          sessionId: 'test-session',
-          workspaceId: 'test-workspace',
-          sessionDir: '/tmp/test-session',
-          sessionScope: 'sessions/test-workspace/test-session',
-          metaScope: 'sessions/test-workspace/test-session/session-meta',
-          cwd: '/tmp/test-session',
-        }));
+        reg.defineInstance(
+          ISessionContext,
+          makeSessionContext({
+            sessionId: 'test-session',
+            workspaceId: 'test-workspace',
+            sessionDir: '/tmp/test-session',
+            sessionScope: 'sessions/test-workspace/test-session',
+            metaScope: 'sessions/test-workspace/test-session/session-meta',
+            cwd: '/tmp/test-session',
+          }),
+        );
         reg.defineInstance(ITelemetryService, recordingTelemetry(records));
         reg.defineInstance(IEventBus, eventBus);
         reg.define(IAgentToolApprovalService, AgentToolApprovalService);
@@ -155,10 +158,7 @@ describe('AgentToolApprovalService', () => {
   }
 
   function useSubagentScope(): void {
-    ix.set(
-      IAgentScopeContext,
-      makeAgentScopeContext({ agentId: 'sub-1', agentScope: 'sub-1' }),
-    );
+    ix.set(IAgentScopeContext, makeAgentScopeContext({ agentId: 'sub-1', agentScope: 'sub-1' }));
   }
 
   describe('resolvePermissionResolution', () => {
@@ -247,7 +247,11 @@ describe('AgentToolApprovalService', () => {
       const feedback = 'No approval surface is available; the request was denied.';
 
       await expect(
-        svc.requestToolApproval(makeContext('Bash', { command: 'printf hi' }), ask(), 'fallback-ask'),
+        svc.requestToolApproval(
+          makeContext('Bash', { command: 'printf hi' }),
+          ask(),
+          'fallback-ask',
+        ),
       ).resolves.toEqual({
         veto: {
           output: `Tool "Bash" was not run because the user rejected the approval request. Reason: ${feedback}`,
@@ -304,7 +308,11 @@ describe('AgentToolApprovalService', () => {
       const svc = make();
 
       await expect(
-        svc.requestToolApproval(makeContext('Bash', { command: 'printf first' }), ask(), 'fallback-ask'),
+        svc.requestToolApproval(
+          makeContext('Bash', { command: 'printf first' }),
+          ask(),
+          'fallback-ask',
+        ),
       ).resolves.toBeUndefined();
 
       expect(request).toHaveBeenCalledTimes(1);

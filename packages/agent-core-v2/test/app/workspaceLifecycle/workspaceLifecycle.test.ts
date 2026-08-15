@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LifecycleScope } from '#/app/scopes';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -8,62 +8,63 @@ import {
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { IModelCatalog } from '#/kosong/model/catalog';
-import { IModelService } from '#/kosong/model/model';
-import { IProviderService } from '#/kosong/provider/provider';
-import { stubProviderService } from '../provider/stubs';
-import { IFlagService } from '#/app/flag/flag';
 import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
 import { IEventService } from '#/app/event/event';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
+import { IFlagService } from '#/app/flag/flag';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import type { McpConnectionManager } from '#/mcpCore/connection-manager';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
-import { ISessionProcessRunner } from '#/session/process/processRunner';
-import { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalog';
-import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
-import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
-import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
-import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
-import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
 import { IAppStateService } from '#/app/state/appState';
 import { AppStateService } from '#/app/state/appStateService';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
-import { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
-import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
-import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
-import { WorkspaceDirsService } from '#/workspace/workspaceDirs/workspaceDirsService';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
-import { Error2, ErrorCodes } from '#/errors';
-import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
-import { IWorkspaceToolPolicy } from '#/workspace/workspaceToolPolicy/workspaceToolPolicy';
-import { WorkspaceToolPolicyService } from '#/workspace/workspaceToolPolicy/workspaceToolPolicyService';
-import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
-import { stubLog } from '../../_base/log/stubs';
-import { stubFlag } from '../../app/flag/stubs';
-
-import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
-import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
 import {
   followWorkspaceHandlers,
   getLiveSessionById,
   resumeSessionById,
 } from '#/app/workspaceLifecycle/sessionLookup';
+import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
+import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
+import { Error2, ErrorCodes } from '#/errors';
+import { IModelCatalog } from '#/kosong/model/catalog';
+import { IModelService } from '#/kosong/model/model';
+import { IProviderService } from '#/kosong/provider/provider';
+import type { McpConnectionManager } from '#/mcpCore/connection-manager';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionProcessRunner } from '#/session/process/processRunner';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
+import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
+import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
+import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
+import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
+import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
+import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
+import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
+import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
+import { WorkspaceDirsService } from '#/workspace/workspaceDirs/workspaceDirsService';
+import { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
+import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
+import { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalog';
+import { IWorkspaceToolPolicy } from '#/workspace/workspaceToolPolicy/workspaceToolPolicy';
+import { WorkspaceToolPolicyService } from '#/workspace/workspaceToolPolicy/workspaceToolPolicyService';
+
+import { stubLog } from '../../_base/log/stubs';
+import { stubFlag } from '../../app/flag/stubs';
+import { stubProviderService } from '../provider/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 
 function bootstrapStub(): IBootstrapService {
   return {
@@ -91,8 +92,13 @@ function catalogStub() {
   const createOrTouch = vi.fn((root: string, name?: string) => {
     const id = encodeWorkDirKey(root);
     const existing = workspaces.get(id);
-    const workspace: Workspace =
-      existing ?? { id, root, name: name ?? 'proj', createdAt: 1, lastOpenedAt: 1 };
+    const workspace: Workspace = existing ?? {
+      id,
+      root,
+      name: name ?? 'proj',
+      createdAt: 1,
+      lastOpenedAt: 1,
+    };
     workspaces.set(id, workspace);
     return Promise.resolve(workspace);
   });
@@ -170,55 +176,61 @@ function sessionStubs(): ReturnType<typeof stubPair>[] {
       _serviceBrand: undefined,
       exec: () => Promise.reject(new Error('process exec is not supported in this test')),
     } satisfies ISessionProcessRunner),
-    stubPair(IWorkspaceSkillCatalog, (() => {
-      const catalog = {
-        getSkill: () => {},
-        getPluginSkill: () => {},
-        renderSkillPrompt: () => '',
-        listSkills: () => [],
-        listInvocableSkills: () => [],
-        getSkillRoots: () => [],
-        getSkippedByPolicy: () => [],
-        getModelSkillListing: () => '',
-      };
-      const onDidChange = () => ({ dispose: () => {} });
-      return {
-        _serviceBrand: undefined,
-        ready: Promise.resolve(),
-        catalog,
-        onDidChange,
-        load: () => Promise.resolve(),
-        reload: () => Promise.resolve(),
-        sessionData: () => ({
+    stubPair(
+      IWorkspaceSkillCatalog,
+      (() => {
+        const catalog = {
+          getSkill: () => {},
+          getPluginSkill: () => {},
+          renderSkillPrompt: () => '',
+          listSkills: () => [],
+          listInvocableSkills: () => [],
+          getSkillRoots: () => [],
+          getSkippedByPolicy: () => [],
+          getModelSkillListing: () => '',
+        };
+        const onDidChange = () => ({ dispose: () => {} });
+        return {
           _serviceBrand: undefined,
           ready: Promise.resolve(),
           catalog,
           onDidChange,
-        }),
-      } as unknown as IWorkspaceSkillCatalog;
-    })()),
+          load: () => Promise.resolve(),
+          reload: () => Promise.resolve(),
+          sessionData: () => ({
+            _serviceBrand: undefined,
+            ready: Promise.resolve(),
+            catalog,
+            onDidChange,
+          }),
+        } as unknown as IWorkspaceSkillCatalog;
+      })(),
+    ),
     stubPair(IWorkspaceAgentProfileLoader, agentProfileLoaderStub()),
     stubPair(IExtraAgentProfileLoader, agentProfileLoaderStub()),
     stubPair(IExplicitAgentProfileLoader, agentProfileLoaderStub()),
     stubPair(IUserAgentProfileLoader, userAgentProfileLoaderStub()),
     stubPair(IPluginAgentProfileLoader, agentProfileLoaderStub()),
-    stubPair(IWorkspaceInstructionsService, (() => {
-      const onDidChange = () => ({ dispose: () => {} });
-      return {
-        _serviceBrand: undefined,
-        ready: Promise.resolve(),
-        snapshot: { agentsMd: undefined, agentsMdWarning: undefined },
-        onDidChange,
-        reload: () => Promise.resolve(),
-        sessionProvider: () => ({
+    stubPair(
+      IWorkspaceInstructionsService,
+      (() => {
+        const onDidChange = () => ({ dispose: () => {} });
+        return {
           _serviceBrand: undefined,
           ready: Promise.resolve(),
-          agentsMd: undefined,
-          agentsMdWarning: undefined,
+          snapshot: { agentsMd: undefined, agentsMdWarning: undefined },
           onDidChange,
-        }),
-      } as unknown as IWorkspaceInstructionsService;
-    })()),
+          reload: () => Promise.resolve(),
+          sessionProvider: () => ({
+            _serviceBrand: undefined,
+            ready: Promise.resolve(),
+            agentsMd: undefined,
+            agentsMdWarning: undefined,
+            onDidChange,
+          }),
+        } as unknown as IWorkspaceInstructionsService;
+      })(),
+    ),
     stubPair(IWorkspaceMcpService, {
       _serviceBrand: undefined,
       ready: Promise.resolve(),
@@ -233,29 +245,32 @@ function sessionStubs(): ReturnType<typeof stubPair>[] {
         },
       }),
     } as unknown as IWorkspaceMcpService),
-    stubPair(IAgentLifecycleService, (() => {
-      const main = {
-        id: 'main',
-        kind: LifecycleScope.Agent,
-        accessor: {
-          get: () => {
-            throw new Error('unexpected main agent service access');
+    stubPair(
+      IAgentLifecycleService,
+      (() => {
+        const main = {
+          id: 'main',
+          kind: LifecycleScope.Agent,
+          accessor: {
+            get: () => {
+              throw new Error('unexpected main agent service access');
+            },
           },
-        },
-        dispose: () => {},
-      } as const;
-      return {
-        _serviceBrand: undefined,
-        onDidCreate: () => ({ dispose: () => {} }),
-        onDidDispose: () => ({ dispose: () => {} }),
-        create: () => Promise.reject(new Error('not implemented')),
-        fork: () => Promise.reject(new Error('not implemented')),
-        get: (id: string) => (id === 'main' ? main : undefined),
-        list: () => [],
-        remove: () => Promise.resolve(),
-        broadcastPermissionMode: () => {},
-      } as unknown as IAgentLifecycleService;
-    })()),
+          dispose: () => {},
+        } as const;
+        return {
+          _serviceBrand: undefined,
+          onDidCreate: () => ({ dispose: () => {} }),
+          onDidDispose: () => ({ dispose: () => {} }),
+          create: () => Promise.reject(new Error('not implemented')),
+          fork: () => Promise.reject(new Error('not implemented')),
+          get: (id: string) => (id === 'main' ? main : undefined),
+          list: () => [],
+          remove: () => Promise.resolve(),
+          broadcastPermissionMode: () => {},
+        } as unknown as IAgentLifecycleService;
+      })(),
+    ),
   ];
 }
 
@@ -339,7 +354,10 @@ describe('WorkspaceLifecycleService', () => {
         ready: Promise.resolve(),
       } as unknown as IModelService),
       stubPair(IProviderService, stubProviderService()),
-      stubPair(IFlagService, stubFlag(() => false)),
+      stubPair(
+        IFlagService,
+        stubFlag(() => false),
+      ),
       stubPair(IAppendLogStore, {
         _serviceBrand: undefined,
         append: () => {},
@@ -539,7 +557,12 @@ describe('WorkspaceLifecycleService', () => {
     }): ReturnType<typeof stubPair> {
       return stubPair(ISessionIndex, {
         ...sessionIndexStub(),
-        get: (id: string) => Promise.resolve(id === summary.id ? { ...summary, createdAt: 1, updatedAt: 1, archived: false } : undefined),
+        get: (id: string) =>
+          Promise.resolve(
+            id === summary.id
+              ? { ...summary, createdAt: 1, updatedAt: 1, archived: false }
+              : undefined,
+          ),
       } as unknown as ISessionIndex);
     }
 
@@ -563,8 +586,7 @@ describe('WorkspaceLifecycleService', () => {
       build([
         stubPair(ISessionIndex, {
           ...sessionIndexStub(),
-          get: () =>
-            Promise.reject(new Error2(ErrorCodes.SESSION_NOT_FOUND, 'index read failed')),
+          get: () => Promise.reject(new Error2(ErrorCodes.SESSION_NOT_FOUND, 'index read failed')),
         } as unknown as ISessionIndex),
       ]);
 
@@ -595,9 +617,13 @@ describe('WorkspaceLifecycleService', () => {
       );
 
       const first = await lifecycle.handlerFor({ root: '/tmp/proj' });
-      await first.accessor.get(ISessionLifecycleService).create({ sessionId: 's1', workDir: '/tmp/proj' });
+      await first.accessor
+        .get(ISessionLifecycleService)
+        .create({ sessionId: 's1', workDir: '/tmp/proj' });
       const second = await lifecycle.handlerFor({ root: '/tmp/other' });
-      await second.accessor.get(ISessionLifecycleService).create({ sessionId: 's2', workDir: '/tmp/other' });
+      await second.accessor
+        .get(ISessionLifecycleService)
+        .create({ sessionId: 's2', workDir: '/tmp/other' });
 
       await first.accessor.get(ISessionLifecycleService).close('s1');
       await second.accessor.get(ISessionLifecycleService).close('s2');

@@ -3,6 +3,7 @@
 <script setup lang="ts">
 import { onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { AppNotice, AppWarning } from '../api/types';
 import { copyTextToClipboard } from '../lib/clipboard';
 import Toast from './ui/Toast.vue';
@@ -30,7 +31,10 @@ function toastDetails(warning: AppWarning): AppNotice['details'] {
 
 function isError(warning: AppWarning): boolean {
   if (isNotice(warning)) return warning.severity === 'error';
-  return warning.startsWith(`${t('warnings.errorLabel')}:`) || /\b4\d\d\b|error|失败|failed/i.test(warning);
+  return (
+    warning.startsWith(`${t('warnings.errorLabel')}:`) ||
+    /\b4\d\d\b|error|失败|failed/i.test(warning)
+  );
 }
 
 function warningKey(warning: AppWarning): string {
@@ -79,7 +83,8 @@ const copiedTimers = new Map<number, ReturnType<typeof setTimeout>>();
 function toastDuration(warning: AppWarning): number {
   const base = isError(warning) ? 12000 : 6000;
   // Touch screens have no hover-to-pause, so grant extra reading time.
-  const touch = typeof window !== 'undefined' && window.matchMedia?.('(hover: none)').matches === true;
+  const touch =
+    typeof window !== 'undefined' && window.matchMedia?.('(hover: none)').matches === true;
   return touch ? base + 5000 : base;
 }
 
@@ -210,7 +215,11 @@ onUnmounted(() => {
         </button>
       </div>
       <dl v-if="toast.detailsOpen && toastDetails(toast.warning)?.length" class="details">
-        <div v-for="detail in toastDetails(toast.warning)" :key="`${detail.label}:${detail.value}`" class="detail-row">
+        <div
+          v-for="detail in toastDetails(toast.warning)"
+          :key="`${detail.label}:${detail.value}`"
+          class="detail-row"
+        >
           <dt>{{ detail.label }}</dt>
           <dd>{{ detail.value }}</dd>
         </div>
@@ -239,7 +248,8 @@ onUnmounted(() => {
    top of the stack as it leaves). */
 .toast-enter-active,
 .toast-leave-active {
-  transition: opacity var(--duration-base) var(--ease-out),
+  transition:
+    opacity var(--duration-base) var(--ease-out),
     transform var(--duration-base) var(--ease-out);
 }
 .toast-enter-from,

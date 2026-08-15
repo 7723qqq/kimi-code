@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { IModelCatalog } from '@moonshot-ai/agent-core-v2';
-import { ErrorCode } from '../src/protocol/error-codes';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { ErrorCode } from '../src/protocol/error-codes';
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -132,11 +132,9 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:read returns utf-8 content', async () => {
     await writeFile(join(work!, 'a.txt'), 'hello world');
     const id = await createSession();
-    const body = await postFs<{ content: string; encoding: string; size: number }>(
-      id,
-      'read',
-      { path: 'a.txt' },
-    );
+    const body = await postFs<{ content: string; encoding: string; size: number }>(id, 'read', {
+      path: 'a.txt',
+    });
     expect(body.code).toBe(0);
     expect(body.data.content).toBe('hello world');
     expect(body.data.encoding).toBe('utf-8');
@@ -149,20 +147,23 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.code).toBe(ErrorCode.FS_IS_DIRECTORY);
   });
 
-  it.skipIf(process.platform === 'win32')('fs:read maps a permission-denied host error to FS_PERMISSION_DENIED', async () => {
-    // Root bypasses permission checks, so EACCES never triggers there.
-    if (process.getuid?.() === 0) return;
-    const file = join(work!, 'locked.txt');
-    await writeFile(file, 'secret');
-    await chmod(file, 0o000);
-    try {
-      const id = await createSession();
-      const body = await postFs<null>(id, 'read', { path: 'locked.txt' });
-      expect(body.code).toBe(ErrorCode.FS_PERMISSION_DENIED);
-    } finally {
-      await chmod(file, 0o644);
-    }
-  });
+  it.skipIf(process.platform === 'win32')(
+    'fs:read maps a permission-denied host error to FS_PERMISSION_DENIED',
+    async () => {
+      // Root bypasses permission checks, so EACCES never triggers there.
+      if (process.getuid?.() === 0) return;
+      const file = join(work!, 'locked.txt');
+      await writeFile(file, 'secret');
+      await chmod(file, 0o000);
+      try {
+        const id = await createSession();
+        const body = await postFs<null>(id, 'read', { path: 'locked.txt' });
+        expect(body.code).toBe(ErrorCode.FS_PERMISSION_DENIED);
+      } finally {
+        await chmod(file, 0o644);
+      }
+    },
+  );
 
   it('fs:list returns items', async () => {
     await writeFile(join(work!, 'a.txt'), '');
@@ -170,7 +171,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     const id = await createSession();
     const body = await postFs<{ items: FsEntryWire[]; truncated: boolean }>(id, 'list', {});
     expect(body.code).toBe(0);
-    const names = body.data.items.map((i) => i.name).sort();
+    const names = body.data.items.map((i) => i.name).toSorted();
     expect(names).toEqual(['a.txt', 'b.txt']);
     expect(body.data.truncated).toBe(false);
   });
@@ -188,11 +189,9 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:stat_many returns null for missing paths', async () => {
     await writeFile(join(work!, 'a.txt'), 'hi');
     const id = await createSession();
-    const body = await postFs<{ entries: Record<string, FsEntryWire | null> }>(
-      id,
-      'stat_many',
-      { paths: ['a.txt', 'missing.txt'] },
-    );
+    const body = await postFs<{ entries: Record<string, FsEntryWire | null> }>(id, 'stat_many', {
+      paths: ['a.txt', 'missing.txt'],
+    });
     expect(body.code).toBe(0);
     expect(body.data.entries['a.txt']?.kind).toBe('file');
     expect(body.data.entries['missing.txt']).toBeNull();
@@ -202,11 +201,9 @@ describe('server-v2 /api/v1 fs routes', () => {
     await writeFile(join(work!, 'alpha.ts'), '');
     await writeFile(join(work!, 'beta.ts'), '');
     const id = await createSession();
-    const body = await postFs<{ items: { path: string }[]; truncated: boolean }>(
-      id,
-      'search',
-      { query: 'alpha' },
-    );
+    const body = await postFs<{ items: { path: string }[]; truncated: boolean }>(id, 'search', {
+      query: 'alpha',
+    });
     expect(body.code).toBe(0);
     expect(body.data.items.map((i) => i.path)).toContain('alpha.ts');
   });
@@ -250,11 +247,9 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:grep finds matching lines', async () => {
     await writeFile(join(work!, 'a.txt'), 'hello world\nfoo bar\n');
     const id = await createSession();
-    const body = await postFs<{ files: { path: string; matches: unknown[] }[] }>(
-      id,
-      'grep',
-      { pattern: 'hello' },
-    );
+    const body = await postFs<{ files: { path: string; matches: unknown[] }[] }>(id, 'grep', {
+      pattern: 'hello',
+    });
     expect(body.code).toBe(0);
     expect(body.data.files.length).toBeGreaterThanOrEqual(1);
   });

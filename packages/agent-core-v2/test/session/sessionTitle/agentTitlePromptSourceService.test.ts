@@ -94,7 +94,10 @@ describe('AgentTitlePromptSource', () => {
   it('keeps the head user messages of a compacted window, skipping elision and summary', async () => {
     liveMessages = [
       userMessage('head', '开场提问'),
-      userMessage('elision', '... omitted ...', { kind: 'injection', variant: 'compaction_elision' }),
+      userMessage('elision', '... omitted ...', {
+        kind: 'injection',
+        variant: 'compaction_elision',
+      }),
       userMessage('tail', '最近的追问'),
       userMessage('summary', ' compaction summary ', { kind: 'compaction_summary' }),
     ];

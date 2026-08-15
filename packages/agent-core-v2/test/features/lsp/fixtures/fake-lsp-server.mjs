@@ -87,7 +87,10 @@ function handleMessage(message) {
       break;
     case 'textDocument/references':
       respond([
-        { uri: 'file:///ref1.ts', range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } } },
+        {
+          uri: 'file:///ref1.ts',
+          range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } },
+        },
       ]);
       break;
     case 'textDocument/implementation':

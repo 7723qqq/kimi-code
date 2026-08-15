@@ -10,13 +10,13 @@ import {
   type TerminalProcess,
   type TerminalSpawnOptions,
 } from '@moonshot-ai/agent-core-v2';
-import { ErrorCode } from '../src/protocol/error-codes';
 import type { Terminal } from '@moonshot-ai/agent-core-v2/os/interface/terminal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { ErrorCode } from '../src/protocol/error-codes';
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 // --- Fake PTY service -------------------------------------------------------
 //
@@ -179,8 +179,9 @@ describe('server-v2 /api/v1/sessions/{sid}/terminals', () => {
       const sidA = await createSession(rootA);
       const sidB = await createSession(rootB);
 
-      const termA = (await post<Terminal>(`/api/v1/sessions/${sidA}/terminals`, { cols: 100, rows: 30 }))
-        .data;
+      const termA = (
+        await post<Terminal>(`/api/v1/sessions/${sidA}/terminals`, { cols: 100, rows: 30 })
+      ).data;
       const termB = (await post<Terminal>(`/api/v1/sessions/${sidB}/terminals`, {})).data;
 
       expect(termA.session_id).toBe(sidA);

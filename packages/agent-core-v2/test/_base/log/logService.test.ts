@@ -1,9 +1,9 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
+import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LifecycleScope } from '#/app/scopes';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -11,17 +11,10 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
 import { ConsoleLogWriter, MemoryLogWriter } from '#/_base/log/fileLog';
-import {
-  ILogService,
-  type LogEntry,
-  levelEnabled,
-} from '#/_base/log/log';
-import {
-  logSeed,
-  resolveGlobalLogPath,
-  resolveLoggingConfig,
-} from '#/_base/log/logConfig';
+import { ILogService, type LogEntry, levelEnabled } from '#/_base/log/log';
+import { logSeed, resolveGlobalLogPath, resolveLoggingConfig } from '#/_base/log/logConfig';
 import { AppLogService, BoundLogger } from '#/_base/log/logService';
+import { LifecycleScope } from '#/app/scopes';
 
 describe('BoundLogger', () => {
   let sink: MemoryLogWriter;

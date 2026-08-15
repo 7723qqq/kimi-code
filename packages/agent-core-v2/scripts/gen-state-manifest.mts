@@ -368,11 +368,7 @@ class TypeRenderer {
    * `boolean`, `null`/`undefined` sort last, duplicates removed, and parens
    * are only added when the union actually has multiple members.
    */
-  private renderUnionMembers(
-    members: readonly MorphType[],
-    location: Node,
-    depth: number,
-  ): string {
+  private renderUnionMembers(members: readonly MorphType[], location: Node, depth: number): string {
     const booleanLiterals = members.filter((m) => m.isBooleanLiteral());
     const collapseBoolean =
       booleanLiterals.length === 2 &&
@@ -538,9 +534,7 @@ class TypeRenderer {
   private renderNamed(sym: MorphSymbol, expand: () => string): string {
     const decl = sym.getDeclarations()[0];
     const origin =
-      decl !== undefined
-        ? repoRelative(decl.getSourceFile().getFilePath())
-        : '(unknown source)';
+      decl !== undefined ? repoRelative(decl.getSourceFile().getFilePath()) : '(unknown source)';
     const name = sym.getName();
     if (this.expandingNamed.includes(sym.compilerSymbol)) {
       return `/* ${name} — recursive (${origin}) */ unknown`;
@@ -761,7 +755,8 @@ function renderManifest(
   const renderer = new TypeRenderer(project);
   const byScope = new Map<ScopeDir, Registration[]>();
   for (const scope of SCOPES) byScope.set(scope.dir, []);
-  for (const registration of model.registrations) byScope.get(registration.scope)?.push(registration);
+  for (const registration of model.registrations)
+    byScope.get(registration.scope)?.push(registration);
   for (const [dir, regs] of byScope) {
     byScope.set(
       dir,
@@ -788,7 +783,10 @@ function renderManifest(
       for (const r of byFile.get(file) ?? []) {
         const rendered = renderer.renderKeyType(r.def).split('\n');
         rendered[rendered.length - 1] += ';';
-        lines.push(`  '${r.def.keyName}': ${rendered[0]}`, ...rendered.slice(1).map((l) => `  ${l}`));
+        lines.push(
+          `  '${r.def.keyName}': ${rendered[0]}`,
+          ...rendered.slice(1).map((l) => `  ${l}`),
+        );
       }
     }
     lines.push('}');

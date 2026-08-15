@@ -15,7 +15,12 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 
 export type SubagentBackendName = 'claude-code' | 'codex' | 'acp';
 
-export type SubagentBackendStopReason = 'completed' | 'aborted' | 'error' | 'max-tokens' | 'refusal';
+export type SubagentBackendStopReason =
+  | 'completed'
+  | 'aborted'
+  | 'error'
+  | 'max-tokens'
+  | 'refusal';
 
 export interface SubagentBackendStartRequest {
   readonly prompt: string;

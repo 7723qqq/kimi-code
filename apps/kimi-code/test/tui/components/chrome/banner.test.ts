@@ -1,6 +1,6 @@
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { BannerComponent } from '#/tui/components/chrome/banner';
 import { currentTheme } from '#/tui/theme';
@@ -151,7 +151,9 @@ describe('BannerComponent', () => {
   });
 
   it('does not render subtext when empty', () => {
-    const lines = new BannerComponent(makeBannerState({ tag: 'Tip', mainText: 'Use /help' })).render(80);
+    const lines = new BannerComponent(
+      makeBannerState({ tag: 'Tip', mainText: 'Use /help' }),
+    ).render(80);
     expect(lines.length).toBe(2);
     expect(lines[0]).toContain('Use /help');
     expect(lines[1]).toBe('');
@@ -197,7 +199,9 @@ describe('BannerComponent', () => {
     const firstLine = lines[0]!;
     const mainTextStart = visibleWidth(firstLine.slice(0, firstLine.indexOf('Line 1')));
     const continuationLine = lines.find((line) => line.includes('of content'))!;
-    expect(visibleWidth(continuationLine.slice(0, continuationLine.indexOf('of content')))).toBe(mainTextStart);
+    expect(visibleWidth(continuationLine.slice(0, continuationLine.indexOf('of content')))).toBe(
+      mainTextStart,
+    );
     const subLine = lines.find((line) => line.includes('Sub text'))!;
     expect(visibleWidth(subLine.slice(0, subLine.indexOf('Sub text')))).toBe(visibleWidth('✦ '));
   });

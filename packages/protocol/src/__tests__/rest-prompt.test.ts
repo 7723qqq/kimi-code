@@ -167,8 +167,7 @@ describe('promptSubmitResultSchema', () => {
 
   it('rejects empty prompt_id', () => {
     expect(
-      promptSubmitResultSchema.safeParse({ prompt_id: '', user_message_id: 'msg' })
-        .success,
+      promptSubmitResultSchema.safeParse({ prompt_id: '', user_message_id: 'msg' }).success,
     ).toBe(false);
   });
 });
@@ -200,8 +199,9 @@ describe('promptListResponseSchema', () => {
 
 describe('promptSteerRequestSchema', () => {
   it('requires at least one prompt id', () => {
-    expect(promptSteerRequestSchema.parse({ prompt_ids: ['prompt_a'] }).prompt_ids)
-      .toEqual(['prompt_a']);
+    expect(promptSteerRequestSchema.parse({ prompt_ids: ['prompt_a'] }).prompt_ids).toEqual([
+      'prompt_a',
+    ]);
     expect(promptSteerRequestSchema.safeParse({ prompt_ids: [] }).success).toBe(false);
   });
 });

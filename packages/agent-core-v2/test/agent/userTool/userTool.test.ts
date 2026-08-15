@@ -9,15 +9,15 @@ import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
-import { AgentUserToolService } from '#/agent/userTool/userToolService';
 import { UserToolModel } from '#/agent/userTool/userToolOps';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { AgentUserToolService } from '#/agent/userTool/userToolService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
-import type { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import type { IWireService } from '#/wire/wire';
 
 import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
 
@@ -100,7 +100,10 @@ afterEach(() => disposables.dispose());
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await wire.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -284,9 +287,7 @@ describe('AgentUserToolService (wire-backed)', () => {
 
     expect(modelOf(wire)).not.toBe(before);
     expect(modelOf(wire).get(toolA.name)?.disclosure).toBe('deferred');
-    expect(registry.list().find((tool) => tool.name === toolA.name)?.disclosure).toBe(
-      'deferred',
-    );
+    expect(registry.list().find((tool) => tool.name === toolA.name)?.disclosure).toBe('deferred');
   });
 
   it('replay rebuilds the model silently and onDidRestore re-registers tools after replay', async () => {

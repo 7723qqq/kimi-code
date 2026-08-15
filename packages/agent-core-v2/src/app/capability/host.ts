@@ -43,7 +43,11 @@ export async function runCommand(
     (error: unknown) => ({ ok: false as const, error }),
   );
   if (!spawned.ok) {
-    return { code: -1, stdout: '', stderr: spawned.error instanceof Error ? spawned.error.message : String(spawned.error) };
+    return {
+      code: -1,
+      stdout: '',
+      stderr: spawned.error instanceof Error ? spawned.error.message : String(spawned.error),
+    };
   }
   const { proc } = spawned;
   try {
@@ -53,18 +57,19 @@ export async function runCommand(
       proc.wait().catch(() => -1),
     ] as const);
     let timer: NodeJS.Timeout | undefined;
-    const timed = options.timeout === undefined
-      ? work
-      : Promise.race([
-          work,
-          new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(() => {
-              void proc.kill().catch(() => {});
-              reject(new Error(`command timed out after ${options.timeout}ms: ${command}`));
-            }, options.timeout);
-            timer.unref?.();
-          }),
-        ]);
+    const timed =
+      options.timeout === undefined
+        ? work
+        : Promise.race([
+            work,
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => {
+                void proc.kill().catch(() => {});
+                reject(new Error(`command timed out after ${options.timeout}ms: ${command}`));
+              }, options.timeout);
+              timer.unref?.();
+            }),
+          ]);
     try {
       const [stdout, stderr, code] = await timed;
       return { code, stdout, stderr };

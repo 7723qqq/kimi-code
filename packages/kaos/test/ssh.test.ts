@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events';
 
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test } from 'vitest';
+
 import { KaosFileExistsError, KaosValueError } from '#/errors';
 import {
   KaosConnectionError,
@@ -9,7 +11,6 @@ import {
   SSHKaos,
 } from '#/ssh';
 import type { StatResult } from '#/types';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test } from 'vitest';
 
 // Environment variable configuration for SSH connection
 const SSH_SMOKE = process.env['KAOS_SSH_SMOKE'] === '1';

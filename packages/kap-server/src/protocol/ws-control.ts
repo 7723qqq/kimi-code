@@ -1,12 +1,11 @@
+import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
+import { transcriptGradeSpecSchema, transcriptSeqSchema } from '@moonshot-ai/transcript';
 /**
  *   Event:   { type, seq, session_id?, timestamp, payload }
  *   Control: { type, id?, payload }
  *   Ack:     { type: 'ack', id, code, msg, payload }
  */
 import { z } from 'zod';
-
-import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
-import { transcriptGradeSpecSchema, transcriptSeqSchema } from '@moonshot-ai/transcript';
 
 import { eventSchema } from './events-zod';
 
@@ -335,9 +334,7 @@ export const terminalAttachAckPayloadSchema = z.object({
   replayed: z.number().int().nonnegative(),
 });
 
-export const terminalAttachAckMessageSchema = wsAckEnvelopeSchema(
-  terminalAttachAckPayloadSchema,
-);
+export const terminalAttachAckMessageSchema = wsAckEnvelopeSchema(terminalAttachAckPayloadSchema);
 
 export const terminalDetachPayloadSchema = z.object({
   session_id: z.string().min(1),
@@ -356,9 +353,7 @@ export const terminalDetachAckPayloadSchema = z.object({
   detached: z.literal(true),
 });
 
-export const terminalDetachAckMessageSchema = wsAckEnvelopeSchema(
-  terminalDetachAckPayloadSchema,
-);
+export const terminalDetachAckMessageSchema = wsAckEnvelopeSchema(terminalDetachAckPayloadSchema);
 
 export const terminalInputPayloadSchema = z.object({
   session_id: z.string().min(1),
@@ -378,9 +373,7 @@ export const terminalInputAckPayloadSchema = z.object({
   accepted: z.literal(true),
 });
 
-export const terminalInputAckMessageSchema = wsAckEnvelopeSchema(
-  terminalInputAckPayloadSchema,
-);
+export const terminalInputAckMessageSchema = wsAckEnvelopeSchema(terminalInputAckPayloadSchema);
 
 export const terminalResizePayloadSchema = z.object({
   session_id: z.string().min(1),
@@ -401,9 +394,7 @@ export const terminalResizeAckPayloadSchema = z.object({
   resized: z.literal(true),
 });
 
-export const terminalResizeAckMessageSchema = wsAckEnvelopeSchema(
-  terminalResizeAckPayloadSchema,
-);
+export const terminalResizeAckMessageSchema = wsAckEnvelopeSchema(terminalResizeAckPayloadSchema);
 
 export const terminalClosePayloadSchema = z.object({
   session_id: z.string().min(1),
@@ -422,9 +413,7 @@ export const terminalCloseAckPayloadSchema = z.object({
   closed: z.literal(true),
 });
 
-export const terminalCloseAckMessageSchema = wsAckEnvelopeSchema(
-  terminalCloseAckPayloadSchema,
-);
+export const terminalCloseAckMessageSchema = wsAckEnvelopeSchema(terminalCloseAckPayloadSchema);
 
 export const pingPayloadSchema = z.object({
   nonce: z.string(),

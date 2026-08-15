@@ -36,7 +36,6 @@ import {
   type EnvironmentDisclosureSnapshot,
   type SystemPromptRenderResult,
 } from './agentProfileCatalog';
-
 import SYSTEM_PROMPT_TEMPLATE from './system.md?raw';
 
 export const TASK_AGENT_ROLE_PREFIX =
@@ -61,10 +60,7 @@ export function subagentAllowlistFor(
   return caller.profileName === undefined ? catalog.getDefault().subagents : caller.subagents;
 }
 
-export function subagentTypeNotAllowedMessage(
-  name: string,
-  allowlist: readonly string[],
-): string {
+export function subagentTypeNotAllowedMessage(name: string, allowlist: readonly string[]): string {
   const allowed = allowlist.length === 0 ? 'none' : allowlist.join(', ');
   return `Subagent type "${name}" is not allowed for this agent. Allowed subagent types: ${allowed}.`;
 }

@@ -134,8 +134,7 @@ function usageFields(usage: unknown): {
   output: number | undefined;
   think: number | undefined;
 } {
-  const u =
-    usage !== null && typeof usage === 'object' ? (usage as Record<string, unknown>) : {};
+  const u = usage !== null && typeof usage === 'object' ? (usage as Record<string, unknown>) : {};
   const n = (key: string): number | undefined => {
     const v = u[key];
     return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
@@ -217,13 +216,22 @@ function bucket(b: Builder, turn: number): MutableTurn {
   return created;
 }
 
-function pushRecord(b: Builder, turn: number, ref: GroupRef, record: Omit<TrajectoryRecord, 'index' | 'turn' | 'group'>): void {
+function pushRecord(
+  b: Builder,
+  turn: number,
+  ref: GroupRef,
+  record: Omit<TrajectoryRecord, 'index' | 'turn' | 'group'>,
+): void {
   const t = bucket(b, turn);
   const last = t.groups.at(-1);
   if (last !== undefined && last.ref.key === ref.key) {
     last.records.push({ ...record, index: ++b.index, turn, group: ref.key });
   } else {
-    t.groups.push({ title: ref.key, ref, records: [{ ...record, index: ++b.index, turn, group: ref.key }] });
+    t.groups.push({
+      title: ref.key,
+      ref,
+      records: [{ ...record, index: ++b.index, turn, group: ref.key }],
+    });
   }
 }
 
@@ -281,7 +289,9 @@ function settleTool(b: Builder, callId: string, tool: OpenTool, stepOverride?: n
  * kept set are absent by construction; assistant delta frames merge into
  * their step record, tool results merge into their call record.
  */
-export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly TrajectoryTurnModel[] {
+export function deriveTrajectoryLayout(
+  frames: readonly LedgerFrame[],
+): readonly TrajectoryTurnModel[] {
   const b: Builder = {
     turns: [],
     currentTurn: null,
@@ -328,7 +338,14 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
       case 'turn.step.started': {
         settleStep(b, time);
         const step = num(p['step']) ?? (b.openAssistant?.step ?? 0) + 1;
-        b.openAssistant = { step, startedAt: time, text: '', thinking: '', interrupted: false, finishedAt: null };
+        b.openAssistant = {
+          step,
+          startedAt: time,
+          text: '',
+          thinking: '',
+          interrupted: false,
+          finishedAt: null,
+        };
         break;
       }
       case 'assistant.delta': {
@@ -425,17 +442,28 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
         const turn = b.currentTurn ?? null;
         const ref = compactionGroup(frame.seq);
         if (turn === null) {
-          const between: MutableTurn = { turn: null, groups: [{ title: ref.key, ref, records: [{
-            id: `compacted\u0000seq\u0000${frame.seq}`,
-            index: ++b.index,
-            kind: 'compacted',
+          const between: MutableTurn = {
             turn: null,
-            group: ref.key,
-            text: `Context compacted (${reason})`,
-            sourceSeq: frame.seq,
-            timeSeconds: 0,
-            startedAt: time,
-          }] }] };
+            groups: [
+              {
+                title: ref.key,
+                ref,
+                records: [
+                  {
+                    id: `compacted\u0000seq\u0000${frame.seq}`,
+                    index: ++b.index,
+                    kind: 'compacted',
+                    turn: null,
+                    group: ref.key,
+                    text: `Context compacted (${reason})`,
+                    sourceSeq: frame.seq,
+                    timeSeconds: 0,
+                    startedAt: time,
+                  },
+                ],
+              },
+            ],
+          };
           b.turns.push(between);
         } else {
           pushRecord(b, turn, ref, {
@@ -463,7 +491,12 @@ export function deriveTrajectoryLayout(frames: readonly LedgerFrame[]): readonly
   settlePendingUser(b.currentTurn ?? b.nextTurn);
   return b.turns.map((t) => ({
     turn: t.turn,
-    groups: t.groups.map((g) => ({ title: g.title, ...g.ref, stats: groupStats(g.records), records: g.records })),
+    groups: t.groups.map((g) => ({
+      title: g.title,
+      ...g.ref,
+      stats: groupStats(g.records),
+      records: g.records,
+    })),
   }));
 }
 

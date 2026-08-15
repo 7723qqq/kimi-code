@@ -15,8 +15,8 @@
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
-import { type AgentTool } from '#/tool/toolContract';
 import { type TodoStatus } from '#/session/todo/todoItem';
+import { type AgentTool } from '#/tool/toolContract';
 
 const TodoItemSchema = z.object({
   id: z

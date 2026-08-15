@@ -48,6 +48,10 @@ import type {
   ToolResultBlockParam,
   ToolUseBlockParam,
 } from '@anthropic-ai/sdk/resources/messages/messages.js';
+import {
+  CACHE_CONTROL,
+  injectCacheControlOnLastBlock,
+} from '@moonshot-ai/kosong/providers/anthropic-cache-breakpoints';
 
 import {
   APIConnectionError,
@@ -78,6 +82,9 @@ import type {
 import type { Tool } from '#/kosong/contract/tool';
 import type { TokenUsage } from '#/kosong/contract/usage';
 
+import { mergeConsecutiveUserMessages } from '../merge-user-messages';
+import { mergeRequestHeaders, resolveAuthBackedClient } from '../request-auth';
+import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
 import {
   BUDGET_THINKING_EFFORTS,
   inferAnthropicModelProfile,
@@ -86,10 +93,6 @@ import {
   type AnthropicModelProfile,
   type AnthropicModelVersion,
 } from './anthropic-profile';
-import { mergeConsecutiveUserMessages } from '../merge-user-messages';
-import { mergeRequestHeaders, resolveAuthBackedClient } from '../request-auth';
-import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
-import { CACHE_CONTROL, injectCacheControlOnLastBlock } from '@moonshot-ai/kosong/providers/anthropic-cache-breakpoints';
 
 function normalizeAnthropicStopReason(raw: string | null | undefined): {
   finishReason: FinishReason | null;
@@ -1150,7 +1153,6 @@ function applyThinkingKeep(
     betaFeatures,
   };
 }
-
 
 const CLAUDE_VISION_TOOL_PREFIXES = ['claude-3-', 'claude-3.5-', 'claude-3.7-'] as const;
 

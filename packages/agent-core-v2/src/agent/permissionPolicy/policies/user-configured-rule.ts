@@ -1,21 +1,14 @@
+import type { PermissionPolicyResult } from '#/agent/permissionPolicy/types';
+import { matchPermissionRule, type PermissionRuleMatch } from '#/agent/permissionRules/matchesRule';
 import type {
   PermissionRule,
   PermissionRuleDecision,
   PermissionRuleScope,
 } from '#/agent/permissionRules/permissionRules';
-import {
-  matchPermissionRule,
-  type PermissionRuleMatch,
-} from '#/agent/permissionRules/matchesRule';
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import type { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
-import type { PermissionPolicyResult } from '#/agent/permissionPolicy/types';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 
-const USER_CONFIGURED_SCOPES = new Set<PermissionRuleScope>([
-  'turn-override',
-  'project',
-  'user',
-]);
+const USER_CONFIGURED_SCOPES = new Set<PermissionRuleScope>(['turn-override', 'project', 'user']);
 
 export function evaluateUserConfiguredRule(
   context: ResolvedToolExecutionHookContext,
@@ -45,9 +38,7 @@ function firstMatchingRule(
   rulesService: IAgentPermissionRulesService,
   scopes: ReadonlySet<PermissionRuleScope>,
 ): PermissionRuleMatch | undefined {
-  const rules = rulesService.rules.filter((rule): rule is PermissionRule =>
-    scopes.has(rule.scope),
-  );
+  const rules = rulesService.rules.filter((rule): rule is PermissionRule => scopes.has(rule.scope));
   for (const rule of rules) {
     if (rule.decision !== decision) continue;
     const match = matchPermissionRule({

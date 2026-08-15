@@ -20,13 +20,13 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { Emitter, Event } from '#/_base/event';
 import type { ServiceIdentifier } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
+import { Emitter, Event } from '#/_base/event';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import type { CronConfig } from '#/app/cron/configSection';
+import { LifecycleScope } from '#/app/scopes';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
 
@@ -62,7 +62,7 @@ describe('cron-fired steer turn context', () => {
     ctx = createTestAgent(sessionService(IAgentLifecycleService, lifecycleStub));
 
     const accessor = {
-      get: <T,>(id: ServiceIdentifier<T>): T => ctx.get(id),
+      get: <T>(id: ServiceIdentifier<T>): T => ctx.get(id),
     };
     mainHandle = { id: 'main', kind: LifecycleScope.Agent, accessor, dispose: () => {} };
     onDidCreate.fire(mainHandle);
@@ -112,9 +112,8 @@ describe('cron-fired steer turn context', () => {
     const fireRequest = ctx.llmCalls.at(-1)!;
 
     const lastUser = fireRequest.history.filter((m) => m.role === 'user').at(-1);
-    const lastUserText = lastUser?.content
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('') ?? '';
+    const lastUserText =
+      lastUser?.content.map((part) => (part.type === 'text' ? part.text : '')).join('') ?? '';
     expect(lastUserText).toContain('fire me');
 
     const requestToolTexts = fireRequest.history

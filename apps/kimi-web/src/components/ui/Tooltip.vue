@@ -171,7 +171,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.ui-tip { display: contents; }
+.ui-tip {
+  display: contents;
+}
 .ui-tip__bubble {
   position: fixed;
   z-index: var(--z-tooltip);
@@ -192,5 +194,7 @@ onBeforeUnmount(() => {
   opacity: 0;
   transition: opacity var(--duration-fast) var(--ease-out);
 }
-.ui-tip__bubble.positioned { opacity: 1; }
+.ui-tip__bubble.positioned {
+  opacity: 1;
+}
 </style>

@@ -24,11 +24,7 @@ export {
   type KimiErrorPayload,
 } from './serialize';
 export { noopTelemetryClient, withTelemetryContext, withTelemetryProperties } from './telemetry';
-export type {
-  TelemetryClient,
-  TelemetryContextPatch,
-  TelemetryProperties,
-} from './telemetry';
+export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties } from './telemetry';
 export {
   ensureConfigFile,
   HookDefSchema,

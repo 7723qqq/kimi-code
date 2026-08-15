@@ -15,13 +15,13 @@ import { homedir, tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
+import { t } from '@moonshot-ai/kimi-i18n';
+import { basename, join } from 'pathe';
 import { extract as extractTar } from 'tar';
 import { type Entry, fromBuffer as yauzlFromBuffer } from 'yauzl';
-import { basename, join } from 'pathe';
 
 import { abortable } from '#/_base/utils/abort';
 import { ErrorCodes, Error2 } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 const RG_VERSION = '15.0.0';
 const RG_BASE_URL = 'https://code.kimi.com/kimi-code/rg';

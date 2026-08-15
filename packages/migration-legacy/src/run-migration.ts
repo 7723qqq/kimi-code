@@ -1,17 +1,12 @@
-import type {
-  MigrationPlan,
-  MigrationReport,
-  MigrationScope,
-  SessionsSummary,
-} from './types.js';
+import { appendMarkerRun, readMarker, writeMarker } from './marker.js';
+import { writeMigrationErrorsLog } from './migration-errors-log.js';
+import { writeReport } from './report.js';
+import { migrateSessionsStep } from './sessions/index.js';
 import { migrateConfigStep } from './steps/config.js';
 import { migrateMcpStep } from './steps/mcp.js';
-import { migrateUserHistoryStep } from './steps/user-history.js';
 import { migrateSkillsStep } from './steps/skills.js';
-import { migrateSessionsStep } from './sessions/index.js';
-import { writeReport } from './report.js';
-import { writeMigrationErrorsLog } from './migration-errors-log.js';
-import { appendMarkerRun, readMarker, writeMarker } from './marker.js';
+import { migrateUserHistoryStep } from './steps/user-history.js';
+import type { MigrationPlan, MigrationReport, MigrationScope, SessionsSummary } from './types.js';
 
 const DEFAULT_MIGRATOR_VERSION = '0.1.1';
 
@@ -57,7 +52,12 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
 
   const mcp = input.scope.mcp
     ? await migrateMcpStep({ sourceHome: input.source, targetHome: input.target })
-    : { mergedServers: [], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: false };
+    : {
+        mergedServers: [],
+        keptNewForConflicts: [],
+        droppedServers: [],
+        wroteSiblingDueToConflict: false,
+      };
   log('mcp done');
 
   const userHistory = input.scope.userHistory

@@ -1,22 +1,46 @@
 <!-- apps/kimi-web/src/components/chat/ConversationPane.vue -->
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch, type ComponentPublicInstance } from 'vue';
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  provide,
+  ref,
+  watch,
+  type ComponentPublicInstance,
+} from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ActivationBadges, ApprovalBlock, ChatTurn, ConversationStatus, FilePreviewRequest, PermissionMode, QueuedPromptView, TaskItem, TodoView, ToolMedia, TurnAttachment, UIQuestion, WorkspaceView } from '../../types';
+
 import type { AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
-import type { FileItem } from './MentionMenu.vue';
 import type { PromptAttachment } from '../../composables/useKimiWebClient';
-import ChatPane from './ChatPane.vue';
-import ChatHeader from './ChatHeader.vue';
-import Composer from './Composer.vue';
-import ChatDock from './ChatDock.vue';
 import type { SessionStats } from '../../lib/sessionStats';
-import ConversationToc, { type ConversationTocItem } from './ConversationToc.vue';
+import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
+import { getVisibleWorkspaces } from '../../lib/workspacePicker';
+import type {
+  ActivationBadges,
+  ApprovalBlock,
+  ChatTurn,
+  ConversationStatus,
+  FilePreviewRequest,
+  PermissionMode,
+  QueuedPromptView,
+  TaskItem,
+  TodoView,
+  ToolMedia,
+  TurnAttachment,
+  UIQuestion,
+  WorkspaceView,
+} from '../../types';
 import Icon from '../ui/Icon.vue';
 import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
-import { getVisibleWorkspaces } from '../../lib/workspacePicker';
-import { safeRemove, STORAGE_KEYS } from '../../lib/storage';
+import ChatDock from './ChatDock.vue';
+import ChatHeader from './ChatHeader.vue';
+import ChatPane from './ChatPane.vue';
+import Composer from './Composer.vue';
+import ConversationToc, { type ConversationTocItem } from './ConversationToc.vue';
+import type { FileItem } from './MentionMenu.vue';
 
 const { t } = useI18n();
 
@@ -50,7 +74,10 @@ const props = defineProps<{
   turnActive?: boolean;
   queued?: QueuedPromptView[];
   searchFiles?: (q: string) => Promise<FileItem[]>;
-  uploadImage?: (file: Blob, name?: string) => Promise<{ fileId: string; name: string; mediaType: string } | null>;
+  uploadImage?: (
+    file: Blob,
+    name?: string,
+  ) => Promise<{ fileId: string; name: string; mediaType: string } | null>;
   /** Git changed files (only used for the header diff counter dot). */
   changes?: { path: string; status: string }[];
   /** Cache-buster that remounts the chat pane when the active session changes. */
@@ -103,7 +130,14 @@ const props = defineProps<{
 const emit = defineEmits<{
   submit: [payload: { text: string; attachments: PromptAttachment[] }];
   steer: [payload: { text: string; attachments: PromptAttachment[] }];
-  approval: [approvalId: string, response: { decision: 'approved' | 'rejected' | 'cancelled'; scope?: 'session'; feedback?: string }];
+  approval: [
+    approvalId: string,
+    response: {
+      decision: 'approved' | 'rejected' | 'cancelled';
+      scope?: 'session';
+      feedback?: string;
+    },
+  ];
   cancelTask: [taskId: string];
   answer: [questionId: string, response: QuestionResponse];
   dismiss: [questionId: string];
@@ -209,10 +243,7 @@ let copyConversationCopiedTimer: ReturnType<typeof setTimeout> | null = null;
     Returns false when no composer is actually able to receive the content (e.g.
     the dock is showing a pending question/approval and the composer is hidden),
     so the caller can avoid dropping the prompt. */
-function loadComposerForEdit(
-  value: string,
-  attachments?: TurnAttachment[],
-): boolean {
+function loadComposerForEdit(value: string, attachments?: TurnAttachment[]): boolean {
   const composer = dockedComposerRef.value ?? emptyComposerRef.value;
   if (!composer) return false;
   // loadForEdit returns false when the dock's nested Composer is hidden; the
@@ -252,7 +283,8 @@ const subagentRunning = computed(() => subagentTasks.value.filter((t) => t.state
 function resolveAgentTaskId(toolCallId: string): string | undefined {
   const tasks = props.tasks;
   const task =
-    tasks.find((tk) => tk.id === toolCallId) ?? tasks.find((tk) => tk.parentToolCallId === toolCallId);
+    tasks.find((tk) => tk.id === toolCallId) ??
+    tasks.find((tk) => tk.parentToolCallId === toolCallId);
   if (task) return task.id;
   // A subagent task synthesized from a text delta (client subscribed after the
   // spawn, so the lifecycle parentToolCallId was missed) has no parentToolCallId.
@@ -264,15 +296,18 @@ function resolveAgentTaskId(toolCallId: string): string | undefined {
 }
 provide('resolveAgentTaskId', resolveAgentTaskId);
 provide('pinScroll', pinScrollFor);
-const todoDoneCount = computed(() => (props.todos ?? []).filter((td) => td.status === 'done').length);
-const hasDockWork = computed(() =>
-  bashTasks.value.length > 0 ||
-  subagentTasks.value.length > 0 ||
-  (props.todos?.length ?? 0) > 0 ||
-  (props.queued?.length ?? 0) > 0,
+const todoDoneCount = computed(
+  () => (props.todos ?? []).filter((td) => td.status === 'done').length,
+);
+const hasDockWork = computed(
+  () =>
+    bashTasks.value.length > 0 ||
+    subagentTasks.value.length > 0 ||
+    (props.todos?.length ?? 0) > 0 ||
+    (props.queued?.length ?? 0) > 0,
 );
 const dockPanel = ref<'bash' | 'subagent' | 'todos' | 'terminal' | null>(null);
-const changesCount = computed(() => (props.gitInfo ? props.changes?.length ?? 0 : 0));
+const changesCount = computed(() => (props.gitInfo ? (props.changes?.length ?? 0) : 0));
 
 function toggleDockPanel(panel: 'bash' | 'subagent' | 'todos' | 'terminal'): void {
   dockPanel.value = dockPanel.value === panel ? null : panel;
@@ -290,7 +325,8 @@ function tocTitle(turn: ChatTurn): string {
   if (turn.role === 'compaction') return t('conversation.compactedPlain');
   if (turn.role === 'user') {
     if (turn.skillActivation) return `/${turn.skillActivation.name}`;
-    if (turn.pluginCommand) return `/${turn.pluginCommand.pluginId}:${turn.pluginCommand.commandName}`;
+    if (turn.pluginCommand)
+      return `/${turn.pluginCommand.pluginId}:${turn.pluginCommand.commandName}`;
     const text = turn.text.trim().replaceAll(/\s+/g, ' ');
     return text.length > 0 ? text : 'user';
   }
@@ -383,17 +419,17 @@ function updateTocTableOcclusion(): void {
     // table scrolls away. Rect overlap is exact (no sampling gap) and ignores
     // paint-order quirks. Only wrappers inside THIS pane count; other panes
     // (side chat, preview) are outside `pane`.
-    covered = Array.from(
-      pane.querySelectorAll<HTMLElement>('.table-node-wrapper'),
-    ).some((wrapper) => {
-      const rect = wrapper.getBoundingClientRect();
-      return (
-        rect.left <= railX &&
-        railX <= rect.right &&
-        rect.top < tocRect.bottom &&
-        rect.bottom > tocRect.top
-      );
-    });
+    covered = Array.from(pane.querySelectorAll<HTMLElement>('.table-node-wrapper')).some(
+      (wrapper) => {
+        const rect = wrapper.getBoundingClientRect();
+        return (
+          rect.left <= railX &&
+          railX <= rect.right &&
+          rect.top < tocRect.bottom &&
+          rect.bottom > tocRect.top
+        );
+      },
+    );
   }
   if (tocOccludedByTable.value !== covered) {
     tocOccludedByTable.value = covered;
@@ -443,7 +479,9 @@ const chatDockStyle = computed(() => ({
 }));
 type ComposerHandle = {
   loadForEdit: (value: string) => boolean | void;
-  loadAttachmentsForEdit: (atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[]) => void;
+  loadAttachmentsForEdit: (
+    atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[],
+  ) => void;
   focus: () => void;
 };
 type RefArg = Element | (ComponentPublicInstance & Partial<ComposerHandle>) | null;
@@ -471,8 +509,10 @@ function bindChatDock(el: RefArg): void {
   dockRef.value = node ?? null;
   if (
     el &&
-    'loadForEdit' in el && typeof el.loadForEdit === 'function' &&
-    'focus' in el && typeof el.focus === 'function'
+    'loadForEdit' in el &&
+    typeof el.loadForEdit === 'function' &&
+    'focus' in el &&
+    typeof el.focus === 'function'
   ) {
     dockedComposerRef.value = {
       loadForEdit: el.loadForEdit.bind(el),
@@ -589,10 +629,7 @@ function scrollAnchorTop(container: HTMLElement, node: HTMLElement): number {
   );
 }
 
-function findTopAnchors(
-  container: HTMLElement,
-  scrollTop: number,
-): ScrollAnchor[] {
+function findTopAnchors(container: HTMLElement, scrollTop: number): ScrollAnchor[] {
   const anchors = Array.from(
     container.querySelectorAll<HTMLElement>('.turn-anchor[data-turn-id], [data-scroll-anchor-id]'),
   ).map((node) => ({ node, top: scrollAnchorTop(container, node) }));
@@ -617,9 +654,7 @@ const pendingHistoryRestoreBySession = new Map<string, HistoryScrollSnapshot>();
 function historyScrollDelta(container: HTMLElement, snapshot: HistoryScrollSnapshot): number {
   for (const anchor of snapshot.anchors) {
     const attr = anchor.kind === 'tool' ? 'data-scroll-anchor-id' : 'data-turn-id';
-    const newAnchor = container.querySelector<HTMLElement>(
-      `[${attr}="${attrEscape(anchor.id)}"]`,
-    );
+    const newAnchor = container.querySelector<HTMLElement>(`[${attr}="${attrEscape(anchor.id)}"]`);
     if (newAnchor) return scrollAnchorTop(container, newAnchor) - anchor.top;
   }
   // If the page boundary split an assistant/tool turn, messagesToTurns may
@@ -697,7 +732,9 @@ function attrEscape(value: string): string {
 function scrollToTurn(turnId: string): void {
   const el = panesRef.value;
   if (!el) return;
-  const target = el.querySelector<HTMLElement>(`.turn-anchor[data-turn-id="${attrEscape(turnId)}"]`);
+  const target = el.querySelector<HTMLElement>(
+    `.turn-anchor[data-turn-id="${attrEscape(turnId)}"]`,
+  );
   if (!target) return;
   cancelActiveScrollWrites();
   following.value = false;
@@ -820,7 +857,8 @@ const scrollKey = computed<ScrollKey>(() => {
   const thinkingLen = last?.thinking?.length ?? 0;
   const toolsLen =
     last?.tools?.reduce(
-      (n, tool) => n + tool.name.length + (tool.arg?.length ?? 0) + (tool.output?.join('').length ?? 0),
+      (n, tool) =>
+        n + tool.name.length + (tool.arg?.length ?? 0) + (tool.output?.join('').length ?? 0),
       0,
     ) ?? 0;
   return {
@@ -883,9 +921,7 @@ watch(
     const saved = newKey ? scrollStateBySession.get(String(newKey)) : undefined;
     if (saved && el2) {
       const pendingRestore = pendingHistoryRestoreBySession.get(String(newKey));
-      const top = pendingRestore
-        ? restoreHistoryScroll(el2, pendingRestore, saved.top)
-        : saved.top;
+      const top = pendingRestore ? restoreHistoryScroll(el2, pendingRestore, saved.top) : saved.top;
       if (pendingRestore) pendingHistoryRestoreBySession.delete(String(newKey));
       following.value = saved.following;
       el2.scrollTop = top;
@@ -948,10 +984,7 @@ function handleComposerSubmit(payload: { text: string; attachments: PromptAttach
 // returns. Scrolling here would target the pre-undo bottom and fight the
 // bubble-exit animation, so we only arm the follow state; the scrollKey watcher
 // smooth-scrolls once the truncated turns actually land.
-function handleEditMessage(payload: {
-  text: string;
-  attachments?: TurnAttachment[];
-}): void {
+function handleEditMessage(payload: { text: string; attachments?: TurnAttachment[] }): void {
   following.value = true;
   showPill.value = false;
   userActionFollowUntil = Date.now() + USER_ACTION_FOLLOW_LOCK_MS;
@@ -981,7 +1014,9 @@ function handleQuestionAnswer(qid: string, resp: QuestionResponse): void {
 
 function handleApproval(
   id: string | undefined,
-  response: { decision: 'approved' | 'rejected' | 'cancelled'; scope?: 'session'; feedback?: string } | undefined,
+  response:
+    | { decision: 'approved' | 'rejected' | 'cancelled'; scope?: 'session'; feedback?: string }
+    | undefined,
 ): void {
   if (!id || !response) return;
   emit('approval', id, response);
@@ -1107,12 +1142,7 @@ function onPanesTouchStart(event: TouchEvent): void {
 function onPanesTouchMove(event: TouchEvent): void {
   const y = event.touches.length === 1 ? event.touches[0]!.clientY : null;
   // The finger moving down means the scroll container is moving up.
-  if (
-    y !== null &&
-    lastTouchY !== null &&
-    y > lastTouchY + 2 &&
-    !nestedScrollerCanMoveUp(event)
-  ) {
+  if (y !== null && lastTouchY !== null && y > lastTouchY + 2 && !nestedScrollerCanMoveUp(event)) {
     stopFollowingForUserIntent();
   }
   lastTouchY = y;
@@ -1330,9 +1360,13 @@ defineExpose({ loadComposerForEdit, focusComposer });
             <div class="empty-hint">
               <span class="empty-hint-title" :class="{ 'is-starting': starting }">
                 <Spinner v-if="starting" size="sm" />
-                <span>{{ starting ? t('conversation.starting') : t('composer.emptyConversationTitle') }}</span>
+                <span>{{
+                  starting ? t('conversation.starting') : t('composer.emptyConversationTitle')
+                }}</span>
               </span>
-              <span v-if="!starting" class="empty-hint-text">{{ t('composer.emptyConversation') }}</span>
+              <span v-if="!starting" class="empty-hint-text">{{
+                t('composer.emptyConversation')
+              }}</span>
               <!-- Workspace picker: choose where this new conversation starts.
                    Hidden while starting — a workspace is already committed. -->
               <div v-if="hasWorkspaces && !starting" class="ws-pick">
@@ -1340,7 +1374,12 @@ defineExpose({ loadComposerForEdit, focusComposer });
                   <button type="button" class="ws-pick-btn" @click.stop="wsPickOpen = !wsPickOpen">
                     <Icon name="folder" size="sm" />
                     <span class="ws-pick-name">{{ activeWorkspaceLabel }}</span>
-                    <Icon class="ws-pick-chev" :class="{ open: wsPickOpen }" name="chevron-down" size="sm" />
+                    <Icon
+                      class="ws-pick-chev"
+                      :class="{ open: wsPickOpen }"
+                      name="chevron-down"
+                      size="sm"
+                    />
                   </button>
                 </Tooltip>
                 <div v-if="wsPickOpen" class="ws-pick-backdrop" @click="wsPickOpen = false" />
@@ -1362,13 +1401,18 @@ defineExpose({ loadComposerForEdit, focusComposer });
                     class="ws-pick-item ws-pick-more"
                     @click.stop="wsPickExpanded = !wsPickExpanded"
                   >
-                    <span>{{ t('conversation.moreWorkspaces', { count: hiddenWorkspaceCount }) }}</span>
+                    <span>{{
+                      t('conversation.moreWorkspaces', { count: hiddenWorkspaceCount })
+                    }}</span>
                   </button>
                   <div class="ws-pick-divider" />
                   <button
                     type="button"
                     class="ws-pick-action"
-                    @click.stop="wsPickOpen = false; emit('addWorkspace')"
+                    @click.stop="
+                      wsPickOpen = false;
+                      emit('addWorkspace');
+                    "
                   >
                     <Icon name="plus" size="sm" />
                     <span>{{ t('conversation.addWorkspace') }}</span>
@@ -1513,12 +1557,12 @@ defineExpose({ loadComposerForEdit, focusComposer });
         @toggle-plan="emit('togglePlan')"
         @toggle-swarm="emit('toggleSwarm')"
         @toggle-goal="emit('toggleGoal')"
-          @open-btw="emit('command', '/btw')"
-          @create-goal="emit('createGoal', $event)"
-          @focus-goal="focusGoal"
-          @compact="emit('compact')"
-          @pick-model="emit('pickModel')"
-          @select-model="emit('selectModel', $event)"
+        @open-btw="emit('command', '/btw')"
+        @create-goal="emit('createGoal', $event)"
+        @focus-goal="focusGoal"
+        @compact="emit('compact')"
+        @pick-model="emit('pickModel')"
+        @select-model="emit('selectModel', $event)"
       />
     </div>
 
@@ -1538,12 +1582,7 @@ defineExpose({ loadComposerForEdit, focusComposer });
 
     <!-- Manual-abort toast: shown when the user presses Escape to stop a prompt -->
     <Transition name="abort-toast">
-      <div
-        v-if="abortToastVisible"
-        class="abort-toast"
-        role="status"
-        aria-live="polite"
-      >
+      <div v-if="abortToastVisible" class="abort-toast" role="status" aria-live="polite">
         <span class="abort-toast-text">{{ t('conversation.manuallyAborted') }}</span>
       </div>
     </Transition>
@@ -1600,10 +1639,18 @@ defineExpose({ loadComposerForEdit, focusComposer });
   flex-direction: column;
   flex-shrink: 0;
 }
-.content-wrap.align-center { margin-left: auto; margin-right: auto; }
-.content-wrap.align-left { margin-left: 0; margin-right: auto; }
+.content-wrap.align-center {
+  margin-left: auto;
+  margin-right: auto;
+}
+.content-wrap.align-left {
+  margin-left: 0;
+  margin-right: auto;
+}
 /* Mobile: bubbles span the full pane width; no reading-column constraint. */
-.content-wrap.align-mobile { max-width: none; }
+.content-wrap.align-mobile {
+  max-width: none;
+}
 @media (max-width: 640px) {
   .con.mobile {
     min-width: 0;
@@ -1620,7 +1667,9 @@ defineExpose({ loadComposerForEdit, focusComposer });
 }
 
 /* Empty-workspace spacers: push the centred Composer to the vertical middle. */
-.empty-spacer { flex: 1; }
+.empty-spacer {
+  flex: 1;
+}
 
 /* Empty-session hint above the centred composer */
 .empty-hint {
@@ -1702,10 +1751,24 @@ defineExpose({ loadComposerForEdit, focusComposer });
   font-size: var(--ui-font-size-sm);
   cursor: pointer;
 }
-.ws-pick-btn:hover { border-color: var(--color-accent-bd); color: var(--color-text); }
-.ws-pick-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ws-pick-chev { flex: none; color: var(--muted); transition: transform 0.15s; }
-.ws-pick-chev.open { transform: rotate(180deg); }
+.ws-pick-btn:hover {
+  border-color: var(--color-accent-bd);
+  color: var(--color-text);
+}
+.ws-pick-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-pick-chev {
+  flex: none;
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+.ws-pick-chev.open {
+  transform: rotate(180deg);
+}
 .ws-pick-backdrop {
   position: fixed;
   inset: 0;
@@ -1744,8 +1807,12 @@ defineExpose({ loadComposerForEdit, focusComposer });
   cursor: pointer;
   font-family: var(--font-ui);
 }
-.ws-pick-item:hover { background: var(--panel2); }
-.ws-pick-item.on { background: var(--color-accent-soft); }
+.ws-pick-item:hover {
+  background: var(--panel2);
+}
+.ws-pick-item.on {
+  background: var(--color-accent-soft);
+}
 .ws-pick-item-name {
   max-width: 100%;
   overflow: hidden;
@@ -1755,7 +1822,9 @@ defineExpose({ loadComposerForEdit, focusComposer });
   font-weight: var(--weight-medium);
   color: var(--color-text);
 }
-.ws-pick-item.on .ws-pick-item-name { color: var(--color-accent-hover); }
+.ws-pick-item.on .ws-pick-item-name {
+  color: var(--color-accent-hover);
+}
 .ws-pick-item-path {
   max-width: 100%;
   overflow: hidden;
@@ -1773,7 +1842,9 @@ defineExpose({ loadComposerForEdit, focusComposer });
   font-weight: var(--weight-medium);
   color: var(--dim);
 }
-.ws-pick-item.ws-pick-more:hover { color: var(--color-text); }
+.ws-pick-item.ws-pick-more:hover {
+  color: var(--color-text);
+}
 .ws-pick-item.ws-pick-more span,
 .ws-pick-action span {
   min-width: 0;
@@ -1802,8 +1873,13 @@ defineExpose({ loadComposerForEdit, focusComposer });
   font-weight: var(--weight-medium);
   color: var(--dim);
 }
-.ws-pick-action:hover { background: var(--panel2); color: var(--color-text); }
-.ws-pick-action svg { flex: none; }
+.ws-pick-action:hover {
+  background: var(--panel2);
+  color: var(--color-text);
+}
+.ws-pick-action svg {
+  flex: none;
+}
 
 /* Chat scroll area: owns only messages; the dock is the bottom sibling. */
 .chat-scroll {
@@ -1838,14 +1914,18 @@ defineExpose({ loadComposerForEdit, focusComposer });
      content while staying below composer dropdowns. */
   z-index: var(--z-base);
 }
-.newmsg-pill:hover { background: var(--panel2); }
+.newmsg-pill:hover {
+  background: var(--panel2);
+}
 .pill-chevron {
   width: 12px;
   height: 12px;
 }
 .pill-enter-active,
 .pill-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 .pill-enter-from,
 .pill-leave-to {
@@ -1873,7 +1953,9 @@ defineExpose({ loadComposerForEdit, focusComposer });
 }
 .abort-toast-enter-active,
 .abort-toast-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 .abort-toast-enter-from,
 .abort-toast-leave-to {
@@ -1881,6 +1963,10 @@ defineExpose({ loadComposerForEdit, focusComposer });
   transform: translateX(-50%) translateY(-6px);
 }
 
-.con { background: var(--bg); }
-.newmsg-pill { font-family: var(--sans); }
+.con {
+  background: var(--bg);
+}
+.newmsg-pill {
+  font-family: var(--sans);
+}
 </style>

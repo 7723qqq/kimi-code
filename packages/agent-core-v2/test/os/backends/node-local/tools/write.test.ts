@@ -13,15 +13,20 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { PathSecurityError } from '#/tool/path-access';
-import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
+import { tryNativeWrite } from '#/_base/native-tools';
 import { type WriteInput, WriteInputSchema } from '#/agent/tools/os/write/write';
 import { WriteTool } from '#/agent/tools/os/write/writeTool';
 import type { IConfigService } from '#/app/config/config';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { tryNativeWrite } from '#/_base/native-tools';
+import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { PathSecurityError } from '#/tool/path-access';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
+import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 
 // Stub every native-tools binding so the tool exercises the TS fallback path:
 // under vitest the Rust addon can be loaded (via the i18n package) and would
@@ -93,7 +98,14 @@ function createWriteFs(options: WriteFsOptions = {}) {
         )),
   );
   const mkdir = vi.fn(options.mkdir ?? (async () => {}));
-  const fs = { cwd: '/', readText, writeText, appendText, stat, mkdir } as unknown as IHostFileSystem;
+  const fs = {
+    cwd: '/',
+    readText,
+    writeText,
+    appendText,
+    stat,
+    mkdir,
+  } as unknown as IHostFileSystem;
   return { fs, readText, writeText, appendText, stat, mkdir };
 }
 
@@ -108,7 +120,9 @@ const sandboxOffConfig = {
   get: () => undefined,
 } as unknown as IConfigService;
 
-function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
+function isPromiseLike(
+  value: ToolExecution | Promise<ToolExecution>,
+): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -340,11 +354,13 @@ describe('WriteTool', () => {
     // The target is an existing regular file (overwrite); the parent is a
     // directory. The target-directory guard must not reject this case.
     const { tool, writeText } = makeTool({
-      stat: vi.fn().mockImplementation((path: string) =>
-        path === '/tmp/exists/file.txt'
-          ? Promise.resolve({ isFile: true, isDirectory: false, size: 0 })
-          : Promise.resolve({ isFile: false, isDirectory: true, size: 0 }),
-      ),
+      stat: vi
+        .fn()
+        .mockImplementation((path: string) =>
+          path === '/tmp/exists/file.txt'
+            ? Promise.resolve({ isFile: true, isDirectory: false, size: 0 })
+            : Promise.resolve({ isFile: false, isDirectory: true, size: 0 }),
+        ),
     });
 
     const result = await execute(tool, { path: '/tmp/exists/file.txt', content: 'data' });
@@ -373,10 +389,7 @@ describe('WriteTool', () => {
   });
 
   it('rejects relative traversal writes before fs I/O', async () => {
-    const { tool, writeText } = makeTool(
-      {},
-      stubWorkspaceContext('/workspace/project'),
-    );
+    const { tool, writeText } = makeTool({}, stubWorkspaceContext('/workspace/project'));
 
     const result = await execute(tool, { path: '../outside.txt', content: 'x' });
 
@@ -509,9 +522,11 @@ describe('WriteTool', () => {
 
   it('write error when the file system is readonly surfaces the underlying error', async () => {
     const { tool } = makeTool({
-      writeText: vi.fn().mockRejectedValue(
-        Object.assign(new Error('EROFS: read-only file system'), { code: 'EROFS' }),
-      ),
+      writeText: vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error('EROFS: read-only file system'), { code: 'EROFS' }),
+        ),
     });
 
     const result = await execute(tool, { path: '/readonly/file.txt', content: 'data' });

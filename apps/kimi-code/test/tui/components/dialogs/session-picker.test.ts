@@ -344,9 +344,10 @@ describe('SessionPickerComponent', () => {
     for (let width = 10; width <= 60; width++) {
       const lines = component.render(width);
       for (const [idx, line] of lines.entries()) {
-        expect(visibleWidth(line), `width=${String(width)} line#${String(idx)}`).toBeLessThanOrEqual(
-          width,
-        );
+        expect(
+          visibleWidth(line),
+          `width=${String(width)} line#${String(idx)}`,
+        ).toBeLessThanOrEqual(width);
       }
     }
   });

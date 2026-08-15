@@ -6,22 +6,21 @@
  * Bound at Workspace scope.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { parseAgentFileText } from '#/workspace/workspaceAgentProfileLoader/internal/agentFile';
-import { AgentProfileLoaderBase } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileLoader';
-import { agentProfileFromFile } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileFromFile';
 import {
   AGENT_PROFILE_SOURCE_PRIORITY,
   type AgentProfileContribution,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { parseAgentFileText } from '#/workspace/workspaceAgentProfileLoader/internal/agentFile';
+import { agentProfileFromFile } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileFromFile';
+import { AgentProfileLoaderBase } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileLoader';
 import { resolveAgentPath } from '#/workspace/workspaceAgentProfileLoader/internal/paths';
 import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 
 import { IExplicitAgentProfileLoader } from './explicitAgentProfileLoader';

@@ -11,8 +11,9 @@ import {
 import { createKimiCodeUserAgent } from '#/cli/version';
 
 import type { SkillListSession } from '../commands';
-
 import { getOauthLoginRequiredStartupNotice } from '../constant/kimi-tui';
+import type { TUIState } from '../tui-state';
+import type { AppState, KimiTUIOptions } from '../types';
 import {
   refreshAllProviderModels,
   type RefreshProviderHost,
@@ -21,8 +22,6 @@ import {
 } from '../utils/refresh-providers';
 import { thinkingEffortFromConfig } from '../utils/thinking-config';
 import type { SessionEventHandler } from './session-event-handler';
-import type { AppState, KimiTUIOptions } from '../types';
-import type { TUIState } from '../tui-state';
 
 type MutableCreateSessionOptions = {
   -readonly [P in keyof CreateSessionOptions]: CreateSessionOptions[P];
@@ -208,7 +207,9 @@ export class AuthFlowController {
     return this.refreshProviderModelsWithScope('oauth');
   }
 
-  private async refreshProviderModelsWithScope(scope: RefreshProviderScope): Promise<RefreshResult> {
+  private async refreshProviderModelsWithScope(
+    scope: RefreshProviderScope,
+  ): Promise<RefreshResult> {
     const result = await refreshAllProviderModels(this.buildRefreshHost(), { scope });
     if (result.changed.length > 0) {
       await this.refreshAvailableModels();
@@ -229,7 +230,10 @@ export class AuthFlowController {
    */
   private buildRefreshHost(): RefreshProviderHost {
     const { host } = this;
-    const resolveOAuthToken = async (providerName: string, oauthRef?: OAuthRef): Promise<string> => {
+    const resolveOAuthToken = async (
+      providerName: string,
+      oauthRef?: OAuthRef,
+    ): Promise<string> => {
       const tokenProvider = host.harness.auth.resolveOAuthTokenProvider(providerName, oauthRef);
       return tokenProvider.getAccessToken();
     };

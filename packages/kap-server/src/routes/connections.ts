@@ -16,8 +16,8 @@
 
 import { okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
-import { type IConnectionRegistry } from '../transport/ws/connectionRegistry';
 import { connectionsListResponseSchema } from '../protocol/rest-connection';
+import { type IConnectionRegistry } from '../transport/ws/connectionRegistry';
 
 interface ConnectionsRouteHost {
   get(
@@ -52,7 +52,7 @@ export function registerConnectionsRoutes(
           has_client_hello: conn.hasClientHello,
           subscriptions: [...conn.subscriptionSessionIds],
         }))
-        .sort((a, b) => a.connected_at.localeCompare(b.connected_at));
+        .toSorted((a, b) => a.connected_at.localeCompare(b.connected_at));
       reply.send(okEnvelope({ connections }, req.id));
     },
   );

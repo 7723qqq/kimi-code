@@ -5,9 +5,9 @@ import {
   type Session,
   type SessionSummary,
   type ThinkingEffort,
-} from "@moonshot-ai/kimi-code-sdk";
+} from '@moonshot-ai/kimi-code-sdk';
 
-import type { RuntimeBroadcast } from "./session-runtime";
+import { areSameFsPath } from '../utils/fs-path';
 import {
   corePermissionForLegacyApproval,
   legacyApprovalMetadata,
@@ -15,15 +15,15 @@ import {
   readMigratedLegacyApprovalFlags,
   withGlobalYoloMode,
   type LegacyApprovalFlags,
-} from "./legacy-approval";
-import { SessionRuntime } from "./session-runtime";
-import { areSameFsPath } from "../utils/fs-path";
+} from './legacy-approval';
+import type { RuntimeBroadcast } from './session-runtime';
+import { SessionRuntime } from './session-runtime';
 
 export interface KimiRuntimeOptions {
   readonly version: string;
   readonly broadcast: RuntimeBroadcast;
   readonly captureBaseline: (
-    session: Pick<SessionSummary, "id" | "workDir" | "metadata">,
+    session: Pick<SessionSummary, 'id' | 'workDir' | 'metadata'>,
     filePath: string,
     webviewIds: readonly string[],
   ) => void;
@@ -52,8 +52,8 @@ export class KimiRuntime {
   readonly harness: KimiHarness;
 
   private readonly broadcast: RuntimeBroadcast;
-  private readonly captureBaseline: KimiRuntimeOptions["captureBaseline"];
-  private readonly log: KimiRuntimeOptions["log"];
+  private readonly captureBaseline: KimiRuntimeOptions['captureBaseline'];
+  private readonly log: KimiRuntimeOptions['log'];
   private readonly sessions = new Map<string, SessionRuntime>();
   private readonly sessionByView = new Map<string, string>();
   private closed = false;
@@ -68,11 +68,11 @@ export class KimiRuntime {
       createHarness({
         homeDir: options.homeDir,
         identity: {
-          productName: "kimi-code-vscode",
+          productName: 'kimi-code-vscode',
           version: options.version,
-          platform: "kimi_code_vscode",
+          platform: 'kimi_code_vscode',
         },
-        uiMode: "vscode",
+        uiMode: 'vscode',
       });
   }
 
@@ -131,7 +131,7 @@ export class KimiRuntime {
         runtime = this.wrapSession(session, approval);
       } catch (error) {
         await session.close().catch((closeError: unknown) => {
-          this.log("Failed to close a rejected session", closeError);
+          this.log('Failed to close a rejected session', closeError);
         });
         throw error;
       }
@@ -159,10 +159,8 @@ export class KimiRuntime {
     if (runtime === undefined) {
       try {
         const storedApproval = readLegacyApprovalFlags(session.summary?.metadata);
-        const restoredApproval =
-          storedApproval ??
-          (await this.readMigratedLegacyApproval(session)) ??
-          { yolo: defaultYoloMode, afk: false };
+        const restoredApproval = storedApproval ??
+          (await this.readMigratedLegacyApproval(session)) ?? { yolo: defaultYoloMode, afk: false };
         const approval = withGlobalYoloMode(restoredApproval, defaultYoloMode);
         if (storedApproval === undefined || flagsDiffer(storedApproval, approval)) {
           await session.updateMetadata(legacyApprovalMetadata(approval));
@@ -173,7 +171,7 @@ export class KimiRuntime {
         runtime = this.wrapSession(session, approval);
       } catch (error) {
         await session.close().catch((closeError: unknown) => {
-          this.log("Failed to close a rejected session", closeError);
+          this.log('Failed to close a rejected session', closeError);
         });
         throw error;
       }
@@ -249,13 +247,13 @@ export class KimiRuntime {
     try {
       return await readMigratedLegacyApprovalFlags(metadata);
     } catch (error) {
-      this.log("Unable to restore legacy session approval settings", error);
+      this.log('Unable to restore legacy session approval settings', error);
       return undefined;
     }
   }
 
   private ensureOpen(): void {
-    if (this.closed) throw new Error("Kimi runtime is closed.");
+    if (this.closed) throw new Error('Kimi runtime is closed.');
   }
 }
 
@@ -277,15 +275,15 @@ async function applySessionSettings(
 }
 
 export function normalizeEffort(effort: string): ThinkingEffort {
-  return (effort.trim() || "off") as ThinkingEffort;
+  return (effort.trim() || 'off') as ThinkingEffort;
 }
 
 function flagsDiffer(a: LegacyApprovalFlags, b: LegacyApprovalFlags): boolean {
   return a.yolo !== b.yolo || a.afk !== b.afk;
 }
 
-function assertSessionWorkDir(session: Pick<Session, "workDir">, expectedWorkDir: string): void {
+function assertSessionWorkDir(session: Pick<Session, 'workDir'>, expectedWorkDir: string): void {
   if (!areSameFsPath(session.workDir, expectedWorkDir)) {
-    throw new Error("The selected session belongs to a different working directory.");
+    throw new Error('The selected session belongs to a different working directory.');
   }
 }

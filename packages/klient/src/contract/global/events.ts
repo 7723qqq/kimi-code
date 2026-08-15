@@ -6,13 +6,12 @@
  * naming; unknown bus event types are not forwarded.
  */
 
-import { z } from 'zod';
-
+import type { IOAuthService } from '@moonshot-ai/agent-core-v2/app/auth/auth';
 import type { ConfigChangedEvent } from '@moonshot-ai/agent-core-v2/app/config/config';
+import type { ReloadSummary } from '@moonshot-ai/agent-core-v2/app/plugin/types';
 import type { ModelsChangedEvent } from '@moonshot-ai/agent-core-v2/kosong/model/model';
 import type { ProvidersChangedEvent } from '@moonshot-ai/agent-core-v2/kosong/provider/provider';
-import type { ReloadSummary } from '@moonshot-ai/agent-core-v2/app/plugin/types';
-import type { IOAuthService } from '@moonshot-ai/agent-core-v2/app/auth/auth';
+import { z } from 'zod';
 
 import { stringDeltaSchema } from '../helpers.js';
 import type { EventRegistration } from '../types.js';

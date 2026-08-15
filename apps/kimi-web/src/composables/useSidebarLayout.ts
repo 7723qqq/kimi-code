@@ -3,6 +3,7 @@
 // localStorage persistence); we mirror it here to drive the App grid.
 
 import { computed, ref, toValue, type MaybeRefOrGetter } from 'vue';
+
 import { safeGetString, safeSetString, STORAGE_KEYS } from '../lib/storage';
 import { PREVIEW_MIN } from './useDetailPanel';
 import { clampPanelWidth, panelMaxWidth, useViewportWidth } from './useViewportWidth';

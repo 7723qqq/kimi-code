@@ -81,7 +81,7 @@ export class AsyncTransport {
           return;
         } catch (error) {
           if (isSignalAborted(signal) || isAbortError(error)) {
-          saveEventsToDisk();
+            saveEventsToDisk();
             throw error;
           }
           if (!(error instanceof TransientTelemetryError)) {

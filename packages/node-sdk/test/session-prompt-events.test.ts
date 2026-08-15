@@ -404,9 +404,7 @@ describe('Session.prompt events', () => {
       ).rejects.toMatchObject({
         code: 'request.invalid',
       });
-      await expect(
-        harness.listSessions({ sessionId: 'ses_turn_fork_child' }),
-      ).resolves.toEqual([]);
+      await expect(harness.listSessions({ sessionId: 'ses_turn_fork_child' })).resolves.toEqual([]);
     } finally {
       await harness.close();
     }

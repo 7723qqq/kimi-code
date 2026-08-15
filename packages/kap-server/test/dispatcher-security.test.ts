@@ -1,6 +1,6 @@
+import { ErrorCodes, Error2 } from '@moonshot-ai/agent-core-v2';
 import { describe, expect, it } from 'vitest';
 
-import { ErrorCodes, Error2 } from '@moonshot-ai/agent-core-v2';
 import { assertDispatchableMethod } from '../src/transport/dispatcher';
 
 describe('assertDispatchableMethod', () => {

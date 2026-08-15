@@ -1,7 +1,8 @@
+import { t } from '#/i18n';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
+
 import type { TranscriptEntry } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
-import { t } from '#/i18n';
 import type { SlashCommandHost } from './dispatch';
 
 /**

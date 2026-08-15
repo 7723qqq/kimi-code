@@ -55,7 +55,7 @@ export class BridgeHandler {
       // No silent fallback: report the failure with the rollback path, so the
       // user can report it or switch engines and reload.
       const rollbackHint = useAgentCoreV1
-        ? ""
+        ? ''
         : " You can roll back to the legacy engine: enable the 'kimi.useAgentCoreV1' setting and reload the window.";
       throw new Error(
         `Failed to start the Kimi engine: ${error instanceof Error ? error.message : String(error)}.${rollbackHint}`,
@@ -166,9 +166,13 @@ export class BridgeHandler {
       baselineManager: this.baselineManager,
       runtime: this.runtime,
       harness: this.runtime.harness,
-      reloadWebview: () =>{  this.reloadWebview(webviewId); },
+      reloadWebview: () => {
+        this.reloadWebview(webviewId);
+      },
       showLogs: this.showLogs,
-      logError: (message, error) =>{  this.logRuntimeError(message, error); },
+      logError: (message, error) => {
+        this.logRuntimeError(message, error);
+      },
       getSession: () => this.runtime.getSessionForView(webviewId),
       getSessionId: () => this.fileManager.getSessionId(webviewId),
       getOrCreateSession: async (model, effort, sessionId) => {

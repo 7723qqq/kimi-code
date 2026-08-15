@@ -57,7 +57,10 @@ function isInsideCwd(candidate: string, cwd: string, platform: NodeJS.Platform):
  * found — or when the only hit lives inside `cwd`, since executing that would
  * run whatever a malicious workspace planted there.
  */
-export function resolveCommandPath(command: string, cwd: string = process.cwd()): string | undefined {
+export function resolveCommandPath(
+  command: string,
+  cwd: string = process.cwd(),
+): string | undefined {
   const platform = process.platform;
   const env = process.env;
   const extensions = pathExtensions(platform, env);

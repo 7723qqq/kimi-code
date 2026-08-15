@@ -17,11 +17,11 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
 import { defineState } from '#/_base/state/stateRegistry';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
+import { LifecycleScope } from '#/app/scopes';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
@@ -35,10 +35,7 @@ interface TrustRecord {
   readonly trustedAt: number;
 }
 
-export const workspaceTrustTrustedKey = defineState<boolean>(
-  'workspaceTrust.trusted',
-  () => false,
-);
+export const workspaceTrustTrustedKey = defineState<boolean>('workspaceTrust.trusted', () => false);
 
 // NOTE: stays Disposable — its own 'get' collides with the Fiber
 export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust {

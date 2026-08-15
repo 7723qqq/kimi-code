@@ -41,17 +41,15 @@
  * id. Bound at Agent scope.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import type { ToolExecution } from '#/tool/toolContract';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type { ToolExecution } from '#/tool/toolContract';
 
 import { ICronDeleteTool, CronDeleteInputSchema, type CronDeleteInput } from './cron-delete';
 import CRON_DELETE_DESCRIPTION from './cron-delete.md?raw';
-
 
 const ID_PATTERN = /^(?:[0-9a-f]{8}|[0-9A-HJKMNP-TV-Z]{26})$/i;
 
@@ -60,9 +58,7 @@ export class CronDeleteTool implements ICronDeleteTool {
 
   readonly name = 'CronDelete' as const;
   readonly description = CRON_DELETE_DESCRIPTION;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(
-    CronDeleteInputSchema,
-  );
+  readonly parameters: Record<string, unknown> = toInputJsonSchema(CronDeleteInputSchema);
 
   constructor(
     @ISessionCronService private readonly cron: ISessionCronService,
@@ -73,9 +69,7 @@ export class CronDeleteTool implements ICronDeleteTool {
     if (!ID_PATTERN.test(args.id)) {
       return {
         isError: true,
-        output: `Invalid cron job id ${JSON.stringify(
-          args.id,
-        )} — must be a ULID.`,
+        output: `Invalid cron job id ${JSON.stringify(args.id)} — must be a ULID.`,
       };
     }
 

@@ -53,5 +53,7 @@ export const SkillToolInputSchema: z.ZodType<SkillToolInput> = z.object({
     ),
 });
 
-export interface ISkillTool extends AgentTool<SkillToolInput> { readonly _serviceBrand: undefined }
+export interface ISkillTool extends AgentTool<SkillToolInput> {
+  readonly _serviceBrand: undefined;
+}
 export const ISkillTool = createDecorator<ISkillTool>('skillTool');

@@ -4,9 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { parseConfigString, readConfigFile, writeConfigFile } from '#/config-local';
 import { createKimiConfigRpc, createKimiHarness, KimiError } from '#/index';
 
-import { parseConfigString, readConfigFile, writeConfigFile } from '#/config-local';
 import { TEST_IDENTITY } from './test-identity';
 
 // node-sdk/agent-core normalize paths to forward slashes (pathe). Mirror that
@@ -109,7 +109,9 @@ describe('SDK config TOML', () => {
     const dir = await makeTempDir();
     const rpc = createKimiConfigRpc();
 
-    await expect(rpc.resolveConfigPath({ homeDir: dir })).resolves.toBe(toPosix(join(dir, 'config.toml')));
+    await expect(rpc.resolveConfigPath({ homeDir: dir })).resolves.toBe(
+      toPosix(join(dir, 'config.toml')),
+    );
   });
 
   it('returns structured validation issues through the config RPC wrapper', async () => {
@@ -362,28 +364,28 @@ describe('KimiHarness config API', () => {
     // shared entries are present with their full metadata.
     expect(features).toEqual(
       expect.arrayContaining([
-      {
-        id: 'tool-select',
-        title: 'Tool select (progressive tool disclosure)',
-        description:
-          'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
-        surface: 'core',
-        env: 'KIMI_CODE_EXPERIMENTAL_TOOL_SELECT',
-        defaultEnabled: false,
-        enabled: false,
-        source: 'default',
-      },
-      {
-        id: 'secondary-model',
-        title: 'Secondary model for subagents',
-        description:
-          'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
-        surface: 'core',
-        env: 'KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL',
-        defaultEnabled: false,
-        enabled: false,
-        source: 'default',
-      },
+        {
+          id: 'tool-select',
+          title: 'Tool select (progressive tool disclosure)',
+          description:
+            'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
+          surface: 'core',
+          env: 'KIMI_CODE_EXPERIMENTAL_TOOL_SELECT',
+          defaultEnabled: false,
+          enabled: false,
+          source: 'default',
+        },
+        {
+          id: 'secondary-model',
+          title: 'Secondary model for subagents',
+          description:
+            'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
+          surface: 'core',
+          env: 'KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL',
+          defaultEnabled: false,
+          enabled: false,
+          source: 'default',
+        },
       ]),
     );
   });

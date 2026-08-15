@@ -5,13 +5,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { DiffViewLine } from '../../types';
-import DiffLines from './DiffLines.vue';
 import Button from '../ui/Button.vue';
+import Icon from '../ui/Icon.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
 import SegmentedControl from '../ui/SegmentedControl.vue';
-import Icon from '../ui/Icon.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import DiffLines from './DiffLines.vue';
 
 const { t } = useI18n();
 
@@ -50,7 +51,16 @@ const emit = defineEmits<{
 }>();
 
 // Status badge: single-letter glyph + CSS class
-type BadgeKind = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted' | 'ignored' | 'clean' | 'unknown';
+type BadgeKind =
+  | 'modified'
+  | 'added'
+  | 'deleted'
+  | 'renamed'
+  | 'untracked'
+  | 'conflicted'
+  | 'ignored'
+  | 'clean'
+  | 'unknown';
 
 function badgeKind(s: string): BadgeKind {
   const lower = s.toLowerCase();
@@ -146,7 +156,9 @@ function buildTree(changes: { path: string; status: string }[]): TreeNode[] {
       const name = parts[i]!;
       const isFile = i === parts.length - 1;
       const path = parts.slice(0, i + 1).join('/');
-      let child = current.children.find((c) => c.name === name && c.kind === (isFile ? 'file' : 'folder'));
+      let child = current.children.find(
+        (c) => c.name === name && c.kind === (isFile ? 'file' : 'folder'),
+      );
       if (!child) {
         child = {
           name,
@@ -277,17 +289,11 @@ function treePadding(depth: number): string {
 
       <!-- File list (flat) -->
       <div v-if="hasChanges && viewMode === 'list'" class="ch-list">
-        <Tooltip
-          v-for="entry in changes"
-          :key="entry.path"
-          :text="entry.path"
-        >
-          <button
-            type="button"
-            class="ch-row"
-            @click="onOpen(entry.path)"
-          >
-            <span class="badge" :class="badgeKind(entry.status)">{{ badgeGlyph(entry.status) }}</span>
+        <Tooltip v-for="entry in changes" :key="entry.path" :text="entry.path">
+          <button type="button" class="ch-row" @click="onOpen(entry.path)">
+            <span class="badge" :class="badgeKind(entry.status)">{{
+              badgeGlyph(entry.status)
+            }}</span>
             <span class="fpath">{{ truncateLeft(entry.path) }}</span>
           </button>
         </Tooltip>
@@ -296,11 +302,7 @@ function treePadding(depth: number): string {
       <!-- File tree -->
       <div v-else-if="hasChanges && viewMode === 'tree'" class="ch-list ch-tree">
         <ul class="tree-list">
-          <li
-            v-for="{ node, depth } in flatTree"
-            :key="node.path"
-            class="tree-node"
-          >
+          <li v-for="{ node, depth } in flatTree" :key="node.path" class="tree-node">
             <button
               v-if="node.kind === 'folder'"
               type="button"
@@ -318,7 +320,9 @@ function treePadding(depth: number): string {
                 :style="{ paddingLeft: treePadding(depth) }"
                 @click="onOpen(node.path)"
               >
-                <span class="badge" :class="badgeKind(node.status!)">{{ badgeGlyph(node.status!) }}</span>
+                <span class="badge" :class="badgeKind(node.status!)">{{
+                  badgeGlyph(node.status!)
+                }}</span>
                 <span class="tree-name">{{ node.name }}</span>
               </button>
             </Tooltip>
@@ -505,15 +509,43 @@ function treePadding(depth: number): string {
   user-select: none;
 }
 
-.badge.modified  { background: color-mix(in srgb, var(--color-accent) 12%, var(--bg)); color: var(--color-accent); }
-.badge.added     { background: color-mix(in srgb, var(--color-success) 10%, var(--bg)); color: var(--color-success); }
-.badge.deleted   { background: color-mix(in srgb, var(--color-danger) 10%, var(--bg)); color: var(--color-danger); }
-.badge.renamed   { background: color-mix(in srgb, var(--color-warning) 12%, var(--bg)); color: var(--color-warning); }
-.badge.untracked { background: var(--color-surface-sunken); color: var(--muted, #9098a0); }
-.badge.conflicted{ background: color-mix(in srgb, var(--color-danger) 10%, var(--bg)); color: var(--color-danger); font-size: max(9px, calc(var(--ui-font-size) - 5px)); }
-.badge.ignored   { background: var(--color-surface-sunken); color: var(--faint, #c0c5cc); }
-.badge.clean     { background: transparent; color: var(--faint, #c0c5cc); }
-.badge.unknown   { background: var(--color-surface-sunken); color: var(--muted, #9098a0); }
+.badge.modified {
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--bg));
+  color: var(--color-accent);
+}
+.badge.added {
+  background: color-mix(in srgb, var(--color-success) 10%, var(--bg));
+  color: var(--color-success);
+}
+.badge.deleted {
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--bg));
+  color: var(--color-danger);
+}
+.badge.renamed {
+  background: color-mix(in srgb, var(--color-warning) 12%, var(--bg));
+  color: var(--color-warning);
+}
+.badge.untracked {
+  background: var(--color-surface-sunken);
+  color: var(--muted, #9098a0);
+}
+.badge.conflicted {
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--bg));
+  color: var(--color-danger);
+  font-size: max(9px, calc(var(--ui-font-size) - 5px));
+}
+.badge.ignored {
+  background: var(--color-surface-sunken);
+  color: var(--faint, #c0c5cc);
+}
+.badge.clean {
+  background: transparent;
+  color: var(--faint, #c0c5cc);
+}
+.badge.unknown {
+  background: var(--color-surface-sunken);
+  color: var(--muted, #9098a0);
+}
 
 /* ---- File path ---- */
 .fpath {
@@ -522,7 +554,7 @@ function treePadding(depth: number): string {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  direction: rtl;   /* makes text-overflow clip from the left */
+  direction: rtl; /* makes text-overflow clip from the left */
   text-align: left;
   min-width: 0;
 }
@@ -567,30 +599,50 @@ function treePadding(depth: number): string {
    break at 360px.
    ========================================================================= */
 @media (max-width: 640px) {
-  .ch-head { padding: 10px 14px; }
-  .ch-list { padding: 2px 0 12px; }
+  .ch-head {
+    padding: 10px 14px;
+  }
+  .ch-list {
+    padding: 2px 0 12px;
+  }
   .ch-row {
     min-height: 44px;
     padding: 8px 14px;
     gap: 12px;
     font-size: var(--ui-font-size-sm);
   }
-  .ch-row:active { background: var(--panel2, #f5f6f8); }
-  .badge { width: 18px; height: 18px; }
-  .fpath { font-size: var(--ui-font-size-sm); }
+  .ch-row:active {
+    background: var(--panel2, #f5f6f8);
+  }
+  .badge {
+    width: 18px;
+    height: 18px;
+  }
+  .fpath {
+    font-size: var(--ui-font-size-sm);
+  }
   .tree-row {
     min-height: 40px;
     padding: 8px 14px;
   }
 
   /* Diff-head Back → real tap target. */
-  .diff-head { padding: 8px 12px; gap: 10px; }
-  .diff-path { font-size: var(--text-base); }
+  .diff-head {
+    padding: 8px 12px;
+    gap: 10px;
+  }
+  .diff-path {
+    font-size: var(--text-base);
+  }
 }
 
-.changes-pane .empty-state { font-family: var(--sans); }
+.changes-pane .empty-state {
+  font-family: var(--sans);
+}
 .br-label,
-.empty-head { font-family: var(--sans); }
+.empty-head {
+  font-family: var(--sans);
+}
 .ch-row,
 .ct-row {
   margin: 1px 6px;
@@ -598,6 +650,11 @@ function treePadding(depth: number): string {
   border-radius: var(--radius-md);
 }
 .changes-pane .badge,
-.changed-tree .badge { border-radius: var(--radius-sm); }
-.change-count { font-family: var(--sans); border-radius: 999px; }
+.changed-tree .badge {
+  border-radius: var(--radius-sm);
+}
+.change-count {
+  font-family: var(--sans);
+  border-radius: 999px;
+}
 </style>

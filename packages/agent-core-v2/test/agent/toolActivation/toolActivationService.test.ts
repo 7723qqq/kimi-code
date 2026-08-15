@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { type CollectionView } from '#/_base/di/collection';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator } from '#/_base/di/instantiation';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
+import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -13,8 +11,8 @@ import {
   registerScopedService,
   type ScopeSeed,
 } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { createServices } from '#/_base/di/test';
-import { IEventBus } from '#/app/event/eventBus';
 import { Event } from '#/_base/event';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
@@ -31,6 +29,8 @@ import {
 } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import type { AgentTool, ToolExecution } from '#/tool/toolContract';
 import '#/agent/tools/agent/agentTool';
@@ -120,9 +120,7 @@ class DynamicToolProvider extends Service {
 const ICollectionProbe = createDecorator<CollectionProbe>('activationTestCollectionProbe');
 class CollectionProbe extends Service {
   declare readonly _serviceBrand: undefined;
-  constructor(
-    @AgentToolContribution readonly view: CollectionView<AgentToolContribution>,
-  ) {
+  constructor(@AgentToolContribution readonly view: CollectionView<AgentToolContribution>) {
     super();
   }
 }

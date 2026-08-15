@@ -79,15 +79,15 @@ export type SessionLineageTrace = {
   readonly descendants: readonly SessionLineageNode[];
 } & (
   | {
-    /** The complete parent chain is present in the logical corpus. */
-    readonly complete: true;
-    /** Record at the top of the complete lineage. */
-    readonly root: SessionRecord;
-  }
+      /** The complete parent chain is present in the logical corpus. */
+      readonly complete: true;
+      /** Record at the top of the complete lineage. */
+      readonly root: SessionRecord;
+    }
   | {
-    /** The parent chain leaves the visible logical corpus. */
-    readonly complete: false;
-    /** First parent id that is not present in the logical corpus. */
-    readonly unresolvedParentId: string;
-  }
+      /** The parent chain leaves the visible logical corpus. */
+      readonly complete: false;
+      /** First parent id that is not present in the logical corpus. */
+      readonly unresolvedParentId: string;
+    }
 );

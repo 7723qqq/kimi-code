@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
+
 import { useAttachmentUpload, type Attachment } from '../src/composables/useAttachmentUpload';
 
 // The composable registers its paste listener and cleanup via onMounted /
@@ -17,7 +18,10 @@ type UploadImage = (
 ) => Promise<{ fileId: string; name: string; mediaType: string } | null>;
 
 function setup(uploadImage?: UploadImage, sessionId: string | null = 'test-session') {
-  return useAttachmentUpload({ uploadImage: () => uploadImage, sessionId: () => sessionId ?? undefined });
+  return useAttachmentUpload({
+    uploadImage: () => uploadImage,
+    sessionId: () => sessionId ?? undefined,
+  });
 }
 
 function imageFile(name: string): File {
@@ -44,19 +48,29 @@ describe('useAttachmentUpload', () => {
   });
 
   it('adds an uploading attachment via the file input', () => {
-    const uploadImage = vi.fn<UploadImage>().mockResolvedValue({ fileId: 'f1', name: 'a.png', mediaType: 'image/png' });
+    const uploadImage = vi
+      .fn<UploadImage>()
+      .mockResolvedValue({ fileId: 'f1', name: 'a.png', mediaType: 'image/png' });
     const att = setup(uploadImage);
     att.handleFileInputChange(inputEvent([imageFile('a.png')]));
 
     expect(att.attachments.value).toHaveLength(1);
-    expect(att.attachments.value[0]).toMatchObject({ name: 'a.png', kind: 'image', uploading: true });
+    expect(att.attachments.value[0]).toMatchObject({
+      name: 'a.png',
+      kind: 'image',
+      uploading: true,
+    });
     expect(createObjectURL).toHaveBeenCalledOnce();
   });
 
   it('accepts a non-media file as a file attachment without a thumbnail object URL', () => {
-    const uploadImage = vi.fn<UploadImage>().mockResolvedValue({ fileId: 'f1', name: 'a.pdf', mediaType: 'application/pdf' });
+    const uploadImage = vi
+      .fn<UploadImage>()
+      .mockResolvedValue({ fileId: 'f1', name: 'a.pdf', mediaType: 'application/pdf' });
     const att = setup(uploadImage);
-    att.handleFileInputChange(inputEvent([{ name: 'a.pdf', type: 'application/pdf' } as unknown as File]));
+    att.handleFileInputChange(
+      inputEvent([{ name: 'a.pdf', type: 'application/pdf' } as unknown as File]),
+    );
 
     expect(att.attachments.value).toHaveLength(1);
     expect(att.attachments.value[0]).toMatchObject({
@@ -89,7 +103,9 @@ describe('useAttachmentUpload', () => {
   it('removeAttachment on a file chip has no object URL to revoke', () => {
     const uploadImage = vi.fn<UploadImage>().mockResolvedValue(null);
     const att = setup(uploadImage);
-    att.handleFileInputChange(inputEvent([{ name: 'a.pdf', type: 'application/pdf' } as unknown as File]));
+    att.handleFileInputChange(
+      inputEvent([{ name: 'a.pdf', type: 'application/pdf' } as unknown as File]),
+    );
     const localId = att.attachments.value[0].localId;
 
     att.removeAttachment(localId);
@@ -100,7 +116,12 @@ describe('useAttachmentUpload', () => {
   it('loadAttachments refills a file attachment without fetching a thumbnail', () => {
     const att = setup(undefined);
     att.loadAttachments([
-      { fileId: 'f_pdf', kind: 'file', url: 'https://example.test/api/v1/files/f_pdf', name: 'a.pdf' },
+      {
+        fileId: 'f_pdf',
+        kind: 'file',
+        url: 'https://example.test/api/v1/files/f_pdf',
+        name: 'a.pdf',
+      },
     ]);
     expect(att.attachments.value).toHaveLength(1);
     expect(att.attachments.value[0]).toMatchObject({
@@ -137,7 +158,13 @@ describe('useAttachmentUpload', () => {
 
   it('openAttachmentPreview / closeAttachmentPreview toggle the preview', () => {
     const att = setup(undefined);
-    const item: Attachment = { localId: 'x', name: 'a.png', kind: 'image', previewUrl: 'blob:x', uploading: false };
+    const item: Attachment = {
+      localId: 'x',
+      name: 'a.png',
+      kind: 'image',
+      previewUrl: 'blob:x',
+      uploading: false,
+    };
     att.openAttachmentPreview(item);
     expect(att.previewAttachment.value?.localId).toBe('x');
     att.closeAttachmentPreview();
@@ -177,7 +204,12 @@ describe('useAttachmentUpload', () => {
     expect(att.attachments.value).toHaveLength(1);
 
     att.loadAttachments([
-      { fileId: 'f_existing', kind: 'image', url: 'data:image/png;base64,AAAA', name: 'refill.png' },
+      {
+        fileId: 'f_existing',
+        kind: 'image',
+        url: 'data:image/png;base64,AAAA',
+        name: 'refill.png',
+      },
     ]);
     expect(att.attachments.value).toHaveLength(1);
     expect(att.attachments.value[0].name).toBe('refill.png');
@@ -194,10 +226,15 @@ describe('useAttachmentUpload', () => {
   });
 
   it('loadAttachments re-uploads a fileId-less data URL so it becomes resendable', async () => {
-    const uploadImage = vi.fn<UploadImage>().mockResolvedValue({ fileId: 'f_new', name: 'a.png', mediaType: 'image/png' });
+    const uploadImage = vi
+      .fn<UploadImage>()
+      .mockResolvedValue({ fileId: 'f_new', name: 'a.png', mediaType: 'image/png' });
     const att = setup(uploadImage);
     const blob = new Blob(['x'], { type: 'image/png' });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }),
+    );
 
     att.loadAttachments([{ kind: 'image', url: 'data:image/png;base64,AAAA', name: 'a.png' }]);
     expect(att.attachments.value).toHaveLength(1);
@@ -217,10 +254,15 @@ describe('useAttachmentUpload', () => {
   });
 
   it('loadAttachments re-uploads a fileId-less http URL so it becomes resendable', async () => {
-    const uploadImage = vi.fn<UploadImage>().mockResolvedValue({ fileId: 'f_http', name: 'x.png', mediaType: 'image/png' });
+    const uploadImage = vi
+      .fn<UploadImage>()
+      .mockResolvedValue({ fileId: 'f_http', name: 'x.png', mediaType: 'image/png' });
     const att = setup(uploadImage);
     const blob = new Blob(['x'], { type: 'image/png' });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, blob: () => Promise.resolve(blob) }),
+    );
 
     att.loadAttachments([{ kind: 'image', url: 'https://example.test/x.png', name: 'x.png' }]);
     expect(att.attachments.value).toHaveLength(1);
@@ -229,11 +271,15 @@ describe('useAttachmentUpload', () => {
   });
 
   it('loadAttachments drops a fileId-less URL whose fetch fails', async () => {
-    const uploadImage = vi.fn<UploadImage>().mockResolvedValue({ fileId: 'f_x', name: 'x.png', mediaType: 'image/png' });
+    const uploadImage = vi
+      .fn<UploadImage>()
+      .mockResolvedValue({ fileId: 'f_x', name: 'x.png', mediaType: 'image/png' });
     const att = setup(uploadImage);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }));
 
-    att.loadAttachments([{ kind: 'image', url: 'https://example.test/protected.png', name: 'protected.png' }]);
+    att.loadAttachments([
+      { kind: 'image', url: 'https://example.test/protected.png', name: 'protected.png' },
+    ]);
     expect(att.attachments.value).toHaveLength(1);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(att.attachments.value).toHaveLength(0);
@@ -242,7 +288,10 @@ describe('useAttachmentUpload', () => {
   it('isolates attachments between sessions', () => {
     const uploadImage = vi.fn<UploadImage>().mockResolvedValue(null);
     const sessionId = ref<string | undefined>('sess-a');
-    const att = useAttachmentUpload({ uploadImage: () => uploadImage, sessionId: () => sessionId.value });
+    const att = useAttachmentUpload({
+      uploadImage: () => uploadImage,
+      sessionId: () => sessionId.value,
+    });
 
     att.handleFileInputChange(inputEvent([imageFile('a.png')]));
     expect(att.attachments.value).toHaveLength(1);

@@ -1,10 +1,9 @@
+import { t } from '#/i18n';
 import type {
   BackgroundAgentMetadata,
   BackgroundAgentStatusData,
   BackgroundAgentStatusPhase,
 } from '#/tui/types';
-
-import { t } from '#/i18n';
 
 const MAX_BACKGROUND_FIELD_LENGTH = 240;
 

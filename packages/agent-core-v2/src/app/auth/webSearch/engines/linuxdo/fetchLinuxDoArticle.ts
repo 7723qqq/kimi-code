@@ -20,12 +20,12 @@ import type { ArticleFetchFn, SearchEngineOptions } from '../types';
 const REQUEST_TIMEOUT_MS = 30_000;
 
 const FALLBACK_HEADERS: Record<string, string> = {
-  'accept': 'application/json, text/javascript, */*; q=0.01',
+  accept: 'application/json, text/javascript, */*; q=0.01',
   'accept-language': 'zh-CN,zh;q=0.9',
   'cache-control': 'no-cache',
   'discourse-track-view': 'true',
-  'pragma': 'no-cache',
-  'referer': 'https://linux.do/search',
+  pragma: 'no-cache',
+  referer: 'https://linux.do/search',
   'sec-ch-ua': '"Chromium";v="112", "Google Chrome";v="112", "Not:A-Brand";v="99"',
   'sec-ch-ua-mobile': '?0',
   'sec-ch-ua-platform': '"Windows"',
@@ -35,8 +35,8 @@ const FALLBACK_HEADERS: Record<string, string> = {
   'user-agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36',
   'x-requested-with': 'XMLHttpRequest',
-  'Host': 'linux.do',
-  'Connection': 'keep-alive',
+  Host: 'linux.do',
+  Connection: 'keep-alive',
 };
 
 interface LinuxDoTopicResponse {
@@ -44,7 +44,9 @@ interface LinuxDoTopicResponse {
 }
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 async function fetchTopicJson(topicId: string, options: SearchEngineOptions): Promise<string> {
@@ -83,11 +85,15 @@ async function fetchTopicJson(topicId: string, options: SearchEngineOptions): Pr
     );
   }
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `LinuxDo topic request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `LinuxDo topic request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
-  return  response.text();
+  return response.text();
 }
 
 async function fetchLinuxDoArticleImpl(
@@ -119,4 +125,5 @@ async function fetchLinuxDoArticleImpl(
   return { content: plainText };
 }
 
-export const fetchLinuxDoArticle: ArticleFetchFn = (url, options = {}) => fetchLinuxDoArticleImpl(url, options);
+export const fetchLinuxDoArticle: ArticleFetchFn = (url, options = {}) =>
+  fetchLinuxDoArticleImpl(url, options);

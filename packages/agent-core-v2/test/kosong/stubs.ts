@@ -7,8 +7,7 @@
 
 import { Emitter, type Event } from '#/_base/event';
 import type { IOAuthService } from '#/app/auth/auth';
-import type {
-  IConfigService} from '#/app/config/config';
+import type { IConfigService } from '#/app/config/config';
 import {
   type ConfigChangedEvent,
   type ConfigDiagnostic,
@@ -146,8 +145,6 @@ export function stubModelOAuthTokens(
     getAccessToken: (_provider, _oauthRef, options) =>
       tokenProvider === undefined
         ? Promise.reject(new Error('auth.login_required'))
-        : tokenProvider.getAccessToken(
-            options?.force === true ? { force: true } : undefined,
-          ),
+        : tokenProvider.getAccessToken(options?.force === true ? { force: true } : undefined),
   };
 }

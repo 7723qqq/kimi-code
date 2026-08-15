@@ -49,7 +49,10 @@ export function runEvaluator(evaluator: Evaluator, ctx: EvalContext): number {
 /**
  * Run all evaluators for a case and aggregate scores.
  */
-export function runAllEvaluators(evaluators: Evaluator[], ctx: EvalContext): {
+export function runAllEvaluators(
+  evaluators: Evaluator[],
+  ctx: EvalContext,
+): {
   ruleCompliance: number;
   violations: string[];
 } {

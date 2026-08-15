@@ -11,8 +11,8 @@
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
+import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { FiberState } from '#/_base/di/fiber';
@@ -32,6 +32,7 @@ import { dateChangeSeedKey } from '#/features/dateChange/dateChangeService';
 import { IHostClock } from '#/os/interface/hostClock';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
+import { runWillBeginStepHooks } from '../../agent/loop/stubs';
 import {
   appService,
   createTestAgent,
@@ -39,7 +40,6 @@ import {
   InMemoryWireRecordPersistence,
   type TestAgentContext,
 } from '../../harness';
-import { runWillBeginStepHooks } from '../../agent/loop/stubs';
 
 const TEST_TIME_ZONE = 'Asia/Shanghai';
 const INITIAL_INSTANT = '2026-07-29T04:00:00.000Z';
@@ -108,9 +108,7 @@ function dateReminders(context: IAgentContextMemoryService): readonly ContextMes
 }
 
 function messageText(message: ContextMessage): string {
-  return message.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('');
+  return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
 describe('AgentDateChangeService', () => {
@@ -196,18 +194,14 @@ describe('AgentDateChangeService', () => {
 
     let reminders = dateReminders(context);
     expect(reminders).toHaveLength(1);
-    expect(messageText(reminders[0] as ContextMessage)).toContain(
-      "Today's date is now 2026-07-30",
-    );
+    expect(messageText(reminders[0] as ContextMessage)).toContain("Today's date is now 2026-07-30");
 
     clock.set('2026-07-31T04:00:00.000Z');
     await runWillBeginStepHooks(loop);
 
     reminders = dateReminders(context);
     expect(reminders).toHaveLength(2);
-    expect(messageText(reminders[1] as ContextMessage)).toContain(
-      "Today's date is now 2026-07-31",
-    );
+    expect(messageText(reminders[1] as ContextMessage)).toContain("Today's date is now 2026-07-31");
     expect(reminders[1]?.origin).toMatchObject({
       disclosure: {
         kind: 'date',
@@ -232,10 +226,7 @@ describe('AgentDateChangeService', () => {
     await ctx.dispose();
 
     clock.set('2026-07-30T04:00:00.000Z');
-    ctx = createTestAgent(
-      { autoConfigure: false, persistence },
-      appService(IHostClock, clock),
-    );
+    ctx = createTestAgent({ autoConfigure: false, persistence }, appService(IHostClock, clock));
     context = ctx.get(IAgentContextMemoryService);
     loop = ctx.get(IAgentLoopService);
     await ctx.restorePersisted();
@@ -244,9 +235,7 @@ describe('AgentDateChangeService', () => {
 
     const reminders = dateReminders(context);
     expect(reminders).toHaveLength(1);
-    expect(messageText(reminders[0] as ContextMessage)).toContain(
-      "Today's date is now 2026-07-30",
-    );
+    expect(messageText(reminders[0] as ContextMessage)).toContain("Today's date is now 2026-07-30");
   });
 
   it('seeds and announces after resuming a legacy profile without disclosure metadata', async () => {
@@ -267,10 +256,7 @@ describe('AgentDateChangeService', () => {
     await ctx.dispose();
 
     clock.set('2026-07-30T04:00:00.000Z');
-    ctx = createTestAgent(
-      { autoConfigure: false, persistence },
-      appService(IHostClock, clock),
-    );
+    ctx = createTestAgent({ autoConfigure: false, persistence }, appService(IHostClock, clock));
     context = ctx.get(IAgentContextMemoryService);
     loop = ctx.get(IAgentLoopService);
     await ctx.restorePersisted();
@@ -282,9 +268,7 @@ describe('AgentDateChangeService', () => {
     await runWillBeginStepHooks(loop);
     const reminders = dateReminders(context);
     expect(reminders).toHaveLength(1);
-    expect(messageText(reminders[0] as ContextMessage)).toContain(
-      "Today's date is now 2026-07-31",
-    );
+    expect(messageText(reminders[0] as ContextMessage)).toContain("Today's date is now 2026-07-31");
   });
 
   it('announces a crossed midnight through a real bind rendered from the host clock', async () => {
@@ -399,9 +383,7 @@ describe('AgentDateChangeService', () => {
 
     const reminders = dateReminders(context);
     expect(reminders).toHaveLength(1);
-    expect(messageText(reminders[0] as ContextMessage)).toContain(
-      "Today's date is now 2026-07-30",
-    );
+    expect(messageText(reminders[0] as ContextMessage)).toContain("Today's date is now 2026-07-30");
 
     await runWillBeginStepHooks(loop);
     expect(dateReminders(context)).toHaveLength(1);
@@ -414,9 +396,7 @@ describe('AgentDateChangeService', () => {
 
     const reminders = dateReminders(context);
     expect(reminders).toHaveLength(1);
-    expect(messageText(reminders[0] as ContextMessage)).toContain(
-      "Today's date is now 2026-07-29",
-    );
+    expect(messageText(reminders[0] as ContextMessage)).toContain("Today's date is now 2026-07-29");
   });
 
   it('seeds quietly then announces when the snapshot cwd is empty and no date is disclosed', async () => {
@@ -429,9 +409,7 @@ describe('AgentDateChangeService', () => {
 
     const reminders = dateReminders(context);
     expect(reminders).toHaveLength(1);
-    expect(messageText(reminders[0] as ContextMessage)).toContain(
-      "Today's date is now 2026-07-30",
-    );
+    expect(messageText(reminders[0] as ContextMessage)).toContain("Today's date is now 2026-07-30");
   });
 
   it('never injects when the snapshot belongs to a different cwd', async () => {

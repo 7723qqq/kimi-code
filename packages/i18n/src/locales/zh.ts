@@ -112,10 +112,14 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     outputPreviewTruncated: '显示最后 {{bytes}} 字节。没有持久化的完整输出可用。',
     outputPreviewBuffered: '没有持久化的完整输出可用；这是当前缓冲的任务输出。',
     fullOutputSaved: '[完整输出已保存]',
-    recoverPrompt: '要恢复或继续此子 Agent，请调用 Agent(resume="{{agentId}}", prompt="从上次中断的地方继续；如果上次工具调用的结果从未被观察到，则重新执行。"）。',
-    recoverAgentId: '使用 agent_id（"{{agentId}}"），而不是 source_id / task_id（"{{taskId}}"）——两者看起来相似，但 resume 参数只接受 agent_id。',
-    recoverBackground: '添加 run_in_background=true 以保持后台运行，或省略它以在当前轮次中内联获取结果。',
-    recoverContext: '子 Agent 在重启后保留其完整的先前上下文，但任何进行中的工具调用已丢失其结果，可能需要重新执行。',
+    recoverPrompt:
+      '要恢复或继续此子 Agent，请调用 Agent(resume="{{agentId}}", prompt="从上次中断的地方继续；如果上次工具调用的结果从未被观察到，则重新执行。"）。',
+    recoverAgentId:
+      '使用 agent_id（"{{agentId}}"），而不是 source_id / task_id（"{{taskId}}"）——两者看起来相似，但 resume 参数只接受 agent_id。',
+    recoverBackground:
+      '添加 run_in_background=true 以保持后台运行，或省略它以在当前轮次中内联获取结果。',
+    recoverContext:
+      '子 Agent 在重启后保留其完整的先前上下文，但任何进行中的工具调用已丢失其结果，可能需要重新执行。',
   },
   shell: {
     userInterrupt: '被用户中断',
@@ -144,9 +148,12 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     humanShellHint: 'human_shell_hint: 告诉用户在终端运行 /tasks 打开交互式后台任务面板。',
     nextStepWithTaskOutput: '不要等待、轮询或调用 TaskOutput',
     nextStepAwaitNoTaskOutput: '不要等待或轮询',
-    nextStepForegroundDetached: 'next_step: 任务现在在后台运行。完成后你会自动收到通知——不要等待、轮询或调用 TaskOutput；继续当前工作。\n',
-    nextStepForegroundDetachedNoBg: 'next_step: 任务现在在后台运行。完成后你会自动收到通知——不要等待或轮询；继续当前工作。\n',
-    nextStepBackgroundStarted: 'next_step: 完成结果会在后续轮次自动到达——不要等待、轮询或调用 TaskOutput；继续当前工作。\nnext_step: 仅在需要取消任务时使用 TaskStop。\n',
+    nextStepForegroundDetached:
+      'next_step: 任务现在在后台运行。完成后你会自动收到通知——不要等待、轮询或调用 TaskOutput；继续当前工作。\n',
+    nextStepForegroundDetachedNoBg:
+      'next_step: 任务现在在后台运行。完成后你会自动收到通知——不要等待或轮询；继续当前工作。\n',
+    nextStepBackgroundStarted:
+      'next_step: 完成结果会在后续轮次自动到达——不要等待、轮询或调用 TaskOutput；继续当前工作。\nnext_step: 仅在需要取消任务时使用 TaskStop。\n',
     nextStepBackgroundStartedNoBg: 'next_step: 完成后你会自动收到通知。\n',
     taskOutputHint: '，或 TaskOutput(task_id="{{taskId}}", block=false)',
     outputPathLabel: 'output_path: {{path}}',
@@ -170,18 +177,22 @@ export const zh: DeepPartial<typeof import('./en').default> = {
   },
   flags: {
     toolSelectTitle: '工具选择（渐进式工具暴露）',
-    toolSelectDesc: '将 MCP 工具 schema 保持在不可变的顶层 tools[] 之外；模型通过 select_tools 工具按需加载。仅在能力目录声明动态加载工具的模型上生效。',
+    toolSelectDesc:
+      '将 MCP 工具 schema 保持在不可变的顶层 tools[] 之外；模型通过 select_tools 工具按需加载。仅在能力目录声明动态加载工具的模型上生效。',
     nativeToolsTitle: '原生工具',
     nativeToolsDesc: '对 Read、Write、Edit、Grep、Glob 和 Bash 工具使用 Rust 原生实现。',
     rpcMicrotaskTitle: 'RPC 微任务调度',
-    rpcMicrotaskDesc: '对进程内 RPC 模拟使用 queueMicrotask 而非 setTimeout(0)，降低每次调用的延迟。',
+    rpcMicrotaskDesc:
+      '对进程内 RPC 模拟使用 queueMicrotask 而非 setTimeout(0)，降低每次调用的延迟。',
   },
   v2Errors: {
     internal: '内部错误',
     notImplemented: '未实现',
     loopMaxStepsExceeded: '循环超出最大步数',
-    loopMaxStepsAction: '请在 config.toml 中提高 loop_control.max_steps_per_turn，或运行 "/update-config" 然后 "/reload"。',
-    loopMaxStepsMessage: '轮次超出最大步数 maxSteps={{maxSteps}}。如果 max_steps_per_turn 太小，请在 config.toml 中提高它（loop_control.max_steps_per_turn），或运行 "/update-config" 更新，然后 "/reload"。',
+    loopMaxStepsAction:
+      '请在 config.toml 中提高 loop_control.max_steps_per_turn，或运行 "/update-config" 然后 "/reload"。',
+    loopMaxStepsMessage:
+      '轮次超出最大步数 maxSteps={{maxSteps}}。如果 max_steps_per_turn 太小，请在 config.toml 中提高它（loop_control.max_steps_per_turn），或运行 "/update-config" 更新，然后 "/reload"。',
     providerSafetyBlocked: '提供商安全策略拦截了响应。',
     goalAlreadyExists: '目标已存在',
     goalAlreadyExistsAction: '请使用 "/goal replace <objective>" 替换当前目标。',
@@ -192,7 +203,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     goalObjectiveTooLong: '目标描述过长',
     goalObjectiveTooLongAction: '请将目标描述控制在 4000 字符以内；长内容请通过文件路径引用。',
     goalCompletionCriterionEmpty: '目标缺少完成标准',
-    goalCompletionCriterionEmptyAction: '请提供一个具体、可验证的完成标准（例如某个测试通过或命令以 0 退出）。需求含糊时请先询问用户。',
+    goalCompletionCriterionEmptyAction:
+      '请提供一个具体、可验证的完成标准（例如某个测试通过或命令以 0 退出）。需求含糊时请先询问用户。',
     goalCompletionCriterionTooShort: '目标完成标准过短',
     goalCompletionCriterionTooShortAction: '请描述一个具体、可检查的完成条件，而不是占位符。',
     goalStatusInvalid: '无效的目标状态转换',
@@ -270,7 +282,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     swarmMaxSubagents: 'AgentSwarm 最多支持 {{count}} 个子智能体。',
     swarmPromptRequired: '提供 items 时必须提供 prompt_template。',
     swarmPromptPlaceholder: 'prompt_template 必须包含 {{placeholder}} 占位符。',
-    swarmDuplicatePrompts: 'items {{indexA}} 和 {{indexB}} 的子智能体提示重复。AgentSwarm 需要不同的子智能体。',
+    swarmDuplicatePrompts:
+      'items {{indexA}} 和 {{indexB}} 的子智能体提示重复。AgentSwarm 需要不同的子智能体。',
     tooManyBackgroundTasks: '后台任务过多，无法继续运行。',
     planModeAlreadyActive: '已处于计划模式',
     mainAgentNotFound: '未找到主智能体',
@@ -283,7 +296,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     subagentNotSubagent: '智能体实例 "{{agentId}}" 不是子智能体',
     subagentWrongParent: '智能体实例 "{{agentId}}" 不属于此父智能体',
     subagentAlreadyRunning: '智能体实例 "{{agentId}}" 已在运行，无法并发执行',
-    subagentDepthExceeded: '子代理委托深度超出限制（最大 {{maxDepth}}）——请使用持久子代理或调整委托结构',
+    subagentDepthExceeded:
+      '子代理委托深度超出限制（最大 {{maxDepth}}）——请使用持久子代理或调整委托结构',
     rgNotAvailable: 'PATH 中未找到 ripgrep (rg)',
     pathRejectedEmpty: '路径 "{{path}}" 被拒绝（为空）',
     pathRejectedAbsolute: '路径 "{{path}}" 被拒绝（绝对路径）',
@@ -317,16 +331,21 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     promptsNotPending: '一个或多个提示未处于待处理状态',
     noActiveTurnToSteer: '没有可转向的活跃轮次',
     unknownCommand: '未知命令 "{{name}}"',
-    agentProfileSystemPromptRequired: 'Agent 配置 "{{name}}" 必须定义 systemPrompt 或 renderSystemPrompt。',
-    webbridgeDaemonNotUp: 'WebBridge 守护进程未在 {{baseUrl}} 上启动 — 请检查 ~/.kimi-webbridge/logs',
+    agentProfileSystemPromptRequired:
+      'Agent 配置 "{{name}}" 必须定义 systemPrompt 或 renderSystemPrompt。',
+    webbridgeDaemonNotUp:
+      'WebBridge 守护进程未在 {{baseUrl}} 上启动 — 请检查 ~/.kimi-webbridge/logs',
     webbridgeUnsupportedPlatform: 'kimi-webbridge 不支持 {{platform}}/{{arch}}',
     webbridgeStartFailed: 'kimi-webbridge 启动失败: {{detail}}',
   },
   v2Goal: {
-    cancelledReminder: '用户取消了当前目标。请忽略该目标的早期活跃目标提醒。除非用户启动或恢复目标，否则正常处理下一个用户请求。',
-    forkClearedReminder: '此复刻没有当前目标。请忽略源会话中的早期活跃目标提醒。除非用户启动新目标，否则正常处理请求。',
+    cancelledReminder:
+      '用户取消了当前目标。请忽略该目标的早期活跃目标提醒。除非用户启动或恢复目标，否则正常处理下一个用户请求。',
+    forkClearedReminder:
+      '此复刻没有当前目标。请忽略源会话中的早期活跃目标提醒。除非用户启动新目标，否则正常处理请求。',
     completionCriterionEmpty: '目标需要一个完成标准——一个具体、可验证的“完成”条件。',
-    completionCriterionTooShort: '完成标准过短（至少 {{min}} 个字符）。请描述一个具体、可检查的“完成”条件。',
+    completionCriterionTooShort:
+      '完成标准过短（至少 {{min}} 个字符）。请描述一个具体、可检查的“完成”条件。',
     pausedRateLimit: '提供商速率限制后暂停',
     pausedConnectionError: '提供商连接错误后暂停',
     pausedAuthError: '提供商认证错误后暂停',
@@ -337,7 +356,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     pausedProviderFiltered: '提供商安全策略阻止后暂停',
     budgetLimited: '目标预算达到上限',
     llmNotSet: '未设置 LLM，请发送 "/login" 登录',
-    budgetStopReminder: '目标的硬预算已耗尽。请立即停止。不要再调用任何工具。写一条简短的最后状态消息。',
+    budgetStopReminder:
+      '目标的硬预算已耗尽。请立即停止。不要再调用任何工具。写一条简短的最后状态消息。',
     budgetToolsRejected: '目标预算已耗尽；工具调用被拒绝。请写你的最后消息。',
     staleToolResult: '自本轮开始以来目标已更改；忽略过时的目标工具调用。',
     continuationPromptFallback: '继续朝着活跃目标工作。保持自我审核简短。',
@@ -351,16 +371,20 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     pausedAfterInterruption: '中断后暂停',
     pausedAfterResume: 'Agent 恢复后暂停',
     noCurrentGoal: '没有当前目标',
-    budgetBlockReason: '目标预算达到上限：{{budgets}}（轮次 {{turnBudget}}，令牌 {{tokenBudget}}，时钟 {{wallClockBudget}}ms）',
+    budgetBlockReason:
+      '目标预算达到上限：{{budgets}}（轮次 {{turnBudget}}，令牌 {{tokenBudget}}，时钟 {{wallClockBudget}}ms）',
   },
   v2Mcp: {
     authToolDescription: '通过 OAuth 认证 MCP 服务器 "{{serverName}}"',
-    authToolDescriptionBlock: '此服务器需要尚未完成的 OAuth 登录。调用此工具将启动授权流程：\n\n1. 工具将打印授权 URL。\n2. **你必须向用户逐字展示该 URL**，并请他们在浏览器中打开、登录并批准 kimi-code 客户端。\n3. 工具将阻塞（最长 {{timeoutMinutes}} 分钟），直到浏览器重定向回本地回调监听器。\n4. 成功后，kimi-code 重新连接 MCP 服务器，真实工具将替换此合成工具。\n\n无需参数。请将 URL 视为敏感信息——不要修改它或剥离查询参数。',
-    authTimeoutSuffix: '（超时 {{timeoutMinutes}} 分钟）。如果取消，请再次调用此工具以重新启动流程。',
+    authToolDescriptionBlock:
+      '此服务器需要尚未完成的 OAuth 登录。调用此工具将启动授权流程：\n\n1. 工具将打印授权 URL。\n2. **你必须向用户逐字展示该 URL**，并请他们在浏览器中打开、登录并批准 kimi-code 客户端。\n3. 工具将阻塞（最长 {{timeoutMinutes}} 分钟），直到浏览器重定向回本地回调监听器。\n4. 成功后，kimi-code 重新连接 MCP 服务器，真实工具将替换此合成工具。\n\n无需参数。请将 URL 视为敏感信息——不要修改它或剥离查询参数。',
+    authTimeoutSuffix:
+      '（超时 {{timeoutMinutes}} 分钟）。如果取消，请再次调用此工具以重新启动流程。',
     authErrorUrlSuffix: '\n\n授权 URL（如果监听器未超时则仍然有效）：{{authorizationUrl}}',
     discoveringOAuth: '正在发现 {{serverName}} 的 OAuth 元数据…',
     alreadyAuthorized: '已授权；正在重新连接 {{serverName}}…',
-    authorizedReconnected: 'MCP 服务器 "{{serverName}}" 已有有效的 OAuth 凭据。已重新连接；真实工具现在可用。',
+    authorizedReconnected:
+      'MCP 服务器 "{{serverName}}" 已有有效的 OAuth 凭据。已重新连接；真实工具现在可用。',
     openUrl: '在浏览器中打开此 URL 以授权 "{{serverName}}"：',
     waitingForCallback: '等待 OAuth 回调...',
     authorizedReconnecting: '已授权 — 正在重新连接 {{serverName}}…',
@@ -370,15 +394,18 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     toolNameCollision: '"{{toolName}}" -> {{qualified}}（与同一服务器的 "{{collidesWith}}" 冲突）',
     serverCollisionSummary: 'MCP 服务器 "{{serverName}}" 注册了 {{count}} 个冲突的工具名称',
     losingToolsDropped: '被丢弃的工具：{{summary}}',
-    outputTruncated: '\n\n[输出已截断：超出 {{limit}} 字符限制。请使用分页或更精确的查询获取剩余内容。]',
-    binaryPartTooLarge: '[{{kind}}_url 已丢弃：约 {{approxMb}} MB 超过每部分 {{capMb}} MB 限制。请尝试更小的资源。]',
+    outputTruncated:
+      '\n\n[输出已截断：超出 {{limit}} 字符限制。请使用分页或更精确的查询获取剩余内容。]',
+    binaryPartTooLarge:
+      '[{{kind}}_url 已丢弃：约 {{approxMb}} MB 超过每部分 {{capMb}} MB 限制。请尝试更小的资源。]',
   },
   v2Auth: {
     noProvider: '未配置提供商；请通过 /login 或提供商端点完成设置',
     loginRequired: 'OAuth 提供商 "{{providerKey}}" 需要先登录才能使用。',
   },
   v2Loop: {
-    maxStepsExceeded: '轮次超出最大步数 maxSteps={{maxSteps}}。如果 max_steps_per_turn 太小，请在 config.toml 中提高它（loop_control.max_steps_per_turn），或运行 "/update-config" 更新，然后 "/reload"。',
+    maxStepsExceeded:
+      '轮次超出最大步数 maxSteps={{maxSteps}}。如果 max_steps_per_turn 太小，请在 config.toml 中提高它（loop_control.max_steps_per_turn），或运行 "/update-config" 更新，然后 "/reload"。',
     providerSafetyBlocked: '提供商安全策略拦截了响应。',
   },
   v2Fs: {
@@ -487,7 +514,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     foundMatches: '找到 {{count}} 个匹配项',
     bufferTruncated: '[stdout 在 {{bytes}} 字节处截断；结果可能不完整 — 请使用更具体的模式]',
     grepBufferTruncated: '[stdout 在 {{bytes}} 字节处截断；不完整的尾部行已省略]',
-    paginationTruncated: '结果已截断为 {{headLimit}} 行（共 {{total}} 项）。使用 offset={{nextOffset}} 查看更多。',
+    paginationTruncated:
+      '结果已截断为 {{headLimit}} 行（共 {{total}} 项）。使用 offset={{nextOffset}} 查看更多。',
     writeAppended: '已追加 {{bytes}} 字节到 {{path}}',
     writeWrote: '已写入 {{bytes}} 字节到 {{path}}',
     writeFailedParentNotFound: '写入 {{path}} 失败：父目录不存在。',
@@ -505,7 +533,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
       authFailed: '搜索失败（认证错误）: {{message}}',
       networkFailed: '搜索失败（网络错误）: {{message}}',
       failed: '搜索失败: {{message}}',
-      citeReminder: '当你在回答中引用某个结果时，以内联 markdown 链接形式引用它，例如 [title](url)。',
+      citeReminder:
+        '当你在回答中引用某个结果时，以内联 markdown 链接形式引用它，例如 [title](url)。',
     },
     fetchUrl: {
       fetching: '正在获取: {{preview}}',
@@ -514,7 +543,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
       networkError: '获取 URL 失败，网络错误: {{url}}。{{message}}',
       passthroughNote: '返回的内容是完整的响应体，按原样返回。',
       extractedNote: '返回的内容是从页面中提取的主要文本。',
-      citeReminder: '如果你在回答中使用它，请以内联 markdown 链接形式引用此页面，例如 [title](url)。',
+      citeReminder:
+        '如果你在回答中使用它，请以内联 markdown 链接形式引用此页面，例如 [title](url)。',
       invalidUrl: '无效的 URL: "{{url}}"',
       unsupportedScheme: '不支持的 URL scheme "{{scheme}}" — 仅允许 http(s)。',
       privateAddress: '拒绝获取私有地址: "{{host}}"',
@@ -565,13 +595,20 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     swarm: {
       launching: '正在启动 agent swarm: {{description}}',
       childDescription: '{{description}} #{{index}} ({{profileName}})',
-      multipleDenied: 'AgentSwarm 必须逐个调用。多次 AgentSwarm 调用并非禁止，但需要顺序执行：调用一个 AgentSwarm，等待其结果，然后再调用下一个；或者当单个 swarm 可以覆盖时，将工作合并到一个 AgentSwarm 中。',
-      multipleDeniedMixed: 'AgentSwarm 必须逐个调用。多次 AgentSwarm 调用并非禁止，但需要顺序执行：调用一个 AgentSwarm，等待其结果，然后再调用下一个；或者当单个 swarm 可以覆盖时，将工作合并到一个 AgentSwarm 中。AgentSwarm 也不得与同一响应中的其他工具组合使用。',
-      mixedDenied: 'AgentSwarm 必须是模型响应中唯一的工具调用。请单独重试一个 AgentSwarm 调用，然后在它返回后再调用其他工具。',
-      agentDeniedInSwarmMode: 'Agent 工具在 swarm 模式下不可用。请改用 AgentSwarm 并行分发子智能体。如果只需要单个子智能体，请使用包含一个 item 或一个 resume_agent_ids 条目的 AgentSwarm。',
-      solitaryMultipleDenied: 'AgentSwarm/SwarmDiscussion 必须逐个调用。多次调用并非禁止，但需要顺序执行：调用一个，等待其结果，然后再调用下一个；或者当单次调用可以覆盖时，将工作合并。',
-      solitaryMultipleDeniedMixed: 'AgentSwarm/SwarmDiscussion 必须逐个调用。多次调用并非禁止，但需要顺序执行：调用一个，等待其结果，然后再调用下一个；或者当单次调用可以覆盖时，将工作合并。这些工具也不得与同一响应中的其他工具组合使用。',
-      solitaryMixedDenied: 'AgentSwarm/SwarmDiscussion 必须是模型响应中唯一的工具调用。请单独重试一次调用，然后在它返回后再调用其他工具。',
+      multipleDenied:
+        'AgentSwarm 必须逐个调用。多次 AgentSwarm 调用并非禁止，但需要顺序执行：调用一个 AgentSwarm，等待其结果，然后再调用下一个；或者当单个 swarm 可以覆盖时，将工作合并到一个 AgentSwarm 中。',
+      multipleDeniedMixed:
+        'AgentSwarm 必须逐个调用。多次 AgentSwarm 调用并非禁止，但需要顺序执行：调用一个 AgentSwarm，等待其结果，然后再调用下一个；或者当单个 swarm 可以覆盖时，将工作合并到一个 AgentSwarm 中。AgentSwarm 也不得与同一响应中的其他工具组合使用。',
+      mixedDenied:
+        'AgentSwarm 必须是模型响应中唯一的工具调用。请单独重试一个 AgentSwarm 调用，然后在它返回后再调用其他工具。',
+      agentDeniedInSwarmMode:
+        'Agent 工具在 swarm 模式下不可用。请改用 AgentSwarm 并行分发子智能体。如果只需要单个子智能体，请使用包含一个 item 或一个 resume_agent_ids 条目的 AgentSwarm。',
+      solitaryMultipleDenied:
+        'AgentSwarm/SwarmDiscussion 必须逐个调用。多次调用并非禁止，但需要顺序执行：调用一个，等待其结果，然后再调用下一个；或者当单次调用可以覆盖时，将工作合并。',
+      solitaryMultipleDeniedMixed:
+        'AgentSwarm/SwarmDiscussion 必须逐个调用。多次调用并非禁止，但需要顺序执行：调用一个，等待其结果，然后再调用下一个；或者当单次调用可以覆盖时，将工作合并。这些工具也不得与同一响应中的其他工具组合使用。',
+      solitaryMixedDenied:
+        'AgentSwarm/SwarmDiscussion 必须是模型响应中唯一的工具调用。请单独重试一次调用，然后在它返回后再调用其他工具。',
     },
     discussion: {
       launching: '圆桌讨论：{{topic}}',
@@ -588,13 +625,16 @@ export const zh: DeepPartial<typeof import('./en').default> = {
       rootNotDirectory: '插件根目录不是目录: {{path}}',
       noGithubMeta: '插件 "{{id}}" 没有 GitHub 元数据',
     },
-    oldStringNotFound: '在 {{path}} 中未找到 old_string，文件内容可能已过时。请使用 Read 工具重新加载内容。',
-    oldStringNotUnique: 'old_string 在 {{path}} 中不唯一（找到 {{count}} 处）。要替换所有出现，请设置 replace_all=true。要仅替换一处，请在 old_string 中包含更多上下文。',
+    oldStringNotFound:
+      '在 {{path}} 中未找到 old_string，文件内容可能已过时。请使用 Read 工具重新加载内容。',
+    oldStringNotUnique:
+      'old_string 在 {{path}} 中不唯一（找到 {{count}} 处）。要替换所有出现，请设置 replace_all=true。要仅替换一处，请在 old_string 中包含更多上下文。',
     planMode: {
       alreadyActive: '计划模式已激活。准备好计划后使用 ExitPlanMode。',
       enterFailed: '进入计划模式失败。',
       enterFailedDetail: '进入计划模式失败: {{message}}',
-      exitOnlyInPlanMode: 'ExitPlanMode 只能在计划模式激活时调用。请先使用 EnterPlanMode（或 /plan）。',
+      exitOnlyInPlanMode:
+        'ExitPlanMode 只能在计划模式激活时调用。请先使用 EnterPlanMode（或 /plan）。',
       exitFailed: '退出计划模式失败。',
       exitFailedDetail: '退出计划模式失败: {{message}}',
       readFailed: '读取计划文件失败。',
@@ -604,7 +644,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
       selectedApproach: '选定方案: {{label}}\n只执行选定的方案。不要从其他方案中挑选个别任务。',
       planSaved: '计划已保存到: {{path}}\n\n',
       planApproved: '计划模式已停用。所有工具现已可用。\n{{savedTo}}## 已批准的计划:\n{{plan}}',
-      planAutoApproved: '计划模式已停用。所有工具现已可用。\n注意：此计划已自动批准，未经用户审阅——用户尚未明确批准。请遵循用户的原始指示决定是否继续执行；如果用户要求停止、等待或仅在计划后总结，请不要开始执行。\n{{savedTo}}## 计划（自动批准，未经用户审阅）:\n',
+      planAutoApproved:
+        '计划模式已停用。所有工具现已可用。\n注意：此计划已自动批准，未经用户审阅——用户尚未明确批准。请遵循用户的原始指示决定是否继续执行；如果用户要求停止、等待或仅在计划后总结，请不要开始执行。\n{{savedTo}}## 计划（自动批准，未经用户审阅）:\n',
       exitedPlanMode: '已退出计划模式。{{prefix}}{{plan}}',
       approvalDismissed: '计划审批已取消。计划模式保持激活。',
       rejected: '计划已被用户拒绝。计划模式已停用。',
@@ -636,7 +677,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     },
     task: {
       notFound: '未找到任务: {{taskId}}',
-      outputTruncatedHint: '上面仅显示最后 {{bytes}} 个字节。使用 Read 工具配合 output_path 查看完整内容。',
+      outputTruncatedHint:
+        '上面仅显示最后 {{bytes}} 个字节。使用 Read 工具配合 output_path 查看完整内容。',
       outputCompleteHint: '上面的预览是完整输出。使用 Read 工具配合 output_path 查看完整内容。',
       stillRunningHint: '任务在等待后仍在运行。请勿再次阻塞——结果会自动到达。',
       truncatedFull: '[已截断。完整输出: {{path}}]',
@@ -649,12 +691,15 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     },
     agent: {
       promptEmpty: 'prompt 不能为空或仅含空白字符',
-      cannotSetSubagentTypeOnResume: '恢复已存在的 agent 时不能设置 subagent_type。仅通过 agent id 恢复。',
+      cannotSetSubagentTypeOnResume:
+        '恢复已存在的 agent 时不能设置 subagent_type。仅通过 agent id 恢复。',
       stoppedBeforeFinish: '子 agent 在完成前被停止。',
       statusRunning: 'status: running',
       autoNotification: 'automatic_notification: true',
-      completionNotice: 'next_step: 完成结果会在后续轮次自动到达——不要等待、轮询或调用 TaskOutput；继续当前工作。',
-      resumeHint: 'resume_hint: 要继续或恢复此子 agent，调用 Agent(resume="{{agentId}}", prompt="从上次中断的地方继续；如果上次工具调用的结果从未被观察到，则重新执行。")。',
+      completionNotice:
+        'next_step: 完成结果会在后续轮次自动到达——不要等待、轮询或调用 TaskOutput；继续当前工作。',
+      resumeHint:
+        'resume_hint: 要继续或恢复此子 agent，调用 Agent(resume="{{agentId}}", prompt="从上次中断的地方继续；如果上次工具调用的结果从未被观察到，则重新执行。")。',
       statusCompleted: 'status: completed',
       statusFailed: 'status: failed',
       unknownError: '未知错误',
@@ -667,7 +712,8 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     readMedia: {
       pathEmpty: '文件路径不能为空。',
       isTextFile: '"{{path}}" 是文本文件。请使用 Read 读取文本文件。',
-      notSupported: '"{{path}}" 不是支持的图片或视频文件。文本文件请使用 Read，其他二进制格式请使用 Bash 或 MCP 工具。',
+      notSupported:
+        '"{{path}}" 不是支持的图片或视频文件。文本文件请使用 Read，其他二进制格式请使用 Bash 或 MCP 工具。',
       noImageSupport: '当前模型不支持图片输入。请告知用户使用支持图片输入的模型。',
       noVideoSupport: '当前模型不支持视频输入。请告知用户使用支持视频输入的模型。',
       fileEmpty: '"{{path}}" 为空。',

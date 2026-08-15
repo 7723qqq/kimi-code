@@ -19,40 +19,41 @@
 
 import { ulid } from 'ulid';
 
-import type { ContentPart } from '#/kosong/contract/message';
-import type { CronJobOrigin, CronMissedOrigin } from '#/agent/contextMemory/types';
-
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/_base/state/stateRegistry';
 import { IntervalTimer } from '#/_base/utils/timer';
-
+import type { CronJobOrigin, CronMissedOrigin } from '#/agent/contextMemory/types';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentLoopService, type Turn } from '#/agent/loop/loop';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { ICronCreateTool } from '#/agent/tools/cron/cron-create/cron-create';
+import { ICronDeleteTool } from '#/agent/tools/cron/cron-delete/cron-delete';
+import { ICronListTool } from '#/agent/tools/cron/cron-list/cron-list';
 import { IConfigService } from '#/app/config/config';
-import type { CronDeletedEvent, CronScheduledEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { type ClockSources, resolveClockSources, SYSTEM_CLOCKS } from '#/app/cron/clock';
 import { type CronConfig, CRON_SECTION } from '#/app/cron/configSection';
-import { computeNextCronRun, parseCronExpression, type ParsedCronExpression } from '#/app/cron/cron-expr';
+import {
+  computeNextCronRun,
+  parseCronExpression,
+  type ParsedCronExpression,
+} from '#/app/cron/cron-expr';
 import { CRON_SESSION_TAG, type CronTask, type CronTaskInit } from '#/app/cron/cronTask';
 import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
 import { renderCronFireXml } from '#/app/cron/format';
 import { jitteredNextCronRunMs, oneShotJitteredNextCronRunMs } from '#/app/cron/jitter';
+import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
+import type { CronDeletedEvent, CronScheduledEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { BugIndicatingError } from '#/errors';
+import type { ContentPart } from '#/kosong/contract/message';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
 import type { Op } from '#/wire/op';
 import { IWireService } from '#/wire/wire';
-import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentLoopService, type Turn } from '#/agent/loop/loop';
-import { BugIndicatingError } from '#/errors';
-
-import { ICronCreateTool } from '#/agent/tools/cron/cron-create/cron-create';
-import { ICronListTool } from '#/agent/tools/cron/cron-list/cron-list';
-import { ICronDeleteTool } from '#/agent/tools/cron/cron-delete/cron-delete';
 
 import { CronModel, cronAdd, cronDelete, cronCursor } from './cronOps';
 import { ISessionCronService, type CronLoadOptions } from './sessionCronService';
@@ -67,8 +68,14 @@ export const cronParsedCacheKey = defineState<Map<string, ParsedCronExpression>>
   'cron.parsedCache',
   () => new Map(),
 );
-export const cronLastSeenAtKey = defineState<Map<string, number>>('cron.lastSeenAt', () => new Map());
-export const cronSeededFromStoreKey = defineState<Set<string>>('cron.seededFromStore', () => new Set());
+export const cronLastSeenAtKey = defineState<Map<string, number>>(
+  'cron.lastSeenAt',
+  () => new Map(),
+);
+export const cronSeededFromStoreKey = defineState<Set<string>>(
+  'cron.seededFromStore',
+  () => new Set(),
+);
 export const cronInFlightKey = defineState<Set<string>>('cron.inFlight', () => new Set());
 export const cronStartedKey = defineState<boolean>('cron.started', () => false);
 
@@ -202,7 +209,6 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     return this.getCronConfig().disabled;
   }
 
-
   addTask(init: CronTaskInit): CronTask {
     const task: CronTask = {
       ...init,
@@ -212,9 +218,7 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     };
     this.tasks.set(task.id, task);
     this.dispatchCron(cronAdd({ task }));
-    this.persistEnqueue(task.id, () =>
-      this.store.save(this.ctx.workspaceId, task),
-    );
+    this.persistEnqueue(task.id, () => this.store.save(this.ctx.workspaceId, task));
     return task;
   }
 
@@ -224,9 +228,7 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
 
     this.dispatchCron(cronDelete({ ids: removed }));
     for (const id of removed) {
-      this.persistEnqueue(id, () =>
-        this.store.delete(this.ctx.workspaceId, id),
-      );
+      this.persistEnqueue(id, () => this.store.delete(this.ctx.workspaceId, id));
     }
     return removed;
   }
@@ -238,7 +240,6 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
   list(): readonly CronTask[] {
     return Array.from(this.tasks.values());
   }
-
 
   isStale(task: CronTask): boolean {
     return this.isStaleAt(task, this.clocks.wallNow());
@@ -261,7 +262,6 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     return this.nextFireFor(task);
   }
 
-
   async loadFromStore(options: CronLoadOptions = {}): Promise<void> {
     if (options.replace !== false) {
       this.tasks.clear();
@@ -276,9 +276,7 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
           tags: { ...task.tags, [CRON_SESSION_TAG]: this.ctx.sessionId },
         };
         this.adopt(claimed);
-        this.persistEnqueue(claimed.id, () =>
-          this.store.save(this.ctx.workspaceId, claimed),
-        );
+        this.persistEnqueue(claimed.id, () => this.store.save(this.ctx.workspaceId, claimed));
         continue;
       }
       this.adopt(task);
@@ -294,7 +292,9 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     const poll = cfg.manualTick ? null : cfg.pollIntervalMs;
     const interval = poll === undefined ? DEFAULT_POLL_INTERVAL_MS : poll;
     if (interval !== null && interval !== 0) {
-      this.timer.cancelAndSet(() => { void this.tick(); }, interval);
+      this.timer.cancelAndSet(() => {
+        void this.tick();
+      }, interval);
     }
     this.bindSigusr1();
   }
@@ -357,8 +357,7 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     this.seededFromStore.add(task.id);
 
     const seen = this.lastSeenAt.get(task.id);
-    const baseFromMs =
-      seen !== undefined && seen > task.createdAt ? seen : task.createdAt;
+    const baseFromMs = seen !== undefined && seen > task.createdAt ? seen : task.createdAt;
 
     const nextFireAt = this.computeJitteredNext(task, parsed, baseFromMs);
     if (nextFireAt === null) return;
@@ -443,7 +442,6 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     this.telemetry.track2(CRON_DELETED, properties);
   }
 
-
   private async deliverDue(task: CronTask, coalescedCount: number): Promise<boolean> {
     const firedAt = this.clocks.wallNow();
     const stale = this.isStaleAt(task, firedAt);
@@ -524,11 +522,8 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     if (updated === undefined) return;
 
     this.dispatchCron(cronCursor({ id, lastFiredAt }));
-    this.persistEnqueue(id, () =>
-      this.store.save(this.ctx.workspaceId, updated),
-    );
+    this.persistEnqueue(id, () => this.store.save(this.ctx.workspaceId, updated));
   }
-
 
   private dispatchCron(op: Op): void {
     const mainHandle = this.agentLifecycle.get('main');
@@ -541,7 +536,6 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     if (!mainHandle) return;
     mainHandle.accessor.get(IEventBus).publish(event);
   }
-
 
   private getParsed(expr: string): ParsedCronExpression {
     const cached = this.parsedCache.get(expr);
@@ -612,13 +606,8 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
           ? task.lastFiredAt
           : undefined;
       const cursor =
-        seen !== undefined
-          ? seen
-          : persistedCursor !== undefined
-            ? persistedCursor
-            : undefined;
-      const baseFromMs =
-        cursor !== undefined && cursor > task.createdAt ? cursor : task.createdAt;
+        seen !== undefined ? seen : persistedCursor !== undefined ? persistedCursor : undefined;
+      const baseFromMs = cursor !== undefined && cursor > task.createdAt ? cursor : task.createdAt;
       return this.computeJitteredNext(task, parsed, baseFromMs);
     } catch (error) {
       this.debugLog(
@@ -635,7 +624,6 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
       process.stderr.write(`[cron/session] ${message}\n`);
     }
   }
-
 
   private adopt(task: CronTask): void {
     this.tasks.set(task.id, task);
@@ -677,7 +665,6 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
     return Number.isFinite(age) && age >= STALE_THRESHOLD_MS;
   }
 
-
   private persistEnqueue(id: string, work: () => Promise<void>): void {
     const prev = this.persistQueues.get(id) ?? Promise.resolve();
     const next = prev
@@ -691,7 +678,6 @@ export class SessionCronServiceImpl extends Disposable implements ISessionCronSe
       });
     this.persistQueues.set(id, next);
   }
-
 
   private bindSigusr1(): void {
     if (process.platform === 'win32') return;

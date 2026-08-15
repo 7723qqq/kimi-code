@@ -13,19 +13,19 @@
  * flow.
  */
 
-import { APIProviderRateLimitError, isProviderRateLimitError } from '#/kosong/contract/errors';
-import { type TokenUsage } from '#/kosong/contract/usage';
+import { t } from '@moonshot-ai/kimi-i18n';
 
-import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
+import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
-import { Error2, ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentLoopService, type Turn, type TurnResult } from '#/agent/loop/loop';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { Error2, ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
+import { APIProviderRateLimitError, isProviderRateLimitError } from '#/kosong/contract/errors';
+import { type TokenUsage } from '#/kosong/contract/usage';
 
 import type { AgentRunHandle, AgentRunRequest } from './subagent';
 
@@ -52,14 +52,19 @@ export async function runAgentTurn(
   const promptService = target.accessor.get(IAgentPromptService);
   const turn =
     request.kind === 'prompt'
-      ? await (await promptService.enqueue({ message: {
-          role: 'user',
-          content: [{ type: 'text', text: request.prompt }],
-          toolCalls: [],
-          origin: AGENT_RUN_PROMPT_ORIGIN,
-        } })).launched
+      ? await (
+          await promptService.enqueue({
+            message: {
+              role: 'user',
+              content: [{ type: 'text', text: request.prompt }],
+              toolCalls: [],
+              origin: AGENT_RUN_PROMPT_ORIGIN,
+            },
+          })
+        ).launched
       : await promptService.retry();
-  if (turn === undefined) throw new Error2(ErrorCodes.INTERNAL, t('v2Errors.agentTurnCouldNotStart'));
+  if (turn === undefined)
+    throw new Error2(ErrorCodes.INTERNAL, t('v2Errors.agentTurnCouldNotStart'));
 
   if (options.onReady !== undefined) {
     void turn.ready.then(() => options.onReady?.()).catch(() => {});
@@ -138,12 +143,16 @@ async function distillSummary(
 
   const promptService = target.accessor.get(IAgentPromptService);
   for (let attempt = 0; attempt < policy.retries; attempt++) {
-    const turn = await (await promptService.enqueue({ message: {
-      role: 'user',
-      content: [{ type: 'text', text: policy.continuationPrompt }],
-      toolCalls: [],
-      origin: AGENT_RUN_PROMPT_ORIGIN,
-    } })).launched;
+    const turn = await (
+      await promptService.enqueue({
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: policy.continuationPrompt }],
+          toolCalls: [],
+          origin: AGENT_RUN_PROMPT_ORIGIN,
+        },
+      })
+    ).launched;
     if (turn === undefined) break;
     setTurn(turn);
     const result = await awaitTurn(turn, controller, cancelTurn);
@@ -209,7 +218,9 @@ function latestAssistantText(messages: readonly ContextMessage[]): string {
 function contentText(content: ContextMessage['content']): string {
   if (typeof content === 'string') return content;
   return content
-    .filter((part): part is Extract<(typeof content)[number], { type: 'text' }> => part.type === 'text')
+    .filter(
+      (part): part is Extract<(typeof content)[number], { type: 'text' }> => part.type === 'text',
+    )
     .map((part) => part.text)
     .join('');
 }

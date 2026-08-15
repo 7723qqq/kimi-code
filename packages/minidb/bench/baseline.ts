@@ -39,7 +39,9 @@ async function main() {
   const N = Number(process.env.N || 200_000);
   const NSMALL = Number(process.env.NSMALL || 3_000);
 
-  console.log(`\nbaseline (no minidb)  (N=${fmt(N)}, value=${VALUE.length}B, node ${process.version})\n`);
+  console.log(
+    `\nbaseline (no minidb)  (N=${fmt(N)}, value=${VALUE.length}B, node ${process.version})\n`,
+  );
 
   // --- baseline: raw JS Map (in-memory) ---------------------------------
   {
@@ -156,14 +158,16 @@ async function main() {
       await fh.close();
     });
     const snap = await fs.stat(file);
-    console.log(`    -> ${(snap.size / 1024 / 1024).toFixed(2)} MiB snapshot in ${ms.toFixed(0)} ms`);
+    console.log(
+      `    -> ${(snap.size / 1024 / 1024).toFixed(2)} MiB snapshot in ${ms.toFixed(0)} ms`,
+    );
     await fs.rm(dir, { recursive: true, force: true });
   }
 
   console.log('\ndone.\n');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

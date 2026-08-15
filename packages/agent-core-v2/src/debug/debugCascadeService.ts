@@ -16,10 +16,7 @@
  */
 
 import type { CascadeEngine } from '#/_base/di/cascadeEngine';
-import {
-  IInstantiationService,
-  type ServiceIdentifier,
-} from '#/_base/di/instantiation';
+import { IInstantiationService, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { InstantiationService } from '#/_base/di/instantiationService';
 import { DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -36,11 +33,7 @@ import {
   type DebugPendingUnit,
   type DiUnitChangedPayload,
 } from './debugCascade';
-import {
-  resolveScopeContainer,
-  scopePathOfEngine,
-  walkScopeContainers,
-} from './scopeTree';
+import { resolveScopeContainer, scopePathOfEngine, walkScopeContainers } from './scopeTree';
 
 export class DebugCascadeService implements IDebugCascadeService {
   declare readonly _serviceBrand: undefined;
@@ -80,9 +73,7 @@ export class DebugCascadeService implements IDebugCascadeService {
         entries.push({ scopePath: info.path, ...entry });
       }
     }
-    return entries.toSorted(
-      (a, b) => a.seq - b.seq || a.scopePath.localeCompare(b.scopePath),
-    );
+    return entries.toSorted((a, b) => a.seq - b.seq || a.scopePath.localeCompare(b.scopePath));
   }
 
   pending(): DebugPendingGroup[] {

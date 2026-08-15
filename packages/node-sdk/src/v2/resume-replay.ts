@@ -331,7 +331,11 @@ function foldWireRecords(records: readonly WireRecord[]): FoldedAgentReplay {
           // v1's restore: a re-activated goal clears the terminal reason; any
           // other status adopts the record's reason (undefined when absent).
           goal.terminalReason =
-            status === 'active' ? undefined : typeof record['reason'] === 'string' ? record['reason'] : undefined;
+            status === 'active'
+              ? undefined
+              : typeof record['reason'] === 'string'
+                ? record['reason']
+                : undefined;
         }
         if (typeof record['turnsUsed'] === 'number') goal.turnsUsed = record['turnsUsed'];
         if (typeof record['tokensUsed'] === 'number') goal.tokensUsed = record['tokensUsed'];
@@ -410,7 +414,10 @@ function foldWireRecords(records: readonly WireRecord[]): FoldedAgentReplay {
           type: 'config_updated',
           // v1's restore quirk: the record fields (including `type`/`time`)
           // ride along in the replay `config`.
-          config: record as unknown as Extract<AgentReplayRecord, { type: 'config_updated' }>['config'],
+          config: record as unknown as Extract<
+            AgentReplayRecord,
+            { type: 'config_updated' }
+          >['config'],
           time,
         });
         break;
@@ -454,10 +461,7 @@ function foldWireRecords(records: readonly WireRecord[]): FoldedAgentReplay {
  * injection-origin messages, stopping at a compaction-summary boundary) until
  * `count` real user inputs were removed. Returns the removed message set.
  */
-function undoMessages(
-  history: readonly ContextMessage[],
-  count: number,
-): Set<ContextMessage> {
+function undoMessages(history: readonly ContextMessage[], count: number): Set<ContextMessage> {
   const removed = new Set<ContextMessage>();
   if (count <= 0) return removed;
   let removedUserCount = 0;
@@ -552,7 +556,8 @@ function computeBudgetReport(state: GoalFoldState): GoalBudgetReport {
   const wallClockBudgetMs = limits.wallClockBudgetMs ?? null;
   const tokenBudgetReached = tokenBudget !== null && state.tokensUsed >= tokenBudget;
   const turnBudgetReached = turnBudget !== null && state.turnsUsed >= turnBudget;
-  const wallClockBudgetReached = wallClockBudgetMs !== null && state.wallClockMs >= wallClockBudgetMs;
+  const wallClockBudgetReached =
+    wallClockBudgetMs !== null && state.wallClockMs >= wallClockBudgetMs;
   return {
     tokenBudget,
     turnBudget,

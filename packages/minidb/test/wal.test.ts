@@ -1,11 +1,13 @@
-// test/wal.test.js
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { WAL } from '../src/wal.js';
+
+// test/wal.test.js
+import { test } from 'vitest';
+
 import { encodeFrame, FrameParser, CorruptFrameError, TYPE_SET, TYPE_DEL } from '../src/codec.js';
+import { WAL } from '../src/wal.js';
 import { barrier } from './helpers.js';
 
 const B = (s) => Buffer.from(s);
@@ -119,7 +121,11 @@ test('recovery truncates a torn/corrupt tail at the error offset', async () => {
 
     const validSize = (await fs.stat(file)).size;
     // Simulate a crash that left a half-written frame at the end.
-    const partial = encodeFrame({ type: TYPE_SET, key: B('torn'), value: B('x'.repeat(100)) }).subarray(0, 13);
+    const partial = encodeFrame({
+      type: TYPE_SET,
+      key: B('torn'),
+      value: B('x'.repeat(100)),
+    }).subarray(0, 13);
     await fs.appendFile(file, partial);
 
     const buf = await fs.readFile(file);
@@ -129,8 +135,8 @@ test('recovery truncates a torn/corrupt tail at the error offset', async () => {
     try {
       for (const f of parser.feed(buf)) frames.push(f);
       parser.finish();
-    } catch (e) {
-      err = e;
+    } catch (error) {
+      err = error;
     }
     assert.ok(err instanceof CorruptFrameError, 'expected a corrupt-frame error');
     assert.equal(err.offset, validSize, 'error offset should equal end of valid data');
@@ -153,22 +159,28 @@ test('seal(): rejects new appends with WAL_SEALED, queued frames stay flushable'
     await wal.append(encodeFrame({ type: TYPE_SET, key: B('a'), value: B('1') }));
     wal.seal();
     wal.seal(); // idempotent
-    await assert.rejects(wal.append(encodeFrame({ type: TYPE_SET, key: B('b'), value: B('2') })), (err) => {
-      assert.equal(err.code, 'WAL_SEALED');
-      return true;
-    });
+    await assert.rejects(
+      wal.append(encodeFrame({ type: TYPE_SET, key: B('b'), value: B('2') })),
+      (err) => {
+        assert.equal(err.code, 'WAL_SEALED');
+        return true;
+      },
+    );
     await wal.close(); // flushes the pre-seal frame
     const frames = parseAll(await fs.readFile(file));
     assert.equal(frames.length, 1);
     assert.equal(frames[0].key.toString(), 'a');
     // after close the legacy "WAL is closed" rejection is preserved
-    await assert.rejects(wal.append(encodeFrame({ type: TYPE_SET, key: B('c'), value: B('3') })), /WAL is closed/);
+    await assert.rejects(
+      wal.append(encodeFrame({ type: TYPE_SET, key: B('c'), value: B('3') })),
+      /WAL is closed/,
+    );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
 
-test("everysec: idle WAL performs zero background fsyncs; only dirty intervals sync", async () => {
+test('everysec: idle WAL performs zero background fsyncs; only dirty intervals sync', async () => {
   const { dir, file } = await tmpWalPath();
   try {
     const stats = freshStats();
@@ -292,7 +304,11 @@ test('close() waits for an in-flight background sync before closing the fd (revi
     gate.release();
     await bg;
     await closing;
-    assert.deepEqual(events, ['bg-sync-settled', 'fd-close'], 'the fd closes only after the background sync settled');
+    assert.deepEqual(
+      events,
+      ['bg-sync-settled', 'fd-close'],
+      'the fd closes only after the background sync settled',
+    );
     assert.equal(stats.walFsyncs, 2, 'the background sync plus close() final sync');
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -322,7 +338,10 @@ test('queue depth and group-commit counters track the append buffer', async () =
     }
     await Promise.all(ops);
     assert.equal(stats.walGroupCommitFrames, 5 + N);
-    assert.ok(stats.walGroupCommits < 5 + N, `expected coalescing, got ${stats.walGroupCommits} commits`);
+    assert.ok(
+      stats.walGroupCommits < 5 + N,
+      `expected coalescing, got ${stats.walGroupCommits} commits`,
+    );
     assert.ok(stats.walMaxQueuedBytes > 0, 'high-water mark recorded the burst');
     assert.equal(stats.walQueuedBytes, 0);
     await wal.close();
@@ -377,18 +396,32 @@ test('a failed flush poisons the WAL: WAL_POISONED rejections until truncate + r
 
     const batchFrame = wal.append(encodeFrame({ type: TYPE_SET, key: B('bad'), value: B('x') }));
     await waitFor(() => calls === 1, 'the failing writev to be in flight');
-    const queuedFrame = wal.append(encodeFrame({ type: TYPE_SET, key: B('queued'), value: B('y') }));
+    const queuedFrame = wal.append(
+      encodeFrame({ type: TYPE_SET, key: B('queued'), value: B('y') }),
+    );
     releaseWritev();
 
     const order: string[] = [];
     await Promise.all([
-      batchFrame.catch((e) => { order.push('batch'); throw e; }),
-      queuedFrame.catch((e) => { order.push('queued'); throw e; }),
+      batchFrame.catch((error) => {
+        order.push('batch');
+        throw error;
+      }),
+      queuedFrame.catch((error) => {
+        order.push('queued');
+        throw error;
+      }),
     ]).then(
-      () => { throw new Error('expected both frames to reject'); },
+      () => {
+        throw new Error('expected both frames to reject');
+      },
       () => {},
     );
-    assert.deepEqual(order, ['queued', 'batch'], 'queued frames reject first so group rollbacks unwind newest-first');
+    assert.deepEqual(
+      order,
+      ['queued', 'batch'],
+      'queued frames reject first so group rollbacks unwind newest-first',
+    );
     assert.equal(stats.walWriteErrors, 1, 'writev-class failure counted');
     assert.equal(stats.walFsyncErrors, 0, 'not an fsync-class failure');
 
@@ -414,7 +447,11 @@ test('a failed flush poisons the WAL: WAL_POISONED rejections until truncate + r
     // In-place recovery (what MiniDb does): truncate the un-acked tail,
     // re-sync bookkeeping, clear the poison — then the write path resumes.
     const sizeBefore = (await fs.stat(file)).size;
-    assert.equal(poison.failedAtOffset, sizeBefore, 'the injected writev threw before writing a byte');
+    assert.equal(
+      poison.failedAtOffset,
+      sizeBefore,
+      'the injected writev threw before writing a byte',
+    );
     await fs.truncate(file, poison.failedAtOffset);
     await wal.refreshSize();
     wal.clearPoison();
@@ -442,7 +479,10 @@ test("an fsync failure with fsyncPolicy 'always' poisons the WAL and counts as w
     const fh = (wal as unknown as { fh: { sync: () => Promise<void> } }).fh;
     fh.sync = () => Promise.reject(new Error('injected fsync failure'));
 
-    await assert.rejects(wal.append(encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v') })), /injected fsync failure/);
+    await assert.rejects(
+      wal.append(encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v') })),
+      /injected fsync failure/,
+    );
     assert.equal(stats.walFsyncErrors, 1, 'fsync-class failure counted by sync() itself');
     assert.equal(stats.walWriteErrors, 0, 'not a writev-class failure');
     assert.ok(wal.poison, 'an unacknowledged batch poisons even though its bytes landed');

@@ -9,8 +9,9 @@
  * event-filtering / completion flow intact.
  */
 
-import type { PromptOutputFormat } from './options';
 import { t } from '#/i18n';
+
+import type { PromptOutputFormat } from './options';
 
 /**
  * Structural hook-result shape the renderer reads. Both the v1 SDK

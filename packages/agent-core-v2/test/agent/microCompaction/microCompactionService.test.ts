@@ -12,42 +12,43 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { createHooks } from '#/hooks';
-import { IFlagService } from '#/app/flag/flag';
-import type { IEventBus} from '#/app/event/eventBus';
-import { type DomainEvent } from '#/app/event/eventBus';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage } from '#/agent/contextMemory/types';
 import { contextApplyCompaction, contextClear } from '#/agent/contextMemory/contextOps';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
   IAgentLoopService,
   type AfterStepContext,
   type BeforeStepContext,
 } from '#/agent/loop/loop';
-import type { Message } from '#/kosong/contract/message';
-import { emptyUsage } from '#/kosong/contract/usage';
-import type { ModelCapability } from '#/kosong/contract/capability';
+import { MICRO_COMPACTION_FLAG_ENV } from '#/agent/microCompaction/flag';
 import {
   IAgentMicroCompactionService,
   type MicroCompactionConfig,
 } from '#/agent/microCompaction/microCompaction';
-import { AgentMicroCompactionService } from '#/agent/microCompaction/microCompactionService';
 import {
   MicroCompactionModel,
   microCompactionApply,
 } from '#/agent/microCompaction/microCompactionOps';
-import { MICRO_COMPACTION_FLAG_ENV } from '#/agent/microCompaction/flag';
-import { IWireService } from '#/wire/wire';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
-import { recordingWireLog, registerTestAgentWire } from '../../wire/stubs';
+import { AgentMicroCompactionService } from '#/agent/microCompaction/microCompactionService';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import type { IEventBus } from '#/app/event/eventBus';
+import { type DomainEvent } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { createHooks } from '#/hooks';
+import type { ModelCapability } from '#/kosong/contract/capability';
+import type { Message } from '#/kosong/contract/message';
+import { emptyUsage } from '#/kosong/contract/usage';
 import type { WireRecord } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
+
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { testAgent, type TestAgentContext } from '../../harness';
+import { recordingWireLog, registerTestAgentWire } from '../../wire/stubs';
 
 const MINUTE = 60 * 1000;
 const DEFAULT_MARKER = '[Old tool result content cleared]';
@@ -90,11 +91,7 @@ function toolExchange(index: number, output: string): ContextMessage[] {
 }
 
 function textOf(message: Message | undefined): string {
-  return (
-    message?.content
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('') ?? ''
-  );
+  return message?.content.map((part) => (part.type === 'text' ? part.text : '')).join('') ?? '';
 }
 
 function hasMarker(messages: readonly Message[]): boolean {
@@ -102,9 +99,7 @@ function hasMarker(messages: readonly Message[]): boolean {
 }
 
 function toolTexts(messages: readonly Message[]): string[] {
-  return messages
-    .filter((message) => message.role === 'tool')
-    .map((message) => textOf(message));
+  return messages.filter((message) => message.role === 'tool').map((message) => textOf(message));
 }
 
 type MicroHooks = ReturnType<typeof createMicroHooks>;
@@ -154,9 +149,7 @@ function createUnit(
         return toDisposable(() => listeners.delete(wrapper));
       }
       listeners.add(typeOrHandler as (event: DomainEvent) => void);
-      return toDisposable(() =>
-        listeners.delete(typeOrHandler as (event: DomainEvent) => void),
-      );
+      return toDisposable(() => listeners.delete(typeOrHandler as (event: DomainEvent) => void));
     }) as IEventBus['subscribe'],
   };
   const hooks = createMicroHooks();
@@ -292,14 +285,11 @@ describe('AgentMicroCompactionService', () => {
       cacheMissedThresholdMs: 60 * MINUTE,
       minContextUsageRatio: 0,
     });
-    history.push(
-      ...toolExchange(1, 'result one'),
-      {
-        role: 'tool',
-        content: [{ type: 'text', text: 'orphan tool-like output' }],
-        toolCalls: [],
-      },
-    );
+    history.push(...toolExchange(1, 'result one'), {
+      role: 'tool',
+      content: [{ type: 'text', text: 'orphan tool-like output' }],
+      toolCalls: [],
+    });
 
     await finishStep(hooks);
     vi.setSystemTime(61 * MINUTE);
@@ -361,11 +351,7 @@ describe('AgentMicroCompactionService', () => {
     await finishStep(hooks);
     vi.setSystemTime(63 * MINUTE);
     svc.detect();
-    expect(toolTexts(svc.compact(history))).toEqual([
-      DEFAULT_MARKER,
-      'result two',
-      'result three',
-    ]);
+    expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
 
     vi.setSystemTime(123 * MINUTE);
     svc.detect();
@@ -401,18 +387,10 @@ describe('AgentMicroCompactionService', () => {
 
     wire.dispatch(microCompactionApply({ cutoff: 7 }));
     svc.reset(5);
-    expect(toolTexts(svc.compact(history))).toEqual([
-      DEFAULT_MARKER,
-      'result two',
-      'result three',
-    ]);
+    expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
     // reset only ever shrinks the cutoff.
     svc.reset(8);
-    expect(toolTexts(svc.compact(history))).toEqual([
-      DEFAULT_MARKER,
-      'result two',
-      'result three',
-    ]);
+    expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
   });
 
   it('clamps the cutoff via context.spliced undo events', () => {
@@ -553,9 +531,7 @@ describe('AgentMicroCompactionService', () => {
     history.push(...toolExchange(1, 'result one'), ...toolExchange(2, 'result two'));
 
     wire.dispatch(microCompactionApply({ cutoff: 7 }));
-    const record = records.findLast(
-      (candidate) => candidate.type === 'micro_compaction.apply',
-    );
+    const record = records.findLast((candidate) => candidate.type === 'micro_compaction.apply');
     expect(record?.['cutoff']).toBe(7);
   });
 });
@@ -636,8 +612,6 @@ describe('MicroCompaction (integration)', () => {
 
     memory.undo(2);
     const newLength = memory.get().length;
-    expect(wire.getModel(MicroCompactionModel).cutoff).toBe(
-      Math.min(cutoffAfterDetect, newLength),
-    );
+    expect(wire.getModel(MicroCompactionModel).cutoff).toBe(Math.min(cutoffAfterDetect, newLength));
   });
 });

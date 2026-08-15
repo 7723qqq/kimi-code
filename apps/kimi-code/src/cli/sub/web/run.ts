@@ -16,20 +16,15 @@ import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
 import { type Command } from 'commander';
 
-import { t } from '#/i18n';
-
 import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
+import { t } from '#/i18n';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
 
 import { initializeServerTelemetry } from '../../telemetry';
-import {
-  createKimiCodeHostIdentity,
-  getHostPackageRoot,
-  getVersion,
-} from '../../version';
+import { createKimiCodeHostIdentity, getHostPackageRoot, getVersion } from '../../version';
 import {
   accessUrlLines,
   buildOpenableUrl,
@@ -121,15 +116,8 @@ export function buildWebCommand(cmd: Command): Command {
         lanHost: DEFAULT_LAN_HOST,
       }),
     )
-    .option(
-      '--allowed-host <host...>',
-      t('cli.optionDescriptions.serverRunOptionAllowedHost'),
-    )
-    .option(
-      '--insecure-no-tls',
-      t('cli.optionDescriptions.serverRunOptionInsecureNoTls'),
-      true,
-    )
+    .option('--allowed-host <host...>', t('cli.optionDescriptions.serverRunOptionAllowedHost'))
+    .option('--insecure-no-tls', t('cli.optionDescriptions.serverRunOptionInsecureNoTls'), true)
     .option(
       '--allow-remote-shutdown',
       t('cli.optionDescriptions.serverRunOptionAllowRemoteShutdown'),
@@ -149,11 +137,7 @@ export function buildWebCommand(cmd: Command): Command {
       '--log-level <level>',
       t('cli.optionDescriptions.serverRunOptionLogLevel', { levels: VALID_LOG_LEVELS.join('|') }),
     )
-    .option(
-      '--debug-endpoints',
-      t('cli.optionDescriptions.serverRunOptionDebugEndpoints'),
-      false,
-    )
+    .option('--debug-endpoints', t('cli.optionDescriptions.serverRunOptionDebugEndpoints'), false)
     .option('--no-open', t('cli.optionDescriptions.serverRunOptionNoOpen'), true)
     .action(async (opts: WebCliOptions) => {
       try {
@@ -202,9 +186,7 @@ function formatReadyLine(
   token: string | undefined,
   dangerousBypassAuth = false,
 ): string {
-  const notice = dangerousBypassAuth
-    ? `${formatDangerNoticeLines().join('\n')}\n`
-    : '';
+  const notice = dangerousBypassAuth ? `${formatDangerNoticeLines().join('\n')}\n` : '';
   return `${notice}Kimi server: ${buildOpenableUrl(origin, token)}\n`;
 }
 
@@ -273,9 +255,7 @@ async function runServerInProcess(
   const logger = createServerLogger({ level: options.logLevel });
   const webAssetsDir = serverWebAssetsDir();
   if (webAssetsDir === undefined) {
-    logger.info(
-      'dev mode: web assets not built; starting the API server without the web UI',
-    );
+    logger.info('dev mode: web assets not built; starting the API server without the web UI');
   }
   const v2 = await startServer({
     host: options.host,
@@ -417,7 +397,9 @@ export function formatReadyBanner(
     // Set the token off with surrounding whitespace rather than color, so it is
     // easy to spot without being highlighted.
     lines.push('');
-    lines.push(`  ${label('Token:    ')}${opts.token.slice(0, 8)}...${opts.token.slice(-4)}  ${dim('(use --token to customize)')}`);
+    lines.push(
+      `  ${label('Token:    ')}${opts.token.slice(0, 8)}...${opts.token.slice(-4)}  ${dim('(use --token to customize)')}`,
+    );
     lines.push('');
   }
 

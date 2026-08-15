@@ -44,7 +44,10 @@ export const TRANSCRIPT_HYSTERESIS = readEnvInt('KIMI_CODE_TUI_HYSTERESIS', 5);
 export const TRANSCRIPT_KEEP_RECENT_STEPS = readEnvInt('KIMI_CODE_TUI_KEEP_RECENT_STEPS', 30);
 
 /** Keep this many recent assistant messages mounted inside the active turn; older ones fold into the step summary. `0` disables folding. */
-export const TRANSCRIPT_KEEP_RECENT_ASSISTANT = readEnvInt('KIMI_CODE_TUI_KEEP_RECENT_ASSISTANT', 20);
+export const TRANSCRIPT_KEEP_RECENT_ASSISTANT = readEnvInt(
+  'KIMI_CODE_TUI_KEEP_RECENT_ASSISTANT',
+  20,
+);
 
 /**
  * Once a turn ends, fold all but its last few assistant messages into the

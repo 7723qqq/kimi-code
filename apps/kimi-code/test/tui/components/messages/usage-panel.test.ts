@@ -260,7 +260,10 @@ describe('UsagePanelComponent', () => {
   });
 
   it('keeps the bordered panel within narrow terminal widths', () => {
-    const component = new UsagePanelComponent(() => ['Session usage', '  kimi  input 2.0k'], 'primary');
+    const component = new UsagePanelComponent(
+      () => ['Session usage', '  kimi  input 2.0k'],
+      'primary',
+    );
 
     for (const width of [39, 24, 20, 10, 4, 1]) {
       for (const line of component.render(width)) {
@@ -272,9 +275,15 @@ describe('UsagePanelComponent', () => {
   it('rebuilds its body from the active palette on invalidate', () => {
     // Emit the resolved palette value as visible text so the assertion holds
     // regardless of chalk's colour level in the test environment.
-    const component = new UsagePanelComponent(() => [`text=${currentTheme.color('text')}`], 'primary');
+    const component = new UsagePanelComponent(
+      () => [`text=${currentTheme.color('text')}`],
+      'primary',
+    );
     const bodyOf = (): string => {
-      const line = component.render(80).map(strip).find((l) => l.includes('text='));
+      const line = component
+        .render(80)
+        .map(strip)
+        .find((l) => l.includes('text='));
       if (line === undefined) throw new Error('body line not found');
       return line;
     };

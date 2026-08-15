@@ -22,8 +22,8 @@ import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IEventBus } from '#/app/event/eventBus';
 import { IEventService } from '#/app/event/event';
+import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
@@ -32,13 +32,18 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { IWireService } from '#/wire/wire';
 
-import { stubContextMemory } from '../contextMemory/stubs';
-import { stubLoopWithHooks, stubToolExecutor, stubWire } from '../loop/stubs';
 import { stubLog } from '../../_base/log/stubs';
 import { registerStateServices } from '../../state/stubs';
+import { stubContextMemory } from '../contextMemory/stubs';
+import { stubLoopWithHooks, stubToolExecutor, stubWire } from '../loop/stubs';
 
 function message(text: string): ContextMessage {
-  return { role: 'user', content: [{ type: 'text', text }], toolCalls: [], origin: { kind: 'user' } };
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+    origin: { kind: 'user' },
+  };
 }
 
 function harness() {
@@ -54,7 +59,8 @@ function harness() {
     onDidFinishCompaction: Event.None,
   } as unknown as IAgentFullCompactionService;
   const ix = createServices(disposables, {
-    strict: true, additionalServices: (reg) => {
+    strict: true,
+    additionalServices: (reg) => {
       registerStateServices(reg);
       reg.defineInstance(ILogService, stubLog());
       reg.defineInstance(IAgentContextMemoryService, context);
@@ -72,10 +78,19 @@ function harness() {
       });
       reg.definePartialInstance(IEventService, { publish: () => {} });
       reg.definePartialInstance(ISessionContext, { sessionId: 'test-session' });
-      reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
-    }
+      reg.defineInstance(
+        IAgentScopeContext,
+        makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
+      );
+    },
   });
-  return { prompt: ix.get(IAgentPromptService), loop, context, fullCompaction, eventBus: ix.get(IEventBus) };
+  return {
+    prompt: ix.get(IAgentPromptService),
+    loop,
+    context,
+    fullCompaction,
+    eventBus: ix.get(IEventBus),
+  };
 }
 
 describe('AgentPromptService', () => {
@@ -113,7 +128,9 @@ describe('AgentPromptService', () => {
     const { prompt } = harness();
     await prompt.enqueue({ message: message('active') });
     const queued = await prompt.enqueue({ message: message('one') });
-    await expect(prompt.steer([queued.id, 'missing'])).rejects.toMatchObject({ code: 'prompt.not_found' });
+    await expect(prompt.steer([queued.id, 'missing'])).rejects.toMatchObject({
+      code: 'prompt.not_found',
+    });
     expect(prompt.list().pending.map((item) => item.id)).toEqual([queued.id]);
   });
 
@@ -159,14 +176,20 @@ describe('AgentPromptService', () => {
 
   it('settles blocked prompts', async () => {
     const { prompt } = harness();
-    prompt.hooks.onBeforeSubmitPrompt.register('block', async (ctx, next) => { ctx.block = true; await next(); });
+    prompt.hooks.onBeforeSubmitPrompt.register('block', async (ctx, next) => {
+      ctx.block = true;
+      await next();
+    });
     const handle = await prompt.enqueue({ message: message('blocked') });
     await expect(handle.completion).resolves.toMatchObject({ state: 'blocked' });
   });
 
   it('delivers a blocked prompt’s compression captions right after their host message', async () => {
     const { prompt, context } = harness();
-    prompt.hooks.onBeforeSubmitPrompt.register('block', async (ctx, next) => { ctx.block = true; await next(); });
+    prompt.hooks.onBeforeSubmitPrompt.register('block', async (ctx, next) => {
+      ctx.block = true;
+      await next();
+    });
     const handle = await prompt.enqueue({
       id: 'prompt-caption',
       message: message(
@@ -194,7 +217,10 @@ describe('AgentPromptService', () => {
   it('settles the prompt as failed when the loop throws on launch', async () => {
     const { prompt, loop } = harness();
     vi.spyOn(loop, 'enqueue').mockImplementation(() => {
-      throw new Error2(ErrorCodes.TURN_AGENT_BUSY, 'Cannot launch a new turn while another turn is active');
+      throw new Error2(
+        ErrorCodes.TURN_AGENT_BUSY,
+        'Cannot launch a new turn while another turn is active',
+      );
     });
     const handle = await prompt.enqueue({ id: 'prompt-x', message: message('hello') });
     expect(handle.state).toBe('failed');
@@ -246,9 +272,9 @@ describe('AgentPromptService', () => {
     const appended = context.get();
     const parts = appended.flatMap((entry) => entry.content);
     expect(parts.some((part) => part.type === 'image_url')).toBe(false);
-    expect(
-      parts.some((part) => part.type === 'text' && part.text.includes('image/avif')),
-    ).toBe(true);
+    expect(parts.some((part) => part.type === 'text' && part.text.includes('image/avif'))).toBe(
+      true,
+    );
   });
 
   it('rejects abort for an already completed prompt', async () => {
@@ -299,7 +325,10 @@ describe('AgentPromptService', () => {
     loop.drainNextBatch(context);
     await Promise.resolve(); // let the drained turn settle
 
-    await prompt.inject({ ...message('injection'), origin: { kind: 'injection', variant: 'test' } });
+    await prompt.inject({
+      ...message('injection'),
+      origin: { kind: 'injection', variant: 'test' },
+    });
 
     expect(prompt.list()).toEqual({ active: undefined, pending: [] });
   });

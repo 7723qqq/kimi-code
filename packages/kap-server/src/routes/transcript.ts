@@ -62,8 +62,8 @@ import {
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
-import { ErrorCode } from '../protocol/error-codes';
 import { defineRoute } from '../middleware/defineRoute';
+import { ErrorCode } from '../protocol/error-codes';
 import type { TranscriptService } from '../services/transcript/transcriptService';
 
 interface TranscriptRouteHost {
@@ -184,7 +184,10 @@ export interface TranscriptRouteDeps {
   readonly transcriptService: TranscriptService;
 }
 
-export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: TranscriptRouteDeps): void {
+export function registerTranscriptRoutes(
+  app: TranscriptRouteHost,
+  deps: TranscriptRouteDeps,
+): void {
   const { transcriptService } = deps;
 
   const route = defineRoute(
@@ -333,7 +336,11 @@ export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: Transcr
       );
     },
   );
-  app.get(opsRoute.path, opsRoute.options, opsRoute.handler as Parameters<TranscriptRouteHost['get']>[2]);
+  app.get(
+    opsRoute.path,
+    opsRoute.options,
+    opsRoute.handler as Parameters<TranscriptRouteHost['get']>[2],
+  );
 
   const userMessagesRoute = defineRoute(
     {
@@ -360,8 +367,7 @@ export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: Transcr
       const store = transcriptService.forSessionLive(session_id);
       if (store !== undefined) {
         await transcriptService.whenReady(session_id);
-        const agentIds =
-          agent_id !== undefined ? [agent_id] : store.agents().map((d) => d.agentId);
+        const agentIds = agent_id !== undefined ? [agent_id] : store.agents().map((d) => d.agentId);
         const agents = [];
         for (const agentId of agentIds) {
           await transcriptService.ensureAgentHistory(session_id, agentId);
@@ -424,7 +430,7 @@ export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: Transcr
         [ErrorCode.TOOL_CALL_NOT_FOUND]: {},
       },
       description:
-        'Plan information of an agent\'s ExitPlanMode tool calls: the reviewed plan content, plan file path, offered options, and the review outcome, in timeline order. agent_id required; tool_call_id optional — present narrows the read to that one call (unknown id or non-ExitPlanMode call → 40416), absent lists every call with recoverable plan content. Content is projected from the linked approval interaction (interactive reviews, live or cold), the live tool frame display (auto mode), or the tool result output text (cold rebuilds without an interaction). Live sessions read the in-memory store (history backfill awaited), cold sessions rebuild the agent from the persisted wire records',
+        "Plan information of an agent's ExitPlanMode tool calls: the reviewed plan content, plan file path, offered options, and the review outcome, in timeline order. agent_id required; tool_call_id optional — present narrows the read to that one call (unknown id or non-ExitPlanMode call → 40416), absent lists every call with recoverable plan content. Content is projected from the linked approval interaction (interactive reviews, live or cold), the live tool frame display (auto mode), or the tool result output text (cold rebuilds without an interaction). Live sessions read the in-memory store (history backfill awaited), cold sessions rebuild the agent from the persisted wire records",
       tags: ['transcript'],
     },
     async (req, reply) => {
@@ -466,7 +472,11 @@ export function registerTranscriptRoutes(app: TranscriptRouteHost, deps: Transcr
       reply.send(okEnvelope({ agent_id, plans }, req.id));
     },
   );
-  app.get(planRoute.path, planRoute.options, planRoute.handler as Parameters<TranscriptRouteHost['get']>[2]);
+  app.get(
+    planRoute.path,
+    planRoute.options,
+    planRoute.handler as Parameters<TranscriptRouteHost['get']>[2],
+  );
 }
 
 /**
@@ -613,12 +623,20 @@ function projectPlanFrame(
   const review = readPlanReview(interaction);
 
   const requestDisplay =
-    interaction !== undefined && interaction.request !== null && typeof interaction.request === 'object'
+    interaction !== undefined &&
+    interaction.request !== null &&
+    typeof interaction.request === 'object'
       ? (interaction.request as { display?: unknown }).display
       : undefined;
   const fromInteraction = readPlanReviewDisplay(requestDisplay);
   if (fromInteraction !== undefined) {
-    return { tool_call_id: toolCallId, turn_id: turnId, source: 'interaction', ...fromInteraction, review };
+    return {
+      tool_call_id: toolCallId,
+      turn_id: turnId,
+      source: 'interaction',
+      ...fromInteraction,
+      review,
+    };
   }
   const fromDisplay = readPlanReviewDisplay(frame.display);
   if (fromDisplay !== undefined) {
@@ -632,10 +650,17 @@ function projectPlanFrame(
 }
 
 /** Map an approval interaction onto the review info; `undefined` when there is none. */
-function readPlanReview(interaction: TranscriptInteraction | undefined): PlanReviewInfo | undefined {
+function readPlanReview(
+  interaction: TranscriptInteraction | undefined,
+): PlanReviewInfo | undefined {
   if (interaction === undefined) return undefined;
   const state = interaction.state;
-  if (state !== 'pending' && state !== 'approved' && state !== 'rejected' && state !== 'cancelled') {
+  if (
+    state !== 'pending' &&
+    state !== 'approved' &&
+    state !== 'rejected' &&
+    state !== 'cancelled'
+  ) {
     return undefined;
   }
   const response =

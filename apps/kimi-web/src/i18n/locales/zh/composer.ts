@@ -30,5 +30,4 @@ export default {
   quickStartPlaceholder: '输入消息开始新对话…',
   thinkingSuffix: ' · 思考',
   thinkingSuffixEffort: ' · {level}',
-
 } as const;

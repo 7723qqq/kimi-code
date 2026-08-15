@@ -45,8 +45,8 @@
  */
 
 import { bindDefineOp, type DefineOpFn } from '#/wire/op';
-import type { ModelReducers } from '#/wire/types';
 import type { WireRecord } from '#/wire/record';
+import type { ModelReducers } from '#/wire/types';
 
 export type PartsTransformer = (parts: readonly unknown[]) => Promise<readonly unknown[]>;
 

@@ -11,7 +11,15 @@
  * `registerAgentToolService(...)` at module load.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { HttpFetchError } from '#/app/web/tools/fetch-url-types';
+import { IWebFetchService } from '#/app/web/web';
+import { ISpillService, type SpillRef } from '#/features/spill/spill';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { ToolResultBuilder } from '#/tool/result-builder';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
@@ -19,15 +27,8 @@ import {
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-import { ToolResultBuilder } from '#/tool/result-builder';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
-import { IWebFetchService } from '#/app/web/web';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISpillService, type SpillRef } from '#/features/spill/spill';
-import { HttpFetchError } from '#/app/web/tools/fetch-url-types';
 import { FetchURLInputSchema, IFetchURLTool, type FetchURLInput } from './fetch-url';
-import { t } from '@moonshot-ai/kimi-i18n';
 import DESCRIPTION from './fetch-url.md?raw';
 
 export class FetchURLTool implements IFetchURLTool {
@@ -102,11 +103,7 @@ export class FetchURLTool implements IFetchURLTool {
     }
   }
 
-  private spillSave(
-    spill: ISpillService,
-    fullText: string,
-    toolCallId: string,
-  ): Promise<SpillRef> {
+  private spillSave(spill: ISpillService, fullText: string, toolCallId: string): Promise<SpillRef> {
     return spill.saveText({
       owner: { sessionId: this.session.sessionId },
       source: { toolName: 'fetch-url', callId: toolCallId, label: 'page-content' },

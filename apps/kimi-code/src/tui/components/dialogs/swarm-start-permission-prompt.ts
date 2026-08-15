@@ -1,4 +1,5 @@
 import { t } from '#/i18n';
+
 import {
   StartPermissionPromptComponent,
   type StartPermissionOption,

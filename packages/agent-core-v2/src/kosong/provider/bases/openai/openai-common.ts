@@ -253,7 +253,6 @@ export function convertToolMessageContent(
     .filter((p): p is OpenAIContentPart => p !== null);
 }
 
-
 export const OPENAI_REASONING_CAPABILITY = Object.freeze({
   image_in: false,
   video_in: false,

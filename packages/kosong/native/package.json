@@ -11,13 +11,13 @@
     "artifacts": "napi artifacts",
     "test": "cargo test"
   },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4"
+  },
   "napi": {
     "name": "kosong-native",
     "triples": {
       "defaults": true
     }
-  },
-  "devDependencies": {
-    "@napi-rs/cli": "^2.18.4"
   }
 }

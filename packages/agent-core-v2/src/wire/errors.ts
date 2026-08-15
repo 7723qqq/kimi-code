@@ -10,9 +10,10 @@
  * `wireContribution.ts`).
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 import { Error2, type Error2Options } from '#/_base/errors/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 export const WireErrors = {
   codes: {

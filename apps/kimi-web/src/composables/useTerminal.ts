@@ -1,4 +1,5 @@
 import { onUnmounted, ref, watch, type Ref } from 'vue';
+
 import { getKimiWebApi } from '../api';
 import type { AppTerminal, KimiEventConnection } from '../api/types';
 
@@ -51,10 +52,12 @@ export function useTerminal(sessionId: Ref<string>) {
     try {
       const api = getKimiWebApi();
       const existing = (await api.listTerminals(sid)).find((item) => item.status === 'running');
-      const next = existing ?? await api.createTerminal(sid, {
-        cols: size?.cols,
-        rows: size?.rows,
-      });
+      const next =
+        existing ??
+        (await api.createTerminal(sid, {
+          cols: size?.cols,
+          rows: size?.rows,
+        }));
       terminal.value = next;
       readOnly.value = next.status === 'exited';
       ensureConnection()?.terminalAttach(sid, next.id, lastSeq.value);

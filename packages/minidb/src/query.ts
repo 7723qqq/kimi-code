@@ -14,7 +14,7 @@ function tokenizePath(path: Path): (string | number)[] {
   const tokens: (string | number)[] = [];
   for (const seg of String(path).split('.')) {
     let s = seg;
-    while (s.length) {
+    while (s.length > 0) {
       const m = s.match(/^([^[]*)\[(\d+)\](.*)$/);
       if (m) {
         if (m[1]) tokens.push(m[1]);
@@ -48,13 +48,13 @@ export function setPath(obj: Doc, path: Path, value: unknown): Doc {
     }
     cur = cur[t] as Record<string | number, unknown>;
   }
-  cur[tokens[tokens.length - 1]!] = value;
+  cur[tokens.at(-1)!] = value;
   return obj;
 }
 
 /** Keep only the given paths (inclusion). Returns a new object. */
 export function project(doc: Doc, paths?: readonly string[]): Doc {
-  if (!paths || !paths.length) return doc;
+  if (!paths || paths.length === 0) return doc;
   const out: Record<string, unknown> = {};
   for (const p of paths) {
     const v = getPath(doc, p);
@@ -107,7 +107,11 @@ function matchCond(val: unknown, cond: Cond): boolean {
         break;
       case '$regex': {
         const re =
-          arg instanceof RegExp ? arg : Array.isArray(arg) ? new RegExp(arg[0] as string, arg[1] as string | undefined) : new RegExp(arg as string);
+          arg instanceof RegExp
+            ? arg
+            : Array.isArray(arg)
+              ? new RegExp(arg[0] as string, arg[1] as string | undefined)
+              : new RegExp(arg as string);
         if (typeof val !== 'string') return false;
         // Reset a stateful (global/sticky) RegExp so a reused instance does not
         // carry lastIndex over from the previous document.
@@ -137,11 +141,14 @@ export function match(doc: Doc, filter?: Record<string, unknown> | null): boolea
   for (const key of Object.keys(filter)) {
     const cond = filter[key];
     if (key === '$and') {
-      if (!Array.isArray(cond) || !cond.every((f) => match(doc, f as Record<string, unknown>))) return false;
+      if (!Array.isArray(cond) || !cond.every((f) => match(doc, f as Record<string, unknown>)))
+        return false;
     } else if (key === '$or') {
-      if (!Array.isArray(cond) || !cond.some((f) => match(doc, f as Record<string, unknown>))) return false;
+      if (!Array.isArray(cond) || !cond.some((f) => match(doc, f as Record<string, unknown>)))
+        return false;
     } else if (key === '$nor') {
-      if (!Array.isArray(cond) || cond.some((f) => match(doc, f as Record<string, unknown>))) return false;
+      if (!Array.isArray(cond) || cond.some((f) => match(doc, f as Record<string, unknown>)))
+        return false;
     } else if (key === '$not') {
       if (match(doc, cond as Record<string, unknown>)) return false;
     } else {
@@ -150,4 +157,3 @@ export function match(doc: Doc, filter?: Record<string, unknown> | null): boolea
   }
   return true;
 }
-

@@ -7,42 +7,42 @@
  * compression. Run: pnpm test -- test/agent/media/tools/read-media.test.ts
  */
 
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ContentPart } from '#/kosong/contract/message';
-import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
 import { Jimp } from 'jimp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
+import { sniffImageDimensions } from '#/agent/media/file-type';
+import {
+  MAX_IMAGE_DECODE_BYTES,
+  setConfiguredReadImageByteBudget,
+} from '#/agent/media/image-compress';
+import { AgentMediaToolsRegistrar } from '#/agent/media/mediaToolsRegistrar';
+import { createVideoUploader, registerMediaTools } from '#/agent/media/registerMediaTools';
+import type { IAgentProfileService } from '#/agent/profile/profile';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import {
   ReadMediaFileInputSchema,
   type ReadMediaFileInput,
   type VideoUploader,
 } from '#/agent/tools/read-media-file/read-media-file';
 import { ReadMediaFileTool } from '#/agent/tools/read-media-file/readMediaFileTool';
-import {
-  MAX_IMAGE_DECODE_BYTES,
-  setConfiguredReadImageByteBudget,
-} from '#/agent/media/image-compress';
-import { createVideoUploader, registerMediaTools } from '#/agent/media/registerMediaTools';
-import { AgentMediaToolsRegistrar } from '#/agent/media/mediaToolsRegistrar';
-import { AgentStateService } from '#/agent/state/agentStateService';
-import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { EventBusService } from '#/app/event/eventBusService';
+import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
+import type { ModelCapability } from '#/kosong/contract/capability';
+import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
+import type { ContentPart } from '#/kosong/contract/message';
+import type { IModelCatalog } from '#/kosong/model/catalog';
+import type { ModelRequester } from '#/kosong/model/modelRequester';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import type { WorkspaceConfig } from '#/tool/path-access';
 import {
   ToolAccesses,
   type ExecutableToolContext,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-import { EventBusService } from '#/app/event/eventBusService';
-import type { IAgentProfileService } from '#/agent/profile/profile';
-import type { IModelCatalog } from '#/kosong/model/catalog';
-import type { ModelRequester } from '#/kosong/model/modelRequester';
-import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import type { WorkspaceConfig } from '#/tool/path-access';
-import { sniffImageDimensions } from '#/agent/media/file-type';
 
 // The Rust native module (`@moonshot-ai/kimi-native-tools`) is loadable under
 // vitest (indirectly activated via packages/i18n), which routes sniffing and
@@ -236,7 +236,9 @@ describe('ReadMediaFileTool', () => {
     const tool = makeTool({ '/workspace/sample.png': { data: pngBuffer() } });
 
     expect(tool.name).toBe('ReadMediaFile');
-    expect(ReadMediaFileInputSchema.safeParse({ path: '/workspace/sample.png' }).success).toBe(true);
+    expect(ReadMediaFileInputSchema.safeParse({ path: '/workspace/sample.png' }).success).toBe(
+      true,
+    );
     expect(
       ReadMediaFileInputSchema.safeParse({
         path: '/workspace/sample.png',
@@ -363,10 +365,9 @@ describe('ReadMediaFileTool', () => {
   it('returns an actionable error when compression cannot meet the byte budget', async () => {
     const oversized = Buffer.concat([pngBuffer(), Buffer.alloc(256 * 1024, 1)]);
 
-    const result = await execute(
-      makeTool({ '/workspace/oversized.png': { data: oversized } }),
-      { path: '/workspace/oversized.png' },
-    );
+    const result = await execute(makeTool({ '/workspace/oversized.png': { data: oversized } }), {
+      path: '/workspace/oversized.png',
+    });
 
     expect(result).toEqual({
       isError: true,
@@ -706,7 +707,9 @@ describe('ReadMediaFileTool', () => {
   });
 
   it('falls back to an inline base64 video part when the upload fails', async () => {
-    const videoUploader = vi.fn<VideoUploader>().mockRejectedValue(new Error('404 route not found'));
+    const videoUploader = vi
+      .fn<VideoUploader>()
+      .mockRejectedValue(new Error('404 route not found'));
     const result = await execute(
       makeTool({ '/workspace/clip.mp4': { data: mp4Buffer() } }, capabilities(), videoUploader),
       { path: '/workspace/clip.mp4' },
@@ -942,7 +945,9 @@ describe('createVideoUploader', () => {
   };
   const input = { data: new Uint8Array(2048), mimeType: 'video/mp4', filename: 'clip.mp4' };
 
-  function modelWith(uploadVideo: ModelRequester['uploadVideo']): Pick<ModelRequester, 'uploadVideo'> {
+  function modelWith(
+    uploadVideo: ModelRequester['uploadVideo'],
+  ): Pick<ModelRequester, 'uploadVideo'> {
     return { uploadVideo } as Pick<ModelRequester, 'uploadVideo'>;
   }
 
@@ -1009,8 +1014,8 @@ describe('createVideoUploader', () => {
 
   function heicBytes(): Buffer {
     return Buffer.from([
-      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00,
-      0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00,
+      0x00, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00,
     ]);
   }
 
@@ -1036,9 +1041,12 @@ describe('createVideoUploader', () => {
   }
 
   it('refuses every format outside the provider-accepted set, not just HEIC', async () => {
-    const result = await execute(makeTool({ '/workspace/photo.avif': { data: ftypBytes('avif') } }), {
-      path: '/workspace/photo.avif',
-    });
+    const result = await execute(
+      makeTool({ '/workspace/photo.avif': { data: ftypBytes('avif') } }),
+      {
+        path: '/workspace/photo.avif',
+      },
+    );
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('image/avif');

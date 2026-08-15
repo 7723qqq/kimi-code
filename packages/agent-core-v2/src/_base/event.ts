@@ -9,7 +9,6 @@
  * subscriptions stay identifiable in unit-book introspection.
  */
 
-import { onUnexpectedError, safelyCallListener } from './errors/unexpectedError';
 import {
   Disposable,
   DisposableStore,
@@ -18,6 +17,7 @@ import {
   type IDisposableDebugLabel,
 } from './di/lifecycle';
 import { LinkedList } from './di/util/linkedList';
+import { onUnexpectedError, safelyCallListener } from './errors/unexpectedError';
 
 export interface Event<T> {
   (
@@ -121,9 +121,7 @@ export interface IWaitUntil {
 export type IWaitUntilData<T> = Omit<T, 'waitUntil' | 'signal'>;
 
 export class AsyncEmitter<T extends IWaitUntil> extends Emitter<T> {
-  private _asyncDeliveryQueue?: LinkedList<
-    [(event: T) => void, IWaitUntilData<T>, AbortSignal]
-  >;
+  private _asyncDeliveryQueue?: LinkedList<[(event: T) => void, IWaitUntilData<T>, AbortSignal]>;
 
   async fireAsync(data: IWaitUntilData<T>, signal: AbortSignal): Promise<void> {
     if (this.isDisposed || this._listeners === undefined) {
@@ -265,11 +263,7 @@ export namespace Event {
 
   export function map<I, O>(event: Event<I>, map: (i: I) => O): Event<O> {
     return (listener, thisArg, disposables) =>
-      event(
-        (i) => listener.call(thisArg, map(i)),
-        undefined,
-        disposables,
-      );
+      event((i) => listener.call(thisArg, map(i)), undefined, disposables);
   }
 
   export function filter<T>(event: Event<T>, filter: (e: T) => boolean): Event<T> {

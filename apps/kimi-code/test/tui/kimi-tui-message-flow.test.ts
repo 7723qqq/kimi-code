@@ -14,8 +14,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { KIMI_CODE_PLUGIN_MARKETPLACE_URL } from '#/constant/app';
 import { handleFeedbackCommand } from '#/tui/commands/info';
-import { openUrl } from '#/utils/open-url';
-import { createFeedbackArchivePath } from '../../src/feedback/archive';
 import {
   promptFeedbackAttachment,
   promptFeedbackInput,
@@ -53,7 +51,9 @@ import {
   TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
   TRANSCRIPT_KEEP_RECENT_STEPS,
 } from '#/tui/utils/transcript-window';
+import { openUrl } from '#/utils/open-url';
 
+import { createFeedbackArchivePath } from '../../src/feedback/archive';
 import { packageCodebase, scanCodebase } from '../../src/feedback/codebase';
 import { uploadArchive } from '../../src/feedback/upload';
 
@@ -381,12 +381,10 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
       sessionId?: string;
     }) => Promise<unknown[]>;
     Object.assign(harness, {
-      listSessionsPage: vi.fn(
-        async (input: { workDir?: string; sessionId?: string } = {}) => ({
-          items: await listSessions({ workDir: input.workDir, sessionId: input.sessionId }),
-          nextCursor: undefined,
-        }),
-      ),
+      listSessionsPage: vi.fn(async (input: { workDir?: string; sessionId?: string } = {}) => ({
+        items: await listSessions({ workDir: input.workDir, sessionId: input.sessionId }),
+        nextCursor: undefined,
+      })),
     });
   }
   return harness;
@@ -635,9 +633,7 @@ describe('KimiTUI message flow', () => {
     );
     // `makeDriver` stops after init(); the skill command list is refreshed in
     // finishStartup, so resolve it here to exercise the workspace-level path.
-    await (
-      driver as unknown as { refreshSkillCommands(): Promise<void> }
-    ).refreshSkillCommands();
+    await (driver as unknown as { refreshSkillCommands(): Promise<void> }).refreshSkillCommands();
 
     // Startup resolves skill commands from the workspace, no session needed.
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -664,7 +660,10 @@ describe('KimiTUI message flow', () => {
     // in-flight window.
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveCreate = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
     );
 
     const ensure = (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession;
@@ -692,7 +691,10 @@ describe('KimiTUI message flow', () => {
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession
       .mockImplementationOnce(
-        () => new Promise((resolve) => { resolveCreate = resolve; }),
+        () =>
+          new Promise((resolve) => {
+            resolveCreate = resolve;
+          }),
       )
       .mockResolvedValueOnce(newSession);
     const ensure = (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession;
@@ -728,7 +730,10 @@ describe('KimiTUI message flow', () => {
     // when /new arrives.
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveCreate = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
     );
 
     driver.handleUserInput('hello');
@@ -780,7 +785,10 @@ describe('KimiTUI message flow', () => {
     // when the effort switch arrives.
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveCreate = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
     );
 
     driver.handleUserInput('hello');
@@ -818,7 +826,10 @@ describe('KimiTUI message flow', () => {
     // Trigger the lazy creation directly, without a prompt starting a turn.
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveCreate = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
     );
     const ensure = (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession;
     const pending = ensure.call(driver);
@@ -860,7 +871,10 @@ describe('KimiTUI message flow', () => {
     // when the picker selection arrives.
     let resolveCreate!: (s: ReturnType<typeof makeSession>) => void;
     harness.createSession.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveCreate = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
     );
 
     driver.handleUserInput('hello');
@@ -877,7 +891,9 @@ describe('KimiTUI message flow', () => {
     // instead of being overwritten when the lazy creation completes.
     await vi.waitFor(() => {
       expect(lazySession.prompt).toHaveBeenCalledWith('hello');
-      expect(stripSgr(renderTranscript(driver))).toContain('Cannot switch sessions while streaming');
+      expect(stripSgr(renderTranscript(driver))).toContain(
+        'Cannot switch sessions while streaming',
+      );
     });
     expect(harness.resumeSession).not.toHaveBeenCalled();
     expect(driver.getCurrentSessionId()).toBe('ses-lazy');
@@ -958,9 +974,7 @@ describe('KimiTUI message flow', () => {
     await vi.waitFor(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello');
     });
-    expect(harness.createSession).toHaveBeenCalledWith(
-      expect.objectContaining({ planMode: true }),
-    );
+    expect(harness.createSession).toHaveBeenCalledWith(expect.objectContaining({ planMode: true }));
   });
 
   it('queues a bash command submitted while the lazy session is being created (v2 engine)', async () => {
@@ -984,9 +998,7 @@ describe('KimiTUI message flow', () => {
     });
     // The shell command must be queued, not run concurrently with the prompt.
     expect(runShellCommand).not.toHaveBeenCalled();
-    expect(driver.state.queuedMessages).toEqual([
-      { text: 'ls', agentId: 'main', mode: 'bash' },
-    ]);
+    expect(driver.state.queuedMessages).toEqual([{ text: 'ls', agentId: 'main', mode: 'bash' }]);
   });
 
   it('opens /settings without creating a session (v2 engine)', async () => {
@@ -1028,9 +1040,7 @@ describe('KimiTUI message flow', () => {
       },
       startupInput,
     );
-    await (
-      driver as unknown as { refreshSkillCommands(): Promise<void> }
-    ).refreshSkillCommands();
+    await (driver as unknown as { refreshSkillCommands(): Promise<void> }).refreshSkillCommands();
 
     // A prompt and a skill command both trigger the same in-flight creation.
     driver.handleUserInput('hello');
@@ -1396,7 +1406,10 @@ describe('KimiTUI message flow', () => {
     // assigned but setup is not finished yet.
     let resolvePermission!: () => void;
     session.setPermission.mockImplementationOnce(
-      () => new Promise<void>((resolve) => { resolvePermission = resolve; }),
+      () =>
+        new Promise<void>((resolve) => {
+          resolvePermission = resolve;
+        }),
     );
 
     const ensure = (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession;
@@ -1798,7 +1811,9 @@ command = "vim"
     vi.mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
     vi.mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs');
     harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
-    harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
+    harness.listSessions.mockResolvedValueOnce([
+      { id: 'ses-1', sessionDir: '/tmp/session-a' },
+    ] as never);
     vi.mocked(createFeedbackArchivePath).mockRejectedValueOnce(new Error('cache dir not writable'));
     vi.mocked(openUrl).mockClear();
 

@@ -1,3 +1,4 @@
+import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 /**
  * GET /v1/connections
  *   Reply: ConnectionsListResponse { connections: Connection[] }
@@ -7,8 +8,6 @@
  * are a separate resource (`/sessions`).
  */
 import { z } from 'zod';
-
-import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 
 export const connectionSchema = z.object({
   /** Server-assigned connection id (`conn_<ulid>`). */

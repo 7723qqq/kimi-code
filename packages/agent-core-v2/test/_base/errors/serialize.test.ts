@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import '#/errors';
-
 import { Error2 } from '#/_base/errors/errors';
 import { fromErrorPayload, toErrorPayload } from '#/_base/errors/serialize';
 
@@ -49,7 +48,11 @@ describe('toErrorPayload', () => {
   it('caps cause recursion for pathologically deep chains', () => {
     let error: Error2 | undefined;
     for (let i = 0; i < 20; i += 1) {
-      error = new Error2('internal', `layer ${i}`, error === undefined ? undefined : { cause: error });
+      error = new Error2(
+        'internal',
+        `layer ${i}`,
+        error === undefined ? undefined : { cause: error },
+      );
     }
     const payload = toErrorPayload(error!);
     let depth = 0;

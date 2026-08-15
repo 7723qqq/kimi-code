@@ -115,9 +115,10 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
 
   override render(width: number): string[] {
     const view = this.list.view();
-    const hint = this.movingGoalId === undefined
-      ? t('tui.dialogs.goalQueueManager.navHint')
-      : t('tui.dialogs.goalQueueManager.reorderHint');
+    const hint =
+      this.movingGoalId === undefined
+        ? t('tui.dialogs.goalQueueManager.navHint')
+        : t('tui.dialogs.goalQueueManager.reorderHint');
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
       currentTheme.boldFg('primary', ` ${t('tui.dialogs.goalQueueManager.title')}`),
@@ -137,7 +138,12 @@ export class GoalQueueManagerComponent extends Container implements Focusable {
       const below = view.items.length - view.page.end;
       if (below > 0) {
         lines.push('');
-        lines.push(currentTheme.fg('textMuted', ` ${t('tui.dialogs.goalQueueManager.more', { count: below })}`));
+        lines.push(
+          currentTheme.fg(
+            'textMuted',
+            ` ${t('tui.dialogs.goalQueueManager.more', { count: below })}`,
+          ),
+        );
       }
     }
 
@@ -391,7 +397,12 @@ class MultilineGoalInput {
     const rendered: string[] = [];
 
     if (range.start > 0) {
-      rendered.push(padInputLine(`  ${t('tui.dialogs.goalQueueEdit.previous', { count: range.start })}`, safeWidth));
+      rendered.push(
+        padInputLine(
+          `  ${t('tui.dialogs.goalQueueEdit.previous', { count: range.start })}`,
+          safeWidth,
+        ),
+      );
     }
 
     for (let lineIndex = range.start; lineIndex < range.end; lineIndex++) {
@@ -406,7 +417,9 @@ class MultilineGoalInput {
 
     const remaining = logicalLines.length - range.end;
     if (remaining > 0) {
-      rendered.push(padInputLine(`  ${t('tui.dialogs.goalQueueEdit.more', { count: remaining })}`, safeWidth));
+      rendered.push(
+        padInputLine(`  ${t('tui.dialogs.goalQueueEdit.more', { count: remaining })}`, safeWidth),
+      );
     }
 
     return rendered;
@@ -414,8 +427,7 @@ class MultilineGoalInput {
 
   private insert(text: string): void {
     const normalized = normalizeNewlines(text);
-    this.value =
-      this.value.slice(0, this.cursor) + normalized + this.value.slice(this.cursor);
+    this.value = this.value.slice(0, this.cursor) + normalized + this.value.slice(this.cursor);
     this.cursor += normalized.length;
   }
 
@@ -608,10 +620,7 @@ function renderCursorLine(
     Math.max(0, textWidth - visibleWidth(beforeView) - cursorWidth),
   );
   const marker = focused ? CURSOR_MARKER : '';
-  return padInputLine(
-    prefix + beforeView + marker + chalk.inverse(cursorText) + afterView,
-    width,
-  );
+  return padInputLine(prefix + beforeView + marker + chalk.inverse(cursorText) + afterView, width);
 }
 
 function takeStartByWidth(text: string, width: number): string {

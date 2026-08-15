@@ -13,7 +13,9 @@ import { currentTheme } from '#/tui/theme';
 
 export type StartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
 
-export interface StartPermissionOption<TChoice extends StartPermissionChoice = StartPermissionChoice> {
+export interface StartPermissionOption<
+  TChoice extends StartPermissionChoice = StartPermissionChoice,
+> {
   readonly value: TChoice;
   readonly label: string;
   readonly description: string;
@@ -29,7 +31,9 @@ export interface StartPermissionPromptOptions<
   readonly onCancel: () => void;
 }
 
-export class StartPermissionPromptComponent<TChoice extends StartPermissionChoice = StartPermissionChoice>
+export class StartPermissionPromptComponent<
+  TChoice extends StartPermissionChoice = StartPermissionChoice,
+>
   implements Component, Focusable
 {
   focused = false;
@@ -102,7 +106,8 @@ function styleModeNames(text: string, baseToken: 'text' | 'textMuted'): string {
   return text
     .split(/(\b(?:Manual|Auto|YOLO)\b)/g)
     .map((part) => {
-      if (part === 'Manual' || part === 'Auto' || part === 'YOLO') return currentTheme.boldFg('textStrong', part);
+      if (part === 'Manual' || part === 'Auto' || part === 'YOLO')
+        return currentTheme.boldFg('textStrong', part);
       return currentTheme.fg(baseToken, part);
     })
     .join('');

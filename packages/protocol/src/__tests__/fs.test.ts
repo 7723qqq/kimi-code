@@ -138,9 +138,7 @@ describe('fsSearchHitSchema (W11.1 / Chain 11)', () => {
   });
 
   it('rejects negative match positions', () => {
-    expect(
-      fsSearchHitSchema.safeParse({ ...hit, match_positions: [-1] }).success,
-    ).toBe(false);
+    expect(fsSearchHitSchema.safeParse({ ...hit, match_positions: [-1] }).success).toBe(false);
   });
 
   it('accepts an empty match_positions list', () => {
@@ -221,9 +219,7 @@ describe('fsGitStatusEntrySchema (W11.2 / Chain 12)', () => {
   });
 
   it('rejects an unknown status', () => {
-    expect(
-      fsGitStatusEntrySchema.safeParse({ ...entry, status: 'staged' }).success,
-    ).toBe(false);
+    expect(fsGitStatusEntrySchema.safeParse({ ...entry, status: 'staged' }).success).toBe(false);
   });
 });
 
@@ -239,12 +235,9 @@ describe('fsChangeKindSchema (W12 / Chain 14)', () => {
 });
 
 describe('fsChangeActionSchema (W12 / Chain 14)', () => {
-  it.each(['created', 'modified', 'deleted'] as const)(
-    'accepts %s',
-    (a) => {
-      expect(fsChangeActionSchema.parse(a)).toBe(a);
-    },
-  );
+  it.each(['created', 'modified', 'deleted'] as const)('accepts %s', (a) => {
+    expect(fsChangeActionSchema.parse(a)).toBe(a);
+  });
 
   it('rejects chokidar raw event names (must collapse before wire)', () => {
     for (const raw of ['add', 'change', 'unlink', 'addDir', 'unlinkDir']) {
@@ -325,8 +318,6 @@ describe('fsChangeEventSchema (W12 / Chain 14)', () => {
   });
 
   it('rejects a missing coalesced_window_ms (always echoed)', () => {
-    expect(
-      fsChangeEventSchema.safeParse({ changes: [] }).success,
-    ).toBe(false);
+    expect(fsChangeEventSchema.safeParse({ changes: [] }).success).toBe(false);
   });
 });

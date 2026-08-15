@@ -3,20 +3,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IEventBus } from '#/app/event/eventBus';
-import { EventBusService } from '#/app/event/eventBusService';
 import {
   CompactionModel,
   fullCompactionBegin,
   fullCompactionCancel,
   fullCompactionComplete,
 } from '#/agent/fullCompaction/compactionOps';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { IEventBus } from '#/app/event/eventBus';
+import { EventBusService } from '#/app/event/eventBusService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import type { IWireService } from '#/wire/wire';
 
 import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
 
@@ -51,7 +51,10 @@ afterEach(() => disposables.dispose());
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await wire.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;

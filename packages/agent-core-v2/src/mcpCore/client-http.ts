@@ -4,9 +4,9 @@
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { OAuthClientProvider } from '@modelcontextprotocol/client';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 import { ErrorCodes, Error2 } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 import { buildMcpRemoteHeaders } from './client-remote';
 import {
@@ -19,8 +19,8 @@ import {
   type UnexpectedCloseListener,
   type UnexpectedCloseReason,
 } from './client-shared';
-import { createMcpOAuthFetch } from './oauth/provider';
 import type { McpServerHttpConfig } from './config-schema';
+import { createMcpOAuthFetch } from './oauth/provider';
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
 export interface HttpMcpClientOptions {
@@ -93,7 +93,10 @@ export class HttpMcpClient implements MCPClient {
     }
     if (this.closed) {
       await this.closeStartedClient();
-      throw new Error2(ErrorCodes.MCP_STARTUP_FAILED, t('v2Errors.mcpHttpClientClosedDuringStartup'));
+      throw new Error2(
+        ErrorCodes.MCP_STARTUP_FAILED,
+        t('v2Errors.mcpHttpClientClosedDuringStartup'),
+      );
     }
     this.ready = true;
   }

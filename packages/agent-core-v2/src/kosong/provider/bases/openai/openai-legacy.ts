@@ -58,6 +58,12 @@ import type { Tool } from '#/kosong/contract/tool';
 import type { TokenUsage } from '#/kosong/contract/usage';
 
 import {
+  mergeRequestHeaders,
+  requireProviderApiKey,
+  resolveAuthBackedClient,
+} from '../request-auth';
+import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
+import {
   convertChatCompletionStreamToolCall,
   type BufferedChatCompletionToolCall,
 } from './chat-completions-stream';
@@ -81,13 +87,6 @@ import {
   toolToOpenAI,
 } from './openai-common';
 import { ReasoningKeyDialect } from './reasoning-key';
-import {
-  mergeRequestHeaders,
-  requireProviderApiKey,
-  resolveAuthBackedClient,
-} from '../request-auth';
-import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
-
 
 const CHAT_COMPLETIONS_MAX_OUTPUT_TOKENS_CEILING = 128 * 1024;
 
@@ -780,7 +779,6 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     return new OpenAI(clientOpts as ConstructorParameters<typeof OpenAI>[0]);
   }
 }
-
 
 export function getOpenAILegacyModelCapability(modelName: string) {
   const normalized = modelName.toLowerCase();

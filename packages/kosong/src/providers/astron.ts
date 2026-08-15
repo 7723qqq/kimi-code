@@ -70,9 +70,8 @@ export class AstronChatProvider extends OpenAILegacyChatProvider {
       maxTokens: options.maxTokens ?? runtime.maxTokens ?? 32768,
       astronThinking: true,
       astronReasoningEffortModelIds: ASTRON_REASONING_EFFORT_MODEL_IDS,
-      astronSettings: runtime.searchDisable !== undefined
-        ? { searchDisable: runtime.searchDisable }
-        : undefined,
+      astronSettings:
+        runtime.searchDisable !== undefined ? { searchDisable: runtime.searchDisable } : undefined,
     });
   }
 }

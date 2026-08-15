@@ -106,9 +106,14 @@ import {
   type Scope,
   type SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
+import { z } from 'zod';
+
+import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../envelope';
+import { t } from '../i18n';
+import { requestLog } from '../lib/requestLog';
+import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import { pageResponseSchema } from '../protocol/pagination';
-import { toProtocolMessage } from '../services/messages/messageProjection';
 import {
   archiveSessionResponseSchema,
   compactSessionRequestSchema,
@@ -133,12 +138,7 @@ import {
   type SessionPendingInteraction,
 } from '../protocol/session';
 import { workspaceIdSchema } from '../protocol/workspace';
-import { z } from 'zod';
-
-import { t } from '../i18n';
-import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../envelope';
-import { requestLog } from '../lib/requestLog';
-import { defineRoute } from '../middleware/defineRoute';
+import { toProtocolMessage } from '../services/messages/messageProjection';
 import { ensureMainAgent } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 import { applySessionAgentConfig } from './sessionAgentConfig';
@@ -338,11 +338,11 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           await handle.accessor.get(ISessionMetadata).setTitle(body.title);
         }
         const meta = await handle.accessor.get(ISessionMetadata).read();
-        const session = toWireSession(
-          { ...meta, workspaceId: touched.id },
-          touched.root,
-          { busy: false, mainTurnActive: false, pendingInteraction: 'none' },
-        );
+        const session = toWireSession({ ...meta, workspaceId: touched.id }, touched.root, {
+          busy: false,
+          mainTurnActive: false,
+          pendingInteraction: 'none',
+        });
         core.accessor.get(IEventService).publish({
           type: 'event.session.created',
           payload: { agentId: 'main', sessionId: session.id, session },
@@ -419,7 +419,9 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
       // the first candidate no longer strictly newer than the cursor ends
       // the window, so a heavily filtered stretch can never pull in sessions
       // at/older than the original `after_id`.
-      const collect = async (pageSize: number): Promise<{ visible: Eligible[]; hasMore: boolean }> => {
+      const collect = async (
+        pageSize: number,
+      ): Promise<{ visible: Eligible[]; hasMore: boolean }> => {
         const wanted = pageSize + 1;
         const collected: Eligible[] = [];
         let before = raw.before_id;
@@ -746,7 +748,15 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         const { tail } = req.params;
         const parsed = parseActionSuffix({
           tail,
-          allowedActions: ['fork', 'compact', 'undo', 'abort', 'btw', 'archive', 'restore'] as const,
+          allowedActions: [
+            'fork',
+            'compact',
+            'undo',
+            'abort',
+            'btw',
+            'archive',
+            'restore',
+          ] as const,
           resourceLabel: 'session',
         });
         if (parsed.kind !== 'action') {
@@ -764,10 +774,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           // lifecycle's own guard).
           const forkHandler = await handlerForSession(core.accessor, parsed.id);
           if (forkHandler === undefined) {
-            throw new Error2(
-              ErrorCodes.SESSION_NOT_FOUND,
-              `session ${parsed.id} does not exist`,
-            );
+            throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${parsed.id} does not exist`);
           }
           const handle = await forkHandler.accessor.get(ISessionLifecycleService).fork({
             sourceSessionId: parsed.id,
@@ -802,7 +809,10 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           agent.accessor
             .get(IAgentFullCompactionService)
             .begin({ source: 'manual', instruction: normalizeOptional(body.instruction) });
-          requestLog(req)?.info({ session_id: parsed.id, action: 'compact' }, 'session action completed');
+          requestLog(req)?.info(
+            { session_id: parsed.id, action: 'compact' },
+            'session action completed',
+          );
           reply.send(okEnvelope({}, req.id));
           return;
         }
@@ -816,7 +826,10 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           // below always sees the cut applied.
           await agent.accessor.get(IAgentConversationUndoService).undo(body.count);
           const history = agent.accessor.get(IAgentContextMemoryService).get();
-          requestLog(req)?.info({ session_id: parsed.id, action: 'undo' }, 'session action completed');
+          requestLog(req)?.info(
+            { session_id: parsed.id, action: 'undo' },
+            'session action completed',
+          );
           const [summary, status] = await Promise.all([
             core.accessor.get(ISessionIndex).get(parsed.id),
             legacy.status(parsed.id),
@@ -843,7 +856,10 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           // No turnId → cancel whatever turn is active; a safe no-op when idle.
           // v1 always reports success once the session exists.
           agent.accessor.get(IAgentLoopService).cancelFromUser();
-          requestLog(req)?.info({ session_id: parsed.id, action: 'abort' }, 'session action completed');
+          requestLog(req)?.info(
+            { session_id: parsed.id, action: 'abort' },
+            'session action completed',
+          );
           reply.send(okEnvelope({ aborted: true }, req.id));
           return;
         }
@@ -853,10 +869,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           // side-channel agent; matches v1's `startBtw` which resumes first.
           const session = await resumeSessionById(core.accessor, parsed.id);
           if (session === undefined) {
-            throw new Error2(
-              ErrorCodes.SESSION_NOT_FOUND,
-              `session ${parsed.id} does not exist`,
-            );
+            throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${parsed.id} does not exist`);
           }
           await core.accessor.get(IAuthSummaryService).ensureReady();
           const agentId = await session.accessor.get(ISessionBtwService).start();
@@ -880,7 +893,10 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
             ctx.cwd,
             resolveSessionFacts(core, meta.id),
           );
-          requestLog(req)?.info({ session_id: parsed.id, action: 'restore' }, 'session action completed');
+          requestLog(req)?.info(
+            { session_id: parsed.id, action: 'restore' },
+            'session action completed',
+          );
           reply.send(okEnvelope(session, req.id));
           return;
         }
@@ -897,7 +913,10 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${parsed.id} does not exist`);
         }
         await archiveHandler.accessor.get(ISessionLifecycleService).archive(parsed.id);
-        requestLog(req)?.info({ session_id: parsed.id, action: 'archive' }, 'session action completed');
+        requestLog(req)?.info(
+          { session_id: parsed.id, action: 'archive' },
+          'session action completed',
+        );
         reply.send(okEnvelope({ archived: true }, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);

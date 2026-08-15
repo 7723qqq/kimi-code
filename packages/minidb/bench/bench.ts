@@ -15,6 +15,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
+
 import { MiniDb } from '../src/index.js';
 
 const fmt = (n) => n.toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -42,7 +43,18 @@ const LATIN_VOCAB =
   'wal sync snapshot compaction recovery index query cache buffer frame codec store delta merge rotate flush token parse schema server client socket thread worker queue stream ledger journal cursor segment batch commit'.split(
     ' ',
   );
-const CJK_VOCAB = ['持久化', '快照', '索引', '恢复', '压缩', '查询', '缓存', '日志', '事务', '复制'];
+const CJK_VOCAB = [
+  '持久化',
+  '快照',
+  '索引',
+  '恢复',
+  '压缩',
+  '查询',
+  '缓存',
+  '日志',
+  '事务',
+  '复制',
+];
 // Needles planted at deterministic intervals so query hit counts are stable.
 const NEEDLES = [
   { term: 'walrus', every: 97 },
@@ -77,12 +89,12 @@ function percentileOf(sorted, p) {
 
 function latencySummary(samples) {
   if (!samples || samples.length === 0) return undefined;
-  const sorted = [...samples].sort((a, b) => a - b);
+  const sorted = [...samples].toSorted((a, b) => a - b);
   return {
     p50: percentileOf(sorted, 50),
     p95: percentileOf(sorted, 95),
     p99: percentileOf(sorted, 99),
-    max: sorted[sorted.length - 1],
+    max: sorted.at(-1),
   };
 }
 
@@ -183,7 +195,12 @@ async function throughputScenarios({ N, NSMALL, VALUE }) {
   // --- DB writes, fsyncPolicy = no ---
   {
     const dir = await tmpDir();
-    const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     await scenario(
       'DB set concurrent, fsync=no (group commit)',
       async () => {
@@ -207,7 +224,12 @@ async function throughputScenarios({ N, NSMALL, VALUE }) {
   // --- DB writes, fsyncPolicy = everysec ---
   {
     const dir = await tmpDir();
-    const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'everysec', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'everysec',
+      autoCompact: false,
+    });
     await scenario(
       'DB set concurrent, fsync=everysec',
       async () => {
@@ -224,7 +246,12 @@ async function throughputScenarios({ N, NSMALL, VALUE }) {
   // --- DB writes, sequential await-each, fsync=always (worst case) ---
   {
     const dir = await tmpDir();
-    const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'always', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'always',
+      autoCompact: false,
+    });
     await scenario(
       `DB set sequential, fsync=always (N=${fmt(NSMALL)})`,
       async ({ lat }) => {
@@ -243,7 +270,12 @@ async function throughputScenarios({ N, NSMALL, VALUE }) {
   // --- DB reads (in-memory) ---
   {
     const dir = await tmpDir();
-    const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     const p = [];
     for (let i = 0; i < N; i++) p.push(db.set(`k${i}`, VALUE));
     await Promise.all(p);
@@ -273,11 +305,17 @@ async function coldOpenScenarios({ sizes, VALUE }) {
     await scenario(
       `populate ${fmt(count)} keys (batch frames)`,
       async () => {
-        const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false });
+        const db = await MiniDb.open({
+          dir,
+          valueCodec: 'string',
+          fsyncPolicy: 'no',
+          autoCompact: false,
+        });
         const CHUNK = 2000;
         for (let base = 0; base < count; base += CHUNK) {
           const ops = [];
-          for (let i = base; i < Math.min(base + CHUNK, count); i++) ops.push({ op: 'set', key: `k${i}`, value: VALUE });
+          for (let i = base; i < Math.min(base + CHUNK, count); i++)
+            ops.push({ op: 'set', key: `k${i}`, value: VALUE });
           await db.batch(ops);
         }
         await db.close();
@@ -288,7 +326,12 @@ async function coldOpenScenarios({ sizes, VALUE }) {
     await scenario(
       `cold open ${fmt(count)} keys`,
       async () => {
-        const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'everysec', autoCompact: false });
+        const db = await MiniDb.open({
+          dir,
+          valueCodec: 'string',
+          fsyncPolicy: 'everysec',
+          autoCompact: false,
+        });
         const s = db.stats;
         await db.close();
         return {
@@ -312,7 +355,12 @@ async function coldOpenScenarios({ sizes, VALUE }) {
       await scenario(
         `compact ${fmt(count)} records`,
         async () => {
-          const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false });
+          const db = await MiniDb.open({
+            dir,
+            valueCodec: 'string',
+            fsyncPolicy: 'no',
+            autoCompact: false,
+          });
           await db.compact();
           const s = db.stats;
           await db.close();
@@ -342,13 +390,20 @@ async function searchScenarios({ sizes, seed }) {
   for (const count of sizes) {
     const dir = await tmpDir();
     const docs = makeMessages(count, seed);
-    const db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     await scenario(
       `build ${fmt(count)} messages + word/ngram indexes`,
       async () => {
         const CHUNK = 1000;
         for (let base = 0; base < docs.length; base += CHUNK) {
-          await db.batch(docs.slice(base, base + CHUNK).map((d) => ({ op: 'set', key: d.key, value: d })));
+          await db.batch(
+            docs.slice(base, base + CHUNK).map((d) => ({ op: 'set', key: d.key, value: d })),
+          );
         }
         await db.createTextIndex('word', { fields: ['body'] });
         await db.createTextIndex('ngram', { fields: ['body'], tokenizer: 'ngram' });
@@ -375,7 +430,11 @@ async function searchScenarios({ sizes, seed }) {
               times.push(ms);
             }
             times.sort((a, b) => a - b);
-            perQuery.push({ q, hits, medianMs: Math.round(times[(times.length / 2) | 0] * 1000) / 1000 });
+            perQuery.push({
+              q,
+              hits,
+              medianMs: Math.round(times[(times.length / 2) | 0] * 1000) / 1000,
+            });
           }
           return { extra: { docs: count, runs: RUNS, queries: perQuery } };
         },
@@ -392,15 +451,23 @@ async function searchScenarios({ sizes, seed }) {
 async function walIdleScenarios({ idleMs }) {
   {
     const dir = await tmpDir();
-    const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'everysec', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'everysec',
+      autoCompact: false,
+    });
     const before = db.stats.walFsyncs;
-    await scenario(
-      `idle everysec ${idleMs / 1000}s: background fsyncs`,
-      async () => {
-        await sleep(idleMs);
-        return { extra: { idleMs, walFsyncs: db.stats.walFsyncs - before, walFsyncErrors: db.stats.walFsyncErrors } };
-      },
-    );
+    await scenario(`idle everysec ${idleMs / 1000}s: background fsyncs`, async () => {
+      await sleep(idleMs);
+      return {
+        extra: {
+          idleMs,
+          walFsyncs: db.stats.walFsyncs - before,
+          walFsyncErrors: db.stats.walFsyncErrors,
+        },
+      };
+    });
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -408,13 +475,21 @@ async function walIdleScenarios({ idleMs }) {
     const dir = await tmpDir();
     // A short interval keeps the re-arm behavior visible in any mode: the
     // write dirties the WAL, the next tick syncs once, then it goes quiet.
-    const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'everysec', syncIntervalMs: 100, autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'everysec',
+      syncIntervalMs: 100,
+      autoCompact: false,
+    });
     await db.set('k', 'v');
     const before = db.stats.walFsyncs;
     const windowMs = 500;
     await scenario('write then idle: fsyncs in the dirty window', async () => {
       await sleep(windowMs);
-      return { extra: { syncIntervalMs: 100, idleMs: windowMs, walFsyncs: db.stats.walFsyncs - before } };
+      return {
+        extra: { syncIntervalMs: 100, idleMs: windowMs, walFsyncs: db.stats.walFsyncs - before },
+      };
     });
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -467,7 +542,7 @@ async function main() {
   console.log('\ndone.\n');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

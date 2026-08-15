@@ -17,6 +17,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+
 import { MiniDb } from '../src/index.js';
 
 export interface WorkspaceDoc {
@@ -60,7 +61,11 @@ function extractWireText(wirePath: string): { text: string; messages: number } {
   let messages = 0;
   for (const line of raw.split('\n')) {
     if (!line) continue;
-    let o: { type?: string; message?: { content?: { type?: string; text?: string }[] }; event?: { type?: string; name?: string; args?: Record<string, unknown> } };
+    let o: {
+      type?: string;
+      message?: { content?: { type?: string; text?: string }[] };
+      event?: { type?: string; name?: string; args?: Record<string, unknown> };
+    };
     try {
       o = JSON.parse(line) as typeof o;
     } catch {
@@ -112,12 +117,19 @@ export class SessionStore {
 
   // ---- ingest -------------------------------------------------------------
 
-  async ingestKimiCode(homeDir: string): Promise<{ workspaces: number; sessions: number; textBytes: number }> {
+  async ingestKimiCode(
+    homeDir: string,
+  ): Promise<{ workspaces: number; sessions: number; textBytes: number }> {
     const wsRaw = JSON.parse(readFileSync(path.join(homeDir, 'workspaces.json'), 'utf8')) as {
-      workspaces?: Record<string, { name: string; root: string; created_at?: string; last_opened_at?: string }>;
+      workspaces?: Record<
+        string,
+        { name: string; root: string; created_at?: string; last_opened_at?: string }
+      >;
     };
     const workspaces = wsRaw.workspaces ?? {};
-    const lines = readFileSync(path.join(homeDir, 'session_index.jsonl'), 'utf8').trim().split('\n');
+    const lines = readFileSync(path.join(homeDir, 'session_index.jsonl'), 'utf8')
+      .trim()
+      .split('\n');
 
     let wsCount = 0;
     let sessCount = 0;
@@ -149,9 +161,12 @@ export class SessionStore {
       const wirePath = path.join(meta.sessionDir, 'agents', 'main', 'wire.jsonl');
       if (!existsSync(wirePath)) continue;
 
-      let state: { title?: string; lastPrompt?: string; createdAt?: string; updatedAt?: string } = {};
+      let state: { title?: string; lastPrompt?: string; createdAt?: string; updatedAt?: string } =
+        {};
       try {
-        state = JSON.parse(readFileSync(path.join(meta.sessionDir, 'state.json'), 'utf8')) as typeof state;
+        state = JSON.parse(
+          readFileSync(path.join(meta.sessionDir, 'state.json'), 'utf8'),
+        ) as typeof state;
       } catch {
         /* no state.json */
       }
@@ -193,20 +208,35 @@ export class SessionStore {
 
   // ---- 1. list workspaces (paginated, by lastOpenedAt desc) ---------------
 
-  listWorkspaces({ limit = 20, offset = 0 }: { limit?: number; offset?: number } = {}): Page<WorkspaceDoc & { id: string }> {
+  listWorkspaces({ limit = 20, offset = 0 }: { limit?: number; offset?: number } = {}): Page<
+    WorkspaceDoc & { id: string }
+  > {
     const all = this.db
       .prefix('ws:')
       .map((r) => ({ id: r.key.slice(3), ...(r.value as WorkspaceDoc), dt: r.dt }));
     all.sort((a, b) => (b.dt?.lastOpenedAt ?? 0) - (a.dt?.lastOpenedAt ?? 0));
-    const items = all.slice(offset, offset + limit).map(({ id, name, root }) => ({ id, name, root }));
-    return { items, hasMore: offset + limit < all.length, nextOffset: offset + limit < all.length ? offset + limit : null };
+    const items = all
+      .slice(offset, offset + limit)
+      .map(({ id, name, root }) => ({ id, name, root }));
+    return {
+      items,
+      hasMore: offset + limit < all.length,
+      nextOffset: offset + limit < all.length ? offset + limit : null,
+    };
   }
 
   // ---- 2. list sessions in a workspace (paginated, by updatedAt desc) -----
 
-  listSessions(workspaceId: string, { limit = 20, offset = 0 }: { limit?: number; offset?: number } = {}): Page<SessionHit> {
+  listSessions(
+    workspaceId: string,
+    { limit = 20, offset = 0 }: { limit?: number; offset?: number } = {},
+  ): Page<SessionHit> {
     // O(log N + limit): the compound index is already ordered by updatedAt.
-    const page = this.db.compoundRange('byWsUpdated', workspaceId, { reverse: true, offset, limit });
+    const page = this.db.compoundRange('byWsUpdated', workspaceId, {
+      reverse: true,
+      offset,
+      limit,
+    });
     const items: SessionHit[] = [];
     for (const r of page) {
       const rec = this.db.getRecord(r.key);
@@ -218,7 +248,11 @@ export class SessionStore {
       });
     }
     // hasMore: peek one more
-    const peek = this.db.compoundRange('byWsUpdated', workspaceId, { reverse: true, offset: offset + limit, limit: 1 });
+    const peek = this.db.compoundRange('byWsUpdated', workspaceId, {
+      reverse: true,
+      offset: offset + limit,
+      limit: 1,
+    });
     return { items, hasMore: peek.length > 0, nextOffset: peek.length > 0 ? offset + limit : null };
   }
 
@@ -249,7 +283,10 @@ export class SessionStore {
 
   // ---- 4. fuzzy search title / tool_call / content ------------------------
 
-  search(q: string, { workspaceId, limit = 20 }: { workspaceId?: string; limit?: number } = {}): (SessionHit & { score: number })[] {
+  search(
+    q: string,
+    { workspaceId, limit = 20 }: { workspaceId?: string; limit?: number } = {},
+  ): (SessionHit & { score: number })[] {
     if (workspaceId) {
       // text search intersected with workspace filter, ordered by updatedAt
       return this.db
@@ -259,7 +296,13 @@ export class SessionStore {
           sort: { updatedAt: -1 },
           limit,
         })
-        .map((r) => ({ sessionId: r.key.slice(5), ...(r.value as SessionDoc), updatedAt: r.dt?.updatedAt, createdAt: r.dt?.createdAt, score: 0 }));
+        .map((r) => ({
+          sessionId: r.key.slice(5),
+          ...(r.value as SessionDoc),
+          updatedAt: r.dt?.updatedAt,
+          createdAt: r.dt?.createdAt,
+          score: 0,
+        }));
     }
     return this.db.search('body', q, { limit }).map((r) => {
       const rec = this.db.getRecord(r.key);

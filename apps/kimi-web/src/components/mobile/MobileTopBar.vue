@@ -7,9 +7,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { WorkspaceView } from '../../types';
-import IconButton from '../ui/IconButton.vue';
 import Icon from '../ui/Icon.vue';
+import IconButton from '../ui/IconButton.vue';
 
 const { t } = useI18n();
 
@@ -46,9 +47,7 @@ const chip = computed<string>(() => {
 
 const wsName = computed<string>(() => props.workspace?.name ?? t('workspace.noWorkspace'));
 
-const statusText = computed<string>(() =>
-  props.running ? t('mobile.running') : t('mobile.idle'),
-);
+const statusText = computed<string>(() => (props.running ? t('mobile.running') : t('mobile.idle')));
 </script>
 
 <template>
@@ -73,7 +72,9 @@ const statusText = computed<string>(() =>
         <span class="rd" :class="{ on: running }" />
         <span>{{ statusText }}</span>
         <template v-if="branch"> · {{ branch }}</template>
-        <template v-if="sessionCount > 0"> · {{ t('mobile.sessionCount', { n: sessionCount }) }}</template>
+        <template v-if="sessionCount > 0">
+          · {{ t('mobile.sessionCount', { n: sessionCount }) }}</template
+        >
       </span>
     </button>
 
@@ -93,11 +94,7 @@ const statusText = computed<string>(() =>
     >
       <Icon name="git-fork" size="lg" />
     </IconButton>
-    <IconButton
-      size="lg"
-      :label="t('mobile.openSettings')"
-      @click="emit('openSettings')"
-    >
+    <IconButton size="lg" :label="t('mobile.openSettings')" @click="emit('openSettings')">
       <Icon name="sliders" size="lg" />
     </IconButton>
   </div>
@@ -159,8 +156,12 @@ const statusText = computed<string>(() =>
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tb-path .ws { color: var(--color-text); }
-.tb-path .sl { color: var(--color-text-faint); }
+.tb-path .ws {
+  color: var(--color-text);
+}
+.tb-path .sl {
+  color: var(--color-text-faint);
+}
 .tb-path .se {
   color: var(--color-text);
   font-weight: 500;
@@ -168,7 +169,10 @@ const statusText = computed<string>(() =>
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tb-path .cv { color: var(--color-text-faint); flex: none; }
+.tb-path .cv {
+  color: var(--color-text-faint);
+  flex: none;
+}
 
 .tb-sub {
   display: flex;
@@ -187,7 +191,11 @@ const statusText = computed<string>(() =>
   border-radius: var(--radius-full);
   background: var(--color-text-faint);
 }
-.tb-sub .rd.on { background: var(--color-success); }
+.tb-sub .rd.on {
+  background: var(--color-success);
+}
 
-.topbar .tb-path { font-family: var(--sans); }
+.topbar .tb-path {
+  font-family: var(--sans);
+}
 </style>

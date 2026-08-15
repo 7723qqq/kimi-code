@@ -18,15 +18,21 @@
  */
 
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+import { register } from 'node:module';
 import { join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { register } from 'node:module';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
 const SKIP_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'target', '.vite', '.cache',
-  'coverage', '__snapshots__',
+  'node_modules',
+  '.git',
+  'dist',
+  'target',
+  '.vite',
+  '.cache',
+  'coverage',
+  '__snapshots__',
 ]);
 
 // Module definitions
@@ -125,10 +131,9 @@ async function loadTSModule(p) {
     const mod = await import(fileUrl);
     return mod.default || mod;
   } catch (error) {
-    throw new Error(
-      `Cannot load ${p}: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
+    throw new Error(`Cannot load ${p}: ${error instanceof Error ? error.message : String(error)}`, {
+      cause: error,
+    });
   }
 }
 
@@ -234,7 +239,12 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
       // Skip single-word PascalCase values (likely command names or identifiers)
       if (/^[A-Z][a-z]+$/.test(plainValue) && plainValue.length < 15) continue;
       // Skip single words without spaces (likely identifiers, not display text)
-      if (!plainValue.includes(' ') && plainValue.length < 12 && !/[\u4E00-\u9FFF]/.test(plainValue)) continue;
+      if (
+        !plainValue.includes(' ') &&
+        plainValue.length < 12 &&
+        !/[\u4E00-\u9FFF]/.test(plainValue)
+      )
+        continue;
 
       // Build a regex from the value, escaping regex special chars
       const escaped = normalizedValue.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -244,9 +254,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
 
       if (valueRegex.test(trimmed)) {
         // Check if this string is already wrapped in t() or $t()
-        const tCallRegex = new RegExp(
-          `(?:\\bt\\(|\\$t\\(|t\\()['"\`]${fuzzyPattern}['"\`]`
-        );
+        const tCallRegex = new RegExp(`(?:\\bt\\(|\\$t\\(|t\\()['"\`]${fuzzyPattern}['"\`]`);
         if (tCallRegex.test(trimmed)) continue; // already using t()
 
         // Check if this line IS the locale definition itself
@@ -301,7 +309,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
     // ── Detection 3: String in chalk output context (kimi-code CLI) ──
     if (moduleInfo.name === 'kimi-code') {
       const chalkMatches = trimmed.matchAll(
-        /(?:chalk|dim|bold|italic|hex|gray)\(['"]([^'"]{5,})['"]\)/g
+        /(?:chalk|dim|bold|italic|hex|gray)\(['"]([^'"]{5,})['"]\)/g,
       );
       for (const cm of chalkMatches) {
         const str = cm[1].trim();
@@ -326,10 +334,10 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
 function looksLikeUserFacing(str) {
   if (str.length < 5) return false;
   // Skip internal identifiers
-  if (/^[A-Z][A-Z_]+$/.test(str)) return false;         // ALL_CAPS
+  if (/^[A-Z][A-Z_]+$/.test(str)) return false; // ALL_CAPS
   if (/^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$/.test(str) && str.length < 24) return false; // snake/kebab
   // Must start with a capital letter (English) or contain Chinese
-  return /^[A-Z]/.test(str) && /[a-z]/.test(str) || /[\u4E00-\u9FFF]/.test(str);
+  return (/^[A-Z]/.test(str) && /[a-z]/.test(str)) || /[\u4E00-\u9FFF]/.test(str);
 }
 
 function walkDir(dirPath, moduleInfo, valueToKeys) {
@@ -368,9 +376,7 @@ async function main() {
   const moduleFilter = args.find((a) => a.startsWith('--module='))?.split('=')[1];
   const outputFile = args.find((a) => a.startsWith('--output='))?.split('=')[1];
 
-  const modulesToScan = moduleFilter
-    ? MODULES.filter((m) => m.name === moduleFilter)
-    : MODULES;
+  const modulesToScan = moduleFilter ? MODULES.filter((m) => m.name === moduleFilter) : MODULES;
 
   if (modulesToScan.length === 0) {
     console.error(`Unknown module: ${moduleFilter}`);
@@ -391,7 +397,9 @@ async function main() {
     try {
       const localeData = await extractLocaleValues(mod);
       valueToKeys = localeData.valueToKeys;
-      console.log(`  en: ${localeData.enLeaves.length} keys, zh: ${localeData.zhLeaves.length} keys`);
+      console.log(
+        `  en: ${localeData.enLeaves.length} keys, zh: ${localeData.zhLeaves.length} keys`,
+      );
       console.log(`  ${valueToKeys.size} unique value patterns`);
     } catch (error) {
       console.error(`  Failed to load locales: ${error.message}`);

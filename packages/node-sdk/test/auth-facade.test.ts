@@ -127,13 +127,11 @@ describe('KimiHarness.auth', () => {
 
   it('preserves non-retryable OAuth refresh failures', async () => {
     const oauthError = new OAuthError('bad client id');
-    const tokenProviderSpy = vi
-      .spyOn(KimiOAuthToolkit.prototype, 'tokenProvider')
-      .mockReturnValue({
-        async getAccessToken() {
-          throw oauthError;
-        },
-      });
+    const tokenProviderSpy = vi.spyOn(KimiOAuthToolkit.prototype, 'tokenProvider').mockReturnValue({
+      async getAccessToken() {
+        throw oauthError;
+      },
+    });
     try {
       const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
@@ -714,10 +712,10 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
     const fetchMock = vi.fn<FetchMock>(async (input) => {
       const url = fetchInputUrl(input);
       if (url.endsWith('/usages')) {
-        return new Response(
-          JSON.stringify({ usage: { used: 2, limit: 10, name: 'Dev limit' } }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
+        return new Response(JSON.stringify({ usage: { used: 2, limit: 10, name: 'Dev limit' } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
       return new Response(JSON.stringify({ feedback_id: 3 }), {
         status: 200,
@@ -782,10 +780,10 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
     const fetchMock = vi.fn<FetchMock>(async (input) => {
       const url = fetchInputUrl(input);
       if (url.endsWith('/usages')) {
-        return new Response(
-          JSON.stringify({ usage: { used: 3, limit: 10, name: 'Env limit' } }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
+        return new Response(JSON.stringify({ usage: { used: 3, limit: 10, name: 'Env limit' } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
       return new Response(JSON.stringify({ feedback_id: 3 }), {
         status: 200,
@@ -834,11 +832,12 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
 
   it('submitFeedback maps camelCase input to snake_case body and posts with bearer auth', async () => {
     await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
-    const fetchMock = vi.fn<FetchMock>(async () =>
-      new Response(JSON.stringify({ feedback_id: 3 }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    const fetchMock = vi.fn<FetchMock>(
+      async () =>
+        new Response(JSON.stringify({ feedback_id: 3 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -877,23 +876,24 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
 
   it('createFeedbackUploadUrl maps SDK input and returns camelCase upload parts', async () => {
     await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
-    const fetchMock = vi.fn<FetchMock>(async () =>
-      new Response(
-        JSON.stringify({
-          upload: {
-            id: 28,
-            parts: [
-              {
-                part_number: 1,
-                url: 'https://upload.example.test/part-1',
-                method: 'PUT',
-                size: 1024,
-              },
-            ],
-          },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+    const fetchMock = vi.fn<FetchMock>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            upload: {
+              id: 28,
+              parts: [
+                {
+                  part_number: 1,
+                  url: 'https://upload.example.test/part-1',
+                  method: 'PUT',
+                  size: 1024,
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
     );
     vi.stubGlobal('fetch', fetchMock);
 

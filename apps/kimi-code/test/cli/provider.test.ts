@@ -4,9 +4,9 @@
  * a real harness or hitting the network.
  */
 
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { Command } from 'commander';
 import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
+import { Command } from 'commander';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import {
   handleCatalogAdd,
@@ -123,9 +123,8 @@ function makeDeps(
   const stderr: string[] = [];
   const exitCodes: number[] = [];
   const deps: ProviderDeps = {
-    getHarness: () => harness as unknown as ProviderDeps extends { getHarness: () => infer R }
-      ? R
-      : never,
+    getHarness: () =>
+      harness as unknown as ProviderDeps extends { getHarness: () => infer R } ? R : never,
     stdout: {
       write: (chunk: string) => {
         stdout.push(chunk);
@@ -252,9 +251,7 @@ describe('kimi provider add', () => {
     const { harness, current, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
     const { deps, stdout, stderr, exitCodes } = makeDeps(harness);
 
-    await tryRun(() =>
-      handleProviderAdd(deps, REGISTRY_URL, { apiKey: 'sk-test-token' }),
-    );
+    await tryRun(() => handleProviderAdd(deps, REGISTRY_URL, { apiKey: 'sk-test-token' }));
 
     expect(exitCodes).toEqual([]);
     expect(stderr.join('')).toBe('');
@@ -321,9 +318,7 @@ describe('kimi provider add', () => {
     const { harness, removeCalls, current } = makeHarness(initial);
     const { deps, exitCodes } = makeDeps(harness);
 
-    await tryRun(() =>
-      handleProviderAdd(deps, REGISTRY_URL, { apiKey: 'sk-new' }),
-    );
+    await tryRun(() => handleProviderAdd(deps, REGISTRY_URL, { apiKey: 'sk-new' }));
 
     expect(exitCodes).toEqual([]);
     expect(removeCalls).toContain('kohub');
@@ -359,9 +354,7 @@ describe('kimi provider add', () => {
     const { harness, current } = makeHarness(initial);
     const { deps, exitCodes } = makeDeps(harness);
 
-    await tryRun(() =>
-      handleProviderAdd(deps, REGISTRY_URL, { apiKey: 'sk-fresh' }),
-    );
+    await tryRun(() => handleProviderAdd(deps, REGISTRY_URL, { apiKey: 'sk-fresh' }));
 
     expect(exitCodes).toEqual([]);
     const final = current();
@@ -412,9 +405,7 @@ describe('kimi provider add', () => {
     const { harness } = makeHarness({ providers: {} } as KimiConfig);
     const { deps, stderr, exitCodes } = makeDeps(harness);
 
-    await tryRun(() =>
-      handleProviderAdd(deps, REGISTRY_URL, { apiKey: 'sk-bad' }),
-    );
+    await tryRun(() => handleProviderAdd(deps, REGISTRY_URL, { apiKey: 'sk-bad' }));
 
     expect(exitCodes).toEqual([1]);
     expect(stderr.join('')).toMatch(/HTTP 401/);
@@ -555,10 +546,9 @@ describe('registerProviderCommand', () => {
     expect(providerCmd?.description()).toMatch(/Manage LLM providers/i);
 
     await tryRun(() =>
-      program.parseAsync(
-        ['node', 'kimi', 'provider', 'add', REGISTRY_URL, '--api-key', 'sk-cli'],
-        { from: 'node' },
-      ),
+      program.parseAsync(['node', 'kimi', 'provider', 'add', REGISTRY_URL, '--api-key', 'sk-cli'], {
+        from: 'node',
+      }),
     );
 
     expect(exitCodes).toEqual([]);
@@ -698,9 +688,7 @@ describe('kimi provider catalog add', () => {
     const { harness, current, setConfigCalls } = makeHarness(initial);
     const { deps, stdout, exitCodes } = makeDeps(harness);
 
-    await tryRun(() =>
-      handleCatalogAdd(deps, 'anthropic', { apiKey: 'sk-ant-token' }),
-    );
+    await tryRun(() => handleCatalogAdd(deps, 'anthropic', { apiKey: 'sk-ant-token' }));
 
     expect(exitCodes).toEqual([]);
     const finalConfig = current();
@@ -790,9 +778,7 @@ describe('kimi provider catalog add', () => {
     const { harness, current } = makeHarness(initial);
     const { deps, exitCodes } = makeDeps(harness);
 
-    await tryRun(() =>
-      handleCatalogAdd(deps, 'anthropic', { apiKey: 'sk-rotated' }),
-    );
+    await tryRun(() => handleCatalogAdd(deps, 'anthropic', { apiKey: 'sk-rotated' }));
 
     expect(exitCodes).toEqual([]);
     expect(current().providers['anthropic']?.apiKey).toBe('sk-rotated');
@@ -887,9 +873,7 @@ describe('kimi provider catalog add', () => {
     const { harness, current } = makeHarness(initial);
     const { deps, exitCodes } = makeDeps(harness);
 
-    await tryRun(() =>
-      handleCatalogAdd(deps, 'anthropic', { apiKey: 'sk-rotated' }),
-    );
+    await tryRun(() => handleCatalogAdd(deps, 'anthropic', { apiKey: 'sk-rotated' }));
 
     expect(exitCodes).toEqual([]);
     // The legacy alias must have been replaced by the catalog's models.
@@ -1017,9 +1001,7 @@ describe('kimi provider catalog add', () => {
     const { harness } = makeHarness({ providers: {} } as KimiConfig);
     const { deps, stderr, exitCodes } = makeDeps(harness);
 
-    await tryRun(() =>
-      handleCatalogAdd(deps, 'no-such-id', { apiKey: 'sk-x' }),
-    );
+    await tryRun(() => handleCatalogAdd(deps, 'no-such-id', { apiKey: 'sk-x' }));
 
     expect(exitCodes).toEqual([1]);
     expect(stderr.join('')).toContain('Provider "no-such-id" not found in catalog');
@@ -1110,7 +1092,10 @@ describe('kimi provider catalog add', () => {
     expect(stderr.join('')).toContain('--base-url');
 
     await tryRun(() =>
-      handleCatalogAdd(deps, 'azure', { apiKey: 'sk-az', baseUrl: 'https://res.example.test/openai/v1' }),
+      handleCatalogAdd(deps, 'azure', {
+        apiKey: 'sk-az',
+        baseUrl: 'https://res.example.test/openai/v1',
+      }),
     );
     expect(current().providers['azure']).toMatchObject({
       type: 'openai',

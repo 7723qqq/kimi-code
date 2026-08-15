@@ -5,25 +5,25 @@
  * Run: pnpm --filter kimi-code exec vitest run --config vitest.config.ts test/replay-resume.integration.test.ts
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   createKimiHarness,
   type Event,
   type KimiHarness,
   type Session,
-} from "@moonshot-ai/kimi-code-sdk";
-import { afterEach, describe, expect, it } from "vitest";
+} from '@moonshot-ai/kimi-code-sdk';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   createFakeProviderHarness,
   type FakeProviderHarness,
-} from "../../../packages/kosong/test/e2e/fake-provider-harness";
-import { replaySessionToWebviewEvents } from "../src/runtime/replay-adapter";
+} from '../../../packages/kosong/test/e2e/fake-provider-harness';
+import { replaySessionToWebviewEvents } from '../src/runtime/replay-adapter';
 
-const MODEL_ALIAS = "vscode-replay-test";
+const MODEL_ALIAS = 'vscode-replay-test';
 
 interface ReplayRig {
   readonly rootDir: string;
@@ -39,27 +39,27 @@ afterEach(async () => {
 });
 
 async function createReplayRig(): Promise<ReplayRig> {
-  const rootDir = await mkdtemp(join(tmpdir(), "kimi-vscode-replay-"));
-  const homeDir = join(rootDir, "home");
-  const workDir = join(rootDir, "workspace");
+  const rootDir = await mkdtemp(join(tmpdir(), 'kimi-vscode-replay-'));
+  const homeDir = join(rootDir, 'home');
+  const workDir = join(rootDir, 'workspace');
   await Promise.all([mkdir(homeDir), mkdir(workDir)]);
   const provider = await createFakeProviderHarness();
   const harness = createKimiHarness({
     homeDir,
-    identity: { productName: "kimi-code-vscode", version: "test", platform: "kimi_code_vscode" },
+    identity: { productName: 'kimi-code-vscode', version: 'test', platform: 'kimi_code_vscode' },
   });
   await harness.setConfig({
     providers: {
       local: {
-        type: "kimi",
+        type: 'kimi',
         baseUrl: `${provider.baseUrl}/v1`,
-        apiKey: "sk-test",
+        apiKey: 'sk-test',
       },
     },
     models: {
       [MODEL_ALIAS]: {
-        provider: "local",
-        model: "mock-model",
+        provider: 'local',
+        model: 'mock-model',
         maxContextSize: 128_000,
       },
     },
@@ -84,10 +84,10 @@ function completionChunk(
   finishReason: string | null = null,
 ): Record<string, unknown> {
   return {
-    id: "chatcmpl-vscode-replay",
-    object: "chat.completion.chunk",
+    id: 'chatcmpl-vscode-replay',
+    object: 'chat.completion.chunk',
     created: 1,
-    model: "mock-model",
+    model: 'mock-model',
     choices: [{ index: 0, delta, finish_reason: finishReason }],
   };
 }
@@ -95,20 +95,17 @@ function completionChunk(
 async function runPrompt(session: Session, prompt: string): Promise<void> {
   const ended = waitForEvent(
     session,
-    (event) => event.type === "turn.ended" && event.agentId === "main",
+    (event) => event.type === 'turn.ended' && event.agentId === 'main',
   );
   await session.prompt(prompt);
   await ended;
 }
 
-function waitForEvent(
-  session: Session,
-  predicate: (event: Event) => boolean,
-): Promise<Event> {
+function waitForEvent(session: Session, predicate: (event: Event) => boolean): Promise<Event> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       unsubscribe();
-      reject(new Error("Timed out waiting for session event"));
+      reject(new Error('Timed out waiting for session event'));
     }, 5_000);
     const unsubscribe = session.onEvent((event) => {
       if (!predicate(event)) return;
@@ -119,13 +116,13 @@ function waitForEvent(
   });
 }
 
-describe("VS Code replay from a public Node SDK resume state", () => {
-  it("restores persisted file and todo displays", async () => {
+describe('VS Code replay from a public Node SDK resume state', () => {
+  it('restores persisted file and todo displays', async () => {
     const rig = await createReplayRig();
-    const filePath = join(rig.workDir, "sample.txt");
-    await writeFile(filePath, "before\n", "utf8");
+    const filePath = join(rig.workDir, 'sample.txt');
+    await writeFile(filePath, 'before\n', 'utf8');
     let requestCount = 0;
-    rig.provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+    rig.provider.route('POST', '/v1/chat/completions', async (_request, reply) => {
       requestCount += 1;
       if (requestCount === 1) {
         await reply.sseJson(200, [
@@ -133,64 +130,66 @@ describe("VS Code replay from a public Node SDK resume state", () => {
             tool_calls: [
               {
                 index: 0,
-                id: "edit-call-1",
-                type: "function",
+                id: 'edit-call-1',
+                type: 'function',
                 function: {
-                  name: "Edit",
+                  name: 'Edit',
                   arguments: JSON.stringify({
-                    path: "sample.txt",
-                    old_string: "before",
-                    new_string: "after",
+                    path: 'sample.txt',
+                    old_string: 'before',
+                    new_string: 'after',
                   }),
                 },
               },
               {
                 index: 1,
-                id: "write-call-1",
-                type: "function",
+                id: 'write-call-1',
+                type: 'function',
                 function: {
-                  name: "Write",
+                  name: 'Write',
                   arguments: JSON.stringify({
-                    path: "created.txt",
-                    content: "created content\n",
+                    path: 'created.txt',
+                    content: 'created content\n',
                   }),
                 },
               },
               {
                 index: 2,
-                id: "todo-call-1",
-                type: "function",
+                id: 'todo-call-1',
+                type: 'function',
                 function: {
-                  name: "TodoList",
+                  name: 'TodoList',
                   arguments: JSON.stringify({
-                    todos: [{
-                      id: "T1",
-                      parentId: null,
-                      title: "Verify resume",
-                      status: "done",
-                      description: "Verify resume works",
-                    }],
+                    todos: [
+                      {
+                        id: 'T1',
+                        parentId: null,
+                        title: 'Verify resume',
+                        status: 'done',
+                        description: 'Verify resume works',
+                      },
+                    ],
                   }),
                 },
               },
             ],
           }),
-          completionChunk({}, "tool_calls"),
+          completionChunk({}, 'tool_calls'),
         ]);
         return;
       }
       await reply.sseJson(200, [
-        completionChunk({ content: "Changes complete." }),
-        completionChunk({}, "stop"),
+        completionChunk({ content: 'Changes complete.' }),
+        completionChunk({}, 'stop'),
       ]);
     });
     const session = await rig.harness.createSession({
-      id: "ses_vscode_replay_displays",
+      id: 'ses_vscode_replay_displays',
       workDir: rig.workDir,
       model: MODEL_ALIAS,
     });
-    await session.setPermission("yolo");
-    await runPrompt(session, "Update the file and checklist");
+    await session.setPermission('yolo');
+    await runPrompt(session, 'Update the file and checklist');
     await session.close();
 
     const resumed = await rig.harness.resumeSession({
@@ -198,107 +197,115 @@ describe("VS Code replay from a public Node SDK resume state", () => {
       includeSubagents: true,
     });
     const state = resumed.getResumeState();
-    if (state === undefined) throw new Error("Expected public resume state");
+    if (state === undefined) throw new Error('Expected public resume state');
     const events = replaySessionToWebviewEvents(state, resumed.id);
 
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "ToolResult",
+        type: 'ToolResult',
         payload: expect.objectContaining({
-          tool_call_id: "write-call-1",
+          tool_call_id: 'write-call-1',
           return_value: expect.objectContaining({
-            display: [{
-              type: "diff",
-              path: join(rig.workDir, "created.txt").replaceAll("\\", "/"),
-              old_text: "",
-              new_text: "created content\n",
-            }],
-            output: [{ type: "text", text: "Wrote 16 bytes to created.txt" }],
+            display: [
+              {
+                type: 'diff',
+                path: join(rig.workDir, 'created.txt').replaceAll('\\', '/'),
+                old_text: '',
+                new_text: 'created content\n',
+              },
+            ],
+            output: [{ type: 'text', text: 'Wrote 16 bytes to created.txt' }],
           }),
         }),
       }),
     );
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "ToolResult",
+        type: 'ToolResult',
         payload: expect.objectContaining({
-          tool_call_id: "edit-call-1",
+          tool_call_id: 'edit-call-1',
           return_value: expect.objectContaining({
-            display: [{
-              type: "diff",
-              path: filePath.replaceAll("\\", "/"),
-              old_text: "before",
-              new_text: "after",
-            }],
-            output: [{ type: "text", text: "Replaced 1 occurrence in sample.txt" }],
+            display: [
+              {
+                type: 'diff',
+                path: filePath.replaceAll('\\', '/'),
+                old_text: 'before',
+                new_text: 'after',
+              },
+            ],
+            output: [{ type: 'text', text: 'Replaced 1 occurrence in sample.txt' }],
           }),
         }),
       }),
     );
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "ToolResult",
+        type: 'ToolResult',
         payload: expect.objectContaining({
-          tool_call_id: "todo-call-1",
+          tool_call_id: 'todo-call-1',
           return_value: expect.objectContaining({
-            display: [{
-              type: "todo",
-              items: [{ title: "Verify resume", status: "done" }],
-            }],
-            output: [{ type: "text", text: expect.stringContaining("Todo list updated.") }],
+            display: [
+              {
+                type: 'todo',
+                items: [{ title: 'Verify resume', status: 'done' }],
+              },
+            ],
+            output: [{ type: 'text', text: expect.stringContaining('Todo list updated.') }],
           }),
         }),
       }),
     );
   });
 
-  it("restores a child step under its original Agent tool call", async () => {
+  it('restores a child step under its original Agent tool call', async () => {
     const rig = await createReplayRig();
-    const childAnswer = `Subagent restored evidence. ${"Detailed persisted finding. ".repeat(10)}`;
+    const childAnswer = `Subagent restored evidence. ${'Detailed persisted finding. '.repeat(10)}`;
     let requestCount = 0;
-    rig.provider.route("POST", "/v1/chat/completions", async (_request, reply) => {
+    rig.provider.route('POST', '/v1/chat/completions', async (_request, reply) => {
       requestCount += 1;
       if (requestCount === 1) {
         await reply.sseJson(200, [
           completionChunk({
-            tool_calls: [{
-              index: 0,
-              id: "agent-call-1",
-              type: "function",
-              function: {
-                name: "Agent",
-                arguments: JSON.stringify({
-                  prompt: "Inspect the workspace and report one finding.",
-                  description: "inspect workspace",
-                  subagent_type: "coder",
-                  run_in_background: false,
-                }),
+            tool_calls: [
+              {
+                index: 0,
+                id: 'agent-call-1',
+                type: 'function',
+                function: {
+                  name: 'Agent',
+                  arguments: JSON.stringify({
+                    prompt: 'Inspect the workspace and report one finding.',
+                    description: 'inspect workspace',
+                    subagent_type: 'coder',
+                    run_in_background: false,
+                  }),
+                },
               },
-            }],
+            ],
           }),
-          completionChunk({}, "tool_calls"),
+          completionChunk({}, 'tool_calls'),
         ]);
         return;
       }
       if (requestCount === 2) {
         await reply.sseJson(200, [
           completionChunk({ content: childAnswer }),
-          completionChunk({}, "stop"),
+          completionChunk({}, 'stop'),
         ]);
         return;
       }
       await reply.sseJson(200, [
-        completionChunk({ content: "Parent received the finding." }),
-        completionChunk({}, "stop"),
+        completionChunk({ content: 'Parent received the finding.' }),
+        completionChunk({}, 'stop'),
       ]);
     });
     const session = await rig.harness.createSession({
-      id: "ses_vscode_replay_subagent",
+      id: 'ses_vscode_replay_subagent',
       workDir: rig.workDir,
       model: MODEL_ALIAS,
     });
-    await session.setPermission("yolo");
-    await runPrompt(session, "Delegate this inspection");
+    await session.setPermission('yolo');
+    await runPrompt(session, 'Delegate this inspection');
     await session.close();
 
     const resumed = await rig.harness.resumeSession({
@@ -306,24 +313,24 @@ describe("VS Code replay from a public Node SDK resume state", () => {
       includeSubagents: true,
     });
     const state = resumed.getResumeState();
-    if (state === undefined) throw new Error("Expected public resume state");
+    if (state === undefined) throw new Error('Expected public resume state');
     const events = replaySessionToWebviewEvents(state, resumed.id);
 
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "SubagentEvent",
+        type: 'SubagentEvent',
         payload: {
-          parent_tool_call_id: "agent-call-1",
-          event: { type: "StepBegin", payload: { n: 1 } },
+          parent_tool_call_id: 'agent-call-1',
+          event: { type: 'StepBegin', payload: { n: 1 } },
         },
       }),
     );
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "SubagentEvent",
+        type: 'SubagentEvent',
         payload: {
-          parent_tool_call_id: "agent-call-1",
-          event: { type: "ContentPart", payload: { type: "text", text: childAnswer } },
+          parent_tool_call_id: 'agent-call-1',
+          event: { type: 'ContentPart', payload: { type: 'text', text: childAnswer } },
         },
       }),
     );

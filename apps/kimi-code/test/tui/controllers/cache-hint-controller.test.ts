@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  CacheHintController,
-  type CacheHintHost,
-} from '#/tui/controllers/cache-hint-controller';
+import { CacheHintController, type CacheHintHost } from '#/tui/controllers/cache-hint-controller';
 import type { CacheHintConfig } from '#/utils/cache-hint-config';
 
 const peekMock = vi.fn<() => CacheHintConfig | undefined>(() => undefined);
@@ -448,7 +445,12 @@ describe('CacheHintController cache-break detection', () => {
     const controller = new CacheHintController(host);
     controller.noteStepUsage(u(10000));
     controller.noteStepUsage(undefined);
-    controller.noteStepUsage({ inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 });
+    controller.noteStepUsage({
+      inputOther: 0,
+      output: 0,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+    });
     controller.noteStepUsage(u(5000));
     expect(host.track).toHaveBeenCalledWith(
       'cache_break_detected',

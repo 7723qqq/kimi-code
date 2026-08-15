@@ -1,3 +1,15 @@
+import {
+  resolveMigrationScope,
+  runMigration as realRunMigration,
+  type AnyChoice,
+  type MigrationPlan,
+  type MigrationPromptResult,
+  type MigrationReport,
+  type MigrationScope,
+  type Prompt1Choice,
+  type Prompt2Choice,
+  type RunMigrationInput,
+} from '@moonshot-ai/migration-legacy';
 /**
  * MigrationScreenComponent — native pi-tui first-launch migration experience.
  *
@@ -14,21 +26,9 @@
 import { Container, matchesKey, Key, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
-import type { ColorPalette } from '#/tui/theme/colors';
-import { currentTheme } from '#/tui/theme';
 import { t } from '#/i18n';
-import {
-  resolveMigrationScope,
-  runMigration as realRunMigration,
-  type AnyChoice,
-  type MigrationPlan,
-  type MigrationPromptResult,
-  type MigrationReport,
-  type MigrationScope,
-  type Prompt1Choice,
-  type Prompt2Choice,
-  type RunMigrationInput,
-} from '@moonshot-ai/migration-legacy';
+import { currentTheme } from '#/tui/theme';
+import type { ColorPalette } from '#/tui/theme/colors';
 
 type Phase = 'ask1' | 'ask2' | 'progress' | 'result';
 
@@ -288,7 +288,11 @@ export class MigrationScreenComponent extends Container implements Focusable {
       lines.push(chalk.hex(colors.error).bold(t('tui.migration.failed')));
       if (this.migrationFailureReason !== undefined) {
         lines.push('');
-        lines.push(chalk.hex(colors.text)(t('tui.migration.reason', { reason: this.migrationFailureReason })));
+        lines.push(
+          chalk.hex(colors.text)(
+            t('tui.migration.reason', { reason: this.migrationFailureReason }),
+          ),
+        );
       }
       lines.push('');
       lines.push(chalk.hex(colors.text)(t('tui.migration.retryHint')));
@@ -304,7 +308,9 @@ export class MigrationScreenComponent extends Container implements Focusable {
       const sum = r.summary;
       if (sum.sessions.sessionsMigrated > 0) {
         lines.push(
-          chalk.hex(colors.success)(t('tui.migration.sessionsMigrated', { count: String(sum.sessions.sessionsMigrated) })),
+          chalk.hex(colors.success)(
+            t('tui.migration.sessionsMigrated', { count: String(sum.sessions.sessionsMigrated) }),
+          ),
         );
       }
       // Only claim a data class was migrated when the summary says it was —
@@ -316,7 +322,11 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (sum.userHistory.copied > 0) migratedKinds.push(t('tui.migration.stepLabelReplHistory'));
       if (sum.skills.copied > 0) migratedKinds.push('skills');
       if (migratedKinds.length > 0) {
-        lines.push(chalk.hex(colors.success)(t('tui.migration.kindsMigrated', { kinds: migratedKinds.join(' · ') })));
+        lines.push(
+          chalk.hex(colors.success)(
+            t('tui.migration.kindsMigrated', { kinds: migratedKinds.join(' · ') }),
+          ),
+        );
       }
       if (sum.sessions.sessionsMigrated === 0 && migratedKinds.length === 0) {
         lines.push(chalk.hex(colors.textMuted)(t('tui.migration.skipped')));
@@ -324,7 +334,9 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (r.notices.detectedPlugins.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            t('tui.migration.pluginsNotSupported', { count: String(r.notices.detectedPlugins.length) }),
+            t('tui.migration.pluginsNotSupported', {
+              count: String(r.notices.detectedPlugins.length),
+            }),
           ),
         );
       }
@@ -338,16 +350,15 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (sum.config.configConflicts.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            t('tui.migration.configConflicts', { count: String(sum.config.configConflicts.length), keys: sum.config.configConflicts.join(' · ') }),
+            t('tui.migration.configConflicts', {
+              count: String(sum.config.configConflicts.length),
+              keys: sum.config.configConflicts.join(' · '),
+            }),
           ),
         );
       }
       if (sum.config.wroteSiblingDueToConflict) {
-        lines.push(
-          chalk.hex(colors.warning)(
-            t('tui.migration.configParseError'),
-          ),
-        );
+        lines.push(chalk.hex(colors.warning)(t('tui.migration.configParseError')));
         const sc = sum.config.siblingContents;
         const items: string[] = [];
         if (sc.providers.length > 0) {
@@ -360,41 +371,41 @@ export class MigrationScreenComponent extends Container implements Focusable {
           items.push(`${sc.hooks} hook${sc.hooks === 1 ? '' : 's'}`);
         }
         if (items.length > 0) {
-          lines.push(chalk.hex(colors.warning)(t('tui.migration.contains', { items: items.join(', ') })));
+          lines.push(
+            chalk.hex(colors.warning)(t('tui.migration.contains', { items: items.join(', ') })),
+          );
         }
       }
       if (sum.config.wroteTuiSibling) {
-        lines.push(
-          chalk.hex(colors.warning)(
-            t('tui.migration.tuiConflict'),
-          ),
-        );
+        lines.push(chalk.hex(colors.warning)(t('tui.migration.tuiConflict')));
       }
       if (sum.mcp.wroteSiblingDueToConflict) {
-        lines.push(
-          chalk.hex(colors.warning)(
-            t('tui.migration.mcpUnreadable'),
-          ),
-        );
+        lines.push(chalk.hex(colors.warning)(t('tui.migration.mcpUnreadable')));
       }
       if (r.notices.mcpOauthServersRequiringReauth.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            t('tui.migration.mcpNeedsAuth', { count: String(r.notices.mcpOauthServersRequiringReauth.length) }),
+            t('tui.migration.mcpNeedsAuth', {
+              count: String(r.notices.mcpOauthServersRequiringReauth.length),
+            }),
           ),
         );
       }
       if (sum.sessions.sessionsFailed.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            t('tui.migration.sessionsFailed', { count: String(sum.sessions.sessionsFailed.length) }),
+            t('tui.migration.sessionsFailed', {
+              count: String(sum.sessions.sessionsFailed.length),
+            }),
           ),
         );
       }
       if (sum.sessions.sessionsConflicts.length > 0) {
         lines.push(
           chalk.hex(colors.warning)(
-            t('tui.migration.sessionsSkipped', { count: String(sum.sessions.sessionsConflicts.length) }),
+            t('tui.migration.sessionsSkipped', {
+              count: String(sum.sessions.sessionsConflicts.length),
+            }),
           ),
         );
       }
@@ -403,14 +414,14 @@ export class MigrationScreenComponent extends Container implements Focusable {
       if (sum.sessions.sessionsSkippedEmpty > 0) {
         lines.push(
           chalk.hex(colors.textMuted)(
-            t('tui.migration.emptySessionsSkipped', { count: String(sum.sessions.sessionsSkippedEmpty) }),
+            t('tui.migration.emptySessionsSkipped', {
+              count: String(sum.sessions.sessionsSkippedEmpty),
+            }),
           ),
         );
       }
       lines.push('');
-      lines.push(
-        chalk.hex(colors.textMuted)(t('tui.migration.oldDataKept')),
-      );
+      lines.push(chalk.hex(colors.textMuted)(t('tui.migration.oldDataKept')));
     }
     lines.push('');
     lines.push(chalk.hex(colors.textMuted)(t('tui.migration.continueHint')));
@@ -430,7 +441,10 @@ export class MigrationScreenComponent extends Container implements Focusable {
       lines.push(
         chalk.hex(colors.accent)(`  ${spinner}  `) +
           chalk.hex(colors.text)(
-            t('tui.migration.progressTranslating', { done: String(this.progressDone), total: String(this.progressTotal) }),
+            t('tui.migration.progressTranslating', {
+              done: String(this.progressDone),
+              total: String(this.progressTotal),
+            }),
           ),
       );
       lines.push('');
@@ -438,9 +452,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
     for (const [key, label] of stepLabels()) {
       const status = this.stepStatus.get(key) ?? 'pending';
       const mark =
-        status === 'done'
-          ? chalk.hex(colors.success)('✓')
-          : chalk.hex(colors.textDim)('◐');
+        status === 'done' ? chalk.hex(colors.success)('✓') : chalk.hex(colors.textDim)('◐');
       lines.push(`  ${mark} ${chalk.hex(colors.text)(label)}`);
     }
     lines.push('');
@@ -469,14 +481,15 @@ export class MigrationScreenComponent extends Container implements Focusable {
       const pointer = isSel ? '❯' : ' ';
       const labelStyle = isSel ? chalk.hex(colors.primary).bold : chalk.hex(colors.text);
       lines.push(
-        chalk.hex(isSel ? colors.primary : colors.textDim)(`  ${pointer} `) +
-          labelStyle(opt.label),
+        chalk.hex(isSel ? colors.primary : colors.textDim)(`  ${pointer} `) + labelStyle(opt.label),
       );
     }
     lines.push('');
     lines.push(
       chalk.hex(colors.textMuted)(
-        t('tui.migration.navHintAsk', { action: this.opts.skipDecisionStep === true ? 'cancel' : 'later' }),
+        t('tui.migration.navHintAsk', {
+          action: this.opts.skipDecisionStep === true ? 'cancel' : 'later',
+        }),
       ),
     );
     lines.push(chalk.hex(colors.primary)('─'.repeat(width)));

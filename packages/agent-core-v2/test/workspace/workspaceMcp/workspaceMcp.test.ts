@@ -12,39 +12,42 @@
 import { mkdtempSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
+import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
+import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
-import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { McpConnectionManager } from '#/mcpCore/connection-manager';
+import { IMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
+import { McpConnectionManager } from '#/mcpCore/connection-manager';
 import { ISessionEphemeralMcpServers } from '#/session/mcp/ephemeralMcpServers';
 import { MergedMcpConnectionView } from '#/session/mcp/mergedConnectionView';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import { IMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import {
   ISessionLifecycleService,
   type SessionWillCreateEvent,
 } from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import {
+  IWorkspaceMcpService,
+  type ISessionMcpOverlay,
+} from '#/workspace/workspaceMcp/workspaceMcp';
+import { WorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcpService';
 import {
   IWorkspaceMcpConfigService,
   type McpServersChange,
   type McpTunables,
 } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
-import { IWorkspaceMcpService, type ISessionMcpOverlay } from '#/workspace/workspaceMcp/workspaceMcp';
-import { WorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcpService';
 
 import { stubLog } from '../../_base/log/stubs';
-import { createMemoryMcpOAuthStore, stdioFixture } from '../../mcpCore/stubs';
 import { registerAgentIdentityStub } from '../../app/agentIdentity/stubs';
+import { createMemoryMcpOAuthStore, stdioFixture } from '../../mcpCore/stubs';
 
 function stdioServer(): McpServerConfig {
   return { transport: 'stdio', command: process.execPath, args: [stdioFixture] };
@@ -109,9 +112,7 @@ describe('WorkspaceMcpService', () => {
 
   it('connects the config snapshot in the initial load', async () => {
     current = { alpha: stdioServer(), beta: stdioServer() };
-    const connectAll = vi
-      .spyOn(McpConnectionManager.prototype, 'connectAll')
-      .mockResolvedValue();
+    const connectAll = vi.spyOn(McpConnectionManager.prototype, 'connectAll').mockResolvedValue();
 
     const service = createService();
     manager = service.connectionManager();
@@ -328,7 +329,7 @@ describe('WorkspaceMcpService', () => {
       const disposers: Array<() => void> = [];
       const event: SessionWillCreateEvent = {
         sessionId: 's1',
-        readSeed: <T,>(id: ServiceIdentifier<T>): T => seeds.get(id) as T,
+        readSeed: <T>(id: ServiceIdentifier<T>): T => seeds.get(id) as T,
         contributeSeed: (id, value) => {
           contributed.set(id, value);
         },
@@ -412,11 +413,12 @@ describe('MergedMcpConnectionView', () => {
     await overlay.connect('eph', disabledStdio('eph-cmd'));
     const view = new MergedMcpConnectionView(base, overlay, new Set(['shared', 'eph']));
 
-    expect(view.list().map((entry) => entry.name).toSorted()).toEqual([
-      'base-only',
-      'eph',
-      'shared',
-    ]);
+    expect(
+      view
+        .list()
+        .map((entry) => entry.name)
+        .toSorted(),
+    ).toEqual(['base-only', 'eph', 'shared']);
     expect(view.get('shared')?.transport).toBe('http');
     expect(view.get('base-only')?.transport).toBe('stdio');
 

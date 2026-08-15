@@ -7,61 +7,18 @@
  * test/app/config/config.test.ts`.
  */
 
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ToolCall } from '#/kosong/contract/message';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+
 import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
-import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import {
-  Error2,
-  ErrorCodes,
-  isError2,
-  resetUnexpectedErrorHandler,
-  setUnexpectedErrorHandler,
-  toErrorPayload,
-} from '#/errors';
-import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
-import { createTestAgent, type TestAgentContext } from '../../harness';
-import { DEFAULT_TEST_SYSTEM_PROMPT } from '../../harness/snapshots';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator, type ProvideHandle } from '#/_base/di/instantiation';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import {
-  type ConfigSchema,
-  ConfigTarget,
-  IConfigRegistry,
-  IConfigService,
-  type RegisterSectionOptions,
-} from '#/app/config/config';
-import { ConfigRegistry, ConfigService } from '#/app/config/configService';
-import { ConfigSectionContribution } from '#/app/config/configSectionContributions';
-import '#/app/cron/configSection';
-import type { CronConfig } from '#/app/cron/configSection';
-import '#/app/skillCatalog/configSection';
-import { BUILTIN_PRODUCT_SKILLS_SECTION } from '#/app/skillCatalog/configSection';
-import {
-  EXTRA_SKILL_DIRS_SECTION,
-  MERGE_ALL_AVAILABLE_SKILLS_SECTION,
-} from '#/app/skillCatalog/configSection';
-import '#/agent/permissionMode/configSection';
-import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
-import '#/agent/media/configSection';
-import { IMAGE_SECTION, type ImageConfig } from '#/agent/media/configSection';
-import '#/agent/tokenCounting/configSection';
-import {
-  TOKEN_COUNTING_SECTION,
-  TOKEN_COUNTING_STRATEGY_ENV,
-  type TokenCountingConfig,
-} from '#/agent/tokenCounting/configSection';
-import '#/agent/loop/configSection';
+import { ILogService } from '#/_base/log/log';
 import {
   LOOP_CONTROL_SECTION,
   LOOP_MAX_ATTEMPTS_PER_STEP_ENV,
@@ -69,13 +26,9 @@ import {
   LOOP_MAX_STEPS_PER_TURN_ENV,
   type LoopControl,
 } from '#/agent/loop/configSection';
-import {
-  DEFAULT_MODEL_SECTION,
-  MODELS_SECTION,
-  PROVIDERS_SECTION,
-  THINKING_SECTION,
-} from '#/app/kosongConfig/configSection';
-import { type ThinkingConfig } from '#/kosong/model/thinking';
+import { IMAGE_SECTION, type ImageConfig } from '#/agent/media/configSection';
+import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
+import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
 import {
   KEEP_ALIVE_ON_EXIT_ENV,
   MAX_RUNNING_TASKS_ENV,
@@ -84,7 +37,72 @@ import {
   type AgentTaskConfig,
 } from '#/agent/task/configSection';
 import { applyPrintModeConfigDefaults } from '#/agent/task/printDefaults';
+import {
+  TOKEN_COUNTING_SECTION,
+  TOKEN_COUNTING_STRATEGY_ENV,
+  type TokenCountingConfig,
+} from '#/agent/tokenCounting/configSection';
+import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import {
+  SERVICES_SECTION,
+  WEB_FETCH_API_KEY_ENV,
+  WEB_FETCH_BASE_URL_ENV,
+  WEB_SEARCH_API_KEY_ENV,
+  WEB_SEARCH_BASE_URL_ENV,
+  type ServicesConfig,
+} from '#/app/auth/configSection';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import {
+  type ConfigSchema,
+  ConfigTarget,
+  IConfigRegistry,
+  IConfigService,
+  type RegisterSectionOptions,
+} from '#/app/config/config';
+import '#/app/cron/configSection';
+import { ConfigSectionContribution } from '#/app/config/configSectionContributions';
+import '#/app/skillCatalog/configSection';
+import { ConfigRegistry, ConfigService } from '#/app/config/configService';
+import type { CronConfig } from '#/app/cron/configSection';
+import '#/agent/permissionMode/configSection';
+import {
+  DEFAULT_MODEL_SECTION,
+  MODELS_SECTION,
+  PROVIDERS_SECTION,
+  THINKING_SECTION,
+} from '#/app/kosongConfig/configSection';
+import '#/agent/media/configSection';
+import {
+  MCP_SECTION,
+  MCP_STARTUP_TIMEOUT_ENV,
+  MCP_TOOL_TIMEOUT_ENV,
+  McpSectionSchema,
+  type McpSection,
+} from '#/app/mcpConfig/configSection';
+import '#/agent/tokenCounting/configSection';
+import { BUILTIN_PRODUCT_SKILLS_SECTION } from '#/app/skillCatalog/configSection';
+import '#/agent/loop/configSection';
+import {
+  EXTRA_SKILL_DIRS_SECTION,
+  MERGE_ALL_AVAILABLE_SKILLS_SECTION,
+} from '#/app/skillCatalog/configSection';
+import {
+  Error2,
+  ErrorCodes,
+  isError2,
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+  toErrorPayload,
+} from '#/errors';
+import type { ModelCapability } from '#/kosong/contract/capability';
+import type { ToolCall } from '#/kosong/contract/message';
+import { type ThinkingConfig } from '#/kosong/model/thinking';
 import '#/session/subagent/configSection';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import '#/app/mcpConfig/configSection';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
   resolveSubagentBinding,
@@ -98,29 +116,12 @@ import {
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
 import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
-import {
-  SERVICES_SECTION,
-  WEB_FETCH_API_KEY_ENV,
-  WEB_FETCH_BASE_URL_ENV,
-  WEB_SEARCH_API_KEY_ENV,
-  WEB_SEARCH_BASE_URL_ENV,
-  type ServicesConfig,
-} from '#/app/auth/configSection';
-import '#/app/mcpConfig/configSection';
-import {
-  MCP_SECTION,
-  MCP_STARTUP_TIMEOUT_ENV,
-  MCP_TOOL_TIMEOUT_ENV,
-  McpSectionSchema,
-  type McpSection,
-} from '#/app/mcpConfig/configSection';
-import { ILogService } from '#/_base/log/log';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import { stubBootstrap } from '../bootstrap/stubs';
+import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
+
 import { stubLog } from '../../_base/log/stubs';
+import { createTestAgent, type TestAgentContext } from '../../harness';
+import { DEFAULT_TEST_SYSTEM_PROMPT } from '../../harness/snapshots';
+import { stubBootstrap } from '../bootstrap/stubs';
 import { stubFlag } from '../flag/stubs';
 
 function secondaryModelFlags(enabled = true) {
@@ -765,9 +766,10 @@ describe('image config section', () => {
     expect(section?.defaultValue).toEqual({});
 
     expect(registry.validate(IMAGE_SECTION, {})).toEqual({});
-    expect(
-      registry.validate(IMAGE_SECTION, { maxEdgePx: 1500, readByteBudget: 131072 }),
-    ).toEqual({ maxEdgePx: 1500, readByteBudget: 131072 });
+    expect(registry.validate(IMAGE_SECTION, { maxEdgePx: 1500, readByteBudget: 131072 })).toEqual({
+      maxEdgePx: 1500,
+      readByteBudget: 131072,
+    });
     expect(registry.validate(IMAGE_SECTION, { maxEdgePx: 1500 })).toEqual({ maxEdgePx: 1500 });
     expect(() => registry.validate(IMAGE_SECTION, { maxEdgePx: 0 })).toThrow();
     expect(() => registry.validate(IMAGE_SECTION, { readByteBudget: 1.5 })).toThrow();
@@ -806,7 +808,7 @@ describe('image config section', () => {
   });
 
   it('restores env-owned fields to the raw value on set() while the env var is set', async () => {
-    const env: Record<string, string> = { 'KIMI_IMAGE_MAX_EDGE_PX': '1500' };
+    const env: Record<string, string> = { KIMI_IMAGE_MAX_EDGE_PX: '1500' };
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
     const storage = new InMemoryStorageService();
@@ -1383,9 +1385,7 @@ describe('task config section', () => {
     await storage.write(
       '',
       'config.toml',
-      new TextEncoder().encode(
-        '[background]\nmax_running_tasks = 3\nkill_grace_period_ms = 25\n',
-      ),
+      new TextEncoder().encode('[background]\nmax_running_tasks = 3\nkill_grace_period_ms = 25\n'),
     );
     ix.stub(ILogService, stubLog());
     ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
@@ -1522,9 +1522,7 @@ describe('task config section', () => {
     );
     expect(config.get<AgentTaskConfig>('task')?.printBackgroundMode).toBeUndefined();
     expect(
-      config
-        .diagnostics()
-        .some((d) => d.message.includes("Ignored invalid config section 'task'")),
+      config.diagnostics().some((d) => d.message.includes("Ignored invalid config section 'task'")),
     ).toBe(true);
     disposables.dispose();
   });
@@ -1765,7 +1763,9 @@ describe('subagent config section', () => {
       thinking: undefined,
     });
     // A pool alias binds directly.
-    expect(resolveSubagentBinding(pool.config, secondaryModelFlags(), own, 'provider/smart')).toEqual({
+    expect(
+      resolveSubagentBinding(pool.config, secondaryModelFlags(), own, 'provider/smart'),
+    ).toEqual({
       model: 'provider/smart',
       thinking: undefined,
     });
@@ -1815,9 +1815,9 @@ describe('subagent config section', () => {
       model: 'provider/main',
       thinking: 'medium',
     });
-    expect(() => resolveSubagentBinding(config, secondaryModelFlags(), own, 'provider/smart')).toThrow(
-      /Invalid model "provider\/smart"\. Available models: provider\/fast, primary\./,
-    );
+    expect(() =>
+      resolveSubagentBinding(config, secondaryModelFlags(), own, 'provider/smart'),
+    ).toThrow(/Invalid model "provider\/smart"\. Available models: provider\/fast, primary\./);
 
     disposables.dispose();
   });
@@ -1845,9 +1845,9 @@ describe('subagent config section', () => {
       model: 'provider/fast',
       thinking: undefined,
     });
-    expect(() => resolveSubagentBinding(config, secondaryModelFlags(), own, 'provider/smart')).toThrow(
-      /Invalid model "provider\/smart"\. Available models: provider\/fast, primary\./,
-    );
+    expect(() =>
+      resolveSubagentBinding(config, secondaryModelFlags(), own, 'provider/smart'),
+    ).toThrow(/Invalid model "provider\/smart"\. Available models: provider\/fast, primary\./);
 
     disposables.dispose();
   });
@@ -1991,9 +1991,9 @@ describe('subagent config section', () => {
     const own = { modelAlias: 'provider/main', thinkingLevel: 'medium' };
     const { config, disposables } = await createConfig({});
 
-    expect(() => resolveSubagentBinding(config, secondaryModelFlags(), own, 'provider/fast')).toThrow(
-      /Invalid model "provider\/fast": no \[secondary_model\.models\] pool is configured/,
-    );
+    expect(() =>
+      resolveSubagentBinding(config, secondaryModelFlags(), own, 'provider/fast'),
+    ).toThrow(/Invalid model "provider\/fast": no \[secondary_model\.models\] pool is configured/);
 
     disposables.dispose();
   });

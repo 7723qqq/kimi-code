@@ -3,4 +3,8 @@
  * from the open-websearch project (`engines/web`). Request mode only.
  */
 
-export { fetchWebContent, type FetchWebContentOptions, type FetchWebContentResult } from './fetchWebContent';
+export {
+  fetchWebContent,
+  type FetchWebContentOptions,
+  type FetchWebContentResult,
+} from './fetchWebContent';

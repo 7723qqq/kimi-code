@@ -17,6 +17,7 @@
  */
 
 import { t } from '@moonshot-ai/kimi-i18n';
+
 import { CoreErrors, registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 import { Error2, isError2 } from '#/_base/errors/errors';
 import {

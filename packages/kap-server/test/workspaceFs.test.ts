@@ -5,8 +5,8 @@ import { join, parse } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -326,10 +326,7 @@ describe('server-v2 /api/v1 fs:content', () => {
     return `${base}/api/v1/fs:content?path=${encodeURIComponent(path)}`;
   }
 
-  async function getContent(
-    path: string,
-    headers: Record<string, string> = {},
-  ): Promise<Response> {
+  async function getContent(path: string, headers: Record<string, string> = {}): Promise<Response> {
     // `connection: close` keeps every fetch on its own short-lived socket so
     // undici never pools an idle keep-alive connection that would hold
     // `server.close()` open in afterEach.

@@ -4,21 +4,24 @@
      IconButton pinned to the right. Replaces the per-panel hand-rolled headers
      (.tp-header / .ap-header / .tdp-header / .dv-panel-head / .sc-header …). -->
 <script setup lang="ts">
-import IconButton from './IconButton.vue';
 import Icon from './Icon.vue';
+import IconButton from './IconButton.vue';
 import Tooltip from './Tooltip.vue';
 
-withDefaults(defineProps<{
-  title: string;
-  subtitle?: string;
-  closable?: boolean;
-  closeLabel?: string;
-  /** Allow middle content to wrap to extra rows (e.g. FilePreview's many controls). */
-  wrap?: boolean;
-}>(), {
-  closable: true,
-  closeLabel: 'Close',
-});
+withDefaults(
+  defineProps<{
+    title: string;
+    subtitle?: string;
+    closable?: boolean;
+    closeLabel?: string;
+    /** Allow middle content to wrap to extra rows (e.g. FilePreview's many controls). */
+    wrap?: boolean;
+  }>(),
+  {
+    closable: true,
+    closeLabel: 'Close',
+  },
+);
 
 defineEmits<{ close: [] }>();
 </script>

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { RETRY_DETAIL_MAX_CHARS } from '#/tui/constant/rendering';
-import { formatStepRetryDetail, formatStepRetryLabel } from '#/tui/utils/step-retry';
 import type { StepRetryState } from '#/tui/types';
+import { formatStepRetryDetail, formatStepRetryLabel } from '#/tui/utils/step-retry';
 
 function retry(partial: Partial<StepRetryState> = {}): StepRetryState {
   return {
@@ -41,7 +41,11 @@ describe('formatStepRetryDetail', () => {
   it('omits the status code for network/timeout failures', () => {
     expect(
       formatStepRetryDetail(
-        retry({ errorName: 'APIConnectionError', errorMessage: 'fetch failed', statusCode: undefined }),
+        retry({
+          errorName: 'APIConnectionError',
+          errorMessage: 'fetch failed',
+          statusCode: undefined,
+        }),
       ),
     ).toBe('fetch failed');
   });

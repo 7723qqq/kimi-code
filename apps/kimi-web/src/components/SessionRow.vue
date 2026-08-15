@@ -4,14 +4,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { Session } from '../types';
+
 import { copyTextToClipboard } from '../lib/clipboard';
-import Spinner from './ui/Spinner.vue';
+import type { Session } from '../types';
 import Badge from './ui/Badge.vue';
+import Icon from './ui/Icon.vue';
 import IconButton from './ui/IconButton.vue';
 import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
-import Icon from './ui/Icon.vue';
+import Spinner from './ui/Spinner.vue';
 import Tooltip from './ui/Tooltip.vue';
 
 const { t } = useI18n();
@@ -234,7 +235,15 @@ defineExpose({ closeMenu });
            retired awaiting_* lifecycle status superseded `aborted`). -->
       <Tooltip :text="t('workspace.abortedTitle')">
         <Badge
-          v-if="!renaming && !session.busy && session.pendingInteraction !== 'question' && session.pendingInteraction !== 'approval' && questionCount === 0 && approvalCount === 0 && (session.lastTurnReason === 'cancelled' || session.lastTurnReason === 'failed')"
+          v-if="
+            !renaming &&
+            !session.busy &&
+            session.pendingInteraction !== 'question' &&
+            session.pendingInteraction !== 'approval' &&
+            questionCount === 0 &&
+            approvalCount === 0 &&
+            (session.lastTurnReason === 'cancelled' || session.lastTurnReason === 'failed')
+          "
           variant="danger"
           size="sm"
         >
@@ -254,7 +263,11 @@ defineExpose({ closeMenu });
         </Badge>
       </Tooltip>
       <Badge
-        v-if="!renaming && (subagentActivity?.running ?? 0) === 0 && (subagentActivity?.suspended ?? 0) > 0"
+        v-if="
+          !renaming &&
+          (subagentActivity?.running ?? 0) === 0 &&
+          (subagentActivity?.suspended ?? 0) > 0
+        "
         variant="warning"
         size="sm"
       >
@@ -335,7 +348,10 @@ defineExpose({ closeMenu });
   cursor: pointer;
   position: relative;
 }
-.se:hover { background: var(--sb-hover, var(--color-surface-sunken)); color: var(--color-text); }
+.se:hover {
+  background: var(--sb-hover, var(--color-surface-sunken));
+  color: var(--color-text);
+}
 /* Selected: neutral fill (NOT accent-tinted — selection reads as "where I
    am", the accent stays reserved for actions and status). */
 .se.on {
@@ -421,10 +437,17 @@ defineExpose({ closeMenu });
   visibility: hidden;
 }
 .se:hover .act .kebab,
-.act:has(.kebab.open) .kebab { visibility: visible; }
+.act:has(.kebab.open) .kebab {
+  visibility: visible;
+}
 .se:hover .act .ts,
-.act:has(.kebab.open) .ts { visibility: hidden; }
-.kebab.open { color: var(--color-text); background: var(--sb-hover, var(--color-surface-sunken)); }
+.act:has(.kebab.open) .ts {
+  visibility: hidden;
+}
+.kebab.open {
+  color: var(--color-text);
+  background: var(--sb-hover, var(--color-surface-sunken));
+}
 
 /* Fixed + anchored to the ⋯ button via inline style (see positionMenu); the menu
    is teleported to <body> so the collapsing list's `overflow: hidden` can't clip it. */
@@ -463,6 +486,11 @@ defineExpose({ closeMenu });
      the same x as the workspace name (whose header has no inset). */
   padding: 8px calc(var(--sb-pad-x, 20px) - var(--sb-inset, 12px));
 }
-.sessions .se .rename-input { border-radius: var(--radius-sm); font-family: var(--sans); }
-.sessions .se .kebab { border-radius: var(--radius-sm); }
+.sessions .se .rename-input {
+  border-radius: var(--radius-sm);
+  font-family: var(--sans);
+}
+.sessions .se .kebab {
+  border-radius: var(--radius-sm);
+}
 </style>

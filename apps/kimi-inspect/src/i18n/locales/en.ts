@@ -7,7 +7,8 @@ export default {
   },
   connection: {
     title: 'Kimi Inspect',
-    description: 'Connect to a kap-server (/api/v2). Leave the URL empty to use the same-origin dev proxy ({{target}}).',
+    description:
+      'Connect to a kap-server (/api/v2). Leave the URL empty to use the same-origin dev proxy ({{target}}).',
     discovered: 'Discovered on this machine',
     discoveredHome: 'Discovered on this machine ({{home}})',
     connecting: 'Connecting to {{url}}…',
@@ -26,7 +27,8 @@ export default {
     selectSessionHint: 'Select a session on the left to open its conversation.',
     loadingSession: 'Loading session…',
     emptyContext: 'Empty context — send a prompt below.',
-    promptPlaceholder: 'Send a prompt to the active agent… (Enter to send, Shift+Enter for newline)',
+    promptPlaceholder:
+      'Send a prompt to the active agent… (Enter to send, Shift+Enter for newline)',
     agentLabel: 'agent: {{agentId}}',
     turnRunning: 'turn running',
     idle: 'idle',
@@ -49,7 +51,8 @@ export default {
     dynamicChannelUnavailable: 'dynamic channel list unavailable — showing handwritten panels only',
     activeAgent: 'Active agent',
     agentNotLoaded: '{{id}} (not loaded)',
-    agentNotMaterialized: 'this agent is not materialized in the running server (e.g. created before a restart) — calls will fail; its persisted records remain on disk',
+    agentNotMaterialized:
+      'this agent is not materialized in the running server (e.g. created before a restart) — calls will fail; its persisted records remain on disk',
     methodsCount: '{{n}} methods ⇄ {{domain}}',
     noSessionSelected: 'No session selected.',
     loadingSession: 'Loading session…',

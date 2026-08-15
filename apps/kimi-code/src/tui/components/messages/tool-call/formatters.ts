@@ -40,7 +40,8 @@ export function backgroundFailureMessage(
 
 export function formatSubagentContextTokens(contextTokens: number | undefined): string | undefined {
   if (contextTokens === undefined || contextTokens <= 0) return undefined;
-  const formatted = contextTokens >= 1000 ? `${(contextTokens / 1000).toFixed(1)}k` : String(contextTokens);
+  const formatted =
+    contextTokens >= 1000 ? `${(contextTokens / 1000).toFixed(1)}k` : String(contextTokens);
   return t('tui.messages.toolCall.tokenCount', { count: formatted });
 }
 
@@ -62,7 +63,8 @@ export function formatSubagentTokens(usage: TokenUsage | undefined): string | un
 
 export function formatByteSize(bytes: number): string {
   if (bytes < 1024) return t('tui.messages.toolCall.byteSizeB', { count: bytes });
-  if (bytes < 1024 * 1024) return t('tui.messages.toolCall.byteSizeKB', { count: (bytes / 1024).toFixed(1) });
+  if (bytes < 1024 * 1024)
+    return t('tui.messages.toolCall.byteSizeKB', { count: (bytes / 1024).toFixed(1) });
   return t('tui.messages.toolCall.byteSizeMB', { count: (bytes / 1024 / 1024).toFixed(1) });
 }
 
@@ -74,7 +76,8 @@ export function formatElapsed(seconds: number): string {
 }
 
 export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return t('tui.messages.toolCall.tokenCount', { count: (n / 1_000_000).toFixed(1) });
+  if (n >= 1_000_000)
+    return t('tui.messages.toolCall.tokenCount', { count: (n / 1_000_000).toFixed(1) });
   if (n >= 1_000) return t('tui.messages.toolCall.tokenCount', { count: (n / 1_000).toFixed(1) });
   return t('tui.messages.toolCall.tokenCount', { count: n });
 }
@@ -87,7 +90,10 @@ export function truncateArgValue(key: string, value: string): string {
   return value.slice(0, MAX_ARG_LENGTH - 3) + '...';
 }
 
-export function makeWorkspaceRelativePath(filePath: string, workspaceDir: string | undefined): string {
+export function makeWorkspaceRelativePath(
+  filePath: string,
+  workspaceDir: string | undefined,
+): string {
   if (workspaceDir === undefined || workspaceDir.length === 0 || !isAbsolute(filePath)) {
     return filePath;
   }
@@ -152,8 +158,7 @@ export function extractKeyArgument(
     const val = args[key];
     if (typeof val === 'string' && val.length > 0) {
       const firstLine = val.split('\n')[0] ?? val;
-      const displayValue =
-        toolName === 'Bash' && val.includes('\n') ? `${firstLine}…` : firstLine;
+      const displayValue = toolName === 'Bash' && val.includes('\n') ? `${firstLine}…` : firstLine;
       return formatKeyArgument(toolName, key, displayValue, workspaceDir);
     }
   }
@@ -231,7 +236,5 @@ function formatActivityLine(
 }
 
 function translateActivityVerb(verb: 'Using' | 'Used'): string {
-  return verb === 'Using'
-    ? t('tui.messages.toolCall.using')
-    : t('tui.messages.toolCall.used');
+  return verb === 'Using' ? t('tui.messages.toolCall.using') : t('tui.messages.toolCall.used');
 }

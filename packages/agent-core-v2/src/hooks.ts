@@ -4,19 +4,15 @@
  * Provides typed extension points with repeatable chaining and isolated context
  * forks. Bound as utility infrastructure, not a scoped Service.
  */
-import { toDisposable, type IDisposable } from "#/_base/di/lifecycle";
-import { BugIndicatingError } from "#/errors";
+import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { BugIndicatingError } from '#/errors';
 
 export type Hooks<TEvents extends Record<string, unknown>> = {
   readonly [K in keyof TEvents]: HookSlot<TEvents[K]>;
 };
 
 export interface HookSlot<TContext> {
-  register(
-    id: string,
-    handler: HookHandler<TContext>,
-    options?: HookRegisterOptions,
-  ): IDisposable;
+  register(id: string, handler: HookHandler<TContext>, options?: HookRegisterOptions): IDisposable;
 
   delete(id: string): boolean;
 

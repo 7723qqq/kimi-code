@@ -1,3 +1,5 @@
+import OpenAI from 'openai';
+
 /**
  * OpenAILegacyChatProvider — canonical implementation.
  *
@@ -24,8 +26,12 @@ import type {
 } from '#/provider';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
-import OpenAI from 'openai';
 
+import {
+  convertChatCompletionStreamToolCall,
+  type BufferedChatCompletionToolCall,
+} from './chat-completions-stream';
+import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 import {
   convertContentPart,
   convertOpenAIError,
@@ -39,10 +45,6 @@ import {
   type ToolMessageConversion,
   toolToOpenAI,
 } from './openai-common';
-import {
-  convertChatCompletionStreamToolCall,
-  type BufferedChatCompletionToolCall,
-} from './chat-completions-stream';
 import { ReasoningKeyDialect } from './reasoning-key';
 import {
   mergeRequestHeaders,
@@ -55,7 +57,6 @@ import {
   sanitizeToolCallId,
   type ToolCallIdPolicy,
 } from './tool-call-id';
-import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 
 // Inbound: scan the known reasoning field names in priority order; first
 // string value wins. Outbound: echo the dialect the endpoint actually spoke
@@ -119,9 +120,11 @@ export interface OpenAILegacyOptions {
   /** Model IDs that also accept reasoning_effort alongside enable_thinking (astron only). */
   astronReasoningEffortModelIds?: readonly string[] | undefined;
   /** Astron runtime settings: search_disable. */
-  astronSettings?: {
-    searchDisable?: boolean;
-  } | undefined;
+  astronSettings?:
+    | {
+        searchDisable?: boolean;
+      }
+    | undefined;
 }
 
 export interface OpenAILegacyGenerationKwargs {
@@ -670,9 +673,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
         const ids = this._astronReasoningEffortModelIds;
         if (ids?.includes(this._model)) {
           const re =
-            effort === 'low' || effort === 'medium' ? 'high'
-            : effort === 'xhigh' ? 'max'
-            : effort;
+            effort === 'low' || effort === 'medium' ? 'high' : effort === 'xhigh' ? 'max' : effort;
           if (re === 'high' || re === 'max') {
             createParams['reasoning_effort'] = re;
           }
@@ -724,24 +725,24 @@ export class OpenAILegacyChatProvider implements ChatProvider {
             }
             return nativeResult;
           }
-      } catch (error) {
-        // A user cancel must propagate, not fall through to a re-issued SDK
-        // request the caller has explicitly aborted.
-        if (error instanceof Error && error.name === 'AbortError') {
-          throw error;
+        } catch (error) {
+          // A user cancel must propagate, not fall through to a re-issued SDK
+          // request the caller has explicitly aborted.
+          if (error instanceof Error && error.name === 'AbortError') {
+            throw error;
+          }
+          // Native stream failed — fall through to SDK. Log the reason: a
+          // silently swallowed failure would otherwise re-issue the whole
+          // request over the SDK path with zero diagnostics (and no circuit
+          // breaker feedback loop).
+          console.warn(
+            `[kosong] native LLM stream (openai-legacy) failed, falling back to SDK: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
         }
-        // Native stream failed — fall through to SDK. Log the reason: a
-        // silently swallowed failure would otherwise re-issue the whole
-        // request over the SDK path with zero diagnostics (and no circuit
-        // breaker feedback loop).
-        console.warn(
-          `[kosong] native LLM stream (openai-legacy) failed, falling back to SDK: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
       }
-    }
-    // ── End native fast-path ────────────────────────────────────────
+      // ── End native fast-path ────────────────────────────────────────
 
       const client = this._createClient(options?.auth);
       options?.onRequestSent?.();

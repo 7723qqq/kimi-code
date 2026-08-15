@@ -60,7 +60,14 @@ function QueueItem({
             <IconBolt className="size-3" />
           </Button>
         )}
-        <Button variant="ghost" size="icon" className="size-5 border-0!" onClick={() =>{  onEdit(id); }}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-5 border-0!"
+          onClick={() => {
+            onEdit(id);
+          }}
+        >
           <IconPencil className="size-3" />
         </Button>
         {!isFirst && (
@@ -68,7 +75,9 @@ function QueueItem({
             variant="ghost"
             size="icon"
             className="size-5 border-0!"
-            onClick={() =>{  moveQueueItemUp(id); }}
+            onClick={() => {
+              moveQueueItemUp(id);
+            }}
           >
             <IconArrowUp className="size-3" />
           </Button>
@@ -77,7 +86,9 @@ function QueueItem({
           variant="ghost"
           size="icon"
           className="size-5 border-0! text-muted-foreground hover:text-destructive"
-          onClick={() =>{  removeFromQueue(id); }}
+          onClick={() => {
+            removeFromQueue(id);
+          }}
         >
           <IconTrash className="size-3" />
         </Button>
@@ -110,7 +121,9 @@ function EditingItem({
       <input
         autoFocus
         value={text}
-        onChange={(e) =>{  setText(e.target.value); }}
+        onChange={(e) => {
+          setText(e.target.value);
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') handleSave();
           if (e.key === 'Escape') onDone();
@@ -141,7 +154,9 @@ export function QueuedMessagesPanel() {
             key={item.id}
             id={item.id}
             initialContent={Content.getText(item.content)}
-            onDone={() =>{  setEditingId(null); }}
+            onDone={() => {
+              setEditingId(null);
+            }}
           />
         ) : (
           <QueueItem

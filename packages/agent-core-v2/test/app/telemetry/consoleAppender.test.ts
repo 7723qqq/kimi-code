@@ -15,7 +15,10 @@ describe('ConsoleAppender', () => {
 
   it('uses a custom prefix', () => {
     const lines: string[] = [];
-    const appender = new ConsoleAppender({ prefix: '[dbg]', log: (message) => lines.push(message) });
+    const appender = new ConsoleAppender({
+      prefix: '[dbg]',
+      log: (message) => lines.push(message),
+    });
     appender.track('evt');
     expect(lines[0]).toBe('[dbg] evt');
   });

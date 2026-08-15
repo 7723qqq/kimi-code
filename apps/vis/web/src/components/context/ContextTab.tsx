@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 
 import { useContext } from '../../hooks/useContext';
 import { useSession } from '../../hooks/useSession';
+import { t } from '../../i18n';
 import type { TokenUsage } from '../../types';
 import { Pill } from '../shared/Pill';
 import { ClearRibbon } from './ClearRibbon';
 import { CompactionRibbon } from './CompactionRibbon';
 import { MessageBubble } from './MessageBubble';
 import { UndoRibbon } from './UndoRibbon';
-import { t } from '../../i18n';
 
 interface ContextTabProps {
   sessionId: string;
@@ -111,13 +111,19 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
             </button>
           </div>
           {permissionMode ? (
-            <Pill tone="approval" variant="outline">{t('context.permission', { mode: permissionMode })}</Pill>
+            <Pill tone="approval" variant="outline">
+              {t('context.permission', { mode: permissionMode })}
+            </Pill>
           ) : null}
           {planActive ? (
-            <Pill tone="info" variant="solid">{t('context.planMode')}</Pill>
+            <Pill tone="info" variant="solid">
+              {t('context.planMode')}
+            </Pill>
           ) : null}
           {swarmActive ? (
-            <Pill tone="subagent" variant="solid">{t('context.swarmMode')}</Pill>
+            <Pill tone="subagent" variant="solid">
+              {t('context.swarmMode')}
+            </Pill>
           ) : null}
         </div>
       </div>
@@ -140,8 +146,14 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
           {goal ? (
             <div className="rounded border border-[var(--color-cat-lifecycle)]/40 bg-surface-0 p-2">
               <div className="mb-1 flex items-center gap-2">
-                <Pill tone="lifecycle" variant="soft">{t('context.goal')}</Pill>
-                {goal.status ? <Pill tone="info" variant="outline">{goal.status}</Pill> : null}
+                <Pill tone="lifecycle" variant="soft">
+                  {t('context.goal')}
+                </Pill>
+                {goal.status ? (
+                  <Pill tone="info" variant="outline">
+                    {goal.status}
+                  </Pill>
+                ) : null}
               </div>
               <div className="font-mono text-[12px] text-fg-1">{goal.objective}</div>
               {goal.completionCriterion ? (
@@ -203,8 +215,7 @@ const SEG_COLORS = {
 } as const;
 
 function TokenBar({ usage, contextTokens }: { usage: TokenUsage; contextTokens: number }) {
-  const total =
-    usage.inputOther + usage.output + usage.inputCacheRead + usage.inputCacheCreation;
+  const total = usage.inputOther + usage.output + usage.inputCacheRead + usage.inputCacheCreation;
   return (
     <div className="shrink-0">
       {contextTokens > 0 ? (
@@ -280,7 +291,9 @@ function SystemPromptBubble({ text }: { text: string }) {
         className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-surface-2"
       >
         <span className="flex items-center gap-2">
-          <Pill tone="config" variant="solid">{t('context.system')}</Pill>
+          <Pill tone="config" variant="solid">
+            {t('context.system')}
+          </Pill>
           <span className="font-mono text-[10px] text-fg-3 tabular">
             {t('context.chars', { count: text.length.toLocaleString() })}
           </span>

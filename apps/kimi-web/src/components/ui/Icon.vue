@@ -3,6 +3,7 @@
      lib/icons.ts at a token size. Use everywhere instead of hand-writing raw SVG. -->
 <script setup lang="ts">
 import { computed } from 'vue';
+
 import { getIcon, SIZE_PX, type IconName, type IconSize } from '../../lib/icons';
 
 const props = withDefaults(

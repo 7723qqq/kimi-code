@@ -1,4 +1,9 @@
-import type { ContentPart, ContextMessage, PromptOrigin, ToolCall } from '@moonshot-ai/kimi-code-sdk';
+import type {
+  ContentPart,
+  ContextMessage,
+  PromptOrigin,
+  ToolCall,
+} from '@moonshot-ai/kimi-code-sdk';
 
 const HINT_KEYS = ['path', 'file_path', 'command', 'query', 'url', 'name', 'pattern'] as const;
 
@@ -196,10 +201,7 @@ function buildOverview(
     }
   }
 
-  const toolCallCount = history.reduce(
-    (sum, msg) => sum + msg.toolCalls.length,
-    0,
-  );
+  const toolCallCount = history.reduce((sum, msg) => sum + msg.toolCalls.length, 0);
 
   return [
     '## Overview',

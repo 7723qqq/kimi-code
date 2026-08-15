@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
-import { LifecycleScope } from '#/app/scopes';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -11,6 +11,14 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { encodeWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
+import { LifecycleScope } from '#/app/scopes';
+import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
+import { IWorkspaceService } from '#/app/workspace/workspace';
+import {
+  IWorkspacePersistence,
+  type PersistedWorkspaceEntry,
+} from '#/app/workspace/workspacePersistence';
+import { WorkspaceService } from '#/app/workspace/workspaceService';
 import { ErrorCodes, Error2 } from '#/errors';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -18,10 +26,6 @@ import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDo
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IWorkspaceService } from '#/app/workspace/workspace';
-import { WorkspaceService } from '#/app/workspace/workspaceService';
-import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
-import { IWorkspacePersistence, type PersistedWorkspaceEntry } from '#/app/workspace/workspacePersistence';
 
 interface SessionIndexLine {
   readonly sessionId: string;
@@ -554,9 +558,6 @@ describe('WorkspaceService (file-backed)', () => {
     expect(lower.id).not.toBe(upper.id);
     expect((await registry.list()).map((w) => w.root).toSorted()).toEqual(['/tmp/Foo', '/tmp/foo']);
   });
-
-
-
 
   it('delete tombstones every folded alias so a legacy split cannot resurface', async () => {
     const typedRoot = 'C:\\Users\\Foo\\Proj';

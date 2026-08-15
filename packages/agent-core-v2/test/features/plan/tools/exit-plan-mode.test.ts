@@ -1,19 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { IAgentPlanService, PlanData } from '#/features/plan/plan';
 import {
   ExitPlanModeInputSchema,
   type ExitPlanModeInput,
 } from '#/features/plan/tools/exit-plan-mode/exit-plan-mode';
 import { ExitPlanModeTool } from '#/features/plan/tools/exit-plan-mode/exitPlanModeTool';
-import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import type { PermissionMode } from '#/agent/permissionPolicy/types';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
 
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
-
 
 const options = [
   { label: 'Approach A', description: 'Small change.' },
@@ -33,7 +32,7 @@ function planService(): IAgentPlanService {
         id: 'test-plan',
         content: '# Plan',
         path: '/tmp/kimi-plan.md',
-      } satisfies NonNullable<PlanData>),
+      }) satisfies NonNullable<PlanData>,
   };
 }
 
@@ -169,11 +168,7 @@ describe('ExitPlanMode option output', () => {
     const telemetry = recordingTelemetry();
 
     const result = await executeTool(
-      new ExitPlanModeTool(
-        { ...planService(), exit },
-        permissionMode(),
-        telemetry,
-      ),
+      new ExitPlanModeTool({ ...planService(), exit }, permissionMode(), telemetry),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan',

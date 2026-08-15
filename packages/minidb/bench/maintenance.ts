@@ -18,6 +18,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
+
 import { MiniDb } from '../src/index.js';
 
 const fmt = (n) => n.toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -43,7 +44,18 @@ const LATIN_VOCAB =
   'wal sync snapshot compaction recovery index query cache buffer frame codec store delta merge rotate flush token parse schema server client socket thread worker queue stream ledger journal cursor segment batch commit'.split(
     ' ',
   );
-const CJK_VOCAB = ['持久化', '快照', '索引', '恢复', '压缩', '查询', '缓存', '日志', '事务', '复制'];
+const CJK_VOCAB = [
+  '持久化',
+  '快照',
+  '索引',
+  '恢复',
+  '压缩',
+  '查询',
+  '缓存',
+  '日志',
+  '事务',
+  '复制',
+];
 
 function makeMessages(count, seed) {
   const rng = mulberry32(seed);
@@ -70,13 +82,13 @@ function percentileOf(sorted, p) {
 
 function latencySummary(samples) {
   if (!samples || samples.length === 0) return undefined;
-  const sorted = [...samples].sort((a, b) => a - b);
+  const sorted = [...samples].toSorted((a, b) => a - b);
   return {
     count: sorted.length,
     p50: percentileOf(sorted, 50),
     p95: percentileOf(sorted, 95),
     p99: percentileOf(sorted, 99),
-    max: sorted[sorted.length - 1],
+    max: sorted.at(-1),
   };
 }
 
@@ -159,7 +171,9 @@ async function scenario(name, dir, fn) {
   console.log(
     `  ${name.padEnd(52)} ${durationMs.toFixed(0).padStart(9)} ms` +
       `   [eld p99 ${row.eventLoopDelayMs.p99.toFixed(1)} / max ${row.eventLoopDelayMs.max.toFixed(1)} ms` +
-      (lat ? `, req p99 ${lat.p99.toFixed(1)} / max ${lat.max.toFixed(1)} ms (${lat.count} reqs)` : '') +
+      (lat
+        ? `, req p99 ${lat.p99.toFixed(1)} / max ${lat.max.toFixed(1)} ms (${lat.count} reqs)`
+        : '') +
       `, rss ${(peaks.peakRssBytes / MIB).toFixed(0)} MiB]`,
   );
   return row;
@@ -192,7 +206,9 @@ async function driveLoad(db, shouldStop, { writeEvery = 200 } = {}) {
       writes++;
       // Writes during maintenance also feed the build's mutation queue — keep
       // them part of the measured load.
-      await timed(db.set(`live-${writes}`, { body: 'live write during maintenance walrus', ts: Date.now() }));
+      await timed(
+        db.set(`live-${writes}`, { body: 'live write during maintenance walrus', ts: Date.now() }),
+      );
     }
     // Yield to the event loop every batch: a warm-cache request resolves in a
     // microtask, so without this the loop starves timers/I/O (and with them
@@ -251,14 +267,22 @@ async function populate(dir, docs, { tail = 0.05 } = {}) {
   const CHUNK = 1000;
   const bulk = Math.floor(docs.length * (1 - tail));
   for (let base = 0; base < bulk; base += CHUNK) {
-    await db.batch(docs.slice(base, Math.min(base + CHUNK, bulk)).map((d) => ({ op: 'set', key: d.key, value: d })));
+    await db.batch(
+      docs
+        .slice(base, Math.min(base + CHUNK, bulk))
+        .map((d) => ({ op: 'set', key: d.key, value: d })),
+    );
   }
   await db.createTextIndex('word', { fields: ['body'] });
   await db.createTextIndex('ngram', { fields: ['body'], tokenizer: 'ngram' });
   // Tail burst AFTER the initial build: the indexes are dirty, so the manual
   // rebuild below goes through the worker instead of the clean re-publish.
   for (let base = bulk; base < docs.length; base += CHUNK) {
-    await db.batch(docs.slice(base, Math.min(base + CHUNK, docs.length)).map((d) => ({ op: 'set', key: d.key, value: d })));
+    await db.batch(
+      docs
+        .slice(base, Math.min(base + CHUNK, docs.length))
+        .map((d) => ({ op: 'set', key: d.key, value: d })),
+    );
   }
   await fs.writeFile(marker, JSON.stringify({ count: docs.length }));
   return db;
@@ -271,24 +295,30 @@ async function rebuildUnderLoadScenario({ docs, quick, baselineMs }) {
   const db = await populate(dir, docs);
   LOAD_KEY_SPACE = docs.length;
 
-  await scenario(`baseline load (no maintenance), N=${fmt(docs.length)}`, dir, () => driveLoadFor(db, baselineMs));
+  await scenario(`baseline load (no maintenance), N=${fmt(docs.length)}`, dir, () =>
+    driveLoadFor(db, baselineMs),
+  );
 
-  const row = await scenario(`rebuild generation (worker) under load, N=${fmt(docs.length)}`, dir, async () => {
-    const maintenance = db.rebuildGeneration();
-    const load = await driveLoadUntil(db, maintenance);
-    const s = db.stats;
-    return {
-      ...load,
-      extra: {
-        ...load.extra,
-        docs: docs.length,
-        textWorkerBuilds: s.textWorkerBuilds,
-        textWorkerFallbacks: s.textWorkerFallbacks,
-        generationBuildDurationMs: s.generationBuildDurationMs,
-        quick,
-      },
-    };
-  });
+  const row = await scenario(
+    `rebuild generation (worker) under load, N=${fmt(docs.length)}`,
+    dir,
+    async () => {
+      const maintenance = db.rebuildGeneration();
+      const load = await driveLoadUntil(db, maintenance);
+      const s = db.stats;
+      return {
+        ...load,
+        extra: {
+          ...load.extra,
+          docs: docs.length,
+          textWorkerBuilds: s.textWorkerBuilds,
+          textWorkerFallbacks: s.textWorkerFallbacks,
+          generationBuildDurationMs: s.generationBuildDurationMs,
+          quick,
+        },
+      };
+    },
+  );
 
   await scenario(`compaction under load, N=${fmt(docs.length)}`, dir, async () => {
     const maintenance = db.compact();
@@ -316,10 +346,21 @@ async function coldOpenScenario({ docs }) {
   await db.rebuildGeneration();
   await db.close();
   await scenario(`cold open (generation + WAL delta), N=${fmt(docs.length)}`, dir, async () => {
-    const db2 = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
+    const db2 = await MiniDb.open({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     const s = db2.stats;
     await db2.close();
-    return { extra: { recoveryBytes: s.recoveryBytes, recoveryFrames: s.recoveryFrames, recoveryDurationMs: s.recoveryDurationMs } };
+    return {
+      extra: {
+        recoveryBytes: s.recoveryBytes,
+        recoveryFrames: s.recoveryFrames,
+        recoveryDurationMs: s.recoveryDurationMs,
+      },
+    };
   });
   await fs.rm(dir, { recursive: true, force: true });
 }
@@ -328,15 +369,31 @@ async function diskModeScenario({ count, seed }) {
   const dir = await tmpDir();
   console.log(`\n[3] disk-mode random reads via async APIs (${fmt(count)} messages)`);
   const docs = makeMessages(count, seed);
-  let db = await MiniDb.open({ dir, valueCodec: 'json', valueMode: 'disk', fsyncPolicy: 'no', autoCompact: false });
+  let db = await MiniDb.open({
+    dir,
+    valueCodec: 'json',
+    valueMode: 'disk',
+    fsyncPolicy: 'no',
+    autoCompact: false,
+  });
   const CHUNK = 1000;
   for (let base = 0; base < docs.length; base += CHUNK) {
-    await db.batch(docs.slice(base, Math.min(base + CHUNK, docs.length)).map((d) => ({ op: 'set', key: d.key, value: d })));
+    await db.batch(
+      docs
+        .slice(base, Math.min(base + CHUNK, docs.length))
+        .map((d) => ({ op: 'set', key: d.key, value: d })),
+    );
   }
   await db.createTextIndex('word', { fields: ['body'] });
   await db.close();
   // Reopen: the value cache starts cold, so random gets hit positioned reads.
-  db = await MiniDb.open({ dir, valueCodec: 'json', valueMode: 'disk', fsyncPolicy: 'no', autoCompact: false });
+  db = await MiniDb.open({
+    dir,
+    valueCodec: 'json',
+    valueMode: 'disk',
+    fsyncPolicy: 'no',
+    autoCompact: false,
+  });
   const rng = mulberry32(seed ^ 0x5eed);
   await scenario(`disk-mode random getAsync/searchAsync, N=${fmt(count)}`, dir, async () => {
     const latencies = [];
@@ -386,7 +443,9 @@ async function main() {
     arch: process.arch,
     seed: SEED,
     acceptance: {
-      requestP99Under1s: maintenance.every((r) => !r.requestLatencyMs || r.requestLatencyMs.p99 < 1000),
+      requestP99Under1s: maintenance.every(
+        (r) => !r.requestLatencyMs || r.requestLatencyMs.p99 < 1000,
+      ),
       eldP99Under50ms: maintenance.every((r) => r.eventLoopDelayMs.p99 < 50),
       eldMaxUnder100ms: maintenance.every((r) => r.eventLoopDelayMs.max < 100),
     },
@@ -432,7 +491,7 @@ async function main() {
   console.log('\ndone.\n');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

@@ -77,8 +77,8 @@ export function getLiveSessionById(
   accessor: ServicesAccessor,
   sessionId: string,
 ): ISessionScopeHandle | undefined {
-  return liveHandlerForSession(accessor, sessionId)?.accessor
-    .get(ISessionLifecycleService)
+  return liveHandlerForSession(accessor, sessionId)
+    ?.accessor.get(ISessionLifecycleService)
     .get(sessionId);
 }
 

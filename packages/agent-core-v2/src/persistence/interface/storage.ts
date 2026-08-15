@@ -29,11 +29,12 @@
  * (e.g. scope `"agents/main"`, key `"wire.jsonl"`); they are not user input.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { Event } from '#/_base/event';
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 import { Error2, type Error2Options } from '#/_base/errors/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
+import type { Event } from '#/_base/event';
 
 export const StorageErrors = {
   codes: {
@@ -113,14 +114,10 @@ function readErrno(error: unknown): string | undefined {
 
 export function toStorageIoError(error: unknown, ctx: { path: string; op: string }): StorageError {
   if (error instanceof StorageError) return error;
-  return new StorageError(
-    StorageErrors.codes.STORAGE_IO_FAILED,
-    t('v2Storage.ioFailed'),
-    {
-      details: { path: ctx.path, op: ctx.op, errno: readErrno(error) },
-      cause: error,
-    },
-  );
+  return new StorageError(StorageErrors.codes.STORAGE_IO_FAILED, t('v2Storage.ioFailed'), {
+    details: { path: ctx.path, op: ctx.op, errno: readErrno(error) },
+    cause: error,
+  });
 }
 
 export interface StorageWriteOptions {
@@ -148,7 +145,12 @@ export interface IFileSystemStorageService {
     source: AsyncIterable<Uint8Array>,
     options?: StorageWriteOptions,
   ): Promise<void>;
-  append(scope: string, key: string, data: Uint8Array, options?: StorageAppendOptions): Promise<void>;
+  append(
+    scope: string,
+    key: string,
+    data: Uint8Array,
+    options?: StorageAppendOptions,
+  ): Promise<void>;
   list(scope: string, prefix?: string): Promise<readonly string[]>;
   delete(scope: string, key: string): Promise<void>;
   watch?(scope: string, key: string): Event<void>;

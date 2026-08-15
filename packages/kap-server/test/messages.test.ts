@@ -14,8 +14,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -166,7 +166,12 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
         content: [{ type: 'text', text: 'running' }],
         toolCalls: [{ type: 'function', id: 'call_1', name: 'Bash', arguments: '{"cmd":"ls"}' }],
       },
-      { role: 'tool', content: [{ type: 'text', text: 'file.txt' }], toolCalls: [], toolCallId: 'call_1' },
+      {
+        role: 'tool',
+        content: [{ type: 'text', text: 'file.txt' }],
+        toolCalls: [],
+        toolCallId: 'call_1',
+      },
     ]);
 
     const { body } = await getJson<PageWire>(`/api/v1/sessions/${id}/messages`);
@@ -214,9 +219,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     const assistant = list.body.data.items.find((m) => m.role === 'assistant');
     expect(assistant).toBeDefined();
 
-    const got = await getJson<MessageWire>(
-      `/api/v1/sessions/${id}/messages/${assistant!.id}`,
-    );
+    const got = await getJson<MessageWire>(`/api/v1/sessions/${id}/messages/${assistant!.id}`);
     expect(got.body.code).toBe(0);
     expect(got.body.data).toMatchObject({
       id: assistant!.id,
@@ -224,9 +227,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
       content: [{ type: 'text', text: 'hello' }],
     });
 
-    const missing = await getJson<null>(
-      `/api/v1/sessions/${id}/messages/msg_does_not_exist`,
-    );
+    const missing = await getJson<null>(`/api/v1/sessions/${id}/messages/msg_does_not_exist`);
     expect(missing.body.code).toBe(40403);
   });
 
@@ -235,9 +236,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     await seedMainAgentMessages(id, [
       { role: 'user', content: [{ type: 'text', text: 'hi' }], toolCalls: [] },
     ]);
-    const { body } = await getJson<null>(
-      `/api/v1/sessions/${id}/messages/msg_00NOT_IN_SESSION00`,
-    );
+    const { body } = await getJson<null>(`/api/v1/sessions/${id}/messages/msg_00NOT_IN_SESSION00`);
     expect(body.code).toBe(40403);
   });
 
@@ -274,9 +273,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     expect(older.body.data.has_more).toBe(false);
 
     // after_id = oldest → the two newer entries.
-    const newer = await getJson<PageWire>(
-      `/api/v1/sessions/${id}/messages?after_id=${idsDesc[2]}`,
-    );
+    const newer = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?after_id=${idsDesc[2]}`);
     expect(newer.body.data.items.map((m) => m.id)).toEqual([idsDesc[0], idsDesc[1]]);
     expect(newer.body.data.has_more).toBe(false);
   });

@@ -62,7 +62,9 @@ async function waitForStatus(
     if (cm.get(name)?.status === status) return;
     await sleep(50);
   }
-  throw new Error(`timed out waiting for "${name}" to reach ${status}; now ${cm.get(name)?.status}`);
+  throw new Error(
+    `timed out waiting for "${name}" to reach ${status}; now ${cm.get(name)?.status}`,
+  );
 }
 
 describe('McpConnectionManager', () => {

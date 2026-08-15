@@ -1,3 +1,6 @@
+import type { MessageParam } from '@anthropic-ai/sdk/resources/messages/messages.js';
+import { describe, it, expect, vi } from 'vitest';
+
 /**
  * Scenario: Anthropic request serialization and response streaming across native and compatible models.
  * Responsibilities: preserve provider wire contracts, thinking semantics, tool calls, and request options.
@@ -6,19 +9,30 @@
  */
 import { ChatProviderError } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
-import type { MessageParam } from '@anthropic-ai/sdk/resources/messages/messages.js';
-import { AnthropicChatProvider, resolveDefaultMaxTokens } from '#/providers/anthropic';
-import { matchKnownAnthropicModelProfile, matchUnknownClaudeProfile, LATEST_OPUS_PROFILE } from '#/providers/anthropic-profile';
 import type { GenerateOptions } from '#/provider';
-import { injectCacheControlOnLastBlock, CACHEABLE_TYPES } from '#/providers/anthropic-cache-breakpoints';
+import { AnthropicChatProvider, resolveDefaultMaxTokens } from '#/providers/anthropic';
+import {
+  injectCacheControlOnLastBlock,
+  CACHEABLE_TYPES,
+} from '#/providers/anthropic-cache-breakpoints';
+import {
+  matchKnownAnthropicModelProfile,
+  matchUnknownClaudeProfile,
+  LATEST_OPUS_PROFILE,
+} from '#/providers/anthropic-profile';
 import type { Tool } from '#/tool';
-import { describe, it, expect, vi } from 'vitest';
 
 // The Rust native LLM stream replaces the mock SDK client with real network
 // calls when the addon is loadable; force the TS/SDK fallback in tests.
 vi.mock('../src/providers/native-stream', async () => {
-  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>('../src/providers/native-stream');
-  return { ...actual, tryNativeLlmStream: () => undefined, tryNativeLlmStreamIncremental: () => undefined };
+  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>(
+    '../src/providers/native-stream',
+  );
+  return {
+    ...actual,
+    tryNativeLlmStream: () => undefined,
+    tryNativeLlmStreamIncremental: () => undefined,
+  };
 });
 
 function makeAnthropicResponse(model: string = 'k25') {
@@ -112,7 +126,10 @@ describe('injectCacheControlOnLastBlock', () => {
   it('does not double-inject when the history block already has cache_control', () => {
     const messages: MessageParam[] = [
       { role: 'user', content: [text('a')] },
-      { role: 'assistant', content: [text('b'), { type: 'text', text: 'b2', cache_control: { type: 'ephemeral' } }] },
+      {
+        role: 'assistant',
+        content: [text('b'), { type: 'text', text: 'b2', cache_control: { type: 'ephemeral' } }],
+      },
       { role: 'user', content: [text('c')] },
       { role: 'assistant', content: [text('d')] },
     ];
@@ -584,9 +601,7 @@ describe('withThinkingKeep (context_management)', () => {
       {
         role: 'assistant',
         content: [],
-        toolCalls: [
-          { type: 'function', id: 'call_1', name: 'lookup', arguments: '{"q":"test"}' },
-        ],
+        toolCalls: [{ type: 'function', id: 'call_1', name: 'lookup', arguments: '{"q":"test"}' }],
       },
     ];
     const messages = await captureAnthropicMessages(
@@ -958,7 +973,9 @@ describe('AnthropicChatProvider', () => {
         provider.generate('', [], history, {
           responseFormat: { type: 'json_object' },
         }),
-      ).rejects.toThrow('Anthropic provider requires a JSON schema for structured response output.');
+      ).rejects.toThrow(
+        'Anthropic provider requires a JSON schema for structured response output.',
+      );
     });
 
     it('multi-turn conversation', async () => {
@@ -1188,7 +1205,8 @@ describe('AnthropicChatProvider', () => {
       const toolCall: ToolCall = {
         type: 'function',
         id: 'call_abc123',
-        name: 'add', arguments: '{"a": 2, "b": 3}',
+        name: 'add',
+        arguments: '{"a": 2, "b": 3}',
       };
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Add 2 and 3' }], toolCalls: [] },
@@ -1319,7 +1337,8 @@ describe('AnthropicChatProvider', () => {
       const toolCall: ToolCall = {
         type: 'function',
         id: 'call_abc123',
-        name: 'add', arguments: '{"a": 2, "b": 3}',
+        name: 'add',
+        arguments: '{"a": 2, "b": 3}',
       };
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Add 2 and 3' }], toolCalls: [] },
@@ -1418,9 +1437,7 @@ describe('AnthropicChatProvider', () => {
           {
             type: 'tool_result',
             tool_use_id: 'call_tts',
-            content: [
-              { type: 'text', text: '(audio omitted: not supported by this provider)' },
-            ],
+            content: [{ type: 'text', text: '(audio omitted: not supported by this provider)' }],
             cache_control: { type: 'ephemeral' },
           },
         ],
@@ -1432,12 +1449,14 @@ describe('AnthropicChatProvider', () => {
       const tcAdd: ToolCall = {
         type: 'function',
         id: 'call_add',
-        name: 'add', arguments: '{"a": 2, "b": 3}',
+        name: 'add',
+        arguments: '{"a": 2, "b": 3}',
       };
       const tcMul: ToolCall = {
         type: 'function',
         id: 'call_mul',
-        name: 'multiply', arguments: '{"a": 4, "b": 5}',
+        name: 'multiply',
+        arguments: '{"a": 4, "b": 5}',
       };
       const history: Message[] = [
         {
@@ -1540,12 +1559,14 @@ describe('AnthropicChatProvider', () => {
       const tcAdd: ToolCall = {
         type: 'function',
         id: 'call_add',
-        name: 'add', arguments: '{"a": 2, "b": 3}',
+        name: 'add',
+        arguments: '{"a": 2, "b": 3}',
       };
       const tcMul: ToolCall = {
         type: 'function',
         id: 'call_mul',
-        name: 'multiply', arguments: '{"a": 4, "b": 5}',
+        name: 'multiply',
+        arguments: '{"a": 4, "b": 5}',
       };
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Calculate 2+3 and 4*5' }], toolCalls: [] },
@@ -1596,7 +1617,8 @@ describe('AnthropicChatProvider', () => {
       const tcAdd: ToolCall = {
         type: 'function',
         id: 'call_add',
-        name: 'add', arguments: '{"a": 2, "b": 3}',
+        name: 'add',
+        arguments: '{"a": 2, "b": 3}',
       };
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'What is 2+3?' }], toolCalls: [] },
@@ -1630,7 +1652,8 @@ describe('AnthropicChatProvider', () => {
       const makeTc = (id: string, name: string): ToolCall => ({
         type: 'function',
         id,
-        name, arguments: '{"a": 1, "b": 1}',
+        name,
+        arguments: '{"a": 1, "b": 1}',
       });
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Do three things' }], toolCalls: [] },
@@ -1665,12 +1688,14 @@ describe('AnthropicChatProvider', () => {
       const tcAdd: ToolCall = {
         type: 'function',
         id: 'call_add',
-        name: 'add', arguments: '{"a": 2, "b": 3}',
+        name: 'add',
+        arguments: '{"a": 2, "b": 3}',
       };
       const tcMul: ToolCall = {
         type: 'function',
         id: 'call_mul',
-        name: 'multiply', arguments: '{"a": 4, "b": 5}',
+        name: 'multiply',
+        arguments: '{"a": 4, "b": 5}',
       };
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Do both' }], toolCalls: [] },
@@ -1875,35 +1900,32 @@ describe('AnthropicChatProvider', () => {
       'claude-opus-4-9',
       'opus-4-9',
       'claude-mythos-preview',
-    ])(
-      'drops unsigned thinking for Claude model %s before tool_use blocks',
-      async (model) => {
-        const provider = createProvider(model);
-        const history: Message[] = [
-          { role: 'user', content: [{ type: 'text', text: 'Search for 429' }], toolCalls: [] },
-          {
-            role: 'assistant',
-            content: [{ type: 'think', think: 'Let me grep for 429.' }],
-            toolCalls: [
-              { type: 'function', id: 'toolu_1', name: 'Grep', arguments: '{"pattern":"429"}' },
-            ],
-          },
-          {
-            role: 'tool',
-            content: [{ type: 'text', text: 'found in chat.go' }],
-            toolCallId: 'toolu_1',
-            toolCalls: [],
-          },
-        ];
-        const body = await captureRequestBody(provider, '', [], history);
-        const messages = body['messages'] as Array<{ role: string; content: unknown[] }>;
+    ])('drops unsigned thinking for Claude model %s before tool_use blocks', async (model) => {
+      const provider = createProvider(model);
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Search for 429' }], toolCalls: [] },
+        {
+          role: 'assistant',
+          content: [{ type: 'think', think: 'Let me grep for 429.' }],
+          toolCalls: [
+            { type: 'function', id: 'toolu_1', name: 'Grep', arguments: '{"pattern":"429"}' },
+          ],
+        },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: 'found in chat.go' }],
+          toolCallId: 'toolu_1',
+          toolCalls: [],
+        },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+      const messages = body['messages'] as Array<{ role: string; content: unknown[] }>;
 
-        expect(messages[1]!.role).toBe('assistant');
-        expect(messages[1]!.content).toEqual([
-          { type: 'tool_use', id: 'toolu_1', name: 'Grep', input: { pattern: '429' } },
-        ]);
-      },
-    );
+      expect(messages[1]!.role).toBe('assistant');
+      expect(messages[1]!.content).toEqual([
+        { type: 'tool_use', id: 'toolu_1', name: 'Grep', input: { pattern: '429' } },
+      ]);
+    });
 
     it('drops an unsigned-only Claude assistant without leaving an empty wire message', async () => {
       const messages = await captureAnthropicMessages(
@@ -2275,7 +2297,12 @@ describe('AnthropicChatProvider', () => {
         kimiThinking: true,
       });
       for (const requested of ['xhigh', 'medium', 'on'] as const) {
-        const body = await captureRequestBody(provider.withThinking(requested), '', [], thinkHistory);
+        const body = await captureRequestBody(
+          provider.withThinking(requested),
+          '',
+          [],
+          thinkHistory,
+        );
         expect(body['thinking']).toEqual({ type: 'enabled' });
         expect(body['output_config']).toEqual(
           requested === 'on' ? undefined : { effort: requested },
@@ -2511,16 +2538,19 @@ describe('AnthropicChatProvider', () => {
       // non-effort-supporting models: output_config absent
       ['claude-3-5-sonnet-20240620', false],
       ['claude-haiku-4-5-20251001', false],
-    ] as const)('supportsEffortParam wire body: %s -> output_config=%s', async (model, supports) => {
-      const provider = createProvider(model).withThinking('high');
-      const body = await captureRequestBody(provider, '', [], thinkHistory);
+    ] as const)(
+      'supportsEffortParam wire body: %s -> output_config=%s',
+      async (model, supports) => {
+        const provider = createProvider(model).withThinking('high');
+        const body = await captureRequestBody(provider, '', [], thinkHistory);
 
-      if (supports) {
-        expect(body['output_config']).toEqual({ effort: 'high' });
-      } else {
-        expect(body['output_config']).toBeUndefined();
-      }
-    });
+        if (supports) {
+          expect(body['output_config']).toEqual({ effort: 'high' });
+        } else {
+          expect(body['output_config']).toBeUndefined();
+        }
+      },
+    );
 
     // Full adaptive-thinking coverage matrix. Adaptive models must
     // emit { type: 'adaptive' } and output_config; non-adaptive models
@@ -2871,7 +2901,8 @@ describe('AnthropicChatProvider', () => {
         {
           type: 'function',
           id: 'tool_1',
-          name: 'add', arguments: '{"a":2,"b":3}',
+          name: 'add',
+          arguments: '{"a":2,"b":3}',
         },
       ]);
       expect(stream.usage).toEqual({
@@ -3061,7 +3092,8 @@ describe('AnthropicChatProvider', () => {
         {
           type: 'function',
           id: 'toolu_abc',
-          name: 'add', arguments: '',
+          name: 'add',
+          arguments: '',
           _streamIndex: 1,
         },
         { type: 'tool_call_part', argumentsPart: '{"a":', index: 1 },
@@ -3135,13 +3167,15 @@ describe('AnthropicChatProvider', () => {
         {
           type: 'function',
           id: 'toolu_a',
-          name: 'tool_a', arguments: '',
+          name: 'tool_a',
+          arguments: '',
           _streamIndex: 0,
         },
         {
           type: 'function',
           id: 'toolu_b',
-          name: 'tool_b', arguments: '',
+          name: 'tool_b',
+          arguments: '',
           _streamIndex: 1,
         },
         { type: 'tool_call_part', argumentsPart: '{"x":', index: 0 },

@@ -108,10 +108,7 @@ function isScannerVisiblePath(
   if (separatorAt === -1) return false;
   const parent = normPath.slice(0, separatorAt);
   if (scannedDirectories.has(parent)) return true;
-  if (
-    keepEntryFile === undefined ||
-    normPath.slice(separatorAt + 1) !== keepEntryFile
-  ) {
+  if (keepEntryFile === undefined || normPath.slice(separatorAt + 1) !== keepEntryFile) {
     return false;
   }
   const parentSeparatorAt = parent.lastIndexOf('/');

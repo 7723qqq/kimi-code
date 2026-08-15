@@ -108,8 +108,7 @@ function serializeValue(raw: unknown): string {
   try {
     const json = JSON.stringify(raw);
     if (json !== undefined) return json;
-  } catch {
-  }
+  } catch {}
   if (typeof raw === 'function') return raw.name === '' ? '[Function]' : `[Function: ${raw.name}]`;
   return Object.prototype.toString.call(raw);
 }
@@ -177,13 +176,13 @@ export function formatEntry(entry: LogEntry, options: FormatOptions = {}): Forma
 
   const time = new Date(entry.t).toISOString();
   const label = LEVEL_LABEL[entry.level];
-  const rendered = pairs.length === 0
-    ? `${time} ${label} ${msg}`
-    : `${time} ${label} ${msg}  ${pairs.join(' ')}`;
+  const rendered =
+    pairs.length === 0 ? `${time} ${label} ${msg}` : `${time} ${label} ${msg}  ${pairs.join(' ')}`;
 
-  let head = Buffer.byteLength(rendered, 'utf-8') > ENTRY_MAX_BYTES
-    ? clipBytes(rendered, ENTRY_MAX_BYTES)
-    : rendered;
+  let head =
+    Buffer.byteLength(rendered, 'utf-8') > ENTRY_MAX_BYTES
+      ? clipBytes(rendered, ENTRY_MAX_BYTES)
+      : rendered;
 
   if (options.ansi === true) {
     head = `${ANSI_LEVEL[entry.level]}${head}${ANSI_RESET}`;

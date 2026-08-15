@@ -33,8 +33,9 @@ async function main(): Promise<void> {
     for (;;) {
       try {
         return await fn();
-      } catch (e) {
-        if ((e as { code?: string }).code !== 'ELOCKED' && !(e instanceof LockError)) throw e;
+      } catch (error) {
+        if ((error as { code?: string }).code !== 'ELOCKED' && !(error instanceof LockError))
+          throw error;
         retries++;
         await sleep(15 + Math.floor(Math.random() * 45));
       }
@@ -69,7 +70,8 @@ async function main(): Promise<void> {
     let found = 0;
     const t0 = performance.now();
     for (let i = 0; found < want; i++) {
-      if (i > want * shardCount * 8 + 1000) throw new Error(`read found only ${found}/${want} keys`);
+      if (i > want * shardCount * 8 + 1000)
+        throw new Error(`read found only ${found}/${want} keys`);
       const key = `${prefix}:${i}`;
       if (allowed && !allowed.has(db.shardOf(key))) continue;
       const v = (await db.get(key)) as { i?: number } | undefined;
@@ -85,7 +87,11 @@ async function main(): Promise<void> {
   process.exit(1);
 }
 
-main().catch((e) => {
-  out({ ok: 0, mode, error: String(e && (e as Error).stack ? (e as Error).stack : e) });
+main().catch((error) => {
+  out({
+    ok: 0,
+    mode,
+    error: String(error && (error as Error).stack ? (error as Error).stack : error),
+  });
   process.exit(1);
 });

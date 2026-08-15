@@ -3,12 +3,14 @@
 // Matrix of recovery scenarios: WAL corruption at head/mid/tail under
 // 'resync' vs 'strict', and snapshot + WAL combinations.
 
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { MiniDb } from '../../src/index.js';
+
+import { test } from 'vitest';
+
 import { HEADER_SIZE, CRC_SIZE } from '../../src/codec.js';
+import { MiniDb } from '../../src/index.js';
 import { tmpDir, rmrf } from './helpers/tmp.js';
 
 // key 'kN'(2B) + value 'vN'(2B), no meta -> 22+2+2+0+4 = 30 bytes / frame
@@ -17,7 +19,13 @@ const FRAME = HEADER_SIZE + 2 + 2 + 0 + CRC_SIZE;
 async function writeTen(dir) {
   // Legacy recovery semantics (indexGenerations: false): a published
   // generation's checkpoint would absorb the very frames these tests corrupt.
-  const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'always', autoCompact: false, indexGenerations: false });
+  const db = await MiniDb.open({
+    dir,
+    valueCodec: 'string',
+    fsyncPolicy: 'always',
+    autoCompact: false,
+    indexGenerations: false,
+  });
   for (let i = 0; i < 10; i++) await db.set('k' + i, 'v' + i);
   await db.close();
 }
@@ -38,8 +46,15 @@ for (const mode of ['resync', 'strict']) {
       try {
         await writeTen(dir);
         await corruptWalFrame(dir, idx);
-        const db = await MiniDb.open({ dir, valueCodec: 'string', recovery: mode, indexGenerations: false });
-        const present = new Set(Array.from({ length: 10 }, (_, i) => 'k' + i).filter((k) => db.get(k) !== undefined));
+        const db = await MiniDb.open({
+          dir,
+          valueCodec: 'string',
+          recovery: mode,
+          indexGenerations: false,
+        });
+        const present = new Set(
+          Array.from({ length: 10 }, (_, i) => 'k' + i).filter((k) => db.get(k) !== undefined),
+        );
 
         if (where === 'tail') {
           // last frame bad -> truncated, everything else recovered
@@ -70,7 +85,12 @@ test('recovery-matrix: clean WAL recovers everything (both modes)', async () => 
     const dir = await tmpDir();
     try {
       await writeTen(dir);
-      const db = await MiniDb.open({ dir, valueCodec: 'string', recovery: mode, indexGenerations: false });
+      const db = await MiniDb.open({
+        dir,
+        valueCodec: 'string',
+        recovery: mode,
+        indexGenerations: false,
+      });
       assert.equal(db.size, 10);
       assert.equal(db.recoveryInfo.lostBytes, 0);
       await db.close();
@@ -83,7 +103,12 @@ test('recovery-matrix: clean WAL recovers everything (both modes)', async () => 
 test('recovery-matrix: snapshot present, empty WAL', async () => {
   const dir = await tmpDir();
   try {
-    const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'always', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'always',
+      autoCompact: false,
+    });
     for (let i = 0; i < 10; i++) await db.set('k' + i, 'v' + i);
     await db.compact();
     await db.close();
@@ -100,7 +125,12 @@ test('recovery-matrix: snapshot present, empty WAL', async () => {
 test('recovery-matrix: snapshot + clean WAL', async () => {
   const dir = await tmpDir();
   try {
-    const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'always', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'always',
+      autoCompact: false,
+    });
     for (let i = 0; i < 10; i++) await db.set('k' + i, 'v' + i);
     await db.compact();
     for (let i = 0; i < 5; i++) await db.set('a' + i, 'b' + i); // new WAL writes
@@ -116,7 +146,12 @@ test('recovery-matrix: snapshot + clean WAL', async () => {
 test('recovery-matrix: snapshot + corrupt WAL mid (resync keeps snapshot + surviving WAL)', async () => {
   const dir = await tmpDir();
   try {
-    const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'always', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'always',
+      autoCompact: false,
+    });
     for (let i = 0; i < 10; i++) await db.set('k' + i, 'v' + i);
     await db.compact();
     for (let i = 0; i < 5; i++) await db.set('a' + i, 'b' + i); // 5 new WAL frames

@@ -1,6 +1,6 @@
 import { memo, useCallback } from 'react';
-import { t } from '../../i18n';
 
+import { t } from '../../i18n';
 import type { WireEntry } from '../../types';
 import { formatDuration, formatWallClock } from '../../util/time';
 import { TypeBadge } from './TypeBadge';
@@ -132,7 +132,10 @@ function PairIndicator({
   // Show the call→result elapsed time on whichever row has its partner.
   const duration =
     pair.durationMs !== null ? (
-      <span className="font-mono text-[10px] text-fg-3 tabular" title={t('wireRow.callResultElapsed')}>
+      <span
+        className="font-mono text-[10px] text-fg-3 tabular"
+        title={t('wireRow.callResultElapsed')}
+      >
         {formatDuration(pair.durationMs)}
       </span>
     ) : null;

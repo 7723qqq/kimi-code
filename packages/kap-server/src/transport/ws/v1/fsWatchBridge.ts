@@ -159,7 +159,12 @@ export class FsWatchBridge {
     const sw = this.bySession.get(sessionId);
     const entry = sw?.conns.get(conn.id);
     if (sw === undefined || entry === undefined) {
-      return { code: FS_WATCH_CODE.OK, msg: 'success', watched_paths: [], current_count: this.countFor(conn.id) };
+      return {
+        code: FS_WATCH_CODE.OK,
+        msg: 'success',
+        watched_paths: [],
+        current_count: this.countFor(conn.id),
+      };
     }
 
     let removed = 0;

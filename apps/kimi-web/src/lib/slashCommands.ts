@@ -22,21 +22,21 @@ export interface SlashCommand {
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
-  { name: '/new',        desc: 'commands.new.desc' },
-  { name: '/clear',      desc: 'commands.clear.desc' },
-  { name: '/login',      desc: 'commands.login.desc' },
-  { name: '/plan',       desc: 'commands.plan.desc' },
-  { name: '/swarm',      desc: 'commands.swarm.desc', acceptsInput: true },
-  { name: '/goal',       desc: 'commands.goal.desc', acceptsInput: true },
-  { name: '/btw',        desc: 'commands.btw.desc', acceptsInput: true },
-  { name: '/auto',       desc: 'commands.auto.desc' },
-  { name: '/yolo',       desc: 'commands.yolo.desc' },
-  { name: '/thinking',   desc: 'commands.thinking.desc' },
-  { name: '/compact',    desc: 'commands.compact.desc', acceptsInput: true },
-  { name: '/undo',       desc: 'commands.undo.desc' },
-  { name: '/fork',       desc: 'commands.fork.desc' },
-  { name: '/export',     desc: 'commands.export.desc' },
-  { name: '/status',     desc: 'commands.status.desc' },
+  { name: '/new', desc: 'commands.new.desc' },
+  { name: '/clear', desc: 'commands.clear.desc' },
+  { name: '/login', desc: 'commands.login.desc' },
+  { name: '/plan', desc: 'commands.plan.desc' },
+  { name: '/swarm', desc: 'commands.swarm.desc', acceptsInput: true },
+  { name: '/goal', desc: 'commands.goal.desc', acceptsInput: true },
+  { name: '/btw', desc: 'commands.btw.desc', acceptsInput: true },
+  { name: '/auto', desc: 'commands.auto.desc' },
+  { name: '/yolo', desc: 'commands.yolo.desc' },
+  { name: '/thinking', desc: 'commands.thinking.desc' },
+  { name: '/compact', desc: 'commands.compact.desc', acceptsInput: true },
+  { name: '/undo', desc: 'commands.undo.desc' },
+  { name: '/fork', desc: 'commands.fork.desc' },
+  { name: '/export', desc: 'commands.export.desc' },
+  { name: '/status', desc: 'commands.status.desc' },
 ];
 
 /**

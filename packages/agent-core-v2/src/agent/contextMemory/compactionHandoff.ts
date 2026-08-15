@@ -16,9 +16,14 @@ import {
   tryNativeTruncateTextToTokensFromEnd,
   type NativeCompactionUserSelection,
 } from '#/_base/native-tools';
-import { estimateTokens, estimateTokensForMessage, estimateTokensForMessages } from '#/kosong/contract/tokens';
-import type { ContentPart } from '#/kosong/contract/message';
 import { wrapSystemReminder } from '#/agent/systemReminder/systemReminder';
+import type { ContentPart } from '#/kosong/contract/message';
+import {
+  estimateTokens,
+  estimateTokensForMessage,
+  estimateTokensForMessages,
+} from '#/kosong/contract/tokens';
+
 import summaryPrefixTemplate from './compaction-summary-prefix.md?raw';
 import type { ContextMessage, PromptOrigin } from './types';
 
@@ -117,9 +122,10 @@ export function buildContextCompactionShape(
   const elisionMessage = selection.elided
     ? createCompactionElisionMessage(selection.omittedTokens)
     : undefined;
-  const keptMessages = elisionMessage === undefined
-    ? [...selection.head, ...selection.tail]
-    : [...selection.head, elisionMessage, ...selection.tail];
+  const keptMessages =
+    elisionMessage === undefined
+      ? [...selection.head, ...selection.tail]
+      : [...selection.head, elisionMessage, ...selection.tail];
   const contextSummary = input.contextSummary ?? input.summary;
   const tokensAfter =
     input.tokensAfter ??
@@ -257,7 +263,13 @@ export function selectCompactionUserMessages<T extends MessageLike>(
     headTokens,
   );
   if (native !== undefined) {
-    const rebuilt = rebuildFromNativeSelection(messages, native, maxTokens, headTokens, estimateMessage);
+    const rebuilt = rebuildFromNativeSelection(
+      messages,
+      native,
+      maxTokens,
+      headTokens,
+      estimateMessage,
+    );
     if (rebuilt !== undefined) return rebuilt;
   }
 
@@ -320,7 +332,6 @@ export function selectCompactionUserMessages<T extends MessageLike>(
   return { head, tail, elided: true, omittedTokens: Math.max(0, totalTokens - keptTokens) };
 }
 
-
 function rebuildFromNativeSelection<T extends MessageLike>(
   messages: readonly T[],
   native: NativeCompactionUserSelection,
@@ -376,7 +387,9 @@ function rebuildFromNativeSelection<T extends MessageLike>(
       continue;
     }
     const droppedPrefixBoundary =
-      tailBoundaryDroppedPrefix !== null && idx === tailBoundaryIndex ? tailBoundaryDroppedPrefix : null;
+      tailBoundaryDroppedPrefix !== null && idx === tailBoundaryIndex
+        ? tailBoundaryDroppedPrefix
+        : null;
     const baseText =
       droppedPrefixBoundary !== null
         ? extractText(droppedPrefixBoundary.content)

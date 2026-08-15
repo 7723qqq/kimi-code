@@ -21,9 +21,13 @@
  */
 
 import { AsyncEventQueue } from '#/_base/asyncEventQueue';
-import type { VideoURLPart } from '#/kosong/contract/message';
-import { APIStatusError, isAbortError, VideoUploadUnsupportedError } from '#/kosong/contract/errors';
+import {
+  APIStatusError,
+  isAbortError,
+  VideoUploadUnsupportedError,
+} from '#/kosong/contract/errors';
 import { generate, type GenerateResult } from '#/kosong/contract/generate';
+import type { VideoURLPart } from '#/kosong/contract/message';
 import type {
   ChatProvider,
   GenerateOptions,
@@ -89,9 +93,7 @@ export class ModelRequesterImpl implements ModelRequester {
       );
     }
     const uploadVideo = provider.uploadVideo.bind(provider);
-    return this.runWithAuthRefresh((auth) =>
-      uploadVideo(input, { signal: options?.signal, auth }),
-    );
+    return this.runWithAuthRefresh((auth) => uploadVideo(input, { signal: options?.signal, auth }));
   }
 
   private async runRequest(
@@ -214,7 +216,9 @@ function isUnauthorizedStatusError(error: unknown): error is APIStatusError {
   return error instanceof APIStatusError && error.statusCode === 401;
 }
 
-type MutableModelRequestTiming = { -readonly [K in keyof ModelRequestTiming]: ModelRequestTiming[K] };
+type MutableModelRequestTiming = {
+  -readonly [K in keyof ModelRequestTiming]: ModelRequestTiming[K];
+};
 
 export function buildStreamTiming(
   requestStartedAt: number,

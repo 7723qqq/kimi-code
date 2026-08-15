@@ -1,10 +1,22 @@
-import { bridge } from "@/services";
-import { useApprovalStore } from "./approval.store";
-import { useSettingsStore } from "./settings.store";
-import { isPreflightError, isUserInterrupt } from "shared/errors";
-import type { ChatMessage, UIStep, UIStepItem, ChatState, TokenUsage } from "./chat.store";
-import type { ContentPart, ToolCall, ToolResult, TurnBegin, SubagentEvent, ApprovalRequestPayload, DiffBlock, RunResult, QuestionRequest } from "shared/legacy-sdk";
-import type { UIStreamEvent, StreamError } from "shared/types";
+import { isPreflightError, isUserInterrupt } from 'shared/errors';
+import type {
+  ContentPart,
+  ToolCall,
+  ToolResult,
+  TurnBegin,
+  SubagentEvent,
+  ApprovalRequestPayload,
+  DiffBlock,
+  RunResult,
+  QuestionRequest,
+} from 'shared/legacy-sdk';
+import type { UIStreamEvent, StreamError } from 'shared/types';
+
+import { bridge } from '@/services';
+
+import { useApprovalStore } from './approval.store';
+import type { ChatMessage, UIStep, UIStepItem, ChatState, TokenUsage } from './chat.store';
+import { useSettingsStore } from './settings.store';
 
 type EventHandler = (draft: ChatState, payload: any) => void;
 
@@ -23,16 +35,18 @@ function extractDiffPaths(display?: { type: string; path?: string }[]): string[]
   if (!display) {
     return [];
   }
-  return display.filter((block): block is DiffBlock => block.type === "diff" && typeof block.path === "string").map((block) => block.path);
+  return display
+    .filter((block): block is DiffBlock => block.type === 'diff' && typeof block.path === 'string')
+    .map((block) => block.path);
 }
 
 function getLastAssistant(draft: ChatState): ChatMessage | undefined {
   const last = draft.messages.at(-1);
-  return last?.role === "assistant" ? last : undefined;
+  return last?.role === 'assistant' ? last : undefined;
 }
 
 function hasContent(message: ChatMessage): boolean {
-  if (typeof message.content === "string" && message.content.trim()) {
+  if (typeof message.content === 'string' && message.content.trim()) {
     return true;
   }
   if (Array.isArray(message.content) && message.content.length > 0) {
@@ -42,10 +56,13 @@ function hasContent(message: ChatMessage): boolean {
   return message.steps?.some((s) => s.items.length > 0) ?? false;
 }
 
-function findToolUseItem(steps: UIStep[], toolId: string): (UIStepItem & { type: "tool_use" }) | null {
+function findToolUseItem(
+  steps: UIStep[],
+  toolId: string,
+): (UIStepItem & { type: 'tool_use' }) | null {
   for (const step of steps) {
     for (const item of step.items) {
-      if (item.type === "tool_use") {
+      if (item.type === 'tool_use') {
         if (item.id === toolId) {
           return item;
         }
@@ -66,11 +83,15 @@ function findToolUseItem(steps: UIStep[], toolId: string): (UIStepItem & { type:
 function resolveSubagentTarget(
   steps: UIStep[],
   payload: SubagentEvent,
-): { steps: UIStep[]; event: { type: string; payload: any }; toolItem: UIStepItem & { type: "tool_use" } } | null {
+): {
+  steps: UIStep[];
+  event: { type: string; payload: any };
+  toolItem: UIStepItem & { type: 'tool_use' };
+} | null {
   const { parent_tool_call_id, event } = payload;
 
   // Nested SubagentEvent
-  if (event.type === "SubagentEvent") {
+  if (event.type === 'SubagentEvent') {
     return resolveSubagentTarget(steps, event.payload as SubagentEvent);
   }
 
@@ -89,20 +110,24 @@ function resolveSubagentTarget(
 function finishAllTextItems(steps: UIStep[]): void {
   for (const step of steps) {
     for (const item of step.items) {
-      if (item.type === "text" || item.type === "thinking") {
+      if (item.type === 'text' || item.type === 'thinking') {
         item.finished = true;
       }
-      if (item.type === "tool_use" && item.subagent_steps) {
+      if (item.type === 'tool_use' && item.subagent_steps) {
         finishAllTextItems(item.subagent_steps);
       }
     }
   }
 }
 
-function applyEventToSteps(steps: UIStep[], event: { type: string; payload: any }, onText?: (text: string) => void): void {
+function applyEventToSteps(
+  steps: UIStep[],
+  event: { type: string; payload: any },
+  onText?: (text: string) => void,
+): void {
   const currentStep = steps.at(-1);
 
-  const appendOrCreate = (type: "text" | "thinking", content: string): void => {
+  const appendOrCreate = (type: 'text' | 'thinking', content: string): void => {
     if (!currentStep) {
       return;
     }
@@ -115,13 +140,13 @@ function applyEventToSteps(steps: UIStep[], event: { type: string; payload: any 
     }
   };
 
-  const findLastToolUse = (): (UIStepItem & { type: "tool_use" }) | null => {
+  const findLastToolUse = (): (UIStepItem & { type: 'tool_use' }) | null => {
     for (let i = steps.length - 1; i >= 0; i--) {
       const items = steps[i].items;
 
       for (let j = items.length - 1; j >= 0; j--) {
-        if (items[j].type === "tool_use") {
-          return items[j] as UIStepItem & { type: "tool_use" };
+        if (items[j].type === 'tool_use') {
+          return items[j] as UIStepItem & { type: 'tool_use' };
         }
       }
     }
@@ -129,16 +154,22 @@ function applyEventToSteps(steps: UIStep[], event: { type: string; payload: any 
     return null;
   };
 
-  const updateToolResult = (toolCallId: string, returnValue: ToolResult["return_value"]): boolean => {
+  const updateToolResult = (
+    toolCallId: string,
+    returnValue: ToolResult['return_value'],
+  ): boolean => {
     for (const step of steps) {
       for (const item of step.items) {
-        if (item.type === "tool_use") {
+        if (item.type === 'tool_use') {
           if (item.id === toolCallId) {
             item.result = returnValue;
             return true;
           }
 
-          if (item.subagent_steps && applyToolResult(item.subagent_steps, toolCallId, returnValue)) {
+          if (
+            item.subagent_steps &&
+            applyToolResult(item.subagent_steps, toolCallId, returnValue)
+          ) {
             return true;
           }
         }
@@ -148,16 +179,23 @@ function applyEventToSteps(steps: UIStep[], event: { type: string; payload: any 
     return false;
   };
 
-  const applyToolResult = (subSteps: UIStep[], toolCallId: string, returnValue: ToolResult["return_value"]): boolean => {
+  const applyToolResult = (
+    subSteps: UIStep[],
+    toolCallId: string,
+    returnValue: ToolResult['return_value'],
+  ): boolean => {
     for (const step of subSteps) {
       for (const item of step.items) {
-        if (item.type === "tool_use") {
+        if (item.type === 'tool_use') {
           if (item.id === toolCallId) {
             item.result = returnValue;
             return true;
           }
 
-          if (item.subagent_steps && applyToolResult(item.subagent_steps, toolCallId, returnValue)) {
+          if (
+            item.subagent_steps &&
+            applyToolResult(item.subagent_steps, toolCallId, returnValue)
+          ) {
             return true;
           }
         }
@@ -168,25 +206,25 @@ function applyEventToSteps(steps: UIStep[], event: { type: string; payload: any 
   };
 
   switch (event.type) {
-    case "StepBegin":
+    case 'StepBegin':
       finishAllTextItems(steps);
       steps.push({ n: event.payload.n, items: [] });
       break;
 
-    case "ContentPart": {
+    case 'ContentPart': {
       const part = event.payload as ContentPart;
 
-      if (part.type === "text" && part.text) {
-        appendOrCreate("text", part.text);
+      if (part.type === 'text' && part.text) {
+        appendOrCreate('text', part.text);
         onText?.(part.text);
-      } else if (part.type === "think" && part.think) {
-        appendOrCreate("thinking", part.think);
+      } else if (part.type === 'think' && part.think) {
+        appendOrCreate('thinking', part.think);
       }
 
       break;
     }
 
-    case "ToolCall": {
+    case 'ToolCall': {
       if (!currentStep) {
         break;
       }
@@ -194,7 +232,7 @@ function applyEventToSteps(steps: UIStep[], event: { type: string; payload: any 
       const call = event.payload as ToolCall;
 
       currentStep.items.push({
-        type: "tool_use",
+        type: 'tool_use',
         id: call.id,
         call: {
           id: call.id,
@@ -206,23 +244,22 @@ function applyEventToSteps(steps: UIStep[], event: { type: string; payload: any 
       break;
     }
 
-    case "ToolCallPart": {
+    case 'ToolCallPart': {
       const { arguments_part, tool_call_id } = event.payload;
       if (!arguments_part) {
         break;
       }
-      const tool = typeof tool_call_id === "string"
-        ? findToolUseItem(steps, tool_call_id)
-        : findLastToolUse();
+      const tool =
+        typeof tool_call_id === 'string' ? findToolUseItem(steps, tool_call_id) : findLastToolUse();
 
       if (tool) {
-        tool.call.arguments = (tool.call.arguments || "") + arguments_part;
+        tool.call.arguments = (tool.call.arguments || '') + arguments_part;
       }
 
       break;
     }
 
-    case "ToolResult": {
+    case 'ToolResult': {
       const result = event.payload as ToolResult;
       updateToolResult(result.tool_call_id, result.return_value);
 
@@ -241,7 +278,7 @@ function isTaskToolResult(steps: UIStep[] | undefined, toolCallId: string): bool
     return false;
   }
   const toolItem = findToolUseItem(steps, toolCallId);
-  return toolItem?.call.name === "Task" || toolItem?.call.name === "Agent";
+  return toolItem?.call.name === 'Task' || toolItem?.call.name === 'Agent';
 }
 
 function handlePreflightError(draft: ChatState, _code: string, _message: string): void {
@@ -260,15 +297,20 @@ function handlePreflightError(draft: ChatState, _code: string, _message: string)
 
   // 删除对应的 user 消息
   const lastUser = draft.messages.at(-1);
-  if (lastUser?.role === "user") {
+  if (lastUser?.role === 'user') {
     const userContent = lastUser.content;
     draft.messages.pop();
     // 触发回滚（通过 pendingInput 保存）
-    draft.pendingInput = { content: userContent, model: "" };
+    draft.pendingInput = { content: userContent, model: '' };
   }
 }
 
-function handleRuntimeError(draft: ChatState, code: string, message: string, detail?: string): void {
+function handleRuntimeError(
+  draft: ChatState,
+  code: string,
+  message: string,
+  detail?: string,
+): void {
   // Runtime: 保留现场，添加内嵌错误
   addTokenUsage(draft.tokenUsage, draft.activeTokenUsage);
   draft.activeTokenUsage = createEmptyTokenUsage();
@@ -310,14 +352,14 @@ const eventHandlers: Record<string, EventHandler> = {
   },
 
   error: (draft, payload: StreamError) => {
-    const code = payload.code || "UNKNOWN";
-    const phase = payload.phase || (isPreflightError(code) ? "preflight" : "runtime");
+    const code = payload.code || 'UNKNOWN';
+    const phase = payload.phase || (isPreflightError(code) ? 'preflight' : 'runtime');
 
-    if (code === "UNKNOWN_EVENT_TYPE") {
+    if (code === 'UNKNOWN_EVENT_TYPE') {
       return;
     } // 忽略未知事件类型错误，通常是版本不匹配导致
 
-    if (phase === "preflight") {
+    if (phase === 'preflight') {
       handlePreflightError(draft, code, payload.message);
     } else {
       if (isUserInterrupt(code)) {
@@ -343,7 +385,7 @@ const eventHandlers: Record<string, EventHandler> = {
 
     draft.messages.push({
       id: crypto.randomUUID(),
-      role: "user",
+      role: 'user',
       content: payload.user_input,
       timestamp: Date.now(),
       forkable: payload.forkable,
@@ -351,8 +393,8 @@ const eventHandlers: Record<string, EventHandler> = {
 
     draft.messages.push({
       id: crypto.randomUUID(),
-      role: "assistant",
-      content: "",
+      role: 'assistant',
+      content: '',
       timestamp: Date.now(),
       steps: [],
       forkable: payload.forkable,
@@ -376,7 +418,7 @@ const eventHandlers: Record<string, EventHandler> = {
       }
 
       finishAllTextItems(last.steps);
-      last.steps.at(-1)!.items.push({ type: "compaction" });
+      last.steps.at(-1)!.items.push({ type: 'compaction' });
     }
   },
 
@@ -395,7 +437,7 @@ const eventHandlers: Record<string, EventHandler> = {
         last.steps = [];
       }
 
-      applyEventToSteps(last.steps, { type: "StepBegin", payload });
+      applyEventToSteps(last.steps, { type: 'StepBegin', payload });
 
       // Tag the newly created step with current plan mode state
       // Note: only top-level steps get tagged. Subagent steps go through
@@ -425,8 +467,8 @@ const eventHandlers: Record<string, EventHandler> = {
       return;
     }
 
-    applyEventToSteps(last.steps, { type: "ContentPart", payload }, (text) => {
-      if (typeof last.content === "string") {
+    applyEventToSteps(last.steps, { type: 'ContentPart', payload }, (text) => {
+      if (typeof last.content === 'string') {
         last.content += text;
       }
     });
@@ -437,7 +479,7 @@ const eventHandlers: Record<string, EventHandler> = {
     if (!last?.steps) {
       return;
     }
-    applyEventToSteps(last.steps, { type: "ToolCall", payload });
+    applyEventToSteps(last.steps, { type: 'ToolCall', payload });
   },
 
   ToolCallPart: (draft, payload) => {
@@ -445,7 +487,7 @@ const eventHandlers: Record<string, EventHandler> = {
     if (!last?.steps) {
       return;
     }
-    applyEventToSteps(last.steps, { type: "ToolCallPart", payload });
+    applyEventToSteps(last.steps, { type: 'ToolCallPart', payload });
   },
 
   ToolResult: (draft, payload: ToolResult) => {
@@ -459,7 +501,7 @@ const eventHandlers: Record<string, EventHandler> = {
       draft.activeTokenUsage = createEmptyTokenUsage();
     }
 
-    applyEventToSteps(last.steps, { type: "ToolResult", payload });
+    applyEventToSteps(last.steps, { type: 'ToolResult', payload });
   },
 
   SubagentEvent: (draft, payload: SubagentEvent) => {
@@ -473,7 +515,7 @@ const eventHandlers: Record<string, EventHandler> = {
       return;
     }
 
-    if (target.event.type === "StatusUpdate") {
+    if (target.event.type === 'StatusUpdate') {
       const { token_usage } = target.event.payload;
 
       if (token_usage) {
@@ -493,7 +535,7 @@ const eventHandlers: Record<string, EventHandler> = {
     }
 
     // Nested Subagent Task End: accumulate token usage
-    if (target.event.type === "ToolResult") {
+    if (target.event.type === 'ToolResult') {
       const toolResultPayload = target.event.payload as ToolResult;
       if (isTaskToolResult(target.steps, toolResultPayload.tool_call_id)) {
         addTokenUsage(draft.tokenUsage, draft.activeTokenUsage);
@@ -522,10 +564,10 @@ const eventHandlers: Record<string, EventHandler> = {
   StatusUpdate: (draft, payload) => {
     const { context_usage, token_usage, plan_mode, model, thinking_effort, retrying } = payload;
 
-    if (typeof model === "string" && model.length > 0) {
+    if (typeof model === 'string' && model.length > 0) {
       useSettingsStore.getState().setCurrentModel(model);
     }
-    if (typeof thinking_effort === "string" && thinking_effort.length > 0) {
+    if (typeof thinking_effort === 'string' && thinking_effort.length > 0) {
       useSettingsStore.getState().setThinkingEffort(thinking_effort);
     }
 
@@ -563,7 +605,7 @@ const eventHandlers: Record<string, EventHandler> = {
     if (!currentStep) return;
 
     finishAllTextItems(last.steps);
-    currentStep.items.push({ type: "steer", content: payload.user_input });
+    currentStep.items.push({ type: 'steer', content: payload.user_input });
   },
 };
 
@@ -571,7 +613,7 @@ export function processEvent(draft: ChatState, event: UIStreamEvent): void {
   const handler = eventHandlers[event.type];
 
   if (handler) {
-    const payload = "payload" in event ? event.payload : event;
+    const payload = 'payload' in event ? event.payload : event;
     handler(draft, payload);
   }
 }

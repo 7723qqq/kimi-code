@@ -8,12 +8,8 @@ export function SessionListPage() {
   return (
     <div className="flex h-full items-center justify-center">
       <div className="max-w-md px-8 text-center">
-        <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-fg-3">
-          kimi vis
-        </div>
-        <div className="mt-3 font-mono text-[13px] text-fg-1">
-          {t('sessionList.selectPrompt')}
-        </div>
+        <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-fg-3">kimi vis</div>
+        <div className="mt-3 font-mono text-[13px] text-fg-1">{t('sessionList.selectPrompt')}</div>
         <div className="mt-6 flex items-center justify-center gap-6 font-mono text-[11px] text-fg-2">
           <div>
             <div className="tabular text-[22px] text-fg-0">{count}</div>

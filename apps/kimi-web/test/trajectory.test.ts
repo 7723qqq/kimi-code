@@ -65,11 +65,21 @@ describe('event ledger', () => {
 describe('trajectory layout', () => {
   it('folds a full turn: user, step groups, assistant, tool call', () => {
     const turns = deriveTrajectoryLayout([
-      frame('prompt.submitted', { content: [{ type: 'text', text: 'hi' }] }, '2026-08-15T00:00:00.000Z', 1),
+      frame(
+        'prompt.submitted',
+        { content: [{ type: 'text', text: 'hi' }] },
+        '2026-08-15T00:00:00.000Z',
+        1,
+      ),
       frame('turn.started', { turnId: 1 }, '2026-08-15T00:00:00.100Z', 2),
       frame('turn.step.started', { step: 1 }, '2026-08-15T00:00:00.200Z', 3),
       frame('assistant.delta', { text: 'let me check' }, '2026-08-15T00:00:00.300Z', 4),
-      frame('tool.call.started', { toolCallId: 'c1', toolName: 'Bash' }, '2026-08-15T00:00:00.400Z', 5),
+      frame(
+        'tool.call.started',
+        { toolCallId: 'c1', toolName: 'Bash' },
+        '2026-08-15T00:00:00.400Z',
+        5,
+      ),
       frame('tool.result', { toolCallId: 'c1', output: 'ok' }, '2026-08-15T00:01:00.400Z', 6),
       frame(
         'turn.step.completed',
@@ -144,7 +154,12 @@ describe('trajectory layout', () => {
 describe('timeline projection', () => {
   it('projects sequence spans with lanes and turn boundaries', () => {
     const turns = deriveTrajectoryLayout([
-      frame('prompt.submitted', { content: [{ type: 'text', text: 'q' }] }, '2026-08-15T00:00:00.000Z', 1),
+      frame(
+        'prompt.submitted',
+        { content: [{ type: 'text', text: 'q' }] },
+        '2026-08-15T00:00:00.000Z',
+        1,
+      ),
       frame('turn.started', { turnId: 1 }, '2026-08-15T00:00:00.100Z', 2),
       frame('turn.step.started', { step: 1 }, '2026-08-15T00:00:00.200Z', 3),
       frame('assistant.delta', { text: 'x' }, '2026-08-15T00:00:00.300Z', 4),
@@ -169,11 +184,7 @@ describe('timeline projection', () => {
       frame('turn.step.started', { step: 2 }, '2026-08-15T00:01:00.000Z', 5),
       frame('turn.step.completed', { usage: { output: 1 } }, '2026-08-15T00:01:01.000Z', 6),
     ]);
-    const focused = trajectoryTimelineFocusIndexes(
-      turns,
-      { start: 0.5, end: 1.5 },
-      'sequence',
-    );
+    const focused = trajectoryTimelineFocusIndexes(turns, { start: 0.5, end: 1.5 }, 'sequence');
     // Sequence domain: step 1 at [0,1), step 2 at [1,2). The inclusive
     // interval [0.5,1.5] touches both steps.
     expect(focused).toEqual(

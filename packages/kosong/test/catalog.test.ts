@@ -16,7 +16,9 @@ describe('inferWireType (deprecated compatibility wrapper)', () => {
     expect(inferWireType({ id: 'x', type: 'openai_responses' })).toBe('openai_responses');
     expect(inferWireType({ id: 'amazon-bedrock', npm: '@ai-sdk/amazon-bedrock' })).toBeUndefined();
     expect(inferWireType({ id: 'cohere', npm: '@ai-sdk/cohere' })).toBeUndefined();
-    expect(inferWireType({ id: 'x', type: 'kokub', npm: '@ai-sdk/openai-compatible' })).toBeUndefined();
+    expect(
+      inferWireType({ id: 'x', type: 'kokub', npm: '@ai-sdk/openai-compatible' }),
+    ).toBeUndefined();
   });
 });
 
@@ -132,7 +134,10 @@ describe('resolveCatalogImport — endpoint resolution', () => {
     // google-vertex-anthropic shape: Anthropic wire, vendor npm, no api —
     // without a prompt the key would be sent to api.anthropic.com.
     expect(
-      resolveCatalogImport({ id: 'google-vertex-anthropic', npm: '@ai-sdk/google-vertex/anthropic' }),
+      resolveCatalogImport({
+        id: 'google-vertex-anthropic',
+        npm: '@ai-sdk/google-vertex/anthropic',
+      }),
     ).toEqual({ kind: 'needs-base-url', wire: 'anthropic', guessed: false });
     // kimi-for-coding declares a concrete api — no prompt needed.
     expect(
@@ -151,7 +156,11 @@ describe('resolveCatalogImport — endpoint resolution', () => {
 
   it('needs a URL when the catalog api is an env placeholder', () => {
     expect(
-      resolveCatalogImport({ id: 'neon', npm: '@ai-sdk/openai-compatible', api: '${NEON_BASE_URL}/v1' }),
+      resolveCatalogImport({
+        id: 'neon',
+        npm: '@ai-sdk/openai-compatible',
+        api: '${NEON_BASE_URL}/v1',
+      }),
     ).toEqual({ kind: 'needs-base-url', wire: 'openai', guessed: false });
     expect(
       resolveCatalogImport({
@@ -167,18 +176,29 @@ describe('resolveCatalogImport — endpoint resolution', () => {
       resolveCatalogImport({ id: 'openai', npm: '@ai-sdk/openai', api: '${OPENAI_BASE_URL}/v1' }),
     ).toEqual({ kind: 'needs-base-url', wire: 'openai', guessed: false });
     expect(
-      resolveCatalogImport({ id: 'anthropic', npm: '@ai-sdk/anthropic', api: '${ANTHROPIC_BASE_URL}' }),
+      resolveCatalogImport({
+        id: 'anthropic',
+        npm: '@ai-sdk/anthropic',
+        api: '${ANTHROPIC_BASE_URL}',
+      }),
     ).toEqual({ kind: 'needs-base-url', wire: 'anthropic', guessed: false });
     // A concrete endpoint on the official SDK still resolves without asking.
     expect(
-      resolveCatalogImport({ id: 'openai', npm: '@ai-sdk/openai', api: 'https://api.openai.com/v1' }),
+      resolveCatalogImport({
+        id: 'openai',
+        npm: '@ai-sdk/openai',
+        api: 'https://api.openai.com/v1',
+      }),
     ).toMatchObject({ kind: 'ok', wire: 'openai' });
   });
 
   it('adapts a user-supplied URL to the wire (Anthropic strips a trailing /v1)', () => {
-    expect(
-      resolveCatalogImport({ id: 'xai', npm: '@ai-sdk/xai' }, 'https://api.x.ai/v1'),
-    ).toEqual({ kind: 'ok', wire: 'openai', guessed: true, baseUrl: 'https://api.x.ai/v1' });
+    expect(resolveCatalogImport({ id: 'xai', npm: '@ai-sdk/xai' }, 'https://api.x.ai/v1')).toEqual({
+      kind: 'ok',
+      wire: 'openai',
+      guessed: true,
+      baseUrl: 'https://api.x.ai/v1',
+    });
     expect(
       resolveCatalogImport(
         { id: 'google-vertex-anthropic', npm: '@ai-sdk/google-vertex/anthropic' },
@@ -251,7 +271,10 @@ describe('catalogBaseUrl', () => {
   it('returns undefined for env-placeholder URLs the config cannot express', () => {
     expect(catalogBaseUrl({ id: 'neon', api: '${NEON_BASE_URL}/v1' }, 'openai')).toBeUndefined();
     expect(
-      catalogBaseUrl({ id: 'azure', api: 'https://${AZURE_RESOURCE_NAME}.example.test/anthropic/v1' }, 'anthropic'),
+      catalogBaseUrl(
+        { id: 'azure', api: 'https://${AZURE_RESOURCE_NAME}.example.test/anthropic/v1' },
+        'anthropic',
+      ),
     ).toBeUndefined();
   });
 
@@ -297,9 +320,9 @@ describe('catalogModelToCapability', () => {
   });
 
   it('defaults tool_use to true and skips models without a positive context', () => {
-    expect(catalogModelToCapability({ id: 'm', limit: { context: 1000 } })?.capability.tool_use).toBe(
-      true,
-    );
+    expect(
+      catalogModelToCapability({ id: 'm', limit: { context: 1000 } })?.capability.tool_use,
+    ).toBe(true);
     expect(catalogModelToCapability({ id: 'm' })).toBeUndefined();
     expect(catalogModelToCapability({ id: 'm', limit: { context: 0 } })).toBeUndefined();
   });
@@ -355,10 +378,7 @@ describe('catalogModelToCapability', () => {
     const model = catalogModelToCapability({
       id: 'k3',
       reasoning: true,
-      reasoning_options: [
-        { type: 'toggle' },
-        { type: 'effort', values: ['low', 'high', 'max'] },
-      ],
+      reasoning_options: [{ type: 'toggle' }, { type: 'effort', values: ['low', 'high', 'max'] }],
       limit: { context: 1048576 },
     });
     expect(model?.supportEfforts).toEqual(['low', 'high', 'max']);
@@ -415,10 +435,7 @@ describe('catalogModelToCapability', () => {
     const toggleable = catalogModelToCapability({
       id: 'k3',
       reasoning: true,
-      reasoning_options: [
-        { type: 'toggle' },
-        { type: 'effort', values: ['low', 'high', 'max'] },
-      ],
+      reasoning_options: [{ type: 'toggle' }, { type: 'effort', values: ['low', 'high', 'max'] }],
       limit: { context: 1000 },
     });
     expect(toggleable?.alwaysThinking).toBeUndefined();
@@ -547,7 +564,10 @@ describe('catalogModelToCapability', () => {
     // The gpt-5 shape on models.dev: 400k total window, 272k input cap. The
     // total window stays the context budget (completion clamping needs it);
     // the input cap is tracked for prompt-budget checks (compaction).
-    const model = catalogModelToCapability({ id: 'gpt-5', limit: { context: 400000, input: 272000 } });
+    const model = catalogModelToCapability({
+      id: 'gpt-5',
+      limit: { context: 400000, input: 272000 },
+    });
     expect(model?.capability.max_context_tokens).toBe(400000);
     expect(model?.capability.max_input_tokens).toBe(272000);
     // A bogus or inconsistent input limit never exceeds the total window.
@@ -597,7 +617,10 @@ describe('catalogProviderModels', () => {
         'vendor/claude-model': {
           id: 'vendor/claude-model',
           limit: { context: 200000 },
-          provider: { npm: '@ai-sdk/anthropic', api: 'https://zenmux.example.test/api/anthropic/v1' },
+          provider: {
+            npm: '@ai-sdk/anthropic',
+            api: 'https://zenmux.example.test/api/anthropic/v1',
+          },
         },
         'vendor/plain-model': { id: 'vendor/plain-model', limit: { context: 1000 } },
       },

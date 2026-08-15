@@ -2,9 +2,9 @@
  * `SubagentRosterTracker` — live subagent roster for snapshot rebuilds.
  */
 
-import type { Event } from '../src/transport/ws/v1/events';
 import { describe, expect, it } from 'vitest';
 
+import type { Event } from '../src/transport/ws/v1/events';
 import { SubagentRosterTracker } from '../src/transport/ws/v1/subagentRosterTracker';
 
 const SID = 'sess_1';
@@ -29,7 +29,10 @@ function spawn(subagentId: string, extra: Record<string, unknown> = {}): Event {
 describe('SubagentRosterTracker', () => {
   it('seeds a roster entry from subagent.spawned with the swarm identity metadata', () => {
     const t = new SubagentRosterTracker();
-    t.apply(SID, spawn('agent-1', { swarmIndex: 2, model: 'provider/secondary', thinkingEffort: 'low' }));
+    t.apply(
+      SID,
+      spawn('agent-1', { swarmIndex: 2, model: 'provider/secondary', thinkingEffort: 'low' }),
+    );
 
     expect(t.get(SID)).toEqual([
       expect.objectContaining({
@@ -96,10 +99,7 @@ describe('SubagentRosterTracker', () => {
     expect(t.get(SID)[0]).toMatchObject({ subagent_phase: 'working' });
     expect(t.get(SID)[0]?.started_at).toBeDefined();
 
-    t.apply(
-      SID,
-      ev({ type: 'subagent.suspended', subagentId: 'agent-1', reason: 'rate limit' }),
-    );
+    t.apply(SID, ev({ type: 'subagent.suspended', subagentId: 'agent-1', reason: 'rate limit' }));
     expect(t.get(SID)[0]).toMatchObject({
       subagent_phase: 'suspended',
       suspended_reason: 'rate limit',
@@ -111,10 +111,7 @@ describe('SubagentRosterTracker', () => {
     expect(t.get(SID)[0]).toMatchObject({ subagent_phase: 'working', started_at: startedAt });
     expect(t.get(SID)[0]?.suspended_reason).toBeUndefined();
 
-    t.apply(
-      SID,
-      ev({ type: 'subagent.completed', subagentId: 'agent-1', resultSummary: 'done' }),
-    );
+    t.apply(SID, ev({ type: 'subagent.completed', subagentId: 'agent-1', resultSummary: 'done' }));
     expect(t.get(SID)[0]).toMatchObject({
       subagent_phase: 'completed',
       status: 'completed',
@@ -173,7 +170,11 @@ describe('SubagentRosterTracker', () => {
     });
     expect(entries[0]?.completed_at).toBeDefined();
     // Already-terminal entries are left untouched.
-    expect(entries[1]).toMatchObject({ id: 'agent-2', status: 'completed', output_preview: 'done' });
+    expect(entries[1]).toMatchObject({
+      id: 'agent-2',
+      status: 'completed',
+      output_preview: 'done',
+    });
   });
 
   it('ignores lifecycle events for unknown subagents', () => {

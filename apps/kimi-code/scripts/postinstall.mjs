@@ -101,18 +101,18 @@
  */
 
 import {
+  classifyShim,
+  deleteShim,
+  detectLegacyShims,
+  renameInPlace,
+} from './postinstall/migrate.mjs';
+import {
   detectPackageManager,
   findFirstResolvableKimi,
   isGlobalInstall,
   ownPackageRoot,
   postinstallPaths,
 } from './postinstall/reach.mjs';
-import {
-  classifyShim,
-  deleteShim,
-  detectLegacyShims,
-  renameInPlace,
-} from './postinstall/migrate.mjs';
 import {
   logForeignKimiInTheWay,
   logMigrationBlocked,

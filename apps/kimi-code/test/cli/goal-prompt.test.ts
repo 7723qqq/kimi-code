@@ -30,7 +30,9 @@ describe('goalExitCode', () => {
     // Folded-away statuses map to success (treated as complete/absent).
     expect(goalExitCode('impossible')).toBe(0);
     // The distinct codes are unique across the statuses.
-    expect(new Set(Object.values(GOAL_EXIT_CODES)).size).toBe(Object.values(GOAL_EXIT_CODES).length);
+    expect(new Set(Object.values(GOAL_EXIT_CODES)).size).toBe(
+      Object.values(GOAL_EXIT_CODES).length,
+    );
   });
 });
 

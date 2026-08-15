@@ -60,8 +60,7 @@ export class MoonshotFetchURLProvider implements UrlFetcher {
       let detail = '';
       try {
         detail = await response.text();
-      } catch {
-      }
+      } catch {}
       throw new HttpFetchError(
         response.status,
         `Moonshot fetch request failed: HTTP ${String(response.status)}. ${detail}`.trim(),

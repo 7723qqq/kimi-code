@@ -38,9 +38,8 @@ export class SwarmInjection extends Disposable {
   ) {
     super();
     this._register(
-      injector.register<SwarmModeInjectionDisclosure>(
-        SWARM_MODE_INJECTION_VARIANT,
-        (ctx) => this.reminder(ctx),
+      injector.register<SwarmModeInjectionDisclosure>(SWARM_MODE_INJECTION_VARIANT, (ctx) =>
+        this.reminder(ctx),
       ),
     );
   }

@@ -61,16 +61,15 @@
 
 import { promises as fsp } from 'node:fs';
 
-import { join } from 'pathe';
-
 import { type QueryOptions } from '@moonshot-ai/minidb';
 import { ClusterDb } from '@moonshot-ai/minidb/cluster';
+import { join } from 'pathe';
 
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import {
   IQueryStore,
   type Checkpoint,
@@ -131,14 +130,16 @@ export class MiniDbQueryStore extends Disposable implements IQueryStore {
   ) {
     super();
     this.dir = join(this.bootstrap.cacheDir, STORE_SUBDIR);
-    this._register(toDisposable(() => {
-      // DI disposal is synchronous, but closing a ClusterDb is not: track the
-      // close module-level so the shutdown path (`drainQueryStoreDisposals`)
-      // can await it before the homeDir is torn down.
-      const pending = this.close().catch(() => {});
-      pendingDisposals.add(pending);
-      void pending.finally(() => pendingDisposals.delete(pending));
-    }));
+    this._register(
+      toDisposable(() => {
+        // DI disposal is synchronous, but closing a ClusterDb is not: track the
+        // close module-level so the shutdown path (`drainQueryStoreDisposals`)
+        // can await it before the homeDir is torn down.
+        const pending = this.close().catch(() => {});
+        pendingDisposals.add(pending);
+        void pending.finally(() => pendingDisposals.delete(pending));
+      }),
+    );
   }
 
   private openDb(): Promise<ClusterDb> {
@@ -370,7 +371,10 @@ class MiniDbQuery<T> implements IQuery<T> {
     }
     q.skip = this.skip;
     if (this.lim !== undefined) q.limit = this.lim + 1;
-    const rows = (await this.withDb((db) => db.query(q))) as ReadonlyArray<{ key: string; value: T }>;
+    const rows = (await this.withDb((db) => db.query(q))) as ReadonlyArray<{
+      key: string;
+      value: T;
+    }>;
     let items = rows.map((r) => r.value);
     let nextCursor: string | undefined;
     if (this.lim !== undefined && items.length > this.lim) {

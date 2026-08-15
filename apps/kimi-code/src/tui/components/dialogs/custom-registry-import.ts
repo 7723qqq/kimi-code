@@ -19,8 +19,8 @@ import {
   type Focusable,
 } from '@moonshot-ai/pi-tui';
 
-import { currentTheme } from '#/tui/theme';
 import { t } from '#/i18n';
+import { currentTheme } from '#/tui/theme';
 
 export interface CustomRegistryImportValue {
   readonly url: string;
@@ -87,10 +87,7 @@ export class CustomRegistryImportDialogComponent extends Container implements Fo
   private done = false;
   private hint: 'none' | 'url-empty' | 'token-empty' = 'none';
 
-  constructor(
-    onDone: (result: CustomRegistryImportResult) => void,
-    defaultUrl: string = '',
-  ) {
+  constructor(onDone: (result: CustomRegistryImportResult) => void, defaultUrl: string = '') {
     super();
     this.onDone = onDone;
     if (defaultUrl.length > 0) this.urlInput.setValue(defaultUrl);

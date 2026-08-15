@@ -49,8 +49,11 @@ async function loadNames(configured?: boolean): Promise<readonly string[]> {
 
 describe('BuiltinSkillSource product-skill switch', () => {
   it('marks exactly the product-documentation skills', () => {
-    expect(BUILTIN_SKILLS.filter((s) => s.productSpecific === true).map((s) => s.name).toSorted())
-      .toEqual([...PRODUCT_SKILLS].toSorted());
+    expect(
+      BUILTIN_SKILLS.filter((s) => s.productSpecific === true)
+        .map((s) => s.name)
+        .toSorted(),
+    ).toEqual([...PRODUCT_SKILLS].toSorted());
     expect(NEUTRAL_SKILLS.length).toBeGreaterThan(0);
   });
 

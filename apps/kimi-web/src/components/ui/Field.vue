@@ -18,13 +18,23 @@ defineProps<{
 </template>
 
 <style scoped>
-.ui-field { display: flex; flex-direction: column; gap: 6px; }
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .ui-field__label {
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   color: var(--color-text-muted);
 }
-.ui-field__hint { font-size: var(--text-xs); color: var(--color-text-faint); }
-.ui-field__error { font-size: var(--text-xs); color: var(--color-danger); }
+.ui-field__hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+}
+.ui-field__error {
+  font-size: var(--text-xs);
+  color: var(--color-danger);
+}
 </style>

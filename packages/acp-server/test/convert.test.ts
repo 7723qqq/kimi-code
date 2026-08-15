@@ -93,7 +93,11 @@ describe('compressPromptImageParts', () => {
   const trash: string[] = [];
 
   afterEach(async () => {
-    await Promise.all(trash.splice(0).map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })));
+    await Promise.all(
+      trash
+        .splice(0)
+        .map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })),
+    );
   });
 
   async function tempOriginalsDir(): Promise<string> {

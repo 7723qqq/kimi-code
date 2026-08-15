@@ -4,6 +4,7 @@
 
 import { computed, ref, watch, type Ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import { getKimiWebApi } from '../api';
 import type { FileData, FilePreviewRequest, ToolMedia } from '../types';
 import type { useKimiWebClient } from './useKimiWebClient';
@@ -157,7 +158,8 @@ export function useFilePreview({ client, detailTarget }: UseFilePreviewOptions) 
       }
     } catch (error) {
       if (requestSeq !== previewRequestSeq) return;
-      previewError.value = error instanceof Error ? error.message : t('filePreview.errors.loadFailed');
+      previewError.value =
+        error instanceof Error ? error.message : t('filePreview.errors.loadFailed');
     } finally {
       if (requestSeq === previewRequestSeq) {
         previewLoading.value = false;
@@ -192,23 +194,26 @@ export function useFilePreview({ client, detailTarget }: UseFilePreviewOptions) 
     if (media.fileId) {
       previewLoading.value = true;
       previewFile.value = base;
-      void getKimiWebApi().getFileBlob(media.fileId).then((blob) => {
-        if (seq !== previewRequestSeq) return;
-        // The user may have switched to another detail panel while this was in
-        // flight — don't create (and leak) a blob URL for a hidden panel.
-        if (detailTarget.value !== 'file' || !previewFile.value) {
+      void getKimiWebApi()
+        .getFileBlob(media.fileId)
+        .then((blob) => {
+          if (seq !== previewRequestSeq) return;
+          // The user may have switched to another detail panel while this was in
+          // flight — don't create (and leak) a blob URL for a hidden panel.
+          if (detailTarget.value !== 'file' || !previewFile.value) {
+            previewLoading.value = false;
+            return;
+          }
+          mediaObjectUrl = URL.createObjectURL(blob);
+          previewFile.value = { ...previewFile.value, sourceUrl: mediaObjectUrl };
           previewLoading.value = false;
-          return;
-        }
-        mediaObjectUrl = URL.createObjectURL(blob);
-        previewFile.value = { ...previewFile.value, sourceUrl: mediaObjectUrl };
-        previewLoading.value = false;
-      }).catch(() => {
-        if (seq !== previewRequestSeq) return;
-        // Fall back to the raw URL so the user sees an honest broken state.
-        if (previewFile.value) previewFile.value = { ...previewFile.value, sourceUrl: media.url };
-        previewLoading.value = false;
-      });
+        })
+        .catch(() => {
+          if (seq !== previewRequestSeq) return;
+          // Fall back to the raw URL so the user sees an honest broken state.
+          if (previewFile.value) previewFile.value = { ...previewFile.value, sourceUrl: media.url };
+          previewLoading.value = false;
+        });
     } else {
       previewLoading.value = false;
       // A non-loadable url (e.g. a provider `ms://` reference with no local

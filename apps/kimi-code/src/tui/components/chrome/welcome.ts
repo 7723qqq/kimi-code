@@ -3,17 +3,15 @@
  * Renders a round-bordered box with the logo, session, model, and version.
  */
 
+import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
-import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
-
 import { t } from '#/i18n';
-
 import { isRainbowDancing, renderDanceWelcomeHeader } from '#/tui/easter-eggs/dance';
-import type { AppState } from '#/tui/types';
 import { currentTheme } from '#/tui/theme';
+import type { AppState } from '#/tui/types';
 
 export class WelcomeComponent implements Component {
   private state: AppState;
@@ -29,7 +27,8 @@ export class WelcomeComponent implements Component {
     const primary = (s: string): string => chalk.hex(currentTheme.palette.primary)(s);
     const isLoggedOut = !this.state.model;
     const activeModel = this.state.availableModels[this.state.model];
-    const effectiveActiveModel = activeModel === undefined ? undefined : effectiveModelAlias(activeModel);
+    const effectiveActiveModel =
+      activeModel === undefined ? undefined : effectiveModelAlias(activeModel);
 
     if (safeWidth < 24) {
       const title = chalk.bold.hex(currentTheme.palette.primary)(t('tui.chrome.welcome.title'));
@@ -62,9 +61,7 @@ export class WelcomeComponent implements Component {
     const labelStyle = chalk.bold.hex(currentTheme.palette.textDim);
     const rightRow1 = truncateToWidth(
       dim(
-        isLoggedOut
-          ? t('tui.chrome.welcome.loggedOutPrompt')
-          : t('tui.chrome.welcome.helpPrompt'),
+        isLoggedOut ? t('tui.chrome.welcome.loggedOutPrompt') : t('tui.chrome.welcome.helpPrompt'),
       ),
       textWidth,
       '…',

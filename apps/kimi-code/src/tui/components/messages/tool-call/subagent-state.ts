@@ -9,9 +9,9 @@
 
 import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
 import { BRAILLE_SPINNER_FRAMES, BRAILLE_SPINNER_INTERVAL_MS } from '#/tui/constant/rendering';
 import { appendStreamingArgsPreview } from '#/tui/utils/event-payload';
-import { t } from '#/i18n';
 
 import { countNonEmptyLines } from '../tool-renderers/chip';
 import {
@@ -168,10 +168,7 @@ export class SubagentStateManager {
   onStarted(meta: SubagentStartedMeta): void {
     this.agentId = meta.agentId;
     this.agentName = meta.agentName;
-    if (
-      !meta.runInBackground &&
-      (this.phase === undefined || this.phase === 'queued')
-    ) {
+    if (!meta.runInBackground && (this.phase === undefined || this.phase === 'queued')) {
       this.phase = 'running';
     }
     this.notify();
@@ -184,8 +181,7 @@ export class SubagentStateManager {
       this.contextTokens = payload.contextTokens;
     }
     this.usage = payload.usage;
-    this.resultSummary =
-      payload.resultSummary.length > 0 ? payload.resultSummary : undefined;
+    this.resultSummary = payload.resultSummary.length > 0 ? payload.resultSummary : undefined;
     if (this.text.trim().length === 0 && this.resultSummary !== undefined) {
       this.text = this.resultSummary;
     }
@@ -255,11 +251,7 @@ export class SubagentStateManager {
     } else {
       this.text += text;
     }
-    if (
-      this.phase === undefined ||
-      this.phase === 'queued' ||
-      this.phase === 'spawning'
-    ) {
+    if (this.phase === undefined || this.phase === 'queued' || this.phase === 'spawning') {
       this.phase = 'running';
     }
     this.notify();
@@ -296,7 +288,12 @@ export class SubagentStateManager {
       args: parsed,
       streamingArguments: nextArgsText,
     });
-    this.upsertSubToolActivity(delta.id, delta.name ?? existing?.name ?? fallbackName, parsed, 'ongoing');
+    this.upsertSubToolActivity(
+      delta.id,
+      delta.name ?? existing?.name ?? fallbackName,
+      parsed,
+      'ongoing',
+    );
     this.advanceToRunning();
     this.notify();
   }
@@ -354,7 +351,9 @@ export class SubagentStateManager {
     const tokens =
       contextTokens && contextTokens > 0
         ? contextTokens
-        : (this.usage === undefined ? 0 : usageTotal(this.usage));
+        : this.usage === undefined
+          ? 0
+          : usageTotal(this.usage);
     const latestActivity = computeLatestActivity(
       this.ongoingSubCalls,
       this.finishedSubCalls,
@@ -362,8 +361,7 @@ export class SubagentStateManager {
       this.workspaceDir,
     );
     const derivedPhase = this.getDerivedPhase();
-    const errorText =
-      this.error ?? (derivedPhase === 'failed' ? this.result?.output : undefined);
+    const errorText = this.error ?? (derivedPhase === 'failed' ? this.result?.output : undefined);
     return {
       toolCallId: this.toolCall.id,
       toolName: this.toolCall.name,
@@ -417,10 +415,7 @@ export class SubagentStateManager {
 
   // ── Timer management ──
 
-  syncElapsedTimer(
-    isSingleSubagentView: boolean,
-    onTick: () => void,
-  ): void {
+  syncElapsedTimer(isSingleSubagentView: boolean, onTick: () => void): void {
     const phase = this.getDerivedPhase();
     const shouldTick =
       isSingleSubagentView &&
@@ -454,24 +449,60 @@ export class SubagentStateManager {
 
   // ── State getters for rendering ──
 
-  get agentIdValue(): string | undefined { return this.agentId; }
-  get agentNameValue(): string | undefined { return this.agentName; }
-  get phaseValue(): SubagentPhase | undefined { return this.phase; }
-  get textValue(): string { return this.text; }
-  get thinkingTextValue(): string { return this.thinkingText; }
-  get lastStreamKindValue(): 'thinking' | 'text' { return this.lastStreamKind; }
-  get resultSummaryValue(): string | undefined { return this.resultSummary; }
-  get errorValue(): string | undefined { return this.error; }
-  get contextTokensValue(): number | undefined { return this.contextTokens; }
-  get usageValue(): TokenUsage | undefined { return this.usage; }
-  get modelValue(): string | undefined { return this.model; }
-  get effortValue(): string | undefined { return this.effort; }
-  get spinnerFrameValue(): number { return this.spinnerFrame; }
-  get ongoingSubCallsMap(): ReadonlyMap<string, OngoingSubCall> { return this.ongoingSubCalls; }
-  get finishedSubCallsList(): readonly FinishedSubCall[] { return this.finishedSubCalls; }
-  get subToolActivitiesMap(): ReadonlyMap<string, SubToolActivity> { return this.subToolActivities; }
-  get hiddenSubCallCountValue(): number { return this.hiddenSubCallCount; }
-  get maxSubagentDescriptionLength(): number { return MAX_SUBAGENT_DESCRIPTION_LENGTH; }
+  get agentIdValue(): string | undefined {
+    return this.agentId;
+  }
+  get agentNameValue(): string | undefined {
+    return this.agentName;
+  }
+  get phaseValue(): SubagentPhase | undefined {
+    return this.phase;
+  }
+  get textValue(): string {
+    return this.text;
+  }
+  get thinkingTextValue(): string {
+    return this.thinkingText;
+  }
+  get lastStreamKindValue(): 'thinking' | 'text' {
+    return this.lastStreamKind;
+  }
+  get resultSummaryValue(): string | undefined {
+    return this.resultSummary;
+  }
+  get errorValue(): string | undefined {
+    return this.error;
+  }
+  get contextTokensValue(): number | undefined {
+    return this.contextTokens;
+  }
+  get usageValue(): TokenUsage | undefined {
+    return this.usage;
+  }
+  get modelValue(): string | undefined {
+    return this.model;
+  }
+  get effortValue(): string | undefined {
+    return this.effort;
+  }
+  get spinnerFrameValue(): number {
+    return this.spinnerFrame;
+  }
+  get ongoingSubCallsMap(): ReadonlyMap<string, OngoingSubCall> {
+    return this.ongoingSubCalls;
+  }
+  get finishedSubCallsList(): readonly FinishedSubCall[] {
+    return this.finishedSubCalls;
+  }
+  get subToolActivitiesMap(): ReadonlyMap<string, SubToolActivity> {
+    return this.subToolActivities;
+  }
+  get hiddenSubCallCountValue(): number {
+    return this.hiddenSubCallCount;
+  }
+  get maxSubagentDescriptionLength(): number {
+    return MAX_SUBAGENT_DESCRIPTION_LENGTH;
+  }
 
   hasState(): boolean {
     return (
@@ -518,11 +549,7 @@ export class SubagentStateManager {
   // ── Private helpers ──
 
   private advanceToRunning(): void {
-    if (
-      this.phase === undefined ||
-      this.phase === 'queued' ||
-      this.phase === 'spawning'
-    ) {
+    if (this.phase === undefined || this.phase === 'queued' || this.phase === 'spawning') {
       this.phase = 'running';
     }
   }
@@ -566,5 +593,3 @@ export class SubagentStateManager {
     this.onStateChange?.();
   }
 }
-
-

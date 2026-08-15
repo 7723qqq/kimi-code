@@ -26,15 +26,15 @@ import type { ILogger as Logger } from '#/_base/log/log';
 import { abortable } from '#/_base/utils/abort';
 import { ErrorCodes, Error2 } from '#/errors';
 import type { Tool } from '#/kosong/contract/tool';
+import type { McpOAuthService } from '#/mcpCore/oauth/service';
+import type { McpConfigSource } from '#/workspace/workspaceMcpConfig/internal/config-loader';
 
 import { HttpMcpClient } from './client-http';
 import { isRemoteMcpConfig } from './client-remote';
 import type { UnexpectedCloseReason } from './client-shared';
 import { SseMcpClient } from './client-sse';
 import { StdioMcpClient } from './client-stdio';
-import type { McpConfigSource } from '#/workspace/workspaceMcpConfig/internal/config-loader';
 import type { McpServerConfig } from './config-schema';
-import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import { assertMcpInputSchema, type MCPClient, type MCPToolDefinition } from './types';
 
 export type McpServerStatus =
@@ -84,9 +84,7 @@ export interface McpConnectionView {
   readonly oauthService: McpOAuthService | undefined;
   list(): readonly McpServerEntry[];
   get(name: string): McpServerEntry | undefined;
-  resolved(
-    name: string,
-  ):
+  resolved(name: string):
     | {
         client: MCPClient;
         tools: readonly Tool[];
@@ -190,9 +188,7 @@ export class McpConnectionManager implements McpConnectionView {
     return this.entries.get(name)?.config;
   }
 
-  resolved(
-    name: string,
-  ):
+  resolved(name: string):
     | {
         client: MCPClient;
         tools: readonly Tool[];
@@ -461,13 +457,18 @@ export class McpConnectionManager implements McpConnectionView {
    */
   private scheduleAutoReconnect(entry: InternalEntry, attemptId: number): void {
     const state = (entry.reconnect ??= { failedAttempts: 0 });
-    if (state.connectedAt !== undefined && Date.now() - state.connectedAt >= RECONNECT_DEFAULTS.maxDelayMs) {
+    if (
+      state.connectedAt !== undefined &&
+      Date.now() - state.connectedAt >= RECONNECT_DEFAULTS.maxDelayMs
+    ) {
       state.failedAttempts = 0;
     }
     state.connectedAt = undefined;
     state.failedAttempts += 1;
     if (state.failedAttempts > RECONNECT_DEFAULTS.maxAttempts) {
-      this.log.error(`mcp server "${entry.name}" gave up after ${RECONNECT_DEFAULTS.maxAttempts} consecutive reconnect attempts — tools unregistered; reconnect manually to restore it`);
+      this.log.error(
+        `mcp server "${entry.name}" gave up after ${RECONNECT_DEFAULTS.maxAttempts} consecutive reconnect attempts — tools unregistered; reconnect manually to restore it`,
+      );
       return;
     }
     const delayMs = Math.min(
@@ -484,7 +485,10 @@ export class McpConnectionManager implements McpConnectionView {
     state.timer.unref?.();
   }
 
-  private async reconnectAfterClose(entry: InternalEntry, previousAttemptId: number): Promise<void> {
+  private async reconnectAfterClose(
+    entry: InternalEntry,
+    previousAttemptId: number,
+  ): Promise<void> {
     if (!this.isCurrent(entry, previousAttemptId)) return;
     if (entry.status === 'removed' || entry.status === 'disabled') return;
     const attemptId = this.beginConnectAttempt(entry);

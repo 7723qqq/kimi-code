@@ -16,7 +16,10 @@ import { type AgentTool } from '#/tool/toolContract';
 
 export const CreateGoalToolInputSchema = z
   .object({
-    objective: z.string().min(1).describe('The objective to pursue. Must have a verifiable end state.'),
+    objective: z
+      .string()
+      .min(1)
+      .describe('The objective to pursue. Must have a verifiable end state.'),
     completionCriterion: z
       .string()
       .optional()
@@ -30,5 +33,7 @@ export const CreateGoalToolInputSchema = z
 
 export type CreateGoalToolInput = z.infer<typeof CreateGoalToolInputSchema>;
 
-export interface ICreateGoalTool extends AgentTool<CreateGoalToolInput> { readonly _serviceBrand: undefined }
+export interface ICreateGoalTool extends AgentTool<CreateGoalToolInput> {
+  readonly _serviceBrand: undefined;
+}
 export const ICreateGoalTool = createDecorator<ICreateGoalTool>('createGoalTool');

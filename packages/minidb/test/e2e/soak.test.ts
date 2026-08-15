@@ -5,8 +5,10 @@
 //
 //   SOAK=30 node --test --expose-gc test/e2e/soak.test.js
 
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
+
+import { test } from 'vitest';
+
 import { MiniDb } from '../../src/index.js';
 import { Model } from './helpers/model.js';
 import { mulberry32, pick } from './helpers/prng.js';

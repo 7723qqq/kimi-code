@@ -113,8 +113,4 @@ export interface NoticeFrame {
   readonly detail?: unknown;
 }
 
-export type TranscriptFrame =
-  | TextFrame
-  | ThinkingFrame
-  | ToolCallFrame
-  | NoticeFrame;
+export type TranscriptFrame = TextFrame | ThinkingFrame | ToolCallFrame | NoticeFrame;

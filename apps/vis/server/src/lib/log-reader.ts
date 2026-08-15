@@ -107,9 +107,7 @@ export async function readLogs(
   const truncated = totalLines > buffer.length;
   const startLineNo = truncated ? totalLines - buffer.length : 0;
 
-  const lines: LogLine[] = buffer.map((text, i) =>
-    parseLogLine(text, startLineNo + i + 1),
-  );
+  const lines: LogLine[] = buffer.map((text, i) => parseLogLine(text, startLineNo + i + 1));
   return { lines, truncated };
 }
 

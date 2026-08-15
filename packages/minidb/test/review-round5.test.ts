@@ -1,13 +1,15 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 // Regression tests for the fifth deep-review round:
 //   A) Recovery must not let an expired overwrite resurrect an older value.
 //   B) Observing an expired key via scan/query/dtRange must reap it from the
 //      derived indexes (dt / secondary), so they cannot leak ghost entries.
 //   C) A non-integer / non-finite TTL must not explode with a BigInt error.
 import { test } from 'vitest';
-import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
+
 import { MiniDb } from '../src/index.js';
 
 async function tmpDir() {
@@ -52,7 +54,11 @@ test('recovery: expired overwrite does not resurrect a snapshotted value', async
 
   db = await MiniDb.open({ dir, valueCodec: 'string', activeExpireIntervalMs: 0 });
   try {
-    assert.equal(db.get('k'), undefined, 'expired WAL overwrite must not resurrect the snapshot value');
+    assert.equal(
+      db.get('k'),
+      undefined,
+      'expired WAL overwrite must not resurrect the snapshot value',
+    );
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -85,7 +91,11 @@ test('expired key is reaped from a secondary index when observed via scan', asyn
     await sleep(20);
     db.scan(); // reap via the getRecord read path
     // Inspect the raw index manager (no store.get, so no self-healing here):
-    assert.deepEqual(db.indexes.findEq('byCity', 'Paris'), [], 'secondary index must not retain the expired key');
+    assert.deepEqual(
+      db.indexes.findEq('byCity', 'Paris'),
+      [],
+      'secondary index must not retain the expired key',
+    );
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });

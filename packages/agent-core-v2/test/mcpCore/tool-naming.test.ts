@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { isMcpToolName } from '#/tool/toolContract';
 import { qualifyMcpToolName, sanitizeMcpNamePart } from '#/mcpCore/tool-naming';
+import { isMcpToolName } from '#/tool/toolContract';
 
 describe('sanitizeMcpNamePart', () => {
   it('passes alphanumeric, underscore, and dash through unchanged', () => {

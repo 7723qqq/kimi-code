@@ -27,7 +27,5 @@ export const skipMarker = (tgt: string): string => join(tgt, '.skip-migration-fr
 // Sibling fallback paths used when target file conflicts with user-modified content
 export const siblingConfigToml = (tgt: string): string =>
   join(tgt, 'config.migrated-from-kimi-cli.toml');
-export const siblingTuiToml = (tgt: string): string =>
-  join(tgt, 'tui.migrated-from-kimi-cli.toml');
-export const siblingMcpJson = (tgt: string): string =>
-  join(tgt, 'mcp.migrated-from-kimi-cli.json');
+export const siblingTuiToml = (tgt: string): string => join(tgt, 'tui.migrated-from-kimi-cli.toml');
+export const siblingMcpJson = (tgt: string): string => join(tgt, 'mcp.migrated-from-kimi-cli.json');

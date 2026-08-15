@@ -5,12 +5,13 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import ChatPane from './ChatPane.vue';
-import MoonSpinner from '../ui/MoonSpinner.vue';
-import Icon from '../ui/Icon.vue';
+
 import type { ChatTurn } from '../../types';
+import Icon from '../ui/Icon.vue';
+import MoonSpinner from '../ui/MoonSpinner.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import ChatPane from './ChatPane.vue';
 
 const props = defineProps<{
   turns: ChatTurn[];
@@ -66,7 +67,8 @@ const scrollKey = computed(() => {
   const thinkingLen = last.thinking?.length ?? 0;
   const toolsLen =
     last.tools?.reduce(
-      (n, tool) => n + tool.name.length + (tool.arg?.length ?? 0) + (tool.output?.join('').length ?? 0),
+      (n, tool) =>
+        n + tool.name.length + (tool.arg?.length ?? 0) + (tool.output?.join('').length ?? 0),
       0,
     ) ?? 0;
   return `${t.length}:${last.text.length}:${thinkingLen}:${toolsLen}`;
@@ -184,7 +186,9 @@ function autosize(): void {
   outline: none;
   max-height: 160px;
 }
-.sc-input:focus { border-color: var(--color-accent-bd); }
+.sc-input:focus {
+  border-color: var(--color-accent-bd);
+}
 .sc-send {
   flex: none;
   display: inline-flex;
@@ -198,8 +202,13 @@ function autosize(): void {
   color: var(--color-text-on-accent);
   cursor: pointer;
 }
-.sc-send:disabled { opacity: 0.4; cursor: default; }
-.sc-send:not(:disabled):hover { background: var(--color-accent-hover); }
+.sc-send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sc-send:not(:disabled):hover {
+  background: var(--color-accent-hover);
+}
 
 /* Send → first-token loading indicator (replaces ChatPane's working moon). */
 .sc-loading {

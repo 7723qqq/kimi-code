@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { STORAGE_KEYS, safeGetString } from '../src/lib/storage';
+
 import { useSoundNotification } from '../src/composables/client/useSoundNotification';
+import { STORAGE_KEYS, safeGetString } from '../src/lib/storage';
 
 function createMemoryStorage(): Storage {
   const data = new Map<string, string>();

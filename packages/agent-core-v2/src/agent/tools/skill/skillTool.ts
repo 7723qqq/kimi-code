@@ -20,17 +20,17 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { renderPrompt } from '#/_base/utils/render-prompt';
 import type { SkillActivationOrigin } from '#/agent/contextMemory/types';
-import { IAgentSkillService } from '#/agent/skill/skill';
 import { renderModelToolSkillPrompt } from '#/agent/skill/prompt';
-import type { ExecutableToolResult, ToolDeliveryMessage, ToolExecution } from '#/tool/toolContract';
+import { IAgentSkillService } from '#/agent/skill/skill';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { isInlineSkillType } from '#/app/skillCatalog/types';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { renderPrompt } from '#/_base/utils/render-prompt';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
+import type { ExecutableToolResult, ToolDeliveryMessage, ToolExecution } from '#/tool/toolContract';
 
 import {
   ISkillTool,

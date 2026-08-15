@@ -1,3 +1,6 @@
+import type { ContextMessage } from '@moonshot-ai/agent-core-v2';
+import { estimateTokensForMessages } from '@moonshot-ai/agent-core-v2/kosong/contract/tokens';
+
 /**
  * v2 import-context construction — pure functions that replicate, byte for
  * byte, the user message v1's `ContextMemory.importContext`
@@ -15,8 +18,6 @@
  * history.
  */
 import { ErrorCodes, KimiError } from '#/legacy';
-import type { ContextMessage } from '@moonshot-ai/agent-core-v2';
-import { estimateTokensForMessages } from '@moonshot-ai/agent-core-v2/kosong/contract/tokens';
 
 /** Byte-identical with v1's `IMPORT_CONTEXT_GUIDANCE`. */
 const IMPORT_CONTEXT_GUIDANCE =

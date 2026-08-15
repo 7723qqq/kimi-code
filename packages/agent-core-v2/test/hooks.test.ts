@@ -50,12 +50,10 @@ describe('OrderedHookSlot', () => {
   it('honors before / after ordering', async () => {
     const slot = new OrderedHookSlot<Record<string, never>>();
     const order: string[] = [];
-    const mk =
-      (id: string) =>
-      async (_ctx: Record<string, never>, next: () => Promise<void>) => {
-        order.push(id);
-        await next();
-      };
+    const mk = (id: string) => async (_ctx: Record<string, never>, next: () => Promise<void>) => {
+      order.push(id);
+      await next();
+    };
     slot.register('a', mk('a'));
     slot.register('c', mk('c'));
     slot.register('b', mk('b'), { before: 'c' });
@@ -205,34 +203,32 @@ describe('OrderedHookSlot', () => {
   it('register with both before and after throws', () => {
     const slot = new OrderedHookSlot<Record<string, never>>();
     slot.register('a', async () => {});
-    expect(() =>
-      slot.register('b', async () => {}, { before: 'a', after: 'a' }),
-    ).toThrow('Hook registration cannot specify both before and after');
+    expect(() => slot.register('b', async () => {}, { before: 'a', after: 'a' })).toThrow(
+      'Hook registration cannot specify both before and after',
+    );
   });
 
   it('register with before referencing a non-existent target throws', () => {
     const slot = new OrderedHookSlot<Record<string, never>>();
-    expect(() =>
-      slot.register('b', async () => {}, { before: 'nonexistent' }),
-    ).toThrow('Hook target "nonexistent" is not registered');
+    expect(() => slot.register('b', async () => {}, { before: 'nonexistent' })).toThrow(
+      'Hook target "nonexistent" is not registered',
+    );
   });
 
   it('register with after referencing a non-existent target throws', () => {
     const slot = new OrderedHookSlot<Record<string, never>>();
-    expect(() =>
-      slot.register('b', async () => {}, { after: 'nonexistent' }),
-    ).toThrow('Hook target "nonexistent" is not registered');
+    expect(() => slot.register('b', async () => {}, { after: 'nonexistent' })).toThrow(
+      'Hook target "nonexistent" is not registered',
+    );
   });
 
   it('honors after ordering', async () => {
     const slot = new OrderedHookSlot<Record<string, never>>();
     const order: string[] = [];
-    const mk =
-      (id: string) =>
-      async (_ctx: Record<string, never>, next: () => Promise<void>) => {
-        order.push(id);
-        await next();
-      };
+    const mk = (id: string) => async (_ctx: Record<string, never>, next: () => Promise<void>) => {
+      order.push(id);
+      await next();
+    };
     slot.register('a', mk('a'));
     slot.register('c', mk('c'));
     slot.register('b', mk('b'), { after: 'a' });
@@ -318,10 +314,7 @@ describe('createHooks', () => {
       orderB.push(ctx.value);
       await next();
     });
-    await Promise.all([
-      hooks.a.run({ value: 1 }),
-      hooks.b.run({ value: 2 }),
-    ]);
+    await Promise.all([hooks.a.run({ value: 1 }), hooks.b.run({ value: 2 })]);
     expect(orderA).toEqual([1]);
     expect(orderB).toEqual([2]);
   });

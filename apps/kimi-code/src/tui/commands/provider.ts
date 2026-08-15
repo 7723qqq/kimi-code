@@ -16,9 +16,10 @@ import {
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import { createKimiCodeUserAgent } from '#/cli/version';
+import { t } from '#/i18n';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
+
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import {
   CustomRegistryImportDialogComponent,
@@ -33,12 +34,8 @@ import { DEFAULT_OAUTH_PROVIDER_NAME } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import { effectiveModelForHost } from './config';
-import {
-  promptApiKey,
-  promptBaseUrl,
-  promptCatalogProviderSelection,
-} from './prompts';
 import type { SlashCommandHost } from './dispatch';
+import { promptApiKey, promptBaseUrl, promptCatalogProviderSelection } from './prompts';
 
 // ---------------------------------------------------------------------------
 // /provider command
@@ -51,8 +48,7 @@ export async function handleProviderCommand(host: SlashCommandHost): Promise<voi
 }
 
 function buildProviderManagerOptions(host: SlashCommandHost): ProviderManagerOptions {
-  const activeProviderId =
-    host.state.appState.availableModels[host.state.appState.model]?.provider;
+  const activeProviderId = host.state.appState.availableModels[host.state.appState.model]?.provider;
   return {
     providers: host.state.appState.availableProviders,
     activeProviderId,
@@ -95,8 +91,7 @@ async function handleProviderDelete(host: SlashCommandHost, providerId: string):
     return;
   }
 
-  const activeProvider =
-    host.state.appState.availableModels[host.state.appState.model]?.provider;
+  const activeProvider = host.state.appState.availableModels[host.state.appState.model]?.provider;
   const config = await host.harness.removeProvider(providerId);
   if (activeProvider === providerId) {
     await host.authFlow.refreshConfigAfterLogout();
@@ -132,9 +127,7 @@ function reopenProviderManager(host: SlashCommandHost): void {
   host.mountEditorReplacement(component);
 }
 
-function promptProviderAddSource(
-  host: SlashCommandHost,
-): Promise<'known' | 'custom' | undefined> {
+function promptProviderAddSource(host: SlashCommandHost): Promise<'known' | 'custom' | undefined> {
   return new Promise((resolve) => {
     const picker = new ChoicePickerComponent({
       title: t('tui.statusMessages.addProviderTitle'),
@@ -162,7 +155,9 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   };
   host.cancelInFlight = cancel;
 
-  const spinner = host.showLoginProgressSpinner(t('tui.statusMessages.fetchingCatalog', { url: DEFAULT_CATALOG_URL }));
+  const spinner = host.showLoginProgressSpinner(
+    t('tui.statusMessages.fetchingCatalog', { url: DEFAULT_CATALOG_URL }),
+  );
   let catalog: Catalog | undefined;
   try {
     const loaded = await fetchCatalogOrBuiltIn(DEFAULT_CATALOG_URL, {
@@ -240,9 +235,7 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   // default model; ESC leaves the provider in place without a default selection.
   const existingConfig = await host.harness.getConfig();
   const poolSnapshot =
-    existingConfig.providers[providerId] !== undefined
-      ? existingConfig.secondaryModel
-      : undefined;
+    existingConfig.providers[providerId] !== undefined ? existingConfig.secondaryModel : undefined;
   if (existingConfig.providers[providerId] !== undefined) {
     await host.harness.removeProvider(providerId);
   }
@@ -255,7 +248,7 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
     apiKey,
     models,
     selectedModelId: '', // no default yet; user picks in the model selector
-    thinking: false,    // will be resolved by the model selector
+    thinking: false, // will be resolved by the model selector
   });
 
   await host.harness.setConfig({
@@ -353,11 +346,7 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
   const addedProviderIds = Object.values(entries).map((entry) => entry.id);
   try {
     const config = await host.harness.getConfig();
-    applyCustomRegistryEntries(
-      config as unknown as ManagedKimiConfigShape,
-      entries,
-      source,
-    );
+    applyCustomRegistryEntries(config as unknown as ManagedKimiConfigShape, entries, source);
     await host.harness.setConfig({
       providers: config.providers,
       models: config.models,
@@ -415,12 +404,10 @@ function promptCustomRegistryImport(
   host: SlashCommandHost,
 ): Promise<{ readonly url: string; readonly apiKey: string } | undefined> {
   return new Promise((resolve) => {
-    const dialog = new CustomRegistryImportDialogComponent(
-      (result: CustomRegistryImportResult) => {
-        host.restoreEditor();
-        resolve(result.kind === 'ok' ? result.value : undefined);
-      },
-    );
+    const dialog = new CustomRegistryImportDialogComponent((result: CustomRegistryImportResult) => {
+      host.restoreEditor();
+      resolve(result.kind === 'ok' ? result.value : undefined);
+    });
     host.mountEditorReplacement(dialog);
   });
 }

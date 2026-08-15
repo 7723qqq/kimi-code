@@ -140,10 +140,7 @@ export class WorkflowPanelController {
       currentPhase: phase ?? existing?.currentPhase,
       agentCount: Math.max(agentCount, existing?.agentCount ?? 0),
       startedAt: existing?.startedAt ?? now - elapsedSec * 1000,
-      finishedAt:
-        status !== 'running'
-          ? (existing?.finishedAt ?? now)
-          : undefined,
+      finishedAt: status !== 'running' ? (existing?.finishedAt ?? now) : undefined,
     };
 
     this.runs.set(runId, runData);

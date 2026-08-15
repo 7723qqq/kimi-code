@@ -2,21 +2,21 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { api } from '../api';
-import { CopyButton } from '../components/shared/CopyButton';
-import { TabBar, useActiveTab } from '../components/layout/TabBar';
 import { TimelineTab } from '../components/analysis/TimelineTab';
 import { ContextTab } from '../components/context/ContextTab';
-import { CronTab } from '../components/tasks/CronTab';
+import { TabBar, useActiveTab } from '../components/layout/TabBar';
 import { LogsTab } from '../components/logs/LogsTab';
+import { CopyButton } from '../components/shared/CopyButton';
+import { Pill } from '../components/shared/Pill';
 import { StateTab } from '../components/state/StateTab';
 import { SubagentsTab } from '../components/subagents/SubagentsTab';
+import { CronTab } from '../components/tasks/CronTab';
 import { TasksTab } from '../components/tasks/TasksTab';
 import { WireTab } from '../components/wire/WireTab';
-import { Pill } from '../components/shared/Pill';
 import { useSession } from '../hooks/useSession';
 import { useCron, useTasks } from '../hooks/useTasks';
-import { formatAbsoluteTime, formatRelativeTime } from '../util/time';
 import { t } from '../i18n';
+import { formatAbsoluteTime, formatRelativeTime } from '../util/time';
 
 type TabId = 'wire' | 'timeline' | 'context' | 'agents' | 'tasks' | 'cron' | 'logs' | 'state';
 
@@ -29,13 +29,13 @@ export function SessionDetailPage() {
 
   if (!sessionId) return <div className="p-6 text-fg-3">{t('sessionDetail.noSessionId')}</div>;
   if (isLoading) {
-    return <div className="p-6 font-mono text-[12px] text-fg-3">{t('sessionDetail.loadingSession')}</div>;
+    return (
+      <div className="p-6 font-mono text-[12px] text-fg-3">{t('sessionDetail.loadingSession')}</div>
+    );
   }
   if (error) {
     return (
-      <div className="p-6 font-mono text-[12px] text-[var(--color-sev-error)]">
-        {error.message}
-      </div>
+      <div className="p-6 font-mono text-[12px] text-[var(--color-sev-error)]">{error.message}</div>
     );
   }
   if (!session) return null;
@@ -58,7 +58,9 @@ export function SessionDetailPage() {
           <span className="font-mono text-[14px] text-fg-0">{session.sessionId}</span>
           <CopyButton value={session.sessionId} />
           {session.imported ? (
-            <Pill tone="subagent" variant="outline">{t('sessionDetail.imported')}</Pill>
+            <Pill tone="subagent" variant="outline">
+              {t('sessionDetail.imported')}
+            </Pill>
           ) : null}
           {state?.title ? (
             <span className="font-mono text-[12px] text-fg-1">"{state.title}"</span>
@@ -73,11 +75,18 @@ export function SessionDetailPage() {
             {session.importMeta.manifest?.kimiCodeVersion ? (
               <span>kimi-code v{session.importMeta.manifest.kimiCodeVersion}</span>
             ) : null}
-            {session.importMeta.manifest?.os ? <span>· {session.importMeta.manifest.os}</span> : null}
-            {session.importMeta.manifest?.exportedAt ? (
-              <span>· {t('sessionDetail.exported')} {formatRelativeTime(Date.parse(session.importMeta.manifest.exportedAt))}</span>
+            {session.importMeta.manifest?.os ? (
+              <span>· {session.importMeta.manifest.os}</span>
             ) : null}
-            {session.importMeta.originalName ? <span>· {session.importMeta.originalName}</span> : null}
+            {session.importMeta.manifest?.exportedAt ? (
+              <span>
+                · {t('sessionDetail.exported')}{' '}
+                {formatRelativeTime(Date.parse(session.importMeta.manifest.exportedAt))}
+              </span>
+            ) : null}
+            {session.importMeta.originalName ? (
+              <span>· {session.importMeta.originalName}</span>
+            ) : null}
           </div>
         ) : null}
         <div className="mt-1 flex items-center gap-3 font-mono text-[11px] text-fg-2">
@@ -93,10 +102,7 @@ export function SessionDetailPage() {
             </span>
           ) : null}
         </div>
-        <div
-          className="mt-1 truncate font-mono text-[10px] text-fg-3"
-          title={session.sessionDir}
-        >
+        <div className="mt-1 truncate font-mono text-[10px] text-fg-3" title={session.sessionDir}>
           {session.sessionDir}
         </div>
         {state?.lastPrompt ? (
@@ -128,7 +134,9 @@ export function SessionDetailPage() {
         {active === 'tasks' ? <TasksTab sessionId={sessionId} /> : null}
         {active === 'cron' ? <CronTab sessionId={sessionId} /> : null}
         {active === 'logs' ? <LogsTab sessionId={sessionId} /> : null}
-        {active === 'state' ? <StateTab state={session.state} importMeta={session.importMeta} /> : null}
+        {active === 'state' ? (
+          <StateTab state={session.state} importMeta={session.importMeta} />
+        ) : null}
       </div>
     </div>
   );
@@ -148,9 +156,9 @@ function RevealButton({ sessionId }: { sessionId: string }) {
           .then(() => {
             setState('idle');
           })
-          .catch((err: unknown) => {
+          .catch((error: unknown) => {
             setState('err');
-            setErrMsg(err instanceof Error ? err.message : String(err));
+            setErrMsg(error instanceof Error ? error.message : String(error));
             setTimeout(() => {
               setState('idle');
               setErrMsg(null);
@@ -164,7 +172,11 @@ function RevealButton({ sessionId }: { sessionId: string }) {
       }`}
       title={state === 'err' && errMsg ? errMsg : t('sessionDetail.openFolderTitle')}
     >
-      {state === 'opening' ? t('sessionDetail.opening') : state === 'err' ? t('sessionDetail.openFailed') : t('sessionDetail.openFolder')}
+      {state === 'opening'
+        ? t('sessionDetail.opening')
+        : state === 'err'
+          ? t('sessionDetail.openFailed')
+          : t('sessionDetail.openFolder')}
     </button>
   );
 }

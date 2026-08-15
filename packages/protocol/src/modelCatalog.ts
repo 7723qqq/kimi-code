@@ -11,11 +11,7 @@ export const modelCatalogItemSchema = z.object({
 });
 export type ModelCatalogItem = z.infer<typeof modelCatalogItemSchema>;
 
-export const providerCatalogStatusSchema = z.enum([
-  'connected',
-  'error',
-  'unconfigured',
-]);
+export const providerCatalogStatusSchema = z.enum(['connected', 'error', 'unconfigured']);
 export type ProviderCatalogStatus = z.infer<typeof providerCatalogStatusSchema>;
 
 export const providerCatalogItemSchema = z.object({

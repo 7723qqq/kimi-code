@@ -56,9 +56,7 @@ const COMMON_FILENAMES = new Set([
   'vite.config.ts',
 ]);
 
-const EXT_PATTERN = [...COMMON_FILE_EXTENSIONS]
-  .toSorted((a, b) => b.length - a.length)
-  .join('|');
+const EXT_PATTERN = [...COMMON_FILE_EXTENSIONS].toSorted((a, b) => b.length - a.length).join('|');
 const PATH_RE = new RegExp(
   [
     String.raw`(?:^|[\s([{"'` + '`' + String.raw`])`,

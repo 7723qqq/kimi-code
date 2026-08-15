@@ -142,11 +142,7 @@ export function renderDiffLines(
 
   const hidden = changedLines.length - shown.length;
   if (hidden > 0) {
-    output.push(
-      s.meta(
-        `     … ${t('tui.diffPreview.moreChangesHidden', { n: hidden })}`,
-      ),
-    );
+    output.push(s.meta(`     … ${t('tui.diffPreview.moreChangesHidden', { n: hidden })}`));
   }
 
   return output;
@@ -307,9 +303,7 @@ export function renderDiffLinesClustered(
     if (hidden > 0) {
       const hint = opts.expandKeyHint ?? 'ctrl+o';
       output.push(
-        s.meta(
-          `     … ${t('tui.diffPreview.moreChangesHiddenWithHint', { n: hidden, hint })}`,
-        ),
+        s.meta(`     … ${t('tui.diffPreview.moreChangesHiddenWithHint', { n: hidden, hint })}`),
       );
     }
   }

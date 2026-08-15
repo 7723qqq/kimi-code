@@ -6,8 +6,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
 import { existsSync, unlinkSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const BINARY = resolve(import.meta.dirname, '../../knowledge-rs/target/release/kimi-knowledge.exe');
 const TEST_DB = resolve(import.meta.dirname, '../../knowledge-rs/integration-test.db');
@@ -53,43 +53,83 @@ assert(importOutput.includes('Imported 25 entries'), `Imported 25 entries`);
 console.log('\n3. Stats (JSON parse)');
 const stats = runJson(['stats']) as { total: number; by_category: Record<string, number> };
 assert(stats.total === 25, `total = ${stats.total} (expected 25)`);
-assert(stats.by_category['coding-style'] === 6, `coding-style = ${stats.by_category['coding-style']}`);
+assert(
+  stats.by_category['coding-style'] === 6,
+  `coding-style = ${stats.by_category['coding-style']}`,
+);
 assert(stats.by_category['workflow'] === 12, `workflow = ${stats.by_category['workflow']}`);
 
 // Test 4: Search (JSON)
 console.log('\n4. Search "import" (JSON parse)');
-const searchResults = runJson(['search', 'import']) as Array<{ entry: { title: string }; relevance: number }>;
+const searchResults = runJson(['search', 'import']) as Array<{
+  entry: { title: string };
+  relevance: number;
+}>;
 assert(searchResults.length > 0, `Got ${searchResults.length} results`);
-assert(searchResults[0]!.entry.title.includes('Import'), `First result: "${searchResults[0]!.entry.title}"`);
-assert(typeof searchResults[0]!.relevance === 'number', `relevance is number: ${searchResults[0]!.relevance}`);
+assert(
+  searchResults[0]!.entry.title.includes('Import'),
+  `First result: "${searchResults[0]!.entry.title}"`,
+);
+assert(
+  typeof searchResults[0]!.relevance === 'number',
+  `relevance is number: ${searchResults[0]!.relevance}`,
+);
 
 // Test 5: Search with --scope (JSON) — scope match returns entries whose scope is a prefix of the path, OR global (null scope)
 console.log('\n5. Search with scope');
-const scopeResults = runJson(['search', 'changeset', '--scope', 'apps/kimi-code/src/file.ts']) as Array<{ entry: { scope: string | null; title: string }; match_source: string[] }>;
-const scopeMatched = scopeResults.filter(r => r.match_source.includes('scope'));
+const scopeResults = runJson([
+  'search',
+  'changeset',
+  '--scope',
+  'apps/kimi-code/src/file.ts',
+]) as Array<{ entry: { scope: string | null; title: string }; match_source: string[] }>;
+const scopeMatched = scopeResults.filter((r) => r.match_source.includes('scope'));
 assert(scopeMatched.length > 0, `Scope-matched entries: ${scopeMatched.length}`);
 
 // Test 6: Search with --tags (JSON)
 console.log('\n6. Search with tags');
-const tagResults = runJson(['search', 'code', '--tags', 'typescript,import']) as Array<{ entry: { tags: string[] } }>;
+const tagResults = runJson(['search', 'code', '--tags', 'typescript,import']) as Array<{
+  entry: { tags: string[] };
+}>;
 assert(tagResults.length > 0, `Tag-matched results: ${tagResults.length}`);
 
 // Test 7: Add entry (JSON)
 console.log('\n7. Add entry');
-const addResult = runJson(['add', '--title', 'Test Entry', '--category', 'pitfall', '--content', 'This is a test', '--tags', 'test,integration']) as { id: string; title: string };
+const addResult = runJson([
+  'add',
+  '--title',
+  'Test Entry',
+  '--category',
+  'pitfall',
+  '--content',
+  'This is a test',
+  '--tags',
+  'test,integration',
+]) as { id: string; title: string };
 assert(typeof addResult.id === 'string' && addResult.id.length > 10, `Got ID: ${addResult.id}`);
 assert(addResult.title === 'Test Entry', `Title matches`);
 
 // Test 8: Get entry
 console.log('\n8. Get entry by ID');
-const getResult = runJson(['get', addResult.id]) as { id: string; content: string; confidence: number };
+const getResult = runJson(['get', addResult.id]) as {
+  id: string;
+  content: string;
+  confidence: number;
+};
 assert(getResult.id === addResult.id, `ID matches`);
 assert(getResult.content === 'This is a test', `Content matches`);
 assert(getResult.confidence === 1.0, `Confidence = 1.0`);
 
 // Test 9: Edit entry
 console.log('\n9. Edit entry');
-const editResult = runJson(['edit', addResult.id, '--title', 'Updated Entry', '--content', 'Updated content']) as { id: string; title: string; content: string };
+const editResult = runJson([
+  'edit',
+  addResult.id,
+  '--title',
+  'Updated Entry',
+  '--content',
+  'Updated content',
+]) as { id: string; title: string; content: string };
 assert(editResult.title === 'Updated Entry', `Title updated`);
 assert(editResult.content === 'Updated content', `Content updated`);
 
@@ -115,7 +155,10 @@ assert(exportOutput.includes('---'), `Export contains separators`);
 console.log('\n13. List with category filter');
 const listResults = runJson(['list', '--category', 'pitfall']) as Array<{ category: string }>;
 assert(listResults.length === 3, `Pitfall entries: ${listResults.length}`);
-assert(listResults.every(e => e.category === 'pitfall'), `All are pitfall category`);
+assert(
+  listResults.every((e) => e.category === 'pitfall'),
+  `All are pitfall category`,
+);
 
 // Test 14: Search with min-confidence
 console.log('\n14. Search with min-confidence 0');

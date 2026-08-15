@@ -13,18 +13,14 @@
 
 import { Text, type Component } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { FAILURE_MARK, SUCCESS_MARK } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import { t } from '#/i18n';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
 import { agentSwarmResultSummaryFromOutput } from '../agent-swarm-progress';
 import { pickResultRenderer } from '../tool-renderers/registry';
-
-import {
-  interpretExitPlanModeOutcome,
-  isExitPlanModeOutcomeOutput,
-} from './plan-mode';
+import { interpretExitPlanModeOutcome, isExitPlanModeOutcomeOutput } from './plan-mode';
 
 /** Inputs needed to render a tool call's result body. */
 export interface ResultContentContext {
@@ -174,7 +170,8 @@ function buildDiscussionResultSummary(result: ToolResultBlockData): Component[] 
   const components: Component[] = [
     new Text(
       `${dim(t('tui.messages.toolCall.discussionLabel'))}${segments.join(dim(' · '))}`,
-      2, 0,
+      2,
+      0,
     ),
   ];
 
@@ -227,7 +224,8 @@ function buildAgentSwarmResultSummary(result: ToolResultBlockData): Component[] 
     return [
       new Text(
         `${dim(t('tui.messages.toolCall.agentSwarmLabel'))}${segments.join(dim(' · '))}`,
-        2, 0,
+        2,
+        0,
       ),
     ];
   }
@@ -242,7 +240,8 @@ function buildAgentSwarmResultSummary(result: ToolResultBlockData): Component[] 
   return [
     new Text(
       `${dim(t('tui.messages.toolCall.agentSwarmLabel'))}${currentTheme.fg(colorToken, label)}`,
-      2, 0,
+      2,
+      0,
     ),
   ];
 }

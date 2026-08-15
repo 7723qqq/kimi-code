@@ -14,10 +14,7 @@ const appRoot = import.meta.dirname;
 
 export default defineConfig({
   entry: {
-    'search-worker': resolve(
-      appRoot,
-      '../../packages/kap-server/src/search/worker/entry.ts',
-    ),
+    'search-worker': resolve(appRoot, '../../packages/kap-server/src/search/worker/entry.ts'),
   },
   format: ['esm'],
   // Shares the main bundle's dist (never wipe it) and lands as

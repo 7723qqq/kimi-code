@@ -17,17 +17,20 @@
  *            { aborted: false, at_seq: number }  (envelope code 40903, idempotent)
  */
 
-import { z } from 'zod';
-
 import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
-import { messageContentSchema } from './message';
 import {
   promptPermissionModeSchema,
   promptThinkingSchema,
 } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import { z } from 'zod';
+
+import { messageContentSchema } from './message';
 
 export { promptPermissionModeSchema, promptThinkingSchema };
-export type { PromptPermissionMode, PromptThinking } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+export type {
+  PromptPermissionMode,
+  PromptThinking,
+} from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 
 export const promptSubmissionSchema = z.object({
   content: z.array(messageContentSchema).min(1),

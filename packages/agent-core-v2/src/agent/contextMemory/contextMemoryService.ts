@@ -11,15 +11,15 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IEventBus } from '#/app/event/eventBus';
 import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
 import {
   TokenCountingModel,
   tokenCountingRebased,
   tokenCountingTruncated,
 } from '#/agent/tokenCounting/tokenCountingOps';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import type { Op } from '#/wire/op';
 import { IWireService } from '#/wire/wire';
 

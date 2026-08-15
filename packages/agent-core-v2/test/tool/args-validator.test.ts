@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  compileToolArgsValidator,
-  type JsonType,
-  validateToolArgs,
-} from '#/tool/args-validator';
+import { compileToolArgsValidator, type JsonType, validateToolArgs } from '#/tool/args-validator';
 
 function validate(schema: Record<string, unknown>, value: JsonType): string | null {
   return validateToolArgs(compileToolArgsValidator(schema), value);

@@ -9,10 +9,7 @@ import {
   type PrintTurnEndings,
 } from '#/cli/v2/run-v2-print';
 
-function ending(
-  turnId: number,
-  reason: PrintTurnEnding['reason'] = 'completed',
-): PrintTurnEnding {
+function ending(turnId: number, reason: PrintTurnEnding['reason'] = 'completed'): PrintTurnEnding {
   return { type: 'turn.ended', turnId, reason };
 }
 
@@ -90,7 +87,12 @@ describe('applyPrintBackgroundPolicy', () => {
         { event: ending(1) },
         // A background task completed and steered a new turn; it finished and
         // no tasks remain.
-        { event: ending(2), apply: () => { pending = 0; } },
+        {
+          event: ending(2),
+          apply: () => {
+            pending = 0;
+          },
+        },
       ]),
       skipTurnId: 1,
       warn,
@@ -126,7 +128,12 @@ describe('applyPrintBackgroundPolicy', () => {
       countPending: () => 1,
       drain: async () => {},
       turnEndings: scriptedTurnEndings([
-        { event: ending(2), apply: () => { now = 10_001; } },
+        {
+          event: ending(2),
+          apply: () => {
+            now = 10_001;
+          },
+        },
       ]),
       skipTurnId: 1,
       warn,
@@ -189,7 +196,12 @@ describe('applyPrintBackgroundPolicy', () => {
       countPending: () => 0,
       drain,
       turnEndings: scriptedTurnEndings([
-        { event: ending(2), apply: () => { consumed += 1; } },
+        {
+          event: ending(2),
+          apply: () => {
+            consumed += 1;
+          },
+        },
         {
           event: ending(3),
           apply: () => {
@@ -330,9 +342,19 @@ describe('applyPrintBackgroundPolicy', () => {
       drain: async () => {},
       turnEndings: scriptedTurnEndings([
         // First fire: the recurring task advances to its next slot.
-        { event: ending(2), apply: () => { nextFire = 20_000; } },
+        {
+          event: ending(2),
+          apply: () => {
+            nextFire = 20_000;
+          },
+        },
         // Second fire: the task is deleted, no future fire remains.
-        { event: ending(3), apply: () => { nextFire = null; } },
+        {
+          event: ending(3),
+          apply: () => {
+            nextFire = null;
+          },
+        },
       ]),
       skipTurnId: 1,
       warn: () => {},
@@ -403,7 +425,12 @@ describe('applyPrintBackgroundPolicy', () => {
       countPending: () => 0,
       drain: async () => {},
       turnEndings: scriptedTurnEndings([
-        { event: ending(2), apply: () => { consumed += 1; } },
+        {
+          event: ending(2),
+          apply: () => {
+            consumed += 1;
+          },
+        },
         {
           event: ending(3),
           apply: () => {
@@ -412,7 +439,12 @@ describe('applyPrintBackgroundPolicy', () => {
           },
         },
         // The pending cron fire steered this turn.
-        { event: ending(4), apply: () => { nextFire = null; } },
+        {
+          event: ending(4),
+          apply: () => {
+            nextFire = null;
+          },
+        },
       ]),
       skipTurnId: 1,
       warn: () => {},
@@ -443,9 +475,11 @@ describe('applyPrintBackgroundPolicy', () => {
     // must not return null early and end the run here.
     const early = await Promise.race([
       policy.then(() => 'returned' as const),
-      new Promise<'waiting'>((resolve) => setTimeout(() => {
-        resolve('waiting');
-      }, 50)),
+      new Promise<'waiting'>((resolve) =>
+        setTimeout(() => {
+          resolve('waiting');
+        }, 50),
+      ),
     ]);
     expect(early).toBe('waiting');
     // A background task completion steered a new turn; once it ends and no
@@ -493,9 +527,11 @@ describe('createPrintTurnEndings', () => {
     // overflow in chunks instead of resolving null at once.
     const early = await Promise.race([
       pending,
-      new Promise<'waiting'>((resolve) => setTimeout(() => {
-        resolve('waiting');
-      }, 50)),
+      new Promise<'waiting'>((resolve) =>
+        setTimeout(() => {
+          resolve('waiting');
+        }, 50),
+      ),
     ]);
     expect(early).toBe('waiting');
     endings.push(ending(7));

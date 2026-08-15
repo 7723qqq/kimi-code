@@ -1,5 +1,6 @@
 // apps/kimi-web/src/composables/useComposerDraft.ts
 import { nextTick, ref, watch } from 'vue';
+
 import { draftStorageKey, safeGetString, safeRemove, safeSetString } from '../lib/storage';
 
 export interface ComposerDraftDeps {

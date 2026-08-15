@@ -36,7 +36,9 @@ export class ActivityPaneComponent extends Container {
       }
       this.addChild(options.spinner);
       if (options.detail !== undefined && options.detail.length > 0) {
-        this.addChild(new Text(currentTheme.fg('textDim', options.detail), ACTIVITY_DETAIL_INDENT, 0));
+        this.addChild(
+          new Text(currentTheme.fg('textDim', options.detail), ACTIVITY_DETAIL_INDENT, 0),
+        );
       }
     }
   }

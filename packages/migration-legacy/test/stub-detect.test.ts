@@ -1,7 +1,9 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+
 import { isConfigStubOrMissing, isTuiStubOrMissing } from '../src/stub-detect.js';
 
 let dir: string;

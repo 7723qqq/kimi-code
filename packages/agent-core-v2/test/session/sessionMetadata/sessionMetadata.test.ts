@@ -6,18 +6,18 @@ import { ServiceCollection } from '#/_base/di/serviceCollection';
 import { TestInstantiationService } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
-import { stubSessionIndexMirror } from '../../app/sessionIndex/stubs';
 import { stubLog } from '../../_base/log/stubs';
+import { stubSessionIndexMirror } from '../../app/sessionIndex/stubs';
 
 const META_SCOPE = 'sessions/wd_test/s1/session-meta';
 
@@ -393,14 +393,14 @@ describe('SessionMetadata', () => {
     const meta = ix.get(ISessionMetadata);
 
     await meta.setGeneratedTitleIfUncustomized('generated title');
-    await expect(store.get<Record<string, unknown>>(META_SCOPE, 'state.json')).resolves.toMatchObject(
-      { titleKind: 'generated', isCustomTitle: false },
-    );
+    await expect(
+      store.get<Record<string, unknown>>(META_SCOPE, 'state.json'),
+    ).resolves.toMatchObject({ titleKind: 'generated', isCustomTitle: false });
 
     await meta.setTitle('user title');
-    await expect(store.get<Record<string, unknown>>(META_SCOPE, 'state.json')).resolves.toMatchObject(
-      { titleKind: 'custom', isCustomTitle: true },
-    );
+    await expect(
+      store.get<Record<string, unknown>>(META_SCOPE, 'state.json'),
+    ).resolves.toMatchObject({ titleKind: 'custom', isCustomTitle: true });
   });
 
   it('does not downgrade a modern titleKind on a legacy false marker', async () => {

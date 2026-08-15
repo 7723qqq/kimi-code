@@ -10,13 +10,14 @@
  */
 
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
-import type { AuthSummary } from './authLegacy';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IOAuthService } from '#/app/auth/auth';
+import { LifecycleScope } from '#/app/scopes';
 import { IModelService } from '#/kosong/model/model';
 import { IProviderService } from '#/kosong/provider/provider';
 
+import type { AuthSummary } from './authLegacy';
 import { IAuthLegacyService } from './authLegacy';
 
 const MANAGED_PROVIDER_NAME = KIMI_CODE_PROVIDER_NAME;

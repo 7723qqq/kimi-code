@@ -13,10 +13,7 @@
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import type {
-  ApprovalResponse,
-  PermissionPolicyResolution,
-} from '#/agent/permissionPolicy/types';
+import type { ApprovalResponse, PermissionPolicyResolution } from '#/agent/permissionPolicy/types';
 import type { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import type {
   BeforeExecuteDecision,
@@ -84,7 +81,8 @@ export class ExitPlanModeReview {
       selected === undefined
         ? ''
         : `${t('toolsV2.planMode.selectedApproach', { label: selected.label })}\n\n`;
-    const savedTo = display.path !== undefined ? t('toolsV2.planMode.planSaved', { path: display.path }) : '';
+    const savedTo =
+      display.path !== undefined ? t('toolsV2.planMode.planSaved', { path: display.path }) : '';
     const formattedPlan = t('toolsV2.planMode.planApproved', { savedTo, plan: display.plan });
     return {
       kind: 'result',

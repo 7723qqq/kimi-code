@@ -3,12 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as zlib from 'node:zlib';
 
+import { createKimiHarnessV2, log } from '@moonshot-ai/kimi-code-sdk';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { registerExportCommand } from '#/cli/sub/export';
 import { createKimiCodeHostIdentity } from '#/cli/version';
-import { createKimiHarnessV2, log } from '@moonshot-ai/kimi-code-sdk';
+
 import { __resetRootLoggerForTest } from '../../../../packages/node-sdk/src/legacy';
 
 const SESSION_LOG = 'logs/kimi-code.log';

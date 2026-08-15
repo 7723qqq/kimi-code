@@ -3,7 +3,11 @@ import { lookup } from 'node:dns/promises';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { ErrorCodes, Error2 } from '#/errors';
-import { buildMcpHttpHeaders, HttpMcpClient, isTerminalTransportError } from '#/mcpCore/client-http';
+import {
+  buildMcpHttpHeaders,
+  HttpMcpClient,
+  isTerminalTransportError,
+} from '#/mcpCore/client-http';
 
 import { startInProcessHttpMcpServer } from './stubs';
 
@@ -120,10 +124,7 @@ describe('buildMcpHttpHeaders', () => {
       'http://0.0.0.0/mcp',
     ]) {
       await expectConfigInvalid(() =>
-        buildMcpHttpHeaders(
-          { transport: 'http', url, bearerTokenEnvVar: 'TOK' },
-          () => 'secret',
-        ),
+        buildMcpHttpHeaders({ transport: 'http', url, bearerTokenEnvVar: 'TOK' }, () => 'secret'),
       );
     }
   });
@@ -274,9 +275,11 @@ describe('HttpMcpClient', () => {
     });
     try {
       await client.connect();
-      const internal = (client as unknown as {
-        client: { onerror?: (error: Error) => void };
-      }).client;
+      const internal = (
+        client as unknown as {
+          client: { onerror?: (error: Error) => void };
+        }
+      ).client;
       internal.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
       await new Promise((r) => setTimeout(r, 25));
       expect(closes).toHaveLength(1);
@@ -295,9 +298,11 @@ describe('HttpMcpClient', () => {
     client.onUnexpectedClose(() => closes.push(Date.now()));
     try {
       await client.connect();
-      const internal = (client as unknown as {
-        client: { onerror?: (error: Error) => void };
-      }).client;
+      const internal = (
+        client as unknown as {
+          client: { onerror?: (error: Error) => void };
+        }
+      ).client;
       internal.onerror?.(new Error('SSE stream disconnected: ECONNRESET'));
       internal.onerror?.(new Error('fetch failed'));
       await new Promise((r) => setTimeout(r, 25));

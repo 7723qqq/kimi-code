@@ -16,4 +16,3 @@ export const STREAMING_UI_FLUSH_MS = 50;
 // the bounded tail is rendered while streaming; the full text renders once the
 // turn's assistant stream ends (non-transient pass).
 export const STREAMING_MARKDOWN_TAIL_CHARS = 20 * 1024;
-

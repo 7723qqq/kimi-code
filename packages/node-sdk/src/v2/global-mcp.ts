@@ -20,24 +20,21 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import {
-  ErrorCodes,
-  KimiError,
-} from '#/legacy';
+import type { ILogger } from '@moonshot-ai/agent-core-v2/_base/log/log';
+import { atomicWrite } from '@moonshot-ai/agent-core-v2/_base/utils/fs';
+import type { PluginMcpServerRuntimeConfig } from '@moonshot-ai/agent-core-v2/app/plugin/types';
+import type { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
+import { McpConnectionManager as McpConnectionManagerValue } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
+import type { McpOAuthService } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
+import { canonicalMcpOAuthResource } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
+
 import {
   McpServerConfigSchema,
   type GlobalMcpServerConfig,
   type McpRemoteServerConfig,
   type McpServerConfig,
 } from '#/config-local';
-import type { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
-import type { McpOAuthService } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
-import { canonicalMcpOAuthResource } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
-import type { PluginMcpServerRuntimeConfig } from '@moonshot-ai/agent-core-v2/app/plugin/types';
-import type { ILogger } from '@moonshot-ai/agent-core-v2/_base/log/log';
-import { McpConnectionManager as McpConnectionManagerValue } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
-import { atomicWrite } from '@moonshot-ai/agent-core-v2/_base/utils/fs';
-
+import { ErrorCodes, KimiError } from '#/legacy';
 import type { GlobalMcpServerAuthState, McpTestResult } from '#/types';
 
 interface GlobalMcpConfigFile {
@@ -480,7 +477,9 @@ export async function inspectAppMcpServerDescriptors(
       if (entry?.status === 'connected') {
         return {
           ...server,
-          authStatus: credentialPresent.get(server.serverId) ? 'oauth-authorized' : 'not-applicable',
+          authStatus: credentialPresent.get(server.serverId)
+            ? 'oauth-authorized'
+            : 'not-applicable',
           checkedAt,
         };
       }

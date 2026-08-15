@@ -67,12 +67,7 @@
 
 import { z } from 'zod';
 
-import {
-  fsEntrySchema,
-  fsGitStatusSchema,
-  fsGrepFileHitSchema,
-  fsSearchHitSchema,
-} from '../fs';
+import { fsEntrySchema, fsGitStatusSchema, fsGrepFileHitSchema, fsSearchHitSchema } from '../fs';
 
 export const fsListSortSchema = z.enum([
   'type_first',
@@ -158,13 +153,7 @@ export type FsMkdirRequest = z.infer<typeof fsMkdirRequestSchema>;
 export const fsMkdirResponseSchema = fsEntrySchema;
 export type FsMkdirResponse = z.infer<typeof fsMkdirResponseSchema>;
 
-export const fsOpenInAppIdSchema = z.enum([
-  'finder',
-  'cursor',
-  'vscode',
-  'iterm',
-  'terminal',
-]);
+export const fsOpenInAppIdSchema = z.enum(['finder', 'cursor', 'vscode', 'iterm', 'terminal']);
 export type FsOpenInAppId = z.infer<typeof fsOpenInAppIdSchema>;
 
 export const fsOpenInRequestSchema = z.object({

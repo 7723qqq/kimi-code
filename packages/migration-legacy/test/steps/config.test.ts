@@ -1,7 +1,9 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+
 import { migrateConfigStep } from '../../src/steps/config.js';
 import { DEFAULT_CONFIG_FILE_TEXT } from '../../src/stub-detect.js';
 
@@ -120,9 +122,9 @@ base_url = "https://target.example/v1"
     await writeFile(join(tgt, 'config.toml'), 'this is = = not valid toml [[[');
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
     expect(r.wroteSiblingDueToConflict).toBe(true);
-    expect(
-      await readFile(join(tgt, 'config.migrated-from-kimi-cli.toml'), 'utf-8'),
-    ).toContain('merge_all_available_skills');
+    expect(await readFile(join(tgt, 'config.migrated-from-kimi-cli.toml'), 'utf-8')).toContain(
+      'merge_all_available_skills',
+    );
     // the unparseable target is left untouched
     expect(await readFile(join(tgt, 'config.toml'), 'utf-8')).toContain('not valid toml');
   });
@@ -135,9 +137,9 @@ base_url = "https://target.example/v1"
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
     expect(r.wroteSiblingDueToConflict).toBe(false);
     expect(r.wroteTuiSibling).toBe(true);
-    expect(
-      await readFile(join(tgt, 'tui.migrated-from-kimi-cli.toml'), 'utf-8'),
-    ).toContain('theme');
+    expect(await readFile(join(tgt, 'tui.migrated-from-kimi-cli.toml'), 'utf-8')).toContain(
+      'theme',
+    );
     // original kept
     expect(await readFile(join(tgt, 'tui.toml'), 'utf-8')).toContain('# user added');
   });
@@ -233,7 +235,10 @@ max_context_size = 1000
   });
 
   it('drops a supported top-level key whose value the schema rejects', async () => {
-    await writeFile(join(src, 'config.toml'), 'telemetry = "false"\nmerge_all_available_skills = true\n');
+    await writeFile(
+      join(src, 'config.toml'),
+      'telemetry = "false"\nmerge_all_available_skills = true\n',
+    );
     await writeFile(join(tgt, 'config.toml'), DEFAULT_CONFIG_FILE_TEXT);
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
     expect(r.migrated).toBe(true);
@@ -331,7 +336,7 @@ base_url = "https://target.example/v1"
     expect(cfg).toContain('command = "echo stop"');
   });
 
-  it('drops a single hook kimi-code\'s schema rejects, keeps the rest', async () => {
+  it("drops a single hook kimi-code's schema rejects, keeps the rest", async () => {
     await writeFile(
       join(src, 'config.toml'),
       '[[hooks]]\n' +
@@ -385,8 +390,7 @@ base_url = "https://target.example/v1"
     // the source. A second `migrateConfigStep` call must not falsely claim
     // "N hooks migrated" again — `mergeConfig` records no conflict when the
     // values deep-equal, so checking the conflict list alone misses this case.
-    const hooksToml =
-      '[[hooks]]\nevent = "PreToolUse"\ncommand = "echo same"\ntimeout = 30\n';
+    const hooksToml = '[[hooks]]\nevent = "PreToolUse"\ncommand = "echo same"\ntimeout = 30\n';
     await writeFile(join(src, 'config.toml'), hooksToml);
     await writeFile(join(tgt, 'config.toml'), hooksToml);
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
@@ -482,10 +486,7 @@ base_url = "https://target.example/v1"
   });
 
   it('maps default_yolo to default_permission_mode = "yolo"', async () => {
-    await writeFile(
-      join(src, 'config.toml'),
-      'default_yolo = true\n',
-    );
+    await writeFile(join(src, 'config.toml'), 'default_yolo = true\n');
     const r = await migrateConfigStep({ sourceHome: src, targetHome: tgt });
     expect(r.migrated).toBe(true);
     const written = await readFile(join(tgt, 'config.toml'), 'utf-8');

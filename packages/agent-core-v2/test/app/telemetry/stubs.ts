@@ -31,9 +31,7 @@ export function recordingTelemetry(
       records.push({
         event,
         properties:
-          properties === undefined
-            ? currentContext
-            : { ...currentContext, ...properties },
+          properties === undefined ? currentContext : { ...currentContext, ...properties },
       });
     },
     track2: (event, properties) => service.track(event, properties as TelemetryProperties),

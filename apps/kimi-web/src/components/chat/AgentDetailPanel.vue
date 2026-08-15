@@ -13,8 +13,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { AgentMember } from '../../types';
+
 import { copyTextToClipboard } from '../../lib/clipboard';
+import type { AgentMember } from '../../types';
 import Badge from '../ui/Badge.vue';
 import Icon from '../ui/Icon.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
@@ -30,9 +31,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 
 const progressLines = computed(() =>
-  (props.member.outputLines ?? [])
-    .map((line) => line.trimEnd())
-    .filter((line) => line.length > 0),
+  (props.member.outputLines ?? []).map((line) => line.trimEnd()).filter((line) => line.length > 0),
 );
 
 // The subagent's concatenated live output (assistant deltas). Trim trailing
@@ -40,7 +39,10 @@ const progressLines = computed(() =>
 const liveText = computed(() => (props.member.text ?? '').trimEnd());
 
 const isRunning = computed(
-  () => props.member.phase === 'queued' || props.member.phase === 'working' || props.member.phase === 'suspended',
+  () =>
+    props.member.phase === 'queued' ||
+    props.member.phase === 'working' ||
+    props.member.phase === 'suspended',
 );
 
 // Worked duration for the fold label: elapsed since the subagent started
@@ -143,11 +145,16 @@ onUnmounted(() => {
 
 function phaseLabel(phase: AgentMember['phase']): string {
   switch (phase) {
-    case 'queued': return 'Queued';
-    case 'working': return 'Working';
-    case 'suspended': return 'Suspended';
-    case 'completed': return 'Completed';
-    case 'failed': return 'Failed';
+    case 'queued':
+      return 'Queued';
+    case 'working':
+      return 'Working';
+    case 'suspended':
+      return 'Suspended';
+    case 'completed':
+      return 'Completed';
+    case 'failed':
+      return 'Failed';
   }
 }
 
@@ -179,12 +186,22 @@ watch(
     >
       <Badge variant="neutral" size="sm" class="ap-phase">{{ phaseLabel(member.phase) }}</Badge>
       <Tooltip v-if="member.prompt" :text="t('tasks.copyCommand')">
-        <button type="button" class="ap-head-btn" :aria-label="t('tasks.copyCommand')" @click="copyPrompt">
+        <button
+          type="button"
+          class="ap-head-btn"
+          :aria-label="t('tasks.copyCommand')"
+          @click="copyPrompt"
+        >
           <Icon :name="copiedId === 'hc' ? 'check' : 'copy'" size="sm" />
         </button>
       </Tooltip>
       <Tooltip v-if="liveText" :text="t('tasks.copyOutput')">
-        <button type="button" class="ap-head-btn" :aria-label="t('tasks.copyOutput')" @click="copyLive">
+        <button
+          type="button"
+          class="ap-head-btn"
+          :aria-label="t('tasks.copyOutput')"
+          @click="copyLive"
+        >
           <Icon :name="copiedId === 'ho' ? 'check' : 'copy'" size="sm" />
         </button>
       </Tooltip>
@@ -211,23 +228,50 @@ watch(
               <div v-if="group.call" class="ap-call">
                 <span class="ap-glyph" aria-hidden="true">▶</span>
                 <span class="ap-call-txt">{{ group.call }}</span>
-                <button type="button" class="ap-copy-btn" :aria-label="t('tasks.copyCommand')" :title="t('tasks.copyCommand')" @click="copyText(group.call, `gc-${group.key}`)">
+                <button
+                  type="button"
+                  class="ap-copy-btn"
+                  :aria-label="t('tasks.copyCommand')"
+                  :title="t('tasks.copyCommand')"
+                  @click="copyText(group.call, `gc-${group.key}`)"
+                >
                   <Icon :name="copiedId === `gc-${group.key}` ? 'check' : 'copy'" size="sm" />
                 </button>
               </div>
               <div v-if="group.output.length > 0" class="ap-output">
-                <template v-if="group.output.length <= OUTPUT_FOLD_THRESHOLD || isExpanded(group.key)">
-                  <div v-for="(line, li) in group.output" :key="li" class="ap-out-line">{{ line }}</div>
+                <template
+                  v-if="group.output.length <= OUTPUT_FOLD_THRESHOLD || isExpanded(group.key)"
+                >
+                  <div v-for="(line, li) in group.output" :key="li" class="ap-out-line">
+                    {{ line }}
+                  </div>
                 </template>
                 <template v-else>
-                  <div v-for="(line, li) in group.output.slice(0, OUTPUT_HEAD)" :key="li" class="ap-out-line">{{ line }}</div>
+                  <div
+                    v-for="(line, li) in group.output.slice(0, OUTPUT_HEAD)"
+                    :key="li"
+                    class="ap-out-line"
+                  >
+                    {{ line }}
+                  </div>
                   <button type="button" class="ap-fold" @click="toggleGroup(group.key)">
                     {{ t('tasks.moreLines', { count: foldCount(group) }) }}
                   </button>
-                  <div v-for="(line, li) in group.output.slice(-OUTPUT_TAIL)" :key="'t' + li" class="ap-out-line">{{ line }}</div>
+                  <div
+                    v-for="(line, li) in group.output.slice(-OUTPUT_TAIL)"
+                    :key="'t' + li"
+                    class="ap-out-line"
+                  >
+                    {{ line }}
+                  </div>
                 </template>
               </div>
-              <button v-if="group.output.length > 0" type="button" class="ap-copy-output" @click="copyText(group.output.join('\n'), `go-${group.key}`)">
+              <button
+                v-if="group.output.length > 0"
+                type="button"
+                class="ap-copy-output"
+                @click="copyText(group.output.join('\n'), `go-${group.key}`)"
+              >
                 <Icon :name="copiedId === `go-${group.key}` ? 'check' : 'copy'" size="sm" />
                 {{ t('tasks.copyOutput') }}
               </button>
@@ -258,7 +302,9 @@ watch(
   min-height: 0;
   background: var(--color-bg);
 }
-.ap-phase { flex: none; }
+.ap-phase {
+  flex: none;
+}
 .ap-head-btn {
   flex: none;
   display: inline-flex;

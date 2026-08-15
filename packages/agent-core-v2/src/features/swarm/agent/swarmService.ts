@@ -21,8 +21,9 @@
  */
 
 import { t } from '@moonshot-ai/kimi-i18n';
-import { Service } from '#/_base/di/service';
+
 import { IInstantiationService } from '#/_base/di/instantiation';
+import { Service } from '#/_base/di/service';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
@@ -30,10 +31,10 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IEventBus } from '#/app/event/eventBus';
 import { IWireService } from '#/wire/wire';
 
-import { SwarmInjection } from './injection/swarmInjection';
-import type { IAgentSwarmService} from './swarm';
-import { type SwarmModeTrigger } from './swarm';
 import { swarmEnter, swarmExit, SwarmModel } from '../swarmOps';
+import { SwarmInjection } from './injection/swarmInjection';
+import type { IAgentSwarmService } from './swarm';
+import { type SwarmModeTrigger } from './swarm';
 
 export class AgentSwarmService extends Service implements IAgentSwarmService {
   declare readonly _serviceBrand: undefined;
@@ -72,9 +73,9 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
           denyToolExecution(
             this.toolApproval.formatDenyMessage(
               solitaryCount > 1
-                ? (event.toolCalls.length > solitaryCount
-                    ? t('toolsV2.swarm.solitaryMultipleDeniedMixed')
-                    : t('toolsV2.swarm.solitaryMultipleDenied'))
+                ? event.toolCalls.length > solitaryCount
+                  ? t('toolsV2.swarm.solitaryMultipleDeniedMixed')
+                  : t('toolsV2.swarm.solitaryMultipleDenied')
                 : t('toolsV2.swarm.solitaryMixedDenied'),
             ),
           ),
@@ -86,9 +87,7 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
         if (!this.isActive) return;
         if (event.toolCall.name !== 'Agent') return;
         event.veto(
-          denyToolExecution(
-            this.toolApproval.formatDenyMessage(agentDeniedInSwarmModeMessage()),
-          ),
+          denyToolExecution(this.toolApproval.formatDenyMessage(agentDeniedInSwarmModeMessage())),
         );
       }),
     );

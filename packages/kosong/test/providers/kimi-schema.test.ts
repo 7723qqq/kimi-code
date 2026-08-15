@@ -1,5 +1,6 @@
-import { derefJsonSchema, normalizeKimiToolSchema } from '#/providers/kimi-schema';
 import { describe, expect, it, vi } from 'vitest';
+
+import { derefJsonSchema, normalizeKimiToolSchema } from '#/providers/kimi-schema';
 
 describe('derefJsonSchema', () => {
   it('returns schema unchanged when there are no $ref', () => {

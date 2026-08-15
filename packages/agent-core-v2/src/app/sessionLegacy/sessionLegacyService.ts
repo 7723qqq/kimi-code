@@ -9,38 +9,31 @@
  * No business logic is duplicated here.
  */
 
-import type { GoalSnapshot } from '#/agent/goal/types';
-
-import type { SessionStatusResponse } from './sessionProtocol';
-import { LifecycleScope } from '#/app/scopes';
+import { IInstantiationService, type ServicesAccessor } from '#/_base/di/instantiation';
 import {
   type IAgentScopeHandle,
   type ISessionScopeHandle,
   ScopeActivation,
   registerScopedService,
 } from '#/_base/di/scope';
-import {
-  IInstantiationService,
-  type ServicesAccessor,
-} from '#/_base/di/instantiation';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { IAgentActivityView } from '#/agent/activityView/activityView';
 import { IAgentGoalService } from '#/agent/goal/goal';
+import type { GoalSnapshot } from '#/agent/goal/types';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { LifecycleScope } from '#/app/scopes';
+import { getLiveSessionById, resumeSessionById } from '#/app/workspaceLifecycle/sessionLookup';
+import { ErrorCodes, Error2 } from '#/errors';
+import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import {
-  getLiveSessionById,
-  resumeSessionById,
-} from '#/app/workspaceLifecycle/sessionLookup';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IModelService } from '#/kosong/model/model';
-import { ErrorCodes, Error2 } from '#/errors';
-import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { IAgentActivityView } from '#/agent/activityView/activityView';
+import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
 
 import { ISessionLegacyService } from './sessionLegacy';
+import type { SessionStatusResponse } from './sessionProtocol';
 
 export class SessionLegacyService implements ISessionLegacyService {
   declare readonly _serviceBrand: undefined;

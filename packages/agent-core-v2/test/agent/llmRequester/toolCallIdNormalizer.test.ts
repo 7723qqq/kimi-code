@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Message, ToolCall } from '#/kosong/contract/message';
-
 import { ToolCallIdNormalizer } from '#/agent/llmRequester/toolCallIdNormalizer';
+import type { Message, ToolCall } from '#/kosong/contract/message';
 
 function call(id: string, streamIndex?: number): ToolCall {
   return { type: 'function', id, name: 'Bash', arguments: '{}', _streamIndex: streamIndex };
@@ -65,9 +64,7 @@ describe('ToolCallIdNormalizer', () => {
 
   it('claims tool result ids from history as well', () => {
     const normalizer = new ToolCallIdNormalizer();
-    normalizer.seedFrom([
-      { role: 'tool', content: [], toolCalls: [], toolCallId: 'Bash_1' },
-    ]);
+    normalizer.seedFrom([{ role: 'tool', content: [], toolCalls: [], toolCallId: 'Bash_1' }]);
 
     expect(normalizer.beginResponse().remapStreamedId('Bash_1', 0)).toBe('Bash_1__2');
   });
@@ -101,7 +98,11 @@ describe('ToolCallIdNormalizer', () => {
     const response = normalizer.beginResponse();
     response.remapStreamedId('Bash_0', 0);
 
-    const finalized = response.remapFinalizedCalls([call('Bash_0'), call('late_1'), call('late_1')]);
+    const finalized = response.remapFinalizedCalls([
+      call('Bash_0'),
+      call('late_1'),
+      call('late_1'),
+    ]);
     expect(finalized.map((c) => c.id)).toEqual(['Bash_0', 'late_1', 'late_1__2']);
   });
 

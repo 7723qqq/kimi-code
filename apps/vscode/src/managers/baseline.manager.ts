@@ -301,9 +301,7 @@ export class BaselineManager {
       paths.set(pathComparisonKey(session, relativePath), relativePath);
     }
     const accepted = new Set(
-      manifest.acceptedLegacyPaths.map((relativePath) =>
-        pathComparisonKey(session, relativePath),
-      ),
+      manifest.acceptedLegacyPaths.map((relativePath) => pathComparisonKey(session, relativePath)),
     );
     for (const relativePath of await this.listLegacyPaths(session)) {
       const key = pathComparisonKey(session, relativePath);
@@ -354,10 +352,7 @@ export class BaselineManager {
   }
 
   private async writeManifest(manifest: BaselineManifestV1): Promise<void> {
-    if (
-      Object.keys(manifest.entries).length === 0 &&
-      manifest.acceptedLegacyPaths.length === 0
-    ) {
+    if (Object.keys(manifest.entries).length === 0 && manifest.acceptedLegacyPaths.length === 0) {
       await rm(this.sessionRoot(manifest.sessionId), { recursive: true, force: true });
       return;
     }
@@ -494,7 +489,10 @@ export class BaselineManager {
     }
   }
 
-  private async serialize<T>(sessionIds: readonly string[], operation: () => Promise<T>): Promise<T> {
+  private async serialize<T>(
+    sessionIds: readonly string[],
+    operation: () => Promise<T>,
+  ): Promise<T> {
     const ids = [...new Set(sessionIds)].toSorted();
     for (const id of ids) requireSessionId(id);
 
@@ -594,7 +592,9 @@ function parseManifest(value: unknown, session: BaselineSession): BaselineManife
     }
     const relativePath = resolveSessionFile(session, rawPath).relativePath;
     if (relativePath !== rawPath) {
-      throw new BaselineError(`Unsafe accepted legacy path "${rawPath}" in session "${session.id}"`);
+      throw new BaselineError(
+        `Unsafe accepted legacy path "${rawPath}" in session "${session.id}"`,
+      );
     }
     if (equivalentPath(session, acceptedLegacyPaths, relativePath) === undefined) {
       acceptedLegacyPaths.push(relativePath);
@@ -677,10 +677,7 @@ function legacyBaselineRoot(session: BaselineSession): string | undefined {
   return path.join(source, 'baseline');
 }
 
-function legacyBaselinePath(
-  session: BaselineSession,
-  relativePath: string,
-): string | undefined {
+function legacyBaselinePath(session: BaselineSession, relativePath: string): string | undefined {
   const root = legacyBaselineRoot(session);
   if (root === undefined) return undefined;
   const resolved = resolveSessionFile(session, relativePath);
@@ -703,9 +700,7 @@ async function walkLegacyBaselines(
   }
 
   for (const entry of entries) {
-    const relativePath = relativeDirectory
-      ? `${relativeDirectory}/${entry.name}`
-      : entry.name;
+    const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       await walkLegacyBaselines(path.join(directory, entry.name), relativePath, result);
     } else if (entry.isFile()) {
@@ -780,7 +775,9 @@ async function requireContainedRestorePath(workDir: string, absolutePath: string
       realExistingPath(absolutePath),
     ]);
     if (relativeFsPath(realWorkDir, realTarget) === undefined) {
-      throw new BaselineError(`Refusing to restore path outside the session workspace: "${absolutePath}"`);
+      throw new BaselineError(
+        `Refusing to restore path outside the session workspace: "${absolutePath}"`,
+      );
     }
   } catch (error) {
     if (error instanceof BaselineError) throw error;

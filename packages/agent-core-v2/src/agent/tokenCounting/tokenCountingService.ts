@@ -20,19 +20,19 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IConfigService } from '#/app/config/config';
 import { ContextModel } from '#/agent/contextMemory/contextOps';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
 import type { Message } from '#/kosong/contract/message';
-import type { Tool } from '#/kosong/contract/tool';
 import {
   estimateTokens,
   estimateTokensForMessage,
   estimateTokensForMessages,
   estimateTokensForTools,
 } from '#/kosong/contract/tokens';
+import type { Tool } from '#/kosong/contract/tool';
 import type { TokenUsage } from '#/kosong/contract/usage';
 import { IWireService } from '#/wire/wire';
 
@@ -61,8 +61,7 @@ export class AgentTokenCountingService extends Disposable implements IAgentToken
     // `?? default`: unregistered / stubbed config reads (test harnesses) keep
     // the default; the registered section default is 'measured+estimated'.
     return (
-      this.config.get<TokenCountingConfig>(TOKEN_COUNTING_SECTION)?.strategy ??
-      'measured+estimated'
+      this.config.get<TokenCountingConfig>(TOKEN_COUNTING_SECTION)?.strategy ?? 'measured+estimated'
     );
   }
 

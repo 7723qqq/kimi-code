@@ -38,6 +38,8 @@ const circumference = 2 * Math.PI * R;
 }
 .ctx-ring-fill {
   stroke: var(--color-accent);
-  transition: stroke-dashoffset 0.3s ease, stroke 0.3s ease;
+  transition:
+    stroke-dashoffset 0.3s ease,
+    stroke 0.3s ease;
 }
 </style>

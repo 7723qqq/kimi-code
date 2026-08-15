@@ -12,17 +12,10 @@
  */
 
 import { addUsage, type TokenUsage } from '#/kosong/contract/usage';
-
-import {
-  DiscussionContext,
-  type DebatePhase,
-  type DiscussionEntry,
-} from './context';
-import type {
-  DiscussionObserver,
-  DiscussionTurnEvent,
-} from './coordinator';
 import type { PersistentSubagentHost } from '#/session/subagent/persistentSubagent';
+
+import { DiscussionContext, type DebatePhase, type DiscussionEntry } from './context';
+import type { DiscussionObserver, DiscussionTurnEvent } from './coordinator';
 
 /**
  * Configuration for a single debate participant.
@@ -98,10 +91,7 @@ export class StructuredDebateCoordinator {
   /**
    * Run a structured debate and return the result.
    */
-  async debate(
-    options: DebateOptions,
-    signal: AbortSignal,
-  ): Promise<DebateResult> {
+  async debate(options: DebateOptions, signal: AbortSignal): Promise<DebateResult> {
     const context = new DiscussionContext();
     let endedBy: DebateResult['endedBy'] = 'completed';
 
@@ -164,11 +154,7 @@ export class StructuredDebateCoordinator {
             currentRound,
           );
 
-          const content = await this.subagentHost.runDiscussionTurn(
-            agentId,
-            prompt,
-            signal,
-          );
+          const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
           context.addEntry(participant.profileName, agentId, content, currentRound);
 
           // Update position if changed
@@ -201,11 +187,7 @@ export class StructuredDebateCoordinator {
           closingRound,
         );
 
-        const content = await this.subagentHost.runDiscussionTurn(
-          agentId,
-          prompt,
-          signal,
-        );
+        const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
         context.addEntry(participant.profileName, agentId, content, closingRound);
 
         const finalStance = this.extractStance(content);
@@ -234,11 +216,7 @@ export class StructuredDebateCoordinator {
       context.setPhase('consensus');
       let consensus = '';
       if (options.consensusPrompt !== undefined && !context.isEmpty()) {
-        consensus = await this.generateConsensus(
-          options.consensusPrompt,
-          context,
-          signal,
-        );
+        consensus = await this.generateConsensus(options.consensusPrompt, context, signal);
       }
 
       // 6. Voting (optional)
@@ -373,13 +351,12 @@ export class StructuredDebateCoordinator {
   ): string {
     const positionsText = context.getPositionsText();
     const crossRefs = context.allCrossReferences();
-    const crossRefText = crossRefs.length > 0
-      ? `\nCross-references detected:\n${
-          crossRefs.map(
-            (r) => `  [${r.speaker}] → @${r.targetSpeaker} (${r.stance})`,
-          ).join('\n')
-        }`
-      : '';
+    const crossRefText =
+      crossRefs.length > 0
+        ? `\nCross-references detected:\n${crossRefs
+            .map((r) => `  [${r.speaker}] → @${r.targetSpeaker} (${r.stance})`)
+            .join('\n')}`
+        : '';
 
     return [
       `[System] Your role:\n${roleDescription}`,
@@ -414,13 +391,12 @@ export class StructuredDebateCoordinator {
 
     try {
       const positions = context.allPositions();
-      const positionsBlock = positions.length > 0
-        ? `\nFinal positions:\n${
-            positions.map(
-              (p) => `[${p.speaker}] ${p.stance}\n  Key points: ${p.keyPoints.join(', ')}`,
-            ).join('\n')
-          }`
-        : '';
+      const positionsBlock =
+        positions.length > 0
+          ? `\nFinal positions:\n${positions
+              .map((p) => `[${p.speaker}] ${p.stance}\n  Key points: ${p.keyPoints.join(', ')}`)
+              .join('\n')}`
+          : '';
 
       const crossRefs = context.allCrossReferences();
       const agreements = crossRefs.filter((r) => r.stance === 'agree').length;
@@ -442,11 +418,7 @@ export class StructuredDebateCoordinator {
         '4. Recommended next steps or action items',
       ].join('\n');
 
-      return await this.subagentHost.runDiscussionTurn(
-        firstAgentId,
-        prompt,
-        signal,
-      );
+      return await this.subagentHost.runDiscussionTurn(firstAgentId, prompt, signal);
     } catch {
       return '';
     }
@@ -465,11 +437,10 @@ export class StructuredDebateCoordinator {
     const agreements = crossRefs.filter((r) => r.stance === 'agree').length;
     const disagreements = crossRefs.filter((r) => r.stance === 'disagree').length;
 
-    const positionsBlock = positions.length > 0
-      ? `\nPositions:\n${
-          positions.map((p) => `[${p.speaker}] ${p.stance}`).join('\n')
-        }`
-      : '';
+    const positionsBlock =
+      positions.length > 0
+        ? `\nPositions:\n${positions.map((p) => `[${p.speaker}] ${p.stance}`).join('\n')}`
+        : '';
 
     // Collect votes from all participants
     const votes: string[] = [];
@@ -568,10 +539,8 @@ export class StructuredDebateCoordinator {
 
     // Estimate phases based on entry distribution
     const opening = entries.filter((e) => e.round === 1);
-    const closing = entries.filter((e) => e.round === entries[entries.length - 1]!.round);
-    const freeDebate = entries.filter(
-      (e) => e.round > 1 && e.round < entries[entries.length - 1]!.round,
-    );
+    const closing = entries.filter((e) => e.round === entries.at(-1)!.round);
+    const freeDebate = entries.filter((e) => e.round > 1 && e.round < entries.at(-1)!.round);
 
     const phases: { phase: DebatePhase; entryCount: number }[] = [
       { phase: 'opening', entryCount: opening.length },
@@ -593,12 +562,7 @@ export class StructuredDebateCoordinator {
     return total ?? { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 };
   }
 
-  private emitTurn(
-    roleName: string,
-    agentId: string,
-    round: number,
-    content: string,
-  ): void {
+  private emitTurn(roleName: string, agentId: string, round: number, content: string): void {
     this.observer?.({ agentId, roleName, round, content } satisfies DiscussionTurnEvent);
   }
 

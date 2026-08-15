@@ -24,6 +24,7 @@
  */
 
 import { Error2, type Error2Options } from '#/_base/errors/errors';
+
 import type { FinishReason } from './provider';
 
 export const CONFIG_INVALID_ERROR_CODE = 'config.invalid';

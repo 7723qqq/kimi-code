@@ -1,8 +1,8 @@
-import { type Message } from '#/kosong/contract/message';
 import { describe, expect, it } from 'vitest';
 
-import { estimateTokensForMessages } from '#/kosong/contract/tokens';
 import { DefaultCompactionStrategy } from '#/agent/fullCompaction/strategy';
+import { type Message } from '#/kosong/contract/message';
+import { estimateTokensForMessages } from '#/kosong/contract/tokens';
 
 describe('DefaultCompactionStrategy', () => {
   it('keeps an oversized trailing user message as recent', () => {
@@ -46,11 +46,7 @@ describe('DefaultCompactionStrategy', () => {
     expect(strategy.computeCompactCount([textMessage('user', 'only pending')], 'auto')).toBe(0);
     expect(
       strategy.computeCompactCount(
-        [
-          textMessage('user', 'a'),
-          textMessage('user', 'b'),
-          textMessage('user', 'c'),
-        ],
+        [textMessage('user', 'a'), textMessage('user', 'b'), textMessage('user', 'c')],
         'auto',
       ),
     ).toBe(0);

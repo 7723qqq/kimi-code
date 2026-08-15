@@ -1,5 +1,5 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { OldKimiJsonSchema, OldSessionStateSchema } from './kimi-cli-schema.js';
@@ -13,14 +13,14 @@ import {
   sourceSessionsDir,
   sourceKimiJson,
 } from './paths.js';
+import { classifySessionDir } from './sessions/classify.js';
+import { oldMd5BucketName } from './sessions/workdir-bucket.js';
 import type {
   MigrationPlan,
   SessionEntry,
   SessionMigrationFailure,
   WorkDirEntry,
 } from './types.js';
-import { classifySessionDir } from './sessions/classify.js';
-import { oldMd5BucketName } from './sessions/workdir-bucket.js';
 
 const MD5_HEX_RE = /^[0-9a-f]{32}$/;
 
@@ -36,9 +36,7 @@ export async function detectMigration(opts: { sourcePath: string }): Promise<Mig
   const hasMcp = existsSync(sourceMcpJson(src));
   const hasUserHistory = existsSync(sourceUserHistoryDir(src));
 
-  const oauthCredentials = await listDirSafe(sourceCredentialsDir(src), (n) =>
-    n.endsWith('.json'),
-  );
+  const oauthCredentials = await listDirSafe(sourceCredentialsDir(src), (n) => n.endsWith('.json'));
   const detectedPlugins = await listDirSafe(sourcePluginsDir(src), () => true);
   const detectedMcpOauthServers = await listDirSafe(sourceMcpOauthDir(src), () => true);
 
@@ -161,10 +159,7 @@ function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function listDirSafe(
-  dir: string,
-  filter: (name: string) => boolean,
-): Promise<string[]> {
+async function listDirSafe(dir: string, filter: (name: string) => boolean): Promise<string[]> {
   try {
     const names = await readdir(dir);
     return names.filter(filter);

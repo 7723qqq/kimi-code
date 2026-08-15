@@ -1,11 +1,12 @@
 import { Link, useParams } from 'react-router-dom';
-import { useSession } from '../hooks/useSession';
-import { TabBar, useActiveTab } from '../components/layout/TabBar';
+
 import { ContextTab } from '../components/context/ContextTab';
-import { WireTab } from '../components/wire/WireTab';
+import { TabBar, useActiveTab } from '../components/layout/TabBar';
 import { Pill, type PillTone } from '../components/shared/Pill';
-import type { AgentInfo } from '../types';
+import { WireTab } from '../components/wire/WireTab';
+import { useSession } from '../hooks/useSession';
 import { t } from '../i18n';
+import type { AgentInfo } from '../types';
 
 type TabId = 'wire' | 'context';
 
@@ -22,7 +23,9 @@ export function SubagentDetailPage() {
 
   if (!sessionId || !agentId) return null;
   if (isLoading) {
-    return <div className="p-6 font-mono text-[12px] text-fg-3">{t('subagentDetail.loadingAgent')}</div>;
+    return (
+      <div className="p-6 font-mono text-[12px] text-fg-3">{t('subagentDetail.loadingAgent')}</div>
+    );
   }
   if (error) {
     return (
@@ -40,10 +43,7 @@ export function SubagentDetailPage() {
       {/* Breadcrumb + header */}
       <div className="shrink-0 border-b border-border bg-surface-1 px-4 py-3">
         <div className="flex items-center gap-2 font-mono text-[11px] text-fg-2">
-          <Link
-            to={`/sessions/${sessionId}?tab=agents`}
-            className="hover:text-fg-0"
-          >
+          <Link to={`/sessions/${sessionId}?tab=agents`} className="hover:text-fg-0">
             {t('subagentDetail.backToAgents')}
           </Link>
           <span className="text-fg-3">·</span>
@@ -72,10 +72,11 @@ export function SubagentDetailPage() {
                 </span>
               ) : null}
               <span className="font-mono text-[11px] text-fg-3 tabular">
-                {t(agent.wireRecordCount === 1 ? 'subagentDetail.record' : 'subagentDetail.records', { count: agent.wireRecordCount })}
-                {agent.wireProtocolVersion !== null
-                  ? ` · v${agent.wireProtocolVersion}`
-                  : ''}
+                {t(
+                  agent.wireRecordCount === 1 ? 'subagentDetail.record' : 'subagentDetail.records',
+                  { count: agent.wireRecordCount },
+                )}
+                {agent.wireProtocolVersion !== null ? ` · v${agent.wireProtocolVersion}` : ''}
               </span>
               {!agent.wireExists ? (
                 <Pill tone="warning" variant="outline">

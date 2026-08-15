@@ -1,3 +1,6 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
 import { effectiveModelAlias, log } from '@moonshot-ai/kimi-code-sdk';
 import type {
@@ -24,22 +27,18 @@ import {
   TuiAltScreen,
   TuiMainScreen,
 } from '@moonshot-ai/pi-tui';
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';
 import { getLocale, t } from '#/i18n';
-import {
-  MigrationScreenComponent,
-  type MigrationScreenResult,
-} from '#/migration/index';
+import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
 import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
+import { startupTrace } from '#/utils/startup-trace';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import { BannerProvider } from './banner/banner-provider';
@@ -55,7 +54,6 @@ import {
   type SkillListSession,
 } from './commands';
 import * as slashCommands from './commands/dispatch';
-import { CacheHintController } from './controllers/cache-hint-controller';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
@@ -117,6 +115,7 @@ import { CHROME_GUTTER } from './constant/rendering';
 import { MAX_TERMINAL_TITLE_LENGTH } from './constant/terminal';
 import { AuthFlowController } from './controllers/auth-flow';
 import { BtwPanelController } from './controllers/btw-panel';
+import { CacheHintController } from './controllers/cache-hint-controller';
 import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
 import { EditorKeyboardController } from './controllers/editor-keyboard';
 import { SessionEventHandler } from './controllers/session-event-handler';
@@ -156,24 +155,27 @@ import { ImageAttachmentStore, type ImageAttachment } from './utils/image-attach
 import { extractMediaAttachments, rewriteMediaPlaceholders } from './utils/image-placeholder';
 import type { ExtractionResult } from './utils/image-placeholder';
 import { installInputLatencyProbe } from './utils/input-latency';
+import { REPLAY_TURN_LIMIT } from './utils/message-replay';
+import { hasPatchChanges } from './utils/object-patch';
+import {
+  beginScreenTakeover,
+  endScreenTakeover,
+  type ScreenTakeover,
+} from './utils/screen-takeover';
+import { sessionRowsForPicker } from './utils/session-picker-rows';
 import {
   accumulateStepCompleted,
   accumulateToolDuration,
   bumpTurnCount,
   createEmptySessionStats,
 } from './utils/session-stats';
-import { startupTrace } from '#/utils/startup-trace';
-import { REPLAY_TURN_LIMIT } from './utils/message-replay';
-import { hasPatchChanges } from './utils/object-patch';
-import { beginScreenTakeover, endScreenTakeover, type ScreenTakeover } from './utils/screen-takeover';
-import { sessionRowsForPicker } from './utils/session-picker-rows';
-import { formatStepRetryDetail, formatStepRetryLabel } from './utils/step-retry';
 import { formatBashOutputForDisplay } from './utils/shell-output';
-import { thinkingEffortFromConfig } from './utils/thinking-config';
 import { combineStartupNotice, isOAuthLoginRequiredError } from './utils/startup';
+import { formatStepRetryDetail, formatStepRetryLabel } from './utils/step-retry';
 import { installTerminalFocusTracking } from './utils/terminal-focus';
 import { notifyTerminalOnce } from './utils/terminal-notification';
 import { installTerminalThemeTracking } from './utils/terminal-theme';
+import { thinkingEffortFromConfig } from './utils/thinking-config';
 import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
 import {
   getTranscriptComponentEntry,
@@ -904,7 +906,9 @@ export class KimiTUI {
           });
           const target = sessions[0];
           if (target === undefined) {
-            throw new Error(t('tui.statusMessages.sessionNotFound', { sessionId: startup.sessionFlag }));
+            throw new Error(
+              t('tui.statusMessages.sessionNotFound', { sessionId: startup.sessionFlag }),
+            );
           }
           if (resolve(target.workDir) !== resolve(workDir)) {
             this.state.ui.stop();
@@ -2460,7 +2464,9 @@ export class KimiTUI {
     const parts: string[] = [];
     switch (response.decision) {
       case 'approved':
-        parts.push(response.scope === 'session' ? t('tui.statusMessages.approvedForSession') : 'Approved');
+        parts.push(
+          response.scope === 'session' ? t('tui.statusMessages.approvedForSession') : 'Approved',
+        );
         break;
       case 'rejected':
         parts.push('Rejected');
@@ -3302,10 +3308,7 @@ export class KimiTUI {
    * the step's stream duration to compute the latest output speed
    * (tokens/second).
    */
-  noteStepCacheStats(
-    usage: TokenUsage | undefined,
-    streamDurationMs: number | undefined,
-  ): void {
+  noteStepCacheStats(usage: TokenUsage | undefined, streamDurationMs: number | undefined): void {
     const patch: Partial<AppState> = {};
     if (usage !== undefined) {
       const read = usage.inputCacheRead ?? 0;

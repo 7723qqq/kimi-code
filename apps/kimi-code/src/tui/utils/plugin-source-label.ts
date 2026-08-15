@@ -84,8 +84,7 @@ export function isOfficialPluginInstall(plugin: PluginSummary): boolean {
 function isOfficialPluginUrl(url: URL): boolean {
   if (url.protocol !== 'https:') return false;
   return (
-    (url.hostname === 'code.kimi.com' &&
-      url.pathname.startsWith('/kimi-code/plugins/official/')) ||
+    (url.hostname === 'code.kimi.com' && url.pathname.startsWith('/kimi-code/plugins/official/')) ||
     (url.hostname === 'cdn.kimi.com' &&
       (url.pathname.startsWith('/kimi-computer-use/') ||
         url.pathname.startsWith('/kimi-computer-use-windows/')))

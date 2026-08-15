@@ -4,13 +4,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 
 import { fail, run, tryRun } from './exec.mjs';
-import {
-  appRoot,
-  nativeBinDir,
-  nativeBinPath,
-  nativeBlobPath,
-  targetTriple,
-} from './paths.mjs';
+import { appRoot, nativeBinDir, nativeBinPath, nativeBlobPath, targetTriple } from './paths.mjs';
 
 function kimiBuildPath() {
   const ext = process.platform === 'win32' ? '.exe' : '';
@@ -24,7 +18,9 @@ function kimiBuildPath() {
   for (const candidate of candidates) {
     try {
       if (existsSync(candidate)) return candidate;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   return null;
 }
@@ -44,7 +40,9 @@ function findPostjectApi() {
       const nested = resolve(pnpmDir, entry, 'node_modules/postject/dist/api.js');
       if (existsSync(nested)) return nested;
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return null;
 }
 
@@ -94,9 +92,7 @@ async function injectSeaBlob(target) {
     const { inject } = require(postjectApi);
     const blob = await readFile(nativeBlobPath());
     await inject(out, 'NODE_SEA_BLOB', blob, { sentinelFuse });
-    console.log(
-      `Injected NODE_SEA_BLOB via postject (${blob.length} bytes, fuse ${sentinelFuse})`,
-    );
+    console.log(`Injected NODE_SEA_BLOB via postject (${blob.length} bytes, fuse ${sentinelFuse})`);
     return;
   }
 

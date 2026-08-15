@@ -7,12 +7,11 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AsyncEmitter, type Event, type IWaitUntil } from '#/_base/event';
+import { LifecycleScope } from '#/app/scopes';
 
 import { deepEqual, diffRecords, isEmptyDiff } from '../recordDiff';
-
 import {
   type DefaultModelChangedEvent,
   IModelService,
@@ -104,4 +103,10 @@ export class ModelService extends Disposable implements IModelService {
   }
 }
 
-registerScopedService(LifecycleScope.App, IModelService, ModelService, ScopeActivation.OnScopeCreated, 'model');
+registerScopedService(
+  LifecycleScope.App,
+  IModelService,
+  ModelService,
+  ScopeActivation.OnScopeCreated,
+  'model',
+);

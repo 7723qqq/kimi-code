@@ -147,12 +147,7 @@ async function buildCheckSpecs(
   }
 
   if (options.target === 'tui') {
-    return [
-      makeTuiSpec(
-        resolveTuiTargetPath(deps, options.path, cwd),
-        options.path !== undefined,
-      ),
-    ];
+    return [makeTuiSpec(resolveTuiTargetPath(deps, options.path, cwd), options.path !== undefined)];
   }
 
   return [
@@ -161,11 +156,7 @@ async function buildCheckSpecs(
   ];
 }
 
-function makeConfigSpec(
-  path: string,
-  explicit: boolean,
-  deps: ResolvedDoctorDeps,
-): CheckSpec {
+function makeConfigSpec(path: string, explicit: boolean, deps: ResolvedDoctorDeps): CheckSpec {
   return {
     label: 'config.toml',
     path,
@@ -246,7 +237,10 @@ function formatSuccess(results: readonly CheckResult[]): string {
 
 function formatFailure(results: readonly CheckResult[], issueCount: number): string {
   return [
-    t('tui.statusMessages.doctorFoundIssues', { count: String(issueCount), plural: issueCount === 1 ? '' : 's' }),
+    t('tui.statusMessages.doctorFoundIssues', {
+      count: String(issueCount),
+      plural: issueCount === 1 ? '' : 's',
+    }),
     '',
     ...formatResults(results),
     '',

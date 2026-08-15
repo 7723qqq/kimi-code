@@ -1,4 +1,5 @@
 import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
+
 import { t } from '#/i18n';
 import { parseGoalCommand } from '#/tui/commands/index';
 

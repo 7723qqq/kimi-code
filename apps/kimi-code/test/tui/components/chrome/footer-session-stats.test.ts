@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import type { AppState } from '#/tui/types';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 
 const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 function strip(text: string): string {

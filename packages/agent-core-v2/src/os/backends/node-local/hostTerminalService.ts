@@ -12,11 +12,14 @@
 
 import type { IPty } from 'node-pty';
 
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-
-import { IHostTerminalService, type TerminalProcess, type TerminalSpawnOptions } from '#/os/interface/terminal';
+import {
+  IHostTerminalService,
+  type TerminalProcess,
+  type TerminalSpawnOptions,
+} from '#/os/interface/terminal';
 
 export class HostTerminalService extends Service implements IHostTerminalService {
   declare readonly _serviceBrand: undefined;
@@ -47,8 +50,7 @@ export class HostTerminalService extends Service implements IHostTerminalService
     for (const process of this.processes) {
       try {
         process.kill();
-      } catch {
-      }
+      } catch {}
     }
     this.processes.clear();
     super.dispose();

@@ -7,13 +7,13 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 
 import { IAgentInterruptionReminderService } from './interruptionReminder';
 import { INTERRUPTION_REMINDER_VARIANT } from './interruptionReminderOps';
@@ -40,7 +40,8 @@ export class AgentInterruptionReminderService
       eventBus.subscribe('turn.ended', (event) => {
         if (event.reason !== 'cancelled' || event.interruptReason !== 'user_cancelled') return;
         const origin = lastComparableMessage(this.context.get())?.origin;
-        if (origin?.kind === 'injection' && origin.variant === INTERRUPTION_REMINDER_VARIANT) return;
+        if (origin?.kind === 'injection' && origin.variant === INTERRUPTION_REMINDER_VARIANT)
+          return;
         this.reminders.appendSystemReminder(INTERRUPTION_REMINDER, {
           kind: 'injection',
           variant: INTERRUPTION_REMINDER_VARIANT,

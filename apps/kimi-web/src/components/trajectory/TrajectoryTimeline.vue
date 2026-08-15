@@ -9,6 +9,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type {
   TrajectoryTimeRange,
   TrajectoryTimelineMode,
@@ -109,10 +110,7 @@ function onWheel(event: WheelEvent, el: HTMLElement): void {
     Math.max(1, domainWidth.value * factor),
   );
   let nextStart = anchor - ratio * nextWidth;
-  nextStart = Math.max(
-    props.model.start,
-    Math.min(props.model.end - nextWidth, nextStart),
-  );
+  nextStart = Math.max(props.model.start, Math.min(props.model.end - nextWidth, nextStart));
   viewStart.value = nextStart;
   viewEnd.value = nextStart + nextWidth;
 }
@@ -146,8 +144,8 @@ const hint = computed(() => {
   <div
     class="trajectory-timeline"
     :data-mode="mode"
-    @pointerdown="onPointerDown($event, ($event.currentTarget as HTMLElement))"
-    @wheel.prevent="onWheel($event, ($event.currentTarget as HTMLElement))"
+    @pointerdown="onPointerDown($event, $event.currentTarget as HTMLElement)"
+    @wheel.prevent="onWheel($event, $event.currentTarget as HTMLElement)"
     @dblclick="onDblclick"
   >
     <div class="trajectory-timeline__lane">
@@ -157,7 +155,10 @@ const hint = computed(() => {
         class="trajectory-timeline__span"
         :class="[
           `lane-${span.lane}`,
-          { error: span.isError, selected: drag !== null && span.start <= drag.current && span.end >= drag.anchor },
+          {
+            error: span.isError,
+            selected: drag !== null && span.start <= drag.current && span.end >= drag.anchor,
+          },
         ]"
         :style="spanStyle(span)"
         :title="hint"
@@ -172,10 +173,14 @@ const hint = computed(() => {
         :title="t('trajectory.turn', { turn: boundary.turn })"
       />
     </div>
-    <div v-if="drag" class="trajectory-timeline__drag" :style="{
-      left: `${((Math.min(drag.anchor, drag.current) - viewStart) / domainWidth) * 100}%`,
-      width: `${(Math.abs(drag.current - drag.anchor) / domainWidth) * 100}%`,
-    }"></div>
+    <div
+      v-if="drag"
+      class="trajectory-timeline__drag"
+      :style="{
+        left: `${((Math.min(drag.anchor, drag.current) - viewStart) / domainWidth) * 100}%`,
+        width: `${(Math.abs(drag.current - drag.anchor) / domainWidth) * 100}%`,
+      }"
+    ></div>
     <div class="trajectory-timeline__hint">
       <span class="trajectory-timeline__hint-text">{{ hint }}</span>
       <span v-if="zoomed || hasSelection" class="trajectory-timeline__hint-actions">
@@ -212,11 +217,22 @@ const hint = computed(() => {
   background: var(--color-accent);
   opacity: 0.75;
 }
-.trajectory-timeline__span.lane-0 { top: 0; }
-.trajectory-timeline__span.lane-1 { top: 13px; }
-.trajectory-timeline__span.lane-2 { top: 26px; }
-.trajectory-timeline__span.error { background: var(--color-danger); }
-.trajectory-timeline__span.selected { opacity: 1; outline: 1px solid var(--color-text-faint); }
+.trajectory-timeline__span.lane-0 {
+  top: 0;
+}
+.trajectory-timeline__span.lane-1 {
+  top: 13px;
+}
+.trajectory-timeline__span.lane-2 {
+  top: 26px;
+}
+.trajectory-timeline__span.error {
+  background: var(--color-danger);
+}
+.trajectory-timeline__span.selected {
+  opacity: 1;
+  outline: 1px solid var(--color-text-faint);
+}
 .trajectory-timeline__boundary {
   position: absolute;
   top: 0;

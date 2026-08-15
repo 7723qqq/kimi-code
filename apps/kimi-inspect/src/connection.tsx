@@ -31,17 +31,9 @@ import {
   type ReactNode,
 } from 'react';
 
-import {
-  createInspectClient,
-  probeDebugSurface,
-  type InspectClient,
-} from './channel';
-import {
-  fetchServerDiscovery,
-  pickDefaultServer,
-  useServerDiscovery,
-} from './servers';
+import { createInspectClient, probeDebugSurface, type InspectClient } from './channel';
 import { t } from './i18n';
+import { fetchServerDiscovery, pickDefaultServer, useServerDiscovery } from './servers';
 
 export interface ConnectionConfig {
   /** Server base URL; empty string means same-origin (the Vite dev proxy). */
@@ -259,7 +251,9 @@ function DebugSurfaceError({
   return (
     <div className="flex h-screen items-center justify-center">
       <div className="w-[520px] rounded-lg border border-red-900/60 bg-neutral-900 p-6 shadow-xl">
-        <h1 className="mb-1 text-lg font-semibold text-red-300">{t('connection.debugSurfaceUnavailable')}</h1>
+        <h1 className="mb-1 text-lg font-semibold text-red-300">
+          {t('connection.debugSurfaceUnavailable')}
+        </h1>
         <p className="mb-3 text-xs leading-relaxed text-neutral-400">
           Kimi Inspect talks to kap-server exclusively over the debug RPC surface (
           <code className="text-neutral-300">/api/v1/debug</code>), and{' '}

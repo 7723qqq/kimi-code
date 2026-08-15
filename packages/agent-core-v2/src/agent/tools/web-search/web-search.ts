@@ -33,13 +33,11 @@ export interface WebSearchProvider {
   ): Promise<WebSearchResult[]>;
 }
 
-
 export const WebSearchInputSchema = z.object({
   query: z.string().describe('The query text to search for.'),
 });
 
 export type WebSearchInput = z.infer<typeof WebSearchInputSchema>;
-
 
 export interface IWebSearchTool extends AgentTool<WebSearchInput> {
   readonly _serviceBrand: undefined;

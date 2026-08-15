@@ -1,8 +1,9 @@
 import { readFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { McpServerConfigSchema } from '../v1-compat.js';
+
 import { atomicWrite } from '../atomic-write.js';
 import { siblingMcpJson, sourceMcpJson, targetMcpFile } from '../paths.js';
+import { McpServerConfigSchema } from '../v1-compat.js';
 
 export interface McpStepInput {
   readonly sourceHome: string;
@@ -27,14 +28,24 @@ export async function migrateMcpStep(input: McpStepInput): Promise<McpStepResult
   try {
     sourceText = await readFile(sourceMcpJson(input.sourceHome), 'utf-8');
   } catch {
-    return { mergedServers: [], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: false };
+    return {
+      mergedServers: [],
+      keptNewForConflicts: [],
+      droppedServers: [],
+      wroteSiblingDueToConflict: false,
+    };
   }
 
   let sourceJson: unknown;
   try {
     sourceJson = JSON.parse(sourceText);
   } catch {
-    return { mergedServers: [], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: false };
+    return {
+      mergedServers: [],
+      keptNewForConflicts: [],
+      droppedServers: [],
+      wroteSiblingDueToConflict: false,
+    };
   }
   const srcServers: Record<string, unknown> = {};
   if (isRecord(sourceJson)) {
@@ -98,5 +109,10 @@ export async function migrateMcpStep(input: McpStepInput): Promise<McpStepResult
   await mkdir(dirname(outPath), { recursive: true, mode: 0o700 });
   await atomicWrite(outPath, JSON.stringify({ mcpServers: mergedTargetServers }, null, 2));
 
-  return { mergedServers, keptNewForConflicts, droppedServers, wroteSiblingDueToConflict: targetUnparseable };
+  return {
+    mergedServers,
+    keptNewForConflicts,
+    droppedServers,
+    wroteSiblingDueToConflict: targetUnparseable,
+  };
 }

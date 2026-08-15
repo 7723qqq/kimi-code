@@ -405,4 +405,3 @@ export function resolveErrorTitle(code: KimiErrorCode): string {
   const info = KIMI_ERROR_INFO[code];
   return info ? t(info.titleKey) : code;
 }
-

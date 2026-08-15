@@ -141,7 +141,11 @@ describe('resolveThinkingEffortForModel', () => {
       resolveThinkingEffortForModel('off', undefined, alwaysThinkingAnthropicEffortModel),
     ).toBe('high');
     expect(
-      resolveThinkingEffortForModel(undefined, { enabled: false }, alwaysThinkingAnthropicEffortModel),
+      resolveThinkingEffortForModel(
+        undefined,
+        { enabled: false },
+        alwaysThinkingAnthropicEffortModel,
+      ),
     ).toBe('high');
     expect(resolveThinkingEffortForModel('off', undefined, alwaysThinkingModel)).toBe('on');
   });
@@ -150,7 +154,11 @@ describe('resolveThinkingEffortForModel', () => {
     expect(resolveThinkingEffortForModel(undefined, { effort: ' OFF ' }, effortModel)).toBe('off');
     expect(resolveThinkingEffortForModel(undefined, { effort: 'Off' }, booleanModel)).toBe('off');
     expect(
-      resolveThinkingEffortForModel(undefined, { enabled: false, effort: ' OFF ' }, alwaysThinkingEffortModel),
+      resolveThinkingEffortForModel(
+        undefined,
+        { enabled: false, effort: ' OFF ' },
+        alwaysThinkingEffortModel,
+      ),
     ).toBe('high');
   });
 
@@ -160,14 +168,22 @@ describe('resolveThinkingEffortForModel', () => {
   });
 
   it('treats a configured off as absent when clamping always-thinking models', () => {
-    expect(resolveThinkingEffortForModel(undefined, { effort: 'off' }, alwaysThinkingEffortModel)).toBe(
-      'high',
-    );
     expect(
-      resolveThinkingEffortForModel(undefined, { enabled: false, effort: 'off' }, alwaysThinkingEffortModel),
+      resolveThinkingEffortForModel(undefined, { effort: 'off' }, alwaysThinkingEffortModel),
     ).toBe('high');
     expect(
-      resolveThinkingEffortForModel(undefined, { enabled: false, effort: 'max' }, alwaysThinkingEffortModel),
+      resolveThinkingEffortForModel(
+        undefined,
+        { enabled: false, effort: 'off' },
+        alwaysThinkingEffortModel,
+      ),
+    ).toBe('high');
+    expect(
+      resolveThinkingEffortForModel(
+        undefined,
+        { enabled: false, effort: 'max' },
+        alwaysThinkingEffortModel,
+      ),
     ).toBe('max');
   });
 
@@ -182,9 +198,7 @@ describe('resolveThinkingEffortForModel', () => {
   });
 
   it('falls back to the model default for an unsupported Kimi effort', () => {
-    expect(resolveThinkingEffortForModel('ultra', undefined, kimiEffortModel, true)).toBe(
-      'medium',
-    );
+    expect(resolveThinkingEffortForModel('ultra', undefined, kimiEffortModel, true)).toBe('medium');
   });
 
   it('projects a concrete effort to on for a boolean-only Kimi model', () => {

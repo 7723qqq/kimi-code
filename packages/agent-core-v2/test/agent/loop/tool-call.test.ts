@@ -19,11 +19,8 @@ import type {
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
-import {
-  permissionModeServices,
-  type TestAgentContext,
-} from '../../harness';
 
+import { permissionModeServices, type TestAgentContext } from '../../harness';
 import { createLoopTestAgent, makeEchoTool, nextTurnMessage, registerTool } from './helpers';
 
 function rpcEvents(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {
@@ -115,9 +112,7 @@ describe('Agent loop — tool-call behaviour', () => {
   });
 
   it('records an error tool.result when the tool name is unknown', async () => {
-    ctx.mockNextResponse(
-      { type: 'function', id: 'tc-1', name: 'ghost', arguments: '{"x":1}' },
-    );
+    ctx.mockNextResponse({ type: 'function', id: 'tc-1', name: 'ghost', arguments: '{"x":1}' });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
     const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run ghost')).assigned)
@@ -146,9 +141,12 @@ describe('Agent loop — tool-call behaviour', () => {
     });
     registerTool(ctx, strict);
 
-    ctx.mockNextResponse(
-      { type: 'function', id: 'tc-1', name: 'strict', arguments: '{"value":"NOT_A_NUMBER"}' },
-    );
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'tc-1',
+      name: 'strict',
+      arguments: '{"value":"NOT_A_NUMBER"}',
+    });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
     const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('strict call')).assigned)
@@ -233,9 +231,7 @@ describe('Agent loop — tool-call behaviour', () => {
       'tc-echo',
     ]);
     const results = rpcEvents(ctx, 'tool.result');
-    expect(
-      results.map((e) => e['toolCallId']).toSorted(),
-    ).toEqual(['tc-echo', 'tc-stop']);
+    expect(results.map((e) => e['toolCallId']).toSorted()).toEqual(['tc-echo', 'tc-stop']);
     expect(results.find((e) => e['toolCallId'] === 'tc-stop')).toMatchObject({
       output: 'stopped',
       isError: undefined,

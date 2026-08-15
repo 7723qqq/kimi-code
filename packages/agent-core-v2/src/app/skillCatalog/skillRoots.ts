@@ -9,6 +9,7 @@
  */
 
 import { promises as fs } from 'node:fs';
+
 import path from 'pathe';
 
 import { findUpwardRoot } from '#/_base/utils/paths';

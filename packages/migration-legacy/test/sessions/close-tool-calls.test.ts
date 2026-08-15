@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { closeDanglingToolCalls } from '../../src/sessions/close-tool-calls.js';
 import type { NormalizedMessage } from '../../src/sessions/translator.js';
 
@@ -42,21 +43,14 @@ describe('closeDanglingToolCalls', () => {
   });
 
   it('leaves satisfied tool calls untouched', () => {
-    const input: NormalizedMessage[] = [
-      user('do it'),
-      assistantWithCall('tc1'),
-      toolResult('tc1'),
-    ];
+    const input: NormalizedMessage[] = [user('do it'), assistantWithCall('tc1'), toolResult('tc1')];
     const out = closeDanglingToolCalls(input);
     expect(out).toHaveLength(3);
     expect(out).toEqual(input);
   });
 
   it('inserts the synthesized result before any later real message', () => {
-    const input: NormalizedMessage[] = [
-      assistantWithCall('tc1'),
-      assistantWithCall('tc2'),
-    ];
+    const input: NormalizedMessage[] = [assistantWithCall('tc1'), assistantWithCall('tc2')];
     const out = closeDanglingToolCalls(input);
     expect(out.map((m) => m.role)).toEqual(['assistant', 'tool', 'assistant', 'tool']);
     expect(out[1]?.toolCallId).toBe('tc1');

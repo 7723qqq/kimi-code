@@ -2,12 +2,12 @@ import { Readable, type Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import type { ILogger } from '#/_base/log/log';
 import {
   collectGitContext,
   parseProjectName,
   sanitizeRemoteUrl,
 } from '#/session/agentLifecycle/profile/gitContext';
-import type { ILogger } from '#/_base/log/log';
 import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 
 function processWith(stdout: string, exitCode: number, stderr = ''): IProcess {
@@ -30,7 +30,10 @@ function processWith(stdout: string, exitCode: number, stderr = ''): IProcess {
 
 type GitScript = Record<string, { stdout?: string; exitCode?: number; stderr?: string }>;
 
-function gitRunner(script: GitScript): { runner: ISessionProcessRunner; exec: ReturnType<typeof vi.fn> } {
+function gitRunner(script: GitScript): {
+  runner: ISessionProcessRunner;
+  exec: ReturnType<typeof vi.fn>;
+} {
   const exec = vi.fn(async (args: readonly string[]) => {
     const key = args.slice(3).join(' ');
     const out = script[key];

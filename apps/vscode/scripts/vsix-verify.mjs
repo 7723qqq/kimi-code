@@ -1,23 +1,15 @@
 #!/usr/bin/env node
-import { builtinModules } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { builtinModules } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+
 import { parse } from 'acorn';
 
-import { extractZip } from './zip.mjs';
 import {
   defaultVsixOutputDir,
   extensionRoot,
@@ -25,6 +17,7 @@ import {
   normalizeVsixTargets,
   vsixFileName,
 } from './vsix-targets.mjs';
+import { extractZip } from './zip.mjs';
 
 const REQUIRED_WEBVIEW_FILES = [
   'dist/webview.js',
@@ -70,7 +63,10 @@ const TEXT_EXTENSIONS = new Set([
   '.xml',
 ]);
 const BUILTIN_IMPORTS = new Set(
-  builtinModules.flatMap((name) => [name, name.startsWith('node:') ? name.slice(5) : `node:${name}`]),
+  builtinModules.flatMap((name) => [
+    name,
+    name.startsWith('node:') ? name.slice(5) : `node:${name}`,
+  ]),
 );
 // `ws` probes these native accelerators inside try/catch and immediately uses
 // its bundled JavaScript fallback when they are absent. They are not required
@@ -135,9 +131,7 @@ async function verifyTargetManifest(extractionRoot, target) {
   const xml = await readFile(join(extractionRoot, 'extension.vsixmanifest'), 'utf8');
   const actual = xml.match(/\bTargetPlatform="([^"]+)"/)?.[1];
   if (actual !== target) {
-    throw new Error(
-      `VSIX manifest target is ${actual ?? 'missing'}, expected ${target}.`,
-    );
+    throw new Error(`VSIX manifest target is ${actual ?? 'missing'}, expected ${target}.`);
   }
 }
 
@@ -185,7 +179,9 @@ function verifyForbiddenFiles(files) {
   for (const file of files) {
     const normalized = file.replaceAll('\\', '/');
     const lower = normalized.toLowerCase();
-    const extensionRelative = lower.startsWith('extension/') ? lower.slice('extension/'.length) : lower;
+    const extensionRelative = lower.startsWith('extension/')
+      ? lower.slice('extension/'.length)
+      : lower;
     const segments = extensionRelative.split('/');
     const forbiddenSegment = segments.find((segment) => FORBIDDEN_PATH_SEGMENTS.has(segment));
     if (forbiddenSegment !== undefined) {
@@ -206,8 +202,9 @@ function verifyForbiddenFiles(files) {
 }
 
 async function verifyNoSensitiveContent(extractionRoot, files, sourceRoot, extraForbiddenText) {
-  const secretValues = [process.env.VSCE_PAT, process.env.OVSX_PAT]
-    .filter((value) => typeof value === 'string' && value.length >= 8);
+  const secretValues = [process.env.VSCE_PAT, process.env.OVSX_PAT].filter(
+    (value) => typeof value === 'string' && value.length >= 8,
+  );
   const forbidden = [sourceRoot, homedir(), ...extraForbiddenText, ...secretValues]
     .filter((value) => typeof value === 'string' && value.length >= 4)
     .flatMap((value) => [value, value.replaceAll('\\', '/'), value.replaceAll('/', '\\')]);
@@ -226,7 +223,8 @@ async function verifyRuntimeImports(extensionDir, files) {
   const distFiles = files.filter(
     (file) => file.startsWith('extension/dist/') && ['.cjs', '.js', '.mjs'].includes(extname(file)),
   );
-  if (distFiles.length === 0) throw new Error('No JavaScript extension bundle files were packaged.');
+  if (distFiles.length === 0)
+    throw new Error('No JavaScript extension bundle files were packaged.');
 
   for (const archivePath of distFiles) {
     const localPath = join(dirname(extensionDir), archivePath);
@@ -389,7 +387,9 @@ function requireOneOf(fileSet, files, label) {
 }
 
 function runtimeImportExists(path) {
-  return [path, `${path}.js`, `${path}.mjs`, `${path}.cjs`, join(path, 'index.js')].some(existsSync);
+  return [path, `${path}.js`, `${path}.mjs`, `${path}.cjs`, join(path, 'index.js')].some(
+    existsSync,
+  );
 }
 
 function stripImportSuffix(specifier) {
@@ -472,10 +472,12 @@ async function main() {
   }
 
   for (const target of options.targets) {
-    const input = options.directory ?? options.file ?? join(options.outputDir, vsixFileName(target));
-    const result = options.directory === undefined
-      ? await verifyVsix(resolve(input), target, { sourceRoot: extensionRoot })
-      : await auditExtractedVsix(resolve(input), target, { sourceRoot: extensionRoot });
+    const input =
+      options.directory ?? options.file ?? join(options.outputDir, vsixFileName(target));
+    const result =
+      options.directory === undefined
+        ? await verifyVsix(resolve(input), target, { sourceRoot: extensionRoot })
+        : await auditExtractedVsix(resolve(input), target, { sourceRoot: extensionRoot });
     console.log(
       `Verified ${target}: ${result.files} files, ${result.bytes} unpacked bytes; static audit and entry import smoke passed (package-only).`,
     );

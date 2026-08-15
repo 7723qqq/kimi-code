@@ -22,8 +22,9 @@ import { access, chmod, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { downloadToFile, runCommand } from '../host';
 import { t } from '@moonshot-ai/kimi-i18n';
+
+import { downloadToFile, runCommand } from '../host';
 import type {
   CapabilityDetectResult,
   CapabilityEntry,
@@ -33,8 +34,7 @@ import type {
 import type { CapabilityEntryContext } from './context';
 
 const PLUGIN_ID = 'kimi-webbridge';
-const PLUGIN_ZIP_URL =
-  'https://code.kimi.com/kimi-code/plugins/official/kimi-webbridge.zip';
+const PLUGIN_ZIP_URL = 'https://code.kimi.com/kimi-code/plugins/official/kimi-webbridge.zip';
 const BINARY_CDN_BASE = 'https://cdn.kimi.com/webbridge/latest/releases';
 const DEFAULT_DAEMON_BASE_URL = 'http://127.0.0.1:10086';
 const STATUS_TIMEOUT_MS = 1_500;
@@ -78,11 +78,7 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
       path: path.join(ctx.userHomeDir, '.agents', 'skills', 'kimi-webbridge'),
     },
   ];
-  const standaloneSkillBackupDir = path.join(
-    ctx.kimiHomeDir,
-    'backups',
-    'kimi-webbridge-skills',
-  );
+  const standaloneSkillBackupDir = path.join(ctx.kimiHomeDir, 'backups', 'kimi-webbridge-skills');
   const supported = binaryAssetName(ctx.platform, ctx.arch) !== undefined;
   let standaloneSkillBackupPath: string | undefined;
   let standaloneSkillMigrationError: string | undefined;
@@ -146,8 +142,7 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
     const steps: CapabilityStep[] = [];
 
     const binaryPresent = await exists(binPath);
-    const binaryUsable =
-      binaryPresent && (ctx.platform === 'win32' || (await executable(binPath)));
+    const binaryUsable = binaryPresent && (ctx.platform === 'win32' || (await executable(binPath)));
     steps.push({
       id: 'daemon-binary',
       state: binaryUsable ? 'ok' : 'missing',
@@ -220,7 +215,9 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
   async function install(report: CapabilityInstallReporter): Promise<string | undefined> {
     const asset = binaryAssetName(ctx.platform, ctx.arch);
     if (asset === undefined) {
-      throw new Error(t('v2Errors.webbridgeUnsupportedPlatform', { platform: ctx.platform, arch: ctx.arch }));
+      throw new Error(
+        t('v2Errors.webbridgeUnsupportedPlatform', { platform: ctx.platform, arch: ctx.arch }),
+      );
     }
 
     const before = await detect();
@@ -241,7 +238,9 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
         timeout: START_TIMEOUT_MS,
       });
       if (started.code !== 0) {
-        throw new Error(t('v2Errors.webbridgeStartFailed', { detail: started.stderr || started.stdout }));
+        throw new Error(
+          t('v2Errors.webbridgeStartFailed', { detail: started.stderr || started.stdout }),
+        );
       }
       await waitForDaemon();
     }
@@ -258,8 +257,7 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
         standaloneSkillBackupPath = await migrateStandaloneSkills();
         standaloneSkillMigrationError = undefined;
       } catch (error) {
-        standaloneSkillMigrationError =
-          `Could not back up the standalone kimi-webbridge skill: ${error instanceof Error ? error.message : String(error)}`;
+        standaloneSkillMigrationError = `Could not back up the standalone kimi-webbridge skill: ${error instanceof Error ? error.message : String(error)}`;
       }
     }
     return standaloneSkillMigrationPending && standaloneSkillMigrationError === undefined
@@ -267,10 +265,7 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
       : undefined;
   }
 
-  async function installBinary(
-    report: CapabilityInstallReporter,
-    asset: string,
-  ): Promise<void> {
+  async function installBinary(report: CapabilityInstallReporter, asset: string): Promise<void> {
     report('download', 0);
     const url = `${BINARY_CDN_BASE}/${asset}`;
     const staging = path.join(

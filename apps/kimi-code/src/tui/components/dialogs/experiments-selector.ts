@@ -1,3 +1,4 @@
+import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Key,
@@ -6,11 +7,10 @@ import {
   visibleWidth,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
-import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import { t } from '#/i18n';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
@@ -39,7 +39,8 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
     this.opts = opts;
     this.list = new SearchableList({
       items: opts.features,
-      toSearchText: (feature) => `${featureTitle(feature)} ${feature.id} ${featureDescription(feature)}`,
+      toSearchText: (feature) =>
+        `${featureTitle(feature)} ${feature.id} ${featureDescription(feature)}`,
       searchable: true,
     });
   }
@@ -67,21 +68,31 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
   override render(width: number): string[] {
     const view = this.list.view();
     const titleSuffix =
-      view.query.length === 0 ? currentTheme.fg('textMuted', `  ${t('tui.dialogs.modelSelector.searchHint')}`) : '';
+      view.query.length === 0
+        ? currentTheme.fg('textMuted', `  ${t('tui.dialogs.modelSelector.searchHint')}`)
+        : '';
     const hintParts = [t('tui.dialogs.experimentsSelector.hintNavigate')];
     if (view.page.pageCount > 1) hintParts.push(t('tui.dialogs.experimentsSelector.hintPage'));
-    hintParts.push(t('tui.dialogs.experimentsSelector.hintSpace'), t('tui.dialogs.experimentsSelector.hintEnter'), t('tui.dialogs.experimentsSelector.hintCancel'));
+    hintParts.push(
+      t('tui.dialogs.experimentsSelector.hintSpace'),
+      t('tui.dialogs.experimentsSelector.hintEnter'),
+      t('tui.dialogs.experimentsSelector.hintCancel'),
+    );
     if (view.query.length > 0) hintParts.push(t('tui.dialogs.experimentsSelector.hintBackspace'));
 
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ` ${t('tui.dialogs.experimentsSelector.title')}`) + titleSuffix,
+      currentTheme.boldFg('primary', ` ${t('tui.dialogs.experimentsSelector.title')}`) +
+        titleSuffix,
       currentTheme.fg('textMuted', ` ${hintParts.join(' · ')}`),
       '',
     ];
 
     if (view.query.length > 0) {
-      lines.push(currentTheme.fg('primary', ` ${t('tui.dialogs.modelSelector.searchLabel')}`) + currentTheme.fg('text', view.query));
+      lines.push(
+        currentTheme.fg('primary', ` ${t('tui.dialogs.modelSelector.searchLabel')}`) +
+          currentTheme.fg('text', view.query),
+      );
     }
 
     if (view.items.length === 0) {
@@ -157,12 +168,10 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
               : 'tui.dialogs.experimentsSelector.changeCount_other',
             { count },
           );
-    const button = count === 0
-      ? currentTheme.fg('textDim', label)
-      : currentTheme.boldFg('primary', label);
-    const summaryText = count === 0
-      ? currentTheme.fg('textMuted', summary)
-      : currentTheme.fg('success', summary);
+    const button =
+      count === 0 ? currentTheme.fg('textDim', label) : currentTheme.boldFg('primary', label);
+    const summaryText =
+      count === 0 ? currentTheme.fg('textMuted', summary) : currentTheme.fg('success', summary);
     return ` ${button}  ${summaryText}`;
   }
 
@@ -177,8 +186,12 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
     const description = featureDescription(feature);
     const label = selected ? currentTheme.boldFg('primary', title) : currentTheme.fg('text', title);
     const enabled = this.effectiveEnabled(feature);
-    const status = enabled ? t('tui.dialogs.experimentsSelector.statusEnabled') : t('tui.dialogs.experimentsSelector.statusDisabled');
-    const statusText = enabled ? currentTheme.fg('success', status) : currentTheme.fg('textDim', status);
+    const status = enabled
+      ? t('tui.dialogs.experimentsSelector.statusEnabled')
+      : t('tui.dialogs.experimentsSelector.statusDisabled');
+    const statusText = enabled
+      ? currentTheme.fg('success', status)
+      : currentTheme.fg('textDim', status);
     const detail = this.isDraftChanged(feature)
       ? `${featureDetail(feature)}${t('tui.dialogs.experimentsSelector.modifiedSuffix')}`
       : featureDetail(feature);

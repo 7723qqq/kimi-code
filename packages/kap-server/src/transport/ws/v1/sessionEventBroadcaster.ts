@@ -75,16 +75,6 @@ import {
   MAIN_AGENT_ID,
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
-import type {
-  ConfigWarningItem,
-  DiUnitChangedEvent,
-  SessionCreatedEvent,
-  SessionMetaUpdatedEvent,
-  Event,
-} from './events';
-import { isVolatileEventType } from './events';
-import type { SessionCursor } from '../../../protocol/ws-control';
-import type { InFlightTurn, SnapshotSubagent } from '../../../protocol/rest-snapshot';
 import {
   detachGrades,
   filterOpsForGrade,
@@ -100,18 +90,28 @@ import {
   type TranscriptStore,
 } from '@moonshot-ai/transcript';
 
+import type { InFlightTurn, SnapshotSubagent } from '../../../protocol/rest-snapshot';
+import type { SessionCursor } from '../../../protocol/ws-control';
 import { toWireApproval } from '../../../routes/approvals';
 import { toWireQuestion } from '../../../routes/questions';
 import { readLegacyStatus, toLegacyPhase } from '../../../services/legacyStatus/legacyStatus';
 import type { TranscriptService } from '../../../services/transcript/transcriptService';
+import type {
+  ConfigWarningItem,
+  DiUnitChangedEvent,
+  SessionCreatedEvent,
+  SessionMetaUpdatedEvent,
+  Event,
+} from './events';
+import { isVolatileEventType } from './events';
 import { InFlightTurnTracker } from './inFlightTurnTracker';
-import { SubagentRosterTracker } from './subagentRosterTracker';
 import {
   type EventEnvelope,
   type JournalLogger,
   SessionEventJournal,
   sessionJournalPath,
 } from './sessionEventJournal';
+import { SubagentRosterTracker } from './subagentRosterTracker';
 
 export type ResyncReason = 'buffer_overflow' | 'session_recreated' | 'epoch_changed';
 
@@ -193,7 +193,10 @@ interface SessionState {
   readonly agentDisposables: Map<string, IDisposable>;
   readonly lifecycleDisposables: IDisposable[];
   /** Interactions already announced (or pre-existing at activation): id → kind + owning agent (for the resolved event). */
-  readonly knownInteractions: Map<string, { readonly kind: InteractionKind; readonly agentId: string }>;
+  readonly knownInteractions: Map<
+    string,
+    { readonly kind: InteractionKind; readonly agentId: string }
+  >;
   /** Attached on first transcript-grade subscription for this session. */
   transcriptStream?: TranscriptStream;
   /** Connections whose transcript baseline reset has landed — the ops fan-out is gated on it. */
@@ -388,7 +391,13 @@ export class SessionEventBroadcaster {
     const deferred = state.deferredTranscriptSeeds.get(target);
     if (deferred === undefined) return;
     state.deferredTranscriptSeeds.delete(target);
-    await this.subscribeTranscript(state, target, deferred.spec, undefined, deferred.transcriptSince);
+    await this.subscribeTranscript(
+      state,
+      target,
+      deferred.spec,
+      undefined,
+      deferred.transcriptSince,
+    );
     if (state.targets.has(target)) state.transcriptSeeded.add(target);
   }
 
@@ -420,8 +429,7 @@ export class SessionEventBroadcaster {
     if (state === undefined) return;
     const sub = state.targets.get(target);
     if (sub === undefined) return;
-    const next =
-      agentIds === undefined ? undefined : detachGrades(sub.transcriptGrades, agentIds);
+    const next = agentIds === undefined ? undefined : detachGrades(sub.transcriptGrades, agentIds);
     if (next === undefined) {
       state.targets.set(target, { agentFilter: sub.agentFilter, transcriptGrades: undefined });
       state.transcriptSeeded.delete(target);
@@ -837,7 +845,8 @@ export class SessionEventBroadcaster {
     } catch (error) {
       this.sessions.delete(sessionId);
       await disposeSessionState(state);
-      if (error instanceof Error && error.message === 'InstantiationService has been disposed') return undefined;
+      if (error instanceof Error && error.message === 'InstantiationService has been disposed')
+        return undefined;
       throw error;
     }
     return state;
@@ -1161,7 +1170,9 @@ export class SessionEventBroadcaster {
         } as unknown as Event;
         state.queue = state.queue
           .then(() => this.dispatch(state, wireEvent, true))
-          .catch((error: unknown) => this.logDispatchDropped(state.sessionId, wireEvent.type, error));
+          .catch((error: unknown) =>
+            this.logDispatchDropped(state.sessionId, wireEvent.type, error),
+          );
       }
       return;
     }
@@ -1414,7 +1425,11 @@ function isVolatileSignal(type: string): boolean {
  * the alias (registered as known, no handler). Remove once every consumer has
  * migrated to `task.*`.
  */
-function legacyTaskEvent(event: DomainEvent, agentId: string, sessionId: string): Event | undefined {
+function legacyTaskEvent(
+  event: DomainEvent,
+  agentId: string,
+  sessionId: string,
+): Event | undefined {
   if (event.type !== 'task.started' && event.type !== 'task.terminated') return undefined;
   const legacyType =
     event.type === 'task.started' ? 'background.task.started' : 'background.task.terminated';
@@ -1664,8 +1679,8 @@ function sessionMetaUpdatedPayload(
   const title = typeof candidate.title === 'string' ? candidate.title : undefined;
   const patch =
     typeof candidate.patch === 'object' &&
-      candidate.patch !== null &&
-      !Array.isArray(candidate.patch)
+    candidate.patch !== null &&
+    !Array.isArray(candidate.patch)
       ? candidate.patch
       : undefined;
   if (title === undefined && patch === undefined) return undefined;
@@ -1727,8 +1742,8 @@ function sessionCreatedPayload(
       : undefined;
   const session =
     typeof candidate.session === 'object' &&
-      candidate.session !== null &&
-      !Array.isArray(candidate.session)
+    candidate.session !== null &&
+    !Array.isArray(candidate.session)
       ? (candidate.session as SessionCreatedEvent['session'])
       : undefined;
   if (sessionId === undefined || session === undefined) return undefined;

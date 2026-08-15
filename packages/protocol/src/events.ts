@@ -3,19 +3,19 @@ import { z } from 'zod';
 import { ToolInputDisplaySchema, type ToolInputDisplay } from './display';
 import { messageContentSchema, type MessageContent } from './message';
 import {
+  providerRefreshChangeSchema,
+  providerRefreshFailureSchema,
+  type ProviderRefreshChange,
+  type ProviderRefreshFailure,
+} from './modelCatalog';
+import { configResponseSchema, type ConfigResponse } from './rest/config';
+import {
   sessionPendingInteractionSchema,
   sessionSchema,
   type Session,
   type SessionPendingInteraction,
 } from './session';
 import { isoDateTimeSchema } from './time';
-import { configResponseSchema, type ConfigResponse } from './rest/config';
-import {
-  providerRefreshChangeSchema,
-  providerRefreshFailureSchema,
-  type ProviderRefreshChange,
-  type ProviderRefreshFailure,
-} from './modelCatalog';
 import { workspaceSchema, type Workspace } from './workspace';
 
 export interface TokenUsage {
@@ -157,7 +157,13 @@ export type PromptOrigin =
   | HookResultOrigin
   | RetryOrigin;
 
-export type GoalStatus = 'active' | 'paused' | 'blocked' | 'complete' | 'budget_limited' | 'usage_limited';
+export type GoalStatus =
+  | 'active'
+  | 'paused'
+  | 'blocked'
+  | 'complete'
+  | 'budget_limited'
+  | 'usage_limited';
 export type GoalActor = 'user' | 'model' | 'runtime' | 'system';
 
 export interface GoalBudgetLimits {
@@ -387,10 +393,7 @@ export interface QuestionTaskInfo extends TaskInfoBase {
   readonly toolCallId?: string;
 }
 
-export type TaskInfo =
-  | ProcessTaskInfo
-  | AgentTaskInfo
-  | QuestionTaskInfo;
+export type TaskInfo = ProcessTaskInfo | AgentTaskInfo | QuestionTaskInfo;
 
 export interface CompactionResult {
   readonly summary: string;
@@ -570,7 +573,12 @@ export interface SessionWorkChangedEvent {
 export interface SessionStatusChangedEvent {
   readonly type: 'event.session.status_changed';
   readonly status: 'idle' | 'running' | 'awaiting_approval' | 'awaiting_question' | 'aborted';
-  readonly previous_status: 'idle' | 'running' | 'awaiting_approval' | 'awaiting_question' | 'aborted';
+  readonly previous_status:
+    | 'idle'
+    | 'running'
+    | 'awaiting_approval'
+    | 'awaiting_question'
+    | 'aborted';
   readonly current_prompt_id?: string;
 }
 
@@ -1040,9 +1048,18 @@ export const usageStatusSchema = z.object({
   total: tokenUsageSchema.optional(),
 }) satisfies z.ZodType<UsageStatus>;
 
-export const permissionModeSchema = z.enum(['manual', 'yolo', 'auto']) satisfies z.ZodType<PermissionMode>;
+export const permissionModeSchema = z.enum([
+  'manual',
+  'yolo',
+  'auto',
+]) satisfies z.ZodType<PermissionMode>;
 
-export const skillSourceSchema = z.enum(['project', 'user', 'extra', 'builtin']) satisfies z.ZodType<SkillSource>;
+export const skillSourceSchema = z.enum([
+  'project',
+  'user',
+  'extra',
+  'builtin',
+]) satisfies z.ZodType<SkillSource>;
 
 export const userPromptOriginSchema = z.object({
   kind: z.literal('user'),
@@ -1152,9 +1169,21 @@ export const promptOriginSchema = z.discriminatedUnion('kind', [
   retryOriginSchema,
 ]) satisfies z.ZodType<PromptOrigin>;
 
-export const goalStatusSchema = z.enum(['active', 'paused', 'blocked', 'complete', 'budget_limited', 'usage_limited']) satisfies z.ZodType<GoalStatus>;
+export const goalStatusSchema = z.enum([
+  'active',
+  'paused',
+  'blocked',
+  'complete',
+  'budget_limited',
+  'usage_limited',
+]) satisfies z.ZodType<GoalStatus>;
 
-export const goalActorSchema = z.enum(['user', 'model', 'runtime', 'system']) satisfies z.ZodType<GoalActor>;
+export const goalActorSchema = z.enum([
+  'user',
+  'model',
+  'runtime',
+  'system',
+]) satisfies z.ZodType<GoalActor>;
 
 export const goalBudgetLimitsSchema = z.object({
   tokenBudget: z.number().optional(),
@@ -1199,7 +1228,11 @@ export const goalChangeStatsSchema = z.object({
   wallClockMs: z.number(),
 }) satisfies z.ZodType<GoalChangeStats>;
 
-export const goalChangeKindSchema = z.enum(['created', 'lifecycle', 'completion']) satisfies z.ZodType<GoalChangeKind>;
+export const goalChangeKindSchema = z.enum([
+  'created',
+  'lifecycle',
+  'completion',
+]) satisfies z.ZodType<GoalChangeKind>;
 
 export const goalChangeSchema = z.object({
   kind: goalChangeKindSchema,
@@ -1416,7 +1449,12 @@ export const mcpOAuthAuthorizationUrlUpdateDataSchema = z.object({
   expiresAt: z.number().optional(),
 }) satisfies z.ZodType<McpOAuthAuthorizationUrlUpdateData>;
 
-export const turnEndReasonSchema = z.enum(['completed', 'cancelled', 'failed', 'blocked']) satisfies z.ZodType<TurnEndReason>;
+export const turnEndReasonSchema = z.enum([
+  'completed',
+  'cancelled',
+  'failed',
+  'blocked',
+]) satisfies z.ZodType<TurnEndReason>;
 
 export const agentPhaseSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('idle') }),

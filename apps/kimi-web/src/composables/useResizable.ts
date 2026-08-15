@@ -5,6 +5,7 @@
 // dragging). Used by the sidebar session column drag handle.
 
 import { onBeforeUnmount, ref, toValue, type MaybeRefOrGetter, type Ref } from 'vue';
+
 import { safeGetString, safeSetString } from '../lib/storage';
 
 export interface UseResizableOptions {

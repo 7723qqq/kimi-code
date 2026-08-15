@@ -21,21 +21,20 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { type CollectionView } from '#/_base/di/collection';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { BugIndicatingError } from '#/_base/errors/errors';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import { Service } from '#/_base/di/service';
-import { type CollectionView } from '#/_base/di/collection';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
-import type { ContentPart } from '#/kosong/contract/message';
+import { LifecycleScope } from '#/app/scopes';
 import { OrderedHookSlot } from '#/hooks';
+import type { ContentPart } from '#/kosong/contract/message';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { StorageError, StorageErrors } from '#/persistence/interface/storage';
 
-import { IWireService } from './wire';
 import { WireError, WireErrors } from './errors';
 import {
   WIRE_PROTOCOL_VERSION,
@@ -57,6 +56,7 @@ import {
   wireRecordToPayload,
   type WireRecord,
 } from './record';
+import { IWireService } from './wire';
 import {
   builtinWireContribution,
   foldWireContributions,
@@ -68,7 +68,10 @@ import {
 const MAX_DRAIN = 100;
 
 export class CycleError extends WireError {
-  constructor(readonly depth: number, readonly opTypes: readonly string[]) {
+  constructor(
+    readonly depth: number,
+    readonly opTypes: readonly string[],
+  ) {
     super(
       WireErrors.codes.WIRE_CYCLE,
       `Wire dispatch cascade exceeded MAX_DRAIN (${depth}); possible op cycle`,
@@ -124,9 +127,7 @@ export class WireService extends Service implements IWireService {
     );
   }
 
-  private foldContributions(
-    view: CollectionView<WireModelContributionRecord>,
-  ): FoldedWireRegistry {
+  private foldContributions(view: CollectionView<WireModelContributionRecord>): FoldedWireRegistry {
     return foldWireContributions([builtinWireContribution(), ...view.items]);
   }
 
@@ -145,7 +146,10 @@ export class WireService extends Service implements IWireService {
       this.execute({ ops, silent: false });
       while (this.queue.length > 0) {
         if (++this.drainDepth > MAX_DRAIN) {
-          throw new CycleError(this.drainDepth, this.queue.map((op) => op.type));
+          throw new CycleError(
+            this.drainDepth,
+            this.queue.map((op) => op.type),
+          );
         }
         this.execute({ ops: this.queue.splice(0), silent: false });
       }
@@ -319,9 +323,7 @@ export class WireService extends Service implements IWireService {
       return;
     }
     const transform: PartsTransformer = (parts) =>
-      this.blobService.offloadParts(
-        parts as readonly ContentPart[],
-      ) as Promise<readonly unknown[]>;
+      this.blobService.offloadParts(parts as readonly ContentPart[]) as Promise<readonly unknown[]>;
     const queued = (this.persistQueue ?? Promise.resolve())
       .then(async () => {
         let output = record;
@@ -346,9 +348,7 @@ export class WireService extends Service implements IWireService {
 
   private async rehydrateModels(): Promise<void> {
     const transform: PartsTransformer = (parts) =>
-      this.blobService.loadParts(
-        parts as readonly ContentPart[],
-      ) as Promise<readonly unknown[]>;
+      this.blobService.loadParts(parts as readonly ContentPart[]) as Promise<readonly unknown[]>;
     for (const [def, inst] of this.models) {
       if (def.blobs?.rehydrate === undefined) continue;
       const result = def.blobs.rehydrate(inst.state, transform);

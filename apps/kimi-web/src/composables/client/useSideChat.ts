@@ -8,10 +8,11 @@
 // connection) are injected by the facade.
 
 import { computed, ref } from 'vue';
+
 import { getKimiWebApi } from '../../api';
 import type { AppMessage, KimiEventConnection, ThinkingLevel } from '../../api/types';
-import { messagesToTurns } from '../messagesToTurns';
 import type { ChatTurn } from '../../types';
+import { messagesToTurns } from '../messagesToTurns';
 import type { ExtendedState } from '../useKimiWebClient';
 
 export interface UseSideChatDeps {
@@ -81,7 +82,10 @@ export function useSideChat(rawState: ExtendedState, deps: UseSideChatDeps) {
     );
   });
 
-  function updateSideChatMessages(agentId: string, update: (messages: AppMessage[]) => AppMessage[]): void {
+  function updateSideChatMessages(
+    agentId: string,
+    update: (messages: AppMessage[]) => AppMessage[],
+  ): void {
     rawState.sideChatMessagesByAgent = {
       ...rawState.sideChatMessagesByAgent,
       [agentId]: update(rawState.sideChatMessagesByAgent[agentId] ?? []),
@@ -147,9 +151,8 @@ export function useSideChat(rawState: ExtendedState, deps: UseSideChatDeps) {
     if (!outputPreview) return;
     const messages = rawState.sideChatMessagesByAgent[agentId] ?? [];
     const last = messages.at(-1);
-    const lastText = last?.role === 'assistant' && last.content[0]?.type === 'text'
-      ? last.content[0].text
-      : '';
+    const lastText =
+      last?.role === 'assistant' && last.content[0]?.type === 'text' ? last.content[0].text : '';
     if (lastText.trim().length > 0) return;
     appendSideChatAssistantText(agentId, sessionId, outputPreview);
   }

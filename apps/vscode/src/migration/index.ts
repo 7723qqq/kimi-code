@@ -1,1 +1,1 @@
-export * from "./legacy-migration.manager";
+export * from './legacy-migration.manager';

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { parseSwarmResult } from '../src/lib/parseSwarmResult';
 
 describe('parseSwarmResult', () => {

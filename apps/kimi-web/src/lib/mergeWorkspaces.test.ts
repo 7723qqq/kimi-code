@@ -1,5 +1,6 @@
 // apps/kimi-web/src/lib/mergeWorkspaces.test.ts
 import { describe, expect, it } from 'vitest';
+
 import type { AppWorkspace } from '../api/types';
 import { mergeWorkspaces, type MergeWorkspacesInput } from './mergeWorkspaces';
 import { workspaceRootKey } from './rootKey';

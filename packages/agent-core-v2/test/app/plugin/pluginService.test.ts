@@ -16,7 +16,7 @@ import path from 'node:path';
 
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LifecycleScope } from '#/app/scopes';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -26,11 +26,12 @@ import { createScopedTestHost, stubPair, type ScopedTestHost } from '#/_base/di/
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IPluginService } from '#/app/plugin/plugin';
 import { PluginService } from '#/app/plugin/pluginService';
-import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
-import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
 import * as pluginStore from '#/app/plugin/store';
 import type { InstalledFile } from '#/app/plugin/store';
 import type { PluginMutationSummary, ReloadSummary } from '#/app/plugin/types';
+import { LifecycleScope } from '#/app/scopes';
+import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
+import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubProviderService } from '../provider/stubs';
@@ -128,10 +129,7 @@ function deferred<T>(): {
   return { promise, resolve };
 }
 
-async function makePluginDir(
-  name: string,
-  manifest: Record<string, unknown>,
-): Promise<string> {
+async function makePluginDir(name: string, manifest: Record<string, unknown>): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), `plugin-${name}-`));
   await writeFile(
     path.join(root, 'kimi.plugin.json'),
@@ -364,10 +362,7 @@ describe('PluginService (plugin boundary)', () => {
     const host = makeHost(home);
     try {
       const svc = host.app.accessor.get(IPluginService);
-      const [plugins, roots] = await Promise.all([
-        svc.listPlugins(),
-        svc.pluginSkillRoots(),
-      ]);
+      const [plugins, roots] = await Promise.all([svc.listPlugins(), svc.pluginSkillRoots()]);
 
       expect(plugins).toEqual([expect.objectContaining({ id: 'snapshot-demo' })]);
       expect(roots).toEqual([
@@ -434,9 +429,9 @@ describe('PluginService (plugin boundary)', () => {
       await expect(svc.getPluginInfo({ id: 'demo' })).resolves.toEqual(
         expect.objectContaining({ root: previous.root, version: '1.0.0' }),
       );
-      await expect(readFile(path.join(previous.root, 'kimi.plugin.json'), 'utf8')).resolves.toContain(
-        '"version":"1.0.0"',
-      );
+      await expect(
+        readFile(path.join(previous.root, 'kimi.plugin.json'), 'utf8'),
+      ).resolves.toContain('"version":"1.0.0"');
       await expect(readdir(path.join(home, 'plugins', 'managed'))).resolves.toEqual(['demo']);
     } finally {
       host.dispose();

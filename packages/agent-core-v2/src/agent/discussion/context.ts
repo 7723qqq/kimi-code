@@ -40,12 +40,7 @@ export class DiscussionContext {
   private readonly crossRefs: CrossReference[] = [];
   private currentPhase: DebatePhase = 'opening';
 
-  addEntry(
-    speaker: string,
-    agentId: string,
-    content: string,
-    round: number,
-  ): void {
+  addEntry(speaker: string, agentId: string, content: string, round: number): void {
     this.entries.push({ speaker, agentId, content, round });
     // Auto-detect cross-references from content
     this.detectCrossReferences(speaker, content, round);
@@ -54,7 +49,7 @@ export class DiscussionContext {
   /** The current round number (1-based). 0 before any entry. */
   getRound(): number {
     if (this.entries.length === 0) return 0;
-    return this.entries[this.entries.length - 1]!.round;
+    return this.entries.at(-1)!.round;
   }
 
   isEmpty(): boolean {
@@ -63,12 +58,12 @@ export class DiscussionContext {
 
   lastSpeaker(): string | null {
     if (this.entries.length === 0) return null;
-    return this.entries[this.entries.length - 1]!.speaker;
+    return this.entries.at(-1)!.speaker;
   }
 
   latestEntry(): DiscussionEntry | null {
     if (this.entries.length === 0) return null;
-    return this.entries[this.entries.length - 1]!;
+    return this.entries.at(-1)!;
   }
 
   allEntries(): readonly DiscussionEntry[] {
@@ -128,9 +123,7 @@ export class DiscussionContext {
   getPositionsText(): string {
     if (this.positions.length === 0) return '';
     return this.positions
-      .map(
-        (p) => `[${p.speaker}] Stance: ${p.stance}\n  Key points: ${p.keyPoints.join(', ')}`,
-      )
+      .map((p) => `[${p.speaker}] Stance: ${p.stance}\n  Key points: ${p.keyPoints.join(', ')}`)
       .join('\n');
   }
 
@@ -141,9 +134,7 @@ export class DiscussionContext {
   getTranscript(): string {
     if (this.entries.length === 0) return '';
 
-    return this.entries
-      .map((entry) => `[${entry.speaker}] ${entry.content}`)
-      .join('\n\n');
+    return this.entries.map((entry) => `[${entry.speaker}] ${entry.content}`).join('\n\n');
   }
 
   /** Render transcript with phase markers. */
@@ -173,11 +164,7 @@ export class DiscussionContext {
    * Detect simple cross-references in speech content.
    * Looks for patterns like "@Speaker", "as Speaker said", "Speaker's point".
    */
-  private detectCrossReferences(
-    speaker: string,
-    content: string,
-    round: number,
-  ): void {
+  private detectCrossReferences(speaker: string, content: string, round: number): void {
     // Match known speakers mentioned in the content
     const knownSpeakers = new Set(this.entries.map((e) => e.speaker));
     for (const target of knownSpeakers) {
@@ -197,11 +184,24 @@ export class DiscussionContext {
 
       // Determine stance
       let stance: CrossReference['stance'] = 'clarify';
-      if (/\bagree\b/i.test(content) || /\bsupport\b/i.test(content) || /\bsecond\b/i.test(content)) {
+      if (
+        /\bagree\b/i.test(content) ||
+        /\bsupport\b/i.test(content) ||
+        /\bsecond\b/i.test(content)
+      ) {
         stance = 'agree';
-      } else if (/\bdisagree\b/i.test(content) || /\brespectfully\b.*\bdisagree\b/i.test(content) || /\bcounter\b/i.test(content) || /\bpush back\b/i.test(content)) {
+      } else if (
+        /\bdisagree\b/i.test(content) ||
+        /\brespectfully\b.*\bdisagree\b/i.test(content) ||
+        /\bcounter\b/i.test(content) ||
+        /\bpush back\b/i.test(content)
+      ) {
         stance = 'disagree';
-      } else if (/\bextend\b/i.test(content) || /\bbuild(?:ing)? on\b/i.test(content) || /\bad[d]?\b.*\bpoint\b/i.test(content)) {
+      } else if (
+        /\bextend\b/i.test(content) ||
+        /\bbuild(?:ing)? on\b/i.test(content) ||
+        /\bad[d]?\b.*\bpoint\b/i.test(content)
+      ) {
         stance = 'extend';
       }
 
@@ -218,14 +218,18 @@ export class DiscussionContext {
 }
 
 function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return str.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function phaseLabel(phase: DebatePhase): string {
   switch (phase) {
-    case 'opening': return 'Opening Statements';
-    case 'free_debate': return 'Free Debate';
-    case 'closing': return 'Closing Arguments';
-    case 'consensus': return 'Consensus & Resolution';
+    case 'opening':
+      return 'Opening Statements';
+    case 'free_debate':
+      return 'Free Debate';
+    case 'closing':
+      return 'Closing Arguments';
+    case 'consensus':
+      return 'Consensus & Resolution';
   }
 }

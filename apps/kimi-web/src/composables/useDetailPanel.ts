@@ -2,12 +2,13 @@
 // Unified right-side detail layer. Only one detail is open at a time.
 
 import { computed, ref, watch, type Ref } from 'vue';
-import type { AgentMember, ToolDiffTarget } from '../types';
-import type { DetailTarget } from './useFilePreview';
-import type { useKimiWebClient } from './useKimiWebClient';
+
 import { buildEditDiffLines, extractEditPath, findToolCallById } from '../lib/toolDiff';
 import { toolLabel } from '../lib/toolMeta';
+import type { AgentMember, ToolDiffTarget } from '../types';
 import { toAgentMember } from './messagesToTurns';
+import type { DetailTarget } from './useFilePreview';
+import type { useKimiWebClient } from './useKimiWebClient';
 import { clampPanelWidth, panelMaxWidth, useViewportWidth } from './useViewportWidth';
 
 type KimiWebClient = ReturnType<typeof useKimiWebClient>;
@@ -37,9 +38,7 @@ export function useDetailPanel({
   const { viewportWidth } = useViewportWidth();
 
   // Area available to the right of the sidebar (conversation + preview).
-  const previewAreaWidth = computed(() =>
-    Math.max(0, viewportWidth.value - sideWidth.value),
-  );
+  const previewAreaWidth = computed(() => Math.max(0, viewportWidth.value - sideWidth.value));
 
   // Largest preview width that still leaves the conversation pane usable.
   const previewMax = computed(() =>
@@ -390,15 +389,42 @@ export function useDetailPanel({
 
   // Escape closes whichever transient right-side detail panel is open.
   function closeOpenSidePanel(): boolean {
-    if (detailTarget.value === 'thinking' && thinkingVisible.value) { closeThinkingPanel(); return true; }
-    if (detailTarget.value === 'compaction' && compactionPanelVisible.value) { closeCompactionPanel(); return true; }
-    if (detailTarget.value === 'agent' && agentPanelVisible.value) { closeAgentPanel(); return true; }
-    if (detailTarget.value === 'toolDiff' && toolDiffVisible.value) { closeToolDiff(); return true; }
-    if (detailTarget.value === 'file') { closeFilePreview(); return true; }
-    if (detailTarget.value === 'diff') { closeDiffDetail(); return true; }
-    if (detailTarget.value === 'btw') { closeSideChat(); return true; }
-    if (detailTarget.value === 'trajectory' && trajectoryOpen.value) { closeTrajectoryPanel(); return true; }
-    if (detailTarget.value === 'subagents' && subagentsOpen.value) { closeSubagentsPanel(); return true; }
+    if (detailTarget.value === 'thinking' && thinkingVisible.value) {
+      closeThinkingPanel();
+      return true;
+    }
+    if (detailTarget.value === 'compaction' && compactionPanelVisible.value) {
+      closeCompactionPanel();
+      return true;
+    }
+    if (detailTarget.value === 'agent' && agentPanelVisible.value) {
+      closeAgentPanel();
+      return true;
+    }
+    if (detailTarget.value === 'toolDiff' && toolDiffVisible.value) {
+      closeToolDiff();
+      return true;
+    }
+    if (detailTarget.value === 'file') {
+      closeFilePreview();
+      return true;
+    }
+    if (detailTarget.value === 'diff') {
+      closeDiffDetail();
+      return true;
+    }
+    if (detailTarget.value === 'btw') {
+      closeSideChat();
+      return true;
+    }
+    if (detailTarget.value === 'trajectory' && trajectoryOpen.value) {
+      closeTrajectoryPanel();
+      return true;
+    }
+    if (detailTarget.value === 'subagents' && subagentsOpen.value) {
+      closeSubagentsPanel();
+      return true;
+    }
     return false;
   }
 

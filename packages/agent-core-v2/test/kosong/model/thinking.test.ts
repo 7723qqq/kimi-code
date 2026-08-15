@@ -21,9 +21,6 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ProtocolAdapterRegistry } from '#/kosong/provider/protocolAdapterRegistry';
-import '#/kosong/provider/providers/kimi/kimi.contrib';
-import '#/kosong/provider/providers/standard.contrib';
 import {
   defaultThinkingEffortForModel,
   drivesThinkingThroughTraits,
@@ -34,6 +31,9 @@ import {
   resolveThinkingKeep,
   usesTraitDrivenThinking,
 } from '#/kosong/model/thinking';
+import '#/kosong/provider/providers/kimi/kimi.contrib';
+import '#/kosong/provider/providers/standard.contrib';
+import { ProtocolAdapterRegistry } from '#/kosong/provider/protocolAdapterRegistry';
 
 const registry = new ProtocolAdapterRegistry();
 
@@ -73,14 +73,21 @@ describe('resolveThinkingEffortForModel', () => {
 
   it('prefers the normalized request, then config, then the model default', () => {
     expect(resolveThinkingEffortForModel('HIGH', undefined, thinkingModel, true)).toBe('high');
-    expect(resolveThinkingEffortForModel(undefined, { effort: 'low' }, thinkingModel, true)).toBe('low');
+    expect(resolveThinkingEffortForModel(undefined, { effort: 'low' }, thinkingModel, true)).toBe(
+      'low',
+    );
     expect(resolveThinkingEffortForModel(undefined, undefined, thinkingModel, true)).toBe('high');
-    expect(resolveThinkingEffortForModel(undefined, { enabled: false }, thinkingModel, true)).toBe('off');
+    expect(resolveThinkingEffortForModel(undefined, { enabled: false }, thinkingModel, true)).toBe(
+      'off',
+    );
   });
 
   it('picks the middle effort when the model declares no default', () => {
     expect(
-      defaultThinkingEffortForModel({ capabilities: ['thinking'], supportEfforts: ['low', 'medium', 'high'] }),
+      defaultThinkingEffortForModel({
+        capabilities: ['thinking'],
+        supportEfforts: ['low', 'medium', 'high'],
+      }),
     ).toBe('medium');
     expect(defaultThinkingEffortForModel({ capabilities: ['thinking'] })).toBe('on');
     expect(defaultThinkingEffortForModel(undefined)).toBe('off');
@@ -88,7 +95,9 @@ describe('resolveThinkingEffortForModel', () => {
 
   it('normalizes unknown efforts back to the model default under kimi semantics', () => {
     expect(resolveThinkingEffortForModel('extreme', undefined, thinkingModel, true)).toBe('high');
-    expect(resolveThinkingEffortForModel('extreme', undefined, thinkingModel, false)).toBe('extreme');
+    expect(resolveThinkingEffortForModel('extreme', undefined, thinkingModel, false)).toBe(
+      'extreme',
+    );
     expect(resolveThinkingEffortForModel('on', undefined, thinkingModel, true)).toBe('high');
   });
 

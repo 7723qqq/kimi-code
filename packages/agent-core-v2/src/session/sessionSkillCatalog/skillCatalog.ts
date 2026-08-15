@@ -7,7 +7,6 @@
 
 import { createDecorator } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
-
 import type { SkillContribution } from '#/app/skillCatalog/skillSource';
 import type { SkillCatalog, SkillSummary } from '#/app/skillCatalog/types';
 

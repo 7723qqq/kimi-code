@@ -6,21 +6,16 @@
  * registered into `agentState` (`IAgentStateService`). Bound at Agent scope.
  */
 
-import { toDisposable, type IDisposable } from "#/_base/di/lifecycle";
-import { LifecycleScope } from '#/app/scopes';
+import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import type {
-  ExecutableTool,
-  ToolDisclosure,
-  ToolInfo,
-  ToolSource,
-} from '#/tool/toolContract';
+import { LifecycleScope } from '#/app/scopes';
+import type { ExecutableTool, ToolDisclosure, ToolInfo, ToolSource } from '#/tool/toolContract';
+
 import {
   IAgentToolRegistryService,
   type ToolReference,
   type ToolRegistrationOptions,
 } from './toolRegistry';
-
 import './builtinToolAssemblyService';
 
 interface ToolEntry {

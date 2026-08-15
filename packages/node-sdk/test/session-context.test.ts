@@ -11,11 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness, type KimiError } from '#/index';
 
-import {
-  makeTempDir,
-  removeTempDirs,
-  waitForSDKEvent,
-} from './session-runtime-helpers';
+import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];

@@ -11,11 +11,11 @@ import { readdir, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 
-import type { FsBrowseEntry, FsBrowseResponse, FsHomeResponse } from './hostFolderBrowser';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { IWorkspaceService } from '#/app/workspace/workspace';
 
+import type { FsBrowseEntry, FsBrowseResponse, FsHomeResponse } from './hostFolderBrowser';
 import {
   HostFolderNotAbsoluteError,
   HostFolderNotFoundError,
@@ -38,15 +38,15 @@ export class HostFolderBrowser implements IHostFolderBrowser {
     let realTarget: string;
     try {
       realTarget = await realpath(target);
-    } catch (err) {
-      throw mapFsError(err, target);
+    } catch (error) {
+      throw mapFsError(error, target);
     }
 
     let dirents;
     try {
       dirents = await readdir(realTarget, { withFileTypes: true });
-    } catch (err) {
-      throw mapFsError(err, realTarget);
+    } catch (error) {
+      throw mapFsError(error, realTarget);
     }
 
     const entries: FsBrowseEntry[] = dirents

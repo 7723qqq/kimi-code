@@ -6,16 +6,13 @@
  * documents organized by scope (global, project, session).
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import type { AgentTool, ToolExecution } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IMemoryStore } from '#/app/memory/memoryStore';
 import {
   detectType,
   extractTitle,
@@ -24,8 +21,12 @@ import {
   scopeDir,
   type MemoryScope,
 } from '#/app/memory/memoryPaths';
+import { IMemoryStore } from '#/app/memory/memoryStore';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type { AgentTool, ToolExecution } from '#/tool/toolContract';
+
 import DESCRIPTION from './memory.md?raw';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 const MemoryActionSchema = z.enum(['search', 'read', 'write', 'list', 'delete']);
 
@@ -34,10 +35,7 @@ export const MemoryToolInputSchema = z
     action: MemoryActionSchema.describe(
       'The memory operation to perform. `search` is the default.',
     ),
-    query: z
-      .string()
-      .optional()
-      .describe('Search query (for `search` action).'),
+    query: z.string().optional().describe('Search query (for `search` action).'),
     path: z
       .string()
       .optional()
@@ -48,10 +46,7 @@ export const MemoryToolInputSchema = z
       .enum(['global', 'project', 'session'])
       .optional()
       .describe('Memory scope (for `write`, `list`). Defaults to `project`.'),
-    content: z
-      .string()
-      .optional()
-      .describe('Markdown content (for `write` action).'),
+    content: z.string().optional().describe('Markdown content (for `write` action).'),
   })
   .strict();
 
@@ -110,7 +105,9 @@ export class MemoryTool implements IMemoryTool {
       return { output: t('toolsV2.memory.noEntriesFound', { query: args.query }) };
     }
     const plural = results.length === 1 ? 'y' : 'ies';
-    const lines = [t('toolsV2.memory.foundEntries', { count: String(results.length), plural }) + '\n'];
+    const lines = [
+      t('toolsV2.memory.foundEntries', { count: String(results.length), plural }) + '\n',
+    ];
     for (const r of results) {
       lines.push(`## ${r.title}`);
       lines.push(`  path: ${r.path}`);
@@ -196,7 +193,11 @@ export class MemoryTool implements IMemoryTool {
     const scope = args.scope;
 
     const filtered = scope
-      ? allPaths.filter((p) => p.startsWith(`${scope === 'global' ? 'global' : scope === 'project' ? 'projects' : 'sessions'}/`))
+      ? allPaths.filter((p) =>
+          p.startsWith(
+            `${scope === 'global' ? 'global' : scope === 'project' ? 'projects' : 'sessions'}/`,
+          ),
+        )
       : allPaths;
 
     if (filtered.length === 0) {

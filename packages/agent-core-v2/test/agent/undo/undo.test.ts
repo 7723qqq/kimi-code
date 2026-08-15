@@ -9,30 +9,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import { contextApplyCompaction } from '#/agent/contextMemory/contextOps';
-import {
-  CHECKPOINTED_MODELS,
-  type Checkpointed,
-} from '#/agent/contextMemory/conversationTime';
+import { CHECKPOINTED_MODELS, type Checkpointed } from '#/agent/contextMemory/conversationTime';
+import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { MessageStepRequest } from '#/agent/loop/stepRequest';
 import { TurnModel } from '#/agent/loop/turnOps';
-import { IAgentPlanService } from '#/features/plan/plan';
-import { PlanModel } from '#/features/plan/planOps';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentConversationUndoService } from '#/agent/undo/undo';
 import { IEventBus } from '#/app/event/eventBus';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { ErrorCodes } from '#/errors';
+import { IAgentPlanService } from '#/features/plan/plan';
+import { PlanModel } from '#/features/plan/planOps';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { TodoModel, todoSet } from '#/session/todo/todoOps';
 import { defineModel } from '#/wire/model';
 import { IWireService } from '#/wire/wire';
 
-import { createTestAgent, telemetryServices, type TestAgentContext } from '../../harness';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { createTestAgent, telemetryServices, type TestAgentContext } from '../../harness';
 
 describe('AgentConversationUndoService', () => {
   let ctx: TestAgentContext;
@@ -79,25 +76,21 @@ describe('AgentConversationUndoService', () => {
     });
   });
 
-  it.each([
-    0,
-    -1,
-    0.5,
-    Number.MAX_SAFE_INTEGER + 1,
-    Number.POSITIVE_INFINITY,
-    Number.NaN,
-  ])('rejects invalid undo count %s without mutating history', async (count) => {
-    setup();
-    ctx.appendTurnExchange('u1', 'a1');
-    const history = ctx.context.get();
+  it.each([0, -1, 0.5, Number.MAX_SAFE_INTEGER + 1, Number.POSITIVE_INFINITY, Number.NaN])(
+    'rejects invalid undo count %s without mutating history',
+    async (count) => {
+      setup();
+      ctx.appendTurnExchange('u1', 'a1');
+      const history = ctx.context.get();
 
-    await expect(ctx.get(IAgentConversationUndoService).undo(count)).rejects.toMatchObject({
-      code: ErrorCodes.REQUEST_INVALID,
-      details: { field: 'count' },
-    });
+      await expect(ctx.get(IAgentConversationUndoService).undo(count)).rejects.toMatchObject({
+        code: ErrorCodes.REQUEST_INVALID,
+        details: { field: 'count' },
+      });
 
-    expect(ctx.context.get()).toBe(history);
-  });
+      expect(ctx.context.get()).toBe(history);
+    },
+  );
 
   it('returns session.busy for an active turn without cancelling it', async () => {
     setup();
@@ -110,11 +103,14 @@ describe('AgentConversationUndoService', () => {
     const canFinish = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const hook = loop.hooks.onWillBeginStep.register('test-invalid-undo', async (_hookCtx, next) => {
-      started();
-      await canFinish;
-      await next();
-    });
+    const hook = loop.hooks.onWillBeginStep.register(
+      'test-invalid-undo',
+      async (_hookCtx, next) => {
+        started();
+        await canFinish;
+        await next();
+      },
+    );
     ctx.mockNextResponse({ type: 'text', text: 'system result' });
     const turn = (
       await loop.enqueue(
@@ -244,14 +240,18 @@ describe('AgentConversationUndoService', () => {
     wire.dispatch(
       todoSet({
         key: 'todo',
-        value: [{ id: 'T1', parentId: null, title: 'kept', status: 'open', createdAt: 1, updatedAt: 2 }],
+        value: [
+          { id: 'T1', parentId: null, title: 'kept', status: 'open', createdAt: 1, updatedAt: 2 },
+        ],
       }),
     );
     ctx.appendTurnExchange('u2', 'a2');
     wire.dispatch(
       todoSet({
         key: 'todo',
-        value: [{ id: 'T1', parentId: null, title: 'doomed', status: 'open', createdAt: 1, updatedAt: 3 }],
+        value: [
+          { id: 'T1', parentId: null, title: 'doomed', status: 'open', createdAt: 1, updatedAt: 3 },
+        ],
       }),
     );
 
@@ -480,9 +480,9 @@ describe('AgentConversationUndoService', () => {
     setup();
     ctx.appendTurnExchange('u1', 'a1');
     ctx.appendTurnExchange('u2', 'a2');
-    const update = vi.spyOn(ctx.get(ISessionMetadata), 'update').mockRejectedValueOnce(
-      new Error('metadata write failed'),
-    );
+    const update = vi
+      .spyOn(ctx.get(ISessionMetadata), 'update')
+      .mockRejectedValueOnce(new Error('metadata write failed'));
     const undone: number[] = [];
     const subscription = ctx.get(IEventBus).subscribe('context.undone', ({ turns }) => {
       undone.push(turns);

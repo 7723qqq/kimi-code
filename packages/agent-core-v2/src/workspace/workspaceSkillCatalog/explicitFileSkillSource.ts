@@ -10,11 +10,11 @@
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { configuredRoots } from '#/app/skillCatalog/skillRoots';
+import { LifecycleScope } from '#/app/scopes';
 import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
+import { configuredRoots } from '#/app/skillCatalog/skillRoots';
 import {
   SKILL_SOURCE_PRIORITY,
   type ISkillSource,

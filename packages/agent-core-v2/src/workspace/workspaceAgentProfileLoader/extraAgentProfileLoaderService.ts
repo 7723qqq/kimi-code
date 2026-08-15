@@ -7,29 +7,28 @@
  * Bound at Workspace scope.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { discoverAgentFiles } from '#/workspace/workspaceAgentProfileLoader/internal/agentFileDiscovery';
-import { AgentProfileLoaderBase } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileLoader';
 import {
   AGENT_PROFILE_SOURCE_PRIORITY,
   type AgentProfileContribution,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
-import { profilesFromDiscovery } from './internal/agentProfileFromFile';
-import { configuredAgentRoots } from '#/workspace/workspaceAgentProfileLoader/internal/agentRoots';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   EXTRA_AGENT_DIRS_SECTION,
   type ExtraAgentDirsConfig,
 } from '#/workspace/workspaceAgentProfileLoader/configSection';
+import { discoverAgentFiles } from '#/workspace/workspaceAgentProfileLoader/internal/agentFileDiscovery';
+import { AgentProfileLoaderBase } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileLoader';
+import { configuredAgentRoots } from '#/workspace/workspaceAgentProfileLoader/internal/agentRoots';
 import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 
 import { IExtraAgentProfileLoader } from './extraAgentProfileLoader';
+import { profilesFromDiscovery } from './internal/agentProfileFromFile';
 
 export class ExtraAgentProfileLoaderService
   extends AgentProfileLoaderBase

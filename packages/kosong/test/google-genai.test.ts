@@ -1,3 +1,5 @@
+import { describe, it, expect, vi } from 'vitest';
+
 import {
   APIConnectionError,
   APIContextOverflowError,
@@ -7,15 +9,14 @@ import {
   ChatProviderError,
 } from '#/errors';
 import type { Message, StreamedMessagePart, ToolCall } from '#/message';
+import type { GenerateOptions } from '#/provider';
 import {
   convertGoogleGenAIError,
   GoogleGenAIChatProvider,
   GoogleGenAIStreamedMessage,
   messagesToGoogleGenAIContents,
 } from '#/providers/google-genai';
-import type { GenerateOptions } from '#/provider';
 import type { Tool } from '#/tool';
-import { describe, it, expect, vi } from 'vitest';
 
 function makeGenerateContentResponse() {
   return {
@@ -329,7 +330,12 @@ describe('GoogleGenAIChatProvider', () => {
       const contents = messagesToGoogleGenAIContents([
         { role: 'user', content: [{ type: 'text', text: 'Add 2 and 3' }], toolCalls: [] },
         { role: 'assistant', content: [], toolCalls: [toolCall] },
-        { role: 'tool', content: [{ type: 'text', text: '5' }], toolCallId: 'call_1', toolCalls: [] },
+        {
+          role: 'tool',
+          content: [{ type: 'text', text: '5' }],
+          toolCallId: 'call_1',
+          toolCalls: [],
+        },
         { role: 'user', content: [{ type: 'text', text: 'Now multiply' }], toolCalls: [] },
       ]);
 
@@ -407,7 +413,8 @@ describe('GoogleGenAIChatProvider', () => {
       const toolCall: ToolCall = {
         type: 'function',
         id: 'call_abc123',
-        name: 'add', arguments: '{"a": 2, "b": 3}',
+        name: 'add',
+        arguments: '{"a": 2, "b": 3}',
       };
       const history: Message[] = [
         { role: 'user', content: [{ type: 'text', text: 'Add 2 and 3' }], toolCalls: [] },
@@ -465,7 +472,8 @@ describe('GoogleGenAIChatProvider', () => {
             {
               type: 'function',
               id: 'add_call_sig',
-              name: 'add', arguments: '{"a": 2, "b": 3}',
+              name: 'add',
+              arguments: '{"a": 2, "b": 3}',
               extras: { thought_signature_b64: 'dGhvdWdodF9zaWduYXR1cmVfZGF0YQ==' },
             },
           ],
@@ -493,7 +501,8 @@ describe('GoogleGenAIChatProvider', () => {
             {
               type: 'function',
               id: 'tc_001',
-              name: 'fetch_image', arguments: '{}',
+              name: 'fetch_image',
+              arguments: '{}',
             },
           ],
         },
@@ -546,7 +555,8 @@ describe('GoogleGenAIChatProvider', () => {
             {
               type: 'function',
               id: 'tc_002',
-              name: 'fetch_media', arguments: '{}',
+              name: 'fetch_media',
+              arguments: '{}',
             },
           ],
         },
@@ -626,12 +636,14 @@ describe('GoogleGenAIChatProvider', () => {
             {
               type: 'function',
               id: 'call_add',
-              name: 'add', arguments: '{"a": 2, "b": 3}',
+              name: 'add',
+              arguments: '{"a": 2, "b": 3}',
             },
             {
               type: 'function',
               id: 'call_mul',
-              name: 'multiply', arguments: '{"a": 4, "b": 5}',
+              name: 'multiply',
+              arguments: '{"a": 4, "b": 5}',
             },
           ],
         },
@@ -851,7 +863,8 @@ describe('GoogleGenAIChatProvider', () => {
             {
               type: 'function',
               id: 'call_xyz',
-              name: 'add', arguments: '{"a": 2, "b": 3}',
+              name: 'add',
+              arguments: '{"a": 2, "b": 3}',
             },
           ],
         },
@@ -1249,7 +1262,8 @@ describe('GoogleGenAIChatProvider', () => {
         {
           type: 'function',
           id: expect.stringMatching(/^add_call_1_[0-9a-f]{8}$/),
-          name: 'add', arguments: '{"a":2,"b":3}',
+          name: 'add',
+          arguments: '{"a":2,"b":3}',
         },
       ]);
     });
@@ -1279,7 +1293,8 @@ describe('GoogleGenAIChatProvider', () => {
         {
           type: 'function',
           id: expect.stringMatching(/^search_fc_1_[0-9a-f]{8}$/),
-          name: 'search', arguments: '{"q":"test"}',
+          name: 'search',
+          arguments: '{"q":"test"}',
           extras: { thought_signature_b64: 'sig_abc123' },
         },
       ]);
@@ -1468,7 +1483,8 @@ describe('GoogleGenAIChatProvider', () => {
             {
               type: 'function',
               id: 'call_known',
-              name: 'add', arguments: '{"a":1,"b":2}',
+              name: 'add',
+              arguments: '{"a":1,"b":2}',
             },
           ],
         },
@@ -1502,12 +1518,14 @@ describe('GoogleGenAIChatProvider', () => {
             {
               type: 'function',
               id: 'call_a',
-              name: 'tool_a', arguments: '{}',
+              name: 'tool_a',
+              arguments: '{}',
             },
             {
               type: 'function',
               id: 'call_b',
-              name: 'tool_b', arguments: '{}',
+              name: 'tool_b',
+              arguments: '{}',
             },
           ],
         },
@@ -1537,7 +1555,8 @@ describe('GoogleGenAIChatProvider', () => {
             {
               type: 'function',
               id: 'call_a',
-              name: 'tool_a', arguments: '{}',
+              name: 'tool_a',
+              arguments: '{}',
             },
           ],
         },
@@ -1767,7 +1786,8 @@ describe('messagesToGoogleGenAIContents - error branches', () => {
           {
             type: 'function',
             id: 'tc_arr',
-            name: 'foo', arguments: '[1,2,3]',
+            name: 'foo',
+            arguments: '[1,2,3]',
           },
         ],
       },
@@ -1786,7 +1806,8 @@ describe('messagesToGoogleGenAIContents - error branches', () => {
           {
             type: 'function',
             id: 'tc_1',
-            name: 'foo', arguments: '{}',
+            name: 'foo',
+            arguments: '{}',
           },
         ],
       },
@@ -1811,7 +1832,8 @@ describe('messagesToGoogleGenAIContents - error branches', () => {
           {
             type: 'function',
             id: 'tc_dup',
-            name: 'foo', arguments: '{}',
+            name: 'foo',
+            arguments: '{}',
           },
         ],
       },
@@ -1840,12 +1862,14 @@ describe('messagesToGoogleGenAIContents - error branches', () => {
           {
             type: 'function',
             id: 'tc_expected',
-            name: 'foo', arguments: '{}',
+            name: 'foo',
+            arguments: '{}',
           },
           {
             type: 'function',
             id: 'tc_missing',
-            name: 'bar', arguments: '{}',
+            name: 'bar',
+            arguments: '{}',
           },
         ],
       },
@@ -1868,7 +1892,8 @@ describe('messagesToGoogleGenAIContents - error branches', () => {
           {
             type: 'function',
             id: 'tc_known',
-            name: 'foo', arguments: '{}',
+            name: 'foo',
+            arguments: '{}',
           },
         ],
       },
@@ -1899,7 +1924,8 @@ describe('messagesToGoogleGenAIContents - extra branches', () => {
           {
             type: 'function',
             id: 'tc_bad',
-            name: 'foo', arguments: 'not valid {json',
+            name: 'foo',
+            arguments: 'not valid {json',
           },
         ],
       },

@@ -10,8 +10,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { permissionModeServices, type TestAgentContext } from '../../harness';
 
+import { permissionModeServices, type TestAgentContext } from '../../harness';
 import { createLoopTestAgent, makeEchoTool, nextTurnMessage, registerTool } from './helpers';
 
 function rpcEvents(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {
@@ -55,9 +55,12 @@ describe('Agent loop — streaming callbacks', () => {
     const echo = makeEchoTool();
     registerTool(ctx, echo);
 
-    ctx.mockNextResponse(
-      { type: 'function', id: 'tc-1', name: 'echo', arguments: '{"text":"hi"}' },
-    );
+    ctx.mockNextResponse({
+      type: 'function',
+      id: 'tc-1',
+      name: 'echo',
+      arguments: '{"text":"hi"}',
+    });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
     const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run')).assigned).turn;

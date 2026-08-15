@@ -18,7 +18,13 @@ export interface SwarmCardRow {
 
 function lastNonEmptyLine(text: string | undefined): string {
   if (!text) return '';
-  return text.split('\n').map((l) => l.trimEnd()).filter(Boolean).at(-1) ?? '';
+  return (
+    text
+      .split('\n')
+      .map((l) => l.trimEnd())
+      .filter(Boolean)
+      .at(-1) ?? ''
+  );
 }
 
 export function swarmMemberActivity(member: SwarmMember): string {
@@ -78,7 +84,10 @@ function memberCoversResult(member: SwarmMember, sub: SwarmResultSubagent): bool
  *   would otherwise be invisible until a refresh dropped the live tasks.
  * - When no members are present (post-refresh), fall back to result-only rows.
  */
-export function buildSwarmCardRows(members: SwarmMember[], result: SwarmResult | null): SwarmCardRow[] {
+export function buildSwarmCardRows(
+  members: SwarmMember[],
+  result: SwarmResult | null,
+): SwarmCardRow[] {
   const memberRows = members.map((m) => ({
     id: m.id,
     name: m.name,
@@ -96,5 +105,7 @@ export function buildSwarmCardRows(members: SwarmMember[], result: SwarmResult |
     )
     .map((sub, i) => resultRow(sub, i));
 
-  return memberRows.length > 0 ? [...memberRows, ...resultOnly] : result.subagents.map((s, i) => resultRow(s, i));
+  return memberRows.length > 0
+    ? [...memberRows, ...resultOnly]
+    : result.subagents.map((s, i) => resultRow(s, i));
 }

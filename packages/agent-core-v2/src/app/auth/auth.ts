@@ -10,8 +10,6 @@
  * prompt auth-readiness gate. App-scoped — shared across the application.
  */
 
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import type {
   AuthManagedUserInfoResult,
   AuthManagedUsageResult,
@@ -21,9 +19,10 @@ import type {
   KimiOAuthLogoutResult,
   KimiOAuthTokenRef,
 } from '@moonshot-ai/kimi-code-oauth';
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Error2 } from '#/_base/errors/errors';
-
 import type { OAuthRef } from '#/kosong/provider/provider';
 
 import { AuthErrors } from './errors';
@@ -93,11 +92,9 @@ export const IAuthSummaryService: ServiceIdentifier<IAuthSummaryService> =
 
 export class AuthProvisioningRequiredError extends Error2 {
   constructor() {
-    super(
-      AuthErrors.codes.AUTH_PROVISIONING_REQUIRED,
-      t('v2Auth.noProvider'),
-      { name: 'AuthProvisioningRequiredError' },
-    );
+    super(AuthErrors.codes.AUTH_PROVISIONING_REQUIRED, t('v2Auth.noProvider'), {
+      name: 'AuthProvisioningRequiredError',
+    });
   }
 }
 
@@ -122,14 +119,10 @@ export class AuthModelNotResolvedError extends Error2 {
     const details: Record<string, unknown> = {};
     if (modelId !== undefined) details['model_id'] = modelId;
     if (providerId !== undefined) details['provider_id'] = providerId;
-    super(
-      AuthErrors.codes.AUTH_MODEL_NOT_RESOLVED,
-      t('v2Errors.authModelNotResolved'),
-      {
-        details: Object.keys(details).length === 0 ? undefined : details,
-        name: 'AuthModelNotResolvedError',
-      },
-    );
+    super(AuthErrors.codes.AUTH_MODEL_NOT_RESOLVED, t('v2Errors.authModelNotResolved'), {
+      details: Object.keys(details).length === 0 ? undefined : details,
+      name: 'AuthModelNotResolvedError',
+    });
     this.modelId = modelId;
     this.providerId = providerId;
   }

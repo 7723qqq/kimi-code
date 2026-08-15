@@ -17,6 +17,7 @@ export const TaskOutputInputSchema = z.object({
 
 export type TaskOutputInput = z.infer<typeof TaskOutputInputSchema>;
 
-
-export interface ITaskOutputTool extends AgentTool<TaskOutputInput> { readonly _serviceBrand: undefined }
+export interface ITaskOutputTool extends AgentTool<TaskOutputInput> {
+  readonly _serviceBrand: undefined;
+}
 export const ITaskOutputTool = createDecorator<ITaskOutputTool>('taskOutputTool');

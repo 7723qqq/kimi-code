@@ -13,10 +13,11 @@
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 
-import type { FileMeta } from './fileService';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { IBlobStore } from '#/persistence/interface/blobStore';
+
+import type { FileMeta } from './fileService';
 import {
   IFileService,
   fileNotFoundError,

@@ -18,8 +18,9 @@
  * reach the generic error hook, which only emits 50001 for unknown exceptions.
  */
 
-import { ErrorCode } from '../protocol/error-codes';
 import type { z } from 'zod';
+
+import { ErrorCode } from '../protocol/error-codes';
 
 /**
  * Minimal Fastify request/reply shapes — keep our hook independent of the
@@ -66,11 +67,12 @@ function buildValidationEnvelope(
   details: ValidationDetailItem[];
 } {
   const first = details[0];
-  const msg = first === undefined
-    ? 'validation failed'
-    : first.path === ''
-      ? first.message
-      : `${first.path}: ${first.message}`;
+  const msg =
+    first === undefined
+      ? 'validation failed'
+      : first.path === ''
+        ? first.message
+        : `${first.path}: ${first.message}`;
   return {
     code: ErrorCode.VALIDATION_FAILED,
     msg,

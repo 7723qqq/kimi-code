@@ -7,11 +7,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { errEnvelope } from '../envelope';
 import type { IAuthTokenService } from '../services/auth/authTokenService';
 import type { CredentialValidator } from '../services/auth/credentials';
-import {
-  AUTH_RATE_LIMIT_CODE,
-  AUTH_RATE_LIMIT_MSG,
-  type AuthFailureLimiter,
-} from './rateLimit';
+import { AUTH_RATE_LIMIT_CODE, AUTH_RATE_LIMIT_MSG, type AuthFailureLimiter } from './rateLimit';
 
 const AUTH_ERROR_CODE = 40101;
 const AUTH_ERROR_MSG = 'Unauthorized';

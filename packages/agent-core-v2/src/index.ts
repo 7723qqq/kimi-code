@@ -419,18 +419,13 @@ export * from '#/agent/tools/cron/cron-list/cron-list';
 import '#/agent/tools/cron/cron-list/cronListTool';
 export * from '#/agent/tools/cron/cron-delete/cron-delete';
 import '#/agent/tools/cron/cron-delete/cronDeleteTool';
-
 import '#/session/agentLifecycle/profile/profiles';
 export * from '#/session/agentLifecycle/agentLifecycle';
 export * from '#/session/agentLifecycle/agentLifecycleService';
 export * from '#/session/agentLifecycle/mainAgent';
 export * from '#/session/mcp/sessionMcpHandle';
 import '#/app/mcpConfig/configSection';
-export {
-  MCP_SECTION,
-  McpSectionSchema,
-  type McpSection,
-} from '#/app/mcpConfig/configSection';
+export { MCP_SECTION, McpSectionSchema, type McpSection } from '#/app/mcpConfig/configSection';
 export * from '#/app/mcpConfig/oauthStore';
 export * from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
 export * from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
@@ -732,7 +727,10 @@ import '#/agent/toolRegistry/toolRegistry';
 import '#/agent/toolRegistry/toolRegistryService';
 export { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 export { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-export { registerAgentToolService, AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
+export {
+  registerAgentToolService,
+  AgentToolContribution,
+} from '#/agent/toolRegistry/toolContribution';
 export type { AgentToolContributionOptions } from '#/agent/toolRegistry/toolContribution';
 export * from '#/agent/userTool/userTool';
 export * from '#/agent/userTool/userToolOps';

@@ -16,18 +16,18 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { createDecorator } from '#/_base/di/instantiation';
 import { SyncDescriptor } from '#/_base/di/descriptors';
+import { createDecorator } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
+import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import {
   AgentProfileContribution,
   type AgentProfileContributionRecord,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
 import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
-import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 
 interface IContributor {
   readonly record: AgentProfileContributionRecord;
@@ -52,7 +52,9 @@ function record(
     sourceId,
     priority: options?.priority,
     workspaceKey: options?.workspaceKey,
-    contribution: { profiles: [normalizeAgentProfile({ name: marker, systemPrompt: () => marker })] },
+    contribution: {
+      profiles: [normalizeAgentProfile({ name: marker, systemPrompt: () => marker })],
+    },
   };
 }
 

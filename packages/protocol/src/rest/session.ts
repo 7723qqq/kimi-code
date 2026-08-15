@@ -34,14 +34,11 @@ export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 export const createSessionResponseSchema = sessionSchema;
 export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
 
-export const booleanQueryParam = z.preprocess(
-  (value) => {
-    if (value === 'true' || value === '1' || value === 1 || value === true) return true;
-    if (value === 'false' || value === '0' || value === 0 || value === false) return false;
-    return value;
-  },
-  z.boolean().optional(),
-);
+export const booleanQueryParam = z.preprocess((value) => {
+  if (value === 'true' || value === '1' || value === 1 || value === true) return true;
+  if (value === 'false' || value === '0' || value === 0 || value === false) return false;
+  return value;
+}, z.boolean().optional());
 
 export const listSessionsQuerySchema = cursorQuerySchema.and(
   z.object({
@@ -166,7 +163,7 @@ export const sessionWarningsResponseSchema = z.object({
 export type SessionWarningsResponse = z.infer<typeof sessionWarningsResponseSchema>;
 
 export const compactSessionRequestSchema = z.preprocess(
-  (value) => value === undefined ? {} : value,
+  (value) => (value === undefined ? {} : value),
   z.object({
     instruction: z.string().optional(),
   }),
@@ -177,7 +174,7 @@ export const compactSessionResponseSchema = z.object({});
 export type CompactSessionResponse = z.infer<typeof compactSessionResponseSchema>;
 
 export const undoSessionRequestSchema = z.preprocess(
-  (value) => value === undefined ? {} : value,
+  (value) => (value === undefined ? {} : value),
   z.object({
     count: z.number().int().positive().default(1),
     page_size: z.number().int().min(1).max(100).optional(),

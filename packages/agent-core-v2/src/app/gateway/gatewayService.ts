@@ -9,21 +9,17 @@
  * is a transport concern of the edge server, not of this module.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
-import {
-  type IAgentScopeHandle,
-  ScopeActivation,
-  registerScopedService,
-} from '#/_base/di/scope';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { Error2, ErrorCodes } from '#/errors';
 import { t } from '@moonshot-ai/kimi-i18n';
+
+import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPromptService } from '#/agent/prompt/prompt';
+import { LifecycleScope } from '#/app/scopes';
+import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
+import { Error2, ErrorCodes } from '#/errors';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 
 import { IRestGateway, IWSGateway } from './gateway';
 
@@ -33,7 +29,7 @@ export class RestGateway implements IRestGateway {
   constructor(
     @IWorkspaceLifecycleService private readonly workspaceLifecycle: IWorkspaceLifecycleService,
     @ILogService private readonly log: ILogService,
-  ) { }
+  ) {}
 
   private agent(sessionId: string, agentId: string): IAgentScopeHandle {
     const session = this.liveSession(sessionId);
@@ -65,14 +61,16 @@ export class RestGateway implements IRestGateway {
     agentId: string,
     input: string,
   ): Promise<{ readonly turn_id: number } | undefined> {
-    const handle = await this.agent(sessionId, agentId).accessor.get(IAgentPromptService).enqueue({
-      message: {
-        role: 'user',
-        content: [{ type: 'text', text: input }],
-        toolCalls: [],
-        origin: { kind: 'user' },
-      },
-    });
+    const handle = await this.agent(sessionId, agentId)
+      .accessor.get(IAgentPromptService)
+      .enqueue({
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: input }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      });
     const turn = await handle.launched;
     return turn === undefined ? undefined : { turn_id: turn.id };
   }
@@ -82,12 +80,14 @@ export class RestGateway implements IRestGateway {
     content: string,
   ): Promise<{ readonly turn_id: number } | undefined> {
     const service = this.agent(sessionId, agentId).accessor.get(IAgentPromptService);
-    const queued = await service.enqueue({ message: {
-      role: 'user',
-      content: [{ type: 'text', text: content }],
-      toolCalls: [],
-      origin: { kind: 'user' },
-    } });
+    const queued = await service.enqueue({
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: content }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+    });
     const [steered] = await service.steer([queued.id]);
     const turn = await steered?.launched;
     return turn === undefined ? undefined : { turn_id: turn.id };
@@ -118,9 +118,20 @@ export class WSGateway implements IWSGateway {
   connect(connectionId: string): void {
     this.connections.add(connectionId);
   }
-  broadcast(_sessionId: string, _event: unknown): void {
-  }
+  broadcast(_sessionId: string, _event: unknown): void {}
 }
 
-registerScopedService(LifecycleScope.App, IRestGateway, RestGateway, ScopeActivation.OnScopeCreated, 'gateway');
-registerScopedService(LifecycleScope.App, IWSGateway, WSGateway, ScopeActivation.OnScopeCreated, 'gateway');
+registerScopedService(
+  LifecycleScope.App,
+  IRestGateway,
+  RestGateway,
+  ScopeActivation.OnScopeCreated,
+  'gateway',
+);
+registerScopedService(
+  LifecycleScope.App,
+  IWSGateway,
+  WSGateway,
+  ScopeActivation.OnScopeCreated,
+  'gateway',
+);

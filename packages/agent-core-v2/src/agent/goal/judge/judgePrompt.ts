@@ -50,14 +50,8 @@ or
 - A partially completed goal is NOT complete.
 - Do not invent evidence that is not in the transcript.`;
 
-export function buildJudgeUserPrompt(
-  objective: string,
-  completionCriterion?: string,
-): string {
-  const lines: string[] = [
-    '## Goal Objective',
-    objective,
-  ];
+export function buildJudgeUserPrompt(objective: string, completionCriterion?: string): string {
+  const lines: string[] = ['## Goal Objective', objective];
 
   if (completionCriterion) {
     lines.push(
@@ -100,12 +94,7 @@ export function buildJudgeVerificationPrompt(
   completionCriterion?: string,
   cwd?: string,
 ): string {
-  const lines: string[] = [
-    '# Goal Verification Task',
-    '',
-    '## Objective',
-    objective,
-  ];
+  const lines: string[] = ['# Goal Verification Task', '', '## Objective', objective];
 
   if (completionCriterion) {
     lines.push(

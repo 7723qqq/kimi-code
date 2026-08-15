@@ -38,9 +38,17 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>();
   cursor: pointer;
   transition: background var(--duration-base) var(--ease-out);
 }
-.ui-switch.is-on { background: var(--color-accent); }
-.ui-switch:disabled { opacity: 0.5; cursor: not-allowed; }
-.ui-switch:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
+.ui-switch.is-on {
+  background: var(--color-accent);
+}
+.ui-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ui-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
 .ui-switch__thumb {
   position: absolute;
   top: 2px;

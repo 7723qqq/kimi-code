@@ -11,8 +11,6 @@ import { Readable, Writable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { IPluginService } from '#/app/plugin/plugin';
-import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import type { CapabilityEntryContext } from '#/app/capability/entries/context';
 import {
   createKimiCuEntry,
@@ -23,6 +21,8 @@ import {
   windowsPowerShellPath,
   windowsPowerShell7Path,
 } from '#/app/capability/entries/kimiCu';
+import type { IPluginService } from '#/app/plugin/plugin';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 
 function fakeProc(code: number, stdout = '', stderr = ''): IHostProcess {
   return {
@@ -77,7 +77,13 @@ function fakeHostProcess(
 }
 
 function fakePlugins(
-  installed: Array<{ id: string; enabled: boolean; state: string; version?: string; enabledMcp?: number }>,
+  installed: Array<{
+    id: string;
+    enabled: boolean;
+    state: string;
+    version?: string;
+    enabledMcp?: number;
+  }>,
   onInstall?: () => void | Promise<void>,
 ): {
   service: IPluginService;
@@ -163,7 +169,9 @@ describe('parsePermissionStatus', () => {
       accessibility: true,
       screenRecording: false,
     });
-    expect(parsePermissionStatus('permissionStatus: accessibility=false screenRecording=true')).toEqual({
+    expect(
+      parsePermissionStatus('permissionStatus: accessibility=false screenRecording=true'),
+    ).toEqual({
       accessibility: false,
       screenRecording: true,
     });
@@ -205,7 +213,9 @@ describe('elevatedDittoScript', () => {
       "/usr/bin/ditto '/tmp/kimi cu/app' '/Applications/KimiCU.app'",
     );
     const script = elevatedDittoScript("$(touch /tmp/pwned); echo '", '/Applications/KimiCU.app');
-    expect(script).toBe("/usr/bin/ditto '$(touch /tmp/pwned); echo '\\''' '/Applications/KimiCU.app'");
+    expect(script).toBe(
+      "/usr/bin/ditto '$(touch /tmp/pwned); echo '\\''' '/Applications/KimiCU.app'",
+    );
   });
 });
 
@@ -280,9 +290,7 @@ describe('kimi-cu entry', () => {
       pluginId: 'kimi-cu-win',
       supported: true,
     });
-    expect(createKimiCuEntry(makeCtx({ platform: 'win32', arch: 'arm64' })).supported).toBe(
-      false,
-    );
+    expect(createKimiCuEntry(makeCtx({ platform: 'win32', arch: 'arm64' })).supported).toBe(false);
   });
 
   it('labels the Windows capability consistently with its installed plugin', () => {
@@ -320,9 +328,7 @@ describe('kimi-cu entry', () => {
     });
     expect(host.calls).toHaveLength(1);
     expect(
-      host.calls[0]?.startsWith(
-        `${windowsPowerShellPath()} -NoProfile -NonInteractive -Command `,
-      ),
+      host.calls[0]?.startsWith(`${windowsPowerShellPath()} -NoProfile -NonInteractive -Command `),
     ).toBe(true);
   });
 
@@ -451,8 +457,7 @@ describe('kimi-cu entry', () => {
 
     expect(
       calls.some(
-        (call) =>
-          call.startsWith(windowsPowerShell7Path()) && call.includes('setup_windows.ps1'),
+        (call) => call.startsWith(windowsPowerShell7Path()) && call.includes('setup_windows.ps1'),
       ),
     ).toBe(true);
     expect(plugins.installs).toEqual([
@@ -480,10 +485,7 @@ describe('kimi-cu entry', () => {
         }
         return Promise.resolve(
           runtimeInstalled
-            ? fakeProc(
-                0,
-                'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n',
-              )
+            ? fakeProc(0, 'version=0.2.14\r\nmcp=true\r\nhelper=embedded\r\nagent=running\r\n')
             : fakeProc(3),
         );
       },
@@ -514,8 +516,7 @@ describe('kimi-cu entry', () => {
     });
     expect(
       calls.some(
-        (call) =>
-          call.startsWith(windowsPowerShell7Path()) && call.includes('setup_windows.ps1'),
+        (call) => call.startsWith(windowsPowerShell7Path()) && call.includes('setup_windows.ps1'),
       ),
     ).toBe(true);
   });
@@ -709,8 +710,16 @@ describe('kimi-cu entry', () => {
     const applicationsDir = await fakeAppBundle();
     const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' }]);
     const host = fakeHostProcess([
-      { match: 'service-status', code: 0, stdout: 'SMAppService status=1 (1=enabled); fallback plist exists=false' },
-      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=false' },
+      {
+        match: 'service-status',
+        code: 0,
+        stdout: 'SMAppService status=1 (1=enabled); fallback plist exists=false',
+      },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=false',
+      },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({ applicationsDir, plugins: plugins.service, hostProcess: host.service }),
@@ -752,7 +761,11 @@ describe('kimi-cu entry', () => {
     const plugins = fakePlugins([]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=true',
+      },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({
@@ -768,7 +781,9 @@ describe('kimi-cu entry', () => {
 
     expect(plugins.installs).toHaveLength(1);
     expect(reports).toEqual(['plugin']);
-    expect(host.calls.every((call) => call.includes('service-status') || call.includes('xpc-ping'))).toBe(true);
+    expect(
+      host.calls.every((call) => call.includes('service-status') || call.includes('xpc-ping')),
+    ).toBe(true);
   });
 
   it('migrates the exact legacy standalone MCP registration after installing the plugin', async () => {
@@ -788,7 +803,11 @@ describe('kimi-cu entry', () => {
     const plugins = fakePlugins([]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=true',
+      },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({
@@ -835,7 +854,11 @@ describe('kimi-cu entry', () => {
     });
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=true',
+      },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({
@@ -868,7 +891,11 @@ describe('kimi-cu entry', () => {
     const plugins = fakePlugins([]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=true',
+      },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({
@@ -924,7 +951,11 @@ describe('kimi-cu entry', () => {
     const plugins = fakePlugins([{ id: 'kimi-cu', enabled: false, state: 'ok', version: '0.5.4' }]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=true',
+      },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({ applicationsDir, plugins: plugins.service, hostProcess: host.service }),
@@ -938,9 +969,7 @@ describe('kimi-cu entry', () => {
 
   it('refreshes the wiring plugin when permissions are the only missing layer', async () => {
     const applicationsDir = await fakeAppBundle();
-    const plugins = fakePlugins([
-      { id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' },
-    ]);
+    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' }]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
       {
@@ -969,7 +998,11 @@ describe('kimi-cu entry', () => {
       // reinstall before ditto can replace the app.
       { match: 'uninstall', code: 0, hang: true },
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=true',
+      },
     ]);
     const fetchImpl = (() =>
       Promise.resolve(
@@ -1007,11 +1040,15 @@ describe('kimi-cu entry', () => {
     await entry.install(() => {});
     expect(host.calls.some((call) => call.includes('ditto'))).toBe(true);
     expect(host.calls.some((call) => call.includes('pkill') && call.includes('+mcp'))).toBe(false);
-    expect(host.calls.some((call) => call.includes('pkill') && call.includes('+service'))).toBe(true);
+    expect(host.calls.some((call) => call.includes('pkill') && call.includes('+service'))).toBe(
+      true,
+    );
   });
 
   it('reports the plugin layer missing when its MCP server is disabled', async () => {
-    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4', enabledMcp: 0 }]);
+    const plugins = fakePlugins([
+      { id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4', enabledMcp: 0 },
+    ]);
     const entry = createKimiCuEntry(makeCtx({ plugins: plugins.service }));
 
     // The plugin toggle is on but the stdio MCP wrapper is off: readiness
@@ -1026,10 +1063,16 @@ describe('kimi-cu entry', () => {
 
   it('re-enables disabled MCP servers during setup', async () => {
     const applicationsDir = await fakeAppBundle();
-    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4', enabledMcp: 0 }]);
+    const plugins = fakePlugins([
+      { id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4', enabledMcp: 0 },
+    ]);
     const host = fakeHostProcess([
       { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
-      { match: 'xpc-ping', code: 0, stdout: 'permissionStatus: accessibility=true screenRecording=true' },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=true',
+      },
     ]);
     const entry = createKimiCuEntry(
       makeCtx({ applicationsDir, plugins: plugins.service, hostProcess: host.service }),

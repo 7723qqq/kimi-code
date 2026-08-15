@@ -21,8 +21,9 @@
 // Internal to the package — NOT re-exported from the root entry point; the
 // public surface is MiniDb.maintenanceStatus().
 
-import os from 'node:os';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import os from 'node:os';
+
 import { OpTracker } from './op-tracker.js';
 
 export type MaintenanceKind = 'compact' | 'generation-build' | 'text-build';
@@ -130,7 +131,8 @@ export class MaintenanceScheduler {
   constructor(opts: MaintenanceSchedulerOptions) {
     this.maxQueue = opts.maxQueue ?? 4;
     this.estimateBytes = opts.estimateBytes;
-    this.statfsFn = opts.statfs ?? (async (dir: string) => (await import('node:fs/promises')).statfs(dir));
+    this.statfsFn =
+      opts.statfs ?? (async (dir: string) => (await import('node:fs/promises')).statfs(dir));
     this.dir = opts.dir;
   }
 
@@ -138,7 +140,15 @@ export class MaintenanceScheduler {
   status(): MaintenanceTaskInfo[] {
     const out: MaintenanceTaskInfo[] = [];
     const push = (t: Task): void => {
-      out.push({ id: t.id, kind: t.kind, state: t.state, queuedAt: t.queuedAt, startedAt: t.startedAt, finishedAt: t.finishedAt, error: t.error });
+      out.push({
+        id: t.id,
+        kind: t.kind,
+        state: t.state,
+        queuedAt: t.queuedAt,
+        startedAt: t.startedAt,
+        finishedAt: t.finishedAt,
+        error: t.error,
+      });
     };
     if (this.running) push(this.running);
     for (const t of this.queue) push(t);
@@ -186,7 +196,8 @@ export class MaintenanceScheduler {
     if (this.running?.kind === kind) return this.promiseOf(this.running);
     const queued = this.queue.find((t) => t.kind === kind);
     if (queued) return this.promiseOf(queued);
-    if (this.queue.length >= this.maxQueue) return Promise.reject(new MaintenanceBackpressureError(kind));
+    if (this.queue.length >= this.maxQueue)
+      return Promise.reject(new MaintenanceBackpressureError(kind));
     if (!this.tracker.enter()) return Promise.reject(new MaintenanceClosedError());
 
     const task: Task = {
@@ -263,7 +274,9 @@ export class MaintenanceScheduler {
       return;
     }
     if (free < need) {
-      const err = new Error(`insufficient disk space for ${kind}: need ~${need} bytes, have ${free} bytes`);
+      const err = new Error(
+        `insufficient disk space for ${kind}: need ~${need} bytes, have ${free} bytes`,
+      );
       (err as { code?: string }).code = 'ENOSPC_PREFLIGHT';
       throw err;
     }
@@ -274,12 +287,23 @@ export class MaintenanceScheduler {
     task.state = error ? 'failed' : 'complete';
     task.finishedAt = Date.now();
     if (error) {
-      task.error = error instanceof Error ? error.message : `non-Error thrown: ${Object.prototype.toString.call(error)}`;
+      task.error =
+        error instanceof Error
+          ? error.message
+          : `non-Error thrown: ${Object.prototype.toString.call(error)}`;
       task.reject(error);
     } else {
       task.resolve();
     }
-    this.history.unshift({ id: task.id, kind: task.kind, state: task.state, queuedAt: task.queuedAt, startedAt: task.startedAt, finishedAt: task.finishedAt, error: task.error });
+    this.history.unshift({
+      id: task.id,
+      kind: task.kind,
+      state: task.state,
+      queuedAt: task.queuedAt,
+      startedAt: task.startedAt,
+      finishedAt: task.finishedAt,
+      error: task.error,
+    });
     if (this.history.length > HISTORY_LIMIT) this.history.length = HISTORY_LIMIT;
     if (this.running === task) this.running = null;
     this.tracker.leave();
@@ -301,7 +325,15 @@ export class MaintenanceScheduler {
       t.finishedAt = Date.now();
       t.error = 'cancelled by shutdown';
       t.reject(new MaintenanceCancelledError(t.kind));
-      this.history.unshift({ id: t.id, kind: t.kind, state: t.state, queuedAt: t.queuedAt, startedAt: t.startedAt, finishedAt: t.finishedAt, error: t.error });
+      this.history.unshift({
+        id: t.id,
+        kind: t.kind,
+        state: t.state,
+        queuedAt: t.queuedAt,
+        startedAt: t.startedAt,
+        finishedAt: t.finishedAt,
+        error: t.error,
+      });
       this.tracker.leave();
     }
     const running = this.running;
@@ -405,7 +437,9 @@ export class WorkerSlots {
 /** The process-wide default worker slot pool: half the CPUs, at least one,
  *  capped at two — one worker build already saturates a core for seconds,
  *  and the main thread must stay responsive. */
-export const defaultWorkerSlots = new WorkerSlots(Math.max(1, Math.min(2, Math.floor(os.cpus().length / 2))));
+export const defaultWorkerSlots = new WorkerSlots(
+  Math.max(1, Math.min(2, Math.floor(os.cpus().length / 2))),
+);
 
 /** Default budget of the TUI-safe slot queue (WorkerSlots.acquireBounded):
  *  a worker-eligible text build waits this long for a slot before falling

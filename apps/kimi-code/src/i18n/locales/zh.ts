@@ -698,7 +698,8 @@ export default {
         trustDesc: '启用项目级 MCP 服务器。此选择会被记住。',
         distrustLabel: '不信任',
         distrustDesc: '退出 Kimi Code。下次启动会再次询问。',
-        notice: '项目级 MCP 服务器在你明确选择信任之前处于禁用状态。信任会启动列出的项目 MCP 目标并记住此文件夹。',
+        notice:
+          '项目级 MCP 服务器在你明确选择信任之前处于禁用状态。信任会启动列出的项目 MCP 目标并记住此文件夹。',
         projectMcpTargets: '项目 MCP 目标：',
       },
       cacheHint: {
@@ -1284,7 +1285,8 @@ export default {
       providerMultipleImported: '已从 {{url}} 导入 {{count}} 个提供商（{{modelCount}} 个模型）：',
       providerDefaultSet: '默认模型已设置为 {{id}}/{{model}}。',
       providerCatalogFetchFailed: '从 {{url}} 获取目录失败{{suffix}}：{{error}}',
-      providerCatalogFallbackWarning: '警告：无法访问 {{url}}；正在使用内置的 models.dev 目录快照。',
+      providerCatalogFallbackWarning:
+        '警告：无法访问 {{url}}；正在使用内置的 models.dev 目录快照。',
       // tui/commands/provider.ts
       addProviderTitle: '添加第三方提供商',
       selectProviderTitle: '选择提供商',

@@ -210,16 +210,16 @@ function pickActiveBanner(
     mainText,
     subText: json.banner_subtext,
     display,
-    ttlHours: display === 'cooldown' ? parseBannerDisplayTtlHours(json.banner_display_ttl_hours) : undefined,
+    ttlHours:
+      display === 'cooldown'
+        ? parseBannerDisplayTtlHours(json.banner_display_ttl_hours)
+        : undefined,
     startTime: json.banner_start_time,
     endTime: json.banner_end_time,
   });
 }
 
-function pickFallbackCandidates(
-  json: TipsBannerJson,
-  clientVersion: string,
-): BannerState[] {
+function pickFallbackCandidates(json: TipsBannerJson, clientVersion: string): BannerState[] {
   if (json.banner_fallback_enabled !== true) return [];
   const list = Array.isArray(json.banner_fallback_list) ? json.banner_fallback_list : [];
   const candidates: BannerState[] = [];
@@ -238,7 +238,10 @@ function pickFallbackCandidates(
         mainText,
         subText: item.banner_subtext,
         display,
-        ttlHours: display === 'cooldown' ? parseBannerDisplayTtlHours(item.banner_display_ttl_hours) : undefined,
+        ttlHours:
+          display === 'cooldown'
+            ? parseBannerDisplayTtlHours(item.banner_display_ttl_hours)
+            : undefined,
       }),
     );
   }
@@ -266,7 +269,9 @@ function parseShownAt(value: string | undefined): Date | null {
 }
 
 function getCooldownTtlHours(banner: BannerState): number {
-  return typeof banner.ttlHours === 'number' && Number.isFinite(banner.ttlHours) && banner.ttlHours > 0
+  return typeof banner.ttlHours === 'number' &&
+    Number.isFinite(banner.ttlHours) &&
+    banner.ttlHours > 0
     ? banner.ttlHours
     : DEFAULT_COOLDOWN_TTL_HOURS;
 }
@@ -291,8 +296,7 @@ export function selectBannerState(
 ): BannerState | null {
   const typed = typeof json === 'object' && json !== null ? (json as TipsBannerJson) : {};
   return (
-    pickActiveBanner(typed, clientVersion, now) ??
-    pickFallbackBanner(typed, clientVersion, random)
+    pickActiveBanner(typed, clientVersion, now) ?? pickFallbackBanner(typed, clientVersion, random)
   );
 }
 

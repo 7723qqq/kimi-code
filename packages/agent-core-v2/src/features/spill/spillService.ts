@@ -12,10 +12,11 @@
 
 import { readFile } from 'node:fs/promises';
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import { Service } from '#/_base/di/service';
 import { IConfigService } from '#/app/config/config';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 import { SpillLocator, type ISpillService, type SpillRef, type SaveTextSpill } from './spill';
 import { privateRoot, saveTextFile } from './spillStore';
@@ -68,8 +69,5 @@ function isWithinRoot(path: string, root: string): boolean {
   const normalizedPath = path.replaceAll('\\', '/');
   const normalizedRoot = root.replaceAll('\\', '/').replace(/\/+$/, '');
   if (normalizedRoot === '') return false;
-  return (
-    normalizedPath.startsWith(`${normalizedRoot}/`) ||
-    normalizedPath === normalizedRoot
-  );
+  return normalizedPath.startsWith(`${normalizedRoot}/`) || normalizedPath === normalizedRoot;
 }

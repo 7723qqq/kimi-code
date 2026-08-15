@@ -1,4 +1,8 @@
-import type { ApprovalRequest, ApprovalResponse, ToolInputDisplay } from '@moonshot-ai/kimi-code-sdk';
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+  ToolInputDisplay,
+} from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 import type { ApprovalPanelResponse } from '#/tui/components/dialogs/approval-panel';
@@ -10,14 +14,27 @@ function getDefaultApprovalChoices(): ApprovalPanelChoice[] {
     { label: t('tui.approvalLabels.approveOnce'), response: 'approved' },
     { label: t('tui.approvalLabels.approveForSession'), response: 'approved_for_session' },
     { label: t('tui.approvalLabels.reject'), response: 'rejected' },
-    { label: t('tui.approvalLabels.rejectWithFeedback'), response: 'rejected', requires_feedback: true },
+    {
+      label: t('tui.approvalLabels.rejectWithFeedback'),
+      response: 'rejected',
+      requires_feedback: true,
+    },
   ];
 }
 
 function getPlanRejectChoices(): ApprovalPanelChoice[] {
   return [
-    { label: t('tui.approvalLabels.reject'), response: 'rejected', selected_label: t('tui.approvalLabels.reject') },
-    { label: t('tui.approvalLabels.revise'), response: 'rejected', selected_label: t('tui.approvalLabels.revise'), requires_feedback: true },
+    {
+      label: t('tui.approvalLabels.reject'),
+      response: 'rejected',
+      selected_label: t('tui.approvalLabels.reject'),
+    },
+    {
+      label: t('tui.approvalLabels.revise'),
+      response: 'rejected',
+      selected_label: t('tui.approvalLabels.revise'),
+      requires_feedback: true,
+    },
   ];
 }
 
@@ -227,9 +244,15 @@ function describeApproval(display: ToolInputDisplay, action: string): string {
 
 function getDangerPatterns(): Array<{ pattern: RegExp; label: string }> {
   return [
-    { pattern: /\brm\s+(-[a-zA-Z]*[rRfF][a-zA-Z]*|--recursive|--force)/i, label: t('tui.dangerPatterns.recursiveDelete') },
+    {
+      pattern: /\brm\s+(-[a-zA-Z]*[rRfF][a-zA-Z]*|--recursive|--force)/i,
+      label: t('tui.dangerPatterns.recursiveDelete'),
+    },
     { pattern: /\bsudo\b/i, label: t('tui.dangerPatterns.sudo') },
-    { pattern: /\b(curl|wget)\b[^|]*\|\s*(sh|bash|zsh)\b/i, label: t('tui.dangerPatterns.pipeToShell') },
+    {
+      pattern: /\b(curl|wget)\b[^|]*\|\s*(sh|bash|zsh)\b/i,
+      label: t('tui.dangerPatterns.pipeToShell'),
+    },
     { pattern: /\bdd\b[^|]*\bof=/i, label: t('tui.dangerPatterns.ddWrite') },
     { pattern: /\bmkfs\b/i, label: t('tui.dangerPatterns.mkfs') },
     { pattern: />\s*\/dev\/(sd|nvme|disk|hd)/i, label: t('tui.dangerPatterns.writeToRawDevice') },
@@ -343,8 +366,13 @@ function adaptDisplay(display: ToolInputDisplay): DisplayBlock[] {
     case 'plan_review':
       return [];
     case 'goal_start': {
-      const lines = [t('tui.approvalDescriptions.goalStartBrief', { objective: display.objective })];
-      if (typeof display.completionCriterion === 'string' && display.completionCriterion.length > 0) {
+      const lines = [
+        t('tui.approvalDescriptions.goalStartBrief', { objective: display.objective }),
+      ];
+      if (
+        typeof display.completionCriterion === 'string' &&
+        display.completionCriterion.length > 0
+      ) {
         lines.push(
           t('tui.approvalDescriptions.goalCompletionCriterion', {
             criterion: display.completionCriterion,
@@ -406,7 +434,13 @@ function adaptPlanReviewChoices(display: ToolInputDisplay): ApprovalPanelChoice[
           response: 'approved' as const,
           selected_label: option.label,
         }))
-      : [{ label: t('tui.approvalLabels.approve'), response: 'approved' as const, selected_label: t('tui.approvalLabels.approve') }];
+      : [
+          {
+            label: t('tui.approvalLabels.approve'),
+            response: 'approved' as const,
+            selected_label: t('tui.approvalLabels.approve'),
+          },
+        ];
   return [...optionChoices, ...getPlanRejectChoices()].map((choice) => cloneChoice(choice));
 }
 

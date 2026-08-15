@@ -12,7 +12,8 @@ vi.mock('#/i18n', () => {
   const translations: Record<string, string> = {
     // ── tool-call.ts ──
     'tui.messages.toolCall.detachHint': 'Press Ctrl+B to run in background',
-    'tui.messages.toolCall.backgroundLost': 'Background agent lost (session restarted before completion)',
+    'tui.messages.toolCall.backgroundLost':
+      'Background agent lost (session restarted before completion)',
     'tui.messages.toolCall.backgroundKilled': 'Background agent killed',
     'tui.messages.toolCall.backgroundTimedOut': 'Background agent timed out',
     'tui.messages.toolCall.backgroundFailed': 'Background agent failed',
@@ -59,9 +60,12 @@ vi.mock('#/i18n', () => {
     'tui.messages.toolCall.singleSubagent.queued': 'Queued',
     'tui.messages.toolCall.singleSubagent.starting': 'Starting',
     'tui.messages.toolCall.singleSubagent.toolCount': '{{n}} tool(s)',
-    'tui.messages.toolCall.argumentsTruncated': 'Tool call arguments truncated by max_tokens — call never executed.',
-    'tui.messages.toolCall.moreLinesHint': '... ({{remaining}} more lines, {{total}} total, ctrl+o to expand)',
-    'tui.messages.toolCall.preparingChanges': 'Preparing changes{{target}}... {{size}} · {{elapsed}} elapsed',
+    'tui.messages.toolCall.argumentsTruncated':
+      'Tool call arguments truncated by max_tokens — call never executed.',
+    'tui.messages.toolCall.moreLinesHint':
+      '... ({{remaining}} more lines, {{total}} total, ctrl+o to expand)',
+    'tui.messages.toolCall.preparingChanges':
+      'Preparing changes{{target}}... {{size}} · {{elapsed}} elapsed',
     'tui.messages.toolCall.preparingChangesTarget': ' for {{filePath}}',
     'tui.messages.toolCall.truncatedMarker': '[...truncated]',
     'tui.messages.toolCall.agentSwarmLabel': 'Agent swarm: ',
@@ -100,7 +104,8 @@ vi.mock('#/i18n', () => {
     // ── truncated.ts ──
     'tui.statusMessages.truncatedEarlierLines': '... ({{remaining}} earlier lines)',
     'tui.statusMessages.truncatedMoreLines': '... ({{remaining}} more lines)',
-    'tui.statusMessages.truncatedMoreLinesExpandable': '... ({{remaining}} more lines, ctrl+o to expand)',
+    'tui.statusMessages.truncatedMoreLinesExpandable':
+      '... ({{remaining}} more lines, ctrl+o to expand)',
     // ── plan-box.ts ──
     'tui.messages.planBox.fallback': ' plan ',
     'tui.messages.planBox.titlePrefix': ' plan: ',

@@ -1,9 +1,10 @@
 <!-- apps/kimi-web/src/components/chat/ToolRow.vue -->
 <script setup lang="ts">
 import { inject, nextTick, ref } from 'vue';
+
 import Icon from '../ui/Icon.vue';
-import Tooltip from '../ui/Tooltip.vue';
 import StatusDot from '../ui/StatusDot.vue';
+import Tooltip from '../ui/Tooltip.vue';
 
 withDefaults(
   defineProps<{
@@ -71,7 +72,12 @@ function onHeadClick(): void {
         <slot name="trailing" />
         <span v-if="time" class="tm">{{ time }}</span>
       </span>
-      <Icon v-if="expandable" class="car" :name="open ? 'chevron-down' : 'chevron-right'" size="sm" />
+      <Icon
+        v-if="expandable"
+        class="car"
+        :name="open ? 'chevron-down' : 'chevron-right'"
+        size="sm"
+      />
     </div>
     <div class="bb" :class="{ open }" :inert="!open">
       <div class="bb-pad">

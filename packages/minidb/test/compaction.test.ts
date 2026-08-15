@@ -1,9 +1,11 @@
-// test/compaction.test.js
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
+// test/compaction.test.js
+import { test } from 'vitest';
+
 import { MiniDb } from '../src/index.js';
 import { waitFor } from './helpers.js';
 
@@ -86,14 +88,24 @@ test('open-time compaction runs in the background — open() returns with the fu
   const dir = await tmpDir();
   try {
     // Grow the WAL well past the threshold without any compaction.
-    let db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false });
+    let db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     for (let i = 0; i < 200; i++) await db.set(`k${i}`, `v${i}`.padEnd(50, 'x'));
     await db.close();
 
     // Reopen with a 1 KiB threshold: the WAL far exceeds it, so compaction
     // fires — but open() must NOT block on the rewrite. The recovered store
     // is already complete and consistent the moment open() resolves.
-    db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no', compactThresholdBytes: 1024 });
+    db = await MiniDb.open({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      compactThresholdBytes: 1024,
+    });
     assert.equal(db.size, 200);
     for (let i = 0; i < 200; i++) assert.equal(db.get(`k${i}`), `v${i}`.padEnd(50, 'x'));
 
@@ -129,58 +141,62 @@ test('del-then-compact drops tombstoned keys from the snapshot', async () => {
   }
 });
 
-test('concurrent SET/UPDATE/DEL during compaction survive recovery', { timeout: 30_000 }, async () => {
-  // Exercises the fuzzy-snapshot + WAL-tail-replay convergence: writes that
-  // land while the snapshot is being written must all be reflected after a
-  // reopen, with last-writer-wins semantics.
-  const dir = await tmpDir();
-  try {
-    let db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no' });
-    // 5000 keys span 2 writeSnapshot yield windows (yieldEvery=2000, src/snapshot.ts),
-    // so the ops below genuinely race an in-progress snapshot.
-    const N = 5000;
-    for (let base = 0; base < N; base += 500) {
-      await db.batch(
-        Array.from({ length: Math.min(500, N - base) }, (_, j) => ({
-          op: 'set' as const,
-          key: 'k' + (base + j),
-          value: 'v' + (base + j),
-        })),
-      );
-    }
-
-    // Even keys are updated, keys == 1 (mod 4) are deleted, keys == 3 (mod 4)
-    // are left untouched, and a batch of new keys is added — all racing the
-    // in-progress snapshot.
-    let deleted = 0;
-    const M = 1000;
-    const compactP = db.compact();
-    const ops: Promise<unknown>[] = [];
-    for (let i = 0; i < N; i++) {
-      if (i % 2 === 0) ops.push(db.set('k' + i, 'updated-' + i));
-      else if (i % 4 === 1) {
-        deleted++;
-        ops.push(db.del('k' + i));
+test(
+  'concurrent SET/UPDATE/DEL during compaction survive recovery',
+  { timeout: 30_000 },
+  async () => {
+    // Exercises the fuzzy-snapshot + WAL-tail-replay convergence: writes that
+    // land while the snapshot is being written must all be reflected after a
+    // reopen, with last-writer-wins semantics.
+    const dir = await tmpDir();
+    try {
+      let db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no' });
+      // 5000 keys span 2 writeSnapshot yield windows (yieldEvery=2000, src/snapshot.ts),
+      // so the ops below genuinely race an in-progress snapshot.
+      const N = 5000;
+      for (let base = 0; base < N; base += 500) {
+        await db.batch(
+          Array.from({ length: Math.min(500, N - base) }, (_, j) => ({
+            op: 'set' as const,
+            key: 'k' + (base + j),
+            value: 'v' + (base + j),
+          })),
+        );
       }
-    }
-    for (let i = 0; i < M; i++) ops.push(db.set('new' + i, 'n' + i));
-    await Promise.all(ops);
-    await compactP;
-    await db.close();
 
-    db = await MiniDb.open({ dir, valueCodec: 'string' });
-    for (let i = 0; i < N; i++) {
-      if (i % 2 === 0) assert.equal(db.get('k' + i), 'updated-' + i, `updated k${i}`);
-      else if (i % 4 === 1) assert.equal(db.get('k' + i), undefined, `deleted k${i}`);
-      else assert.equal(db.get('k' + i), 'v' + i, `unchanged k${i}`);
+      // Even keys are updated, keys == 1 (mod 4) are deleted, keys == 3 (mod 4)
+      // are left untouched, and a batch of new keys is added — all racing the
+      // in-progress snapshot.
+      let deleted = 0;
+      const M = 1000;
+      const compactP = db.compact();
+      const ops: Promise<unknown>[] = [];
+      for (let i = 0; i < N; i++) {
+        if (i % 2 === 0) ops.push(db.set('k' + i, 'updated-' + i));
+        else if (i % 4 === 1) {
+          deleted++;
+          ops.push(db.del('k' + i));
+        }
+      }
+      for (let i = 0; i < M; i++) ops.push(db.set('new' + i, 'n' + i));
+      await Promise.all(ops);
+      await compactP;
+      await db.close();
+
+      db = await MiniDb.open({ dir, valueCodec: 'string' });
+      for (let i = 0; i < N; i++) {
+        if (i % 2 === 0) assert.equal(db.get('k' + i), 'updated-' + i, `updated k${i}`);
+        else if (i % 4 === 1) assert.equal(db.get('k' + i), undefined, `deleted k${i}`);
+        else assert.equal(db.get('k' + i), 'v' + i, `unchanged k${i}`);
+      }
+      for (let i = 0; i < M; i++) assert.equal(db.get('new' + i), 'n' + i, `new${i}`);
+      assert.equal(db.size, N - deleted + M);
+      await db.close();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
     }
-    for (let i = 0; i < M; i++) assert.equal(db.get('new' + i), 'n' + i, `new${i}`);
-    assert.equal(db.size, N - deleted + M);
-    await db.close();
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-});
+  },
+);
 
 test('compaction with no concurrent writes produces an empty WAL tail', async () => {
   // When nothing is written during compaction, the post-fence WAL tail is empty
@@ -217,7 +233,8 @@ test('disk-mode compaction with continuous writes stays consistent for sync and 
     // Seed past the threshold, then compact while writes continue: the
     // stage-6 grouped async snapshot reads must produce the same snapshot a
     // synchronous reader would.
-    for (let i = 0; i < 300; i++) await db.set(`k${i}`, { n: i, text: `bulk ${i} ${'x'.repeat(40)}` });
+    for (let i = 0; i < 300; i++)
+      await db.set(`k${i}`, { n: i, text: `bulk ${i} ${'x'.repeat(40)}` });
     const compactP = db.compact();
     for (let i = 300; i < 380; i++) await db.set(`k${i}`, { n: i, text: `tail ${i}` });
     await compactP;
@@ -228,7 +245,12 @@ test('disk-mode compaction with continuous writes stays consistent for sync and 
     await db.close();
 
     // A read-only reader recovers the rotated pair and agrees.
-    const ro = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', valueMode: 'disk', readOnly: true });
+    const ro = await MiniDb.open<Record<string, unknown>>({
+      dir,
+      valueCodec: 'json',
+      valueMode: 'disk',
+      readOnly: true,
+    });
     assert.equal(ro.size, 380);
     for (let i = 0; i < 380; i += 17) {
       assert.deepEqual(await ro.getAsync(`k${i}`), ro.get(`k${i}`));

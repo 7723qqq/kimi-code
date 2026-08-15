@@ -564,13 +564,19 @@ export class GoogleGenAIStreamedMessage implements StreamedMessage {
     if (usageMetadata === undefined) {
       return;
     }
-    const usage: TokenUsage =
-      this._usage ?? { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 };
+    const usage: TokenUsage = this._usage ?? {
+      inputOther: 0,
+      output: 0,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+    };
     const promptTokenCount = usageMetadata['promptTokenCount'];
     const cachedContentTokenCount = usageMetadata['cachedContentTokenCount'];
     if (typeof promptTokenCount === 'number') {
       const cached =
-        typeof cachedContentTokenCount === 'number' ? cachedContentTokenCount : usage.inputCacheRead;
+        typeof cachedContentTokenCount === 'number'
+          ? cachedContentTokenCount
+          : usage.inputCacheRead;
       usage.inputOther = Math.max(promptTokenCount - cached, 0);
     }
     if (typeof cachedContentTokenCount === 'number') {
@@ -899,7 +905,6 @@ export class GoogleGenAIChatProvider implements ChatProvider {
     );
   }
 }
-
 
 const GEMINI_CATALOGUED_PREFIXES = [
   'gemini-1.5-pro',

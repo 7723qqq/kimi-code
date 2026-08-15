@@ -5,7 +5,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { isVerificationCommand, ProgressTracker, type ToolReceipt } from '#/agent/progressTrack/progressTracker';
+import {
+  isVerificationCommand,
+  ProgressTracker,
+  type ToolReceipt,
+} from '#/agent/progressTrack/progressTracker';
 
 function write(path: string, toolName = 'Write'): ToolReceipt {
   return { toolName, success: true, paths: { read: [], write: [path] } };

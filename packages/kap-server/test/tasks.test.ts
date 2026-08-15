@@ -12,8 +12,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -287,9 +287,7 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     const taskId = tasks.registerTask(fakeTask('process', 'hello world'));
     await flush();
 
-    const got = await getJson<TaskWire>(
-      `/api/v1/sessions/${id}/tasks/${taskId}?with_output=true`,
-    );
+    const got = await getJson<TaskWire>(`/api/v1/sessions/${id}/tasks/${taskId}?with_output=true`);
     expect(got.body.code).toBe(0);
     expect(got.body.data.output_preview).toBe('hello world');
     expect(got.body.data.output_bytes).toBe(Buffer.byteLength('hello world', 'utf-8'));

@@ -159,16 +159,20 @@ describe('AgentVideoResolverService', () => {
     const message = videoMessage(buildKimiFileUrl(FILE_ID, FALLBACK_PATH));
 
     const upload1 = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-1'));
-    await new AgentVideoResolverService(fileService(files), blobs, telemetry, new AgentStateService()).resolve(
-      [message],
-      requester({ uploadVideo: upload1 }),
-    );
+    await new AgentVideoResolverService(
+      fileService(files),
+      blobs,
+      telemetry,
+      new AgentStateService(),
+    ).resolve([message], requester({ uploadVideo: upload1 }));
 
     const upload2 = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-2'));
-    const out = await new AgentVideoResolverService(fileService(files), blobs, telemetry, new AgentStateService()).resolve(
-      [message],
-      requester({ uploadVideo: upload2 }),
-    );
+    const out = await new AgentVideoResolverService(
+      fileService(files),
+      blobs,
+      telemetry,
+      new AgentStateService(),
+    ).resolve([message], requester({ uploadVideo: upload2 }));
 
     expect(firstPart(out)).toEqual(msPart('prov-1'));
     expect(upload1).toHaveBeenCalledTimes(1);
@@ -182,9 +186,15 @@ describe('AgentVideoResolverService', () => {
       blobStore(),
       telemetry,
       new AgentStateService(),
-    ).resolve([videoMessage(buildKimiFileUrl(FILE_ID, FALLBACK_PATH))], requester({ videoIn: false, uploadVideo: upload }));
+    ).resolve(
+      [videoMessage(buildKimiFileUrl(FILE_ID, FALLBACK_PATH))],
+      requester({ videoIn: false, uploadVideo: upload }),
+    );
 
-    expect(firstPart(out)).toEqual({ type: 'text', text: `<video path="${FALLBACK_PATH}"></video>` });
+    expect(firstPart(out)).toEqual({
+      type: 'text',
+      text: `<video path="${FALLBACK_PATH}"></video>`,
+    });
     expect(upload).not.toHaveBeenCalled();
   });
 
@@ -194,7 +204,10 @@ describe('AgentVideoResolverService', () => {
       blobStore(),
       telemetry,
       new AgentStateService(),
-    ).resolve([videoMessage(buildKimiFileUrl(FILE_ID, FALLBACK_PATH))], requester({ protocol: 'anthropic', uploadVideo: undefined }));
+    ).resolve(
+      [videoMessage(buildKimiFileUrl(FILE_ID, FALLBACK_PATH))],
+      requester({ protocol: 'anthropic', uploadVideo: undefined }),
+    );
 
     expect(firstPart(out)).toEqual({
       type: 'video_url',
@@ -208,9 +221,15 @@ describe('AgentVideoResolverService', () => {
       blobStore(),
       telemetry,
       new AgentStateService(),
-    ).resolve([videoMessage(buildKimiFileUrl(FILE_ID, FALLBACK_PATH))], requester({ protocol: 'openai', uploadVideo: undefined }));
+    ).resolve(
+      [videoMessage(buildKimiFileUrl(FILE_ID, FALLBACK_PATH))],
+      requester({ protocol: 'openai', uploadVideo: undefined }),
+    );
 
-    expect(firstPart(out)).toEqual({ type: 'text', text: `<video path="${FALLBACK_PATH}"></video>` });
+    expect(firstPart(out)).toEqual({
+      type: 'text',
+      text: `<video path="${FALLBACK_PATH}"></video>`,
+    });
   });
 
   it('rethrows an auth failure so it can drive credential refresh', async () => {
@@ -225,7 +244,10 @@ describe('AgentVideoResolverService', () => {
     );
 
     await expect(
-      resolver.resolve([videoMessage(buildKimiFileUrl(FILE_ID, FALLBACK_PATH))], requester({ uploadVideo: upload })),
+      resolver.resolve(
+        [videoMessage(buildKimiFileUrl(FILE_ID, FALLBACK_PATH))],
+        requester({ uploadVideo: upload }),
+      ),
     ).rejects.toThrow('unauthorized');
   });
 
@@ -270,7 +292,10 @@ describe('AgentVideoResolverService', () => {
     const req = requester({ uploadVideo: upload });
 
     const failed = await resolver.resolve([message], req);
-    expect(firstPart(failed)).toEqual({ type: 'text', text: `<video path="${FALLBACK_PATH}"></video>` });
+    expect(firstPart(failed)).toEqual({
+      type: 'text',
+      text: `<video path="${FALLBACK_PATH}"></video>`,
+    });
 
     const retried = await resolver.resolve([message], req);
     expect(firstPart(retried)).toEqual(msPart('prov-1'));
@@ -287,26 +312,42 @@ describe('AgentVideoResolverService', () => {
       blobStore(),
       telemetry,
       new AgentStateService(),
-    ).resolve([videoMessage(buildKimiFileUrl(FILE_ID, FALLBACK_PATH))], requester({ uploadVideo: upload }));
+    ).resolve(
+      [videoMessage(buildKimiFileUrl(FILE_ID, FALLBACK_PATH))],
+      requester({ uploadVideo: upload }),
+    );
 
-    expect(firstPart(out)).toEqual({ type: 'text', text: `<video path="${FALLBACK_PATH}"></video>` });
+    expect(firstPart(out)).toEqual({
+      type: 'text',
+      text: `<video path="${FALLBACK_PATH}"></video>`,
+    });
     expect(upload).not.toHaveBeenCalled();
   });
 
   it('tags a stale reference by its materialization path', async () => {
-    const out = await new AgentVideoResolverService(fileService(new Map()), blobStore(), telemetry, new AgentStateService()).resolve(
+    const out = await new AgentVideoResolverService(
+      fileService(new Map()),
+      blobStore(),
+      telemetry,
+      new AgentStateService(),
+    ).resolve(
       [videoMessage(buildKimiFileUrl('missing', FALLBACK_PATH))],
       requester({ uploadVideo: vi.fn() }),
     );
 
-    expect(firstPart(out)).toEqual({ type: 'text', text: `<video path="${FALLBACK_PATH}"></video>` });
+    expect(firstPart(out)).toEqual({
+      type: 'text',
+      text: `<video path="${FALLBACK_PATH}"></video>`,
+    });
   });
 
   it('emits an unavailable placeholder when a stale reference has no fallback path', async () => {
-    const out = await new AgentVideoResolverService(fileService(new Map()), blobStore(), telemetry, new AgentStateService()).resolve(
-      [videoMessage(buildKimiFileUrl('missing'))],
-      requester({ uploadVideo: vi.fn() }),
-    );
+    const out = await new AgentVideoResolverService(
+      fileService(new Map()),
+      blobStore(),
+      telemetry,
+      new AgentStateService(),
+    ).resolve([videoMessage(buildKimiFileUrl('missing'))], requester({ uploadVideo: vi.fn() }));
 
     expect(firstPart(out)).toEqual({
       type: 'text',

@@ -1,7 +1,8 @@
 import { Container, Key, matchesKey, type Focusable } from '@moonshot-ai/pi-tui';
+
+import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '#/tui/utils/printable-key';
-import { t } from '#/i18n';
 
 export interface CodingPlanConfigOptions {
   readonly currentConfig: Record<string, unknown>;
@@ -30,13 +31,20 @@ export class CodingPlanConfigComponent extends Container implements Focusable {
     super();
     this.opts = opts;
     this.fieldOrder = [
-      'protocol', 'stream', 'temperature', 'maxTokens',
-      'enableThinking', 'searchDisable', 'showRefLabel',
-      'loraId', 'reasoningEffort',
+      'protocol',
+      'stream',
+      'temperature',
+      'maxTokens',
+      'enableThinking',
+      'searchDisable',
+      'showRefLabel',
+      'loraId',
+      'reasoningEffort',
     ];
     for (const key of this.fieldOrder) {
       const value = opts.currentConfig[key];
-      this.fields[key] = value === undefined ? '' : typeof value === 'string' ? value : displayConfigValue(value);
+      this.fields[key] =
+        value === undefined ? '' : typeof value === 'string' ? value : displayConfigValue(value);
     }
   }
 
@@ -144,11 +152,13 @@ const FIELD_SCHEMAS: Record<string, FieldSchema> = {
   stream: { parse: (raw) => raw === 'true' },
   temperature: {
     parse: (raw) => Number(raw),
-    validate: (v) => typeof v === 'number' && !Number.isNaN(v) && (v as number) >= 0 && (v as number) <= 2,
+    validate: (v) =>
+      typeof v === 'number' && !Number.isNaN(v) && (v as number) >= 0 && (v as number) <= 2,
   },
   maxTokens: {
     parse: (raw) => Number(raw),
-    validate: (v) => typeof v === 'number' && !Number.isNaN(v) && Number.isInteger(v) && (v as number) >= 1,
+    validate: (v) =>
+      typeof v === 'number' && !Number.isNaN(v) && Number.isInteger(v) && (v as number) >= 1,
   },
   enableThinking: { parse: (raw) => raw === 'true' },
   searchDisable: { parse: (raw) => raw === 'true' },

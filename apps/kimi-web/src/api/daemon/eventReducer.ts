@@ -8,6 +8,9 @@
 // The reducer detects `_noop: true` and silently advances lastSeqBySession
 // without pushing a warning.
 
+import { i18n } from '../../i18n';
+import type { SessionStats } from '../../lib/sessionStats';
+import type { TurnUsage } from '../../types';
 import type {
   AppApprovalRequest,
   AppConfig,
@@ -24,9 +27,6 @@ import type {
   CompactionMarkerMetadata,
 } from '../types';
 import { COMPACTION_MARKER_METADATA_KEY } from '../types';
-import type { SessionStats } from '../../lib/sessionStats';
-import type { TurnUsage } from '../../types';
-import { i18n } from '../../i18n';
 
 const OPTIMISTIC_USER_MESSAGE_METADATA_KEY = 'kimiWeb.optimisticUserMessage';
 
@@ -137,7 +137,11 @@ function cloneState(s: KimiClientState): KimiClientState {
   };
 }
 
-function advanceSeq(state: KimiClientState, sessionId: string | undefined, seq: number | undefined): void {
+function advanceSeq(
+  state: KimiClientState,
+  sessionId: string | undefined,
+  seq: number | undefined,
+): void {
   if (sessionId !== undefined && seq !== undefined && seq > 0) {
     const prev = state.lastSeqBySession[sessionId] ?? 0;
     if (seq > prev) {
@@ -148,8 +152,7 @@ function advanceSeq(state: KimiClientState, sessionId: string | undefined, seq: 
 
 function isOptimisticUserMessage(message: AppMessage): boolean {
   return (
-    message.role === 'user' &&
-    message.metadata?.[OPTIMISTIC_USER_MESSAGE_METADATA_KEY] === true
+    message.role === 'user' && message.metadata?.[OPTIMISTIC_USER_MESSAGE_METADATA_KEY] === true
   );
 }
 
@@ -228,7 +231,11 @@ function findOptimisticUserEchoIndex(messages: AppMessage[], message: AppMessage
   return -1;
 }
 
-function appendToolOutputToMessages(messages: AppMessage[], toolCallId: string, outputChunk: string): AppMessage[] {
+function appendToolOutputToMessages(
+  messages: AppMessage[],
+  toolCallId: string,
+  outputChunk: string,
+): AppMessage[] {
   let changed = false;
   const next = messages.map((message) => {
     let contentChanged = false;
@@ -300,7 +307,8 @@ function buildAgentErrorNotice(raw: AgentErrorRaw): AppNotice {
     if (key === 'statusCode' || key === 'requestId') continue;
     push(key, value);
   }
-  const titleKey = (raw.code !== undefined ? AGENT_ERROR_TITLE_KEYS[raw.code] : undefined) ?? 'title';
+  const titleKey =
+    (raw.code !== undefined ? AGENT_ERROR_TITLE_KEYS[raw.code] : undefined) ?? 'title';
   return {
     severity: 'error',
     title: t(`warnings.agentError.${titleKey}`),
@@ -346,9 +354,7 @@ export function reduceAppEvent(
 
     // -------------------------------------------------------------------------
     case 'sessionUpdated': {
-      next.sessions = next.sessions.map((s) =>
-        s.id === event.session.id ? event.session : s,
-      );
+      next.sessions = next.sessions.map((s) => (s.id === event.session.id ? event.session : s));
       break;
     }
 
@@ -635,7 +641,11 @@ export function reduceAppEvent(
     case 'toolOutput': {
       const sid = event.sessionId;
       const msgs = next.messagesBySession[sid] ?? [];
-      next.messagesBySession[sid] = appendToolOutputToMessages(msgs, event.toolCallId, event.outputChunk);
+      next.messagesBySession[sid] = appendToolOutputToMessages(
+        msgs,
+        event.toolCallId,
+        event.outputChunk,
+      );
       break;
     }
 
@@ -653,7 +663,11 @@ export function reduceAppEvent(
         | { kind?: unknown; plan?: unknown; path?: unknown }
         | null
         | undefined;
-      if (display?.kind === 'plan_review' && typeof display.plan === 'string' && display.plan.length > 0) {
+      if (
+        display?.kind === 'plan_review' &&
+        typeof display.plan === 'string' &&
+        display.plan.length > 0
+      ) {
         next.planReviewByToolCallId = {
           ...next.planReviewByToolCallId,
           [event.approval.toolCallId]: {
@@ -820,9 +834,7 @@ export function reduceAppEvent(
     // -------------------------------------------------------------------------
     case 'turnActiveChanged': {
       next.sessions = next.sessions.map((session) =>
-        session.id === event.sessionId
-          ? { ...session, mainTurnActive: event.active }
-          : session,
+        session.id === event.sessionId ? { ...session, mainTurnActive: event.active } : session,
       );
       if (event.active) {
         next.turnActiveBySession[event.sessionId] = true;

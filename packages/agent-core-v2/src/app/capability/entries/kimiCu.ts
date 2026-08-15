@@ -44,12 +44,10 @@ const MAC_PLUGIN = {
 } as const;
 const WINDOWS_PLUGIN = {
   id: 'kimi-cu-win',
-  zipUrl:
-    'https://cdn.kimi.com/kimi-computer-use-windows/latest/kimi-cu-win-plugin.zip',
+  zipUrl: 'https://cdn.kimi.com/kimi-computer-use-windows/latest/kimi-cu-win-plugin.zip',
 } as const;
 const APP_ZIP_URL = 'https://cdn.kimi.com/kimi-computer-use/latest/KimiCU.app.zip';
-const WINDOWS_SETUP_URL =
-  'https://cdn.kimi.com/kimi-computer-use-windows/latest/setup_windows.ps1';
+const WINDOWS_SETUP_URL = 'https://cdn.kimi.com/kimi-computer-use-windows/latest/setup_windows.ps1';
 const APP_BUNDLE = 'KimiCU.app';
 const LAUNCHD_LABEL = 'ai.kimi.cu.service';
 const COMMAND_TIMEOUT_MS = 30_000;
@@ -72,7 +70,7 @@ const WINDOWS_DOCTOR_SCRIPT =
   "if ($env:KIMI_CU_WINDOWS_HOME) { $candidates += (Join-Path $env:KIMI_CU_WINDOWS_HOME 'kimi-cu.exe') }; " +
   "if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'KimiCU\\kimi-cu.exe') }; " +
   "if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'KimiCU\\kimi-cu.exe') }; " +
-  "$exe = $candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1; " +
+  '$exe = $candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1; ' +
   'if (-not $exe) { exit 3 }; & $exe doctor; exit $LASTEXITCODE';
 
 interface PluginLayerConfig {
@@ -118,24 +116,15 @@ export function windowsPowerShellPath(
   systemRoot = process.env['SystemRoot'] ?? DEFAULT_WINDOWS_SYSTEM_ROOT,
 ): string {
   const root = path.win32.isAbsolute(systemRoot) ? systemRoot : DEFAULT_WINDOWS_SYSTEM_ROOT;
-  return path.win32.join(
-    root,
-    'System32',
-    'WindowsPowerShell',
-    'v1.0',
-    'powershell.exe',
-  );
+  return path.win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 }
 
 export function windowsPowerShell7Path(
-  programFiles =
-    process.env['ProgramW6432'] ??
+  programFiles = process.env['ProgramW6432'] ??
     process.env['ProgramFiles'] ??
     DEFAULT_WINDOWS_PROGRAM_FILES,
 ): string {
-  const root = path.win32.isAbsolute(programFiles)
-    ? programFiles
-    : DEFAULT_WINDOWS_PROGRAM_FILES;
+  const root = path.win32.isAbsolute(programFiles) ? programFiles : DEFAULT_WINDOWS_PROGRAM_FILES;
   return path.win32.join(root, 'PowerShell', '7', 'pwsh.exe');
 }
 
@@ -301,9 +290,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
     }
   }
 
-  async function removeLegacyMcpRegistration(
-    legacy: LegacyMcpFile | undefined,
-  ): Promise<boolean> {
+  async function removeLegacyMcpRegistration(legacy: LegacyMcpFile | undefined): Promise<boolean> {
     if (legacy === undefined) return false;
 
     const nextServers = { ...legacy.servers };
@@ -367,12 +354,13 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
     } else {
       const granted =
         permissions !== undefined && permissions.accessibility && permissions.screenRecording;
-      const missingPermissions = permissions === undefined
-        ? undefined
-        : [
-            ...(permissions.accessibility ? [] : ['accessibility']),
-            ...(permissions.screenRecording ? [] : ['screenRecording']),
-          ].join(',');
+      const missingPermissions =
+        permissions === undefined
+          ? undefined
+          : [
+              ...(permissions.accessibility ? [] : ['accessibility']),
+              ...(permissions.screenRecording ? [] : ['screenRecording']),
+            ].join(',');
       steps.push({
         id: 'permissions',
         state: granted ? 'ok' : 'missing',
@@ -390,9 +378,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
   }
 
   async function bestEffort(command: string, args: readonly string[]): Promise<void> {
-    await runCommand(ctx.hostProcess, command, args, { timeout: commandTimeoutMs }).catch(
-      () => {},
-    );
+    await runCommand(ctx.hostProcess, command, args, { timeout: commandTimeoutMs }).catch(() => {});
   }
 
   async function stopOldProcesses(): Promise<void> {
@@ -472,9 +458,14 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
 
         report('app');
         const unzipDir = path.join(workDir, 'unzipped');
-        const unzipped = await runCommand(ctx.hostProcess, 'ditto', ['-x', '-k', zipPath, unzipDir], {
-          timeout: 120_000,
-        });
+        const unzipped = await runCommand(
+          ctx.hostProcess,
+          'ditto',
+          ['-x', '-k', zipPath, unzipDir],
+          {
+            timeout: 120_000,
+          },
+        );
         if (unzipped.code !== 0) {
           throw new Error(`Failed to unzip KimiCU.app: ${unzipped.stderr || unzipped.stdout}`);
         }
@@ -507,12 +498,9 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
 
     if (stepStates.get('permissions') !== 'ok') {
       report('permissions');
-      await runCommand(
-        ctx.hostProcess,
-        appBin,
-        ['request-permissions', '--ax', '--screen'],
-        { timeout: PERMISSIONS_TIMEOUT_MS },
-      ).catch(() => {});
+      await runCommand(ctx.hostProcess, appBin, ['request-permissions', '--ax', '--screen'], {
+        timeout: PERMISSIONS_TIMEOUT_MS,
+      }).catch(() => {});
     }
     return undefined;
   }
@@ -532,8 +520,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
 function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
   const supported = ctx.platform === 'win32' && ctx.arch === 'x64';
   const probeTimeoutMs = ctx.detectProbeTimeoutMs ?? DETECT_PROBE_TIMEOUT_MS;
-  const installerProbeTimeoutMs =
-    ctx.detectProbeTimeoutMs ?? WINDOWS_INSTALLER_PROBE_TIMEOUT_MS;
+  const installerProbeTimeoutMs = ctx.detectProbeTimeoutMs ?? WINDOWS_INSTALLER_PROBE_TIMEOUT_MS;
   const installTimeoutMs = ctx.commandTimeoutMs ?? WINDOWS_INSTALL_TIMEOUT_MS;
   const powershellPath = windowsPowerShellPath();
   const powershell7Path = windowsPowerShell7Path();

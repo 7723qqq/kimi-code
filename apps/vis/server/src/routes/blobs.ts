@@ -1,10 +1,11 @@
-import { Hono } from 'hono';
-import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import { Hono } from 'hono';
 
 import { KIMI_CODE_HOME } from '../config';
-import { isSafeAgentId, readSessionDetail } from '../lib/session-store';
 import { isSafeBlobHash } from '../lib/blob-resolver';
+import { isSafeAgentId, readSessionDetail } from '../lib/session-store';
 
 /** MIME-type prefixes that are safe to serve as blob content. Anything outside
  *  this set is downgraded to `application/octet-stream` so a hand-edited
@@ -42,10 +43,7 @@ export function blobsRoute(home: string = KIMI_CODE_HOME): Hono {
     }
     const agent = detail.agents.find((a) => a.agentId === agentId);
     if (!agent) {
-      return c.json(
-        { error: `agent "${agentId}" not found`, code: 'NOT_FOUND' },
-        404,
-      );
+      return c.json({ error: `agent "${agentId}" not found`, code: 'NOT_FOUND' }, 404);
     }
     const blobPath = join(agent.homedir, 'blobs', hash);
     let content: Buffer;

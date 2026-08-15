@@ -8,6 +8,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import { formatMessageTime } from '../../lib/formatMessageTime';
 
 const props = defineProps<{ time: string }>();
@@ -51,7 +52,10 @@ function toggle(): void {
   line-height: 1;
   cursor: pointer;
   opacity: 0.7;
-  transition: opacity 0.12s, color 0.12s, background-color 0.12s;
+  transition:
+    opacity 0.12s,
+    color 0.12s,
+    background-color 0.12s;
   white-space: nowrap;
 }
 .msg-time:hover {

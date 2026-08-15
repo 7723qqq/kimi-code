@@ -11,9 +11,14 @@
 import { registerProtocolBase } from '#/kosong/protocol/protocolBase';
 import { traitDefaultHeaders } from '#/kosong/protocol/protocolTrait';
 
+import {
+  compactObject,
+  firstProcessEnv,
+  traitEndpoint,
+  traitProvides,
+} from '../openai/openaiHooks';
 import { AnthropicChatProvider, getAnthropicModelCapability } from './anthropic';
 import { composeAnthropicHooks } from './anthropicHooks';
-import { compactObject, firstProcessEnv, traitEndpoint, traitProvides } from '../openai/openaiHooks';
 
 registerProtocolBase({
   id: 'anthropic',

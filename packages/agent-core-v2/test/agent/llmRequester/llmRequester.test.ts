@@ -1,16 +1,18 @@
-import { APIConnectionError, APIStatusError } from '#/kosong/contract/errors';
-import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
-import { type StreamedMessagePart } from '#/kosong/contract/message';
-import type { Tool } from '#/kosong/contract/tool';
-import { emptyUsage } from '#/kosong/contract/usage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ILogger as Logger, LogPayload } from '#/_base/log/log';
 import {
   IAgentLLMRequesterService,
   type AgentLLMRequestFinish,
 } from '#/agent/llmRequester/llmRequester';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import type { ILogger as Logger, LogPayload } from '#/_base/log/log';
+import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
+import { APIConnectionError, APIStatusError } from '#/kosong/contract/errors';
+import { type StreamedMessagePart } from '#/kosong/contract/message';
+import type { Tool } from '#/kosong/contract/tool';
+import { emptyUsage } from '#/kosong/contract/usage';
+
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import {
   configServices,
   createTestAgent,
@@ -19,7 +21,6 @@ import {
   telemetryServices,
   type TestAgentContext,
 } from '../../harness';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 interface CapturedLogEntry {
   readonly level: 'error' | 'warn' | 'info' | 'debug';
@@ -29,10 +30,9 @@ interface CapturedLogEntry {
 
 function captureLogs(): { logger: Logger; entries: CapturedLogEntry[] } {
   const entries: CapturedLogEntry[] = [];
-  const capture =
-    (level: CapturedLogEntry['level']) => (message: string, payload?: LogPayload) => {
-      entries.push({ level, message, payload });
-    };
+  const capture = (level: CapturedLogEntry['level']) => (message: string, payload?: LogPayload) => {
+    entries.push({ level, message, payload });
+  };
   const logger: Logger = {
     error: capture('error'),
     warn: capture('warn'),
@@ -240,7 +240,9 @@ describe('LLMRequester service migration coverage', () => {
 
       const requests = wireEvents(ctx, 'llm.request');
       expect(requests).toHaveLength(2);
-      expect((requests[0]?.args as Record<string, unknown> | undefined)?.['projection']).toBeUndefined();
+      expect(
+        (requests[0]?.args as Record<string, unknown> | undefined)?.['projection'],
+      ).toBeUndefined();
       expect(requests[1]?.args).toMatchObject({ projection: 'strict' });
     });
   });
@@ -464,23 +466,25 @@ describe('LLMRequester service migration coverage', () => {
       const { logger, entries } = captureLogs();
       logEntries = entries;
       ctx = createTestAgent(
-        llmGenerateServices(async (_provider, _systemPrompt, _tools, _messages, callbacks, options) => {
-          requestMaxTokens = options?.maxCompletionTokens;
-          options?.onRequestStart?.();
-          await callbacks?.onMessagePart?.({ type: 'text', text: 'timed' });
-          options?.onStreamEnd?.();
-          return {
-            id: 'response-1',
-            message: {
-              role: 'assistant',
-              content: [{ type: 'text', text: 'timed' }],
-              toolCalls: [],
-            },
-            usage: emptyUsage(),
-            finishReason: 'completed',
-            rawFinishReason: 'stop',
-          };
-        }),
+        llmGenerateServices(
+          async (_provider, _systemPrompt, _tools, _messages, callbacks, options) => {
+            requestMaxTokens = options?.maxCompletionTokens;
+            options?.onRequestStart?.();
+            await callbacks?.onMessagePart?.({ type: 'text', text: 'timed' });
+            options?.onStreamEnd?.();
+            return {
+              id: 'response-1',
+              message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'timed' }],
+                toolCalls: [],
+              },
+              usage: emptyUsage(),
+              finishReason: 'completed',
+              rawFinishReason: 'stop',
+            };
+          },
+        ),
         configServices(() => ({
           defaultModel: 'deepseek/deepseek-v4-flash',
           providers: {
@@ -634,20 +638,22 @@ describe('LLMRequester service migration coverage', () => {
     beforeEach(() => {
       capturedCacheKey = undefined;
       ctx = createTestAgent(
-        llmGenerateServices(async (_provider, _systemPrompt, _tools, _messages, _callbacks, options) => {
-          capturedCacheKey = options?.cacheKey;
-          return {
-            id: 'response-1',
-            message: {
-              role: 'assistant',
-              content: [{ type: 'text', text: 'intent' }],
-              toolCalls: [],
-            },
-            usage: emptyUsage(),
-            finishReason: 'completed',
-            rawFinishReason: 'stop',
-          };
-        }),
+        llmGenerateServices(
+          async (_provider, _systemPrompt, _tools, _messages, _callbacks, options) => {
+            capturedCacheKey = options?.cacheKey;
+            return {
+              id: 'response-1',
+              message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'intent' }],
+                toolCalls: [],
+              },
+              usage: emptyUsage(),
+              finishReason: 'completed',
+              rawFinishReason: 'stop',
+            };
+          },
+        ),
       );
       llmRequester = ctx.get(IAgentLLMRequesterService);
     });
@@ -666,32 +672,19 @@ describe('LLMRequester service migration coverage', () => {
       expect(capturedCacheKey).toBe('test-session');
     });
   });
-
 });
 
-type ProtocolEvent = Extract<
-  TestAgentContext['allEvents'][number],
-  { readonly type: '[rpc]' }
->;
+type ProtocolEvent = Extract<TestAgentContext['allEvents'][number], { readonly type: '[rpc]' }>;
 
-type WireEvent = Extract<
-  TestAgentContext['allEvents'][number],
-  { readonly type: '[wire]' }
->;
+type WireEvent = Extract<TestAgentContext['allEvents'][number], { readonly type: '[wire]' }>;
 
-function protocolEvents(
-  ctx: TestAgentContext,
-  eventName: string,
-): readonly ProtocolEvent[] {
+function protocolEvents(ctx: TestAgentContext, eventName: string): readonly ProtocolEvent[] {
   return ctx.allEvents.filter(
     (event): event is ProtocolEvent => event.type === '[rpc]' && event.event === eventName,
   );
 }
 
-function wireEvents(
-  ctx: TestAgentContext,
-  eventName: string,
-): readonly WireEvent[] {
+function wireEvents(ctx: TestAgentContext, eventName: string): readonly WireEvent[] {
   return ctx.allEvents.filter(
     (event): event is WireEvent => event.type === '[wire]' && event.event === eventName,
   );

@@ -90,7 +90,9 @@ describe('FileStorageService — error translation', () => {
   it('append on a non-existent key creates it', async () => {
     const svc = new FileStorageService(dir);
     await svc.append('scope', 'created-by-append.json', encoder.encode('hello'));
-    expect(new TextDecoder().decode(await svc.read('scope', 'created-by-append.json'))).toBe('hello');
+    expect(new TextDecoder().decode(await svc.read('scope', 'created-by-append.json'))).toBe(
+      'hello',
+    );
   });
 
   it('read returns undefined for a missing scope', async () => {
@@ -141,10 +143,14 @@ describe('FileStorageService — writeStream', () => {
   it('writes a chunked source and replaces the whole value', async () => {
     const svc = new FileStorageService(dir);
     await svc.write('scope', 'k.bin', encoder.encode('old'));
-    await svc.writeStream('scope', 'k.bin', (async function* () {
-      yield encoder.encode('aa');
-      yield encoder.encode('bbb');
-    })());
+    await svc.writeStream(
+      'scope',
+      'k.bin',
+      (async function* () {
+        yield encoder.encode('aa');
+        yield encoder.encode('bbb');
+      })(),
+    );
 
     const chunks: Uint8Array[] = [];
     for await (const chunk of svc.readStream('scope', 'k.bin')) chunks.push(chunk);
@@ -154,10 +160,14 @@ describe('FileStorageService — writeStream', () => {
   it('leaves no target file behind when the source fails mid-stream', async () => {
     const svc = new FileStorageService(dir);
     await expect(
-      svc.writeStream('scope', 'k.bin', (async function* () {
-        yield encoder.encode('partial');
-        throw new Error('boom');
-      })()),
+      svc.writeStream(
+        'scope',
+        'k.bin',
+        (async function* () {
+          yield encoder.encode('partial');
+          throw new Error('boom');
+        })(),
+      ),
     ).rejects.toThrow();
 
     expect(await svc.read('scope', 'k.bin')).toBeUndefined();

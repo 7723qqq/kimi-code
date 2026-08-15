@@ -19,11 +19,13 @@ const BING_BASE_URL = 'https://cn.bing.com/search';
 const REQUEST_TIMEOUT_MS = 30_000;
 
 const FALLBACK_HEADERS: Record<string, string> = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+  Accept:
+    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
   'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
   'Cache-Control': 'no-cache',
-  'Pragma': 'no-cache',
+  Pragma: 'no-cache',
   'Upgrade-Insecure-Requests': '1',
 };
 
@@ -65,17 +67,18 @@ function analyzeBlockedPage(html: string): BlockedPageAnalysis {
   const hasStructuredResults = $(resultSelector).length > 0;
   const hasParsedResults = parseBingSearchResults(html, 1).length > 0;
   const hasResults = hasStructuredResults || hasParsedResults;
-  const hasCaptchaUi = $(
-    [
-      'iframe[src*="captcha"]',
-      '[id*="captcha"]',
-      '[class*="captcha"]',
-      'form[action*="validate"]',
-      'input[name*="captcha"]',
-      '#b_captcha',
-      '.b_captcha',
-    ].join(','),
-  ).length > 0;
+  const hasCaptchaUi =
+    $(
+      [
+        'iframe[src*="captcha"]',
+        '[id*="captcha"]',
+        '[class*="captcha"]',
+        'form[action*="validate"]',
+        'input[name*="captcha"]',
+        '#b_captcha',
+        '.b_captcha',
+      ].join(','),
+    ).length > 0;
   const hasStrongTitleSignal = [
     'captcha',
     'verify you are human',
@@ -85,7 +88,8 @@ function analyzeBlockedPage(html: string): BlockedPageAnalysis {
     '人机验证',
     '请验证',
   ].some((keyword) => title.includes(keyword));
-  const blocked = !hasResults && (hasCaptchaUi || hasStrongTitleSignal || detectedKeywords.length >= 2);
+  const blocked =
+    !hasResults && (hasCaptchaUi || hasStrongTitleSignal || detectedKeywords.length >= 2);
   return {
     blocked,
     hasResults,
@@ -101,22 +105,30 @@ async function fetchSearchPage(url: string, options: SearchEngineOptions): Promi
       signal: options.signal,
     });
     if (!response.ok) {
-      throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Bing search request failed: HTTP ${String(response.status)}.`, {
-        details: { status: response.status },
-      });
+      throw new Error2(
+        ErrorCodes.WEB_FETCH_FAILED,
+        `Bing search request failed: HTTP ${String(response.status)}.`,
+        {
+          details: { status: response.status },
+        },
+      );
     }
-    return  response.text();
+    return response.text();
   }
   const response = await engineFetch(url, {
     headers: FALLBACK_HEADERS,
     timeoutMs: REQUEST_TIMEOUT_MS,
   });
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Bing search request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `Bing search request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
-  return  response.text();
+  return response.text();
 }
 
 async function searchBingWithHttp(

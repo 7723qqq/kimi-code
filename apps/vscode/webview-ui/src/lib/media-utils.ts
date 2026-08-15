@@ -1,66 +1,72 @@
-import { heicTo } from "heic-to/csp";
+import { heicTo } from 'heic-to/csp';
 
-import { IMAGE_CONFIG, VIDEO_CONFIG, MEDIA_CONFIG, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from "@/services/config";
+import {
+  IMAGE_CONFIG,
+  VIDEO_CONFIG,
+  MEDIA_CONFIG,
+  IMAGE_EXTENSIONS,
+  VIDEO_EXTENSIONS,
+} from '@/services/config';
 
-export type MediaType = "image" | "video";
+export type MediaType = 'image' | 'video';
 
 const IMAGE_TYPES = new Set<string>(IMAGE_CONFIG.allowedTypes);
 const VIDEO_TYPES = new Set<string>(VIDEO_CONFIG.allowedTypes);
 
 function getExtension(filename: string): string {
-  return filename.split(".").pop()?.toLowerCase() ?? "";
+  return filename.split('.').pop()?.toLowerCase() ?? '';
 }
 
 function isHeicFile(file: File): boolean {
-  if (file.type === "image/heic" || file.type === "image/heif") {
+  if (file.type === 'image/heic' || file.type === 'image/heif') {
     return true;
   }
   const ext = getExtension(file.name);
-  return ext === "heic" || ext === "heif";
+  return ext === 'heic' || ext === 'heif';
 }
 
 export function getMediaType(file: File): MediaType | null {
   if (IMAGE_TYPES.has(file.type)) {
-    return "image";
+    return 'image';
   }
   if (VIDEO_TYPES.has(file.type)) {
-    return "video";
+    return 'video';
   }
   if (isHeicFile(file)) {
-    return "image";
+    return 'image';
   }
   return null;
 }
 
 export function getMediaTypeFromSrc(src: string): MediaType | null {
-  if (src.startsWith("data:image/")) {
-    return "image";
+  if (src.startsWith('data:image/')) {
+    return 'image';
   }
-  if (src.startsWith("data:video/")) {
-    return "video";
+  if (src.startsWith('data:video/')) {
+    return 'video';
   }
-  const ext = src.split(".").pop()?.toLowerCase().split("?")[0];
+  const ext = src.split('.').pop()?.toLowerCase().split('?')[0];
   if (ext && IMAGE_EXTENSIONS.has(ext)) {
-    return "image";
+    return 'image';
   }
   if (ext && VIDEO_EXTENSIONS.has(ext)) {
-    return "video";
+    return 'video';
   }
   return null;
 }
 
 export function getMediaTypeFromDataUri(dataUri: string): MediaType | null {
-  if (dataUri.startsWith("data:image/")) {
-    return "image";
+  if (dataUri.startsWith('data:image/')) {
+    return 'image';
   }
-  if (dataUri.startsWith("data:video/")) {
-    return "video";
+  if (dataUri.startsWith('data:video/')) {
+    return 'video';
   }
   return null;
 }
 
 export function getDataUriByteSize(dataUri: string): number {
-  const commaIndex = dataUri.indexOf(",");
+  const commaIndex = dataUri.indexOf(',');
   if (commaIndex === -1) {
     return 0;
   }
@@ -69,36 +75,42 @@ export function getDataUriByteSize(dataUri: string): number {
 }
 
 export interface MediaValidationError {
-  type: "format" | "size" | "count" | "total_size";
+  type: 'format' | 'size' | 'count' | 'total_size';
   message: string;
 }
 
 export function validateMediaFile(file: File, currentCount: number): MediaValidationError | null {
   if (currentCount >= MEDIA_CONFIG.maxCount) {
-    return { type: "count", message: `Maximum ${MEDIA_CONFIG.maxCount} media files allowed` };
+    return { type: 'count', message: `Maximum ${MEDIA_CONFIG.maxCount} media files allowed` };
   }
 
   const mediaType = getMediaType(file);
   if (!mediaType) {
-    return { type: "format", message: "Unsupported format. Use PNG, JPEG, GIF, WebP, HEIC, MP4, WebM or MOV" };
+    return {
+      type: 'format',
+      message: 'Unsupported format. Use PNG, JPEG, GIF, WebP, HEIC, MP4, WebM or MOV',
+    };
   }
 
-  const maxSize = mediaType === "image" ? IMAGE_CONFIG.maxSizeBytes : VIDEO_CONFIG.maxSizeBytes;
+  const maxSize = mediaType === 'image' ? IMAGE_CONFIG.maxSizeBytes : VIDEO_CONFIG.maxSizeBytes;
   if (file.size > maxSize) {
-    return { type: "size", message: `File exceeds ${maxSize / (1024 * 1024)}MB limit` };
+    return { type: 'size', message: `File exceeds ${maxSize / (1024 * 1024)}MB limit` };
   }
 
   return null;
 }
 
 // ============ Processing Helpers ============
-export function validateTotalSize(existingDataUris: string[], newDataUri: string): MediaValidationError | null {
+export function validateTotalSize(
+  existingDataUris: string[],
+  newDataUri: string,
+): MediaValidationError | null {
   const existingSize = existingDataUris.reduce((sum, uri) => sum + getDataUriByteSize(uri), 0);
   const newSize = getDataUriByteSize(newDataUri);
   const totalSize = existingSize + newSize;
   if (totalSize > MEDIA_CONFIG.maxTotalBytes) {
     const maxMB = MEDIA_CONFIG.maxTotalBytes / (1024 * 1024);
-    return { type: "total_size", message: `Total media size exceeds ${maxMB}MB limit` };
+    return { type: 'total_size', message: `Total media size exceeds ${maxMB}MB limit` };
   }
   return null;
 }
@@ -129,16 +141,22 @@ function getScaledDimensions(w: number, h: number, max: number): { width: number
   return { width: Math.round(w * ratio), height: Math.round(h * ratio) };
 }
 
-function canvasToDataUri(img: HTMLImageElement, mime: string, w: number, h: number, quality: number): string {
-  const canvas = document.createElement("canvas");
+function canvasToDataUri(
+  img: HTMLImageElement,
+  mime: string,
+  w: number,
+  h: number,
+  quality: number,
+): string {
+  const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
-  canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+  canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
   return canvas.toDataURL(mime, quality);
 }
 
 function dataUriSize(dataUri: string): number {
-  const base64 = dataUri.split(",")[1];
+  const base64 = dataUri.split(',')[1];
   return Math.round((base64.length * 3) / 4);
 }
 
@@ -150,15 +168,15 @@ async function processImage(file: File): Promise<string> {
 
   // Convert HEIC to JPEG
   if (isHeicFile(file)) {
-    blob = await heicTo({ blob: file, type: "image/jpeg", quality: 0.92 });
-    mime = "image/jpeg";
+    blob = await heicTo({ blob: file, type: 'image/jpeg', quality: 0.92 });
+    mime = 'image/jpeg';
   }
 
   const dataUri = await blobToDataUri(blob);
   const img = await loadImage(dataUri);
   const { width, height } = getScaledDimensions(img.width, img.height, IMAGE_CONFIG.maxDimension);
   const needsResize = width !== img.width || height !== img.height;
-  const isCompressible = mime === "image/jpeg" || mime === "image/webp";
+  const isCompressible = mime === 'image/jpeg' || mime === 'image/webp';
 
   // No processing needed
   if (!needsResize && blob.size <= IMAGE_CONFIG.compressThresholdBytes) {
@@ -182,5 +200,5 @@ async function processImage(file: File): Promise<string> {
 }
 
 export async function processMediaFile(file: File): Promise<string> {
-  return getMediaType(file) === "video" ? blobToDataUri(file) : processImage(file);
+  return getMediaType(file) === 'video' ? blobToDataUri(file) : processImage(file);
 }

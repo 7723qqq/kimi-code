@@ -47,21 +47,15 @@ declare module '#/wire/types' {
   }
 }
 
-export const microCompactionApply = MicroCompactionModel.defineOp(
-  'micro_compaction.apply',
-  {
-    schema: z.object({ cutoff: z.number().nonnegative() }),
-    apply: (state, p) => (state.cutoff === p.cutoff ? state : { cutoff: p.cutoff }),
-  },
-);
+export const microCompactionApply = MicroCompactionModel.defineOp('micro_compaction.apply', {
+  schema: z.object({ cutoff: z.number().nonnegative() }),
+  apply: (state, p) => (state.cutoff === p.cutoff ? state : { cutoff: p.cutoff }),
+});
 
-export const microCompactionClamp = MicroCompactionModel.defineOp(
-  'micro_compaction.clamp',
-  {
-    schema: z.object({ maxCutoff: z.number().nonnegative() }),
-    apply: (state, p) => {
-      const cutoff = Math.min(state.cutoff, p.maxCutoff);
-      return cutoff === state.cutoff ? state : { cutoff };
-    },
+export const microCompactionClamp = MicroCompactionModel.defineOp('micro_compaction.clamp', {
+  schema: z.object({ maxCutoff: z.number().nonnegative() }),
+  apply: (state, p) => {
+    const cutoff = Math.min(state.cutoff, p.maxCutoff);
+    return cutoff === state.cutoff ? state : { cutoff };
   },
-);
+});

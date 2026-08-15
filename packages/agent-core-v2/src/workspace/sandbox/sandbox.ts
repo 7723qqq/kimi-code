@@ -10,9 +10,8 @@
  * silently degrade into an unsandboxed run.
  */
 
-import { z } from 'zod';
-
 import { t } from '@moonshot-ai/kimi-i18n';
+import { z } from 'zod';
 
 import type { IConfigService } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
@@ -87,9 +86,7 @@ function isPathWithinWorkspace(targetPath: string, workspaceRoot: string): boole
   const normalizedTarget = normalizePathForComparison(targetPath);
   const normalizedRoot = normalizePathForComparison(workspaceRoot);
   if (normalizedRoot === '') return false;
-  return (
-    normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`)
-  );
+  return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`);
 }
 
 function normalizePathForComparison(path: string): string {

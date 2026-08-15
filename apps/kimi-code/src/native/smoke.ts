@@ -1,13 +1,14 @@
+import { once } from 'node:events';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { once } from 'node:events';
 import { dirname, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 
-import { MiniDb } from '@moonshot-ai/minidb';
 import { getSearchWorkerRuntimeState } from '@moonshot-ai/kap-server/search-worker-runtime';
+import { MiniDb } from '@moonshot-ai/minidb';
 
 import { t } from '#/i18n';
+
 import {
   getEmbeddedNativeAssetManifest,
   getNativeCacheBase,

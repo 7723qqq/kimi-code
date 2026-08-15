@@ -1,8 +1,10 @@
-import { useChatStore } from "@/stores";
-import { t } from "@/i18n";
-import { cn } from "@/lib/utils";
-import { IconArrowUp, IconArrowDown, IconBrandSpeedtest, IconRefresh } from "@tabler/icons-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { IconArrowUp, IconArrowDown, IconBrandSpeedtest, IconRefresh } from '@tabler/icons-react';
+
+import { t } from '@/i18n';
+import { cn } from '@/lib/utils';
+import { useChatStore } from '@/stores';
+
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 export function TokenInfo() {
   const { lastStatus, tokenUsage, activeTokenUsage } = useChatStore();
@@ -17,15 +19,26 @@ export function TokenInfo() {
 
   const outputTotal = tokenUsage.output + activeTokenUsage.output;
 
-  const contextPercent = lastStatus?.context_usage ? Math.round(lastStatus.context_usage * 1000) / 10 : 0;
+  const contextPercent = lastStatus?.context_usage
+    ? Math.round(lastStatus.context_usage * 1000) / 10
+    : 0;
 
   return (
     <div className="space-y-2">
-      <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{t('chatStatus.tokenUsage')}</div>
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+        {t('chatStatus.tokenUsage')}
+      </div>
       <div className="grid grid-cols-3 gap-2 text-xs">
         <div className="flex flex-col">
           <span className="text-muted-foreground text-[10px]">{t('chatStatus.context')}</span>
-          <span className={cn(contextPercent > 80 && "text-amber-500", contextPercent > 95 && "text-destructive")}>{contextPercent}%</span>
+          <span
+            className={cn(
+              contextPercent > 80 && 'text-amber-500',
+              contextPercent > 95 && 'text-destructive',
+            )}
+          >
+            {contextPercent}%
+          </span>
         </div>
         <div className="flex flex-col">
           <span className="text-muted-foreground text-[10px]">{t('chatStatus.input')}</span>
@@ -73,7 +86,10 @@ export function ChatStatus() {
             </span>
           </TooltipTrigger>
           <TooltipContent>
-            {t('chatStatus.retryingIn', { seconds: Math.ceil(retrying.delay_ms / 1000), message: retrying.message })}
+            {t('chatStatus.retryingIn', {
+              seconds: Math.ceil(retrying.delay_ms / 1000),
+              message: retrying.message,
+            })}
           </TooltipContent>
         </Tooltip>
       )}
@@ -83,14 +99,24 @@ export function ChatStatus() {
           <TooltipTrigger asChild>
             <span className="flex items-center gap-1.5">
               <IconBrandSpeedtest className="size-3 opacity-70" />
-              <span className={cn(contextPercent > 80 && "text-amber-500", contextPercent > 95 && "text-destructive")}>{contextPercent}%</span>
+              <span
+                className={cn(
+                  contextPercent > 80 && 'text-amber-500',
+                  contextPercent > 95 && 'text-destructive',
+                )}
+              >
+                {contextPercent}%
+              </span>
             </span>
           </TooltipTrigger>
           <TooltipContent>{t('chatStatus.contextWindowUsage')}</TooltipContent>
         </Tooltip>
       </div>
       <div className="w-px h-3 bg-border/50 @max-[440px]:hidden" />
-      <div className="flex items-center gap-1.5 @max-[440px]:hidden" title={t('chatStatus.totalInputTokens')}>
+      <div
+        className="flex items-center gap-1.5 @max-[440px]:hidden"
+        title={t('chatStatus.totalInputTokens')}
+      >
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="flex items-center gap-1.5">
@@ -102,7 +128,10 @@ export function ChatStatus() {
         </Tooltip>
       </div>
       <div className="w-px h-3 bg-border/50 @max-[440px]:hidden" />
-      <div className="flex items-center gap-1.5 @max-[440px]:hidden" title={t('chatStatus.outputTokens')}>
+      <div
+        className="flex items-center gap-1.5 @max-[440px]:hidden"
+        title={t('chatStatus.outputTokens')}
+      >
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="flex items-center gap-1.5">

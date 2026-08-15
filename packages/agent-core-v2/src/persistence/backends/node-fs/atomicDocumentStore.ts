@@ -10,16 +10,19 @@
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Event } from '#/_base/event';
-
-import { IFileSystemStorageService, StorageError, StorageErrors } from '#/persistence/interface/storage';
+import { LifecycleScope } from '#/app/scopes';
 import {
   IAtomicDocumentStore,
   IAtomicTomlDocumentStore,
   type DocumentCodec,
 } from '#/persistence/interface/atomicDocumentStore';
+import {
+  IFileSystemStorageService,
+  StorageError,
+  StorageErrors,
+} from '#/persistence/interface/storage';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();

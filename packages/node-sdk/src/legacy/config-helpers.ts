@@ -5,13 +5,12 @@
  */
 import { mkdir, open } from 'node:fs/promises';
 import { dirname } from 'node:path';
+
 import { z } from 'zod';
 
 function isFileExistsError(error: unknown): boolean {
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { code?: unknown }).code === 'EEXIST'
+    typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'EEXIST'
   );
 }
 

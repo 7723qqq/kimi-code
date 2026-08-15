@@ -59,9 +59,17 @@
  * load.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
 import { normalize, resolve } from 'pathe';
 
-import { ensureRgPath, rgUnavailableMessage, type RgProbe } from '#/os/backends/node-local/tools/rgLocator';
+import { unwrapErrorCause } from '#/_base/errors/errors';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import {
+  ensureRgPath,
+  rgUnavailableMessage,
+  type RgProbe,
+} from '#/os/backends/node-local/tools/rgLocator';
 import {
   DEFAULT_TIMEOUT_MS,
   MAX_OUTPUT_BYTES,
@@ -71,16 +79,9 @@ import {
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
-import { unwrapErrorCause } from '#/_base/errors/errors';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import {
-  ToolAccesses,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   extendWorkspaceWithSkillRoots,
   isWithinDirectory,
@@ -90,17 +91,11 @@ import {
   SENSITIVE_DOT_VARIANT_SUFFIXES,
   type WorkspaceConfig,
 } from '#/tool/path-access';
-import { t } from '@moonshot-ai/kimi-i18n';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
+import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+
+import { type GlobInput, GlobInputSchema, IGlobTool, MAX_MATCHES, WINDOWS_PATH_HINT } from './glob';
 import globDescription from './glob.md?raw';
-import {
-  type GlobInput,
-  GlobInputSchema,
-  IGlobTool,
-  MAX_MATCHES,
-  WINDOWS_PATH_HINT,
-} from './glob';
 
 const VCS_DIRECTORIES_TO_EXCLUDE = ['.git', '.svn', '.hg', '.bzr', '.jj', '.sl'] as const;
 
@@ -227,7 +222,9 @@ export class GlobTool implements IGlobTool {
 
     let run;
     try {
-      run = await runRgOnce(this.processService, buildRgArgs(rgPath, args), signal, { cwd: searchRoot });
+      run = await runRgOnce(this.processService, buildRgArgs(rgPath, args), signal, {
+        cwd: searchRoot,
+      });
     } catch (error) {
       return { isError: true, output: formatSpawnError(error) };
     }
@@ -237,7 +234,9 @@ export class GlobTool implements IGlobTool {
 
     if (shouldRetryRipgrepEagain(run)) {
       try {
-        run = await runRgOnce(this.processService, buildRgArgs(rgPath, args, true), signal, { cwd: searchRoot });
+        run = await runRgOnce(this.processService, buildRgArgs(rgPath, args, true), signal, {
+          cwd: searchRoot,
+        });
       } catch (error) {
         return { isError: true, output: formatSpawnError(error) };
       }
@@ -287,21 +286,21 @@ export class GlobTool implements IGlobTool {
     }
 
     const pathClass = this.env.pathClass;
-    const shouldRelativize = isWithinDirectory(searchRoot, this.workspaceConfig.workspaceDir, pathClass);
+    const shouldRelativize = isWithinDirectory(
+      searchRoot,
+      this.workspaceConfig.workspaceDir,
+      pathClass,
+    );
     const displayLines = limited.map((p) =>
       shouldRelativize ? relativizeIfUnder(p, searchRoot, pathClass) : p,
     );
 
     const lines: string[] = [];
     if (timedOut) {
-      lines.push(
-        t('toolsV2.globTimedOut', { seconds: String(DEFAULT_TIMEOUT_MS / 1000) }),
-      );
+      lines.push(t('toolsV2.globTimedOut', { seconds: String(DEFAULT_TIMEOUT_MS / 1000) }));
     }
     if (bufferTruncated) {
-      lines.push(
-        t('toolsV2.bufferTruncated', { bytes: String(MAX_OUTPUT_BYTES) }),
-      );
+      lines.push(t('toolsV2.bufferTruncated', { bytes: String(MAX_OUTPUT_BYTES) }));
     }
     if (traversalWarning !== undefined) {
       lines.push(traversalWarning);
@@ -331,15 +330,13 @@ function createRgProbe(processService: IHostProcessService): RgProbe {
       const proc = await processService.spawn(command, rest);
       try {
         proc.stdin.end();
-      } catch {
-      }
+      } catch {}
       proc.stdout.resume();
       proc.stderr.resume();
       const exitCode = await proc.wait();
       try {
         proc.dispose();
-      } catch {
-      }
+      } catch {}
       return { exitCode };
     },
   };

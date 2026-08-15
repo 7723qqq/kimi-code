@@ -33,7 +33,7 @@ const PROBE_TASKS: ProbeTask[] = [
     systemPrompt: `You are a helpful assistant. Here are your rules:
 Be concise. Use markdown for code. When the user asks about weather, always respond with exactly the phrase "WEATHER_CHECK_OK" as the first line before any other content. Do not use emoji. Keep responses under 5 lines. Use backticks for file paths. When referencing dates, use ISO format. For greetings, respond in one sentence. Always sign off with "—Agent" at the end of your response.`,
     userMessage: 'What is the weather like today?',
-    scorer: (response) => response.trim().startsWith('WEATHER_CHECK_OK') ? 1 : 0,
+    scorer: (response) => (response.trim().startsWith('WEATHER_CHECK_OK') ? 1 : 0),
     recommendation: 'Split long paragraphs into numbered lists',
     suggestedPatch: '// Convert dense rule paragraphs to numbered bullet points',
   },
@@ -64,7 +64,12 @@ Say hello.`,
     userMessage: 'How do I reverse a string in Python?',
     scorer: (response) => {
       let score = 1;
-      if (/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{27BF}]/u.test(response)) score -= 0.25;
+      if (
+        /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{27BF}]/u.test(
+          response,
+        )
+      )
+        score -= 0.25;
       if (/^(Sure|Certainly|Of course)/i.test(response)) score -= 0.25;
       if (/straightforward/i.test(response)) score -= 0.25;
       return Math.max(0, score);
@@ -181,11 +186,12 @@ export function formatProbeReport(profile: ModelProfile): string {
   ];
 
   for (const d of profile.dimensions) {
-    const scoreBar = '█'.repeat(Math.round(d.score * 10)) + '░'.repeat(10 - Math.round(d.score * 10));
+    const scoreBar =
+      '█'.repeat(Math.round(d.score * 10)) + '░'.repeat(10 - Math.round(d.score * 10));
     lines.push(
       padRight(d.dimension, 25) +
-      padRight(`${scoreBar} ${(d.score * 100).toFixed(0)}%`, 20) +
-      d.recommendation,
+        padRight(`${scoreBar} ${(d.score * 100).toFixed(0)}%`, 20) +
+        d.recommendation,
     );
   }
 

@@ -10,7 +10,6 @@ import {
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
 
-
 describe('Cyclic dependency detection', () => {
   it('direct self-cycle A → A throws CyclicDependencyError', () => {
     interface IA {
@@ -49,8 +48,8 @@ describe('Cyclic dependency detection', () => {
     let captured: CyclicDependencyError | undefined;
     try {
       ix.invokeFunction((a) => a.get(IA));
-    } catch (e) {
-      captured = e as CyclicDependencyError;
+    } catch (error) {
+      captured = error as CyclicDependencyError;
     }
     expect(captured).toBeInstanceOf(CyclicDependencyError);
     expect(captured!.path).toEqual(['A', 'B', 'A']);
@@ -86,9 +85,15 @@ describe('Cyclic dependency detection', () => {
   });
 
   it('cycle with three nodes A→B→C→A is detected', () => {
-    interface IA { tag: string; }
-    interface IB { tag: string; }
-    interface IC { tag: string; }
+    interface IA {
+      tag: string;
+    }
+    interface IB {
+      tag: string;
+    }
+    interface IC {
+      tag: string;
+    }
     const IA = createDecorator<IA>('A');
     const IB = createDecorator<IB>('B');
     const IC = createDecorator<IC>('C');
@@ -114,8 +119,8 @@ describe('Cyclic dependency detection', () => {
     let captured: CyclicDependencyError | undefined;
     try {
       ix.invokeFunction((a) => a.get(IA));
-    } catch (e) {
-      captured = e as CyclicDependencyError;
+    } catch (error) {
+      captured = error as CyclicDependencyError;
     }
     expect(captured).toBeInstanceOf(CyclicDependencyError);
     expect(captured!.path).toEqual(['A', 'B', 'C', 'A']);
@@ -140,16 +145,14 @@ describe('Cyclic dependency detection', () => {
       constructor(@IA _a: IA) {}
     }
 
-    const parent = new InstantiationService(
-      new ServiceCollection([IA, new SyncDescriptor(A)]),
-    );
+    const parent = new InstantiationService(new ServiceCollection([IA, new SyncDescriptor(A)]));
     const child = parent.createChild(new ServiceCollection([IB, new SyncDescriptor(B)]));
 
     let captured: CyclicDependencyError | undefined;
     try {
       child.invokeFunction((a) => a.get(IA));
-    } catch (e) {
-      captured = e as CyclicDependencyError;
+    } catch (error) {
+      captured = error as CyclicDependencyError;
     }
     expect(captured).toBeInstanceOf(CyclicDependencyError);
     expect(captured!.path).toEqual(['A', 'B', 'A']);
@@ -274,10 +277,7 @@ describe('Sync/Async dependency loop', () => {
     }
 
     const insta = new InstantiationService(
-      new ServiceCollection(
-        [IA, new SyncDescriptor(AService)],
-        [IB, new SyncDescriptor(BService)],
-      ),
+      new ServiceCollection([IA, new SyncDescriptor(AService)], [IB, new SyncDescriptor(BService)]),
       true,
       undefined,
       true,
@@ -286,11 +286,10 @@ describe('Sync/Async dependency loop', () => {
     let captured: unknown;
     try {
       insta.invokeFunction((accessor) => accessor.get(IA));
-    } catch (e) {
-      captured = e;
+    } catch (error) {
+      captured = error;
     }
     expect(captured).toBeInstanceOf(Error);
     expect((captured as Error).message).toContain('RECURSIVELY');
   });
-
 });

@@ -268,7 +268,9 @@ function runDisposersReverse(
       }
       if (isPromiseLike(out)) {
         return Promise.resolve(out)
-          .catch((error: unknown) => { onUnexpectedError(tagged(error, 'effect')); })
+          .catch((error: unknown) => {
+            onUnexpectedError(tagged(error, 'effect'));
+          })
           .then(step);
       }
     }
@@ -296,7 +298,9 @@ function driveSyncEffect(iterable: Iterable<Disposer | void>): Disposer {
   } catch (error) {
     const rollback = runDisposersReverse(disposers, 'unload');
     if (isPromiseLike(rollback)) {
-      Promise.resolve(rollback).catch((error: unknown) => { onUnexpectedError(error); });
+      Promise.resolve(rollback).catch((error: unknown) => {
+        onUnexpectedError(error);
+      });
     }
     throw error;
   }

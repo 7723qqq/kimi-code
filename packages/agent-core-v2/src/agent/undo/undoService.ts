@@ -8,12 +8,10 @@
  */
 
 import { type IDisposable } from '#/_base/di/lifecycle';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { ILogService } from '#/_base/log/log';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import {
   computeUndoCut,
   formatUndoUnavailableMessage,
@@ -25,6 +23,7 @@ import {
   isValidUndoCount,
   type Checkpointed,
 } from '#/agent/contextMemory/conversationTime';
+import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
@@ -32,6 +31,7 @@ import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadat
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventService } from '#/app/event/event';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
@@ -47,10 +47,7 @@ declare module '#/app/event/eventBus' {
   }
 }
 
-export class AgentConversationUndoService
-  extends Service
-  implements IAgentConversationUndoService
-{
+export class AgentConversationUndoService extends Service implements IAgentConversationUndoService {
   declare readonly _serviceBrand: undefined;
 
   private undoQueue: Promise<void> = Promise.resolve();
@@ -85,11 +82,9 @@ export class AgentConversationUndoService
 
   async undo(turns: number): Promise<number> {
     if (!isValidUndoCount(turns)) {
-      throw new Error2(
-        ErrorCodes.REQUEST_INVALID,
-        'Undo count must be a positive safe integer',
-        { details: { field: 'count' } },
-      );
+      throw new Error2(ErrorCodes.REQUEST_INVALID, 'Undo count must be a positive safe integer', {
+        details: { field: 'count' },
+      });
     }
     const run = this.undoQueue.then(() => this.undoNow(turns));
     this.undoQueue = run.then(
@@ -137,26 +132,23 @@ export class AgentConversationUndoService
   }
 
   private busyError(reason: 'loop' | 'compaction'): Error2 {
-    const message = reason === 'loop'
-      ? 'Cannot undo while a turn is active or queued. Wait for it to finish, then retry.'
-      : 'Cannot undo while conversation compaction is running. Wait for it to finish, then retry.';
+    const message =
+      reason === 'loop'
+        ? 'Cannot undo while a turn is active or queued. Wait for it to finish, then retry.'
+        : 'Cannot undo while conversation compaction is running. Wait for it to finish, then retry.';
     return new Error2(ErrorCodes.SESSION_BUSY, message, { details: { reason } });
   }
 
   private assertUndoAvailable(turns: number): void {
     const check = precheckUndo(this.context.get(), turns);
     if (!check.ok) {
-      throw new Error2(
-        ErrorCodes.SESSION_UNDO_UNAVAILABLE,
-        formatUndoUnavailableMessage(check),
-        {
-          details: {
-            reason: check.reason,
-            requestedCount: check.requested,
-            undoableCount: check.undoable,
-          },
+      throw new Error2(ErrorCodes.SESSION_UNDO_UNAVAILABLE, formatUndoUnavailableMessage(check), {
+        details: {
+          reason: check.reason,
+          requestedCount: check.requested,
+          undoableCount: check.undoable,
         },
-      );
+      });
     }
     const { depth, model } = this.checkpointDepth();
     if (depth >= turns) return;
@@ -215,9 +207,10 @@ export class AgentConversationUndoService
   private async reconcileLastPrompt(): Promise<void> {
     if (this.agentCtx.agentId !== MAIN_AGENT_ID) return;
     const pending = this.prompt.list().pending.at(-1);
-    let lastPrompt = pending === undefined
-      ? undefined
-      : promptMetadataTextFromContentParts(pending.message.content);
+    let lastPrompt =
+      pending === undefined
+        ? undefined
+        : promptMetadataTextFromContentParts(pending.message.content);
     if (lastPrompt === undefined) {
       const history = this.context.get();
       for (let i = history.length - 1; i >= 0; i--) {

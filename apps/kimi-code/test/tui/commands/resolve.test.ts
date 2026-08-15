@@ -1,3 +1,5 @@
+import { afterEach, describe, expect, it } from 'vitest';
+
 import {
   resolveSkillCommand,
   resolveSlashCommandInput,
@@ -5,7 +7,6 @@ import {
   slashBusyMessage,
   slashCommandBusyReason,
 } from '#/tui/commands/index';
-import { afterEach, describe, expect, it } from 'vitest';
 
 function resolve(
   input: string,
@@ -252,7 +253,6 @@ describe('resolveSlashCommandInput', () => {
       args: 'Ship feature X',
     });
   });
-
 });
 
 describe('goal command resolution', () => {

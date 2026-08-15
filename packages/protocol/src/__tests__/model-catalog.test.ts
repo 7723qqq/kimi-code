@@ -36,9 +36,7 @@ describe('model catalog schemas', () => {
   });
 
   it('rejects invalid model context sizes', () => {
-    expect(
-      modelCatalogItemSchema.safeParse({ ...model, max_context_size: 0 }).success,
-    ).toBe(false);
+    expect(modelCatalogItemSchema.safeParse({ ...model, max_context_size: 0 }).success).toBe(false);
   });
 
   it.each(['connected', 'error', 'unconfigured'] as const)(
@@ -60,9 +58,7 @@ describe('model catalog schemas', () => {
     expect(listProvidersResponseSchema.parse({ items: [provider] })).toEqual({
       items: [provider],
     });
-    expect(
-      setDefaultModelResponseSchema.parse({ default_model: 'k2', model }),
-    ).toEqual({
+    expect(setDefaultModelResponseSchema.parse({ default_model: 'k2', model })).toEqual({
       default_model: 'k2',
       model,
     });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { OAuthUnauthorizedError } from '../src/errors';
 import {
   applyManagedApiKeyProviderModels,
   applyManagedKimiCodeLogoutConfig,
@@ -17,7 +18,6 @@ import {
   type ManagedKimiCodeModelInfo,
   type ManagedKimiConfigShape,
 } from '../src/managed-kimi-code';
-import { OAuthUnauthorizedError } from '../src/errors';
 
 function makeModelsResponse(): Response {
   return new Response(
@@ -1489,7 +1489,8 @@ describe('fetchManagedKimiCodeModels transport guards', () => {
 
     await fetchManagedKimiCodeModels({ accessToken: 't', fetchImpl });
 
-    const init = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit;
+    const init = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0]![1] as RequestInit;
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 

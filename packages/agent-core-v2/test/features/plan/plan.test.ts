@@ -1,28 +1,29 @@
-import { mkdtemp, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-import type { ToolCall } from '#/kosong/contract/message';
 import { dirname, join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
+import type { ToolCall } from '#/kosong/contract/message';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IBlobStore } from '#/persistence/interface/blobStore';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { ISessionProcessRunner } from '#/session/process/processRunner';
-import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+
 import {
   createCommandRunner,
   createTestAgent,
   execEnvServices,
   type TestAgentContext,
 } from '../../harness';
+import { createFakeHostFs, createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 
 // The Rust native tools module loads in vitest (activated transitively via
 // packages/i18n), so the Write tool's `tryNativeWrite` fast-path writes the
@@ -199,9 +200,11 @@ describe('Plan service', () => {
     });
 
     it('derives the plan path from the agent homedir on enter and restore', async () => {
-      useFakes(createPlanFakes({
-        writeText: vi.fn(async (_path: string, _content: string): Promise<void> => {}),
-      }));
+      useFakes(
+        createPlanFakes({
+          writeText: vi.fn(async (_path: string, _content: string): Promise<void> => {}),
+        }),
+      );
       await plan.enter('stable-plan');
 
       const livePath = await expectActivePlanPath();
@@ -658,7 +661,9 @@ describe('Plan service', () => {
         expect(files.get(planPath)).toBe(expectedContent);
         expect(writeText).toHaveBeenCalledWith(planPath, expectedContent);
         expect(
-          ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
+          ctx.allEvents.some(
+            (event) => event.type === '[rpc]' && event.event === 'requestApproval',
+          ),
         ).toBe(false);
       },
     );
@@ -871,9 +876,11 @@ describe('Plan service', () => {
     });
 
     it('emits a reentry reminder when restored plan mode already has plan content', async () => {
-      useFakes(createPlanFakes({
-        readText: vi.fn(async () => '# Existing Plan\n\n- Keep this context'),
-      }));
+      useFakes(
+        createPlanFakes({
+          readText: vi.fn(async () => '# Existing Plan\n\n- Keep this context'),
+        }),
+      );
       await ctx.dispatch({
         type: 'plan_mode.enter',
         id: 'restored-plan',

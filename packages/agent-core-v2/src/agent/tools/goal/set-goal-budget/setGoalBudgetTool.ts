@@ -11,20 +11,19 @@
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { type ToolExecution } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-
 import { IAgentGoalService } from '#/agent/goal/goal';
 import type { GoalBudgetLimits, GoalSnapshot } from '#/agent/goal/types';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { type ToolExecution } from '#/tool/toolContract';
 
-import DESCRIPTION from './set-goal-budget.md?raw';
 import {
   SetGoalBudgetToolInputSchema,
   ISetGoalBudgetTool,
   type SetGoalBudgetToolInput,
 } from './set-goal-budget';
+import DESCRIPTION from './set-goal-budget.md?raw';
 
 const MIN_REASONABLE_TIME_BUDGET_MS = 1_000;
 const MAX_REASONABLE_TIME_BUDGET_MS = 24 * 60 * 60 * 1000;

@@ -160,10 +160,7 @@ async function locateWindowsGitBash(deps: EnvironmentDeps): Promise<string> {
   );
 }
 
-async function readGitExecPath(
-  deps: EnvironmentDeps,
-  gitExe: string,
-): Promise<string | undefined> {
+async function readGitExecPath(deps: EnvironmentDeps, gitExe: string): Promise<string | undefined> {
   if (deps.platform === 'win32' && !isAbsoluteWindowsPath(gitExe)) return undefined;
 
   const stdout = await deps.execFileText(gitExe, ['--exec-path'], GIT_EXEC_PATH_TIMEOUT_MS);

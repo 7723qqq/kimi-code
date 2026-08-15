@@ -5,8 +5,9 @@
      Dev tooling: labels are intentionally not localized. -->
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { copyTextToClipboard } from '../lib/clipboard';
+
 import Tooltip from '../components/ui/Tooltip.vue';
+import { copyTextToClipboard } from '../lib/clipboard';
 import {
   clearTrace,
   downloadTraceLog,
@@ -39,8 +40,12 @@ const sessionIds = computed<string[]>(() => {
 });
 
 function isError(e: TraceEntry): boolean {
-  return e.kind === 'rest:error' || (e.code !== undefined && e.code !== 0)
-    || e.eventType === 'error' || e.eventType === 'parse-error';
+  return (
+    e.kind === 'rest:error' ||
+    (e.code !== undefined && e.code !== 0) ||
+    e.eventType === 'error' ||
+    e.eventType === 'parse-error'
+  );
 }
 
 const filtered = computed<TraceEntry[]>(() => {
@@ -50,7 +55,8 @@ const filtered = computed<TraceEntry[]>(() => {
     if (sessionFilter.value && e.sessionId !== sessionFilter.value) return false;
     if (errorsOnly.value && !isError(e)) return false;
     if (text) {
-      const hay = `${e.label} ${e.kind} ${e.eventType ?? ''} ${e.sessionId ?? ''} ${e.requestId ?? ''}`.toLowerCase();
+      const hay =
+        `${e.label} ${e.kind} ${e.eventType ?? ''} ${e.sessionId ?? ''} ${e.requestId ?? ''}`.toLowerCase();
       if (!hay.includes(text)) return false;
     }
     return true;
@@ -60,8 +66,20 @@ const filtered = computed<TraceEntry[]>(() => {
 // ---------------------------------------------------------------------------
 // Aggregate: WS events by session/type, REST by method+path
 // ---------------------------------------------------------------------------
-interface WsAggRow { key: string; sessionId: string; eventType: string; dir: string; count: number; lastSeq?: number }
-interface RestAggRow { key: string; count: number; errors: number; avgMs: number }
+interface WsAggRow {
+  key: string;
+  sessionId: string;
+  eventType: string;
+  dir: string;
+  count: number;
+  lastSeq?: number;
+}
+interface RestAggRow {
+  key: string;
+  count: number;
+  errors: number;
+  avgMs: number;
+}
 
 const wsAgg = computed<WsAggRow[]>(() => {
   const map = new Map<string, WsAggRow>();
@@ -69,7 +87,13 @@ const wsAgg = computed<WsAggRow[]>(() => {
     if (e.kind !== 'ws:in' && e.kind !== 'ws:out') continue;
     const dir = e.kind === 'ws:in' ? '←' : '→';
     const key = `${dir} ${e.eventType ?? '?'} @ ${e.sessionId ?? '-'}`;
-    const row = map.get(key) ?? { key, sessionId: e.sessionId ?? '-', eventType: e.eventType ?? '?', dir, count: 0 };
+    const row = map.get(key) ?? {
+      key,
+      sessionId: e.sessionId ?? '-',
+      eventType: e.eventType ?? '?',
+      dir,
+      count: 0,
+    };
     row.count++;
     if (e.seq !== undefined) row.lastSeq = e.seq;
     map.set(key, row);
@@ -85,11 +109,19 @@ const restAgg = computed<RestAggRow[]>(() => {
     const row = map.get(key) ?? { count: 0, errors: 0, totalMs: 0, timed: 0 };
     row.count++;
     if (isError(e)) row.errors++;
-    if (e.durationMs !== undefined) { row.totalMs += e.durationMs; row.timed++; }
+    if (e.durationMs !== undefined) {
+      row.totalMs += e.durationMs;
+      row.timed++;
+    }
     map.set(key, row);
   }
   return [...map.entries()]
-    .map(([key, r]) => ({ key, count: r.count, errors: r.errors, avgMs: r.timed > 0 ? Math.round(r.totalMs / r.timed) : 0 }))
+    .map(([key, r]) => ({
+      key,
+      count: r.count,
+      errors: r.errors,
+      avgMs: r.timed > 0 ? Math.round(r.totalMs / r.timed) : 0,
+    }))
     .sort((a, b) => b.count - a.count);
 });
 
@@ -101,12 +133,15 @@ const follow = ref(true);
 const listRef = ref<HTMLElement | null>(null);
 const copiedId = ref<number | null>(null);
 
-watch(() => filtered.value.length, async () => {
-  if (!follow.value || view.value !== 'timeline') return;
-  await nextTick();
-  const el = listRef.value;
-  if (el) el.scrollTop = el.scrollHeight;
-});
+watch(
+  () => filtered.value.length,
+  async () => {
+    if (!follow.value || view.value !== 'timeline') return;
+    await nextTick();
+    const el = listRef.value;
+    if (el) el.scrollTop = el.scrollHeight;
+  },
+);
 
 function toggleDetail(id: number): void {
   expandedId.value = expandedId.value === id ? null : id;
@@ -126,7 +161,9 @@ async function copyEntry(e: TraceEntry): Promise<void> {
   const ok = await copyTextToClipboard(entryJson(e));
   if (!ok) return;
   copiedId.value = e.id;
-  setTimeout(() => { if (copiedId.value === e.id) copiedId.value = null; }, 1500);
+  setTimeout(() => {
+    if (copiedId.value === e.id) copiedId.value = null;
+  }, 1500);
 }
 
 function exportJsonl(): void {
@@ -176,12 +213,21 @@ function badgeLabel(e: TraceEntry): string {
         <option value="">all sessions</option>
         <option v-for="sid in sessionIds" :key="sid" :value="sid">{{ sid }}</option>
       </select>
-      <input v-model="textFilter" type="text" placeholder="filter (type / path / id)" aria-label="Text filter" />
+      <input
+        v-model="textFilter"
+        type="text"
+        placeholder="filter (type / path / id)"
+        aria-label="Text filter"
+      />
       <label class="kap-check"><input v-model="errorsOnly" type="checkbox" /> errors</label>
       <label class="kap-check"><input v-model="follow" type="checkbox" /> follow</label>
       <div class="kap-view-toggle" role="group">
-        <button type="button" :class="{ on: view === 'timeline' }" @click="view = 'timeline'">timeline</button>
-        <button type="button" :class="{ on: view === 'aggregate' }" @click="view = 'aggregate'">aggregate</button>
+        <button type="button" :class="{ on: view === 'timeline' }" @click="view = 'timeline'">
+          timeline
+        </button>
+        <button type="button" :class="{ on: view === 'aggregate' }" @click="view = 'aggregate'">
+          aggregate
+        </button>
       </div>
     </div>
 
@@ -190,14 +236,21 @@ function badgeLabel(e: TraceEntry): string {
         No trace entries yet. REST calls and WS frames will appear here.
       </div>
       <div v-for="e in filtered" :key="e.id" class="kap-row-wrap">
-        <button type="button" class="kap-row" :class="{ expanded: expandedId === e.id }" @click="toggleDetail(e.id)">
+        <button
+          type="button"
+          class="kap-row"
+          :class="{ expanded: expandedId === e.id }"
+          @click="toggleDetail(e.id)"
+        >
           <span class="kap-ts">{{ fmtTime(e.ts) }}</span>
           <span class="kap-badge" :class="badgeClass(e)">{{ badgeLabel(e) }}</span>
           <span class="kap-label">{{ e.label }}</span>
         </button>
         <div v-if="expandedId === e.id" class="kap-detail">
           <div class="kap-detail-actions">
-            <button type="button" @click="copyEntry(e)">{{ copiedId === e.id ? 'copied ✓' : 'copy json' }}</button>
+            <button type="button" @click="copyEntry(e)">
+              {{ copiedId === e.id ? 'copied ✓' : 'copy json' }}
+            </button>
           </div>
           <pre>{{ entryJson(e) }}</pre>
         </div>
@@ -207,7 +260,15 @@ function badgeLabel(e: TraceEntry): string {
     <div v-else class="kap-agg">
       <h4>WS frames by session / type</h4>
       <table>
-        <thead><tr><th>dir</th><th>type</th><th>session</th><th>count</th><th>last seq</th></tr></thead>
+        <thead>
+          <tr>
+            <th>dir</th>
+            <th>type</th>
+            <th>session</th>
+            <th>count</th>
+            <th>last seq</th>
+          </tr>
+        </thead>
         <tbody>
           <tr v-for="r in wsAgg" :key="r.key">
             <td>{{ r.dir }}</td>
@@ -216,12 +277,21 @@ function badgeLabel(e: TraceEntry): string {
             <td class="num">{{ r.count }}</td>
             <td class="num">{{ r.lastSeq ?? '—' }}</td>
           </tr>
-          <tr v-if="wsAgg.length === 0"><td colspan="5" class="kap-empty">no ws frames</td></tr>
+          <tr v-if="wsAgg.length === 0">
+            <td colspan="5" class="kap-empty">no ws frames</td>
+          </tr>
         </tbody>
       </table>
       <h4>REST by endpoint</h4>
       <table>
-        <thead><tr><th>endpoint</th><th>count</th><th>errors</th><th>avg ms</th></tr></thead>
+        <thead>
+          <tr>
+            <th>endpoint</th>
+            <th>count</th>
+            <th>errors</th>
+            <th>avg ms</th>
+          </tr>
+        </thead>
         <tbody>
           <tr v-for="r in restAgg" :key="r.key">
             <td class="mono">{{ r.key }}</td>
@@ -229,7 +299,9 @@ function badgeLabel(e: TraceEntry): string {
             <td class="num" :class="{ err: r.errors > 0 }">{{ r.errors }}</td>
             <td class="num">{{ r.avgMs }}</td>
           </tr>
-          <tr v-if="restAgg.length === 0"><td colspan="4" class="kap-empty">no rest calls</td></tr>
+          <tr v-if="restAgg.length === 0">
+            <td colspan="4" class="kap-empty">no rest calls</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -257,8 +329,14 @@ function badgeLabel(e: TraceEntry): string {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
-.kap-count { color: var(--muted); }
-.kap-head-actions { margin-left: auto; display: flex; gap: 6px; }
+.kap-count {
+  color: var(--muted);
+}
+.kap-head-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
 .kap-head-actions button,
 .kap-view-toggle button {
   padding: 3px 8px;
@@ -270,9 +348,15 @@ function badgeLabel(e: TraceEntry): string {
   cursor: pointer;
 }
 .kap-head-actions button:hover,
-.kap-view-toggle button:hover { color: var(--color-text); }
+.kap-view-toggle button:hover {
+  color: var(--color-text);
+}
 .kap-head-actions button.on,
-.kap-view-toggle button.on { color: var(--color-accent-hover); border-color: var(--color-accent-bd); background: var(--color-accent-soft); }
+.kap-view-toggle button.on {
+  color: var(--color-accent-hover);
+  border-color: var(--color-accent-bd);
+  background: var(--color-accent-soft);
+}
 
 .kap-filters {
   flex: none;
@@ -293,14 +377,39 @@ function badgeLabel(e: TraceEntry): string {
   font: inherit;
   min-width: 0;
 }
-.kap-filters input[type='text'] { flex: 1; min-width: 120px; }
-.kap-check { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); white-space: nowrap; }
-.kap-view-toggle { display: flex; gap: 0; }
-.kap-view-toggle button:first-child { border-radius: 6px 0 0 6px; border-right: none; }
-.kap-view-toggle button:last-child { border-radius: 0 6px 6px 0; }
+.kap-filters input[type='text'] {
+  flex: 1;
+  min-width: 120px;
+}
+.kap-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.kap-view-toggle {
+  display: flex;
+  gap: 0;
+}
+.kap-view-toggle button:first-child {
+  border-radius: 6px 0 0 6px;
+  border-right: none;
+}
+.kap-view-toggle button:last-child {
+  border-radius: 0 6px 6px 0;
+}
 
-.kap-list { flex: 1; min-height: 0; overflow-y: auto; }
-.kap-empty { padding: 18px 12px; color: var(--muted); text-align: center; }
+.kap-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.kap-empty {
+  padding: 18px 12px;
+  color: var(--muted);
+  text-align: center;
+}
 
 .kap-row {
   display: flex;
@@ -316,9 +425,16 @@ function badgeLabel(e: TraceEntry): string {
   text-align: left;
   cursor: pointer;
 }
-.kap-row:hover { background: var(--panel2); }
-.kap-row.expanded { background: var(--color-accent-soft); }
-.kap-ts { flex: none; color: var(--muted); }
+.kap-row:hover {
+  background: var(--panel2);
+}
+.kap-row.expanded {
+  background: var(--color-accent-soft);
+}
+.kap-ts {
+  flex: none;
+  color: var(--muted);
+}
 .kap-badge {
   flex: none;
   padding: 0 5px;
@@ -327,11 +443,26 @@ function badgeLabel(e: TraceEntry): string {
   font-weight: 500;
   line-height: 1.7;
 }
-.b-rest { background: var(--color-accent-soft); color: var(--color-accent-hover); }
-.b-in { background: var(--color-accent-soft); color: var(--color-success); }
-.b-out { background: var(--color-accent-soft); color: var(--color-warning); }
-.b-life { background: var(--panel2); color: var(--muted); }
-.b-err { background: var(--color-warning); color: var(--bg); }
+.b-rest {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+}
+.b-in {
+  background: var(--color-accent-soft);
+  color: var(--color-success);
+}
+.b-out {
+  background: var(--color-accent-soft);
+  color: var(--color-warning);
+}
+.b-life {
+  background: var(--panel2);
+  color: var(--muted);
+}
+.b-err {
+  background: var(--color-warning);
+  color: var(--bg);
+}
 .kap-label {
   flex: 1;
   min-width: 0;
@@ -345,7 +476,11 @@ function badgeLabel(e: TraceEntry): string {
   background: var(--bg);
   padding: 6px 10px 10px;
 }
-.kap-detail-actions { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+.kap-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
 .kap-detail-actions button {
   padding: 2px 8px;
   border: 1px solid var(--line);
@@ -355,7 +490,9 @@ function badgeLabel(e: TraceEntry): string {
   font: inherit;
   cursor: pointer;
 }
-.kap-detail-actions button:hover { color: var(--color-text); }
+.kap-detail-actions button:hover {
+  color: var(--color-text);
+}
 .kap-detail pre {
   margin: 0;
   max-height: 320px;
@@ -366,17 +503,40 @@ function badgeLabel(e: TraceEntry): string {
   line-height: 1.45;
 }
 
-.kap-agg { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 10px; }
-.kap-agg h4 { margin: 8px 0 4px; font-size: calc(var(--ui-font-size) - 2.5px); color: var(--muted); }
-.kap-agg table { width: 100%; border-collapse: collapse; }
-.kap-agg th, .kap-agg td {
+.kap-agg {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px;
+}
+.kap-agg h4 {
+  margin: 8px 0 4px;
+  font-size: calc(var(--ui-font-size) - 2.5px);
+  color: var(--muted);
+}
+.kap-agg table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.kap-agg th,
+.kap-agg td {
   padding: 3px 6px;
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
 }
-.kap-agg th { color: var(--muted); font-weight: 500; }
-.kap-agg .num { text-align: right; }
-.kap-agg .err { color: var(--color-warning); font-weight: 500; }
-.kap-agg .mono { word-break: break-all; }
+.kap-agg th {
+  color: var(--muted);
+  font-weight: 500;
+}
+.kap-agg .num {
+  text-align: right;
+}
+.kap-agg .err {
+  color: var(--color-warning);
+  font-weight: 500;
+}
+.kap-agg .mono {
+  word-break: break-all;
+}
 </style>

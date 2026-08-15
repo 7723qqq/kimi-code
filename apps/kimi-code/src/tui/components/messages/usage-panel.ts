@@ -4,11 +4,14 @@
  * the pattern stays consistent across command-triggered panels.
  */
 
-import type { Component } from '@moonshot-ai/pi-tui';
-import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import { formatDuration } from '@moonshot-ai/kimi-code-oauth';
 import type { SessionUsage, TokenUsage } from '@moonshot-ai/kimi-code-sdk';
+import type { Component } from '@moonshot-ai/pi-tui';
+import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
+import { currentTheme } from '#/tui/theme';
+import type { ColorToken } from '#/tui/theme';
 import {
   formatTokenCount,
   ratioSeverity,
@@ -16,9 +19,6 @@ import {
   safeUsageRatio,
   usagePercent,
 } from '#/utils/usage/usage-format';
-import { t } from '#/i18n';
-import { currentTheme } from '#/tui/theme';
-import type { ColorToken } from '#/tui/theme';
 
 const LEFT_MARGIN = 2;
 const SIDE_PADDING = 1;
@@ -108,8 +108,7 @@ function buildSessionUsageSection(
   errorStyle: Colorize,
 ): string[] {
   if (error !== undefined) return [errorStyle(`  ${error}`)];
-  const byModel = (usage as { readonly byModel?: Record<string, TokenUsage> } | undefined)
-    ?.byModel;
+  const byModel = (usage as { readonly byModel?: Record<string, TokenUsage> } | undefined)?.byModel;
   const entries = Object.entries(byModel ?? {});
   if (entries.length === 0) return [muted(`  ${t('tui.messages.usagePanel.noTokenUsage')}`)];
 
@@ -145,11 +144,15 @@ function buildManagedUsageSection(
   muted: Colorize,
   errorStyle: Colorize,
 ): string[] {
-  if (error !== undefined) return [accent(t('tui.messages.usagePanel.planUsage')), errorStyle(`  ${error}`)];
+  if (error !== undefined)
+    return [accent(t('tui.messages.usagePanel.planUsage')), errorStyle(`  ${error}`)];
   if (usage === undefined) return [];
   const { summary, limits } = usage;
   if (summary === null && limits.length === 0) {
-    return [accent(t('tui.messages.usagePanel.planUsage')), muted(`  ${t('tui.messages.usagePanel.noUsageData')}`)];
+    return [
+      accent(t('tui.messages.usagePanel.planUsage')),
+      muted(`  ${t('tui.messages.usagePanel.noUsageData')}`),
+    ];
   }
 
   const rows: ManagedUsageRow[] = [];
@@ -234,7 +237,11 @@ export function buildExtraUsageSection(
     rows.push({ label: t('tui.messages.usagePanel.balance'), ...balance });
   } else {
     rows.push({ label: t('tui.messages.usagePanel.usedThisMonth'), ...used });
-    rows.push({ label: t('tui.messages.usagePanel.monthlyLimit'), symbol: '', number: t('tui.messages.usagePanel.unlimited') });
+    rows.push({
+      label: t('tui.messages.usagePanel.monthlyLimit'),
+      symbol: '',
+      number: t('tui.messages.usagePanel.unlimited'),
+    });
     rows.push({ label: t('tui.messages.usagePanel.balance'), ...balance });
   }
 
@@ -381,7 +388,8 @@ export class UsagePanelComponent implements Component {
 
     const out: string[] = [top];
     for (const line of this.lines) {
-      const clipped = visibleWidth(line) > contentWidth ? truncateToWidth(line, contentWidth) : line;
+      const clipped =
+        visibleWidth(line) > contentWidth ? truncateToWidth(line, contentWidth) : line;
       const pad = Math.max(0, contentWidth - visibleWidth(clipped));
       out.push(indent + paint('│') + ' ' + clipped + ' '.repeat(pad) + ' ' + paint('│'));
     }

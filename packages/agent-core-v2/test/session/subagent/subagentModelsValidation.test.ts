@@ -7,16 +7,13 @@ import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import {
-  SECONDARY_MODEL_SECTION,
-  SUBAGENT_SECTION,
-} from '#/session/subagent/configSection';
+import { SECONDARY_MODEL_SECTION, SUBAGENT_SECTION } from '#/session/subagent/configSection';
 import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import { ISessionSubagentModelsValidationService } from '#/session/subagent/subagentModelsValidation';
 import { SessionSubagentModelsValidationService } from '#/session/subagent/subagentModelsValidationService';
 
-import { StubConfigService } from '../../kosong/stubs';
 import { stubFlag } from '../../app/flag/stubs';
+import { StubConfigService } from '../../kosong/stubs';
 
 describe('SessionSubagentModelsValidationService', () => {
   let disposables: DisposableStore;
@@ -34,7 +31,10 @@ describe('SessionSubagentModelsValidationService', () => {
 
   function setup(configValues: Record<string, unknown>, flagEnabled = true): void {
     ix.stub(IConfigService, new StubConfigService(configValues));
-    ix.stub(IFlagService, stubFlag((id) => flagEnabled && id === SECONDARY_MODEL_FLAG_ID));
+    ix.stub(
+      IFlagService,
+      stubFlag((id) => flagEnabled && id === SECONDARY_MODEL_FLAG_ID),
+    );
     ix.stub(IModelCatalog, {
       _serviceBrand: undefined,
       get: (id: string) => {
@@ -166,9 +166,7 @@ describe('SessionSubagentModelsValidationService', () => {
     expect(isError2(error)).toBe(true);
     expect((error as Error2).code).toBe(ErrorCodes.CONFIG_INVALID);
     expect((error as Error2).message).toContain('"provider/typo"');
-    expect((error as Error2).message).toContain(
-      'Available models: provider/fast, provider/smart.',
-    );
+    expect((error as Error2).message).toContain('Available models: provider/fast, provider/smart.');
   });
 
   it('fails session creation when a pool key uses the reserved "primary" alias', () => {

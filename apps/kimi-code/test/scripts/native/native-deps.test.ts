@@ -45,15 +45,15 @@ describe('resolveTargetDeps', () => {
   });
 
   it('picks the right clipboard subpackage per target', () => {
-    expect(
-      resolveTargetDeps('linux-x64').map((d) => d.resolvedName),
-    ).toContain('@mariozechner/clipboard-linux-x64-gnu');
-    expect(
-      resolveTargetDeps('win32-x64').map((d) => d.resolvedName),
-    ).toContain('@mariozechner/clipboard-win32-x64-msvc');
-    expect(
-      resolveTargetDeps('win32-arm64').map((d) => d.resolvedName),
-    ).toContain('@mariozechner/clipboard-win32-arm64-msvc');
+    expect(resolveTargetDeps('linux-x64').map((d) => d.resolvedName)).toContain(
+      '@mariozechner/clipboard-linux-x64-gnu',
+    );
+    expect(resolveTargetDeps('win32-x64').map((d) => d.resolvedName)).toContain(
+      '@mariozechner/clipboard-win32-x64-msvc',
+    );
+    expect(resolveTargetDeps('win32-arm64').map((d) => d.resolvedName)).toContain(
+      '@mariozechner/clipboard-win32-arm64-msvc',
+    );
   });
 
   it('encodes pi-tui native file path per target', () => {

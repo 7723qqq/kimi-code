@@ -4,9 +4,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ConversationStatus, PermissionMode } from '../../types';
+
 import type { AppSessionUsage, ThinkingLevel } from '../../api/types';
 import { formatTokens } from '../../lib/formatTokens';
+import type { ConversationStatus, PermissionMode } from '../../types';
 import Dialog from '../ui/Dialog.vue';
 
 const { t } = useI18n();
@@ -164,10 +165,16 @@ const speedText = computed(() =>
   gap: var(--space-2);
   min-width: 0;
 }
-.row dd.plan-on { color: var(--color-accent); }
-.row dd.swarm-on { color: var(--color-accent); }
+.row dd.plan-on {
+  color: var(--color-accent);
+}
+.row dd.swarm-on {
+  color: var(--color-accent);
+}
 
-.ctx-text { flex: none; }
+.ctx-text {
+  flex: none;
+}
 .bar {
   width: 80px;
   height: 5px;

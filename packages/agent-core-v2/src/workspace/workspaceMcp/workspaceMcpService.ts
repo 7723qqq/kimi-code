@@ -48,28 +48,27 @@
  * name.
  */
 
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { ILogService } from '#/_base/log/log';
-
-import { McpConnectionManager, type McpConnectionView } from '#/mcpCore/connection-manager';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { IMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
+import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
+import { McpConnectionManager, type McpConnectionView } from '#/mcpCore/connection-manager';
 import {
   McpOAuthCoordinator,
   type McpOAuthCredentialsChangedEvent,
 } from '#/mcpCore/oauth/coordinator';
-import { canonicalMcpOAuthResource } from '#/mcpCore/oauth/store';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { IMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { canonicalMcpOAuthResource } from '#/mcpCore/oauth/store';
 import { ISessionEphemeralMcpServers } from '#/session/mcp/ephemeralMcpServers';
 import { MergedMcpConnectionView } from '#/session/mcp/mergedConnectionView';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import {
   IWorkspaceMcpConfigService,
   type McpServersChange,
@@ -153,9 +152,7 @@ export class WorkspaceMcpService extends Service implements IWorkspaceMcpService
     return this.manager;
   }
 
-  async reconnectMcpAfterCredentialsChanged(
-    event: McpOAuthCredentialsChangedEvent,
-  ): Promise<void> {
+  async reconnectMcpAfterCredentialsChanged(event: McpOAuthCredentialsChangedEvent): Promise<void> {
     const entry = this.manager.get(event.serverName);
     if (entry === undefined) return;
     const serverUrl = this.manager.getRemoteServerUrl(event.serverName);

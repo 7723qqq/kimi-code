@@ -4,9 +4,11 @@
 // any shard, recovered data is a contiguous prefix of the write order, and a
 // db.lock left behind by a dead process is taken over by the next writer.
 
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+
+import { test } from 'vitest';
+
 import { ClusterDb } from '../../src/cluster/index.js';
 import { tmpDir } from '../e2e/helpers/tmp.js';
 import { WORKER, keyOnShard, rmrf } from './helpers.js';
@@ -14,9 +16,13 @@ import { WORKER, keyOnShard, rmrf } from './helpers.js';
 /** Spawn the crash writer and SIGKILL it shortly after it starts writing. */
 function crashWriter(dir: string, shardCount: number): Promise<void> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', WORKER, 'crash', dir, String(shardCount)], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const child = spawn(
+      process.execPath,
+      ['--import', 'tsx', WORKER, 'crash', dir, String(shardCount)],
+      {
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    );
     let killTimer: ReturnType<typeof setTimeout> | null = null;
     let heartbeats = 0;
     child.stdout.on('data', () => {
@@ -81,9 +87,13 @@ test(
     try {
       const shardCount = 4;
       const key = keyOnShard('victim', 1, shardCount);
-      const holder = spawn(process.execPath, ['--import', 'tsx', WORKER, 'hold', dir, String(shardCount), key], {
-        stdio: ['ignore', 'pipe', 'inherit'],
-      });
+      const holder = spawn(
+        process.execPath,
+        ['--import', 'tsx', WORKER, 'hold', dir, String(shardCount), key],
+        {
+          stdio: ['ignore', 'pipe', 'inherit'],
+        },
+      );
       // Wait until the holder actually wrote the key (its lock is now held).
       await new Promise<void>((resolve, reject) => {
         holder.stdout.on('data', (d) => {

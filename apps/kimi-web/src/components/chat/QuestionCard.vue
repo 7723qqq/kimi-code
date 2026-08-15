@@ -2,14 +2,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { UIQuestion } from '../../types';
+
 import type { QuestionAnswer, QuestionResponse } from '../../api/types';
-import Markdown from './Markdown.vue';
-import Card from '../ui/Card.vue';
+import type { UIQuestion } from '../../types';
 import Badge from '../ui/Badge.vue';
 import Button from '../ui/Button.vue';
-import IconButton from '../ui/IconButton.vue';
+import Card from '../ui/Card.vue';
 import Icon from '../ui/Icon.vue';
+import IconButton from '../ui/IconButton.vue';
+import Markdown from './Markdown.vue';
 
 const props = defineProps<{
   question: UIQuestion;
@@ -70,9 +71,15 @@ function isCurrentAnswered(): boolean {
 
 const answers = ref<Record<string, QuestionAnswer>>({});
 
-function isRecommendedOption(option: { label: string; description?: string; recommended?: boolean }): boolean {
+function isRecommendedOption(option: {
+  label: string;
+  description?: string;
+  recommended?: boolean;
+}): boolean {
   if (option.recommended === true) return true;
-  return /\b(?:recommended|recommend)\b|推荐/.test(`${option.label} ${option.description ?? ''}`.toLowerCase());
+  return /\b(?:recommended|recommend)\b|推荐/.test(
+    `${option.label} ${option.description ?? ''}`.toLowerCase(),
+  );
 }
 
 function seedRecommendedAnswers(): void {
@@ -125,16 +132,26 @@ function pickSingle(qid: string, optionId: string): void {
 // Multi-select: toggle an optionId
 function toggleMulti(qid: string, optionId: string): void {
   const cur = answers.value[qid];
-  const ids: string[] = cur && (cur.kind === 'multi' || cur.kind === 'multiWithOther')
-    ? (cur.kind === 'multi' ? [...cur.optionIds] : [...cur.optionIds])
-    : [];
+  const ids: string[] =
+    cur && (cur.kind === 'multi' || cur.kind === 'multiWithOther')
+      ? cur.kind === 'multi'
+        ? [...cur.optionIds]
+        : [...cur.optionIds]
+      : [];
   const idx = ids.indexOf(optionId);
-  if (idx >= 0) { ids.splice(idx, 1); } else { ids.push(optionId); }
+  if (idx >= 0) {
+    ids.splice(idx, 1);
+  } else {
+    ids.push(optionId);
+  }
 
   const existing = answers.value[qid];
   const otherText = existing && existing.kind === 'multiWithOther' ? existing.otherText : '';
   if (otherText) {
-    answers.value = { ...answers.value, [qid]: { kind: 'multiWithOther', optionIds: ids, otherText } };
+    answers.value = {
+      ...answers.value,
+      [qid]: { kind: 'multiWithOther', optionIds: ids, otherText },
+    };
   } else {
     answers.value = { ...answers.value, [qid]: { kind: 'multi', optionIds: ids } };
   }
@@ -153,10 +170,16 @@ function pickOther(qid: string): void {
   const text = otherTexts.value[qid] ?? '';
   if (q.multiSelect) {
     const cur = answers.value[qid];
-    const ids: string[] = cur && (cur.kind === 'multi' || cur.kind === 'multiWithOther')
-      ? (cur.kind === 'multi' ? [...cur.optionIds] : [...cur.optionIds])
-      : [];
-    answers.value = { ...answers.value, [qid]: { kind: 'multiWithOther', optionIds: ids, otherText: text } };
+    const ids: string[] =
+      cur && (cur.kind === 'multi' || cur.kind === 'multiWithOther')
+        ? cur.kind === 'multi'
+          ? [...cur.optionIds]
+          : [...cur.optionIds]
+        : [];
+    answers.value = {
+      ...answers.value,
+      [qid]: { kind: 'multiWithOther', optionIds: ids, otherText: text },
+    };
   } else {
     answers.value = { ...answers.value, [qid]: { kind: 'other', text } };
   }
@@ -242,7 +265,11 @@ function handleKeydown(e: KeyboardEvent): void {
   // Escape dismisses; number keys pick options. Both are suppressed while
   // typing in a field so the keystrokes go to the input instead.
   if (inField) return;
-  if (e.key === 'Escape') { e.preventDefault(); dismiss(); return; }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    dismiss();
+    return;
+  }
   // While minimized the options aren't visible, so don't let number keys pick
   // an unseen answer.
   if (minimized.value) return;
@@ -274,7 +301,9 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
       <div class="qh">
         <span class="qh-ic">?</span>
         <span class="qtitle">{{ t('question.title') }}</span>
-        <span v-if="total > 1 && !minimized" class="qstep">{{ t('question.step', { current: step + 1, total }) }}</span>
+        <span v-if="total > 1 && !minimized" class="qstep">{{
+          t('question.step', { current: step + 1, total })
+        }}</span>
         <!-- When minimized, surface the question text so the bar stays identifiable -->
         <span v-if="minimized" class="qmin-peek">{{ current.question }}</span>
         <IconButton
@@ -293,7 +322,12 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
     <template v-if="!minimized" #default>
       <div class="qbody">
         <!-- Stepper: only shown when there are multiple questions -->
-        <div v-if="total > 1" class="qsteps" role="tablist" :aria-label="t('question.step', { current: step + 1, total })">
+        <div
+          v-if="total > 1"
+          class="qsteps"
+          role="tablist"
+          :aria-label="t('question.step', { current: step + 1, total })"
+        >
           <button
             v-for="(q, i) in props.question.questions"
             :key="q.id"
@@ -326,7 +360,9 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
             :key="opt.id"
             class="qopt"
             :class="{ selected: isSelected(current.id, opt.id) }"
-            @click.prevent="current.multiSelect ? toggleMulti(current.id, opt.id) : pickSingle(current.id, opt.id)"
+            @click.prevent="
+              current.multiSelect ? toggleMulti(current.id, opt.id) : pickSingle(current.id, opt.id)
+            "
           >
             <span class="qopt-key">{{ oi + 1 }}</span>
             <span class="qopt-glyph">
@@ -385,7 +421,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
           variant="primary"
           :disabled="!isCurrentAnswered()"
           @click="goNext"
-        >{{ t('question.nextQuestion') }}</Button>
+          >{{ t('question.nextQuestion') }}</Button
+        >
         <Button
           v-else
           class="qfoot-btn qfoot-main"
@@ -394,7 +431,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
           :disabled="!canSubmit()"
           :loading="submitting"
           @click="submit"
-        >{{ t('question.submit') }}</Button>
+          >{{ t('question.submit') }}</Button
+        >
         <Button
           v-if="total > 1"
           class="qfoot-btn"
@@ -402,8 +440,17 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
           variant="secondary"
           :disabled="step === 0 || busy"
           @click="goBack"
-        >{{ t('question.back') }}</Button>
-        <Button class="qfoot-btn" size="sm" variant="ghost" :loading="dismissing" :disabled="busy" @click="dismiss">{{ t('question.dismiss') }}</Button>
+          >{{ t('question.back') }}</Button
+        >
+        <Button
+          class="qfoot-btn"
+          size="sm"
+          variant="ghost"
+          :loading="dismissing"
+          :disabled="busy"
+          @click="dismiss"
+          >{{ t('question.dismiss') }}</Button
+        >
       </div>
     </template>
   </Card>
@@ -415,15 +462,21 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
 }
 /* Accent attention-card head band layered on top of the shared flat Card
    primitive (Card supplies the border, radius and surface; no shadow). */
-.qcard.ui-card { border-color: var(--color-accent-bd); }
+.qcard.ui-card {
+  border-color: var(--color-accent-bd);
+}
 .qcard :deep(.ui-card__head) {
   background: var(--color-accent-soft);
   border-bottom-color: var(--color-accent-bd);
 }
 /* When minimized the body/foot slots are not rendered; collapse the (always-
    rendered) Card body and drop the head border so the card is a thin bar. */
-.qcard.minimized :deep(.ui-card__body) { display: none; }
-.qcard.minimized :deep(.ui-card__head) { border-bottom: none; }
+.qcard.minimized :deep(.ui-card__body) {
+  display: none;
+}
+.qcard.minimized :deep(.ui-card__head) {
+  border-bottom: none;
+}
 
 /* Header — content row (Card provides the band padding/border). */
 .qh {
@@ -497,9 +550,14 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   font: var(--text-xs) var(--font-ui);
   cursor: pointer;
   padding: 0;
-  transition: background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
-.qstep-dot:hover:not(.active) { background: var(--color-surface-sunken); }
+.qstep-dot:hover:not(.active) {
+  background: var(--color-surface-sunken);
+}
 .qstep-dot.active {
   border-color: var(--color-accent);
   background: var(--color-accent);
@@ -523,10 +581,17 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   line-height: var(--leading-normal);
 }
 
-.qmdbody { margin-bottom: var(--space-2); }
+.qmdbody {
+  margin-bottom: var(--space-2);
+}
 
 /* Options */
-.qopts { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-2); }
+.qopts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
 
 .qopt {
   display: flex;
@@ -538,11 +603,19 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   cursor: pointer;
   font: var(--text-sm)/var(--leading-normal) var(--font-ui);
   color: var(--color-text);
-  transition: background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
   user-select: none;
 }
-.qopt:hover { background: var(--color-surface-sunken); }
-.qopt.selected { border-color: var(--color-accent-bd); background: var(--color-accent-soft); color: var(--color-text); }
+.qopt:hover {
+  background: var(--color-surface-sunken);
+}
+.qopt.selected {
+  border-color: var(--color-accent-bd);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
 
 .qopt-key {
   color: var(--color-text-muted);
@@ -552,7 +625,11 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   flex: none;
   text-align: center;
 }
-.qopt-glyph { color: var(--color-accent-hover); font-size: var(--text-base); flex: none; }
+.qopt-glyph {
+  color: var(--color-accent-hover);
+  font-size: var(--text-base);
+  flex: none;
+}
 /* Label + description stack vertically (top-to-bottom) so a long description
    never squeezes the label sideways into a thin, many-line column. */
 .qopt-text {
@@ -573,7 +650,10 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
   font-weight: var(--weight-medium);
 }
 
-.chk, .rad { font: var(--text-base) var(--font-mono); }
+.chk,
+.rad {
+  font: var(--text-base) var(--font-mono);
+}
 
 .other-input {
   flex: 1;
@@ -605,9 +685,14 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
    already full-width inside ConversationPane; we only resize controls.
    ========================================================================= */
 @media (max-width: 640px) {
-  .qh { flex-wrap: wrap; row-gap: var(--space-1); }
+  .qh {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+  }
 
-  .qtext { font-size: var(--text-lg); }
+  .qtext {
+    font-size: var(--text-lg);
+  }
 
   /* Stepper → slightly larger tap targets. */
   .qstep-dot {
@@ -624,15 +709,24 @@ onUnmounted(() => document.removeEventListener('keydown', handleKeydown));
     font-size: var(--text-base);
     border-radius: var(--radius-md);
   }
-  .qopt-desc { font-size: var(--text-xs); }
-  .other-input { flex-basis: 100%; min-height: 28px; }
+  .qopt-desc {
+    font-size: var(--text-xs);
+  }
+  .other-input {
+    flex-basis: 100%;
+    min-height: 28px;
+  }
 
   /* Footer → full-width stacked buttons, Next/Submit on top. */
-  .qfoot { flex-direction: column; }
+  .qfoot {
+    flex-direction: column;
+  }
   .qfoot-btn {
     width: 100%;
     min-height: 46px;
   }
-  .qfoot-main { order: -1; }
+  .qfoot-main {
+    order: -1;
+  }
 }
 </style>

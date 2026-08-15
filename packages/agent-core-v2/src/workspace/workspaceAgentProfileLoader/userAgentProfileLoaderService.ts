@@ -10,23 +10,22 @@
  * through the same workspace-tagged lane. Bound at Workspace scope.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-
-import { discoverAgentFiles } from './internal/agentFileDiscovery';
-import { AgentProfileLoaderBase } from './internal/agentProfileLoader';
 import {
   AGENT_PROFILE_SOURCE_PRIORITY,
   type AgentProfileContribution,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
+import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+
+import { discoverAgentFiles } from './internal/agentFileDiscovery';
 import { profilesFromDiscovery } from './internal/agentProfileFromFile';
+import { AgentProfileLoaderBase } from './internal/agentProfileLoader';
 import { userAgentRoots } from './internal/agentRoots';
 import { loadSystemMdProfile } from './internal/systemFile';
 import { IUserAgentProfileLoader } from './userAgentProfileLoader';

@@ -5,10 +5,11 @@
 //
 // Run:  node bench/import-kimi-code.js [--data ~/.kimi-code] [--out <dir>]
 
-import fs from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
+import fs from 'node:fs/promises';
 import os from 'node:os';
+import path from 'node:path';
+
 import { MiniDb } from '../src/index.js';
 
 const argv = process.argv.slice(2);
@@ -54,11 +55,7 @@ function extractWireText(wirePath, full = false) {
         }
       }
       if (got) messages++;
-    } else if (
-      o.type === 'context.append_loop_event' &&
-      o.event &&
-      o.event.type === 'tool.call'
-    ) {
+    } else if (o.type === 'context.append_loop_event' && o.event && o.event.type === 'tool.call') {
       const e = o.event;
       const bits = [e.name];
       for (const k of ARG_FIELDS) {
@@ -176,7 +173,9 @@ async function main() {
     const now = performance.now();
     if (now - last > 1000) {
       const rate = (imported / (now - t0)) * 1000;
-      process.stdout.write(`\r  imported ${fmt(imported)}  (${fmt(rate | 0)} sess/s, ${mib(totalTextBytes)} text)`);
+      process.stdout.write(
+        `\r  imported ${fmt(imported)}  (${fmt(rate | 0)} sess/s, ${mib(totalTextBytes)} text)`,
+      );
       last = now;
     }
   }
@@ -194,7 +193,9 @@ async function main() {
   console.log(`  sessions imported: ${fmt(imported)}  (skipped ${skipped})`);
   console.log(`  messages indexed : ${fmt(totalMessages)}`);
   console.log(`  text indexed     : ${mib(totalTextBytes)}`);
-  console.log(`  import time      : ${(importMs / 1000).toFixed(1)} s  (${fmt((imported / importMs) * 1000 | 0)} sess/s, ${mib(totalTextBytes / (importMs / 1000))}/s text)`);
+  console.log(
+    `  import time      : ${(importMs / 1000).toFixed(1)} s  (${fmt(((imported / importMs) * 1000) | 0)} sess/s, ${mib(totalTextBytes / (importMs / 1000))}/s text)`,
+  );
   console.log(`  compact time     : ${compactMs.toFixed(0)} ms`);
   console.log(`  db size on disk  : ${mib(sz)}  (${(sz / totalTextBytes).toFixed(2)}x raw text)`);
   console.log(`  postings terms   : ${fmt(db.text.get('body').postings.size)}`);
@@ -203,7 +204,14 @@ async function main() {
   console.log(`  heap used        : ${mib(process.memoryUsage().heapUsed)}`);
 
   // ---- sample searches ----
-  const queries = ['lark-approval', 'database compaction', '北京', 'Redis 持久化', 'worktree init', 'nonexistentxyz123'];
+  const queries = [
+    'lark-approval',
+    'database compaction',
+    '北京',
+    'Redis 持久化',
+    'worktree init',
+    'nonexistentxyz123',
+  ];
   console.log(`\n=== sample searches ===`);
   for (const q of queries) {
     const s0 = performance.now();
@@ -220,28 +228,34 @@ async function main() {
   const q0 = performance.now();
   const recent = db.query({
     text: { index: 'body', q: 'database' },
-    sort: { 'workspaceName': 1 },
+    sort: { workspaceName: 1 },
     limit: 5,
     project: ['title', 'workspaceName'],
   });
-  console.log(`\n  composed query (text "database" + sort + project) -> ${recent.length} in ${(performance.now() - q0).toFixed(1)} ms`);
+  console.log(
+    `\n  composed query (text "database" + sort + project) -> ${recent.length} in ${(performance.now() - q0).toFixed(1)} ms`,
+  );
 
   // dt range: sessions updated in the last 7 days
   const week = Date.now() - 7 * 864e5;
   const d0 = performance.now();
   const recentDt = db.dtRange('updated', { gte: week, limit: 10 });
-  console.log(`  dt range (updated in last 7d) -> ${recentDt.length} shown in ${(performance.now() - d0).toFixed(2)} ms`);
+  console.log(
+    `  dt range (updated in last 7d) -> ${recentDt.length} shown in ${(performance.now() - d0).toFixed(2)} ms`,
+  );
 
   // secondary index lookup by workspace
   const w0 = performance.now();
   const byWs = db.findEq('byWorkspace', 'kimi-code-dev-1');
-  console.log(`  index lookup (workspace=kimi-code-dev-1) -> ${byWs.length} in ${(performance.now() - w0).toFixed(2)} ms`);
+  console.log(
+    `  index lookup (workspace=kimi-code-dev-1) -> ${byWs.length} in ${(performance.now() - w0).toFixed(2)} ms`,
+  );
 
   await db.close();
   console.log(`\ndone. db at: ${OUT}`);
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

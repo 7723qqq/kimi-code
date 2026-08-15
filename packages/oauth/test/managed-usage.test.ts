@@ -72,7 +72,11 @@ describe('isManagedKimiCode', () => {
 describe('parseManagedUsagePayload', () => {
   it('returns empty when payload is not an object', () => {
     expect(parseManagedUsagePayload(null)).toEqual({ summary: null, limits: [], extraUsage: null });
-    expect(parseManagedUsagePayload('nope')).toEqual({ summary: null, limits: [], extraUsage: null });
+    expect(parseManagedUsagePayload('nope')).toEqual({
+      summary: null,
+      limits: [],
+      extraUsage: null,
+    });
   });
 
   it('parses the numeric strings the platform reports', () => {
@@ -117,7 +121,10 @@ describe('parseManagedUsagePayload', () => {
   it('normalizes window duration and timeUnit from the window record', () => {
     const parsed = parseManagedUsagePayload({
       limits: [
-        { detail: { used: 1, limit: 100 }, window: { duration: 300, timeUnit: 'TIME_UNIT_MINUTE' } },
+        {
+          detail: { used: 1, limit: 100 },
+          window: { duration: 300, timeUnit: 'TIME_UNIT_MINUTE' },
+        },
         { detail: { used: 2, limit: 50 }, window: { duration: 24, timeUnit: 'TIME_UNIT_HOUR' } },
         { detail: { used: 3, limit: 60 }, window: { duration: 7, timeUnit: 'TIME_UNIT_DAY' } },
         { detail: { used: 4, limit: 30 }, window: { duration: 90, timeUnit: 'TIME_UNIT_MINUTE' } },
@@ -296,7 +303,10 @@ describe('fetchManagedUsage', () => {
   });
 
   it('falls back to local usage hints when the API error body is empty', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 404 })),
+    );
 
     const result = await fetchManagedUsage('https://api.example/usages', 'access-token');
 

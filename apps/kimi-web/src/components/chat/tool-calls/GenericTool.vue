@@ -1,8 +1,9 @@
 <!-- apps/kimi-web/src/components/chat/tool-calls/GenericTool.vue -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
+
 import { toolChip, toolGlyph, toolLabel, toolSummary } from '../../../lib/toolMeta';
+import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
 import ToolRow from '../ToolRow.vue';
 import ToolOutputBlock from './ToolOutputBlock.vue';
 
@@ -29,7 +30,9 @@ const hasOutput = computed(() => !!props.tool.output && props.tool.output.length
 const canExpand = computed(() => hasOutput.value || isRunningBash.value);
 const open = ref(props.tool.defaultExpanded === true && canExpand.value);
 
-const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
+const status = computed<'running' | 'ok' | 'error'>(
+  () => props.tool.status as 'running' | 'ok' | 'error',
+);
 const label = computed(() => toolLabel(props.tool.name));
 const glyph = computed(() => toolGlyph(props.tool.name));
 const summary = computed(() => toolSummary(props.tool.name, props.tool.arg));
@@ -49,7 +52,13 @@ function toggle(): void {
 }
 
 watch(
-  () => [props.tool.defaultExpanded, props.tool.output?.length, props.tool.status, props.tool.name] as const,
+  () =>
+    [
+      props.tool.defaultExpanded,
+      props.tool.output?.length,
+      props.tool.status,
+      props.tool.name,
+    ] as const,
   () => {
     if (props.tool.defaultExpanded === true && canExpand.value) open.value = true;
   },

@@ -1,7 +1,9 @@
 export const meta = {
   name: 'deep-research',
-  description: 'Deep research orchestrator — runs parallel web searches via search(), reads actual pages via fetch(), cross-checks each fact with an adversarial jury, and writes a cited report.',
-  whenToUse: 'Use when the user wants a thorough, multi-source, fact-checked answer to a research question backed by real web sources.',
+  description:
+    'Deep research orchestrator — runs parallel web searches via search(), reads actual pages via fetch(), cross-checks each fact with an adversarial jury, and writes a cited report.',
+  whenToUse:
+    'Use when the user wants a thorough, multi-source, fact-checked answer to a research question backed by real web sources.',
   phases: ['Plan', 'Search', 'Read', 'Group', 'Crosscheck', 'Report'],
 };
 
@@ -116,15 +118,15 @@ function canonURL(url) {
 function extractText(html) {
   // Crude HTML-to-text: strip tags, decode entities, collapse whitespace.
   return html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#(\d+);/g, (_, c) => String.fromCharCode(Number(c)))
-    .replace(/\s+/g, ' ')
+    .replaceAll(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replaceAll(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replaceAll(/<[^>]+>/g, ' ')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll(/&#(\d+);/g, (_, c) => String.fromCharCode(Number(c)))
+    .replaceAll(/\s+/g, ' ')
     .trim();
 }
 
@@ -140,7 +142,7 @@ if (!question) {
 phase('Plan');
 const plan = await agent(
   `You are a research planner. Break this question into 3-6 complementary search queries that cover different facets.\n\nQuestion: ${question}\n\nReturn JSON with "question" (rephrased) and "lines" (array of 3-6 search queries).`,
-  { schema: PLAN_SHAPE, label: 'planner', phase: 'Plan' }
+  { schema: PLAN_SHAPE, label: 'planner', phase: 'Plan' },
 );
 
 if (!plan || !plan.lines || plan.lines.length === 0) {
@@ -156,14 +158,16 @@ const seenUrls = new Set();
 const searchResults = await parallel(
   plan.lines.map((line) => async () => {
     const results = await search(line);
-    const fresh = results.filter((r) => {
-      const canon = canonURL(r.url);
-      if (seenUrls.has(canon)) return false;
-      seenUrls.add(canon);
-      return true;
-    }).slice(0, 5); // top 5 per line
+    const fresh = results
+      .filter((r) => {
+        const canon = canonURL(r.url);
+        if (seenUrls.has(canon)) return false;
+        seenUrls.add(canon);
+        return true;
+      })
+      .slice(0, 5); // top 5 per line
     return { line, results: fresh };
-  })
+  }),
 );
 
 // Collect unique sources, enforce budget.
@@ -181,7 +185,11 @@ if (candidates.length > SOURCE_BUDGET) {
 log(`Search returned ${candidates.length} unique sources`);
 
 if (candidates.length === 0) {
-  return { question, error: 'No search results found.', stats: { lines: plan.lines.length, sourcesRead: 0, factsFound: 0 } };
+  return {
+    question,
+    error: 'No search results found.',
+    stats: { lines: plan.lines.length, sourcesRead: 0, factsFound: 0 },
+  };
 }
 
 // Phase 3: Read — fetch actual pages and extract facts.
@@ -201,7 +209,11 @@ await parallel(
 
       const extraction = await agent(
         `Extract 1-5 falsifiable facts from this page content.\n\nURL: ${source.url}\nTitle: ${source.title}\n\nContent:\n${text}\n\nFor each fact, provide a statement, a supporting excerpt, and a weight (high/medium/low). Also rate the source tier (primary/secondary/weak).`,
-        { schema: EXTRACT_SHAPE, label: 'read:' + canonURL(source.url).slice(0, 20), phase: 'Read' }
+        {
+          schema: EXTRACT_SHAPE,
+          label: 'read:' + canonURL(source.url).slice(0, 20),
+          phase: 'Read',
+        },
       ).catch(() => null);
 
       if (extraction && extraction.facts) {
@@ -209,10 +221,10 @@ await parallel(
           allFacts.push({ ...fact, url: source.url, title: source.title });
         }
       }
-    } catch (e) {
-      log(`Error reading ${source.url}: ${String(e)}`);
+    } catch (error) {
+      log(`Error reading ${source.url}: ${String(error)}`);
     }
-  })
+  }),
 );
 
 log(`Extracted ${allFacts.length} facts from ${candidates.length} sources`);
@@ -229,31 +241,44 @@ if (allFacts.length === 0) {
 phase('Group');
 const topFacts = allFacts.slice(0, FACT_CAP);
 const grouped = await agent(
-  `Group these facts into canonical clusters. Facts asserting the same thing should be merged.\n\nFacts:\n${JSON.stringify(topFacts.map((f, i) => ({ id: i, ...f })), null, 2)}\n\nReturn groups with a canonical statement, member indices, and combined URLs.`,
-  { schema: GROUP_SHAPE, label: 'grouper', phase: 'Group' }
+  `Group these facts into canonical clusters. Facts asserting the same thing should be merged.\n\nFacts:\n${JSON.stringify(
+    topFacts.map((f, i) => ({ id: i, ...f })),
+    null,
+    2,
+  )}\n\nReturn groups with a canonical statement, member indices, and combined URLs.`,
+  { schema: GROUP_SHAPE, label: 'grouper', phase: 'Group' },
 );
 
-let groups = (grouped && grouped.groups) || topFacts.map((f, i) => ({
-  canonical: f.statement,
-  members: [String(i)],
-  urls: [f.url],
-}));
+let groups =
+  (grouped && grouped.groups) ||
+  topFacts.map((f, i) => ({
+    canonical: f.statement,
+    members: [String(i)],
+    urls: [f.url],
+  }));
 
 log(`Grouped into ${groups.length} clusters`);
 
 // Phase 5: Crosscheck (adversarial jury).
 phase('Crosscheck');
 const checked = await parallel(
-  groups.map((fact) => () =>
-    parallel(
-      Array(JURY_SIZE).fill(0).map((_, n) =>
-        agent(
-          `You are juror ${n + 1} of ${JURY_SIZE}. Your job is to TRY TO REJECT this fact.\n\nFact: ${fact.canonical}\n\nExamine it critically. If you can find a reason to reject it (unsupported, contradicted, vague, misleading), do so. Only uphold it if the evidence is solid.\n\nReturn your ruling: reject (true/false), reason, certainty.`,
-          { schema: RULING_SHAPE, label: `j${n}:${fact.canonical.slice(0, 20)}`, phase: 'Crosscheck' }
-        ).catch(() => null)
-      )
-    ).then((rulings) => ({ fact, rulings }))
-  )
+  groups.map(
+    (fact) => () =>
+      parallel(
+        Array(JURY_SIZE)
+          .fill(0)
+          .map((_, n) =>
+            agent(
+              `You are juror ${n + 1} of ${JURY_SIZE}. Your job is to TRY TO REJECT this fact.\n\nFact: ${fact.canonical}\n\nExamine it critically. If you can find a reason to reject it (unsupported, contradicted, vague, misleading), do so. Only uphold it if the evidence is solid.\n\nReturn your ruling: reject (true/false), reason, certainty.`,
+              {
+                schema: RULING_SHAPE,
+                label: `j${n}:${fact.canonical.slice(0, 20)}`,
+                phase: 'Crosscheck',
+              },
+            ).catch(() => null),
+          ),
+      ).then((rulings) => ({ fact, rulings })),
+  ),
 );
 
 const upheld = [];
@@ -277,19 +302,31 @@ log(`Crosscheck: ${upheld.length} upheld, ${dropped.length} dropped`);
 phase('Report');
 const report = await agent(
   `Write a research report based on these upheld facts.\n\nQuestion: ${question}\n\nUpheld facts:\n${JSON.stringify(upheld, null, 2)}\n\nWrite a 3-5 sentence direct answer, then list findings with evidence, sources, and certainty. Note limitations and suggest 2-4 follow-up questions.`,
-  { schema: REPORT_SHAPE, label: 'reporter', phase: 'Report' }
+  { schema: REPORT_SHAPE, label: 'reporter', phase: 'Report' },
 );
 
 if (!report) {
   return {
     question,
     answer: 'Report generation failed. Raw upheld facts attached.',
-    findings: upheld.map((f) => ({ claim: f.canonical, evidence: '', sources: f.urls || [], certainty: 'medium' })),
+    findings: upheld.map((f) => ({
+      claim: f.canonical,
+      evidence: '',
+      sources: f.urls || [],
+      certainty: 'medium',
+    })),
     limitations: 'Report agent failed to generate a structured report.',
     followups: [],
     rejected: dropped,
     sources: Array.from(seenUrls),
-    stats: { lines: plan.lines.length, sourcesRead: candidates.length, factsFound: allFacts.length, factsChecked: groups.length, upheld: upheld.length, dropped: dropped.length },
+    stats: {
+      lines: plan.lines.length,
+      sourcesRead: candidates.length,
+      factsFound: allFacts.length,
+      factsChecked: groups.length,
+      upheld: upheld.length,
+      dropped: dropped.length,
+    },
   };
 }
 
@@ -298,5 +335,12 @@ return {
   ...report,
   rejected: dropped,
   sources: Array.from(seenUrls),
-  stats: { lines: plan.lines.length, sourcesRead: candidates.length, factsFound: allFacts.length, factsChecked: groups.length, upheld: upheld.length, dropped: dropped.length },
+  stats: {
+    lines: plan.lines.length,
+    sourcesRead: candidates.length,
+    factsFound: allFacts.length,
+    factsChecked: groups.length,
+    upheld: upheld.length,
+    dropped: dropped.length,
+  },
 };

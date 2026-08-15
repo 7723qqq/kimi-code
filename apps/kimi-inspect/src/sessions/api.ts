@@ -18,10 +18,7 @@
 
 export type V2ActivityStatus = 'running' | 'approval' | 'question' | 'failed' | 'idle';
 
-export type V2SessionSort =
-  | 'meta.updated_at_desc'
-  | 'meta.updated_at_asc'
-  | 'meta.created_at_desc';
+export type V2SessionSort = 'meta.updated_at_desc' | 'meta.updated_at_asc' | 'meta.created_at_desc';
 
 export interface V2Session {
   readonly id: string;
@@ -78,7 +75,11 @@ function parsePullRequest(value: unknown): NonNullable<V2Session['git']>['pullRe
   ) {
     return null;
   }
-  return { number: pr['number'], state: pr['state'] as 'open' | 'closed' | 'merged', url: pr['url'] };
+  return {
+    number: pr['number'],
+    state: pr['state'] as 'open' | 'closed' | 'merged',
+    url: pr['url'],
+  };
 }
 
 function parseSession(value: unknown): V2Session | undefined {
@@ -153,10 +154,9 @@ export async function fetchV2SessionsPage(
   }
   const doFetch = opts.fetchImpl ?? fetch;
   const query = params.toString();
-  const res = await doFetch(
-    `${opts.baseUrl}/api/v2/sessions${query === '' ? '' : `?${query}`}`,
-    { headers },
-  );
+  const res = await doFetch(`${opts.baseUrl}/api/v2/sessions${query === '' ? '' : `?${query}`}`, {
+    headers,
+  });
   const body: unknown = await res.json();
   const envelope = (
     body !== null && typeof body === 'object' && !Array.isArray(body) ? body : {}

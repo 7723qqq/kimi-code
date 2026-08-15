@@ -211,16 +211,66 @@ export type AgentEventName = keyof AgentEventPayloads;
 
 /** Public event name → stream binding + payload schema. */
 export const agentEvents = {
-  'turn.started': { kind: 'stream', name: 'events', type: 'turn.started', schema: turnStartedEventSchema },
-  'turn.ended': { kind: 'stream', name: 'events', type: 'turn.ended', schema: turnEndedEventSchema },
-  'assistant.delta': { kind: 'stream', name: 'events', type: 'assistant.delta', schema: assistantDeltaEventSchema },
-  'thinking.delta': { kind: 'stream', name: 'events', type: 'thinking.delta', schema: thinkingDeltaEventSchema },
-  'tool.call.started': { kind: 'stream', name: 'events', type: 'tool.call.started', schema: toolCallStartedEventSchema },
-  'tool.call.delta': { kind: 'stream', name: 'events', type: 'tool.call.delta', schema: toolCallDeltaEventSchema },
-  'tool.progress': { kind: 'stream', name: 'events', type: 'tool.progress', schema: toolProgressEventSchema },
-  'tool.result': { kind: 'stream', name: 'events', type: 'tool.result', schema: toolResultEventSchema },
-  'prompt.completed': { kind: 'stream', name: 'events', type: 'prompt.completed', schema: promptCompletedEventSchema },
-  'prompt.aborted': { kind: 'stream', name: 'events', type: 'prompt.aborted', schema: promptAbortedEventSchema },
+  'turn.started': {
+    kind: 'stream',
+    name: 'events',
+    type: 'turn.started',
+    schema: turnStartedEventSchema,
+  },
+  'turn.ended': {
+    kind: 'stream',
+    name: 'events',
+    type: 'turn.ended',
+    schema: turnEndedEventSchema,
+  },
+  'assistant.delta': {
+    kind: 'stream',
+    name: 'events',
+    type: 'assistant.delta',
+    schema: assistantDeltaEventSchema,
+  },
+  'thinking.delta': {
+    kind: 'stream',
+    name: 'events',
+    type: 'thinking.delta',
+    schema: thinkingDeltaEventSchema,
+  },
+  'tool.call.started': {
+    kind: 'stream',
+    name: 'events',
+    type: 'tool.call.started',
+    schema: toolCallStartedEventSchema,
+  },
+  'tool.call.delta': {
+    kind: 'stream',
+    name: 'events',
+    type: 'tool.call.delta',
+    schema: toolCallDeltaEventSchema,
+  },
+  'tool.progress': {
+    kind: 'stream',
+    name: 'events',
+    type: 'tool.progress',
+    schema: toolProgressEventSchema,
+  },
+  'tool.result': {
+    kind: 'stream',
+    name: 'events',
+    type: 'tool.result',
+    schema: toolResultEventSchema,
+  },
+  'prompt.completed': {
+    kind: 'stream',
+    name: 'events',
+    type: 'prompt.completed',
+    schema: promptCompletedEventSchema,
+  },
+  'prompt.aborted': {
+    kind: 'stream',
+    name: 'events',
+    type: 'prompt.aborted',
+    schema: promptAbortedEventSchema,
+  },
   'compaction.started': {
     kind: 'stream',
     name: 'events',

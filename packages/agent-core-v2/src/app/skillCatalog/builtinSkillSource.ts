@@ -12,18 +12,15 @@
  * lets the catalog reload it when the switch is toggled.
  */
 
-import { Emitter, type Event } from '#/_base/event';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Emitter, type Event } from '#/_base/event';
 import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
 
 import { visibleBuiltinSkills } from './builtin/builtin';
-import {
-  BUILTIN_PRODUCT_SKILLS_SECTION,
-  builtinProductSkillsEnabled,
-} from './configSection';
+import { BUILTIN_PRODUCT_SKILLS_SECTION, builtinProductSkillsEnabled } from './configSection';
 import {
   BUILTIN_SKILL_SOURCE_ID,
   SKILL_SOURCE_PRIORITY,

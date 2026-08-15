@@ -22,7 +22,12 @@
  *   - other errors                 → `50001` via the global error handler
  */
 
-import { CapabilityErrors, ICapabilityService, isError2, type Scope } from '@moonshot-ai/agent-core-v2';
+import {
+  CapabilityErrors,
+  ICapabilityService,
+  isError2,
+  type Scope,
+} from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -136,14 +141,13 @@ export function registerCapabilitiesRoutes(app: CapabilitiesRouteHost, core: Sco
         resourceLabel: 'capability',
       });
       if (parsed.kind !== 'action') {
-        const message = parsed.kind === 'invalid' ? parsed.reason : `unsupported action: ${req.params.tail}`;
+        const message =
+          parsed.kind === 'invalid' ? parsed.reason : `unsupported action: ${req.params.tail}`;
         reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, message, req.id));
         return;
       }
       try {
-        const capability = await core.accessor
-          .get(ICapabilityService)
-          .installCapability(parsed.id);
+        const capability = await core.accessor.get(ICapabilityService).installCapability(parsed.id);
         reply.send(okEnvelope(capability, req.id));
       } catch (error) {
         reply.send(mapCapabilityError(error, req.id));

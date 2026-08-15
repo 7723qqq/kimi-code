@@ -88,5 +88,7 @@ export const BashOutputSchema = z.object({
 export type BashInput = z.infer<typeof BashInputSchema>;
 export type BashOutput = z.infer<typeof BashOutputSchema>;
 
-export interface IBashTool extends AgentTool<BashInput> { readonly _serviceBrand: undefined }
+export interface IBashTool extends AgentTool<BashInput> {
+  readonly _serviceBrand: undefined;
+}
 export const IBashTool = createDecorator<IBashTool>('bashTool');

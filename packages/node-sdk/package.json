@@ -3,24 +3,24 @@
   "version": "0.18.0",
   "private": true,
   "description": "TypeScript SDK for the Kimi Code Agent",
+  "keywords": [
+    "agent",
+    "api",
+    "kimi",
+    "sdk",
+    "typescript"
+  ],
+  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/node-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+  },
   "license": "MIT",
   "author": "Moonshot AI",
-  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/node-sdk#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MoonshotAI/kimi-code.git",
     "directory": "packages/node-sdk"
   },
-  "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
-  },
-  "keywords": [
-    "kimi",
-    "sdk",
-    "typescript",
-    "agent",
-    "api"
-  ],
   "files": [
     "dist",
     "README.md"
@@ -38,7 +38,6 @@
     }
   },
   "publishConfig": {
-    "access": "public",
     "exports": {
       ".": {
         "types": "./dist/index.d.mts",
@@ -46,6 +45,7 @@
         "default": "./dist/index.mjs"
       }
     },
+    "access": "public",
     "provenance": true
   },
   "scripts": {

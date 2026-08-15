@@ -1,6 +1,10 @@
-import type { Locale, TranslationKey as SharedTranslationKey } from '@moonshot-ai/i18n-shared/types';
 import { interpolate } from '@moonshot-ai/i18n-shared/core';
 import { detectLocaleNode } from '@moonshot-ai/i18n-shared/detect';
+import type {
+  Locale,
+  TranslationKey as SharedTranslationKey,
+} from '@moonshot-ai/i18n-shared/types';
+
 import { en } from './locales/en';
 import { zh } from './locales/zh';
 
@@ -63,7 +67,10 @@ function loadNativeImpl(): NativeModule | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require('@moonshot-ai/kimi-native-tools') as NativeModule;
-    if (typeof mod.nativeTranslateCached !== 'function' && typeof mod.nativeTranslate !== 'function') {
+    if (
+      typeof mod.nativeTranslateCached !== 'function' &&
+      typeof mod.nativeTranslate !== 'function'
+    ) {
       return null;
     }
     return mod;
@@ -123,12 +130,13 @@ export function getEngine(): Engine {
 function toStringParams(params: Record<string, string | number>): Record<string, string> {
   let allStrings = true;
   for (const v of Object.values(params)) {
-    if (typeof v !== 'string') { allStrings = false; break; }
+    if (typeof v !== 'string') {
+      allStrings = false;
+      break;
+    }
   }
   if (allStrings) return params as Record<string, string>;
-  return Object.fromEntries(
-    Object.entries(params).map(([k, v]) => [k, String(v)]),
-  );
+  return Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)]));
 }
 
 // ── Pure-JS fallback (flat map) ─────────────────────────────────────────────

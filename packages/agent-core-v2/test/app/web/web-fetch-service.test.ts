@@ -10,20 +10,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IOAuthService } from '#/app/auth/auth';
-import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
 import {
   buildAgentIdentitySnapshot,
   IAgentIdentity,
   type AgentIdentitySnapshot,
 } from '#/app/agentIdentity/agentIdentity';
+import { IOAuthService } from '#/app/auth/auth';
+import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
 import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
 import { MoonshotFetchURLProvider } from '#/app/web/providers/moonshot-fetch-url';
 import { IWebFetchService } from '#/app/web/web';
 import { WebFetchService } from '#/app/web/webService';
+import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 
 import { stubAgentIdentity } from '../agentIdentity/stubs';
@@ -48,9 +48,7 @@ describe('WebFetchService', () => {
     providers = {};
     servicesConfig = undefined;
     identitySlug = undefined;
-    resolveTokenProvider = vi
-      .fn()
-      .mockReturnValue({ getAccessToken: async () => 'access-token' });
+    resolveTokenProvider = vi.fn().mockReturnValue({ getAccessToken: async () => 'access-token' });
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IProviderService, {

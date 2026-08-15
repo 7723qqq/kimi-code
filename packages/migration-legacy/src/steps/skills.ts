@@ -1,6 +1,7 @@
-import { cp, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { cp, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+
 import { sourceSkillsDir, targetSkillsDir } from '../paths.js';
 
 export interface SkillsStepInput {
@@ -67,9 +68,9 @@ export async function migrateSkillsStep(input: SkillsStepInput): Promise<SkillsS
     try {
       await cp(srcPath, tmpPath, { recursive: true, errorOnExist: false, force: true });
       await rename(tmpPath, tgtPath);
-    } catch (err) {
+    } catch (error) {
       await rm(tmpPath, { recursive: true, force: true }).catch(() => {});
-      throw err;
+      throw error;
     }
     copied++;
   }

@@ -37,7 +37,7 @@
 
 import type { ILogService } from '#/_base/log/log';
 import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import type { IQueryStore} from '#/persistence/interface/queryStore';
+import type { IQueryStore } from '#/persistence/interface/queryStore';
 import { type WriteOp } from '#/persistence/interface/queryStore';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
@@ -249,7 +249,11 @@ export class SessionIndexProjector {
 
     await this.batchChunks([...upserts, ...removals]);
     await this.writeCounters(counters, counts);
-    const result = { sessions: summaries.length, upserted: upserts.length, removed: removals.length };
+    const result = {
+      sessions: summaries.length,
+      upserted: upserts.length,
+      removed: removals.length,
+    };
     if (result.upserted > 0 || result.removed > 0) {
       log.info('session index reconciliation repaired drift', { generation, ...result });
     }

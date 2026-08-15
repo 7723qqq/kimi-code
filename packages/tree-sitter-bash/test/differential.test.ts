@@ -20,7 +20,14 @@ import path from 'node:path';
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { compareSource, diffDumps, ourDump, parseCorpusFile, parseFixtureFile, referenceDump } from './helpers/differential';
+import {
+  compareSource,
+  diffDumps,
+  ourDump,
+  parseCorpusFile,
+  parseFixtureFile,
+  referenceDump,
+} from './helpers/differential';
 import type { FixtureSample } from './helpers/differential';
 import { KNOWN_DIFFERENCES, isKnownDifferenceId } from './helpers/known-differences';
 
@@ -34,7 +41,9 @@ interface LocatedSample extends FixtureSample {
 
 function loadDifferentialFixtures(): LocatedSample[] {
   const out: LocatedSample[] = [];
-  for (const file of readdirSync(DIFF_DIR).filter((f) => f.endsWith('.txt')).toSorted()) {
+  for (const file of readdirSync(DIFF_DIR)
+    .filter((f) => f.endsWith('.txt'))
+    .toSorted()) {
     const content = readFileSync(path.join(DIFF_DIR, file), 'utf8');
     for (const sample of parseFixtureFile(`${DIFF_DIR}/${file}`, content)) {
       out.push({ ...sample, file });
@@ -64,7 +73,9 @@ const corpusKnownDiffs = loadCorpusKnownDiffs();
 const corpusCases = readdirSync(CORPUS_DIR)
   .filter((f) => f.endsWith('.txt') && f !== 'known-diffs.txt')
   .toSorted()
-  .flatMap((file) => parseCorpusFile(readFileSync(path.join(CORPUS_DIR, file), 'utf8')).map((c) => ({ ...c, file })));
+  .flatMap((file) =>
+    parseCorpusFile(readFileSync(path.join(CORPUS_DIR, file), 'utf8')).map((c) => ({ ...c, file })),
+  );
 
 beforeAll(async () => {
   // Fails with a descriptive error when the wasm reference cannot be loaded.
@@ -92,9 +103,10 @@ function registerFixtureTest(sample: LocatedSample): void {
           ours !== reference,
           'this sample now matches the reference — remove it from the known-difference list (fixture + registry + README)',
         ).toBe(true);
-        expect(ours === sample.expectedOurs, `deviation shape drifted:\n${diffDumps(ours, sample.expectedOurs!)}`).toBe(
-          true,
-        );
+        expect(
+          ours === sample.expectedOurs,
+          `deviation shape drifted:\n${diffDumps(ours, sample.expectedOurs!)}`,
+        ).toBe(true);
       });
     },
   };
@@ -118,14 +130,18 @@ function registerCorpusTest(corpusCase: { file: string; name: string; input: str
     },
     'known-diff': () => {
       it(`${key} (known-diff ${known!.id})`, async () => {
-        const [ours, reference] = [ourDump(corpusCase.input), await referenceDump(corpusCase.input)];
+        const [ours, reference] = [
+          ourDump(corpusCase.input),
+          await referenceDump(corpusCase.input),
+        ];
         expect(
           ours !== reference,
           'this corpus case now matches the reference — remove it from known-diffs.txt, the registry and the README',
         ).toBe(true);
-        expect(ours === known!.expectedOurs, `deviation shape drifted:\n${diffDumps(ours, known!.expectedOurs!)}`).toBe(
-          true,
-        );
+        expect(
+          ours === known!.expectedOurs,
+          `deviation shape drifted:\n${diffDumps(ours, known!.expectedOurs!)}`,
+        ).toBe(true);
       });
     },
   };

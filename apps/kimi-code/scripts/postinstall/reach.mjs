@@ -376,8 +376,7 @@ export async function userShellPath() {
     let stdout = '';
     // Wrap PATH in delimiters we can parse out, defensively, in case
     // the shell prints anything else (motd, prompt redraw, …).
-    const probe =
-      'printf "<<<KIMI_PATH_BEGIN>>>%s<<<KIMI_PATH_END>>>\\n" "$PATH"';
+    const probe = 'printf "<<<KIMI_PATH_BEGIN>>>%s<<<KIMI_PATH_END>>>\\n" "$PATH"';
     const child = spawn(shell, ['-l', '-c', probe], {
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -394,9 +393,7 @@ export async function userShellPath() {
 
     child.on('close', (code) => {
       clearTimeout(timer);
-      const match = stdout.match(
-        /<<<KIMI_PATH_BEGIN>>>([\s\S]*?)<<<KIMI_PATH_END>>>/,
-      );
+      const match = stdout.match(/<<<KIMI_PATH_BEGIN>>>([\s\S]*?)<<<KIMI_PATH_END>>>/);
       if (match && match[1].length > 0) {
         settle({ kind: 'ok', path: match[1] });
         return;
@@ -454,4 +451,3 @@ function unionPaths(...paths) {
   }
   return out.join(delimiter);
 }
-

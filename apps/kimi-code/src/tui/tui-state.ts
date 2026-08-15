@@ -1,5 +1,4 @@
-import type {
-  Container} from '@moonshot-ai/pi-tui';
+import type { Container } from '@moonshot-ai/pi-tui';
 import {
   ProcessTerminal,
   ScrollView,
@@ -12,7 +11,8 @@ import {
 import { clipboard } from '#/utils/clipboard/clipboard-native';
 import { openUrl } from '#/utils/open-url';
 
-import { FooterComponent } from './components/chrome/footer';import { GutterContainer } from './components/chrome/gutter-container';
+import { FooterComponent } from './components/chrome/footer';
+import { GutterContainer } from './components/chrome/gutter-container';
 import type { MoonLoader, SpinnerStyle } from './components/chrome/moon-loader';
 import { TodoPanelComponent } from './components/chrome/todo-panel';
 import { WorkflowPanelComponent } from './components/chrome/workflow-panel';
@@ -22,8 +22,6 @@ import { DEFAULT_TUI_CONFIG } from './config';
 import { CHROME_GUTTER } from './constant/rendering';
 import type { TasksBrowserState } from './controllers/tasks-browser';
 import { currentTheme, type Theme } from './theme';
-import { setMarkdownRenderLatex } from './utils/markdown-options';
-import { createTerminalState, type TerminalState } from './utils/terminal-state';
 import {
   INITIAL_LIVE_PANE,
   type AppState,
@@ -33,6 +31,8 @@ import {
   type TranscriptEntry,
   type TUIStartupState,
 } from './types';
+import { setMarkdownRenderLatex } from './utils/markdown-options';
+import { createTerminalState, type TerminalState } from './utils/terminal-state';
 
 export interface TUIState {
   ui: TUI;
@@ -91,29 +91,28 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   setMarkdownRenderLatex(initialAppState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true);
   // Fullscreen is experimental and env-gated for now: KIMI_CODE_TUI_FULL_SCREEN=1.
   const fullscreen = process.env['KIMI_CODE_TUI_FULL_SCREEN'] === '1';
-  const ui =
-    fullscreen
-      ? new TuiAltScreen(terminal, undefined, undefined, {
-          // Mouse capture takes over the terminal's native link activation, so
-          // route OSC 8 clicks through our own opener.
-          openUrl,
-          // Likewise, on Windows the terminal's native right-click paste is
-          // intercepted; feed the clipboard to the focused component as a
-          // bracketed paste instead (renderer only calls this on win32).
-          onRightClickPaste: () => {
-            const target = ui.getFocusedComponent();
-            if (!target?.handleInput || clipboard?.getText === undefined) return;
-            void clipboard
-              .getText()
-              .then((text) => {
-                if (!text || ui.getFocusedComponent() !== target) return;
-                target.handleInput?.(`\x1B[200~${text}\x1B[201~`);
-                ui.requestRender();
-              })
-              .catch(() => {});
-          },
-        })
-      : new TuiMainScreen(terminal);
+  const ui = fullscreen
+    ? new TuiAltScreen(terminal, undefined, undefined, {
+        // Mouse capture takes over the terminal's native link activation, so
+        // route OSC 8 clicks through our own opener.
+        openUrl,
+        // Likewise, on Windows the terminal's native right-click paste is
+        // intercepted; feed the clipboard to the focused component as a
+        // bracketed paste instead (renderer only calls this on win32).
+        onRightClickPaste: () => {
+          const target = ui.getFocusedComponent();
+          if (!target?.handleInput || clipboard?.getText === undefined) return;
+          void clipboard
+            .getText()
+            .then((text) => {
+              if (!text || ui.getFocusedComponent() !== target) return;
+              target.handleInput?.(`\u001B[200~${text}\u001B[201~`);
+              ui.requestRender();
+            })
+            .catch(() => {});
+        },
+      })
+    : new TuiMainScreen(terminal);
 
   const transcriptContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const activityContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);

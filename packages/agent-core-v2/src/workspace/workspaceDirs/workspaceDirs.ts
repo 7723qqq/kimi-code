@@ -15,7 +15,6 @@
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
-
 import type { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 
 export interface WorkspaceAddDirInput {

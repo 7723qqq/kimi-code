@@ -19,7 +19,7 @@ import { parse as parseToml, stringify as stringifyToml, TomlError } from 'smol-
 import { ErrorCodes, KimiError } from '#/legacy';
 
 import { applyEnvModelConfig, stripEnvModelConfig } from './env-model';
-import { applySecondaryModelConfig, stripSecondaryModelConfig } from './secondary-model';
+import { atomicWrite } from './fs';
 import {
   KimiConfigSchema,
   formatConfigValidationError,
@@ -44,7 +44,7 @@ import {
   type ThinkingConfig,
   validateConfig,
 } from './schema';
-import { atomicWrite } from './fs';
+import { applySecondaryModelConfig, stripSecondaryModelConfig } from './secondary-model';
 
 /* ------------------------------------------------------------------ */
 /*  Key helpers – reuse generic snake / camel conversion instead of    */
@@ -193,9 +193,7 @@ export function loadRuntimeConfigSafe(
   try {
     config = applyEnvModelConfig(config, env);
   } catch (error) {
-    envWarnings.push(
-      `Ignoring KIMI_MODEL_* environment overrides: ${describeUnknownError(error)}`,
-    );
+    envWarnings.push(`Ignoring KIMI_MODEL_* environment overrides: ${describeUnknownError(error)}`);
   }
   // Never throws: the secondary overlay only copies already-validated entries.
   config = applySecondaryModelConfig(config, env);
@@ -274,9 +272,13 @@ export function parseConfigString(tomlText: string, filePath = 'config.toml'): K
   try {
     data = parseToml(tomlText) as Record<string, unknown>;
   } catch (error) {
-    throw new KimiError(ErrorCodes.CONFIG_INVALID, `Invalid TOML in ${filePath}: ${error instanceof Error ? error.message : String(error)}`, {
-      cause: error,
-    });
+    throw new KimiError(
+      ErrorCodes.CONFIG_INVALID,
+      `Invalid TOML in ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+      {
+        cause: error,
+      },
+    );
   }
 
   return parseConfigData(data, filePath);
@@ -290,9 +292,13 @@ function parseConfigData(data: Record<string, unknown>, filePath: string): KimiC
   try {
     return KimiConfigSchema.parse(transformed);
   } catch (error) {
-    throw new KimiError(ErrorCodes.CONFIG_INVALID, `Invalid configuration in ${filePath}: ${formatConfigValidationError(error)}`, {
-      cause: error,
-    });
+    throw new KimiError(
+      ErrorCodes.CONFIG_INVALID,
+      `Invalid configuration in ${filePath}: ${formatConfigValidationError(error)}`,
+      {
+        cause: error,
+      },
+    );
   }
 }
 

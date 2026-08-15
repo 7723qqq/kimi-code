@@ -15,11 +15,7 @@ export interface IAgentToolPolicyService {
 
   isToolActive(name: string, source?: ToolSource): boolean;
   isToolActiveForDisclosure(name: string, source?: ToolSource): boolean;
-  isToolActiveForProfile(
-    profile: ToolActivationPolicy,
-    name: string,
-    source?: ToolSource,
-  ): boolean;
+  isToolActiveForProfile(profile: ToolActivationPolicy, name: string, source?: ToolSource): boolean;
   /**
    * Snapshot the composed tool activation policy and return a checker
    * closure. Callers that check many tools per step (e.g. tool selection)

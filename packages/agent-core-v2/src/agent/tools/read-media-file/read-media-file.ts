@@ -23,7 +23,6 @@ export type VideoUploader = (
   options?: { readonly signal?: AbortSignal },
 ) => Promise<VideoURLPart>;
 
-
 export const ReadMediaFileInputSchema = z.object({
   path: z
     .string()

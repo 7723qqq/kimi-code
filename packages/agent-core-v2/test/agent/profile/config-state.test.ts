@@ -1,9 +1,11 @@
-import { emptyUsage } from '#/kosong/contract/usage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { emptyUsage } from '#/kosong/contract/usage';
 import type { ModelRecord } from '#/kosong/model/model';
+
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import {
   configServices,
   createTestAgent,
@@ -12,7 +14,6 @@ import {
   telemetryServices,
   type TestAgentContext,
 } from '../../harness';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 type TestKimiConfig = ReturnType<Parameters<typeof configServices>[0]>;
 type TestProtocolModelConfig = NonNullable<TestKimiConfig['models']>[string] &
@@ -289,7 +290,9 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
 
   beforeEach(() => {
     kimiConfig = {
-      providers: { kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' } },
+      providers: {
+        kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
+      },
       models: {
         'kimi-code/deep': {
           provider: 'kimi',
@@ -334,16 +337,18 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
     capturedThinking = undefined;
     ctx = createTestAgent(
       configServices(() => kimiConfig),
-      llmGenerateServices(async (_provider, _systemPrompt, _tools, _history, _callbacks, options) => {
-        capturedThinking = options?.thinking;
-        return {
-          id: 'response-1',
-          message: { role: 'assistant', content: [], toolCalls: [] },
-          usage: emptyUsage(),
-          finishReason: 'completed',
-          rawFinishReason: 'stop',
-        };
-      }),
+      llmGenerateServices(
+        async (_provider, _systemPrompt, _tools, _history, _callbacks, options) => {
+          capturedThinking = options?.thinking;
+          return {
+            id: 'response-1',
+            message: { role: 'assistant', content: [], toolCalls: [] },
+            usage: emptyUsage(),
+            finishReason: 'completed',
+            rawFinishReason: 'stop',
+          };
+        },
+      ),
     );
     profile = ctx.get(IAgentProfileService);
     requester = ctx.get(IAgentLLMRequesterService);
@@ -412,9 +417,7 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
 
     expect(() => {
       profile.setThinking('ultra');
-    }).toThrow(
-      'Thinking effort "ultra" is not supported by model "kimi-code/custom"',
-    );
+    }).toThrow('Thinking effort "ultra" is not supported by model "kimi-code/custom"');
   });
 
   it.each([
@@ -475,7 +478,9 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
 
   beforeEach(() => {
     kimiConfig = {
-      providers: { kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' } },
+      providers: {
+        kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
+      },
       models: {
         'kimi-code': {
           provider: 'kimi',
@@ -510,17 +515,19 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
   function createAgentWithEnv(): void {
     ctx = createTestAgent(
       configServices(() => kimiConfig),
-      llmGenerateServices(async (provider, _systemPrompt, _tools, _history, _callbacks, options) => {
-        capturedProvider = provider;
-        capturedOptions = options;
-        return {
-          id: 'response-1',
-          message: { role: 'assistant', content: [], toolCalls: [] },
-          usage: emptyUsage(),
-          finishReason: 'completed',
-          rawFinishReason: 'stop',
-        };
-      }),
+      llmGenerateServices(
+        async (provider, _systemPrompt, _tools, _history, _callbacks, options) => {
+          capturedProvider = provider;
+          capturedOptions = options;
+          return {
+            id: 'response-1',
+            message: { role: 'assistant', content: [], toolCalls: [] },
+            usage: emptyUsage(),
+            finishReason: 'completed',
+            rawFinishReason: 'stop',
+          };
+        },
+      ),
     );
     profile = ctx.get(IAgentProfileService);
     requester = ctx.get(IAgentLLMRequesterService);
@@ -584,7 +591,9 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
 
   it('works with model that has no capabilities set', () => {
     kimiConfig = {
-      providers: { custom: { type: 'openai', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' } },
+      providers: {
+        custom: { type: 'openai', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
+      },
       models: {
         'custom/minimal': {
           provider: 'custom',
@@ -593,9 +602,7 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
         },
       },
     };
-    ctx = createTestAgent(
-      configServices(() => kimiConfig),
-    );
+    ctx = createTestAgent(configServices(() => kimiConfig));
     profile = ctx.get(IAgentProfileService);
     profile.update({ modelAlias: 'custom/minimal' });
 
@@ -609,7 +616,9 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
   it('uses config max output size even when very small', async () => {
     let requestMaxTokens: unknown;
     kimiConfig = {
-      providers: { openai: { type: 'openai', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' } },
+      providers: {
+        openai: { type: 'openai', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
+      },
       models: {
         'openai/tiny': {
           provider: 'openai',

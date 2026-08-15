@@ -9,6 +9,7 @@
 // full REST/WS/console diagnostics never enter the archive.
 
 import { ref, shallowRef } from 'vue';
+
 import { safeGetString, STORAGE_KEYS } from '../lib/storage';
 
 export type TraceSource = 'rest' | 'ws' | 'client';
@@ -254,10 +255,7 @@ function pushExportTrace(event: string, info?: ExportTraceMetadata): void {
     if (bytes > MAX_TOTAL_UTF8_BYTES) return;
     exportEntryJson.push(json);
     exportTotalUtf8Bytes += bytes + (exportEntryJson.length > 1 ? 1 : 0);
-    while (
-      exportEntryJson.length > MAX_ENTRIES ||
-      exportTotalUtf8Bytes > MAX_TOTAL_UTF8_BYTES
-    ) {
+    while (exportEntryJson.length > MAX_ENTRIES || exportTotalUtf8Bytes > MAX_TOTAL_UTF8_BYTES) {
       const removed = exportEntryJson.shift();
       if (removed !== undefined) {
         exportTotalUtf8Bytes -= utf8.encode(removed).byteLength;
@@ -280,7 +278,8 @@ export function sanitizeForTrace(value: unknown, depth = 0): unknown {
   if (t === 'string') {
     const s = value as string;
     if (BASE64ISH_RE.test(s)) return `[base64-like, ${s.length} chars omitted]`;
-    if (s.length > MAX_STRING) return `${s.slice(0, MAX_STRING)}… [+${s.length - MAX_STRING} chars]`;
+    if (s.length > MAX_STRING)
+      return `${s.slice(0, MAX_STRING)}… [+${s.length - MAX_STRING} chars]`;
     return s;
   }
   if (t !== 'object') return String(value as bigint | symbol | (() => unknown));

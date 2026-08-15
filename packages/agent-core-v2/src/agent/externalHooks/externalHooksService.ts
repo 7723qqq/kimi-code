@@ -22,13 +22,10 @@
  */
 
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { defineState } from '#/_base/state/stateRegistry';
 import { isPlainRecord } from '#/_base/utils/canonical-args';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentTaskService, type AgentTaskInfo, type AgentTaskNotificationContext } from '#/agent/task/task';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import {
@@ -38,27 +35,31 @@ import {
 import type { CompactionResult } from '#/agent/fullCompaction/types';
 import { IAgentLoopService, type AfterStepContext } from '#/agent/loop/loop';
 import { ContinuationStepRequest } from '#/agent/loop/stepRequest';
-import {
-  IAgentPromptService,
-  type PromptSubmitContext,
-} from '#/agent/prompt/prompt';
 import type { TurnEndedEvent, TurnStartedEvent } from '#/agent/loop/turnEvents';
-import { IEventBus } from '#/app/event/eventBus';
-import type { ExecutableToolResult } from '#/tool/toolContract';
-import type { ResolvedToolExecutionHookContext, ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
+import { IAgentPromptService, type PromptSubmitContext } from '#/agent/prompt/prompt';
+import { IAgentStateService } from '#/agent/state/agentState';
+import {
+  IAgentTaskService,
+  type AgentTaskInfo,
+  type AgentTaskNotificationContext,
+} from '#/agent/task/task';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import type {
+  ResolvedToolExecutionHookContext,
+  ToolDidExecuteContext,
+} from '#/agent/toolExecutor/toolHooks';
+import { IEventBus } from '#/app/event/eventBus';
+import { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
+import { LifecycleScope } from '#/app/scopes';
 import { toKimiErrorPayload } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import type { ExecutableToolResult } from '#/tool/toolContract';
 
 import { IAgentExternalHooksService } from './externalHooks';
-import { IExternalHooksRunnerService } from '#/app/externalHooksRunner/externalHooksRunner';
 import type { HookMatcherValue } from './types';
-import {
-  renderUserPromptHookBlockResult,
-  renderUserPromptHookResult,
-} from './user-prompt';
+import { renderUserPromptHookBlockResult, renderUserPromptHookResult } from './user-prompt';
 
 export interface HookResultEvent {
   readonly type: 'hook.result';
@@ -223,12 +224,8 @@ export class AgentExternalHooksService extends Service implements IAgentExternal
   }
 
   private registerTurnHooks(): void {
-    this._register(
-      this.eventBus.subscribe('turn.started', (e) => this.notifyTurnStarted(e)),
-    );
-    this._register(
-      this.eventBus.subscribe('turn.ended', (e) => this.notifyTurnEnded(e)),
-    );
+    this._register(this.eventBus.subscribe('turn.started', (e) => this.notifyTurnStarted(e)));
+    this._register(this.eventBus.subscribe('turn.ended', (e) => this.notifyTurnEnded(e)));
   }
 
   private notifyTurnStarted(event: TurnStartedEvent): void {
@@ -296,9 +293,7 @@ export class AgentExternalHooksService extends Service implements IAgentExternal
         this.notifyTaskNotification(ctx);
       }),
     );
-    this._register(
-      this.eventBus.subscribe('task.started', (e) => this.notifyTaskStarted(e.info)),
-    );
+    this._register(this.eventBus.subscribe('task.started', (e) => this.notifyTaskStarted(e.info)));
   }
 
   private notifyTaskStarted(info: AgentTaskInfo): void {
@@ -350,9 +345,7 @@ export class AgentExternalHooksService extends Service implements IAgentExternal
     );
   }
 
-  private async runPromptSubmitHook(
-    ctx: PromptSubmitContext,
-  ): Promise<boolean> {
+  private async runPromptSubmitHook(ctx: PromptSubmitContext): Promise<boolean> {
     if ((ctx.promptMessage.origin ?? USER_PROMPT_ORIGIN).kind !== 'user') return false;
 
     const signal = new AbortController().signal;
@@ -464,12 +457,7 @@ export class AgentExternalHooksService extends Service implements IAgentExternal
 
   private notifyTaskNotification(ctx: AgentTaskNotificationContext): void {
     const signal = new AbortController().signal;
-    this.fireAndForget(
-      'Notification',
-      { sink: 'context', ...ctx },
-      ctx.notificationType,
-      signal,
-    );
+    this.fireAndForget('Notification', { sink: 'context', ...ctx }, ctx.notificationType, signal);
   }
 }
 

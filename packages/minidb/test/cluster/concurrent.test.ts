@@ -4,13 +4,15 @@
 // child processes (node --import tsx mp-worker.ts) that open the same cluster
 // directory concurrently, and verifies data integrity afterwards.
 
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { MiniDb } from '../../src/index.js';
+
+import { test } from 'vitest';
+
 import { ClusterDb, shardDirName } from '../../src/cluster/index.js';
 import { ShardLockPool } from '../../src/cluster/lock-pool.js';
 import { shardFor } from '../../src/cluster/utils.js';
+import { MiniDb } from '../../src/index.js';
 import { tmpDir } from '../e2e/helpers/tmp.js';
 import { keyOnShard, runWorker, runWorkerOk, rmrf, sleep } from './helpers.js';
 
@@ -30,7 +32,9 @@ test(
 
       // Verify from a brand-new process: every key, every value.
       await Promise.all(
-        Array.from({ length: P }, (_, p) => runWorkerOk(['verify', dir, '8', `p${p}`, String(N)], { timeoutMs: 120_000 })),
+        Array.from({ length: P }, (_, p) =>
+          runWorkerOk(['verify', dir, '8', `p${p}`, String(N)], { timeoutMs: 120_000 }),
+        ),
       );
 
       // Double-check through a read-only cluster in this process.
@@ -93,7 +97,9 @@ test(
       // Start a long-polling reader BEFORE the data exists. The inner wait
       // budget must absorb writer process startup on heavily loaded CI
       // runners (writer spawn + first open can take tens of seconds there).
-      const waiter = runWorkerOk(['wait-read', dir, '4', 'live:k', '42', '120000'], { timeoutMs: 150_000 });
+      const waiter = runWorkerOk(['wait-read', dir, '4', 'live:k', '42', '120000'], {
+        timeoutMs: 150_000,
+      });
       // Give the reader a head start so it really polls with a cold cache.
       await new Promise((r) => setTimeout(r, 500));
 
@@ -125,7 +131,8 @@ test(
       const writerReports = await Promise.all(writers);
       const readerResults = await Promise.all(racingReaders);
       for (const w of writerReports) assert.equal(w.n, 100);
-      for (const r of readerResults) assert.equal(r.code, 0, `racing reader exited cleanly: ${r.stderr}`);
+      for (const r of readerResults)
+        assert.equal(r.code, 0, `racing reader exited cleanly: ${r.stderr}`);
 
       // After quiesce, the full dataset is visible to a new process.
       for (let p = 0; p < 3; p++) {
@@ -137,22 +144,37 @@ test(
   },
 );
 
-
 /** Dual-check: every view of the cached reader on the hot shard must equal a
  *  from-scratch full open of the same shard files. */
 type Doc = Record<string, unknown>;
 
 async function assertSameAsFreshOpen(db: ClusterDb<Doc>, dir: string, hot: number): Promise<void> {
-  const sortByKey = (a: { key: string }, b: { key: string }): number => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
-  const ref = await MiniDb.open<Doc>({ dir: path.join(dir, shardDirName(hot, db.shardCount)), readOnly: true, valueCodec: 'json' });
+  const sortByKey = (a: { key: string }, b: { key: string }): number =>
+    a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+  const ref = await MiniDb.open<Doc>({
+    dir: path.join(dir, shardDirName(hot, db.shardCount)),
+    readOnly: true,
+    valueCodec: 'json',
+  });
   try {
     assert.deepEqual(await db.scan(), ref.scan(), 'scan equality with a fresh full open');
-    assert.deepEqual((await db.findEq('c', 'c3')).sort(sortByKey), ref.findEq('c', 'c3').sort(sortByKey), 'findEq equality');
-    const [crange, rrange] = [await db.findRange('n', { min: 100, max: 900 }), ref.findRange('n', { min: 100, max: 900 })];
-    assert.deepEqual(crange.sort(sortByKey), rrange.sort(sortByKey), 'findRange equality');
-    assert.deepEqual(await db.findEq('u', 'pre-u42'), ref.findEq('u', 'pre-u42'), 'unique-index equality');
+    assert.deepEqual(
+      (await db.findEq('c', 'c3')).toSorted(sortByKey),
+      ref.findEq('c', 'c3').toSorted(sortByKey),
+      'findEq equality',
+    );
+    const [crange, rrange] = [
+      await db.findRange('n', { min: 100, max: 900 }),
+      ref.findRange('n', { min: 100, max: 900 }),
+    ];
+    assert.deepEqual(crange.toSorted(sortByKey), rrange.toSorted(sortByKey), 'findRange equality');
+    assert.deepEqual(
+      await db.findEq('u', 'pre-u42'),
+      ref.findEq('u', 'pre-u42'),
+      'unique-index equality',
+    );
     const [cs, rs] = [await db.search('t', 'alpha'), ref.search('t', 'alpha')];
-    assert.deepEqual(cs.sort(sortByKey), rs.sort(sortByKey), 'text search equality');
+    assert.deepEqual(cs.toSorted(sortByKey), rs.toSorted(sortByKey), 'text search equality');
   } finally {
     await ref.close();
   }
@@ -169,14 +191,24 @@ test(
       // Preload 30k keys on the hot shard (secondary eq+range indexes, one
       // unique index, one text index, dt column on every key), then release
       // all locks so the storm child can write.
-      const setup = await ClusterDb.open<Doc>({ dir, shardCount: shards, valueCodec: 'json', fsyncPolicy: 'no', lockHoldMs: 0 });
+      const setup = await ClusterDb.open<Doc>({
+        dir,
+        shardCount: shards,
+        valueCodec: 'json',
+        fsyncPolicy: 'no',
+        lockHoldMs: 0,
+      });
       const pre: string[] = [];
       for (let seq = 0; pre.length < 30_000; seq++) {
         const key = `pre:${seq}`;
         if (shardFor(key, shards) === hot) pre.push(key);
       }
       for (let j = 0; j < pre.length; j++) {
-        await setup.set(pre[j]!, { n: j, c: `c${j % 11}`, u: `pre-u${j}`, t: `alpha beta pre w${j % 17}` }, { dt: { created: 1700000100000 + j } });
+        await setup.set(
+          pre[j]!,
+          { n: j, c: `c${j % 11}`, u: `pre-u${j}`, t: `alpha beta pre w${j % 17}` },
+          { dt: { created: 1700000100000 + j } },
+        );
       }
       await setup.createIndex('c', { field: 'c' });
       await setup.createIndex('n', { field: 'n', type: 'range' });
@@ -194,7 +226,10 @@ test(
 
       // Mixed storm from a child process: sets, updates, dels, TYPE_BATCH
       // batches, short/long TTL sets, dt changes — all on the hot shard.
-      const report = await runWorkerOk(['storm', dir, String(shards), String(hot), 'storm', '4000'], { timeoutMs: 120_000 });
+      const report = await runWorkerOk(
+        ['storm', dir, String(shards), String(hot), 'storm', '4000'],
+        { timeoutMs: 120_000 },
+      );
       // Outlive the 50ms short TTLs so replay-side expiry is deterministic.
       await sleep(150);
 
@@ -204,8 +239,16 @@ test(
       await db.get(pre[1]!);
       const stats1 = db.stats();
       assert.ok(stats1.incrementalCatchups > 0, 'incremental catch-up happened');
-      assert.equal(stats1.readerReopens - stats0.readerReopens, 0, 'no full reopen on the pure-append path');
-      assert.equal(stats1.catchupFramesApplied - stats0.catchupFramesApplied, report.frames, 'every storm frame applied exactly once');
+      assert.equal(
+        stats1.readerReopens - stats0.readerReopens,
+        0,
+        'no full reopen on the pure-append path',
+      );
+      assert.equal(
+        stats1.catchupFramesApplied - stats0.catchupFramesApplied,
+        report.frames,
+        'every storm frame applied exactly once',
+      );
 
       // Every view equals a from-scratch full open of the shard.
       await assertSameAsFreshOpen(db, dir, hot);
@@ -216,7 +259,11 @@ test(
       const stats2 = db.stats();
       for (let k = 0; k < 200; k++) assert.equal(await db.get(quiet), undefined);
       const stats3 = db.stats();
-      assert.equal(stats3.incrementalCatchups, stats2.incrementalCatchups, 'no catch-ups without writes');
+      assert.equal(
+        stats3.incrementalCatchups,
+        stats2.incrementalCatchups,
+        'no catch-ups without writes',
+      );
       assert.equal(stats3.readerReopens, stats2.readerReopens, 'no reopens without writes');
       await db.close();
     } finally {
@@ -233,14 +280,24 @@ test(
     try {
       const shards = 4;
       const hot = 1;
-      const setup = await ClusterDb.open<Doc>({ dir, shardCount: shards, valueCodec: 'json', fsyncPolicy: 'no', lockHoldMs: 0 });
+      const setup = await ClusterDb.open<Doc>({
+        dir,
+        shardCount: shards,
+        valueCodec: 'json',
+        fsyncPolicy: 'no',
+        lockHoldMs: 0,
+      });
       const pre: string[] = [];
       for (let seq = 0; pre.length < 1_000; seq++) {
         const key = `pre:${seq}`;
         if (shardFor(key, shards) === hot) pre.push(key);
       }
       for (let j = 0; j < pre.length; j++) {
-        await setup.set(pre[j]!, { n: j, c: `c${j % 11}`, u: `pre-u${j}`, t: `alpha beta pre w${j % 17}` }, { dt: { created: 1700000100000 + j } });
+        await setup.set(
+          pre[j]!,
+          { n: j, c: `c${j % 11}`, u: `pre-u${j}`, t: `alpha beta pre w${j % 17}` },
+          { dt: { created: 1700000100000 + j } },
+        );
       }
       await setup.createIndex('c', { field: 'c' });
       await setup.createIndex('n', { field: 'n', type: 'range' });
@@ -254,23 +311,39 @@ test(
 
       // Storm with a tiny compaction threshold: the WAL/snapshot are rotated
       // (possibly several times) while the parent's reader is cached.
-      await runWorkerOk(['storm', dir, String(shards), String(hot), 'rot', '1500', '60000', '1'], { timeoutMs: 120_000 });
+      await runWorkerOk(['storm', dir, String(shards), String(hot), 'rot', '1500', '60000', '1'], {
+        timeoutMs: 120_000,
+      });
       await sleep(150);
 
       await db.get(pre[1]!);
       const stats1 = db.stats();
       assert.ok(stats1.readerReopens - stats0.readerReopens >= 1, 'rotation forced a full reopen');
-      assert.equal(stats1.incrementalCatchups - stats0.incrementalCatchups, 0, 'no incremental progress across a rotation');
+      assert.equal(
+        stats1.incrementalCatchups - stats0.incrementalCatchups,
+        0,
+        'no incremental progress across a rotation',
+      );
       await assertSameAsFreshOpen(db, dir, hot);
 
       // A follow-up append-only storm is caught incrementally again.
-      const report2 = await runWorkerOk(['storm', dir, String(shards), String(hot), 'rot2', '800', '0', '0'], { timeoutMs: 120_000 });
+      const report2 = await runWorkerOk(
+        ['storm', dir, String(shards), String(hot), 'rot2', '800', '0', '0'],
+        { timeoutMs: 120_000 },
+      );
       await sleep(150);
       await db.get(pre[2]!);
       const stats2 = db.stats();
-      assert.ok(stats2.incrementalCatchups - stats1.incrementalCatchups > 0, 'incremental catch-up resumed after the reopen');
+      assert.ok(
+        stats2.incrementalCatchups - stats1.incrementalCatchups > 0,
+        'incremental catch-up resumed after the reopen',
+      );
       assert.equal(stats2.readerReopens - stats1.readerReopens, 0, 'no further reopen');
-      assert.equal(stats2.catchupFramesApplied - stats1.catchupFramesApplied, report2.frames, 'second storm applied frame-exactly');
+      assert.equal(
+        stats2.catchupFramesApplied - stats1.catchupFramesApplied,
+        report2.frames,
+        'second storm applied frame-exactly',
+      );
       await assertSameAsFreshOpen(db, dir, hot);
       await db.close();
     } finally {
@@ -288,7 +361,13 @@ test(
       const shards = 4;
       const hot = 1;
       // Seed the hot shard and release all locks.
-      const setup = await ClusterDb.open<Doc>({ dir, shardCount: shards, valueCodec: 'json', fsyncPolicy: 'no', lockHoldMs: 0 });
+      const setup = await ClusterDb.open<Doc>({
+        dir,
+        shardCount: shards,
+        valueCodec: 'json',
+        fsyncPolicy: 'no',
+        lockHoldMs: 0,
+      });
       const pre: string[] = [];
       for (let seq = 0; pre.length < 200; seq++) {
         const key = `pre:${seq}`;
@@ -314,7 +393,8 @@ test(
         applyDefs: async () => {},
       });
       const shardDir = path.join(dir, shardDirName(hot, shards));
-      const compoundNames = () => pool.withReader(hot, shardDir, (db) => db.listCompoundIndexes().map((i) => i.name));
+      const compoundNames = () =>
+        pool.withReader(hot, shardDir, (db) => db.listCompoundIndexes().map((i) => i.name));
       assert.deepEqual(await compoundNames(), []); // warms and caches the reader
       const stats0 = { ...pool.stats };
 
@@ -324,9 +404,21 @@ test(
       // carry a definition change. (Before the fingerprint tracked
       // db.compound-indexes.json this change was invisible forever.)
       await runWorkerOk(['compound-defs', dir, String(shards), 'create'], { timeoutMs: 120_000 });
-      assert.deepEqual(await compoundNames(), ['cg'], 'the refreshed reader sees the new compound index');
-      assert.equal(pool.stats.readerReopens - stats0.readerReopens, 1, 'the sidecar change forced a full reopen');
-      assert.equal(pool.stats.incrementalCatchups - stats0.incrementalCatchups, 0, 'no incremental catch-up on a def-only change');
+      assert.deepEqual(
+        await compoundNames(),
+        ['cg'],
+        'the refreshed reader sees the new compound index',
+      );
+      assert.equal(
+        pool.stats.readerReopens - stats0.readerReopens,
+        1,
+        'the sidecar change forced a full reopen',
+      );
+      assert.equal(
+        pool.stats.incrementalCatchups - stats0.incrementalCatchups,
+        0,
+        'no incremental catch-up on a def-only change',
+      );
       // The refreshed instance still serves data correctly.
       const v = await pool.withReader(hot, shardDir, (db) => db.get(pre[0]!));
       assert.equal((v as Doc | undefined)?.n, 0);

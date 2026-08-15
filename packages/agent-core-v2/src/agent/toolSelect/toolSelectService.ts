@@ -16,21 +16,21 @@
  * and read/written through it. Bound at Agent scope.
  */
 
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { defineState } from '#/_base/state/stateRegistry';
-import { IEventBus } from '#/app/event/eventBus';
-import { IFlagService } from '#/app/flag/flag';
-import type { Tool } from '#/kosong/contract/tool';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
+import type { Tool } from '#/kosong/contract/tool';
+import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
 
 import {
   collectLoadedDynamicToolNames,
@@ -214,8 +214,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       .list()
       .filter(
         (info) =>
-          this.isDynamicallyLoadable(info) &&
-          this.toolPolicy.isToolActive(info.name, info.source),
+          this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(info.name, info.source),
       )
       .map((info) => info.name)
       .toSorted((a, b) => a.localeCompare(b));
@@ -235,10 +234,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     const isActive = this.toolPolicy.createToolActiveChecker();
     for (const name of names) {
       const info = this.toolRegistry.resolveInfo(name);
-      const loadable =
-        info !== undefined
-          ? this.isDynamicallyLoadable(info)
-          : isMcpToolName(name);
+      const loadable = info !== undefined ? this.isDynamicallyLoadable(info) : isMcpToolName(name);
       const source = info?.source ?? 'mcp';
       if (!loadable || !isActive(name, source)) names.delete(name);
     }
@@ -253,10 +249,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   private isLoadedToolActive(name: string): boolean {
     const info = this.toolRegistry.resolveInfo(name);
     if (info !== undefined) {
-      return (
-        this.isDynamicallyLoadable(info) &&
-        this.toolPolicy.isToolActive(name, info.source)
-      );
+      return this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(name, info.source);
     }
     if (isMcpToolName(name)) return this.toolPolicy.isToolActive(name, 'mcp');
     return false;

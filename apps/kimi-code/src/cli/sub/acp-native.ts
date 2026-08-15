@@ -21,9 +21,9 @@
 
 import type { Command } from 'commander';
 
-import { t } from '#/i18n';
 import { getVersion } from '#/cli/version';
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
+import { t } from '#/i18n';
 import { getDataDir } from '#/utils/paths';
 
 import { runLoginFlow } from './login-flow';
@@ -32,11 +32,7 @@ export function registerNativeAcpCommand(parent: Command): void {
   parent
     .command('acp')
     .description('Run kimi-code as an Agent Client Protocol (ACP) server over stdio.')
-    .option(
-      '--login',
-      t('cli.optionDescriptions.acpLogin'),
-      false,
-    )
+    .option('--login', t('cli.optionDescriptions.acpLogin'), false)
     .action(async (opts: { login?: boolean }) => {
       if (opts.login === true) {
         await runLoginFlow();

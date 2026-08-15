@@ -1,14 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
-import {
-  MigrationScreenComponent,
-  type MigrationScreenResult,
-} from '#/migration/migration-screen';
-import { darkColors } from '#/tui/theme/colors';
 import type {
   MigrationPlan,
   MigrationReport,
   RunMigrationInput,
 } from '@moonshot-ai/migration-legacy';
+import { describe, expect, it, vi } from 'vitest';
+
+import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/migration-screen';
+import { darkColors } from '#/tui/theme/colors';
 
 vi.mock('#/i18n', () => ({
   t: (key: string, params?: Record<string, string>) => {
@@ -34,12 +32,15 @@ vi.mock('#/i18n', () => ({
       'tui.migration.complete': ' Migration complete',
       'tui.migration.sessionsMigrated': '  ✓ {{count}} sessions migrated',
       'tui.migration.kindsMigrated': '  ✓ {{kinds}}',
-      'tui.migration.pluginsNotSupported': '  ⚠ {{count}} kimi-cli plugins — not yet supported for migration',
+      'tui.migration.pluginsNotSupported':
+        '  ⚠ {{count}} kimi-cli plugins — not yet supported for migration',
       'tui.migration.oldDataKept': ' Old data kept at ~/.kimi/ — kimi-cli still works.',
       'tui.migration.continueHint': ' ⏎ continue to kimi-code',
       'tui.migration.hooksDropped': '  ⚠ {{count}} hooks dropped (incompatible)',
-      'tui.migration.configParseError': '  ⚠ config.toml could not be parsed — review config.migrated-from-kimi-cli.toml',
-      'tui.migration.mcpUnreadable': '  ⚠ mcp.json unreadable — review mcp.migrated-from-kimi-cli.json',
+      'tui.migration.configParseError':
+        '  ⚠ config.toml could not be parsed — review config.migrated-from-kimi-cli.toml',
+      'tui.migration.mcpUnreadable':
+        '  ⚠ mcp.json unreadable — review mcp.migrated-from-kimi-cli.json',
       'tui.migration.sessionsFailed': '  ⚠ {{count}} sessions failed to migrate',
       'tui.migration.contains': '     contains: {{items}}',
       'tui.migration.emptySessionsSkipped': '  {{count}} empty sessions skipped',
@@ -316,7 +317,12 @@ function makeReport(
         droppedHooks: 0,
         siblingContents: { providers: [], models: [], hooks: 0 },
       },
-      mcp: { mergedServers: [], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: false },
+      mcp: {
+        mergedServers: [],
+        keptNewForConflicts: [],
+        droppedServers: [],
+        wroteSiblingDueToConflict: false,
+      },
       userHistory: { copied: 12, skippedExisting: 0 },
       skills: { copied: 0, skippedExisting: 0 },
       sessions: {
@@ -469,7 +475,12 @@ describe('MigrationScreenComponent — result phase', () => {
             droppedHooks: 0,
             siblingContents: { providers: [], models: [], hooks: 0 },
           },
-          mcp: { mergedServers: ['m'], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: true },
+          mcp: {
+            mergedServers: ['m'],
+            keptNewForConflicts: [],
+            droppedServers: [],
+            wroteSiblingDueToConflict: true,
+          },
         },
       ),
     );

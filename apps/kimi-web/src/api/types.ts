@@ -170,7 +170,13 @@ export type AppMessageRole = 'user' | 'assistant' | 'tool' | 'system';
 
 export type AppMessageContent =
   | { type: 'text'; text: string }
-  | { type: 'toolUse'; toolCallId: string; toolName: string; input: unknown; outputLines?: string[] }
+  | {
+      type: 'toolUse';
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      outputLines?: string[];
+    }
   | { type: 'toolResult'; toolCallId: string; output: unknown; isError?: boolean }
   | { type: 'image'; source: ImageSource }
   | { type: 'video'; source: ImageSource }
@@ -458,22 +464,80 @@ export type AppEvent =
       lastTurnReason?: 'completed' | 'cancelled' | 'failed';
     }
   | { type: 'sessionMetaUpdated'; sessionId: string; title?: string; lastPrompt?: string }
-  | { type: 'sessionUsageUpdated'; sessionId: string; usage: AppSessionUsage; delta?: AppSessionUsageDelta; model?: string; swarmMode?: boolean; planMode?: boolean; thinking?: string }
-  | { type: 'historyCompacted'; sessionId: string; beforeSeq: number; reason: string; summaryMessageId?: string }
-  | { type: 'compactionStarted'; sessionId: string; trigger: 'manual' | 'auto'; instruction?: string }
-  | { type: 'compactionCompleted'; sessionId: string; tokensBefore?: number; tokensAfter?: number; summary?: string }
+  | {
+      type: 'sessionUsageUpdated';
+      sessionId: string;
+      usage: AppSessionUsage;
+      delta?: AppSessionUsageDelta;
+      model?: string;
+      swarmMode?: boolean;
+      planMode?: boolean;
+      thinking?: string;
+    }
+  | {
+      type: 'historyCompacted';
+      sessionId: string;
+      beforeSeq: number;
+      reason: string;
+      summaryMessageId?: string;
+    }
+  | {
+      type: 'compactionStarted';
+      sessionId: string;
+      trigger: 'manual' | 'auto';
+      instruction?: string;
+    }
+  | {
+      type: 'compactionCompleted';
+      sessionId: string;
+      tokensBefore?: number;
+      tokensAfter?: number;
+      summary?: string;
+    }
   | { type: 'compactionCancelled'; sessionId: string }
   | { type: 'messageCreated'; message: AppMessage }
-  | { type: 'messageUpdated'; sessionId: string; messageId: string; content: AppMessageContent[]; status: 'pending' | 'completed' | 'error'; durationMs?: number; truncated?: boolean; retryCount?: number }
-  | { type: 'assistantDelta'; sessionId: string; messageId: string; contentIndex: number; delta: { text?: string; thinking?: string } }
+  | {
+      type: 'messageUpdated';
+      sessionId: string;
+      messageId: string;
+      content: AppMessageContent[];
+      status: 'pending' | 'completed' | 'error';
+      durationMs?: number;
+      truncated?: boolean;
+      retryCount?: number;
+    }
+  | {
+      type: 'assistantDelta';
+      sessionId: string;
+      messageId: string;
+      contentIndex: number;
+      delta: { text?: string; thinking?: string };
+    }
   // Side-channel / non-main-agent streaming: carries text/thinking deltas for a
   // specific agent (e.g. a BTW side chat) without folding them into the parent
   // transcript. The web layer routes these to the side-chat panel.
-  | { type: 'agentDelta'; sessionId: string; agentId: string; delta: { text?: string; thinking?: string } }
+  | {
+      type: 'agentDelta';
+      sessionId: string;
+      agentId: string;
+      delta: { text?: string; thinking?: string };
+    }
   | { type: 'agentTurnEnded'; sessionId: string; agentId: string; reason?: string }
-  | { type: 'toolOutput'; sessionId: string; toolCallId: string; outputChunk: string; stream: 'stdout' | 'stderr' }
+  | {
+      type: 'toolOutput';
+      sessionId: string;
+      toolCallId: string;
+      outputChunk: string;
+      stream: 'stdout' | 'stderr';
+    }
   | { type: 'approvalRequested'; sessionId: string; approval: AppApprovalRequest }
-  | { type: 'approvalResolved'; sessionId: string; approvalId: string; decision: ApprovalDecision; resolvedAt: string }
+  | {
+      type: 'approvalResolved';
+      sessionId: string;
+      approvalId: string;
+      decision: ApprovalDecision;
+      resolvedAt: string;
+    }
   | { type: 'approvalExpired'; sessionId: string; approvalId: string }
   | { type: 'questionRequested'; sessionId: string; question: AppQuestionRequest }
   | { type: 'questionAnswered'; sessionId: string; questionId: string; resolvedAt: string }
@@ -492,7 +556,14 @@ export type AppEvent =
        */
       kind?: 'line' | 'text';
     }
-  | { type: 'taskCompleted'; sessionId: string; taskId: string; status: AppTaskStatus; outputPreview?: string; outputBytes?: number }
+  | {
+      type: 'taskCompleted';
+      sessionId: string;
+      taskId: string;
+      status: AppTaskStatus;
+      outputPreview?: string;
+      outputBytes?: number;
+    }
   // Prompt-level lifecycle (distinct from turn-level): a prompt that never
   // produced a turn — blocked by a pre-submit hook, or aborted while queued —
   // gets no turn.ended and no session status flip, so these are the web layer's
@@ -780,26 +851,66 @@ export interface AppSessionWarning {
 
 export interface KimiWebApi {
   getHealth(): Promise<{ status: 'ok'; uptimeSec: number }>;
-  getMeta(): Promise<{ serverVersion: string; serverId: string; startedAt: string; capabilities: Record<string, boolean>; openInApps: string[]; dangerousBypassAuth: boolean; backend: 'v1' | 'v2' }>;
-  listSessions(input?: PageRequest & { busy?: boolean; workspaceId?: string; includeArchive?: boolean; archivedOnly?: boolean; excludeEmpty?: boolean }): Promise<Page<AppSession>>;
-  createSession(input: { title?: string; cwd?: string; model?: string; workspaceId?: string }): Promise<AppSession>;
+  getMeta(): Promise<{
+    serverVersion: string;
+    serverId: string;
+    startedAt: string;
+    capabilities: Record<string, boolean>;
+    openInApps: string[];
+    dangerousBypassAuth: boolean;
+    backend: 'v1' | 'v2';
+  }>;
+  listSessions(
+    input?: PageRequest & {
+      busy?: boolean;
+      workspaceId?: string;
+      includeArchive?: boolean;
+      archivedOnly?: boolean;
+      excludeEmpty?: boolean;
+    },
+  ): Promise<Page<AppSession>>;
+  createSession(input: {
+    title?: string;
+    cwd?: string;
+    model?: string;
+    workspaceId?: string;
+  }): Promise<AppSession>;
   /** Fetch one session by id (deep links beyond the first listSessions page). */
   getSession(sessionId: string): Promise<AppSession>;
-  updateSession(sessionId: string, input: { title?: string; cwd?: string; model?: string; permissionMode?: string; planMode?: boolean; swarmMode?: boolean; goalObjective?: string; goalControl?: 'pause' | 'resume' | 'cancel'; thinking?: string }): Promise<AppSession>;
+  updateSession(
+    sessionId: string,
+    input: {
+      title?: string;
+      cwd?: string;
+      model?: string;
+      permissionMode?: string;
+      planMode?: boolean;
+      swarmMode?: boolean;
+      goalObjective?: string;
+      goalControl?: 'pause' | 'resume' | 'cancel';
+      thinking?: string;
+    },
+  ): Promise<AppSession>;
   getSessionStatus(sessionId: string): Promise<AppSessionRuntimeStatus>;
   /** Current goal snapshot, or null when the session has no active goal. */
   getSessionGoal(sessionId: string): Promise<AppGoal | null>;
   getSessionWarnings(sessionId: string): Promise<AppSessionWarning[]>;
   archiveSession(sessionId: string): Promise<{ archived: true }>;
   restoreSession(sessionId: string): Promise<AppSession>;
-  listMessages(sessionId: string, input?: PageRequest & { role?: AppMessageRole }): Promise<Page<AppMessage>>;
+  listMessages(
+    sessionId: string,
+    input?: PageRequest & { role?: AppMessageRole },
+  ): Promise<Page<AppMessage>>;
   /** v2 initial sync: atomic session state + `asOfSeq` watermark + epoch. */
   getSessionSnapshot(sessionId: string): Promise<AppSessionSnapshot>;
   /** Export the session archive, optionally including the bounded Web JSONL log. */
   exportSession(sessionId: string, webLog?: string): Promise<{ blob: Blob; fileName: string }>;
   submitPrompt(sessionId: string, input: PromptSubmission): Promise<PromptSubmitResult>;
   /** Steer daemon-queued prompts into the active turn (TUI ctrl+s). */
-  steerPrompts(sessionId: string, promptIds: string[]): Promise<{ steered: boolean; promptIds: string[] }>;
+  steerPrompts(
+    sessionId: string,
+    promptIds: string[],
+  ): Promise<{ steered: boolean; promptIds: string[] }>;
   abortPrompt(sessionId: string, promptId: string): Promise<{ aborted: boolean; atSeq?: number }>;
   /** Cancel whatever is running in the session, including skill activations. */
   abortSession(sessionId: string): Promise<{ aborted: boolean }>;
@@ -812,15 +923,34 @@ export interface KimiWebApi {
   listChildSessions(sessionId: string): Promise<AppSession[]>;
   /** Start a BTW side-channel agent under the session — POST /sessions/{id}:btw. */
   startBtw(sessionId: string): Promise<{ agentId: string }>;
-  respondApproval(sessionId: string, approvalId: string, response: ApprovalResponse): Promise<{ resolved: true; resolvedAt: string }>;
-  respondQuestion(sessionId: string, questionId: string, response: QuestionResponse): Promise<{ resolved: true; resolvedAt: string }>;
-  dismissQuestion(sessionId: string, questionId: string): Promise<{ dismissed: true; dismissedAt: string }>;
+  respondApproval(
+    sessionId: string,
+    approvalId: string,
+    response: ApprovalResponse,
+  ): Promise<{ resolved: true; resolvedAt: string }>;
+  respondQuestion(
+    sessionId: string,
+    questionId: string,
+    response: QuestionResponse,
+  ): Promise<{ resolved: true; resolvedAt: string }>;
+  dismissQuestion(
+    sessionId: string,
+    questionId: string,
+  ): Promise<{ dismissed: true; dismissedAt: string }>;
   listSkills(sessionId: string): Promise<AppSkill[]>;
   /** List skills for a workspace (no session required) — GET /workspaces/{id}/skills. */
   listSkillsForWorkspace(workspaceId: string): Promise<AppSkill[]>;
-  activateSkill(sessionId: string, skillName: string, args?: string): Promise<{ activated: true; skillName: string }>;
+  activateSkill(
+    sessionId: string,
+    skillName: string,
+    args?: string,
+  ): Promise<{ activated: true; skillName: string }>;
   listTasks(sessionId: string, status?: AppTaskStatus): Promise<AppTask[]>;
-  getTask(sessionId: string, taskId: string, input?: { withOutput?: boolean; outputBytes?: number }): Promise<AppTask>;
+  getTask(
+    sessionId: string,
+    taskId: string,
+    input?: { withOutput?: boolean; outputBytes?: number },
+  ): Promise<AppTask>;
   cancelTask(sessionId: string, taskId: string): Promise<{ cancelled: true }>;
   /** Session MCP server connection view — GET /sessions/{id}/mcp/servers. */
   listMcpServers(sessionId: string): Promise<{ servers: AppMcpServer[] }>;
@@ -831,19 +961,82 @@ export interface KimiWebApi {
   /** Session cron tasks — GET /sessions/{id}/cron. */
   listCronTasks(sessionId: string): Promise<{ tasks: AppCronTask[] }>;
   /** Schedule a cron task — POST /sessions/{id}/cron. */
-  createCronTask(sessionId: string, input: { cron: string; prompt: string; recurring?: boolean }): Promise<AppCronTask>;
+  createCronTask(
+    sessionId: string,
+    input: { cron: string; prompt: string; recurring?: boolean },
+  ): Promise<AppCronTask>;
   /** Remove a session cron task — DELETE /sessions/{id}/cron/{task_id}. */
   deleteCronTask(sessionId: string, taskId: string): Promise<{ deleted: boolean }>;
   listTerminals(sessionId: string): Promise<AppTerminal[]>;
-  createTerminal(sessionId: string, input?: { cwd?: string; shell?: string; cols?: number; rows?: number }): Promise<AppTerminal>;
+  createTerminal(
+    sessionId: string,
+    input?: { cwd?: string; shell?: string; cols?: number; rows?: number },
+  ): Promise<AppTerminal>;
   getTerminal(sessionId: string, terminalId: string): Promise<AppTerminal>;
   closeTerminal(sessionId: string, terminalId: string): Promise<{ closed: true }>;
-  listDirectory(sessionId: string, input: { path?: string; depth?: number; includeGitStatus?: boolean }): Promise<{ items: FsEntry[]; childrenByPath?: Record<string, FsEntry[]>; truncated: boolean }>;
-  readFile(sessionId: string, input: { path: string; offset?: number; length?: number }): Promise<{ path: string; content: string; encoding: 'utf-8' | 'base64'; size: number; truncated: boolean; etag: string; mime: string; languageId?: string; lineCount?: number; isBinary: boolean }>;
+  listDirectory(
+    sessionId: string,
+    input: { path?: string; depth?: number; includeGitStatus?: boolean },
+  ): Promise<{ items: FsEntry[]; childrenByPath?: Record<string, FsEntry[]>; truncated: boolean }>;
+  readFile(
+    sessionId: string,
+    input: { path: string; offset?: number; length?: number },
+  ): Promise<{
+    path: string;
+    content: string;
+    encoding: 'utf-8' | 'base64';
+    size: number;
+    truncated: boolean;
+    etag: string;
+    mime: string;
+    languageId?: string;
+    lineCount?: number;
+    isBinary: boolean;
+  }>;
   /** Search files in a workspace (no session required) — POST /workspace/fs:search. `workspace` accepts a registered workspace id or an absolute root. */
-  searchFiles(workspace: string, input: { query: string; limit?: number }): Promise<{ items: Array<{ path: string; name: string; kind: FsKind; score: number; matchPositions: number[] }>; truncated: boolean }>;
-  grepFiles(sessionId: string, input: { pattern: string; regex?: boolean; caseSensitive?: boolean }): Promise<{ files: Array<{ path: string; matches: Array<{ line: number; col: number; text: string; before: string[]; after: string[] }> }>; filesScanned: number; truncated: boolean; elapsedMs: number }>;
-  getGitStatus(sessionId: string, paths?: string[]): Promise<{ branch: string; ahead: number; behind: number; entries: Record<string, string>; additions: number; deletions: number; pullRequest: { number: number; state: string; url: string } | null }>;
+  searchFiles(
+    workspace: string,
+    input: { query: string; limit?: number },
+  ): Promise<{
+    items: Array<{
+      path: string;
+      name: string;
+      kind: FsKind;
+      score: number;
+      matchPositions: number[];
+    }>;
+    truncated: boolean;
+  }>;
+  grepFiles(
+    sessionId: string,
+    input: { pattern: string; regex?: boolean; caseSensitive?: boolean },
+  ): Promise<{
+    files: Array<{
+      path: string;
+      matches: Array<{
+        line: number;
+        col: number;
+        text: string;
+        before: string[];
+        after: string[];
+      }>;
+    }>;
+    filesScanned: number;
+    truncated: boolean;
+    elapsedMs: number;
+  }>;
+  getGitStatus(
+    sessionId: string,
+    paths?: string[],
+  ): Promise<{
+    branch: string;
+    ahead: number;
+    behind: number;
+    entries: Record<string, string>;
+    additions: number;
+    deletions: number;
+    pullRequest: { number: number; state: string; url: string } | null;
+  }>;
   getFileDiff(sessionId: string, path: string): Promise<{ path: string; diff: string }>;
   getFileDownloadUrl(sessionId: string, path: string): string;
   openFile(sessionId: string, input: { path: string; line?: number }): Promise<{ opened: true }>;
@@ -864,14 +1057,22 @@ export interface KimiWebApi {
   // PRESUMED — not in current daemon docs; isolated in adapter, swap when backend defines them.
   listModels(): Promise<AppModel[]>;
   listProviders(): Promise<AppProvider[]>;
-  addProvider(input: { type: string; apiKey?: string; baseUrl?: string; defaultModel?: string }): Promise<AppProvider>;
+  addProvider(input: {
+    type: string;
+    apiKey?: string;
+    baseUrl?: string;
+    defaultModel?: string;
+  }): Promise<AppProvider>;
   deleteProvider(id: string): Promise<{ deleted: true }>;
   refreshProvider(id: string): Promise<ProviderRefreshResult>;
   refreshAllProviders(): Promise<ProviderRefreshResult>;
   refreshOAuthProviderModels(): Promise<ProviderRefreshResult>;
 
   // File upload / download
-  uploadFile(input: { file: Blob; name?: string }): Promise<{ id: string; name: string; mediaType: string; size: number }>;
+  uploadFile(input: {
+    file: Blob;
+    name?: string;
+  }): Promise<{ id: string; name: string; mediaType: string; size: number }>;
   getFileUrl(fileId: string): string;
   /** Fetch a file's bytes with auth — feed the resulting Blob to a blob URL for <video>/<img> src. */
   getFileBlob(fileId: string): Promise<Blob>;

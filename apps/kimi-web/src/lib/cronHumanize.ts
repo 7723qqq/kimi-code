@@ -55,10 +55,7 @@ export function humanizeCron(expr: string, t: Translator): string {
  * Without the length slice, a long one-line prompt would render in full even in
  * the "collapsed" state and make the toggle a no-op.
  */
-export function collapsePrompt(
-  text: string,
-  limit = 120,
-): { text: string; hasMore: boolean } {
+export function collapsePrompt(text: string, limit = 120): { text: string; hasMore: boolean } {
   const firstLine = text.split('\n')[0] ?? '';
   const hasMore = text.includes('\n') || text.length > limit;
   const collapsed =

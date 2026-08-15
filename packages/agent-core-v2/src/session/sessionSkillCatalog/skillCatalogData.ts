@@ -9,7 +9,6 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { ScopeSeed } from '#/_base/di/scope';
 import type { Event } from '#/_base/event';
-
 import type { SkillCatalog } from '#/app/skillCatalog/types';
 
 export interface ISessionSkillCatalogData {

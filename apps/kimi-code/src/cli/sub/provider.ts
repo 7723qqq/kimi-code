@@ -33,8 +33,8 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 import type { Command } from 'commander';
 
-import { t } from '#/i18n';
 import { createKimiCodeHostIdentity, createKimiCodeUserAgent } from '#/cli/version';
+import { t } from '#/i18n';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
 
 interface WritableLike {
@@ -77,9 +77,7 @@ export async function handleProviderAdd(
 ): Promise<void> {
   const apiKey = resolveApiKey(opts.apiKey, deps.env);
   if (apiKey === undefined) {
-    deps.stderr.write(
-      'Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n',
-    );
+    deps.stderr.write('Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n');
     deps.exit(1);
   }
 
@@ -103,7 +101,9 @@ export async function handleProviderAdd(
     entries = await fetchCustomRegistry(source, { userAgent: createKimiCodeUserAgent() });
   } catch (error) {
     const suffix = error instanceof CustomRegistryApiError ? ` (HTTP ${String(error.status)})` : '';
-    deps.stderr.write(t('tui.statusMessages.providerFetchFailed', { suffix, error: errorMessage(error) }) + '\n');
+    deps.stderr.write(
+      t('tui.statusMessages.providerFetchFailed', { suffix, error: errorMessage(error) }) + '\n',
+    );
     deps.exit(1);
   }
 
@@ -148,10 +148,7 @@ export async function handleProviderAdd(
   }
 }
 
-export async function handleProviderRemove(
-  deps: ProviderDeps,
-  providerId: string,
-): Promise<void> {
+export async function handleProviderRemove(deps: ProviderDeps, providerId: string): Promise<void> {
   const harness = deps.getHarness();
   await harness.ensureConfigFile();
   const config = await harness.getConfig();
@@ -163,10 +160,7 @@ export async function handleProviderRemove(
   deps.stdout.write(t('tui.statusMessages.providerRemoved', { id: providerId }) + '\n');
 }
 
-export async function handleProviderList(
-  deps: ProviderDeps,
-  opts: ListOptions,
-): Promise<void> {
+export async function handleProviderList(deps: ProviderDeps, opts: ListOptions): Promise<void> {
   const harness = deps.getHarness();
   await harness.ensureConfigFile();
   const config = await harness.getConfig();
@@ -309,9 +303,7 @@ export async function handleCatalogAdd(
 ): Promise<void> {
   const apiKey = resolveApiKey(opts.apiKey, deps.env);
   if (apiKey === undefined) {
-    deps.stderr.write(
-      'Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n',
-    );
+    deps.stderr.write('Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n');
     deps.exit(1);
   }
 
@@ -407,8 +399,7 @@ export async function handleCatalogAdd(
   //     non-existent alias and break the next session.
   if (opts.defaultModel === undefined) {
     const stillResolves =
-      previousDefaultModel !== undefined &&
-      config.models?.[previousDefaultModel] !== undefined;
+      previousDefaultModel !== undefined && config.models?.[previousDefaultModel] !== undefined;
     config.defaultModel = stillResolves ? previousDefaultModel : undefined;
   }
 
@@ -436,7 +427,10 @@ export async function handleCatalogAdd(
     );
   }
   if (opts.defaultModel !== undefined) {
-    deps.stdout.write(t('tui.statusMessages.providerDefaultSet', { id: providerId, model: opts.defaultModel }) + '\n');
+    deps.stdout.write(
+      t('tui.statusMessages.providerDefaultSet', { id: providerId, model: opts.defaultModel }) +
+        '\n',
+    );
   }
 }
 
@@ -444,22 +438,24 @@ async function loadCatalogOrExit(deps: ProviderDeps, url: string): Promise<Catal
   try {
     const loaded = await fetchCatalogOrBuiltIn(url, { userAgent: createKimiCodeUserAgent() });
     if (loaded.fromBuiltIn) {
-      deps.stderr.write(
-        t('tui.statusMessages.providerCatalogFallbackWarning', { url }) + '\n',
-      );
+      deps.stderr.write(t('tui.statusMessages.providerCatalogFallbackWarning', { url }) + '\n');
     }
     return loaded.catalog;
   } catch (error) {
     const suffix = error instanceof CatalogFetchError ? ` (HTTP ${String(error.status)})` : '';
-    deps.stderr.write(t('tui.statusMessages.providerCatalogFetchFailed', { url, suffix, error: errorMessage(error) }) + '\n');
+    deps.stderr.write(
+      t('tui.statusMessages.providerCatalogFetchFailed', {
+        url,
+        suffix,
+        error: errorMessage(error),
+      }) + '\n',
+    );
     deps.exit(1);
   }
 }
 
 export function registerProviderCommand(parent: Command, deps?: Partial<ProviderDeps>): void {
-  const provider = parent
-    .command('provider')
-    .description(t('cli.commandDescriptions.provider'));
+  const provider = parent.command('provider').description(t('cli.commandDescriptions.provider'));
 
   // Last-resort boundary: handlers report expected failures themselves, but
   // anything that escapes (e.g. a config write rejected because config.toml
@@ -502,7 +498,9 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .option('--json', t('cli.optionDescriptions.providerListJson'), false)
     .action(async (options: { json?: boolean }) => {
       const resolved = resolveDeps(deps);
-      await runAction(resolved, () => handleProviderList(resolved, { json: options.json === true }));
+      await runAction(resolved, () =>
+        handleProviderList(resolved, { json: options.json === true }),
+      );
     });
 
   const catalog = provider

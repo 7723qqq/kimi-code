@@ -47,15 +47,25 @@ const kind = computed(() => normalize(props.status));
   background: var(--color-text-faint);
   flex: none;
 }
-.kw-dot--ok { background: var(--color-success); }
-.kw-dot--error { background: var(--color-danger); }
-.kw-dot--suspended { background: var(--color-warning); }
+.kw-dot--ok {
+  background: var(--color-success);
+}
+.kw-dot--error {
+  background: var(--color-danger);
+}
+.kw-dot--suspended {
+  background: var(--color-warning);
+}
 .kw-dot--running {
   background: var(--color-accent);
   animation: kw-dot-pulse 1.4s var(--ease-out) infinite;
 }
 @keyframes kw-dot-pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 40%, transparent); }
-  100% { box-shadow: 0 0 0 6px transparent; }
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 40%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
 }
 </style>

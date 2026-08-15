@@ -1,8 +1,8 @@
 <!-- apps/kimi-web/src/components/ui/CommandBar.vue -->
 <!-- Design-system §03 Command Bar: primary action + mono command + copy. -->
 <script setup lang="ts">
-import IconButton from './IconButton.vue';
 import Icon from './Icon.vue';
+import IconButton from './IconButton.vue';
 
 const props = defineProps<{ command: string }>();
 

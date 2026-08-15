@@ -14,17 +14,11 @@
  */
 
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
-import {
-  Container,
-  Key,
-  matchesKey,
-  truncateToWidth,
-  type Focusable,
-} from '@moonshot-ai/pi-tui';
+import { Container, Key, matchesKey, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import { renderTabStrip } from '#/tui/utils/tab-strip';
-import { t } from '#/i18n';
 
 import {
   ModelSelectorComponent,

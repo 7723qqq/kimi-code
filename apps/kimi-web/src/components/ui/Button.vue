@@ -5,17 +5,20 @@
 <script setup lang="ts">
 import Spinner from './Spinner.vue';
 
-withDefaults(defineProps<{
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'danger-soft';
-  size?: 'sm' | 'md' | 'lg';
-  disabled?: boolean;
-  loading?: boolean;
-  type?: 'button' | 'submit' | 'reset';
-}>(), {
-  variant: 'primary',
-  size: 'md',
-  type: 'button',
-});
+withDefaults(
+  defineProps<{
+    variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'danger-soft';
+    size?: 'sm' | 'md' | 'lg';
+    disabled?: boolean;
+    loading?: boolean;
+    type?: 'button' | 'submit' | 'reset';
+  }>(),
+  {
+    variant: 'primary',
+    size: 'md',
+    type: 'button',
+  },
+);
 </script>
 
 <template>
@@ -46,7 +49,8 @@ withDefaults(defineProps<{
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--duration-base) var(--ease-out),
+  transition:
+    background var(--duration-base) var(--ease-out),
     border-color var(--duration-base) var(--ease-out),
     color var(--duration-base) var(--ease-out),
     box-shadow var(--duration-base) var(--ease-out),
@@ -56,7 +60,9 @@ withDefaults(defineProps<{
   outline: none;
   box-shadow: var(--p-focus-ring-strong);
 }
-.ui-button:not(:disabled):active { transform: scale(0.98); }
+.ui-button:not(:disabled):active {
+  transform: scale(0.98);
+}
 .ui-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -65,19 +71,42 @@ withDefaults(defineProps<{
 }
 
 /* sizes */
-.ui-button--sm { height: 30px; padding: 0 var(--space-3); font-size: var(--text-sm); border-radius: var(--radius-sm); }
-.ui-button--md { height: 36px; padding: 0 var(--space-4); font-size: var(--text-base); }
-.ui-button--lg { height: 42px; padding: 0 var(--space-5); font-size: 15px; border-radius: var(--radius-lg); }
+.ui-button--sm {
+  height: 30px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+}
+.ui-button--md {
+  height: 36px;
+  padding: 0 var(--space-4);
+  font-size: var(--text-base);
+}
+.ui-button--lg {
+  height: 42px;
+  padding: 0 var(--space-5);
+  font-size: 15px;
+  border-radius: var(--radius-lg);
+}
 
 /* icon + label sit on one row; the svg reset makes <svg> display:block, which
    would otherwise stack it above the text. */
-.ui-button__content { display: inline-flex; align-items: center; gap: var(--space-2); }
+.ui-button__content {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
 
 /* slotted icons: default to 1em (scale with the button's font size, like MUI/Ant);
    an icon that declares its own width keeps it (opt-out, same idea as shadcn's
    not([class*='size-']) — this app uses the width attribute instead of a class). */
-.ui-button__content :deep(svg) { flex: none; }
-.ui-button__content :deep(svg:not([width])) { width: 1em; height: 1em; }
+.ui-button__content :deep(svg) {
+  flex: none;
+}
+.ui-button__content :deep(svg:not([width])) {
+  width: 1em;
+  height: 1em;
+}
 
 /* variants */
 .ui-button--primary {
@@ -86,7 +115,10 @@ withDefaults(defineProps<{
   border-color: var(--color-accent);
   box-shadow: var(--shadow-xs);
 }
-.ui-button--primary:not(:disabled):hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
+.ui-button--primary:not(:disabled):hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
 
 .ui-button--secondary {
   background: var(--color-surface-raised);
@@ -94,14 +126,20 @@ withDefaults(defineProps<{
   border-color: var(--color-line-strong);
   box-shadow: var(--shadow-xs);
 }
-.ui-button--secondary:not(:disabled):hover { border-color: var(--color-line-strong); background: var(--color-surface-sunken); }
+.ui-button--secondary:not(:disabled):hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-surface-sunken);
+}
 
 .ui-button--ghost {
   background: transparent;
   color: var(--color-text-muted);
   border-color: transparent;
 }
-.ui-button--ghost:not(:disabled):hover { background: var(--color-surface-sunken); color: var(--color-text); }
+.ui-button--ghost:not(:disabled):hover {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
 
 .ui-button--danger {
   background: var(--color-danger);
@@ -109,16 +147,29 @@ withDefaults(defineProps<{
   border-color: var(--color-danger);
   box-shadow: var(--shadow-xs);
 }
-.ui-button--danger:not(:disabled):hover { filter: brightness(0.96); }
+.ui-button--danger:not(:disabled):hover {
+  filter: brightness(0.96);
+}
 
 .ui-button--danger-soft {
   background: var(--color-danger-soft);
   color: var(--color-danger);
   border-color: var(--color-danger-bd);
 }
-.ui-button--danger-soft:not(:disabled):hover { background: var(--color-danger); color: var(--surface-light); border-color: var(--color-danger); }
+.ui-button--danger-soft:not(:disabled):hover {
+  background: var(--color-danger);
+  color: var(--surface-light);
+  border-color: var(--color-danger);
+}
 
-.ui-button.is-loading .ui-button__content { opacity: 0.7; }
-.ui-button .ui-button__spinner { flex: none; color: inherit; }
-.ui-button__spinner :deep(.ui-spinner__track) { opacity: 0.35; }
+.ui-button.is-loading .ui-button__content {
+  opacity: 0.7;
+}
+.ui-button .ui-button__spinner {
+  flex: none;
+  color: inherit;
+}
+.ui-button__spinner :deep(.ui-spinner__track) {
+  opacity: 0.35;
+}
 </style>

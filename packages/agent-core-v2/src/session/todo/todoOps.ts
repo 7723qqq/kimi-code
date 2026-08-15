@@ -7,10 +7,7 @@
 
 import { z } from 'zod';
 
-import {
-  defineCheckpointedModel,
-  type Checkpointed,
-} from '#/agent/contextMemory/conversationTime';
+import { defineCheckpointedModel, type Checkpointed } from '#/agent/contextMemory/conversationTime';
 
 import { readTodoItems, type TodoItem } from './todoItem';
 
@@ -26,6 +23,5 @@ declare module '#/wire/types' {
 
 export const todoSet = TodoModel.defineOp('tools.update_store', {
   schema: z.object({ key: z.string(), value: z.unknown() }),
-  apply: (s, p) =>
-    p.key === 'todo' ? { ...s, current: readTodoItems(p.value) } : s,
+  apply: (s, p) => (p.key === 'todo' ? { ...s, current: readTodoItems(p.value) } : s),
 });

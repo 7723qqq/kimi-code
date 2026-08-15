@@ -53,9 +53,10 @@
  */
 
 import { basename, isAbsolute } from 'pathe';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { encodeWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
+import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -113,8 +114,7 @@ export class WorkspaceService implements IWorkspaceService {
       if (!stat.isDirectory) {
         try {
           stat = await this.hostFs.stat(await this.hostFs.realpath(root));
-        } catch {
-        }
+        } catch {}
       }
       if (!stat.isDirectory) {
         throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${root} is not a directory`);

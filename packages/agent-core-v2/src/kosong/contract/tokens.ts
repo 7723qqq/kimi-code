@@ -8,10 +8,10 @@
  * message object via a WeakMap.
  */
 
+import { tryNativeEstimateTokens, tryNativeEstimateTokensBatch } from '#/_base/native-tools';
+
 import type { ContentPart, Message } from './message';
 import type { Tool } from './tool';
-
-import { tryNativeEstimateTokens, tryNativeEstimateTokensBatch } from '#/_base/native-tools';
 
 const messageTokenEstimateCache = new WeakMap<Message, number>();
 

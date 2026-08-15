@@ -110,9 +110,7 @@ export function WorkspaceDirBrowser(props: {
         {isWorkspace && trusted !== undefined ? (
           <span
             className={`shrink-0 rounded border px-1 text-[9px] font-semibold uppercase tracking-wider ${
-              trusted
-                ? 'border-emerald-800 text-emerald-400'
-                : 'border-amber-800 text-amber-400'
+              trusted ? 'border-emerald-800 text-emerald-400' : 'border-amber-800 text-amber-400'
             }`}
           >
             {trusted ? 'trusted' : 'untrusted'}
@@ -161,10 +159,7 @@ export function WorkspaceDirBrowser(props: {
             {select.isPending ? 'selecting…' : isCurrentWorkspace ? 'select' : 'register & select'}
           </button>
         </div>
-        <span
-          title={current?.path}
-          className="truncate font-mono text-[10px] text-neutral-500"
-        >
+        <span title={current?.path} className="truncate font-mono text-[10px] text-neutral-500">
           {current?.path ?? '…'}
         </span>
       </div>

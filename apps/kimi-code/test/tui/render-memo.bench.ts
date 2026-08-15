@@ -14,9 +14,8 @@
  *   pnpm --filter @moonshot-ai/kimi-code exec vitest bench test/tui/render-memo.bench.ts
  */
 
-import { bench, describe } from 'vitest';
-
 import type { Component } from '@moonshot-ai/pi-tui';
+import { bench, describe } from 'vitest';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';

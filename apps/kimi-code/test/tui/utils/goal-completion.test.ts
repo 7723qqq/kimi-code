@@ -1,15 +1,14 @@
+import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildGoalCompletionMessage } from '#/tui/utils/goal-completion';
-import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 
 vi.mock('#/i18n', () => ({
   t: (key: string, params?: Record<string, string | number>): string => {
     const translations: Record<string, string> = {
       'tui.messages.goalComplete': 'Goal complete{{reason}}.',
       'tui.messages.goalCompleteTurns': '{{count}} turn{{plural}}',
-      'tui.messages.goalCompleteSummary':
-        '{{turns}} · {{elapsed}} · {{tokens}} tokens',
+      'tui.messages.goalCompleteSummary': '{{turns}} · {{elapsed}} · {{tokens}} tokens',
       'tui.messages.goalFormat.elapsedSeconds': '{{count}}s',
       'tui.messages.goalFormat.elapsedMinutes': '{{minutes}}m {{seconds}}s',
     };

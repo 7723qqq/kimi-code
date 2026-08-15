@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
 import { join } from 'node:path';
+
+import { describe, expect, it } from 'vitest';
+
 import * as paths from '../src/paths.js';
 
 describe('paths', () => {
@@ -21,7 +23,9 @@ describe('paths', () => {
   });
 
   it('skipMarker is under target', () => {
-    expect(paths.skipMarker('/y/.kimi-code')).toBe(join('/y/.kimi-code', '.skip-migration-from-kimi-cli'));
+    expect(paths.skipMarker('/y/.kimi-code')).toBe(
+      join('/y/.kimi-code', '.skip-migration-from-kimi-cli'),
+    );
   });
 
   it('migrationReportFile is under target', () => {

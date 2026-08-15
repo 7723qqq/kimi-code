@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Disposable, DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
-import { AsyncEmitter, Emitter, Event, type IWaitUntil } from '#/_base/event';
 import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
+import { AsyncEmitter, Emitter, Event, type IWaitUntil } from '#/_base/event';
 
 afterEach(() => {
   resetUnexpectedErrorHandler();
@@ -52,12 +52,9 @@ describe('Emitter / Event', () => {
     const emitter = new Emitter<string>();
     const context = { tag: 'ctx', got: [] as string[] };
 
-    emitter.event(
-      function (this: typeof context, value: string) {
-        this.got.push(value);
-      },
-      context,
-    );
+    emitter.event(function (this: typeof context, value: string) {
+      this.got.push(value);
+    }, context);
     emitter.fire('hello');
 
     expect(context.got).toEqual(['hello']);

@@ -5,21 +5,31 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ActivationBadges, ApprovalBlock, ConversationStatus, PermissionMode, QueuedPromptView, TaskItem, TodoView, UIQuestion } from '../../types';
+
 import type { AppGoal, AppModel, AppSkill, QuestionResponse, ThinkingLevel } from '../../api/types';
-import type { FileItem } from './MentionMenu.vue';
 import type { PromptAttachment } from '../../composables/useKimiWebClient';
-import Composer from './Composer.vue';
-import GoalStrip from './GoalStrip.vue';
-import StatsLine from './StatsLine.vue';
 import type { SessionStats } from '../../lib/sessionStats';
-import QuestionCard from './QuestionCard.vue';
-import ApprovalCard from './ApprovalCard.vue';
-import TasksPane from './TasksPane.vue';
-import TodoCard from './TodoCard.vue';
+import type {
+  ActivationBadges,
+  ApprovalBlock,
+  ConversationStatus,
+  PermissionMode,
+  QueuedPromptView,
+  TaskItem,
+  TodoView,
+  UIQuestion,
+} from '../../types';
 import Terminal from '../Terminal.vue';
 import Icon from '../ui/Icon.vue';
 import Pill from '../ui/Pill.vue';
+import ApprovalCard from './ApprovalCard.vue';
+import Composer from './Composer.vue';
+import GoalStrip from './GoalStrip.vue';
+import type { FileItem } from './MentionMenu.vue';
+import QuestionCard from './QuestionCard.vue';
+import StatsLine from './StatsLine.vue';
+import TasksPane from './TasksPane.vue';
+import TodoCard from './TodoCard.vue';
 
 const props = defineProps<{
   sessionId?: string;
@@ -30,7 +40,10 @@ const props = defineProps<{
   starting?: boolean;
   queued?: QueuedPromptView[];
   searchFiles?: (q: string) => Promise<FileItem[]>;
-  uploadImage?: (file: Blob, name?: string) => Promise<{ fileId: string; name: string; mediaType: string } | null>;
+  uploadImage?: (
+    file: Blob,
+    name?: string,
+  ) => Promise<{ fileId: string; name: string; mediaType: string } | null>;
   status: ConversationStatus;
   thinking?: ThinkingLevel;
   planMode?: boolean;
@@ -81,7 +94,15 @@ const emit = defineEmits<{
   selectModel: [modelId: string];
   answer: [questionId: string, response: QuestionResponse];
   dismiss: [questionId: string];
-  approval: [approvalId: string, response: { decision: 'approved' | 'rejected' | 'cancelled'; scope?: 'session'; feedback?: string; selectedLabel?: string }];
+  approval: [
+    approvalId: string,
+    response: {
+      decision: 'approved' | 'rejected' | 'cancelled';
+      scope?: 'session';
+      feedback?: string;
+      selectedLabel?: string;
+    },
+  ];
   cancelTask: [taskId: string];
   'toggle-dock-panel': [panel: 'bash' | 'subagent' | 'todos' | 'terminal'];
   'close-dock-panel': [];
@@ -92,7 +113,9 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const composerRef = ref<{
   loadForEdit: (value: string) => boolean;
-  loadAttachmentsForEdit: (atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[]) => void;
+  loadAttachmentsForEdit: (
+    atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[],
+  ) => void;
   focus: () => void;
 } | null>(null);
 const workPanelRef = ref<HTMLElement | null>(null);
@@ -109,7 +132,9 @@ function loadForEdit(value: string): boolean {
   return true;
 }
 
-function loadAttachmentsForEdit(atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[]): void {
+function loadAttachmentsForEdit(
+  atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[],
+): void {
   composerRef.value?.loadAttachmentsForEdit(atts);
 }
 
@@ -166,37 +191,25 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
 </script>
 
 <template>
-  <div ref="dockRef" class="chat-dock" :class="[mobile ? 'align-mobile' : 'align-center']" @click.stop>
+  <div
+    ref="dockRef"
+    class="chat-dock"
+    :class="[mobile ? 'align-mobile' : 'align-center']"
+    @click.stop
+  >
     <Transition name="dock-panel">
-      <div
-        ref="workPanelRef"
-        v-if="dockPanel"
-        class="dock-work-panel"
-        @click.stop
-      >
+      <div ref="workPanelRef" v-if="dockPanel" class="dock-work-panel" @click.stop>
         <div class="dock-work-head">
-          <span
-            v-if="dockPanel === 'bash'"
-            class="dock-work-tab static"
-          >
+          <span v-if="dockPanel === 'bash'" class="dock-work-tab static">
             {{ t('tasks.dockBash') }} · {{ bashRunning }} {{ t('tasks.running') }}
           </span>
-          <span
-            v-else-if="dockPanel === 'subagent'"
-            class="dock-work-tab static"
-          >
+          <span v-else-if="dockPanel === 'subagent'" class="dock-work-tab static">
             {{ t('tasks.dockSubagent') }} · {{ subagentRunning }} {{ t('tasks.running') }}
           </span>
-          <span
-            v-else-if="dockPanel === 'todos'"
-            class="dock-work-tab static"
-          >
+          <span v-else-if="dockPanel === 'todos'" class="dock-work-tab static">
             {{ t('tasks.dockTodos') }} · {{ todoDoneCount }}/{{ todos?.length ?? 0 }}
           </span>
-          <span
-            v-else-if="dockPanel === 'terminal'"
-            class="dock-work-tab static"
-          >
+          <span v-else-if="dockPanel === 'terminal'" class="dock-work-tab static">
             {{ t('tasks.dockTerminal') }}
           </span>
         </div>
@@ -212,10 +225,7 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
             @cancel="emit('cancelTask', $event)"
             @open="emit('openAgent', $event)"
           />
-          <TodoCard
-            v-else-if="dockPanel === 'todos'"
-            :todos="todos ?? []"
-          />
+          <TodoCard v-else-if="dockPanel === 'todos'" :todos="todos ?? []" />
           <Terminal v-else-if="dockPanel === 'terminal'" :session-id="sessionId ?? ''" />
         </div>
       </div>
@@ -236,7 +246,10 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
       >
         <Icon name="clock" size="md" />
         <span>{{ t('tasks.dockBash') }}</span>
-        <span class="dw-count">(<b>{{ bashTasks.length }}</b>)</span>
+        <span class="dw-count"
+          >(<b>{{ bashTasks.length }}</b
+          >)</span
+        >
       </Pill>
       <Pill
         v-if="subagentTasks.length > 0"
@@ -246,7 +259,10 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
       >
         <Icon name="sparkles" size="md" />
         <span>{{ t('tasks.dockSubagent') }}</span>
-        <span class="dw-count">(<b>{{ subagentTasks.length }}</b>)</span>
+        <span class="dw-count"
+          >(<b>{{ subagentTasks.length }}</b
+          >)</span
+        >
       </Pill>
       <Pill
         v-if="(todos?.length ?? 0) > 0"
@@ -256,7 +272,10 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
       >
         <Icon name="check-list" size="md" />
         <span>{{ t('tasks.dockTodos') }}</span>
-        <span class="dw-count">(<b>{{ todoDoneCount }}/{{ todos?.length ?? 0 }}</b>)</span>
+        <span class="dw-count"
+          >(<b>{{ todoDoneCount }}/{{ todos?.length ?? 0 }}</b
+          >)</span
+        >
       </Pill>
     </div>
 
@@ -294,37 +313,37 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
     <div v-else class="composer-stack">
       <Composer
         ref="composerRef"
-      :session-id="sessionId"
-      :running="running"
-      :queued="queued"
-      :search-files="searchFiles"
-      :upload-image="uploadImage"
-      :status="status"
-      :thinking="thinking"
-      :plan-mode="planMode"
-      :swarm-mode="swarmMode"
-      :goal-mode="goalMode"
-      :goal="goal"
-      :activation-badges="activationBadges"
-      :models="models"
-      :starred-ids="starredIds"
-      :skills="skills"
-      :starting="starting"
-      @submit="emit('submit', $event)"
-      @steer="emit('steer', $event)"
-      @command="emit('command', $event)"
-      @interrupt="emit('interrupt')"
-      @set-permission="emit('setPermission', $event)"
-      @set-thinking="emit('setThinking', $event)"
-      @toggle-plan="emit('togglePlan')"
-      @toggle-swarm="emit('toggleSwarm')"
-      @toggle-goal="emit('toggleGoal')"
-      @open-btw="emit('openBtw')"
-      @create-goal="emit('createGoal', $event)"
-      @control-goal="emit('controlGoal', $event)"
-      @focus-goal="emit('focusGoal')"
-      @focus-swarm="emit('focusSwarm')"
-      @compact="emit('compact')"
+        :session-id="sessionId"
+        :running="running"
+        :queued="queued"
+        :search-files="searchFiles"
+        :upload-image="uploadImage"
+        :status="status"
+        :thinking="thinking"
+        :plan-mode="planMode"
+        :swarm-mode="swarmMode"
+        :goal-mode="goalMode"
+        :goal="goal"
+        :activation-badges="activationBadges"
+        :models="models"
+        :starred-ids="starredIds"
+        :skills="skills"
+        :starting="starting"
+        @submit="emit('submit', $event)"
+        @steer="emit('steer', $event)"
+        @command="emit('command', $event)"
+        @interrupt="emit('interrupt')"
+        @set-permission="emit('setPermission', $event)"
+        @set-thinking="emit('setThinking', $event)"
+        @toggle-plan="emit('togglePlan')"
+        @toggle-swarm="emit('toggleSwarm')"
+        @toggle-goal="emit('toggleGoal')"
+        @open-btw="emit('openBtw')"
+        @create-goal="emit('createGoal', $event)"
+        @control-goal="emit('controlGoal', $event)"
+        @focus-goal="emit('focusGoal')"
+        @focus-swarm="emit('focusSwarm')"
+        @compact="emit('compact')"
         @pick-model="emit('pickModel')"
         @select-model="emit('selectModel', $event)"
       />
@@ -346,14 +365,22 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
   background: var(--color-bg);
   z-index: var(--z-sticky);
 }
-.chat-dock.align-center { margin-left: auto; margin-right: auto; }
+.chat-dock.align-center {
+  margin-left: auto;
+  margin-right: auto;
+}
 .composer-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
-.chat-dock.align-left { margin-left: 0; margin-right: auto; }
-.chat-dock.align-mobile { max-width: none; }
+.chat-dock.align-left {
+  margin-left: 0;
+  margin-right: auto;
+}
+.chat-dock.align-mobile {
+  max-width: none;
+}
 
 .dock-work-panel {
   position: absolute;
@@ -419,8 +446,12 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
   gap: 6px;
   padding: 2px var(--dock-inline-right) 0 var(--dock-inline-left);
 }
-.dock-workbar .dw-count { margin-left: 1px; }
-.dock-workbar .dw-count b { font-weight: 500; }
+.dock-workbar .dw-count {
+  margin-left: 1px;
+}
+.dock-workbar .dw-count b {
+  font-weight: 500;
+}
 
 .dock-approval {
   margin-top: 8px;
@@ -445,7 +476,9 @@ defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
 
 .dock-panel-enter-active,
 .dock-panel-leave-active {
-  transition: opacity 0.16s ease, transform 0.16s ease;
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
 }
 .dock-panel-enter-from,
 .dock-panel-leave-to {

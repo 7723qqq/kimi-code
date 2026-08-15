@@ -7,11 +7,12 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { Session, WorkspaceGroup, WorkspaceView } from '../../types';
+
 import { copyTextToClipboard } from '../../lib/clipboard';
+import type { Session, WorkspaceGroup, WorkspaceView } from '../../types';
 import BottomSheet from '../dialogs/BottomSheet.vue';
-import IconButton from '../ui/IconButton.vue';
 import Icon from '../ui/Icon.vue';
+import IconButton from '../ui/IconButton.vue';
 import Menu from '../ui/Menu.vue';
 import MenuItem from '../ui/MenuItem.vue';
 import Tooltip from '../ui/Tooltip.vue';
@@ -178,10 +179,7 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
 </script>
 
 <template>
-  <BottomSheet
-    :model-value="modelValue"
-    @update:model-value="emit('update:modelValue', $event)"
-  >
+  <BottomSheet :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)">
     <!-- + New chat (mirrors the sidebar's top button) -->
     <button type="button" class="newrow" @click="onCreate">
       <Icon name="message" size="sm" />
@@ -205,7 +203,12 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
           @click="toggleCollapse(g.workspace.id)"
         >
           <!-- Folder icon: open/closed mirrors the desktop sidebar -->
-          <Icon v-if="isCollapsed(g.workspace.id)" class="mgh-folder" name="folder-closed" size="sm" />
+          <Icon
+            v-if="isCollapsed(g.workspace.id)"
+            class="mgh-folder"
+            name="folder-closed"
+            size="sm"
+          />
           <Icon v-else class="mgh-folder" name="folder" size="sm" />
 
           <div class="mgh-main">
@@ -215,10 +218,9 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
             </Tooltip>
           </div>
 
-          <span
-            v-if="isCollapsed(g.workspace.id) && wsAttention(g.workspace.id) > 0"
-            class="att"
-          >{{ wsAttention(g.workspace.id) }}</span>
+          <span v-if="isCollapsed(g.workspace.id) && wsAttention(g.workspace.id) > 0" class="att">{{
+            wsAttention(g.workspace.id)
+          }}</span>
 
           <IconButton
             size="lg"
@@ -243,12 +245,16 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
             <MenuItem size="lg" @click="onCopyWsPath(g.workspace)">
               {{ t('sidebar.copyPath') }}
             </MenuItem>
-            <MenuItem size="lg" danger @click="onDeleteWorkspace(g.workspace)">{{ t('sidebar.delete') }}</MenuItem>
+            <MenuItem size="lg" danger @click="onDeleteWorkspace(g.workspace)">{{
+              t('sidebar.delete')
+            }}</MenuItem>
           </Menu>
         </div>
 
         <div v-show="!isCollapsed(g.workspace.id)">
-          <div v-if="g.sessions.length === 0" class="mempty small">{{ t('sidebar.noSessions') }}</div>
+          <div v-if="g.sessions.length === 0" class="mempty small">
+            {{ t('sidebar.noSessions') }}
+          </div>
           <div
             v-for="s in visibleSessions(g)"
             :key="s.id"
@@ -257,10 +263,23 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
             @click="onSelectSession(s.id)"
           >
             <div class="m">
-              <div class="t" :class="{ run: s.busy, aborted: !s.busy && (attentionBySession[s.id] ?? 0) === 0 && (s.lastTurnReason === 'cancelled' || s.lastTurnReason === 'failed') }">{{ s.title }}</div>
+              <div
+                class="t"
+                :class="{
+                  run: s.busy,
+                  aborted:
+                    !s.busy &&
+                    (attentionBySession[s.id] ?? 0) === 0 &&
+                    (s.lastTurnReason === 'cancelled' || s.lastTurnReason === 'failed'),
+                }"
+              >
+                {{ s.title }}
+              </div>
               <div class="s">{{ s.time }}</div>
             </div>
-            <span v-if="(attentionBySession[s.id] ?? 0) > 0" class="att">{{ attentionBySession[s.id] }}</span>
+            <span v-if="(attentionBySession[s.id] ?? 0) > 0" class="att">{{
+              attentionBySession[s.id]
+            }}</span>
             <IconButton
               size="lg"
               class="kb"
@@ -273,7 +292,9 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
             <!-- Kebab menu -->
             <Menu v-if="menuFor === s.id" class="kmenu" @click.stop>
               <MenuItem size="lg" @click="onRename(s)">{{ t('sidebar.rename') }}</MenuItem>
-              <MenuItem size="lg" danger @click="onArchive(s.id)">{{ t('sidebar.archive') }}</MenuItem>
+              <MenuItem size="lg" danger @click="onArchive(s.id)">{{
+                t('sidebar.archive')
+              }}</MenuItem>
             </Menu>
           </div>
           <button
@@ -286,7 +307,9 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
             {{
               g.loadingMore
                 ? t('sidebar.loadingMore')
-                : t('sidebar.showMore', { count: Math.max(0, g.workspace.sessionCount - g.sessions.length) })
+                : t('sidebar.showMore', {
+                    count: Math.max(0, g.workspace.sessionCount - g.sessions.length),
+                  })
             }}
           </button>
           <button
@@ -324,24 +347,33 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
   cursor: pointer;
   text-align: left;
 }
-.newrow:hover { background: var(--color-surface-sunken); }
-.newrow:active { background: var(--color-surface-sunken); }
+.newrow:hover {
+  background: var(--color-surface-sunken);
+}
+.newrow:active {
+  background: var(--color-surface-sunken);
+}
 .newrow.secondary {
   padding-top: var(--space-2);
   padding-bottom: var(--space-2);
   color: var(--color-text-muted);
   font-weight: 400;
 }
-.newrow.secondary:hover { background: var(--color-surface-sunken); }
-.newrow.secondary:active { background: var(--color-surface-sunken); color: var(--color-text); }
+.newrow.secondary:hover {
+  background: var(--color-surface-sunken);
+}
+.newrow.secondary:active {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
 
 /* ---- List + alignment contract (mirrors the desktop sidebar):
         session titles start at --m-pad + --m-gutter + --m-gap, exactly under
         the workspace name next to the folder icon. ---- */
 .mlist {
-  --m-pad: 16px;    /* row horizontal padding */
+  --m-pad: 16px; /* row horizontal padding */
   --m-gutter: 15px; /* folder icon width */
-  --m-gap: 8px;     /* gap between icon and text */
+  --m-gap: 8px; /* gap between icon and text */
   --m-indent: calc(var(--m-pad) + var(--m-gutter) + var(--m-gap));
   padding-bottom: var(--space-1);
 }
@@ -351,10 +383,16 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
   color: var(--color-text-faint);
   font-size: var(--ui-font-size);
 }
-.mempty.small { padding: 10px 16px 12px var(--m-indent); text-align: left; font-size: var(--ui-font-size-xs); }
+.mempty.small {
+  padding: 10px 16px 12px var(--m-indent);
+  text-align: left;
+  font-size: var(--ui-font-size-xs);
+}
 
 /* ---- Workspace group header ---- */
-.mgroup { padding-top: 2px; }
+.mgroup {
+  padding-top: 2px;
+}
 .mgh {
   display: flex;
   align-items: center;
@@ -365,9 +403,16 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
   user-select: none;
   position: relative; /* anchors the workspace "…" menu */
 }
-.mgh:hover { background: var(--color-surface-sunken); }
-.mgh:active { background: var(--color-surface-sunken); }
-.mgh-folder { flex: none; color: var(--color-text-muted); }
+.mgh:hover {
+  background: var(--color-surface-sunken);
+}
+.mgh:active {
+  background: var(--color-surface-sunken);
+}
+.mgh-folder {
+  flex: none;
+  color: var(--color-text-muted);
+}
 .mgh-main {
   flex: 1;
   min-width: 0;
@@ -391,12 +436,22 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mgh-add { margin: -10px -12px -10px 0; }
-.mgh-add:active { color: var(--color-text); background: var(--color-surface-sunken); }
+.mgh-add {
+  margin: -10px -12px -10px 0;
+}
+.mgh-add:active {
+  color: var(--color-text);
+  background: var(--color-surface-sunken);
+}
 
 /* Workspace "…" menu trigger */
-.mgh-more { margin: -10px -8px; }
-.mgh-more:active { color: var(--color-text); background: var(--color-surface-sunken); }
+.mgh-more {
+  margin: -10px -8px;
+}
+.mgh-more:active {
+  color: var(--color-text);
+  background: var(--color-surface-sunken);
+}
 
 /* ---- Session rows ---- */
 .srow {
@@ -408,10 +463,20 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
   cursor: pointer;
   position: relative;
 }
-.srow:hover { background: var(--color-surface-sunken); }
-.srow:active { background: var(--color-surface-sunken); }
-.srow.cur { background: var(--color-accent-soft); box-shadow: inset 0 0 0 1px var(--color-accent-bd); }
-.srow .m { flex: 1; min-width: 0; }
+.srow:hover {
+  background: var(--color-surface-sunken);
+}
+.srow:active {
+  background: var(--color-surface-sunken);
+}
+.srow.cur {
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--color-accent-bd);
+}
+.srow .m {
+  flex: 1;
+  min-width: 0;
+}
 .srow .m .t {
   font-size: var(--text-base);
   font-weight: 450;
@@ -421,11 +486,15 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.srow.cur .m .t { color: var(--color-accent-hover); }
+.srow.cur .m .t {
+  color: var(--color-accent-hover);
+}
 
 /* Running indicator — pulse dot in the indent gutter left of the title,
    mirroring the desktop SessionRow (.t.run::before). */
-.srow .m .t.run { position: relative; }
+.srow .m .t.run {
+  position: relative;
+}
 .srow .m .t.run::before {
   content: '';
   position: absolute;
@@ -439,11 +508,18 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
   animation: mRunPulse 1.4s ease-in-out infinite;
 }
 @keyframes mRunPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 /* Aborted: a static red dot in the same gutter slot (no pulse — it's finished). */
-.srow .m .t.aborted { position: relative; }
+.srow .m .t.aborted {
+  position: relative;
+}
 .srow .m .t.aborted::before {
   content: '';
   position: absolute;
@@ -474,7 +550,10 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
   border-radius: var(--radius-full);
   padding: 1px 7px;
 }
-.srow .kb:active { color: var(--color-text); background: var(--color-surface-sunken); }
+.srow .kb:active {
+  color: var(--color-text);
+  background: var(--color-surface-sunken);
+}
 
 /* Kebab menu — surface from Menu primitive; only positioning here. */
 .kmenu {
@@ -507,9 +586,14 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
   cursor: pointer;
   text-align: left;
 }
-.mshow-more:active { color: var(--color-accent-hover); background: var(--color-surface-sunken); }
+.mshow-more:active {
+  color: var(--color-accent-hover);
+  background: var(--color-surface-sunken);
+}
 
-.newrow { font-family: var(--sans); }
+.newrow {
+  font-family: var(--sans);
+}
 .mlist .srow {
   margin: 1px 8px;
   border-radius: var(--radius-md);
@@ -518,5 +602,7 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
      sheet's --m-indent alignment line (under the workspace name). */
   padding: 12px calc(var(--m-pad, 16px) - 8px) 12px calc(var(--m-indent, 39px) - 8px);
 }
-.mlist .srow.cur { box-shadow: inset 0 0 0 1px var(--color-accent-bd); }
+.mlist .srow.cur {
+  box-shadow: inset 0 0 0 1px var(--color-accent-bd);
+}
 </style>

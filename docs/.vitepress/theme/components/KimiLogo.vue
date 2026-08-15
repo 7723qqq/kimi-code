@@ -1,17 +1,11 @@
 <script setup lang="ts">
-import logoUrl from '../Kimi.png'
+import logoUrl from '../Kimi.png';
 
-withDefaults(defineProps<{ size?: number }>(), { size: 56 })
+withDefaults(defineProps<{ size?: number }>(), { size: 56 });
 </script>
 
 <template>
-  <img
-    class="KimiLogo"
-    :src="logoUrl"
-    :width="size"
-    :height="size"
-    alt="Kimi"
-  />
+  <img class="KimiLogo" :src="logoUrl" :width="size" :height="size" alt="Kimi" />
 </template>
 
 <style scoped>

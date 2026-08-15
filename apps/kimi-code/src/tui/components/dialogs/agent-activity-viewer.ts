@@ -14,6 +14,7 @@
  * main transcript's `toolOutputExpanded`), capped by what the store retained.
  */
 
+import type { BackgroundTaskInfo } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Key,
@@ -23,7 +24,6 @@ import {
   truncateToWidth,
   visibleWidth,
 } from '@moonshot-ai/pi-tui';
-import type { BackgroundTaskInfo } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 import { MESSAGE_INDENT } from '#/tui/constant/rendering';
@@ -35,6 +35,7 @@ import type {
 import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData } from '#/tui/types';
 import { printableChar } from '#/tui/utils/printable-key';
+
 import { AssistantMessageComponent } from '../messages/assistant-message';
 import { extractKeyArgument } from '../messages/tool-call';
 import { pickChip } from '../messages/tool-renderers/chip';
@@ -193,7 +194,9 @@ export class AgentActivityViewer extends Container implements Focusable {
   private buildLines(innerWidth: number): string[] {
     const record = this.props.record;
     if (record === undefined) {
-      return [currentTheme.dim(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.noActivity')}`)];
+      return [
+        currentTheme.dim(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.noActivity')}`),
+      ];
     }
 
     const out: string[] = [];
@@ -227,7 +230,9 @@ export class AgentActivityViewer extends Container implements Focusable {
     }
 
     if (out.length === 0) {
-      out.push(currentTheme.dim(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.waiting')}`));
+      out.push(
+        currentTheme.dim(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.waiting')}`),
+      );
     }
     return out;
   }
@@ -276,13 +281,15 @@ export class AgentActivityViewer extends Container implements Focusable {
     // The store caps retained output, which cannot survive as a parseable
     // media envelope (base64) — show a marker instead of dumping the blob.
     if (call.name === 'ReadMediaFile' && call.result.is_error !== true) {
-      return [currentTheme.dim(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.mediaOutputOmitted')}`)];
+      return [
+        currentTheme.dim(
+          `${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.mediaOutputOmitted')}`,
+        ),
+      ];
     }
-    const components = pickResultRenderer(call.name)(
-      this.toToolCallBlockData(call),
-      call.result,
-      { expanded: this.expanded },
-    );
+    const components = pickResultRenderer(call.name)(this.toToolCallBlockData(call), call.result, {
+      expanded: this.expanded,
+    });
     const out: string[] = [];
     for (const component of components) {
       out.push(...component.render(innerWidth));
@@ -379,8 +386,7 @@ export class AgentActivityViewer extends Container implements Focusable {
     const total = this.lines.length;
     const viewRows = Math.max(1, bodyHeight - 2);
     const maxScroll = Math.max(0, total - viewRows);
-    const percent =
-      maxScroll === 0 ? 100 : Math.round((this.scrollTop / maxScroll) * 100);
+    const percent = maxScroll === 0 ? 100 : Math.round((this.scrollTop / maxScroll) * 100);
     const lineFrom = total === 0 ? 0 : this.scrollTop + 1;
     const lineTo = Math.min(total, this.scrollTop + viewRows);
 
@@ -428,7 +434,10 @@ function sanitizeLiveOutput(value: string): string {
         // CSI: ESC [ … final byte in 0x40–0x7e. Unterminated sequences are
         // consumed to the end of the string.
         i += 2;
-        while (i < value.length && !(value.codePointAt(i)! >= 0x40 && value.codePointAt(i)! <= 0x7e)) {
+        while (
+          i < value.length &&
+          !(value.codePointAt(i)! >= 0x40 && value.codePointAt(i)! <= 0x7e)
+        ) {
           i += 1;
         }
         if (i < value.length) i += 1;
@@ -488,7 +497,10 @@ export function formatSubagentActivityPreview(
     }
   }
   if (record.error !== undefined && record.error.length > 0) {
-    lines.push(t('tui.dialogs.agentActivityViewer.failedColon'), ...record.error.trimEnd().split('\n'));
+    lines.push(
+      t('tui.dialogs.agentActivityViewer.failedColon'),
+      ...record.error.trimEnd().split('\n'),
+    );
   } else if (record.resultSummary !== undefined && record.resultSummary.length > 0) {
     lines.push(
       t('tui.dialogs.agentActivityViewer.resultColon'),

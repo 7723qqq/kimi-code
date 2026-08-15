@@ -2,21 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator, ScopeActivation } from '#/_base/di/instantiation';
-import {
-  _clearScopedRegistryForTests,
-  registerScopedService,
-} from '#/_base/di/scope';
+import { _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  IAgentCommandService,
-} from '#/agent/command/agentCommand';
+import { IAgentCommandService } from '#/agent/command/agentCommand';
 import { AgentCommandService } from '#/agent/command/agentCommandService';
-import {
-  CommandContribution,
-  type CommandRunContext,
-} from '#/agent/command/commandContribution';
+import { CommandContribution, type CommandRunContext } from '#/agent/command/commandContribution';
+import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes } from '#/errors';
 
 interface IEcho {
@@ -54,8 +46,13 @@ describe('AgentCommandService — CommandContribution fold', () => {
         }
       }
     }
-    const host = createScopedTestHost([stubPair(IEcho, { _serviceBrand: undefined, value: 'echo!' })]);
-    const handle = host.app.instantiation.provide(ICommandProvider, new SyncDescriptor(CommandProvider));
+    const host = createScopedTestHost([
+      stubPair(IEcho, { _serviceBrand: undefined, value: 'echo!' }),
+    ]);
+    const handle = host.app.instantiation.provide(
+      ICommandProvider,
+      new SyncDescriptor(CommandProvider),
+    );
     host.app.accessor.get(ICommandProvider);
     const agent = host.child(LifecycleScope.Agent, 'agent-1');
     return { host, agent, handle, commands: agent.accessor.get(IAgentCommandService) };
@@ -132,9 +129,7 @@ describe('AgentCommandService — CommandContribution fold', () => {
   });
 
   it('withdraws the commands when the provider unit dies', async () => {
-    const { host, handle, commands } = hostWithProvider([
-      { name: 'alpha', run: () => {} },
-    ]);
+    const { host, handle, commands } = hostWithProvider([{ name: 'alpha', run: () => {} }]);
     expect(commands.list()).toHaveLength(1);
 
     handle.dispose();

@@ -24,11 +24,12 @@
  */
 
 import { createHash } from 'node:crypto';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/_base/state/stateRegistry';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IFileService } from '#/app/file/fileService';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ContentPart, Message } from '#/kosong/contract/message';
 import type { ModelRequester } from '#/kosong/model/modelRequester';
@@ -37,18 +38,17 @@ import { IBlobStore } from '#/persistence/interface/blobStore';
 import { detectFileType, MEDIA_SNIFF_BYTES } from './file-type';
 import { type KimiFileRef, isKimiFileUrl, parseKimiFileUrl } from './kimiFileUrl';
 import { createVideoUploader } from './registerMediaTools';
+import { IAgentVideoResolverService } from './videoResolver';
 import {
   inlineVideoPart,
   inlineVideoSupportedForProtocol,
   isVideoUploadAuthError,
   isVideoUploadUnsupportedError,
 } from './videoUpload';
-import { IAgentVideoResolverService } from './videoResolver';
 
 const CACHE_SCOPE = 'video-upload-cache';
 const PROVIDER_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const VIDEO_UNAVAILABLE_TEXT =
-  '[video omitted: the uploaded file is no longer available]';
+const VIDEO_UNAVAILABLE_TEXT = '[video omitted: the uploaded file is no longer available]';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -90,8 +90,7 @@ export class AgentVideoResolverService implements IAgentVideoResolverService {
       }
       const content: ContentPart[] = [];
       for (const part of message.content) {
-        const ref =
-          part.type === 'video_url' ? parseKimiFileUrl(part.videoUrl.url) : undefined;
+        const ref = part.type === 'video_url' ? parseKimiFileUrl(part.videoUrl.url) : undefined;
         content.push(ref === undefined ? part : await this.resolvePart(ref, requester, signal));
       }
       out.push({ ...message, content });
@@ -126,7 +125,10 @@ export class AgentVideoResolverService implements IAgentVideoResolverService {
     const cachedLlmFileId = await this.readCachedUpload(cacheKey);
     if (cachedLlmFileId !== undefined) {
       return {
-        part: { type: 'video_url', videoUrl: { url: `ms://${cachedLlmFileId}`, id: cachedLlmFileId } },
+        part: {
+          type: 'video_url',
+          videoUrl: { url: `ms://${cachedLlmFileId}`, id: cachedLlmFileId },
+        },
         memoize: true,
       };
     }
@@ -191,9 +193,9 @@ export class AgentVideoResolverService implements IAgentVideoResolverService {
 
   private async writeCachedUpload(cacheKey: string, llmFileId: string): Promise<void> {
     if (!PROVIDER_ID_RE.test(llmFileId)) return;
-    await this.blobs.put(CACHE_SCOPE, blobKey(cacheKey), textEncoder.encode(llmFileId)).catch(
-      () => undefined,
-    );
+    await this.blobs
+      .put(CACHE_SCOPE, blobKey(cacheKey), textEncoder.encode(llmFileId))
+      .catch(() => undefined);
   }
 }
 

@@ -26,6 +26,7 @@
 import { createReadStream } from 'node:fs';
 import { appendFile, chmod, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+
 import { ulid } from 'ulid';
 
 const JOURNAL_VERSION = 1;
@@ -102,7 +103,10 @@ export class SessionEventJournal {
    * recover `{epoch, lastSeq}`. A missing file or an unreadable header starts
    * a fresh journal with a new epoch.
    */
-  static async open(filePath: string, logger: JournalLogger = noopLogger): Promise<SessionEventJournal> {
+  static async open(
+    filePath: string,
+    logger: JournalLogger = noopLogger,
+  ): Promise<SessionEventJournal> {
     let epoch: string | undefined;
     let lastSeq = 0;
     let sawAnyLine = false;
@@ -121,10 +125,7 @@ export class SessionEventJournal {
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT') {
-        logger.warn(
-          { filePath, err: error },
-          'event journal unreadable; starting a fresh epoch',
-        );
+        logger.warn({ filePath, err: error }, 'event journal unreadable; starting a fresh epoch');
       }
     }
 

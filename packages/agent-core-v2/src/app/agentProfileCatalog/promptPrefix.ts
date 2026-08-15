@@ -6,10 +6,7 @@
  * error or empty prefix leaves the prompt unchanged.
  */
 
-import type {
-  AgentProfile,
-  AgentProfilePromptPrefixContext,
-} from './agentProfileCatalog';
+import type { AgentProfile, AgentProfilePromptPrefixContext } from './agentProfileCatalog';
 
 export async function applyProfilePromptPrefix(
   profile: AgentProfile,

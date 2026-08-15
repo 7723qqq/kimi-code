@@ -42,20 +42,20 @@ function createMemoryStorage(): Storage {
 let localStore: Storage;
 let sessionStore: Storage;
 
-function writeStoredCredential(
-  credential: string,
-  expiresAt = Date.now() + 7 * DAY_MS,
-): void {
-  localStore.setItem(STORAGE_KEY, JSON.stringify({
-    version: 1,
-    credential,
-    expiresAt,
-  } satisfies StoredCredential));
+function writeStoredCredential(credential: string, expiresAt = Date.now() + 7 * DAY_MS): void {
+  localStore.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      version: 1,
+      credential,
+      expiresAt,
+    } satisfies StoredCredential),
+  );
 }
 
 function readStoredCredential(): StoredCredential | undefined {
   const raw = localStore.getItem(STORAGE_KEY);
-  return raw === null ? undefined : JSON.parse(raw) as StoredCredential;
+  return raw === null ? undefined : (JSON.parse(raw) as StoredCredential);
 }
 
 /** Fresh module instance per test — the store keeps module-level state. */

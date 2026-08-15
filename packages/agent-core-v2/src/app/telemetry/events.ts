@@ -170,7 +170,13 @@ export interface PermissionApprovalResultEvent {
   policy_name: string | null;
   tool_name: string;
   permission_mode: TelemetryPermissionMode;
-  result: 'error' | 'approved_for_session' | 'approved' | 'rejected' | 'cancelled' | 'no_approval_surface';
+  result:
+    | 'error'
+    | 'approved_for_session'
+    | 'approved'
+    | 'rejected'
+    | 'cancelled'
+    | 'no_approval_surface';
   approval_surface: string;
   duration_ms: number;
   session_cache_written: boolean;
@@ -850,7 +856,8 @@ export const telemetryEventDefinitions = {
     owner: 'kimi-code',
     comment: 'An AGENTS.md discovery reminder is appended to a tool result.',
     properties: {
-      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
+      turn_id:
+        'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session',
       tool_name: 'Registered tool name whose result carried the reminder',
       reminded_count: 'Number of AGENTS.md paths listed in the reminder',
       trace_id:

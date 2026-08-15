@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import { serverEndpointLabel } from '../api/config';
 import {
   fetchDevBackendState,
@@ -15,21 +16,18 @@ import {
   type DevBackendState,
 } from '../api/devBackend';
 import { copyTextToClipboard } from '../lib/clipboard';
-import {
-  loadCollapsedWorkspaces,
-  saveCollapsedWorkspaces,
-} from '../lib/storage';
+import { isMacosDesktop } from '../lib/desktopFlag';
+import { loadCollapsedWorkspaces, saveCollapsedWorkspaces } from '../lib/storage';
 import { moveInOrder, type DropPosition, type WorkspaceSortMode } from '../lib/workspaceOrder';
 import type { Session, WorkspaceGroup as WorkspaceGroupType, WorkspaceView } from '../types';
 import SearchSessionsDialog from './dialogs/SearchSessionsDialog.vue';
-import WorkspaceGroup from './WorkspaceGroup.vue';
-import { isMacosDesktop } from '../lib/desktopFlag';
-import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
+import IconButton from './ui/IconButton.vue';
 import Kbd from './ui/Kbd.vue';
 import Menu from './ui/Menu.vue';
 import MenuItem from './ui/MenuItem.vue';
 import Pill from './ui/Pill.vue';
+import WorkspaceGroup from './WorkspaceGroup.vue';
 
 const { t } = useI18n();
 
@@ -152,7 +150,8 @@ function isAppleShortcutPlatform(): boolean {
   if (typeof navigator === 'undefined') return false;
   if (/Mac|iPod|iPhone|iPad/.test(navigator.platform)) return true;
 
-  const userAgentData = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData;
+  const userAgentData = (navigator as Navigator & { userAgentData?: { platform?: string } })
+    .userAgentData;
   return userAgentData?.platform === 'macOS' || userAgentData?.platform === 'iOS';
 }
 
@@ -197,8 +196,7 @@ function expandAllWorkspaces(): void {
 // icon (expand when fully collapsed, collapse otherwise) and action.
 const allCollapsed = computed(
   () =>
-    props.groups.length > 0 &&
-    props.groups.every((g) => collapsedIds.value.has(g.workspace.id)),
+    props.groups.length > 0 && props.groups.every((g) => collapsedIds.value.has(g.workspace.id)),
 );
 
 // ---------------------------------------------------------------------------
@@ -602,9 +600,7 @@ function blinkOnce(): void {
 // Logo long-press easter-egg: holding the Kimi mark for 1 second opens the
 // design system as a full-screen overlay. A short click still just blinks.
 // Pointer capture keeps the hold alive even if the pointer drifts off the mark.
-const DesignSystemView = defineAsyncComponent(
-  () => import('../views/DesignSystemView.vue'),
-);
+const DesignSystemView = defineAsyncComponent(() => import('../views/DesignSystemView.vue'));
 const showDesignSystem = ref(false);
 const EGG_HOLD_MS = 1000;
 let logoPressTimer: ReturnType<typeof setTimeout> | undefined;
@@ -655,7 +651,20 @@ onBeforeUnmount(() => {
       <div class="ch">
         <div class="ch-brand">
           <template v-if="!isMacosDesktop">
-            <svg ref="logoRef" class="ch-logo" :class="{ 'is-dev': isDev }" viewBox="0 0 32 22" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kimi Code" @click="onLogoClick" @pointerdown="onLogoPointerDown" @pointerup="onLogoPointerUp" @pointercancel="onLogoPointerUp">
+            <svg
+              ref="logoRef"
+              class="ch-logo"
+              :class="{ 'is-dev': isDev }"
+              viewBox="0 0 32 22"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              role="img"
+              aria-label="Kimi Code"
+              @click="onLogoClick"
+              @pointerdown="onLogoPointerDown"
+              @pointerup="onLogoPointerUp"
+              @pointercancel="onLogoPointerUp"
+            >
               <defs>
                 <mask id="kimiEyes" maskUnits="userSpaceOnUse">
                   <rect x="0" y="0" width="32" height="22" fill="#fff" />
@@ -665,7 +674,15 @@ onBeforeUnmount(() => {
                   </g>
                 </mask>
               </defs>
-              <rect x="1" y="1" width="30" height="20" rx="6" fill="var(--logo)" mask="url(#kimiEyes)" />
+              <rect
+                x="1"
+                y="1"
+                width="30"
+                height="20"
+                rx="6"
+                fill="var(--logo)"
+                mask="url(#kimiEyes)"
+              />
             </svg>
             <span class="ch-name">Kimi Code</span>
             <Pill
@@ -807,13 +824,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Workspace right-click menu (position:fixed) -->
-    <Menu
-      v-if="ghMenuOpen"
-      ref="ghMenuRef"
-      class="gh-menu"
-      :style="ghMenuStyle"
-      @click.stop
-    >
+    <Menu v-if="ghMenuOpen" ref="ghMenuRef" class="gh-menu" :style="ghMenuStyle" @click.stop>
       <MenuItem @click="copyPathFromMenu">{{ t('sidebar.copyPath') }}</MenuItem>
       <MenuItem @click="startRenameFromMenu">{{ t('sidebar.rename') }}</MenuItem>
       <MenuItem danger @click="deleteFromMenu">{{ t('sidebar.removeWorkspace') }}</MenuItem>
@@ -910,10 +921,10 @@ onBeforeUnmount(() => {
      - row boxes (hover/selected pills) sit --sb-inset from the sidebar edges;
      - text/icons start at --sb-pad-x = --sb-inset + 8px row padding;
      - row titles start at --sb-pad-x + --sb-gutter + --sb-gap. */
-  --sb-inset: var(--space-3);  /* row box inset from the sidebar edge */
-  --sb-pad-x: var(--space-5);  /* content start x (inset + row padding) */
-  --sb-gutter: 16px;           /* leading icon slot (matches the 16px folder icon, so the session title aligns under the workspace name) */
-  --sb-gap: var(--space-2);    /* gap between the icon slot and the text */
+  --sb-inset: var(--space-3); /* row box inset from the sidebar edge */
+  --sb-pad-x: var(--space-5); /* content start x (inset + row padding) */
+  --sb-gutter: 16px; /* leading icon slot (matches the 16px folder icon, so the session title aligns under the workspace name) */
+  --sb-gap: var(--space-2); /* gap between the icon slot and the text */
   /* Row hover wash — global --color-hover (lighter than the selected fill;
      both translucent, so they sit on any surface). */
   --sb-hover: var(--color-hover);
@@ -1037,10 +1048,14 @@ onBeforeUnmount(() => {
    kind + chevron stay — the full target is one tooltip away); below 250px the
    product name also drops out so the logo and action buttons keep their room. */
 @container sidebar-col (max-width: 320px) {
-  .ch-backend-ep { display: none; }
+  .ch-backend-ep {
+    display: none;
+  }
 }
 @container sidebar-col (max-width: 250px) {
-  .ch-name { display: none; }
+  .ch-name {
+    display: none;
+  }
 }
 
 /* Action buttons — first row of the actions group (New chat + search): rows
@@ -1069,9 +1084,16 @@ onBeforeUnmount(() => {
   cursor: pointer;
   text-align: left;
 }
-.btn-new-chat:hover { background: var(--sb-hover); }
-.btn-new-chat:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
-.btn-new-chat svg { flex: none; }
+.btn-new-chat:hover {
+  background: var(--sb-hover);
+}
+.btn-new-chat:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
+.btn-new-chat svg {
+  flex: none;
+}
 .btn-new-chat span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1088,7 +1110,8 @@ onBeforeUnmount(() => {
   z-index: 1;
   background: var(--color-sidebar-bg);
   border-bottom: 1px solid transparent;
-  transition: border-color var(--duration-base) var(--ease-out),
+  transition:
+    border-color var(--duration-base) var(--ease-out),
     box-shadow var(--duration-base) var(--ease-out);
 }
 .search-wrap--scrolled {
@@ -1110,7 +1133,9 @@ onBeforeUnmount(() => {
   text-align: left;
   cursor: pointer;
 }
-.search:hover { background: var(--sb-hover); }
+.search:hover {
+  background: var(--sb-hover);
+}
 .search:focus-visible {
   background: var(--sb-hover);
   color: var(--color-text);
@@ -1143,15 +1168,21 @@ onBeforeUnmount(() => {
   padding: var(--space-3) var(--sb-inset);
   min-height: 0;
 }
-.sessions::-webkit-scrollbar { width: 4px; }
-.sessions::-webkit-scrollbar-track { background: transparent; }
+.sessions::-webkit-scrollbar {
+  width: 4px;
+}
+.sessions::-webkit-scrollbar-track {
+  background: transparent;
+}
 .sessions::-webkit-scrollbar-thumb {
   /* Neutral, text-derived translucency — adapts to both schemes and sits
      quietly on the sidebar surface (no accent tint on hover). */
   background: color-mix(in srgb, var(--color-text) 12%, transparent);
   border-radius: var(--radius-full);
 }
-.sessions::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--color-text) 25%, transparent); }
+.sessions::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-text) 25%, transparent);
+}
 
 /* Footer — settings entry pinned under the session list. Same list-style
    control family as search / New chat (full-width, left-aligned, hover
@@ -1178,9 +1209,16 @@ onBeforeUnmount(() => {
   cursor: pointer;
   text-align: left;
 }
-.btn-settings:hover { background: var(--sb-hover); }
-.btn-settings:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
-.btn-settings svg { flex: none; }
+.btn-settings:hover {
+  background: var(--sb-hover);
+}
+.btn-settings:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
+.btn-settings svg {
+  flex: none;
+}
 .btn-settings span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1233,8 +1271,12 @@ onBeforeUnmount(() => {
 /* Workspace drag-to-reorder: a line at the top (drop-before) or bottom
    (drop-after) of the group under the cursor marks where the dragged workspace
    will land. Inset shadows avoid layout shift. */
-.ws-drop-target.drop-before { box-shadow: inset 0 2px 0 var(--color-accent); }
-.ws-drop-target.drop-after { box-shadow: inset 0 -2px 0 var(--color-accent); }
+.ws-drop-target.drop-before {
+  box-shadow: inset 0 2px 0 var(--color-accent);
+}
+.ws-drop-target.drop-after {
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
 
 .empty {
   padding: var(--space-6) var(--space-3);
@@ -1274,5 +1316,4 @@ onBeforeUnmount(() => {
   font-family: var(--mono);
   color: var(--color-text-muted);
 }
-
 </style>

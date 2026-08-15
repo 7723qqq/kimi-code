@@ -1,9 +1,11 @@
-// test/degrade.test.js
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
+// test/degrade.test.js
+import { test } from 'vitest';
+
 import { MiniDb } from '../src/index.js';
 import { LockError } from '../src/lockfile.js';
 
@@ -31,10 +33,7 @@ test('openOrRebuild preserves data when only a sidecar definition file is corrup
   await fs.writeFile(path.join(dir, 'db.indexes.json'), '{ not valid json');
 
   let rebuilt = null;
-  db = await MiniDb.openOrRebuild(
-    { dir, valueCodec: 'json' },
-    { onRebuild: (e) => (rebuilt = e) },
-  );
+  db = await MiniDb.openOrRebuild({ dir, valueCodec: 'json' }, { onRebuild: (e) => (rebuilt = e) });
   assert.ok(rebuilt instanceof Error, 'onRebuild called with the original error');
   // the sidecar (pure derived state) is dropped, the data is NOT wiped
   assert.equal(db.size, 1);
@@ -74,7 +73,12 @@ test('openOrRebuild with onLockFail readonly must not mutate a live writer: corr
   await fs.writeFile(path.join(dir, 'db.indexes.json'), '{broken-json');
   try {
     await assert.rejects(
-      MiniDb.openOrRebuild<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', onLockFail: 'readonly' }),
+      MiniDb.openOrRebuild<string>({
+        dir,
+        valueCodec: 'string',
+        fsyncPolicy: 'no',
+        onLockFail: 'readonly',
+      }),
       SyntaxError,
     );
     const sidecar = await fs.readFile(path.join(dir, 'db.indexes.json'), 'utf8');
@@ -112,7 +116,9 @@ test('openOrRebuild with onLockFail readonly + a garbage WAL (strict) degrades t
     assert.equal(writer.get('kept'), 'value', 'the live writer is undisturbed');
     // The writer's own lock line is still on disk (no fresh db was opened
     // over the directory).
-    const lockRaw = JSON.parse(await fs.readFile(path.join(dir, 'db.lock'), 'utf8')) as { token?: string };
+    const lockRaw = JSON.parse(await fs.readFile(path.join(dir, 'db.lock'), 'utf8')) as {
+      token?: string;
+    };
     assert.equal(typeof lockRaw.token, 'string', 'lock file intact');
   } finally {
     await writer.close();

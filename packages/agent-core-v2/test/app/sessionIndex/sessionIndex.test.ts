@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // full-suite load. Raise the file-wide timeout.
 vi.setConfig({ testTimeout: 120_000 });
 
-import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -20,18 +19,22 @@ import { ILogService } from '#/_base/log/log';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
 import {
   ISessionIndex,
   ISessionIndexMirror,
   type SessionSummary,
 } from '#/app/sessionIndex/sessionIndex';
-import { recencyColumn, sessionCollection } from '#/app/sessionIndex/sessionIndexModel';
-import { FileSessionIndex } from '#/app/sessionIndex/sessionIndexService';
 import {
   drainSessionIndexMirror,
   SessionIndexMirror,
 } from '#/app/sessionIndex/sessionIndexMirrorService';
-import { drainQueryStoreDisposals, MiniDbQueryStore } from '#/persistence/backends/minidb/miniDbQueryStore';
+import { recencyColumn, sessionCollection } from '#/app/sessionIndex/sessionIndexModel';
+import { FileSessionIndex } from '#/app/sessionIndex/sessionIndexService';
+import {
+  drainQueryStoreDisposals,
+  MiniDbQueryStore,
+} from '#/persistence/backends/minidb/miniDbQueryStore';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
@@ -45,17 +48,19 @@ import {
 } from '#/persistence/interface/queryStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-import { stubSessionIndexMirror } from './stubs';
-import { stubBootstrap } from '../bootstrap/stubs';
-import { stubFlag } from '../flag/stubs';
 import { stubLog } from '../../_base/log/stubs';
 import { stubQueryStore } from '../../persistence/interface/stubs';
+import { stubBootstrap } from '../bootstrap/stubs';
+import { stubFlag } from '../flag/stubs';
+import { stubSessionIndexMirror } from './stubs';
 
 const WORK_DIR = '/home/user/repo';
 
 function canonicalIds(summaries: readonly SessionSummary[]): string[] {
   return [...summaries]
-    .toSorted((a, b) => (a.updatedAt !== b.updatedAt ? b.updatedAt - a.updatedAt : a.id < b.id ? 1 : -1))
+    .toSorted((a, b) =>
+      a.updatedAt !== b.updatedAt ? b.updatedAt - a.updatedAt : a.id < b.id ? 1 : -1,
+    )
     .map((s) => s.id);
 }
 
@@ -252,7 +257,10 @@ describe('FileSessionIndex (legacy)', () => {
     const visible = await store.listRecent({ workspaceIds: [workspaceId, otherId] });
     expect(visible.items.map((s) => s.id)).toEqual(['active']);
 
-    const all = await store.listRecent({ workspaceIds: [workspaceId, otherId], includeArchived: true });
+    const all = await store.listRecent({
+      workspaceIds: [workspaceId, otherId],
+      includeArchived: true,
+    });
     expect(all.items.map((s) => s.id).toSorted()).toEqual(['active', 'archived']);
   });
 
@@ -429,7 +437,9 @@ describe('FileSessionIndex (read model)', () => {
     }
 
     snapshotCounts(): Record<string, OpCounts> {
-      return Object.fromEntries([...this.counts.entries()].toSorted(([a], [b]) => (a < b ? -1 : 1)));
+      return Object.fromEntries(
+        [...this.counts.entries()].toSorted(([a], [b]) => (a < b ? -1 : 1)),
+      );
     }
 
     private record(method: string, collection: string, rows: number): void {
@@ -455,10 +465,7 @@ describe('FileSessionIndex (read model)', () => {
       return values;
     }
 
-    override async pageByColumn<T>(
-      collection: string,
-      query: ColumnPageQuery,
-    ): Promise<Page<T>> {
+    override async pageByColumn<T>(collection: string, query: ColumnPageQuery): Promise<Page<T>> {
       const page = await super.pageByColumn<T>(collection, query);
       this.record('pageByColumn', collection, page.items.length);
       return page;

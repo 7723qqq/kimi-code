@@ -15,8 +15,8 @@
 //
 // Wire-file parse warnings are appended as info-level entries with no lineNo.
 
-import type { WireEntry } from '../types';
 import { t } from '../i18n';
+import type { WireEntry } from '../types';
 
 export type IssueSeverity = 'error' | 'warning' | 'info';
 
@@ -52,10 +52,7 @@ const SEVERITY_ORDER: Record<IssueSeverity, number> = {
 
 /** Scan `records` + `warnings` and produce an ordered issue list.
  *  Sorted by severity first, then lineNo ascending. Warnings (no lineNo) go last. */
-export function computeIssues(
-  entries: readonly WireEntry[],
-  warnings: readonly string[],
-): Issue[] {
+export function computeIssues(entries: readonly WireEntry[], warnings: readonly string[]): Issue[] {
   const out: Issue[] = [];
 
   // Track in-flight tool calls keyed by toolCallId, step begins by uuid,

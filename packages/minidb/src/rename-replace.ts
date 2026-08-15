@@ -21,15 +21,19 @@ export interface RenameReplaceOptions {
   baseDelayMs?: number;
 }
 
-export async function renameReplace(src: string, dst: string, opts: RenameReplaceOptions = {}): Promise<void> {
+export async function renameReplace(
+  src: string,
+  dst: string,
+  opts: RenameReplaceOptions = {},
+): Promise<void> {
   if (process.platform !== 'win32') return fs.rename(src, dst);
   const retries = opts.retries ?? 100;
   const base = opts.baseDelayMs ?? 20;
   for (let attempt = 0; ; attempt++) {
     try {
       return await fs.rename(src, dst);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EPERM' || attempt >= retries) throw e;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EPERM' || attempt >= retries) throw error;
       await sleep(base + Math.floor(Math.random() * (base + 10)));
     }
   }

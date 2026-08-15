@@ -12,17 +12,19 @@
 // contract that currently breaks under stress. The "coverage" section holds
 // the stress configurations that behave correctly and must keep behaving.
 
-import { expect, test } from 'vitest';
 import { spawn } from 'node:child_process';
-import net from 'node:net';
 import fs from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { expect, test } from 'vitest';
+
 import { MiniDb, TextIndexBuildingError } from '../../src/index.js';
 import { startServer } from '../../src/server.js';
-import { tmpDir, rmrf } from './helpers/tmp.js';
-import { mulberry32 } from './helpers/prng.js';
 import { waitFor } from '../helpers.js';
+import { mulberry32 } from './helpers/prng.js';
+import { tmpDir, rmrf } from './helpers/tmp.js';
 
 const __dirname = import.meta.dirname;
 
@@ -79,7 +81,11 @@ test(
   { timeout: 120_000 },
   async () => {
     const dir = await tmpDir('minidb-stress-rotmem-');
-    const db = await MiniDb.open<{ n: number; pad: string }>({ dir, valueCodec: 'json', fsyncPolicy: 'always' });
+    const db = await MiniDb.open<{ n: number; pad: string }>({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'always',
+    });
     await db.createIndex('n', { field: 'n', unique: true });
     const { acked, failures } = await driveStormWithRotation(db, {});
     expect(db.stats.compactions).toBeGreaterThan(0);
@@ -105,7 +111,12 @@ test(
   { timeout: 120_000 },
   async () => {
     const dir = await tmpDir('minidb-stress-rotdisk-');
-    const opts = { dir, valueCodec: 'json' as const, valueMode: 'disk' as const, fsyncPolicy: 'always' as const };
+    const opts = {
+      dir,
+      valueCodec: 'json' as const,
+      valueMode: 'disk' as const,
+      fsyncPolicy: 'always' as const,
+    };
     const db = await MiniDb.open<{ n: number; pad: string }>(opts);
     await db.createIndex('n', { field: 'n', unique: true });
     const { acked, failures } = await driveStormWithRotation(db, {});
@@ -145,7 +156,12 @@ test(
   { timeout: 60_000 },
   async () => {
     const dir = await tmpDir('minidb-stress-torn-');
-    const opts = { dir, valueCodec: 'buffer' as const, valueMode: 'disk' as const, fsyncPolicy: 'no' as const };
+    const opts = {
+      dir,
+      valueCodec: 'buffer' as const,
+      valueMode: 'disk' as const,
+      fsyncPolicy: 'no' as const,
+    };
     const seedVal = Buffer.alloc(256, 0xa5);
     {
       const db = await MiniDb.open<Buffer>(opts);
@@ -164,8 +180,10 @@ test(
       for (let i = 0; i < 40; i++) expect(db.get(`post${i}`), `get(post${i})`).toEqual(post(i));
       for (let i = 0; i < 50; i++) expect(db.get(`seed${i}`), `get(seed${i})`).toEqual(seedVal);
       await db.compact();
-      for (let i = 0; i < 40; i++) expect(db.get(`post${i}`), `post-compact get(post${i})`).toEqual(post(i));
-      for (let i = 0; i < 50; i++) expect(db.get(`seed${i}`), `post-compact get(seed${i})`).toEqual(seedVal);
+      for (let i = 0; i < 40; i++)
+        expect(db.get(`post${i}`), `post-compact get(post${i})`).toEqual(post(i));
+      for (let i = 0; i < 50; i++)
+        expect(db.get(`seed${i}`), `post-compact get(seed${i})`).toEqual(seedVal);
     } finally {
       await db.close().catch(() => {});
     }
@@ -176,7 +194,8 @@ test(
         const want = Buffer.alloc(200 + i, (i * 13) % 251);
         expect(db3.get(`post${i}`), `reopened get(post${i})`).toEqual(want);
       }
-      for (let i = 0; i < 50; i++) expect(db3.get(`seed${i}`), `reopened get(seed${i})`).toEqual(seedVal);
+      for (let i = 0; i < 50; i++)
+        expect(db3.get(`seed${i}`), `reopened get(seed${i})`).toEqual(seedVal);
     } finally {
       await db3.close();
       await rmrf(dir);
@@ -209,9 +228,13 @@ test(
 
     const outputs: string[] = [];
     const children = Array.from({ length: RACERS }, () => {
-      const child = spawn(process.execPath, ['--import', 'tsx', RACER, lockPath, dir, String(ROUNDS)], {
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
+      const child = spawn(
+        process.execPath,
+        ['--import', 'tsx', RACER, lockPath, dir, String(ROUNDS)],
+        {
+          stdio: ['ignore', 'pipe', 'ignore'],
+        },
+      );
       let buf = '';
       child.stdout.on('data', (d) => {
         buf += d;
@@ -241,14 +264,18 @@ test(
           const lines = outputs.filter((l) => l.startsWith(want));
           if (lines.length >= RACERS) {
             const holders = lines.filter((l) => l.endsWith(' 1'));
-            if (holders.length !== 1) violations.push(`round ${r}: ${holders.length} holders (${holders.join(', ')})`);
+            if (holders.length !== 1)
+              violations.push(`round ${r}: ${holders.length} holders (${holders.join(', ')})`);
             break;
           }
           await new Promise((res) => setTimeout(res, 1));
         }
         await fs.unlink(`${dir}/go-${r}`).catch(() => {});
       }
-      expect(violations, `lock takeover violated exclusivity:\n${violations.slice(0, 10).join('\n')}`).toEqual([]);
+      expect(
+        violations,
+        `lock takeover violated exclusivity:\n${violations.slice(0, 10).join('\n')}`,
+      ).toEqual([]);
     } finally {
       for (const c of children) c.kill('SIGKILL');
       await rmrf(dir).catch(() => {});
@@ -272,7 +299,12 @@ test(
     const writer = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'always' });
     for (let i = 0; i < 20; i++) await writer.set(`before${i}`, { i, pad: 'x'.repeat(400) });
 
-    const reader = await MiniDb.open({ dir, valueCodec: 'json', onLockFail: 'readonly', compactThresholdBytes: 1024 });
+    const reader = await MiniDb.open({
+      dir,
+      valueCodec: 'json',
+      onLockFail: 'readonly',
+      compactThresholdBytes: 1024,
+    });
     expect(reader.readOnly).toBe(true);
     expect(reader.stats.compactions, 'read-only instance ran a compaction').toBe(0);
     await reader.close();
@@ -324,10 +356,13 @@ test(
     // Compaction must keep working regardless of document content.
     await expect(db.compact(), 'compaction failed because of a document').resolves.toBeUndefined();
     // The index must still answer instead of silently returning nothing.
-    expect(db.search('docs', 'hello').map((h) => h.key).toSorted(), 'search after compaction').toEqual([
-      'normal',
-      'poison',
-    ]);
+    expect(
+      db
+        .search('docs', 'hello')
+        .map((h) => h.key)
+        .toSorted(),
+      'search after compaction',
+    ).toEqual(['normal', 'poison']);
     await db.close();
     await rmrf(dir);
   },
@@ -364,55 +399,51 @@ test(
 // one packet (SET with fsync 'always') races socket.write()s from faster
 // commands in the next packet. Replies then arrive out of order and pipelined
 // clients desynchronize.
-test(
-  'stress: RESP server must serialize replies per connection',
-  { timeout: 60_000 },
-  async () => {
-    const dir = await tmpDir('minidb-stress-resp-');
-    const { port, close } = await startServer({ dir, port: 0, fsyncPolicy: 'always' });
-    const SET = '*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$1000\r\n' + 'v'.repeat(1000) + '\r\n';
-    const PING = 'PING\r\n';
+test('stress: RESP server must serialize replies per connection', { timeout: 60_000 }, async () => {
+  const dir = await tmpDir('minidb-stress-resp-');
+  const { port, close } = await startServer({ dir, port: 0, fsyncPolicy: 'always' });
+  const SET = '*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$1000\r\n' + 'v'.repeat(1000) + '\r\n';
+  const PING = 'PING\r\n';
 
-    // Completion is reply-count driven instead of the old fixed 300ms window
-    // (review #28): the round ends exactly when the 21st reply terminator
-    // arrives (SET's +OK plus 20 × +PONG), and the assertion is the whole
-    // byte-exact reply stream, so a dropped, torn or inverted reply fails
-    // deterministically on any machine speed.
-    const REPLIES = 21;
-    const round = (): Promise<string> =>
-      new Promise((resolve, reject) => {
-        const sock = net.createConnection(port, '127.0.0.1');
-        let buf = '';
-        sock.on('data', (d) => {
-          buf += String(d);
-          // Each simple-string reply (+OK / +PONG) ends with exactly one CRLF.
-          if ((buf.match(/\r\n/g) ?? []).length >= REPLIES) {
-            sock.end();
-            resolve(buf);
-          }
-        });
-        sock.on('error', reject);
-        sock.on('close', () => resolve(buf)); // server-side teardown: fail on the assertion below
-        sock.write(SET);
-        // Best-effort packet split so the PINGs arrive in a later 'data'
-        // event than the SET (the original race shape); the assertion does
-        // not depend on the split happening.
-        setTimeout(() => sock.write(PING.repeat(20)), 1);
+  // Completion is reply-count driven instead of the old fixed 300ms window
+  // (review #28): the round ends exactly when the 21st reply terminator
+  // arrives (SET's +OK plus 20 × +PONG), and the assertion is the whole
+  // byte-exact reply stream, so a dropped, torn or inverted reply fails
+  // deterministically on any machine speed.
+  const REPLIES = 21;
+  const round = (): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const sock = net.createConnection(port, '127.0.0.1');
+      let buf = '';
+      sock.on('data', (d) => {
+        buf += String(d);
+        // Each simple-string reply (+OK / +PONG) ends with exactly one CRLF.
+        if ((buf.match(/\r\n/g) ?? []).length >= REPLIES) {
+          sock.end();
+          resolve(buf);
+        }
       });
+      sock.on('error', reject);
+      sock.on('close', () => resolve(buf)); // server-side teardown: fail on the assertion below
+      sock.write(SET);
+      // Best-effort packet split so the PINGs arrive in a later 'data'
+      // event than the SET (the original race shape); the assertion does
+      // not depend on the split happening.
+      setTimeout(() => sock.write(PING.repeat(20)), 1);
+    });
 
-    const WANT = '+OK\r\n' + '+PONG\r\n'.repeat(20);
-    const ROUNDS = 12;
-    try {
-      for (let r = 0; r < ROUNDS; r++) {
-        const reply = await round();
-        expect(reply, `round ${r}: replies out of order or incomplete`).toBe(WANT);
-      }
-    } finally {
-      await close();
-      await rmrf(dir);
+  const WANT = '+OK\r\n' + '+PONG\r\n'.repeat(20);
+  const ROUNDS = 12;
+  try {
+    for (let r = 0; r < ROUNDS; r++) {
+      const reply = await round();
+      expect(reply, `round ${r}: replies out of order or incomplete`).toBe(WANT);
     }
-  },
-);
+  } finally {
+    await close();
+    await rmrf(dir);
+  }
+});
 
 // ===========================================================================
 // Coverage: torn-tail recovery in memory mode
@@ -473,14 +504,17 @@ test('stress: mass TTL expiry across compaction and reopen', { timeout: 90_000 }
     compactThresholdBytes: 48 * 1024,
   });
   try {
-    for (let i = 0; i < KEEP; i++) await db.set(`keep${i}`, { i }, { dt: { created: 1_000_000 + i } });
-    for (let i = 0; i < EPHEM; i++) await db.set(`temp${i}`, { i, pad: 'z'.repeat(300) }, { ttl: 80 });
+    for (let i = 0; i < KEEP; i++)
+      await db.set(`keep${i}`, { i }, { dt: { created: 1_000_000 + i } });
+    for (let i = 0; i < EPHEM; i++)
+      await db.set(`temp${i}`, { i, pad: 'z'.repeat(300) }, { ttl: 80 });
     for (let i = 0; i < 120; i++) await db.set(`churn${i}`, { i, pad: 'q'.repeat(900) });
     await new Promise((r) => setTimeout(r, 500));
     for (let i = 0; i < 120; i++) await db.del(`churn${i}`);
 
     expect(db.size).toBe(KEEP);
-    for (let i = 0; i < EPHEM; i++) expect(db.get(`temp${i}`), `temp${i} must be gone`).toBeUndefined();
+    for (let i = 0; i < EPHEM; i++)
+      expect(db.get(`temp${i}`), `temp${i} must be gone`).toBeUndefined();
     expect(db.scan().length).toBe(KEEP);
     expect(db.dtRange('created').length).toBe(KEEP);
   } finally {
@@ -511,9 +545,17 @@ test(
     const rng = mulberry32(42);
     const model = new Map<string, string>();
     const liveHits = (term: string): string[] =>
-      [...model].filter(([, b]) => b.split(' ').includes(term)).map(([k]) => k).sort();
+      [...model]
+        .filter(([, b]) => b.split(' ').includes(term))
+        .map(([k]) => k)
+        .sort();
 
-    const db = await MiniDb.open<{ body: string }>({ dir, valueCodec: 'json', fsyncPolicy: 'no', compactThresholdBytes: 48 * 1024 });
+    const db = await MiniDb.open<{ body: string }>({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      compactThresholdBytes: 48 * 1024,
+    });
     try {
       await db.createTextIndex('docs', { fields: ['body'] });
       for (let iter = 0; iter < 1500; iter++) {
@@ -522,7 +564,10 @@ test(
           await db.del(key);
           model.delete(key);
         } else {
-          const body = Array.from({ length: 8 + Math.floor(rng() * 24) }, () => VOCAB[Math.floor(rng() * VOCAB.length)]).join(' ');
+          const body = Array.from(
+            { length: 8 + Math.floor(rng() * 24) },
+            () => VOCAB[Math.floor(rng() * VOCAB.length)],
+          ).join(' ');
           await db.set(key, { body });
           model.set(key, body);
         }
@@ -535,7 +580,10 @@ test(
             let hits: string[] = [];
             for (let attempt = 0; ; attempt++) {
               try {
-                hits = db.search('docs', term, { limit: 10_000 }).map((h) => h.key).toSorted();
+                hits = db
+                  .search('docs', term, { limit: 10_000 })
+                  .map((h) => h.key)
+                  .toSorted();
                 break;
               } catch (error) {
                 if (!(error instanceof TextIndexBuildingError) || attempt >= 200) throw error;
@@ -552,7 +600,10 @@ test(
     const db2 = await MiniDb.open<{ body: string }>({ dir, valueCodec: 'json' });
     try {
       for (const term of ['tok5', 'tok77']) {
-        const hits = db2.search('docs', term, { limit: 10_000 }).map((h) => h.key).toSorted();
+        const hits = db2
+          .search('docs', term, { limit: 10_000 })
+          .map((h) => h.key)
+          .toSorted();
         expect(hits, `after reopen: search("${term}")`).toEqual(liveHits(term));
       }
     } finally {
@@ -616,101 +667,114 @@ test(
 // ===========================================================================
 // Coverage: maxMemory reject leaves the db consistent and writable
 // ===========================================================================
-test('stress: maxMemory reject leaves the db consistent and writable', { timeout: 60_000 }, async () => {
-  const dir = await tmpDir('minidb-stress-reject-');
-  const db = await MiniDb.open<{ i: number; pad: string }>({
-    dir,
-    valueCodec: 'json',
-    maxMemoryBytes: 32 * 1024,
-    maxMemoryPolicy: 'reject',
-  });
-  let ok = 0;
-  let rej = 0;
-  try {
-    for (let i = 0; i < 400; i++) {
-      try {
-        await db.set(`rk${i}`, { i, pad: 'r'.repeat(400) });
-        ok++;
-      } catch (error) {
-        rej++;
-        expect(String((error as Error).message)).toMatch(/maxMemory/);
+test(
+  'stress: maxMemory reject leaves the db consistent and writable',
+  { timeout: 60_000 },
+  async () => {
+    const dir = await tmpDir('minidb-stress-reject-');
+    const db = await MiniDb.open<{ i: number; pad: string }>({
+      dir,
+      valueCodec: 'json',
+      maxMemoryBytes: 32 * 1024,
+      maxMemoryPolicy: 'reject',
+    });
+    let ok = 0;
+    let rej = 0;
+    try {
+      for (let i = 0; i < 400; i++) {
+        try {
+          await db.set(`rk${i}`, { i, pad: 'r'.repeat(400) });
+          ok++;
+        } catch (error) {
+          rej++;
+          expect(String((error as Error).message)).toMatch(/maxMemory/);
+        }
       }
+      expect(ok).toBeGreaterThan(0);
+      expect(rej).toBeGreaterThan(0);
+      for (let i = 0; i < 400; i++) {
+        const v = db.get(`rk${i}`);
+        if (v !== undefined) expect(v).toEqual({ i, pad: 'r'.repeat(400) });
+      }
+      for (let i = 0; i < 400; i += 2) await db.del(`rk${i}`);
+      await db.set('post-reject', { i: -1, pad: 'ok' });
+      expect(db.get('post-reject')).toEqual({ i: -1, pad: 'ok' });
+    } catch (error) {
+      await db.close().catch(() => {});
+      await rmrf(dir).catch(() => {});
+      throw error;
     }
-    expect(ok).toBeGreaterThan(0);
-    expect(rej).toBeGreaterThan(0);
-    for (let i = 0; i < 400; i++) {
-      const v = db.get(`rk${i}`);
-      if (v !== undefined) expect(v).toEqual({ i, pad: 'r'.repeat(400) });
-    }
-    for (let i = 0; i < 400; i += 2) await db.del(`rk${i}`);
-    await db.set('post-reject', { i: -1, pad: 'ok' });
-    expect(db.get('post-reject')).toEqual({ i: -1, pad: 'ok' });
-  } catch (error) {
-    await db.close().catch(() => {});
-    await rmrf(dir).catch(() => {});
-    throw error;
-  }
-  const before = new Map(db.scan().map((e) => [e.key, e.value] as const));
-  await db.close();
+    const before = new Map(db.scan().map((e) => [e.key, e.value] as const));
+    await db.close();
 
-  const db2 = await MiniDb.open<{ i: number; pad: string }>({ dir, valueCodec: 'json' });
-  try {
-    const after = new Map(db2.scan().map((e) => [e.key, e.value] as const));
-    expect(after.size).toBe(before.size);
-    for (const [key, value] of before) expect(after.get(key), key).toEqual(value);
-  } finally {
-    await db2.close();
-    await rmrf(dir);
-  }
-});
+    const db2 = await MiniDb.open<{ i: number; pad: string }>({ dir, valueCodec: 'json' });
+    try {
+      const after = new Map(db2.scan().map((e) => [e.key, e.value] as const));
+      expect(after.size).toBe(before.size);
+      for (const [key, value] of before) expect(after.get(key), key).toEqual(value);
+    } finally {
+      await db2.close();
+      await rmrf(dir);
+    }
+  },
+);
 
 // ===========================================================================
 // Coverage: read-only openers alongside a live compacting writer
 // ===========================================================================
-test('stress: read-only openers alongside a live compacting writer', { timeout: 90_000 }, async () => {
-  const dir = await tmpDir('minidb-stress-ro-');
-  const writer = await MiniDb.open<{ n: number; pad: string }>({
-    dir,
-    valueCodec: 'json',
-    fsyncPolicy: 'no',
-    compactThresholdBytes: 96 * 1024,
-    autoCompact: true,
-  });
-  const errors: unknown[] = [];
-  let n = 0;
-  const stop = Date.now() + 5000;
-  const wf = (async (): Promise<void> => {
-    while (Date.now() < stop) {
-      await writer.set(`rk${n}`, { n, pad: 'w'.repeat(700) });
-      n++;
-    }
-  })();
-  try {
-    while (Date.now() < stop) {
-      try {
-        const ro = await MiniDb.open({ dir, valueCodec: 'json', onLockFail: 'readonly', autoCompact: false });
-        const rows = ro.scan();
-        for (const r of rows) expect(r.key).toMatch(/^rk\d+$/);
-        await ro.close();
-      } catch (error) {
-        errors.push(error);
+test(
+  'stress: read-only openers alongside a live compacting writer',
+  { timeout: 90_000 },
+  async () => {
+    const dir = await tmpDir('minidb-stress-ro-');
+    const writer = await MiniDb.open<{ n: number; pad: string }>({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      compactThresholdBytes: 96 * 1024,
+      autoCompact: true,
+    });
+    const errors: unknown[] = [];
+    let n = 0;
+    const stop = Date.now() + 5000;
+    const wf = (async (): Promise<void> => {
+      while (Date.now() < stop) {
+        await writer.set(`rk${n}`, { n, pad: 'w'.repeat(700) });
+        n++;
       }
-      await new Promise((r) => setTimeout(r, 40));
+    })();
+    try {
+      while (Date.now() < stop) {
+        try {
+          const ro = await MiniDb.open({
+            dir,
+            valueCodec: 'json',
+            onLockFail: 'readonly',
+            autoCompact: false,
+          });
+          const rows = ro.scan();
+          for (const r of rows) expect(r.key).toMatch(/^rk\d+$/);
+          await ro.close();
+        } catch (error) {
+          errors.push(error);
+        }
+        await new Promise((r) => setTimeout(r, 40));
+      }
+    } finally {
+      await wf;
+      await writer.close();
     }
-  } finally {
-    await wf;
-    await writer.close();
-  }
-  expect(errors, `read-only failures: ${fmtErrs(errors)}`).toEqual([]);
-  const db = await MiniDb.open<{ n: number }>({ dir, valueCodec: 'json' });
-  try {
-    expect(db.size).toBe(n);
-    for (let i = 0; i < n; i++) expect(db.get(`rk${i}`)).toEqual({ n: i, pad: 'w'.repeat(700) });
-  } finally {
-    await db.close();
-    await rmrf(dir);
-  }
-});
+    expect(errors, `read-only failures: ${fmtErrs(errors)}`).toEqual([]);
+    const db = await MiniDb.open<{ n: number }>({ dir, valueCodec: 'json' });
+    try {
+      expect(db.size).toBe(n);
+      for (let i = 0; i < n; i++) expect(db.get(`rk${i}`)).toEqual({ n: i, pad: 'w'.repeat(700) });
+    } finally {
+      await db.close();
+      await rmrf(dir);
+    }
+  },
+);
 
 // ===========================================================================
 // Coverage: batch durability under churn + explicit rotation storm
@@ -752,7 +816,10 @@ test('stress: batch durability under compaction churn', { timeout: 120_000 }, as
   } finally {
     await db.close().catch(() => {});
   }
-  const db2 = await MiniDb.open<{ ts: string; j: number; pad: string }>({ dir, valueCodec: 'json' });
+  const db2 = await MiniDb.open<{ ts: string; j: number; pad: string }>({
+    dir,
+    valueCodec: 'json',
+  });
   try {
     expect(db2.size).toBe(acked.size);
     for (const [key, value] of acked) expect(db2.get(key), key).toEqual(value);
@@ -765,20 +832,28 @@ test('stress: batch durability under compaction churn', { timeout: 120_000 }, as
 // ===========================================================================
 // Coverage: oversized batches reject cleanly, apply nothing, db stays usable
 // ===========================================================================
-test('stress: a >65535-op batch rejects cleanly and applies nothing', { timeout: 60_000 }, async () => {
-  const dir = await tmpDir('minidb-stress-bigbatch-');
-  const db = await MiniDb.open({ dir, valueCodec: 'json' });
-  const ops = Array.from({ length: 65_536 }, (_, i) => ({ op: 'set' as const, key: `k${i}`, value: { i } }));
-  await expect(db.batch(ops)).rejects.toThrow();
-  expect(db.size).toBe(0);
-  await db.set('alive', { ok: true });
-  expect(db.size).toBe(1);
-  await db.close();
-  const db2 = await MiniDb.open({ dir, valueCodec: 'json' });
-  expect(db2.get('alive')).toEqual({ ok: true });
-  await db2.close();
-  await rmrf(dir);
-});
+test(
+  'stress: a >65535-op batch rejects cleanly and applies nothing',
+  { timeout: 60_000 },
+  async () => {
+    const dir = await tmpDir('minidb-stress-bigbatch-');
+    const db = await MiniDb.open({ dir, valueCodec: 'json' });
+    const ops = Array.from({ length: 65_536 }, (_, i) => ({
+      op: 'set' as const,
+      key: `k${i}`,
+      value: { i },
+    }));
+    await expect(db.batch(ops)).rejects.toThrow();
+    expect(db.size).toBe(0);
+    await db.set('alive', { ok: true });
+    expect(db.size).toBe(1);
+    await db.close();
+    const db2 = await MiniDb.open({ dir, valueCodec: 'json' });
+    expect(db2.get('alive')).toEqual({ ok: true });
+    await db2.close();
+    await rmrf(dir);
+  },
+);
 
 // ===========================================================================
 // Coverage: full-feature soak with churn, compaction, reopen
@@ -792,25 +867,55 @@ test(
     type Doc = { g: number; score: number; n: number; body?: string; pad?: string };
     const model = new Map<string, { doc: Doc; dt: number | null }>();
     let nextN = 0;
-    let db = await MiniDb.open<Doc>({ dir, valueCodec: 'json', fsyncPolicy: 'no', compactThresholdBytes: 96 * 1024 });
+    let db = await MiniDb.open<Doc>({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      compactThresholdBytes: 96 * 1024,
+    });
 
     const checkAll = async (ctx: string, dbi: MiniDb<Doc>): Promise<void> => {
       const scanned = dbi.scan({});
       expect(scanned.length, `${ctx}: scan length`).toBe(model.size);
-      for (const e of scanned) expect(e.value, `${ctx}: value of ${e.key}`).toEqual(model.get(e.key)!.doc);
-      const byDt = dbi.dtRange('created').map((r) => r.key).toSorted();
-      const modelDt = [...model].filter(([, v]) => v.dt !== null).map(([k]) => k).toSorted();
+      for (const e of scanned)
+        expect(e.value, `${ctx}: value of ${e.key}`).toEqual(model.get(e.key)!.doc);
+      const byDt = dbi
+        .dtRange('created')
+        .map((r) => r.key)
+        .toSorted();
+      const modelDt = [...model]
+        .filter(([, v]) => v.dt !== null)
+        .map(([k]) => k)
+        .toSorted();
       expect(byDt, `${ctx}: dtRange('created')`).toEqual(modelDt);
       for (const g of [0, 3, 7]) {
-        const hits = dbi.findEq('g', g).map((r) => r.key).toSorted();
-        const want = [...model].filter(([, v]) => v.doc.g === g).map(([k]) => k).toSorted();
+        const hits = dbi
+          .findEq('g', g)
+          .map((r) => r.key)
+          .toSorted();
+        const want = [...model]
+          .filter(([, v]) => v.doc.g === g)
+          .map(([k]) => k)
+          .toSorted();
         expect(hits, `${ctx}: findEq(g=${g})`).toEqual(want);
       }
-      const ranged = dbi.findRange('score', { min: 0, max: 100 }).map((r) => r.key).toSorted();
-      const wantRanged = [...model].filter(([, v]) => v.doc.score >= 0 && v.doc.score <= 100).map(([k]) => k).toSorted();
+      const ranged = dbi
+        .findRange('score', { min: 0, max: 100 })
+        .map((r) => r.key)
+        .toSorted();
+      const wantRanged = [...model]
+        .filter(([, v]) => v.doc.score >= 0 && v.doc.score <= 100)
+        .map(([k]) => k)
+        .toSorted();
       expect(ranged, `${ctx}: findRange(score 0..100)`).toEqual(wantRanged);
-      const hits = dbi.search('docs', 'alpha', { limit: 10_000 }).map((h) => h.key).toSorted();
-      const wantHits = [...model].filter(([, v]) => (v.doc.body ?? '').split(' ').includes('alpha')).map(([k]) => k).toSorted();
+      const hits = dbi
+        .search('docs', 'alpha', { limit: 10_000 })
+        .map((h) => h.key)
+        .toSorted();
+      const wantHits = [...model]
+        .filter(([, v]) => (v.doc.body ?? '').split(' ').includes('alpha'))
+        .map(([k]) => k)
+        .toSorted();
       expect(hits, `${ctx}: search(alpha)`).toEqual(wantHits);
     };
 
@@ -831,7 +936,9 @@ test(
             g: Math.floor(rng() * 8),
             score: Math.floor(rng() * 200) - 50,
             n: nextN++,
-            body: Array.from({ length: 4 }, () => VOCAB[Math.floor(rng() * VOCAB.length)]).join(' '),
+            body: Array.from({ length: 4 }, () => VOCAB[Math.floor(rng() * VOCAB.length)]).join(
+              ' ',
+            ),
             pad: 'p'.repeat(50 + Math.floor(rng() * 300)),
           };
           const dt = rng() < 0.4 ? 1_700_000_000_000 + Math.floor(rng() * 1_000_000) : null;
@@ -843,7 +950,12 @@ test(
         } else if (roll < 0.75) {
           const ops = Array.from({ length: 4 }, () => {
             const k = `s${Math.floor(rng() * 400)}`;
-            const doc: Doc = { g: Math.floor(rng() * 8), score: Math.floor(rng() * 200) - 50, n: nextN++, body: 'alpha batch' };
+            const doc: Doc = {
+              g: Math.floor(rng() * 8),
+              score: Math.floor(rng() * 200) - 50,
+              n: nextN++,
+              body: 'alpha batch',
+            };
             return { op: 'set' as const, key: k, value: doc };
           });
           await db.batch(ops);
@@ -856,7 +968,12 @@ test(
         if (iter % 400 === 399) await checkAll(`iter ${iter}`, db);
         if (iter % 1000 === 999 && iter < 2999) {
           await db.close();
-          db = await MiniDb.open<Doc>({ dir, valueCodec: 'json', fsyncPolicy: 'no', compactThresholdBytes: 96 * 1024 });
+          db = await MiniDb.open<Doc>({
+            dir,
+            valueCodec: 'json',
+            fsyncPolicy: 'no',
+            compactThresholdBytes: 96 * 1024,
+          });
           await checkAll(`post-reopen iter ${iter}`, db);
         }
       }
@@ -870,4 +987,3 @@ test(
     }
   },
 );
-

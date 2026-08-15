@@ -5,22 +5,23 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useKimiWebClient } from '../../composables/useKimiWebClient';
-import type { AppSession } from '../../api/types';
-import { useDialogFocus } from '../../composables/useDialogFocus';
-import LanguageSwitcher from './LanguageSwitcher.vue';
+
 import { serverEndpointLabel } from '../../api/config';
+import type { AppSession } from '../../api/types';
+import type { AppConfig, AppModel } from '../../api/types';
+import { useDialogFocus } from '../../composables/useDialogFocus';
+import { useKimiWebClient } from '../../composables/useKimiWebClient';
+import type { Accent, ColorScheme } from '../../composables/useKimiWebClient';
 import { downloadTraceLog, isTraceEnabled } from '../../debug/trace';
 import { getEnterBehavior, setEnterBehavior } from '../../lib/enterBehavior';
 import type { EnterBehavior } from '../../lib/enterBehavior';
-import type { Accent, ColorScheme } from '../../composables/useKimiWebClient';
-import type { AppConfig, AppModel } from '../../api/types';
-import Dialog from '../ui/Dialog.vue';
-import Switch from '../ui/Switch.vue';
 import Button from '../ui/Button.vue';
+import Dialog from '../ui/Dialog.vue';
 import SegmentedControl from '../ui/SegmentedControl.vue';
 import Select from '../ui/Select.vue';
+import Switch from '../ui/Switch.vue';
 import Tooltip from '../ui/Tooltip.vue';
+import LanguageSwitcher from './LanguageSwitcher.vue';
 
 const { t } = useI18n();
 
@@ -92,9 +93,7 @@ const tabs: { id: SettingsTab; labelKey: string }[] = [
 ];
 
 const daemonEndpoint = serverEndpointLabel();
-const backendLabel = computed(() =>
-  props.backend === 'v2' ? 'v2 (kap-server)' : 'v1 (server)',
-);
+const backendLabel = computed(() => (props.backend === 'v2' ? 'v2 (kap-server)' : 'v1 (server)'));
 const permissionModes = ['manual', 'yolo', 'auto'] as const;
 // Reuse the Composer's permission labels (status.permission*) so the
 // default-permission names stay in sync with the toolbar.
@@ -331,7 +330,15 @@ function archiveTime(iso: string): string {
 </script>
 
 <template>
-  <Dialog :open="true" :close-on-esc="false" :title="t('settings.title')" size="xl" height="fixed" :padded="false" @close="emit('close')">
+  <Dialog
+    :open="true"
+    :close-on-esc="false"
+    :title="t('settings.title')"
+    size="xl"
+    height="fixed"
+    :padded="false"
+    @close="emit('close')"
+  >
     <div ref="dialogRef" class="sd">
       <nav class="settings-tabs" role="tablist" :aria-label="t('settings.title')">
         <button
@@ -428,7 +435,9 @@ function archiveTime(iso: string): string {
             <div class="row">
               <span class="rlabel">
                 {{ t('settings.notifyOnComplete') }}
-                <span v-if="notifyPermission === 'denied'" class="hint">{{ t('settings.notifyDenied') }}</span>
+                <span v-if="notifyPermission === 'denied'" class="hint">{{
+                  t('settings.notifyDenied')
+                }}</span>
               </span>
               <Switch
                 :model-value="notify"
@@ -440,7 +449,9 @@ function archiveTime(iso: string): string {
             <div class="row">
               <span class="rlabel">
                 {{ t('settings.notifyOnQuestion') }}
-                <span v-if="notifyPermission === 'denied'" class="hint">{{ t('settings.notifyDenied') }}</span>
+                <span v-if="notifyPermission === 'denied'" class="hint">{{
+                  t('settings.notifyDenied')
+                }}</span>
               </span>
               <Switch
                 :model-value="notifyQuestion"
@@ -452,7 +463,9 @@ function archiveTime(iso: string): string {
             <div class="row">
               <span class="rlabel">
                 {{ t('settings.notifyOnApproval') }}
-                <span v-if="notifyPermission === 'denied'" class="hint">{{ t('settings.notifyDenied') }}</span>
+                <span v-if="notifyPermission === 'denied'" class="hint">{{
+                  t('settings.notifyDenied')
+                }}</span>
               </span>
               <Switch
                 :model-value="notifyApproval"
@@ -477,15 +490,29 @@ function archiveTime(iso: string): string {
           <section class="sec">
             <h3 class="sec-title">{{ t('settings.account') }}</h3>
             <div class="row">
-              <span class="rlabel">{{ authReady ? 'managed:kimi-code' : t('sidebar.notSignedIn') }}</span>
+              <span class="rlabel">{{
+                authReady ? 'managed:kimi-code' : t('sidebar.notSignedIn')
+              }}</span>
               <Tooltip :text="accountModel">
                 <span v-if="authReady && accountModel" class="rvalue">{{ accountModel }}</span>
               </Tooltip>
             </div>
             <div class="actions">
-              <Button variant="secondary" size="sm" @click="emit('openOnboarding'); emit('close')">{{ t('onboarding.reopen') }}</Button>
-              <Button v-if="authReady" variant="danger-soft" size="sm" @click="emit('logout')">{{ t('sidebar.signOut') }}</Button>
-              <Button v-else variant="primary" size="sm" @click="emit('login')">{{ t('sidebar.signIn') }}</Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                @click="
+                  emit('openOnboarding');
+                  emit('close');
+                "
+                >{{ t('onboarding.reopen') }}</Button
+              >
+              <Button v-if="authReady" variant="danger-soft" size="sm" @click="emit('logout')">{{
+                t('sidebar.signOut')
+              }}</Button>
+              <Button v-else variant="primary" size="sm" @click="emit('login')">{{
+                t('sidebar.signIn')
+              }}</Button>
             </div>
           </section>
         </section>
@@ -511,15 +538,23 @@ function archiveTime(iso: string): string {
                     :aria-label="t('settings.defaultModel')"
                     @update:model-value="setDefaultModel"
                   >
-                    <option v-if="!config.defaultModel" value="" disabled>{{ t('settings.noDefaultModel') }}</option>
-                    <optgroup v-for="group in modelGroups" :key="group.provider" :label="group.provider">
+                    <option v-if="!config.defaultModel" value="" disabled>
+                      {{ t('settings.noDefaultModel') }}
+                    </option>
+                    <optgroup
+                      v-for="group in modelGroups"
+                      :key="group.provider"
+                      :label="group.provider"
+                    >
                       <option v-for="model in group.options" :key="model.id" :value="model.id">
                         {{ model.label }}
                       </option>
                     </optgroup>
                   </Select>
                 </div>
-                <span v-else class="rvalue mono">{{ config.defaultModel ?? t('settings.noDefaultModel') }}</span>
+                <span v-else class="rvalue mono">{{
+                  config.defaultModel ?? t('settings.noDefaultModel')
+                }}</span>
               </div>
 
               <div class="row">
@@ -529,8 +564,12 @@ function archiveTime(iso: string): string {
                 </span>
                 <SegmentedControl
                   :model-value="defaultPermissionMode"
-                  :options="permissionModes.map((m) => ({ value: m, label: t(permissionLabelKey[m]) }))"
-                  @update:model-value="setDefaultPermissionMode($event as 'manual' | 'auto' | 'yolo')"
+                  :options="
+                    permissionModes.map((m) => ({ value: m, label: t(permissionLabelKey[m]) }))
+                  "
+                  @update:model-value="
+                    setDefaultPermissionMode($event as 'manual' | 'auto' | 'yolo')
+                  "
                 />
               </div>
 
@@ -614,7 +653,9 @@ function archiveTime(iso: string): string {
                 {{ t('settings.exportLog') }}
                 <span v-if="!isTraceEnabled()" class="hint">{{ t('settings.logHint') }}</span>
               </span>
-              <Button variant="secondary" size="sm" @click="exportLog">{{ t('settings.exportLogBtn') }}</Button>
+              <Button variant="secondary" size="sm" @click="exportLog">{{
+                t('settings.exportLogBtn')
+              }}</Button>
             </div>
           </section>
         </section>
@@ -629,7 +670,17 @@ function archiveTime(iso: string): string {
 
           <div class="archive-toolbar">
             <label class="archive-search">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
               <input v-model="archiveQuery" :placeholder="t('settings.archivedSearch')" />
             </label>
             <Select
@@ -649,7 +700,9 @@ function archiveTime(iso: string): string {
                 { value: 'created-desc', label: t('settings.archivedSortCreated') },
                 { value: 'name-asc', label: t('settings.archivedSortName') },
               ]"
-              @update:model-value="archiveSort = $event as 'archived-desc' | 'created-desc' | 'name-asc'"
+              @update:model-value="
+                archiveSort = $event as 'archived-desc' | 'created-desc' | 'name-asc'
+              "
             />
           </div>
 
@@ -661,34 +714,58 @@ function archiveTime(iso: string): string {
             <div v-if="groupedArchived.length > 0" class="archive-list">
               <section v-for="g in groupedArchived" :key="g.cwd" class="archive-card">
                 <div class="archive-workspace">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v9H3z" /><path d="M3 7V5h6l2 2" /></svg>
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M3 7h6l2 2h10v9H3z" />
+                    <path d="M3 7V5h6l2 2" />
+                  </svg>
                   <span class="path">{{ g.cwd }}</span>
-                  <span class="count">{{ t('settings.archivedSessionsCount', { count: g.items.length }) }}</span>
+                  <span class="count">{{
+                    t('settings.archivedSessionsCount', { count: g.items.length })
+                  }}</span>
                 </div>
                 <div class="setting-card">
                   <div v-for="s in g.items" :key="s.id" class="archive-row">
                     <div class="archive-meta">
                       <div class="archive-name">{{ s.title }}</div>
-                      <div class="archive-time">{{ t('settings.archivedAt', { time: archiveTime(s.updatedAt) }) }}</div>
+                      <div class="archive-time">
+                        {{ t('settings.archivedAt', { time: archiveTime(s.updatedAt) }) }}
+                      </div>
                     </div>
-                    <Button variant="secondary" size="sm" @click="onRestore(s.id)">{{ t('settings.archivedRestore') }}</Button>
+                    <Button variant="secondary" size="sm" @click="onRestore(s.id)">{{
+                      t('settings.archivedRestore')
+                    }}</Button>
                   </div>
                 </div>
               </section>
             </div>
             <div v-else class="archive-empty">
-              {{ archivedItems.length === 0 ? t('settings.archivedEmpty') : t('settings.archivedNoMatch') }}
+              {{
+                archivedItems.length === 0
+                  ? t('settings.archivedEmpty')
+                  : t('settings.archivedNoMatch')
+              }}
             </div>
           </template>
         </section>
-
       </div>
     </div>
   </Dialog>
 </template>
 
 <style scoped>
-.sd { display: flex; flex-direction: row; min-height: 0; height: 100%; }
+.sd {
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  height: 100%;
+}
 
 .settings-tabs {
   display: flex;
@@ -709,16 +786,42 @@ function archiveTime(iso: string): string {
   font-family: var(--font-ui);
   font-size: var(--text-base);
   cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
-.tab:hover { background: var(--color-surface-sunken); color: var(--color-text); }
-.tab.on { background: var(--color-accent-soft); color: var(--color-accent); font-weight: var(--weight-medium); }
-.tab:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
+.tab:hover {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.tab.on {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+.tab:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
 
-.body { display: flex; flex-direction: column; overflow-y: auto; padding: var(--space-2) var(--space-5) var(--space-5) var(--space-6); flex: 1; min-width: 0; }
-.panel { display: block; }
-.sec { padding: var(--space-4) 0; border-bottom: 1px solid var(--color-line); }
-.sec:last-child { border-bottom: none; }
+.body {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-5) var(--space-5) var(--space-6);
+  flex: 1;
+  min-width: 0;
+}
+.panel {
+  display: block;
+}
+.sec {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--color-line);
+}
+.sec:last-child {
+  border-bottom: none;
+}
 .sec-head {
   display: flex;
   align-items: center;
@@ -735,7 +838,9 @@ function archiveTime(iso: string): string {
   text-transform: uppercase;
   color: var(--color-text-muted);
 }
-.sec-head .sec-title { margin-bottom: 0; }
+.sec-head .sec-title {
+  margin-bottom: 0;
+}
 .saving {
   flex: none;
   font-family: var(--font-ui);
@@ -767,8 +872,15 @@ function archiveTime(iso: string): string {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rvalue.mono { font-family: var(--font-mono); font-size: var(--text-xs); }
-.hint { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--color-text-faint); }
+.rvalue.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.hint {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+}
 
 .num-field {
   display: inline-flex;
@@ -780,10 +892,17 @@ function archiveTime(iso: string): string {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
   background: var(--color-surface-raised);
-  transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
 }
-.num-field:hover { border-color: var(--color-line-strong); }
-.num-field:focus-within { border-color: var(--color-accent); box-shadow: var(--p-focus-ring); }
+.num-field:hover {
+  border-color: var(--color-line-strong);
+}
+.num-field:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: var(--p-focus-ring);
+}
 .num-input {
   width: 48px;
   border: none;
@@ -800,7 +919,11 @@ function archiveTime(iso: string): string {
   font-size: var(--text-xs);
 }
 
-.select-wrap { min-width: 220px; max-width: min(320px, 50vw); flex: none; }
+.select-wrap {
+  min-width: 220px;
+  max-width: min(320px, 50vw);
+  flex: none;
+}
 
 .empty-config {
   font-family: var(--font-ui);
@@ -809,10 +932,17 @@ function archiveTime(iso: string): string {
   padding: var(--space-1) 0;
 }
 
-.actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
 
 @media (max-width: 640px) {
-  .sd { flex-direction: column; }
+  .sd {
+    flex-direction: column;
+  }
   .settings-tabs {
     flex-direction: row;
     width: auto;
@@ -820,7 +950,10 @@ function archiveTime(iso: string): string {
     gap: var(--space-1);
     overflow-x: auto;
   }
-  .tab { white-space: nowrap; flex: none; }
+  .tab {
+    white-space: nowrap;
+    flex: none;
+  }
   .row {
     align-items: flex-start;
     flex-direction: column;
@@ -831,36 +964,180 @@ function archiveTime(iso: string): string {
   }
 }
 /* Archived-sessions tab */
-.setting-card { border: 1px solid var(--color-line); border-radius: var(--radius-xl); overflow: hidden; background: var(--color-bg); }
-.panel-head { margin-bottom: var(--space-4); }
-.panel-kicker { font-size: var(--text-xs); letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-faint); margin-bottom: var(--space-1); }
-.panel-title { margin: 0 0 var(--space-2); font-family: var(--font-ui); font-size: var(--text-2xl); font-weight: var(--weight-semibold); letter-spacing: -0.01em; color: var(--color-text); }
-.panel-desc { margin: 0; font-family: var(--font-ui); font-size: var(--text-sm); line-height: var(--leading-normal); color: var(--color-text-muted); max-width: 560px; }
-.archive-toolbar { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; }
-.archive-search { flex: 1; min-width: 200px; height: 36px; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--color-line); color: var(--color-text-faint); font-size: var(--text-sm); background: var(--color-surface-raised); transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out); }
-.archive-search:focus-within { border-color: var(--color-accent); box-shadow: var(--p-focus-ring); color: var(--color-text-muted); }
-.archive-search svg { width: 15px; height: 15px; flex: none; }
-.archive-search input { width: 100%; border: none; outline: none; background: transparent; font: inherit; color: var(--color-text); }
-.archive-list { display: flex; flex-direction: column; gap: var(--space-4); }
-.archive-card .setting-card { margin-bottom: 0; }
-.archive-workspace { display: flex; align-items: center; gap: var(--space-2); margin: 0 2px var(--space-2); color: var(--color-text-muted); font-size: var(--text-sm); font-weight: var(--weight-medium); }
-.archive-workspace svg { width: 16px; height: 16px; color: var(--color-text-faint); flex: none; }
-.archive-workspace .path { font-family: var(--font-mono); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.archive-workspace .count { margin-left: auto; color: var(--color-text-faint); font-weight: var(--weight-regular); font-size: var(--text-xs); flex: none; }
-.archive-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--color-line); }
-.archive-row:first-child { border-top: none; }
-.archive-row:hover { background: var(--color-surface-sunken); }
-.archive-meta { min-width: 0; }
-.archive-name { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.archive-time { margin-top: 2px; font-size: var(--text-xs); color: var(--color-text-faint); font-family: var(--font-mono); }
-.archive-draining { margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--color-accent-soft); color: var(--color-accent-hover); font-size: var(--text-sm); }
-.archive-empty { padding: var(--space-6) var(--space-4); border: 1px solid var(--color-line); border-radius: var(--radius-xl); color: var(--color-text-faint); font-size: var(--text-sm); text-align: center; background: var(--color-bg); }
+.setting-card {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  background: var(--color-bg);
+}
+.panel-head {
+  margin-bottom: var(--space-4);
+}
+.panel-kicker {
+  font-size: var(--text-xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  margin-bottom: var(--space-1);
+}
+.panel-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+.panel-desc {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text-muted);
+  max-width: 560px;
+}
+.archive-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+.archive-search {
+  flex: 1;
+  min-width: 200px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-line);
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  background: var(--color-surface-raised);
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+.archive-search:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: var(--p-focus-ring);
+  color: var(--color-text-muted);
+}
+.archive-search svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.archive-search input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  color: var(--color-text);
+}
+.archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.archive-card .setting-card {
+  margin-bottom: 0;
+}
+.archive-workspace {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 2px var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.archive-workspace svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-faint);
+  flex: none;
+}
+.archive-workspace .path {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.archive-workspace .count {
+  margin-left: auto;
+  color: var(--color-text-faint);
+  font-weight: var(--weight-regular);
+  font-size: var(--text-xs);
+  flex: none;
+}
+.archive-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-line);
+}
+.archive-row:first-child {
+  border-top: none;
+}
+.archive-row:hover {
+  background: var(--color-surface-sunken);
+}
+.archive-meta {
+  min-width: 0;
+}
+.archive-name {
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.archive-time {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+}
+.archive-draining {
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  font-size: var(--text-sm);
+}
+.archive-empty {
+  padding: var(--space-6) var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xl);
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  text-align: center;
+  background: var(--color-bg);
+}
 @media (max-width: 640px) {
-  .archive-toolbar { flex-direction: column; align-items: stretch; }
-  .archive-search { min-width: 0; }
+  .archive-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .archive-search {
+    min-width: 0;
+  }
 }
 /* Enlarge the settings frame a bit (Dialog `xl` = 760px wide, fixed-height
    680px). Scoped to this dialog only. */
-:deep(.ui-dialog) { width: min(980px, 96vw); }
-:deep(.ui-dialog--fixed-height) { height: min(780px, calc(100vh - var(--space-8) * 2)); }
+:deep(.ui-dialog) {
+  width: min(980px, 96vw);
+}
+:deep(.ui-dialog--fixed-height) {
+  height: min(780px, calc(100vh - var(--space-8) * 2));
+}
 </style>

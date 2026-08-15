@@ -1,3 +1,5 @@
+import { resolve, win32 } from 'node:path';
+
 /**
  * Pure mapping between the agent-core-v2 session shapes and the v1 SDK wire
  * shapes. Two gaps are bridged here:
@@ -14,8 +16,6 @@ import type {
   SessionMeta as V2SessionMeta,
   SessionSummary as V2SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
-
-import { resolve, win32 } from 'node:path';
 
 import type { AgentMeta, JsonObject, SessionMeta, SessionSummary } from '#/types';
 
@@ -87,7 +87,10 @@ function v2AgentsToV1(agents: Readonly<Record<string, V2AgentMeta>>): Record<str
       // v2-only kind); v1's meta only knows main/sub, so independent agents
       // fold onto `sub`, and the fallbacks cover documents written before
       // the type registration existed.
-      type: agent.type === 'independent' ? 'sub' : (agent.type ?? (agentId === 'main' ? 'main' : 'sub')),
+      type:
+        agent.type === 'independent'
+          ? 'sub'
+          : (agent.type ?? (agentId === 'main' ? 'main' : 'sub')),
       // v1 persists an explicit null for a parentless agent where v2 leaves
       // the field unset.
       parentAgentId: agent.parentAgentId ?? null,

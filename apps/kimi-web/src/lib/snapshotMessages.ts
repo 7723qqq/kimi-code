@@ -8,10 +8,7 @@
 // for its own window and replaces anything inside it.
 import type { AppMessage } from '../api/types';
 
-export function mergeSnapshotMessages(
-  loaded: AppMessage[],
-  snapshot: AppMessage[],
-): AppMessage[] {
+export function mergeSnapshotMessages(loaded: AppMessage[], snapshot: AppMessage[]): AppMessage[] {
   if (snapshot.length === 0) return snapshot;
   if (loaded.length === 0) return snapshot;
 
@@ -33,7 +30,8 @@ export function mergeSnapshotMessages(
       message.role === 'user' &&
       message.promptId !== undefined &&
       snapshotUserIds.has(message.promptId)
-    ) return false;
+    )
+      return false;
     return true;
   });
 

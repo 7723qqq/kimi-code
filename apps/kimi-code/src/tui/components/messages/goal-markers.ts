@@ -7,8 +7,8 @@
  * the richer completion card (the `/goal` box), not this marker.
  */
 
-import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 import type { GoalChange } from '@moonshot-ai/kimi-code-sdk';
+import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
@@ -152,7 +152,8 @@ function prominentMarker(headline: string, accentToken: ColorToken) {
 }
 
 function pausedHeadline(reason: string | undefined, actor: GoalMarkerActor | undefined): string {
-  if (reason === 'Paused after interruption') return t('tui.messages.goalMarkers.pausedInterruption');
+  if (reason === 'Paused after interruption')
+    return t('tui.messages.goalMarkers.pausedInterruption');
   if (actor === 'user') return t('tui.messages.goalMarkers.pausedByUser');
   if (reason?.startsWith('Paused ') === true) {
     return t('tui.messages.goalMarkers.pausedWithLowerReason', { reason: lowercaseFirst(reason) });

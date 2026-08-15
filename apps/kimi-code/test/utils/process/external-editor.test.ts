@@ -56,10 +56,10 @@ describe('external-editor helpers', () => {
     });
 
     await expect(editInExternalEditor('seed', 'code --wait')).resolves.toBe('edited text');
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringContaining('code --wait'),
-      { stdio: 'inherit', shell: true },
-    );
+    expect(mocks.spawn).toHaveBeenCalledWith(expect.stringContaining('code --wait'), {
+      stdio: 'inherit',
+      shell: true,
+    });
     expect(mocks.rmCalls).toHaveBeenCalled();
   });
 

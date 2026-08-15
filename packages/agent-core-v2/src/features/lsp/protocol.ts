@@ -37,7 +37,10 @@ export interface LspMarkupContent {
 
 export type LspMarkedString = string | { readonly language: string; readonly value: string };
 
-export type LspHoverContents = LspMarkupContent | LspMarkedString | readonly (LspMarkupContent | LspMarkedString)[];
+export type LspHoverContents =
+  | LspMarkupContent
+  | LspMarkedString
+  | readonly (LspMarkupContent | LspMarkedString)[];
 
 export interface LspHover {
   readonly contents: LspHoverContents;
@@ -137,6 +140,10 @@ export interface LspNotificationMessage {
 
 export type LspMessage = LspRequestMessage | LspResponseMessage | LspNotificationMessage;
 
-export type LspDefinitionResponse = LspLocation | readonly LspLocation[] | readonly LspLocationLink[] | null;
+export type LspDefinitionResponse =
+  | LspLocation
+  | readonly LspLocation[]
+  | readonly LspLocationLink[]
+  | null;
 export type LspReferencesResponse = readonly LspLocation[] | null;
 export type LspHoverResponse = LspHover | null;

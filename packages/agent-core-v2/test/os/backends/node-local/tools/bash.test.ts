@@ -18,8 +18,8 @@ import { PassThrough, Readable, type Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import type {
-  IAgentTaskService} from '#/agent/task/task';
+import { userCancellationReason } from '#/_base/utils/abort';
+import type { IAgentTaskService } from '#/agent/task/task';
 import {
   type AgentTask,
   type AgentTaskInfo,
@@ -29,16 +29,19 @@ import {
   type RegisterAgentTaskOptions,
 } from '#/agent/task/task';
 import type { AgentTaskSettlement } from '#/agent/task/types';
-import { userCancellationReason } from '#/_base/utils/abort';
-import type { IConfigService } from '#/app/config/config';
-import { ProcessTask } from '#/agent/tools/os/bash/process-task';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 import { type BashInput, BashInputSchema } from '#/agent/tools/os/bash/bash';
 import { BashTool } from '#/agent/tools/os/bash/bashTool';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { ProcessTask } from '#/agent/tools/os/bash/process-task';
+import type { IConfigService } from '#/app/config/config';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
+import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
 
 const posixEnv: IHostEnvironment = {
   _serviceBrand: undefined,
@@ -63,7 +66,6 @@ const windowsBashEnv: IHostEnvironment = {
   homeDir: 'C:\\Users\\test',
   ready: Promise.resolve(),
 };
-
 
 function processWithOutput(
   options: {
@@ -221,11 +223,13 @@ function processThatNeverExits(): IProcess {
   };
 }
 
-function processWithStreamError(options: {
-  readonly stdoutError?: Error;
-  readonly stderrError?: Error;
-  readonly exitCode?: number;
-} = {}): IProcess {
+function processWithStreamError(
+  options: {
+    readonly stdoutError?: Error;
+    readonly stderrError?: Error;
+    readonly exitCode?: number;
+  } = {},
+): IProcess {
   const exitCode = options.exitCode ?? 0;
   const stdout = new PassThrough();
   const stderr = new PassThrough();
@@ -285,7 +289,6 @@ function processWithOpenStreamsThatExitOnKill(): IProcess {
   };
 }
 
-
 function createTestEnv(env: IHostEnvironment = posixEnv): IHostEnvironment {
   return env;
 }
@@ -300,13 +303,11 @@ function createTestCtx(cwd = '/workspace'): ISessionContext {
   });
 }
 
-
 function createTestRunner(proc: IProcess | ReturnType<typeof vi.fn>) {
   const exec = typeof proc === 'function' ? proc : vi.fn().mockResolvedValue(proc);
   const runner = { exec } as unknown as ISessionProcessRunner;
   return { runner, exec };
 }
-
 
 const TERMINAL_STATUSES: ReadonlySet<AgentTaskStatus> = new Set([
   'completed',
@@ -429,8 +430,7 @@ function createFakeTaskService(options: { maxRunningTasks?: number } = {}): {
     if (!graceful) {
       try {
         await entry.task.forceStop?.();
-      } catch {
-      }
+      } catch {}
     }
     if (isTerminal(entry.status)) return entryToInfo(entry);
     settleTask(entry, { status: 'killed', stopReason: reason });
@@ -460,8 +460,7 @@ function createFakeTaskService(options: { maxRunningTasks?: number } = {}): {
     }
     try {
       entry.task.onDetach?.();
-    } catch {
-    }
+    } catch {}
     release.resolve(viaTimeout ? 'timeout_detached' : 'detached');
     return entryToInfo(entry);
   };
@@ -599,8 +598,7 @@ function createFakeTaskService(options: { maxRunningTasks?: number } = {}): {
       return output.slice(-Math.max(0, Math.trunc(tail)));
     },
 
-    async suppressTerminalNotification(): Promise<void> {
-    },
+    async suppressTerminalNotification(): Promise<void> {},
 
     detach(taskId: string): AgentTaskInfo | undefined {
       const entry = tasks.get(taskId);
@@ -674,7 +672,6 @@ function createFakeTaskService(options: { maxRunningTasks?: number } = {}): {
   return { service, tasks, persisted };
 }
 
-
 function context(
   args: BashInput,
   signal = new AbortController().signal,
@@ -683,7 +680,9 @@ function context(
   return { turnId: 0, toolCallId: 'call_bash', args, signal, onForegroundTaskStart };
 }
 
-function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
+function isPromiseLike(
+  value: ToolExecution | Promise<ToolExecution>,
+): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -724,7 +723,6 @@ function bashTool(
 ): BashTool {
   return new BashTool(runner, env, ctx, background, toolPolicy, config);
 }
-
 
 describe('BashTool', () => {
   it('exposes current metadata and schema', () => {
@@ -1171,7 +1169,13 @@ describe('BashTool', () => {
     const fullOutput = 'short line\n'.repeat(6_000);
     const { runner } = createTestRunner(processWithOutput({ stdout: fullOutput }));
     const { service } = createFakeTaskService();
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service, stubToolPolicy(() => false));
+    const tool = bashTool(
+      runner,
+      createTestEnv(),
+      createTestCtx(),
+      service,
+      stubToolPolicy(() => false),
+    );
 
     const result = await executeTool(tool, context({ command: 'flood', timeout: 60 }));
     const output = result.output as string;
@@ -1264,7 +1268,9 @@ describe('BashTool', () => {
     await executeTool(tool, context({ command: 'Get-ChildItem 2>nul', timeout: 60 }));
 
     const argv = exec.mock.calls[0]?.[0] as readonly string[];
-    expect(argv[4]).toBe("Set-Location -LiteralPath 'C:\\Users\\me\\project'; Get-ChildItem 2>$null");
+    expect(argv[4]).toBe(
+      "Set-Location -LiteralPath 'C:\\Users\\me\\project'; Get-ChildItem 2>$null",
+    );
   });
 
   it('spawns cmd.exe with /d /s /c and a cd /d prefix', async () => {
@@ -1364,7 +1370,9 @@ describe('BashTool', () => {
       stubToolPolicy(),
       stubConfig({ task: { bashAutoBackgroundOnTimeout: false } }),
     );
-    expect(killOnTimeout.description).not.toContain('moved to the background instead of being killed');
+    expect(killOnTimeout.description).not.toContain(
+      'moved to the background instead of being killed',
+    );
     expect(killOnTimeout.description).toContain('hits its timeout is killed');
 
     const legacyKillOnTimeout = bashTool(
@@ -1384,7 +1392,9 @@ describe('BashTool', () => {
       createFakeTaskService().service,
       stubToolPolicy(() => false),
     );
-    expect(noBackground.description).not.toContain('moved to the background instead of being killed');
+    expect(noBackground.description).not.toContain(
+      'moved to the background instead of being killed',
+    );
     expect(noBackground.description).toContain('hits its timeout is killed');
   });
 
@@ -1474,7 +1484,10 @@ describe('BashTool background mode', () => {
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
     const started = vi.fn();
 
-    const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }, undefined, started));
+    const running = executeTool(
+      tool,
+      context({ command: 'sleep 10', timeout: 60 }, undefined, started),
+    );
     await vi.waitFor(() => {
       expect(service.list(false)).toHaveLength(1);
     });
@@ -1548,7 +1561,13 @@ describe('BashTool background mode', () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
     const { service } = createFakeTaskService();
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service, stubToolPolicy(() => false));
+    const tool = bashTool(
+      runner,
+      createTestEnv(),
+      createTestCtx(),
+      service,
+      stubToolPolicy(() => false),
+    );
 
     const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }));
     await vi.waitFor(() => {
@@ -1617,7 +1636,8 @@ describe('BashTool background mode', () => {
     const { runner, exec } = createTestRunner(proc);
     const backgroundDisabled = bashTool(
       runner,
-      createTestEnv(), createTestCtx(),
+      createTestEnv(),
+      createTestCtx(),
       createFakeTaskService().service,
       stubToolPolicy(() => false),
     );
@@ -1896,7 +1916,13 @@ describe('BashTool prompt / runtime consistency', () => {
       [...enabledTool.description.matchAll(/`(Task[A-Za-z]+)`/g)].map((match) => match[1]),
     );
 
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), createFakeTaskService().service, stubToolPolicy(() => false));
+    const tool = bashTool(
+      runner,
+      createTestEnv(),
+      createTestCtx(),
+      createFakeTaskService().service,
+      stubToolPolicy(() => false),
+    );
     const result = await executeTool(
       tool,
       context({ command: 'sleep 10', run_in_background: true, description: 'watch' }),
@@ -1956,7 +1982,9 @@ describe('BashTool prompt / runtime consistency', () => {
   });
 
   it('handles a command that produces only stderr with exit code 0', async () => {
-    const { runner } = createTestRunner(processWithOutput({ stderr: 'warning message\n', exitCode: 0 }));
+    const { runner } = createTestRunner(
+      processWithOutput({ stderr: 'warning message\n', exitCode: 0 }),
+    );
     const tool = bashTool(runner);
 
     const result = await executeTool(tool, context({ command: 'emit-warning', timeout: 60 }));

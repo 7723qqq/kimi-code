@@ -16,10 +16,11 @@
 // fresh import of compaction.ts picks up that test's mocked fs.
 
 import assert from 'node:assert/strict';
+import type { PathLike } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { PathLike } from 'node:fs';
+
 import { afterEach, expect, test, vi } from 'vitest';
 
 interface MockHandle {
@@ -49,7 +50,11 @@ test('copyFileRange throws when the destination short-writes (bytesWritten === 0
       return { read: async () => ({ bytesRead: 16 }), close: async () => {} };
     }
     // Destination makes no progress → the short-write guard fires.
-    return { write: async () => ({ bytesWritten: 0 }), sync: async () => {}, close: async () => {} };
+    return {
+      write: async () => ({ bytesWritten: 0 }),
+      sync: async () => {},
+      close: async () => {},
+    };
   });
   const { copyFileRange } = await import('../src/compaction.js');
   await assert.rejects(() => copyFileRange('/tmp/src', '/tmp/dst', 0, 16), /short write/);
@@ -147,7 +152,6 @@ test('fsyncDir non-strict mode keeps swallowing ordinary failures (legacy caller
   assert.equal(closed, true);
 });
 
-
 async function tmpDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'minidb-rotation-fault-'));
 }
@@ -206,7 +210,9 @@ test('wal.close() propagates a final-sync failure but still releases the file ha
     const file = path.join(dir, 'db.wal');
     const wal = new WAL(file, { fsyncPolicy: 'no' }); // 'no': no background sync timer
     await wal.open();
-    await wal.append(encodeFrame({ type: TYPE_SET, key: Buffer.from('a'), value: Buffer.from('1') }));
+    await wal.append(
+      encodeFrame({ type: TYPE_SET, key: Buffer.from('a'), value: Buffer.from('1') }),
+    );
 
     const origSync = wal.sync.bind(wal);
     wal.sync = async () => {
@@ -224,7 +230,9 @@ test('wal.close() propagates a final-sync failure but still releases the file ha
     const fresh = new WAL(file, { fsyncPolicy: 'no' });
     await fresh.open();
     assert.ok(fresh.size > 0);
-    await fresh.append(encodeFrame({ type: TYPE_SET, key: Buffer.from('b'), value: Buffer.from('2') }));
+    await fresh.append(
+      encodeFrame({ type: TYPE_SET, key: Buffer.from('b'), value: Buffer.from('2') }),
+    );
     await fresh.close();
 
     const frames = [...new FrameParser().feed(await fs.readFile(file))];
@@ -241,7 +249,13 @@ test('rotation: a WAL close() failure leaves the db writable and compact() retri
   const { MiniDb } = await import('../src/index.js');
   const dir = await tmpDir();
   try {
-    let db = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', compactThresholdBytes: 1 << 30, indexGenerations: false });
+    let db = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      compactThresholdBytes: 1 << 30,
+      indexGenerations: false,
+    });
     const N = 200;
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
@@ -304,7 +318,13 @@ test('rotation: a WAL rename failure (new snapshot already in place) leaves the 
   const { MiniDb } = await import('../src/index.js');
   const dir = await tmpDir();
   try {
-    let db = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', compactThresholdBytes: 1 << 30, indexGenerations: false });
+    let db = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      compactThresholdBytes: 1 << 30,
+      indexGenerations: false,
+    });
     const N = 200;
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
@@ -359,7 +379,13 @@ test('rotation: a new-WAL open() failure after the renames leaves the db writabl
   const { MiniDb } = await import('../src/index.js');
   const dir = await tmpDir();
   try {
-    const opts = { dir, valueCodec: 'string' as const, valueMode: 'disk' as const, fsyncPolicy: 'no' as const, compactThresholdBytes: 1 << 30 };
+    const opts = {
+      dir,
+      valueCodec: 'string' as const,
+      valueMode: 'disk' as const,
+      fsyncPolicy: 'no' as const,
+      compactThresholdBytes: 1 << 30,
+    };
     let db = await MiniDb.open<string>(opts);
     const N = 200;
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
@@ -370,8 +396,13 @@ test('rotation: a new-WAL open() failure after the renames leaves the db writabl
 
     // The renames had already committed the new snapshot/WAL layout when the
     // open failed, so recovery also applied the store-pointer remap.
-    const sawSnapshotRef = [...db.store.map.values()].some((r) => r.ref.kind === 'disk' && r.ref.loc.file === 'snapshot');
-    assert.ok(sawSnapshotRef, 'store pointers were remapped to the new snapshot after the failed rotation');
+    const sawSnapshotRef = [...db.store.map.values()].some(
+      (r) => r.ref.kind === 'disk' && r.ref.loc.file === 'snapshot',
+    );
+    assert.ok(
+      sawSnapshotRef,
+      'store pointers were remapped to the new snapshot after the failed rotation',
+    );
 
     // Disk-backed reads stay correct and the db is writable again.
     assert.equal(db.get('k0'), 'v0');
@@ -402,7 +433,13 @@ test('rotation: the first directory fsync failure aborts the rotation; rollback 
   mockFsWithDirSyncFault(dir, new Set([1]));
   const { MiniDb } = await import('../src/index.js');
   try {
-    let db = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', compactThresholdBytes: 1 << 30, indexGenerations: false });
+    let db = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      compactThresholdBytes: 1 << 30,
+      indexGenerations: false,
+    });
     const N = 200;
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
@@ -411,7 +448,11 @@ test('rotation: the first directory fsync failure aborts the rotation; rollback 
     assert.equal(db.stats.compactions, 0);
     assert.equal(db.stats.compactErrors, 1);
     assert.match(String(db.lastCompactError), /injected dir fsync failure/);
-    assert.notEqual(db.stats.dirFsyncUnsupported, true, 'an I/O error is not the platform-degrade path');
+    assert.notEqual(
+      db.stats.dirFsyncUnsupported,
+      true,
+      'an I/O error is not the platform-degrade path',
+    );
 
     // The abort went through the existing rollback: the write path is back.
     await db.set('post', 'still-writable');
@@ -451,7 +492,13 @@ test('rotation: the second directory fsync failure aborts after both renames; ro
   mockFsWithDirSyncFault(dir, new Set([2]));
   const { MiniDb } = await import('../src/index.js');
   try {
-    let db = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', compactThresholdBytes: 1 << 30, indexGenerations: false });
+    let db = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      compactThresholdBytes: 1 << 30,
+      indexGenerations: false,
+    });
     const N = 200;
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
@@ -494,7 +541,12 @@ test('a compaction whose onCompacted hook throws counts as a compactError, not a
   const { MiniDb } = await import('../src/index.js');
   const dir = await tmpDir();
   try {
-    const db = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', compactThresholdBytes: 1 << 30 });
+    const db = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      compactThresholdBytes: 1 << 30,
+    });
     for (let i = 0; i < 50; i++) await db.set(`k${i}`, `v${i}`);
 
     const hook = db.onCompacted;
@@ -557,7 +609,13 @@ test('a WAL poison during the snapshot phase aborts this compaction; the next co
   const { MiniDb } = await import('../src/index.js');
   const dir = await tmpDir();
   try {
-    let db = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', compactThresholdBytes: 1 << 30, indexGenerations: false });
+    let db = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      compactThresholdBytes: 1 << 30,
+      indexGenerations: false,
+    });
     const N = 50;
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
@@ -565,7 +623,8 @@ test('a WAL poison during the snapshot phase aborts this compaction; the next co
     await entered; // the compaction is parked inside the snapshot phase now
 
     // Poison the WAL with a one-shot writev failure.
-    const fh = (db as unknown as { wal: { fh: { writev: (...a: unknown[]) => Promise<unknown> } } }).wal.fh;
+    const fh = (db as unknown as { wal: { fh: { writev: (...a: unknown[]) => Promise<unknown> } } })
+      .wal.fh;
     const orig = fh.writev.bind(fh);
     let boom = true;
     fh.writev = async (...a: unknown[]) => {
@@ -591,7 +650,11 @@ test('a WAL poison during the snapshot phase aborts this compaction; the next co
     await db.compact();
     assert.equal(db.stats.compactions, 1);
     assert.equal(db.stats.compactErrors, 1);
-    assert.equal(db.get('bad'), undefined, 'the rejected write never reached the snapshot or the WAL');
+    assert.equal(
+      db.get('bad'),
+      undefined,
+      'the rejected write never reached the snapshot or the WAL',
+    );
     assert.equal(db.get('k0'), 'v0');
     assert.equal(db.get('post'), 'ok');
     await db.close();

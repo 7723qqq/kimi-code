@@ -15,20 +15,19 @@
  * an agent after its initial model binding.
  */
 
+import { createDecorator } from '#/_base/di/instantiation';
+import { Error2 } from '#/_base/errors/errors';
 import type {
   AgentProfile,
   AgentProfileContext,
   EnvironmentDisclosureSnapshot,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import type { ErrorCode } from '#/errors';
 import type { ModelCapability } from '#/kosong/contract/capability';
 import type { ThinkingEffort } from '#/kosong/contract/provider';
 import type { ModelRequestParams } from '#/kosong/model/modelRequester';
 
-import { createDecorator } from "#/_base/di/instantiation";
-import type { ErrorCode } from '#/errors';
-import { Error2 } from '#/_base/errors/errors';
-
-import { ProfileErrors } from './errors';
+import type { ProfileErrors } from './errors';
 
 export { ProfileErrors } from './errors';
 

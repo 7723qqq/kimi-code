@@ -45,13 +45,30 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
   font-weight: var(--weight-medium);
   cursor: pointer;
   line-height: 1;
-  transition: background var(--duration-base) var(--ease-out),
+  transition:
+    background var(--duration-base) var(--ease-out),
     color var(--duration-base) var(--ease-out),
     box-shadow var(--duration-base) var(--ease-out);
 }
-.ui-seg--md .ui-seg__item { padding: 5px var(--space-3); font-size: var(--text-sm); }
-.ui-seg--sm .ui-seg__item { height: 24px; padding: 0 var(--space-2); font-size: var(--text-sm); }
-.ui-seg__item:hover:not(.is-on) { color: var(--color-text); }
-.ui-seg__item.is-on { background: var(--color-surface-raised); color: var(--color-text); box-shadow: var(--shadow-xs); }
-.ui-seg__item:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
+.ui-seg--md .ui-seg__item {
+  padding: 5px var(--space-3);
+  font-size: var(--text-sm);
+}
+.ui-seg--sm .ui-seg__item {
+  height: 24px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+.ui-seg__item:hover:not(.is-on) {
+  color: var(--color-text);
+}
+.ui-seg__item.is-on {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  box-shadow: var(--shadow-xs);
+}
+.ui-seg__item:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
 </style>

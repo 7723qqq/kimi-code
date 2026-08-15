@@ -10,11 +10,7 @@
 import { MessageStepRequest } from '#/agent/loop/stepRequest';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentProfileService } from '#/index';
-import type {
-  ExecutableTool,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
+import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
 import {
   createTestAgent,

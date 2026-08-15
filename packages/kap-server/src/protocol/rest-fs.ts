@@ -29,13 +29,7 @@ export const fsRevealResponseSchema = z.object({
 });
 export type FsRevealResponse = z.infer<typeof fsRevealResponseSchema>;
 
-export const fsOpenInAppIdSchema = z.enum([
-  'finder',
-  'cursor',
-  'vscode',
-  'iterm',
-  'terminal',
-]);
+export const fsOpenInAppIdSchema = z.enum(['finder', 'cursor', 'vscode', 'iterm', 'terminal']);
 export type FsOpenInAppId = z.infer<typeof fsOpenInAppIdSchema>;
 
 export const fsOpenInRequestSchema = z.object({

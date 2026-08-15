@@ -6,8 +6,9 @@
  * itself.
  */
 
-import { Error2, ErrorCodes } from '#/errors';
 import { t } from '@moonshot-ai/kimi-i18n';
+
+import { Error2, ErrorCodes } from '#/errors';
 import type { AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 
 /**
@@ -34,9 +35,7 @@ export function subagentLabels(
   return labels;
 }
 
-export function labelsFromAgentMeta(
-  meta: AgentMeta,
-): Readonly<Record<string, string>> | undefined {
+export function labelsFromAgentMeta(meta: AgentMeta): Readonly<Record<string, string>> | undefined {
   const labels: Record<string, string> = { ...meta.labels };
   const parentAgentId = subagentParentAgentId(meta);
   if (parentAgentId !== undefined) {

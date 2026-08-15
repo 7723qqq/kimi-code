@@ -6,8 +6,9 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { resolve } from 'node:path';
+
 import type { LLMCaller, ModelResponse, RunnerConfig, ToolDefinition } from './benchmark/runner';
 
 /**
@@ -29,7 +30,10 @@ interface ProviderInfo {
  * Extract provider configs from config.toml.
  * Returns a map of provider name → { apiKey, baseUrl, type }.
  */
-function extractProvidersFromConfig(configPath: string): { providers: Record<string, ProviderInfo>; defaultModel?: string } {
+function extractProvidersFromConfig(configPath: string): {
+  providers: Record<string, ProviderInfo>;
+  defaultModel?: string;
+} {
   if (!existsSync(configPath)) return { providers: {} };
   const text = readFileSync(configPath, 'utf-8');
 
@@ -49,13 +53,13 @@ function extractProvidersFromConfig(configPath: string): { providers: Record<str
       continue;
     }
     // Stop current provider on any new section header
-    if (line.match(/^\[/) && !line.match(/^\[providers\./)) {
+    if (line.match(/^\[/) && !line.startsWith('[providers.')) {
       currentProvider = null;
       continue;
     }
     if (!currentProvider || !providers[currentProvider]) continue;
 
-    const kvMatch = line.match(/^(\w+)\s*=\s*"([^"]*)"/); 
+    const kvMatch = line.match(/^(\w+)\s*=\s*"([^"]*)"/);
     if (!kvMatch) continue;
     const [, key, value] = kvMatch;
     if (key === 'api_key' && value) providers[currentProvider]!.apiKey = value;
@@ -70,24 +74,31 @@ function extractProvidersFromConfig(configPath: string): { providers: Record<str
  * Resolve API credentials.
  * Priority: explicit RunnerConfig > env vars > config.toml (prefer 'newapi' provider).
  */
-export function resolveCredentials(config: RunnerConfig): { apiKey: string; baseUrl: string; model: string; type: string } {
+export function resolveCredentials(config: RunnerConfig): {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  type: string;
+} {
   const configPath = getConfigPath();
   const { providers, defaultModel } = extractProvidersFromConfig(configPath);
 
   // Prefer newapi provider, then deepseek, then first available
   const preferred = providers['newapi'] ?? providers['deepseek'] ?? Object.values(providers)[0];
 
-  const apiKey = config.apiKey
-    || process.env['KIMI_API_KEY']
-    || process.env['KIMI_MODEL_API_KEY']
-    || preferred?.apiKey
-    || '';
+  const apiKey =
+    config.apiKey ||
+    process.env['KIMI_API_KEY'] ||
+    process.env['KIMI_MODEL_API_KEY'] ||
+    preferred?.apiKey ||
+    '';
 
-  const baseUrl = config.apiBaseUrl
-    || process.env['KIMI_BASE_URL']
-    || process.env['KIMI_MODEL_BASE_URL']
-    || preferred?.baseUrl
-    || 'https://api.moonshot.ai/v1';
+  const baseUrl =
+    config.apiBaseUrl ||
+    process.env['KIMI_BASE_URL'] ||
+    process.env['KIMI_MODEL_BASE_URL'] ||
+    preferred?.baseUrl ||
+    'https://api.moonshot.ai/v1';
 
   const type = preferred?.type ?? 'openai';
   const model = config.model || defaultModel || 'deepseek-chat';
@@ -125,7 +136,7 @@ export const realCaller: LLMCaller = async (
   if (!apiKey) {
     throw new Error(
       'No API key found. Checked: RunnerConfig, KIMI_API_KEY env, KIMI_MODEL_API_KEY env, ~/.kimi-code/config.toml.\n' +
-      `Config path: ${getConfigPath()}`
+        `Config path: ${getConfigPath()}`,
     );
   }
 
@@ -149,12 +160,19 @@ async function callOpenAI(
   ];
   const body: Record<string, unknown> = { model, messages, temperature: 0.1, max_tokens: 2048 };
   if (tools?.length) {
-    body.tools = tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters ?? { type: 'object', properties: {} } } }));
+    body.tools = tools.map((t) => ({
+      type: 'function',
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters ?? { type: 'object', properties: {} },
+      },
+    }));
   }
   const start = Date.now();
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify(body),
   });
   const latencyMs = Date.now() - start;
@@ -166,7 +184,10 @@ async function callOpenAI(
   if (!choice) throw new Error('No choices in API response');
   return {
     content: choice.message.content ?? '',
-    toolCalls: (choice.message.tool_calls ?? []).map((tc) => ({ name: tc.function.name, input: tc.function.arguments })),
+    toolCalls: (choice.message.tool_calls ?? []).map((tc) => ({
+      name: tc.function.name,
+      input: tc.function.arguments,
+    })),
     usage: { input: data.usage?.prompt_tokens ?? 0, output: data.usage?.completion_tokens ?? 0 },
     latencyMs,
   };
@@ -181,9 +202,19 @@ async function callAnthropic(
   tools?: ToolDefinition[],
 ): Promise<ModelResponse> {
   const messages = userMessages.map((m) => ({ role: 'user' as const, content: m }));
-  const body: Record<string, unknown> = { model, system: systemPrompt, messages, max_tokens: 2048, temperature: 0.1 };
+  const body: Record<string, unknown> = {
+    model,
+    system: systemPrompt,
+    messages,
+    max_tokens: 2048,
+    temperature: 0.1,
+  };
   if (tools?.length) {
-    body.tools = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters ?? { type: 'object', properties: {} } }));
+    body.tools = tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.parameters ?? { type: 'object', properties: {} },
+    }));
   }
   const start = Date.now();
   const response = await fetch(`${baseUrl}/v1/messages`, {
@@ -209,8 +240,14 @@ async function callAnthropic(
   }
 
   // Handle normal JSON response
-  const data = (await response.json()) as { content: Array<{ type: string; text?: string }>; usage?: { input_tokens: number; output_tokens: number } };
-  const content = data.content.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('');
+  const data = (await response.json()) as {
+    content: Array<{ type: string; text?: string }>;
+    usage?: { input_tokens: number; output_tokens: number };
+  };
+  const content = data.content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text ?? '')
+    .join('');
   return {
     content,
     toolCalls: [],
@@ -262,7 +299,9 @@ function parseAnthropicSSE(raw: string, latencyMs: number): ModelResponse {
       if (event.type === 'message_start' && event.message?.usage) {
         inputTokens = event.message.usage.input_tokens ?? 0;
       }
-    } catch { /* skip non-JSON lines */ }
+    } catch {
+      /* skip non-JSON lines */
+    }
   }
 
   return {

@@ -2,9 +2,10 @@
  * `mcpCore` domain — remote (HTTP/SSE) server config guards and request-header builders.
  */
 
+import { ErrorCodes, Error2 } from '#/errors';
+
 import type { McpRemoteServerConfig, McpServerConfig } from './config-schema';
 import { isSafeMcpRemoteUrl } from './config-schema';
-import { ErrorCodes, Error2 } from '#/errors';
 
 export async function buildMcpRemoteHeaders(
   config: McpRemoteServerConfig,

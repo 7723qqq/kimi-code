@@ -1,14 +1,21 @@
+import { describe, expect, it, vi } from 'vitest';
+
 import type { Message, StreamedMessagePart, ToolCall } from '#/message';
 import type { StreamedMessage } from '#/provider';
 import { OpenAILegacyChatProvider } from '#/providers/openai-legacy';
 import type { Tool } from '#/tool';
-import { describe, expect, it, vi } from 'vitest';
 
 // The Rust native LLM stream replaces the mock SDK client with real network
 // calls when the addon is loadable; force the TS/SDK fallback in tests.
 vi.mock('../../src/providers/native-stream', async () => {
-  const actual = await vi.importActual<typeof import('../../src/providers/native-stream')>('../../src/providers/native-stream');
-  return { ...actual, tryNativeLlmStream: () => undefined, tryNativeLlmStreamIncremental: () => undefined };
+  const actual = await vi.importActual<typeof import('../../src/providers/native-stream')>(
+    '../../src/providers/native-stream',
+  );
+  return {
+    ...actual,
+    tryNativeLlmStream: () => undefined,
+    tryNativeLlmStreamIncremental: () => undefined,
+  };
 });
 
 import { createFakeProviderHarness, type FakeProviderHarness } from './fake-provider-harness';

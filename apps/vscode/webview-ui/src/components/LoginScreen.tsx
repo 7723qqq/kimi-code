@@ -1,9 +1,12 @@
-import { useState, useEffect } from "react";
-import { IconLoader2, IconCopy, IconCheck, IconExternalLink, IconArrowRight } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { t } from "@/i18n";
-import { KimiMascot } from "./KimiMascot";
-import { bridge, Events } from "@/services";
+import {
+  IconLoader2,
+  IconCopy,
+  IconCheck,
+  IconExternalLink,
+  IconArrowRight,
+} from '@tabler/icons-react';
+import { useState, useEffect } from 'react';
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,22 +16,27 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { t } from '@/i18n';
+import { bridge, Events } from '@/services';
+
+import { KimiMascot } from './KimiMascot';
 
 interface LoginScreenProps {
   onLoginSuccess: () => void;
   onSkip: () => void;
 }
 
-type LoginState = "idle" | "pending" | "error";
+type LoginState = 'idle' | 'pending' | 'error';
 
 function isPaymentRequiredError(error: string | null): boolean {
   if (!error) return false;
-  return error.includes("402") || error.toLowerCase().includes("payment required");
+  return error.includes('402') || error.toLowerCase().includes('payment required');
 }
 
 export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
-  const [state, setState] = useState<LoginState>("idle");
+  const [state, setState] = useState<LoginState>('idle');
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -41,7 +49,7 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
   }, []);
 
   const handleLogin = async () => {
-    setState("pending");
+    setState('pending');
     setUrl(null);
     setError(null);
     try {
@@ -49,29 +57,29 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
       if (result.success) {
         onLoginSuccess();
       } else {
-        const errorMessage = result.error || "Login failed";
+        const errorMessage = result.error || 'Login failed';
         if (isPaymentRequiredError(errorMessage)) {
           setShowSubscribeDialog(true);
-          setState("idle");
+          setState('idle');
         } else {
-          setState("error");
+          setState('error');
           setError(errorMessage);
         }
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       if (isPaymentRequiredError(errorMessage)) {
         setShowSubscribeDialog(true);
-        setState("idle");
+        setState('idle');
       } else {
-        setState("error");
+        setState('error');
         setError(errorMessage);
       }
     }
   };
 
   const handleSubscribe = () => {
-    window.open("https://www.kimi.com/code", "_blank");
+    window.open('https://www.kimi.com/code', '_blank');
     setShowSubscribeDialog(false);
   };
 
@@ -82,7 +90,7 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (state === "pending") {
+  if (state === 'pending') {
     return (
       <div className="h-full flex items-center justify-center p-6">
         <div className="max-w-sm w-full text-center space-y-6">
@@ -92,13 +100,19 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
               <IconLoader2 className="size-5 animate-spin" />
               <span className="text-sm font-medium">Waiting for authentication...</span>
             </div>
-            <p className="text-xs leading-5 text-muted-foreground text-left">A browser window should open automatically. Complete the sign-in process there.</p>
+            <p className="text-xs leading-5 text-muted-foreground text-left">
+              A browser window should open automatically. Complete the sign-in process there.
+            </p>
           </div>
           {url && (
             <div className="bg-muted/50 rounded-lg p-2 text-left space-y-3">
-              <p className="text-xs text-muted-foreground">If the browser didn&apos;t open, visit this URL:</p>
+              <p className="text-xs text-muted-foreground">
+                If the browser didn&apos;t open, visit this URL:
+              </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 text-xs bg-background rounded px-2 py-1.5 font-mono break-all select-all">{url}</code>
+                <code className="flex-1 text-xs bg-background rounded px-2 py-1.5 font-mono break-all select-all">
+                  {url}
+                </code>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -107,10 +121,19 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
                     void handleCopyUrl();
                   }}
                 >
-                  {copied ? <IconCheck className="size-4 text-emerald-500" /> : <IconCopy className="size-4" />}
+                  {copied ? (
+                    <IconCheck className="size-4 text-emerald-500" />
+                  ) : (
+                    <IconCopy className="size-4" />
+                  )}
                 </Button>
               </div>
-              <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs text-blue-500 hover:underline">
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-blue-500 hover:underline"
+              >
                 <IconExternalLink className="size-3.5" />
                 Open in browser
               </a>
@@ -129,7 +152,9 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
           <div className="space-y-2">
             <h1 className="text-lg font-semibold">Welcome to Kimi Code</h1>
             <div className="text-left space-y-2">
-              <p className="text-xs leading-5">Use Kimi Code with your Kimi account subscription or your existing API setup.</p>
+              <p className="text-xs leading-5">
+                Use Kimi Code with your Kimi account subscription or your existing API setup.
+              </p>
             </div>
           </div>
 
@@ -149,15 +174,24 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
               >
                 Sign in with Kimi Account
               </Button>
-              <p className="text-[11px] text-muted-foreground leading-4">Use your Kimi account and Kimi Code subscription.</p>
+              <p className="text-[11px] text-muted-foreground leading-4">
+                Use your Kimi account and Kimi Code subscription.
+              </p>
             </div>
 
             <div className="text-left space-y-1">
-              <Button type="button" variant="outline" onClick={onSkip} className="w-full relative justify-center font-normal">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onSkip}
+                className="w-full relative justify-center font-normal"
+              >
                 <span>{t('login.skip')}</span>
                 <IconArrowRight className="size-4 text-muted-foreground absolute right-3" />
               </Button>
-              <p className="text-[11px] text-muted-foreground leading-4">Use your existing API key configuration.</p>
+              <p className="text-[11px] text-muted-foreground leading-4">
+                Use your existing API key configuration.
+              </p>
             </div>
           </div>
         </div>
@@ -168,11 +202,14 @@ export function LoginScreen({ onLoginSuccess, onSkip }: LoginScreenProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Subscription Required</AlertDialogTitle>
             <AlertDialogDescription>
-              Your account does not have an active Kimi Code subscription. Please subscribe to continue using Kimi Code with your account.
+              Your account does not have an active Kimi Code subscription. Please subscribe to
+              continue using Kimi Code with your account.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setShowSubscribeDialog(false)}>{t('login.skip')}</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setShowSubscribeDialog(false)}>
+              {t('login.skip')}
+            </AlertDialogCancel>
             <AlertDialogAction onClick={handleSubscribe}>{t('login.subscribe')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -2,30 +2,24 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ChatTurn, ApprovalBlock, FilePreviewRequest, ToolMedia, QueuedPromptView, TurnAttachment } from '../../types';
-import ToolCall from './ToolCall.vue';
-import ToolGroup from './ToolGroup.vue';
-import Markdown from './Markdown.vue';
-import ThinkingBlock from './ThinkingBlock.vue';
-import ActivityNotice from './ActivityNotice.vue';
-import CronNotice from './CronNotice.vue';
-import TurnFold from './TurnFold.vue';
-import MessageTime from './MessageTime.vue';
-import AuthMedia from './AuthMedia.vue';
-import AttachmentChip from './AttachmentChip.vue';
-import MoonSpinner from '../ui/MoonSpinner.vue';
-import Spinner from '../ui/Spinner.vue';
-import Icon from '../ui/Icon.vue';
-import Tooltip from '../ui/Tooltip.vue';
+
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import { copyTextToClipboard } from '../../lib/clipboard';
-import { openFileAttachment } from '../../lib/openFileAttachment';
 import {
   clearMessageFeedback,
   getMessageFeedback,
   setMessageFeedback,
   type MessageFeedback,
 } from '../../lib/messageFeedback';
+import { openFileAttachment } from '../../lib/openFileAttachment';
+import type {
+  ChatTurn,
+  ApprovalBlock,
+  FilePreviewRequest,
+  ToolMedia,
+  QueuedPromptView,
+  TurnAttachment,
+} from '../../types';
 import {
   assistantRenderBlocks,
   formatDuration,
@@ -38,6 +32,20 @@ import {
   turnToMarkdown,
   type AssistantRenderBlock,
 } from '../chatTurnRendering';
+import Icon from '../ui/Icon.vue';
+import MoonSpinner from '../ui/MoonSpinner.vue';
+import Spinner from '../ui/Spinner.vue';
+import Tooltip from '../ui/Tooltip.vue';
+import ActivityNotice from './ActivityNotice.vue';
+import AttachmentChip from './AttachmentChip.vue';
+import AuthMedia from './AuthMedia.vue';
+import CronNotice from './CronNotice.vue';
+import Markdown from './Markdown.vue';
+import MessageTime from './MessageTime.vue';
+import ThinkingBlock from './ThinkingBlock.vue';
+import ToolCall from './ToolCall.vue';
+import ToolGroup from './ToolGroup.vue';
+import TurnFold from './TurnFold.vue';
 
 const { t } = useI18n();
 const { confirm } = useConfirmDialog();
@@ -421,16 +429,20 @@ function copyConversation(): void {
     }
   }
   const markdown = lines.join('\n\n---\n\n');
-  void copyTextToClipboard(markdown).then((ok) => {
-    if (!ok) return;
-    copiedConversation.value = true;
-    emit('copyConversationCopied');
-    if (copiedConversationTimer !== null) clearTimeout(copiedConversationTimer);
-    copiedConversationTimer = setTimeout(() => {
-      copiedConversationTimer = null;
-      copiedConversation.value = false;
-    }, 2000);
-  }).catch(() => {/* ignore */});
+  void copyTextToClipboard(markdown)
+    .then((ok) => {
+      if (!ok) return;
+      copiedConversation.value = true;
+      emit('copyConversationCopied');
+      if (copiedConversationTimer !== null) clearTimeout(copiedConversationTimer);
+      copiedConversationTimer = setTimeout(() => {
+        copiedConversationTimer = null;
+        copiedConversation.value = false;
+      }, 2000);
+    })
+    .catch(() => {
+      /* ignore */
+    });
 }
 
 function assistantRunEndingAt(index: number): ChatTurn[] {
@@ -460,16 +472,20 @@ function finalSummaryText(): string {
 function copyFinalSummary(): void {
   const text = finalSummaryText();
   if (!text.trim()) return;
-  void copyTextToClipboard(text).then((ok) => {
-    if (!ok) return;
-    copiedConversation.value = true;
-    emit('copyConversationCopied');
-    if (copiedConversationTimer !== null) clearTimeout(copiedConversationTimer);
-    copiedConversationTimer = setTimeout(() => {
-      copiedConversationTimer = null;
-      copiedConversation.value = false;
-    }, 2000);
-  }).catch(() => {/* ignore */});
+  void copyTextToClipboard(text)
+    .then((ok) => {
+      if (!ok) return;
+      copiedConversation.value = true;
+      emit('copyConversationCopied');
+      if (copiedConversationTimer !== null) clearTimeout(copiedConversationTimer);
+      copiedConversationTimer = setTimeout(() => {
+        copiedConversationTimer = null;
+        copiedConversation.value = false;
+      }, 2000);
+    })
+    .catch(() => {
+      /* ignore */
+    });
 }
 
 defineExpose({ copyConversation, copyFinalSummary });
@@ -489,29 +505,37 @@ function copyAssistantRun(index: number): void {
   if (!turn) return;
   const text = assistantRunFinalText(index);
   if (!text.trim()) return;
-  void copyTextToClipboard(text).then((ok) => {
-    if (!ok) return;
-    copiedTurn.value = turn.id;
-    if (copiedTimer !== null) clearTimeout(copiedTimer);
-    copiedTimer = setTimeout(() => {
-      copiedTimer = null;
-      copiedTurn.value = null;
-    }, 1400);
-  }).catch(() => {/* ignore */});
+  void copyTextToClipboard(text)
+    .then((ok) => {
+      if (!ok) return;
+      copiedTurn.value = turn.id;
+      if (copiedTimer !== null) clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => {
+        copiedTimer = null;
+        copiedTurn.value = null;
+      }, 1400);
+    })
+    .catch(() => {
+      /* ignore */
+    });
 }
 
 function copyUserMessage(turn: ChatTurn): void {
   const text = turn.text;
   if (!text.trim()) return;
-  void copyTextToClipboard(text).then((ok) => {
-    if (!ok) return;
-    copiedTurn.value = turn.id;
-    if (copiedTimer !== null) clearTimeout(copiedTimer);
-    copiedTimer = setTimeout(() => {
-      copiedTimer = null;
-      copiedTurn.value = null;
-    }, 1400);
-  }).catch(() => {/* ignore */});
+  void copyTextToClipboard(text)
+    .then((ok) => {
+      if (!ok) return;
+      copiedTurn.value = turn.id;
+      if (copiedTimer !== null) clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => {
+        copiedTimer = null;
+        copiedTurn.value = null;
+      }, 1400);
+    })
+    .catch(() => {
+      /* ignore */
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -547,10 +571,7 @@ function persistFeedback(turnId: string, feedback: MessageFeedback): void {
 function toggleFeedback(turnId: string, vote: 'like' | 'dislike'): void {
   const current = feedbackOf(turnId);
   const note = current?.note;
-  persistFeedback(
-    turnId,
-    current?.vote === vote ? { vote: null, note } : { vote, note },
-  );
+  persistFeedback(turnId, current?.vote === vote ? { vote: null, note } : { vote, note });
 }
 
 function saveNote(turnId: string): void {
@@ -565,7 +586,12 @@ function userAttachmentMedia(att: TurnAttachment): ToolMedia {
   // back to a generic label and sniffs the mime from the URL when needed. When
   // a fileId is present the preview fetches the bytes with auth (a bare
   // getFileUrl src 401s under daemon auth).
-  return { kind: att.kind === 'video' ? 'video' : 'image', url: att.url, path: att.name, fileId: att.fileId };
+  return {
+    kind: att.kind === 'video' ? 'video' : 'image',
+    url: att.url,
+    path: att.name,
+    fileId: att.fileId,
+  };
 }
 
 // Transient "can't open this type" hint after clicking a file chip of a
@@ -604,7 +630,10 @@ function isStreamingRenderBlock(turn: ChatTurn, block: { sourceIndex: number }):
  * "answer" text (rendered directly). Mirrors the official web: the work is
  * collapsible behind "Worked {duration}", the final answer stays visible.
  */
-function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: AssistantRenderBlock[] } {
+function splitTurnWork(turn: ChatTurn): {
+  work: AssistantRenderBlock[];
+  answer: AssistantRenderBlock[];
+} {
   const blocks = assistantRenderBlocks(turn);
   let lastText = -1;
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
@@ -631,7 +660,10 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
       <Spinner size="sm" />
       <span class="chat-loading-text">{{ t('conversation.loading') }}</span>
     </div>
-    <div v-else-if="turns.length === 0 && (!approvals || approvals.length === 0)" class="chat-empty" />
+    <div
+      v-else-if="turns.length === 0 && (!approvals || approvals.length === 0)"
+      class="chat-empty"
+    />
 
     <div
       v-if="hasMoreMessages || loadingMore"
@@ -658,7 +690,11 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
            outside the bubble with an inline confirm step). -->
       <template v-if="turn.role === 'user'">
         <div class="u-turn">
-          <div class="u-bub turn-anchor" :class="{ undoing: undoingTurnId === turn.id }" :data-turn-id="turn.id">
+          <div
+            class="u-bub turn-anchor"
+            :class="{ undoing: undoingTurnId === turn.id }"
+            :data-turn-id="turn.id"
+          >
             <!-- Unified attachment chips: files, images and videos -->
             <div v-if="turn.attachments && turn.attachments.length > 0" class="u-atts">
               <AttachmentChip
@@ -677,9 +713,13 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
             <div v-if="turn.skillActivation" class="skill-act">
               <div class="skill-act-head">
                 <span class="skill-act-arrow">▶</span>
-                <span>{{ t('conversation.activatedSkill', { name: turn.skillActivation.name }) }}</span>
+                <span>{{
+                  t('conversation.activatedSkill', { name: turn.skillActivation.name })
+                }}</span>
               </div>
-              <div v-if="turn.skillActivation.args" class="skill-act-args">{{ turn.skillActivation.args }}</div>
+              <div v-if="turn.skillActivation.args" class="skill-act-args">
+                {{ turn.skillActivation.args }}
+              </div>
             </div>
             <!-- Plugin command card (replaces expanded body) -->
             <div v-else-if="turn.pluginCommand" class="skill-act">
@@ -687,13 +727,19 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
                 <span class="skill-act-arrow">▶</span>
                 <span>/{{ turn.pluginCommand.pluginId }}:{{ turn.pluginCommand.commandName }}</span>
               </div>
-              <div v-if="turn.pluginCommand.args" class="skill-act-args">{{ turn.pluginCommand.args }}</div>
+              <div v-if="turn.pluginCommand.args" class="skill-act-args">
+                {{ turn.pluginCommand.args }}
+              </div>
             </div>
             <!-- User input renders verbatim (pre-wrap), never through Markdown -->
             <div v-else class="u-text">{{ turn.text }}</div>
           </div>
           <div v-if="turn.createdAt || canEditTurn(turn)" class="u-meta">
-            <div v-if="canEditTurn(turn)" class="u-edit-wrap" :class="{ undoing: undoingTurnId === turn.id }">
+            <div
+              v-if="canEditTurn(turn)"
+              class="u-edit-wrap"
+              :class="{ undoing: undoingTurnId === turn.id }"
+            >
               <button
                 type="button"
                 class="u-edit"
@@ -720,7 +766,12 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
 
       <!-- Compaction divider — prior turns stay untouched; summary opens in
            the right-side panel on click. -->
-      <div v-else-if="turn.role === 'compaction'" class="compact-divider turn-anchor" :data-turn-id="turn.id" role="separator">
+      <div
+        v-else-if="turn.role === 'compaction'"
+        class="compact-divider turn-anchor"
+        :data-turn-id="turn.id"
+        role="separator"
+      >
         <span class="cd-line" aria-hidden="true" />
         <button
           v-if="turn.text"
@@ -737,7 +788,13 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
 
       <!-- Cron notice — a turn triggered by a scheduled reminder, rendered as
            a lightweight in-transcript notice rather than a user bubble. -->
-      <CronNotice v-else-if="turn.role === 'cron'" :text="turn.text" :cron="turn.cron" :turn-id="turn.id" :created-at="turn.createdAt" />
+      <CronNotice
+        v-else-if="turn.role === 'cron'"
+        :text="turn.text"
+        :cron="turn.cron"
+        :turn-id="turn.id"
+        :created-at="turn.createdAt"
+      />
 
       <!-- Assistant turn → left-aligned, no name/role label. -->
       <div v-else class="a-msg turn-anchor" :data-turn-id="turn.id">
@@ -750,8 +807,20 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
           :streaming="turn.id === streamingTurnId"
         >
           <template v-for="(blk, bi) in splitTurnWork(turn).work" :key="renderBlockKey(blk, bi)">
-            <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" @open="emit('openThinking', { turnId: turn.id, blockIndex: blk.sourceIndex })" />
-            <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="isStreamingRenderBlock(turn, blk)" :open-file="(target) => emit('openFile', target)" /></div>
+            <ThinkingBlock
+              v-if="blk.kind === 'thinking'"
+              :text="blk.thinking"
+              mobile
+              :streaming="isStreamingRenderBlock(turn, blk)"
+              @open="emit('openThinking', { turnId: turn.id, blockIndex: blk.sourceIndex })"
+            />
+            <div v-else-if="blk.kind === 'text' && blk.text" class="msg">
+              <Markdown
+                :text="blk.text"
+                :streaming="isStreamingRenderBlock(turn, blk)"
+                :open-file="(target) => emit('openFile', target)"
+              />
+            </div>
             <ToolGroup
               v-else-if="blk.kind === 'tool-stack'"
               :tools="blk.tools"
@@ -762,12 +831,36 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
               @open-tool-diff="emit('openToolDiff', $event)"
               @open-agent="emit('openAgent', $event)"
             />
-            <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" />
+            <ToolCall
+              v-else-if="blk.kind === 'tool'"
+              :tool="blk.tool"
+              mobile
+              :tool-diff-panel="toolDiffPanel"
+              @open-media="emit('openMedia', $event)"
+              @open-file="emit('openFile', $event)"
+              @open-tool-diff="emit('openToolDiff', $event)"
+              @open-agent="emit('openAgent', $event)"
+            />
           </template>
         </TurnFold>
-        <template v-for="(blk, bi) in splitTurnWork(turn).answer" :key="'ans-' + renderBlockKey(blk, bi)">
-          <ThinkingBlock v-if="blk.kind === 'thinking'" :text="blk.thinking" mobile :streaming="isStreamingRenderBlock(turn, blk)" @open="emit('openThinking', { turnId: turn.id, blockIndex: blk.sourceIndex })" />
-          <div v-else-if="blk.kind === 'text' && blk.text" class="msg"><Markdown :text="blk.text" :streaming="isStreamingRenderBlock(turn, blk)" :open-file="(target) => emit('openFile', target)" /></div>
+        <template
+          v-for="(blk, bi) in splitTurnWork(turn).answer"
+          :key="'ans-' + renderBlockKey(blk, bi)"
+        >
+          <ThinkingBlock
+            v-if="blk.kind === 'thinking'"
+            :text="blk.thinking"
+            mobile
+            :streaming="isStreamingRenderBlock(turn, blk)"
+            @open="emit('openThinking', { turnId: turn.id, blockIndex: blk.sourceIndex })"
+          />
+          <div v-else-if="blk.kind === 'text' && blk.text" class="msg">
+            <Markdown
+              :text="blk.text"
+              :streaming="isStreamingRenderBlock(turn, blk)"
+              :open-file="(target) => emit('openFile', target)"
+            />
+          </div>
           <ToolGroup
             v-else-if="blk.kind === 'tool-stack'"
             :tools="blk.tools"
@@ -778,7 +871,16 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
             @open-tool-diff="emit('openToolDiff', $event)"
             @open-agent="emit('openAgent', $event)"
           />
-          <ToolCall v-else-if="blk.kind === 'tool'" :tool="blk.tool" mobile :tool-diff-panel="toolDiffPanel" @open-media="emit('openMedia', $event)" @open-file="emit('openFile', $event)" @open-tool-diff="emit('openToolDiff', $event)" @open-agent="emit('openAgent', $event)" />
+          <ToolCall
+            v-else-if="blk.kind === 'tool'"
+            :tool="blk.tool"
+            mobile
+            :tool-diff-panel="toolDiffPanel"
+            @open-media="emit('openMedia', $event)"
+            @open-file="emit('openFile', $event)"
+            @open-tool-diff="emit('openToolDiff', $event)"
+            @open-agent="emit('openAgent', $event)"
+          />
         </template>
         <div
           v-if="turn.id !== streamingTurnId && producedFilePaths(turn).length > 0"
@@ -791,11 +893,7 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
             class="a-file-chip"
             :title="path"
           >
-            <button
-              type="button"
-              class="a-file-open"
-              @click="emit('openFile', { path })"
-            >
+            <button type="button" class="a-file-open" @click="emit('openFile', { path })">
               <Icon name="file" size="sm" />
               {{ producedFileBasename(path) }}
             </button>
@@ -811,10 +909,7 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
             </Tooltip>
           </span>
         </div>
-        <div
-          v-if="turn.truncated && turn.id !== streamingTurnId"
-          class="a-trunc"
-        >
+        <div v-if="turn.truncated && turn.id !== streamingTurnId" class="a-trunc">
           <span class="a-trunc-notice">{{ t('maxTokens.truncatedNotice') }}</span>
           <button type="button" class="a-trunc-btn" @click="emit('continueTurn')">
             {{ t('maxTokens.continueAction') }}
@@ -826,9 +921,18 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
         >
           {{ t('maxTokens.retried', { count: turn.retryCount }) }}
         </div>
-        <div v-if="turn.id !== streamingTurnId && isAssistantRunEnd(ti) && (assistantRunFinalText(ti).trim().length > 0 || turn.durationMs !== undefined)" class="a-msg-ft">
+        <div
+          v-if="
+            turn.id !== streamingTurnId &&
+            isAssistantRunEnd(ti) &&
+            (assistantRunFinalText(ti).trim().length > 0 || turn.durationMs !== undefined)
+          "
+          class="a-msg-ft"
+        >
           <Tooltip :text="`${turn.durationMs} ms`">
-            <span v-if="turn.durationMs !== undefined" class="a-duration">{{ formatDuration(turn.durationMs) }}</span>
+            <span v-if="turn.durationMs !== undefined" class="a-duration">{{
+              formatDuration(turn.durationMs)
+            }}</span>
           </Tooltip>
           <span v-if="turnHasAnyTokens(turn)" class="a-duration">{{ turnUsageText(turn) }}</span>
           <button
@@ -983,7 +1087,9 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   color: var(--faint);
   text-align: center;
 }
-.chat-empty-text { font-size: var(--ui-font-size-sm); }
+.chat-empty-text {
+  font-size: var(--ui-font-size-sm);
+}
 
 .chat-loading {
   flex: 1;
@@ -994,7 +1100,9 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   padding: 24px 16px;
   color: var(--muted);
 }
-.chat-loading-text { font-size: var(--ui-font-size-sm); }
+.chat-loading-text {
+  font-size: var(--ui-font-size-sm);
+}
 
 /* ===================== Bubble layout ===================== */
 .chat {
@@ -1009,7 +1117,9 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   min-height: 0;
   position: relative;
 }
-.chat .chat-empty { align-self: stretch; }
+.chat .chat-empty {
+  align-self: stretch;
+}
 
 /* Bottom-center pill for the "can't open this file type" hint. */
 .open-unsupported {
@@ -1108,13 +1218,20 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   line-height: 1;
   cursor: pointer;
   opacity: 0.7;
-  transition: opacity 0.12s, color 0.12s, background-color 0.12s;
+  transition:
+    opacity 0.12s,
+    color 0.12s,
+    background-color 0.12s;
 }
 .u-edit svg {
   display: block;
   flex: none;
 }
-.u-edit:hover { opacity: 1; color: var(--color-accent); background: var(--hover); }
+.u-edit:hover {
+  opacity: 1;
+  color: var(--color-accent);
+  background: var(--hover);
+}
 /* Copy button — icon-only, shares the undo button's muted→hover style. */
 .u-copy {
   display: inline-flex;
@@ -1130,16 +1247,33 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   line-height: 1;
   cursor: pointer;
   opacity: 0.7;
-  transition: opacity 0.12s, color 0.12s, background-color 0.12s;
+  transition:
+    opacity 0.12s,
+    color 0.12s,
+    background-color 0.12s;
   min-height: 22px;
   box-sizing: border-box;
 }
-.u-copy svg { display: block; flex: none; }
-.u-copy:hover { opacity: 1; color: var(--color-accent); background: var(--hover); }
+.u-copy svg {
+  display: block;
+  flex: none;
+}
+.u-copy:hover {
+  opacity: 1;
+  color: var(--color-accent);
+  background: var(--hover);
+}
 /* Mobile bubble layout: right-align the undo button below the bubble. */
-.u-edit-wrap { display: flex; justify-content: flex-end; }
-.chat > .u-edit-wrap { margin-top: 4px; }
-.chat > .u-edit-wrap + .a-msg { margin-top: 8px; }
+.u-edit-wrap {
+  display: flex;
+  justify-content: flex-end;
+}
+.chat > .u-edit-wrap {
+  margin-top: 4px;
+}
+.chat > .u-edit-wrap + .a-msg {
+  margin-top: 8px;
+}
 
 /* Compaction divider — a full-width separator marking where the daemon
    compacted the context. Prior turns above it are untouched; clicking the
@@ -1179,8 +1313,12 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   font-size: var(--text-base);
   color: var(--muted);
 }
-.cd-view { color: var(--color-accent); }
-.cd-btn:hover .cd-view { text-decoration: underline; }
+.cd-view {
+  color: var(--color-accent);
+}
+.cd-btn:hover .cd-view {
+  text-decoration: underline;
+}
 
 /* Assistant message → left-aligned plain column, no role label */
 .a-msg {
@@ -1328,7 +1466,10 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   line-height: 1;
   cursor: pointer;
   opacity: 0.7;
-  transition: opacity 0.12s, color 0.12s, background-color 0.12s;
+  transition:
+    opacity 0.12s,
+    color 0.12s,
+    background-color 0.12s;
   min-height: 22px;
   box-sizing: border-box;
 }
@@ -1404,8 +1545,12 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   color: var(--color-text);
   font-weight: 500;
 }
-.a-msg .msg :deep(p) { margin: 0; }
-.a-msg .msg :deep(p + p) { margin-top: 8px; }
+.a-msg .msg :deep(p) {
+  margin: 0;
+}
+.a-msg .msg :deep(p + p) {
+  margin-top: 8px;
+}
 /* ChatPane owns block spacing; child components own only their internal layout. */
 .a-msg > .msg,
 .a-msg > :deep(.think),
@@ -1428,7 +1573,7 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   margin-top: 0;
 }
 .a-msg :deep(code) {
-  font: .9em var(--font-mono);
+  font: 0.9em var(--font-mono);
   background: var(--color-surface-sunken);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
@@ -1455,10 +1600,7 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
     left: 50%;
     width: max-content;
     min-width: 100%;
-    max-width: min(
-      var(--p-table-max),
-      calc(100cqi - var(--space-5) - var(--space-5))
-    ) !important;
+    max-width: min(var(--p-table-max), calc(100cqi - var(--space-5) - var(--space-5))) !important;
     transform: translateX(-50%);
   }
 }
@@ -1584,7 +1726,9 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   padding: 4px 12px;
   border-radius: 999px;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 .top-sentinel-btn:hover {
   color: var(--fg);
@@ -1598,7 +1742,9 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   font-size: var(--ui-font-size-sm);
 }
 
-.chat { background: transparent; }
+.chat {
+  background: transparent;
+}
 .chat {
   gap: 0;
   padding: 22px 20px 26px;
@@ -1664,7 +1810,9 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   background: var(--color-surface-raised);
   border: 1px dashed var(--color-accent-bd);
   padding: 8px 8px 8px 6px;
-  transition: border-color 0.12s ease, background 0.12s ease;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
 }
 .q-bub:hover {
   border-color: var(--color-accent);
@@ -1773,7 +1921,10 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
   color: var(--color-text-faint);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  transition:
+    opacity 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
 }
 .q-bub:hover .q-rm,
 .q-bub:focus-within .q-rm,
@@ -1790,7 +1941,7 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
 }
 .q-turn.drop-before::before,
 .q-turn.drop-after::after {
-  content: "";
+  content: '';
   position: absolute;
   left: 0;
   right: 0;
@@ -1805,5 +1956,4 @@ function splitTurnWork(turn: ChatTurn): { work: AssistantRenderBlock[]; answer: 
 .q-turn.drop-after::after {
   bottom: -5px;
 }
-
 </style>

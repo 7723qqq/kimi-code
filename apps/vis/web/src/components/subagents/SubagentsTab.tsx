@@ -1,6 +1,6 @@
 import { useAgentTree } from '../../hooks/useSubagents';
-import { SubagentTree } from './SubagentTree';
 import { t } from '../../i18n';
+import { SubagentTree } from './SubagentTree';
 
 interface SubagentsTabProps {
   sessionId: string;

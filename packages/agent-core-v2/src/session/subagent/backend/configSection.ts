@@ -34,10 +34,7 @@ export const CodexBackendConfigSchema = z.object({
     .string()
     .optional()
     .describe('Path to the codex CLI (defaults to "codex" resolved on PATH).'),
-  model: z
-    .string()
-    .optional()
-    .describe('Model to run Codex with (defaults to the CLI default).'),
+  model: z.string().optional().describe('Model to run Codex with (defaults to the CLI default).'),
 });
 
 export const AcpBackendConfigSchema = z.object({

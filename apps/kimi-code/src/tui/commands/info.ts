@@ -3,9 +3,16 @@ import { release as osRelease, type as osType } from 'node:os';
 import type { McpServerInfo, SessionStatus, SessionUsage } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
+import { openUrl } from '#/utils/open-url';
+
+import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
 import { buildMcpStatusReportLines } from '../components/messages/mcp-status-panel';
 import { buildStatusReportLines } from '../components/messages/status-panel';
-import { buildUsageReportLines, UsagePanelComponent, type ManagedUsageReport } from '../components/messages/usage-panel';
+import {
+  buildUsageReportLines,
+  UsagePanelComponent,
+  type ManagedUsageReport,
+} from '../components/messages/usage-panel';
 import {
   FEEDBACK_ISSUE_URL,
   FEEDBACK_TELEMETRY_EVENT,
@@ -22,11 +29,9 @@ import {
   withFeedbackVersionPrefix,
 } from '../constant/feedback';
 import { DEFAULT_OAUTH_PROVIDER_NAME, isManagedUsageProvider } from '../constant/kimi-tui';
-import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
 import { formatErrorMessage } from '../utils/event-payload';
-import { openUrl } from '#/utils/open-url';
-import { promptFeedbackAttachment, promptFeedbackInput } from './prompts';
 import type { SlashCommandHost } from './dispatch';
+import { promptFeedbackAttachment, promptFeedbackInput } from './prompts';
 
 // ---------------------------------------------------------------------------
 // Feedback
@@ -186,7 +191,11 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     managedUsage: managedUsage?.usage,
     managedUsageError: managedUsage?.error,
   };
-  const panel = new UsagePanelComponent(() => buildStatusReportLines(reportArgs), 'primary', ' Status ');
+  const panel = new UsagePanelComponent(
+    () => buildStatusReportLines(reportArgs),
+    'primary',
+    ' Status ',
+  );
   host.state.transcriptContainer.addChild(panel);
   host.state.ui.requestRender();
 }
@@ -234,7 +243,9 @@ async function loadRuntimeStatusReport(host: SlashCommandHost): Promise<RuntimeS
   }
 }
 
-async function loadManagedUsageReport(host: SlashCommandHost): Promise<ManagedUsageResult | undefined> {
+async function loadManagedUsageReport(
+  host: SlashCommandHost,
+): Promise<ManagedUsageResult | undefined> {
   const alias = host.state.appState.model;
   const providerKey = host.state.appState.availableModels[alias]?.provider;
   if (!isManagedUsageProvider(providerKey)) return undefined;

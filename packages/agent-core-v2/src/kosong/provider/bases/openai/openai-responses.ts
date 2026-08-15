@@ -50,6 +50,12 @@ import type { TokenUsage } from '#/kosong/contract/usage';
 import { ProtocolErrors } from '#/kosong/protocol/errors';
 
 import {
+  mergeRequestHeaders,
+  requireProviderApiKey,
+  resolveAuthBackedClient,
+} from '../request-auth';
+import { normalizeToolCallIdsForProvider, sanitizeOpenAIResponsesCallId } from '../tool-call-id';
+import {
   convertOpenAIError,
   hasModelPrefix,
   isMediaPart,
@@ -62,12 +68,6 @@ import {
   TOOL_RESULT_MEDIA_PROMPT,
   type ToolMessageConversion,
 } from './openai-common';
-import {
-  mergeRequestHeaders,
-  requireProviderApiKey,
-  resolveAuthBackedClient,
-} from '../request-auth';
-import { normalizeToolCallIdsForProvider, sanitizeOpenAIResponsesCallId } from '../tool-call-id';
 
 function normalizeResponsesFinishReason(
   status: string | null | undefined,
@@ -1056,7 +1056,9 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   private readonly _client: OpenAI | undefined;
   private readonly _httpClient: unknown;
   private readonly _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
-  private readonly _convertErrorHook: ((error: unknown) => ChatProviderError | undefined) | undefined;
+  private readonly _convertErrorHook:
+    | ((error: unknown) => ChatProviderError | undefined)
+    | undefined;
 
   constructor(options: OpenAIResponsesOptions) {
     const apiKey = options.apiKey ?? process.env['OPENAI_API_KEY'];
@@ -1231,7 +1233,6 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     return new OpenAI(clientOpts as ConstructorParameters<typeof OpenAI>[0]);
   }
 }
-
 
 export function getOpenAIResponsesModelCapability(modelName: string) {
   const normalized = modelName.toLowerCase();

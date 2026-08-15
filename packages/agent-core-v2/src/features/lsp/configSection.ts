@@ -28,7 +28,9 @@ export const LspServerConfigSchema = z.object({
     .describe('Extra environment variables merged into the server process.'),
   extensionToLanguage: z
     .record(z.string(), z.string())
-    .describe('File extension (without dot) to LSP languageId mapping, e.g. { ts = "typescript" }.'),
+    .describe(
+      'File extension (without dot) to LSP languageId mapping, e.g. { ts = "typescript" }.',
+    ),
   initializationOptions: z
     .unknown()
     .optional()
@@ -44,7 +46,9 @@ export const LspServerConfigSchema = z.object({
   cancelGraceMs: z
     .number()
     .optional()
-    .describe('Grace period after a cancelled request before the server process is killed (default 2000).'),
+    .describe(
+      'Grace period after a cancelled request before the server process is killed (default 2000).',
+    ),
 });
 
 export const LspConfigSchema = z.object({

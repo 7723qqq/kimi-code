@@ -154,9 +154,7 @@ export function registerMcpRoutes(app: McpRouteHost, core: Scope): void {
       }
       const entry = resolved.view.get(tail);
       if (entry === undefined) {
-        reply.send(
-          errEnvelope(ErrorCode.VALIDATION_FAILED, `unknown MCP server: ${tail}`, req.id),
-        );
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unknown MCP server: ${tail}`, req.id));
         return;
       }
       const detail = resolved.view.resolved(tail);
@@ -211,9 +209,7 @@ export function registerMcpRoutes(app: McpRouteHost, core: Scope): void {
         return;
       }
       if (parsed.kind === 'bare') {
-        reply.send(
-          errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id),
-        );
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
         return;
       }
       const resolved = await resolveMcpView(core, session_id, req.id);

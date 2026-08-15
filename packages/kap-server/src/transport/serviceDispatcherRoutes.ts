@@ -93,9 +93,7 @@ export function registerServiceDispatcherRoutes(
   // Introspection: the dynamic service browser (kimi-inspect) reads this once
   // per connection.
   const describe = opts.describe ?? describeAllChannels;
-  app.get(`${basePath}/channels`, async (req, reply) =>
-    reply.send(okEnvelope(describe(), req.id)),
-  );
+  app.get(`${basePath}/channels`, async (req, reply) => reply.send(okEnvelope(describe(), req.id)));
 }
 
 function makeHandler(

@@ -10,15 +10,11 @@ import { createScopedTestHost } from '#/_base/di/test';
 import { IFeatureManager } from '#/app/feature/featureManager';
 import { FeatureManagerService } from '#/app/feature/featureManagerService';
 import { LifecycleScope } from '#/app/scopes';
-import { IFeatureAssemblyService } from '#/features/featureAssembly';
-import { FeatureAssemblyService } from '#/features/featureAssemblyService';
-import {
-  _clearFeatureRecipesForTests,
-  registerFeature,
-} from '#/features/featureRegistry';
-
 import { IDebugEventsService } from '#/features/debugEvents/debugEvents';
 import { DebugEventsFeature } from '#/features/debugEvents/debugEventsFeature';
+import { IFeatureAssemblyService } from '#/features/featureAssembly';
+import { FeatureAssemblyService } from '#/features/featureAssemblyService';
+import { _clearFeatureRecipesForTests, registerFeature } from '#/features/featureRegistry';
 
 describe('DebugEventsFeature — App-scope introspection service', () => {
   beforeEach(() => {

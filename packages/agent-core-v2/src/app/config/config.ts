@@ -28,8 +28,8 @@
  * fallback; both surface warning `ConfigDiagnostic`s while in use.
  */
 
-import type { Event } from '#/_base/event';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { Event } from '#/_base/event';
 
 import { isPlainObject } from './configPure';
 
@@ -111,7 +111,10 @@ export function stripEnvBoundFields<T>(bindings: EnvBindings<T>): ConfigStripEnv
  * var wins when set and parseable, then the deprecated fallback (same rule as
  * the read path in `configService`'s `resolveBinding`).
  */
-function resolvesFromEnv(binding: EnvBinding, getEnv: (name: string) => string | undefined): boolean {
+function resolvesFromEnv(
+  binding: EnvBinding,
+  getEnv: (name: string) => string | undefined,
+): boolean {
   const parse = typeof binding === 'string' ? undefined : binding.parse;
   const names =
     typeof binding === 'string'
@@ -159,11 +162,7 @@ export interface ConfigEffectiveOverlay {
     getEnv: (name: string) => string | undefined,
     validate: (domain: string, value: unknown) => unknown,
   ): readonly string[];
-  strip?(
-    domain: string,
-    value: unknown,
-    rawSnake: Record<string, unknown>,
-  ): unknown;
+  strip?(domain: string, value: unknown, rawSnake: Record<string, unknown>): unknown;
 }
 
 export interface IConfigRegistry {
@@ -172,7 +171,11 @@ export interface IConfigRegistry {
   readonly onDidRegisterSection: Event<ConfigSectionRegisteredEvent>;
   readonly onDidUnregisterSection: Event<ConfigSectionRegisteredEvent>;
   readonly onDidRegisterOverlay: Event<ConfigOverlayRegisteredEvent>;
-  registerSection<T>(domain: string, schema: ConfigSchema<T>, options?: RegisterSectionOptions<T>): void;
+  registerSection<T>(
+    domain: string,
+    schema: ConfigSchema<T>,
+    options?: RegisterSectionOptions<T>,
+  ): void;
   unregisterSection(domain: string): void;
   getSection(domain: string): ConfigSection | undefined;
   listSections(): readonly ConfigSection[];

@@ -28,19 +28,20 @@ import {
   kimiCodeBaseUrl,
   type BearerTokenProvider,
 } from '@moonshot-ai/kimi-code-oauth';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IOAuthService } from '#/app/auth/auth';
+import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { IOAuthService } from '#/app/auth/auth';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
 import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
 import { isOAuthCatalogVendor } from '#/kosong/provider/providerDefinition';
 
 import { SERVICES_SECTION, type ServicesConfig } from '../configSection';
 import { LocalWebSearchProvider } from './providers/local-web-search';
 import { MoonshotWebSearchProvider } from './providers/moonshot-web-search';
-import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
 import { IWebSearchProviderService } from './webSearch';
 
 export class WebSearchProviderService implements IWebSearchProviderService {
@@ -81,13 +82,14 @@ export class WebSearchProviderService implements IWebSearchProviderService {
     | { provider: ProviderConfig; tokenProvider: BearerTokenProvider }
     | undefined {
     const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);
-    if (provider === undefined || !isOAuthCatalogVendor(provider.type) || provider.oauth === undefined) {
+    if (
+      provider === undefined ||
+      !isOAuthCatalogVendor(provider.type) ||
+      provider.oauth === undefined
+    ) {
       return undefined;
     }
-    const tokenProvider = this.oauth.resolveTokenProvider(
-      KIMI_CODE_PROVIDER_NAME,
-      provider.oauth,
-    );
+    const tokenProvider = this.oauth.resolveTokenProvider(KIMI_CODE_PROVIDER_NAME, provider.oauth);
     if (tokenProvider === undefined) return undefined;
     return { provider, tokenProvider };
   }

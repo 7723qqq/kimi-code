@@ -1,17 +1,19 @@
-import type { ToolCall } from '#/kosong/contract/message';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { IAgentPlanService, PlanData } from '#/features/plan/plan';
 import { EnterPlanModeTool } from '#/features/plan/tools/enter-plan-mode/enterPlanModeTool';
 import { type ExitPlanModeInput } from '#/features/plan/tools/exit-plan-mode/exit-plan-mode';
 import { ExitPlanModeTool } from '#/features/plan/tools/exit-plan-mode/exitPlanModeTool';
-import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import type { ToolCall } from '#/kosong/contract/message';
 import type { ToolResult } from '#/tool/toolContract';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 
-import { executeTool } from '../../../tools/fixtures/execute-tool';
-import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
+import {
+  recordingTelemetry as captureTelemetry,
+  type TelemetryRecord,
+} from '../../../app/telemetry/stubs';
 import {
   createTestAgent,
   execEnvServices,
@@ -19,10 +21,8 @@ import {
   telemetryServices,
   type TestAgentContext,
 } from '../../../harness/agent';
-import {
-  recordingTelemetry as captureTelemetry,
-  type TelemetryRecord,
-} from '../../../app/telemetry/stubs';
+import { executeTool } from '../../../tools/fixtures/execute-tool';
+import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 
 const ACTIVE_PLAN: NonNullable<PlanData> = {
   id: 'test-plan',
@@ -34,7 +34,6 @@ const options = [
   { label: 'Approach A', description: 'Small change.' },
   { label: 'Approach B', description: 'Larger change.' },
 ] satisfies NonNullable<ExitPlanModeInput['options']>;
-
 
 function recordingTelemetry(): {
   readonly telemetry: ITelemetryService;
@@ -268,7 +267,9 @@ describe('AgentPlanService EnterPlanMode telemetry', () => {
         expect(result[0]?.isError).toBeFalsy();
         expect(result[0]?.output).toContain('Plan mode is now active');
         expect(
-          ctx.allEvents.some((event) => event.type === '[rpc]' && event.event === 'requestApproval'),
+          ctx.allEvents.some(
+            (event) => event.type === '[rpc]' && event.event === 'requestApproval',
+          ),
         ).toBe(false);
         expect(records).toContainEqual({
           event: 'plan_enter_resolved',
@@ -306,11 +307,12 @@ describe('ExitPlanModeTool telemetry', () => {
     const result = await executeTool(
       new ExitPlanModeTool(planService({ status: null }), permissionMode(), telemetry),
       {
-      turnId: 7,
-      toolCallId: 'call_exit_plan',
-      args: {},
-      signal: new AbortController().signal,
-    });
+        turnId: 7,
+        toolCallId: 'call_exit_plan',
+        args: {},
+        signal: new AbortController().signal,
+      },
+    );
 
     expect(result).toMatchObject({
       isError: true,
@@ -346,7 +348,8 @@ describe('ExitPlanModeTool telemetry', () => {
 
   it('exposes options[].description as optional with a default of empty string', () => {
     const { telemetry } = recordingTelemetry();
-    const parameters = new ExitPlanModeTool(planService(), permissionMode(), telemetry).parameters as {
+    const parameters = new ExitPlanModeTool(planService(), permissionMode(), telemetry)
+      .parameters as {
       properties: {
         options: {
           items: {
@@ -367,12 +370,15 @@ describe('ExitPlanModeTool telemetry', () => {
     const exit = vi.fn();
     const { telemetry, track2 } = recordingTelemetry();
 
-    const result = await executeTool(new ExitPlanModeTool(planService({ exit }), permissionMode(), telemetry), {
-      turnId: 7,
-      toolCallId: 'call_exit_plan',
-      args: {},
-      signal: new AbortController().signal,
-    });
+    const result = await executeTool(
+      new ExitPlanModeTool(planService({ exit }), permissionMode(), telemetry),
+      {
+        turnId: 7,
+        toolCallId: 'call_exit_plan',
+        args: {},
+        signal: new AbortController().signal,
+      },
+    );
 
     expect(result.isError).toBe(false);
     expect(exit).toHaveBeenCalledTimes(1);
@@ -387,12 +393,15 @@ describe('ExitPlanModeTool telemetry', () => {
   it('tracks submitted with options only when multiple options are present', async () => {
     const { telemetry, track2 } = recordingTelemetry();
 
-    const result = await executeTool(new ExitPlanModeTool(planService(), permissionMode(), telemetry), {
-      turnId: 7,
-      toolCallId: 'call_exit_plan_options',
-      args: { options },
-      signal: new AbortController().signal,
-    });
+    const result = await executeTool(
+      new ExitPlanModeTool(planService(), permissionMode(), telemetry),
+      {
+        turnId: 7,
+        toolCallId: 'call_exit_plan_options',
+        args: { options },
+        signal: new AbortController().signal,
+      },
+    );
 
     expect(result.isError).toBe(false);
     expect(track2).toHaveBeenCalledWith('plan_submitted', {
@@ -409,12 +418,15 @@ describe('ExitPlanModeTool telemetry', () => {
     });
     const { telemetry, track2 } = recordingTelemetry();
 
-    const result = await executeTool(new ExitPlanModeTool(planService({ exit }), permissionMode(), telemetry), {
-      turnId: 7,
-      toolCallId: 'call_exit_plan_fail',
-      args: {},
-      signal: new AbortController().signal,
-    });
+    const result = await executeTool(
+      new ExitPlanModeTool(planService({ exit }), permissionMode(), telemetry),
+      {
+        turnId: 7,
+        toolCallId: 'call_exit_plan_fail',
+        args: {},
+        signal: new AbortController().signal,
+      },
+    );
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('Failed to exit plan mode');
@@ -433,11 +445,12 @@ describe('ExitPlanModeTool telemetry', () => {
     const result = await executeTool(
       new ExitPlanModeTool(planService(), permissionMode(), telemetry),
       {
-      turnId: 7,
-      toolCallId: 'call_exit_plan_yolo',
-      args: {},
-      signal: new AbortController().signal,
-    });
+        turnId: 7,
+        toolCallId: 'call_exit_plan_yolo',
+        args: {},
+        signal: new AbortController().signal,
+      },
+    );
 
     expect(result.isError).toBe(false);
     expect(track2).toHaveBeenCalledWith('plan_submitted', { has_options: false });
@@ -459,7 +472,8 @@ describe('ExitPlanModeTool telemetry', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      output: 'ExitPlanMode can only be called while plan mode is active. Use EnterPlanMode (or /plan) first.',
+      output:
+        'ExitPlanMode can only be called while plan mode is active. Use EnterPlanMode (or /plan) first.',
     });
   });
 });

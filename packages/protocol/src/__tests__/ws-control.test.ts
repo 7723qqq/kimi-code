@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
+import { createAsyncApiDocument } from '../asyncapi';
 import {
   abortMessageSchema,
   abortAckMessageSchema,
@@ -40,8 +42,6 @@ import {
   wsErrorMessageSchema,
   wsEventEnvelopeSchema,
 } from '../ws-control';
-import { createAsyncApiDocument } from '../asyncapi';
-import { z } from 'zod';
 
 const TS = '2026-06-04T10:30:00.000Z';
 

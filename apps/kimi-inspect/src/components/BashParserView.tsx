@@ -16,13 +16,12 @@
  * the budgeted parse never throws, `{ ok: false }` means budget exhaustion.
  */
 
-import { useEffect, useState } from 'react';
-
 import {
   IBashParserService,
   type BashParseResult,
   type BashSyntaxNode,
 } from '@moonshot-ai/agent-core-v2/app/bashParser/bashParser';
+import { useEffect, useState } from 'react';
 
 import { useConnection } from '../connection';
 import { t } from '../i18n';
@@ -140,9 +139,9 @@ export function BashParserView() {
           timeoutMs: timeoutMs === '' ? undefined : Number(timeoutMs),
           maxNodes: maxNodes === '' ? undefined : Number(maxNodes),
         })
-        .then(setResult, (e: unknown) => {
+        .then(setResult, (error: unknown) => {
           setResult(null);
-          setError(errorMessage(e));
+          setError(errorMessage(error));
         });
     }, PARSE_DEBOUNCE_MS);
     return () => {

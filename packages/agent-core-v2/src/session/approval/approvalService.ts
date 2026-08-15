@@ -12,21 +12,18 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionInteractionService } from '#/session/interaction/interaction';
 
-import {
-  type ApprovalRequest,
-  type ApprovalResponse,
-  ISessionApprovalService,
-} from './approval';
+import { type ApprovalRequest, type ApprovalResponse, ISessionApprovalService } from './approval';
 
 export class SessionApprovalService implements ISessionApprovalService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@ISessionInteractionService private readonly interaction: ISessionInteractionService) {}
+  constructor(
+    @ISessionInteractionService private readonly interaction: ISessionInteractionService,
+  ) {}
 
   request(req: ApprovalRequest): Promise<ApprovalResponse> {
     return this.interaction.request<ApprovalRequest, ApprovalResponse>({
@@ -63,4 +60,10 @@ function requestId(req: ApprovalRequest): string {
   return req.id ?? `approval_${randomUUID()}`;
 }
 
-registerScopedService(LifecycleScope.Session, ISessionApprovalService, SessionApprovalService, ScopeActivation.OnScopeCreated, 'approval');
+registerScopedService(
+  LifecycleScope.Session,
+  ISessionApprovalService,
+  SessionApprovalService,
+  ScopeActivation.OnScopeCreated,
+  'approval',
+);

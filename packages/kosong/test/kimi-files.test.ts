@@ -2,11 +2,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { APIError as OpenAIAPIError } from 'openai';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
 import { APIProviderQuotaExhaustedError, isRetryableGenerateError } from '#/errors';
 import { KimiChatProvider } from '#/providers/kimi';
 import { KimiFiles } from '#/providers/kimi-files';
-import { APIError as OpenAIAPIError } from 'openai';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 function createProvider(): KimiChatProvider {
   return new KimiChatProvider({

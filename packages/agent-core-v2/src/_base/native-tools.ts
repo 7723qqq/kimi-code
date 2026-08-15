@@ -376,7 +376,12 @@ export interface NativeCropImageOutcome {
 export async function tryNativeCropImage(
   data: Uint8Array,
   mimeType: string,
-  region: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
+  region: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  },
   config: NativeCropImageConfig,
 ): Promise<NativeCropImageOutcome | undefined> {
   const result = await callNativeAsync<NativeCropImageOutcome | null>('nativeCropImage', [
@@ -424,16 +429,25 @@ export interface NativeFileTypeResult {
   readonly mimeType: string;
 }
 
-export function tryNativeDetectFileType(path: string, header: Uint8Array): NativeFileTypeResult | undefined {
+export function tryNativeDetectFileType(
+  path: string,
+  header: Uint8Array,
+): NativeFileTypeResult | undefined {
   const m = getNativeModule();
   const detect = m?.['nativeDetectFileType'] as
-    | ((path: string, header: Uint8Array) => { kind: string; mimeType?: string; mime_type?: string } | null)
+    | ((
+        path: string,
+        header: Uint8Array,
+      ) => { kind: string; mimeType?: string; mime_type?: string } | null)
     | undefined;
   if (detect) {
     try {
       const r = detect(path, new Uint8Array(header));
       return r
-        ? { kind: r.kind as NativeFileTypeResult['kind'], mimeType: r.mimeType ?? r.mime_type ?? '' }
+        ? {
+            kind: r.kind as NativeFileTypeResult['kind'],
+            mimeType: r.mimeType ?? r.mime_type ?? '',
+          }
         : undefined;
     } catch (error) {
       reportNativeFailure('nativeDetectFileType', error);
@@ -462,31 +476,62 @@ export function tryNativeGoalApplyUpdate(
 
 /** Compute the chargeable token delta between two usage snapshots. */
 export function tryNativeGoalComputeTokenDelta(
-  prevInput: number, prevCached: number, prevOutput: number,
-  currInput: number, currCached: number, currOutput: number,
+  prevInput: number,
+  prevCached: number,
+  prevOutput: number,
+  currInput: number,
+  currCached: number,
+  currOutput: number,
 ): number | undefined {
-  return callNativeSync<number>('nativeGoalComputeTokenDelta', [prevInput, prevCached, prevOutput, currInput, currCached, currOutput]);
+  return callNativeSync<number>('nativeGoalComputeTokenDelta', [
+    prevInput,
+    prevCached,
+    prevOutput,
+    currInput,
+    currCached,
+    currOutput,
+  ]);
 }
 
 /** Render the continuation steering prompt. */
 export function tryNativeGoalRenderContinuation(
-  objective: string, tokensUsed: number, tokenBudget: number | null,
+  objective: string,
+  tokensUsed: number,
+  tokenBudget: number | null,
 ): string | undefined {
-  return callNativeSync<string>('nativeGoalRenderContinuation', [objective, tokensUsed, tokenBudget]);
+  return callNativeSync<string>('nativeGoalRenderContinuation', [
+    objective,
+    tokensUsed,
+    tokenBudget,
+  ]);
 }
 
 /** Render the budget-limit wrap-up prompt. */
 export function tryNativeGoalRenderBudgetLimit(
-  objective: string, tokensUsed: number, tokenBudget: number | null, timeUsedSeconds: number,
+  objective: string,
+  tokensUsed: number,
+  tokenBudget: number | null,
+  timeUsedSeconds: number,
 ): string | undefined {
-  return callNativeSync<string>('nativeGoalRenderBudgetLimit', [objective, tokensUsed, tokenBudget, timeUsedSeconds]);
+  return callNativeSync<string>('nativeGoalRenderBudgetLimit', [
+    objective,
+    tokensUsed,
+    tokenBudget,
+    timeUsedSeconds,
+  ]);
 }
 
 /** Render the objective-updated prompt. */
 export function tryNativeGoalRenderObjectiveUpdated(
-  objective: string, tokensUsed: number, tokenBudget: number | null,
+  objective: string,
+  tokensUsed: number,
+  tokenBudget: number | null,
 ): string | undefined {
-  return callNativeSync<string>('nativeGoalRenderObjectiveUpdated', [objective, tokensUsed, tokenBudget]);
+  return callNativeSync<string>('nativeGoalRenderObjectiveUpdated', [
+    objective,
+    tokensUsed,
+    tokenBudget,
+  ]);
 }
 
 // ============================================================================
@@ -754,14 +799,11 @@ export function tryNativeSelectCompactionUserMessages(
   maxTokens: number,
   headTokens: number,
 ): NativeCompactionUserSelection | undefined {
-  return callNativeSync<NativeCompactionUserSelection>(
-    'nativeSelectCompactionUserMessages',
-    [
-      messages.map((m) => ({ role: m.role, text: m.text, tokens: m.tokens })),
-      maxTokens,
-      headTokens,
-    ],
-  );
+  return callNativeSync<NativeCompactionUserSelection>('nativeSelectCompactionUserMessages', [
+    messages.map((m) => ({ role: m.role, text: m.text, tokens: m.tokens })),
+    maxTokens,
+    headTokens,
+  ]);
 }
 
 // ============================================================================
@@ -793,9 +835,8 @@ export function tryNativeWriteToolOutputChunk(
   maxLineLength: number | null,
   alreadyTruncated: boolean,
 ): NativeToolOutputChunkResult | undefined {
-  return callNativeSync<NativeToolOutputChunkResult>(
-    'nativeWriteToolOutputChunk',
-    [text,
+  return callNativeSync<NativeToolOutputChunkResult>('nativeWriteToolOutputChunk', [
+    text,
     currentNchars,
     maxChars,
     maxLineLength,
@@ -846,11 +887,18 @@ export function tryNativeToolAccessesConflict(
   left: readonly NativeToolAccessMeta[],
   right: readonly NativeToolAccessMeta[],
 ): boolean | undefined {
-  return callNativeSync<boolean>(
-    'nativeToolAccessesConflict',
-    [
-      left.map((a) => ({ kind: a.kind, operation: a.operation ?? null, path: a.path ?? null, recursive: a.recursive ?? null })),
-      right.map((a) => ({ kind: a.kind, operation: a.operation ?? null, path: a.path ?? null, recursive: a.recursive ?? null })),
-    ],
-  );
+  return callNativeSync<boolean>('nativeToolAccessesConflict', [
+    left.map((a) => ({
+      kind: a.kind,
+      operation: a.operation ?? null,
+      path: a.path ?? null,
+      recursive: a.recursive ?? null,
+    })),
+    right.map((a) => ({
+      kind: a.kind,
+      operation: a.operation ?? null,
+      path: a.path ?? null,
+      recursive: a.recursive ?? null,
+    })),
+  ]);
 }

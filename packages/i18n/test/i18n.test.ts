@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
 import { t, setLocale, getLocale } from '#/i18n';
 import en from '#/locales/en';
 import zh from '#/locales/zh';
@@ -66,7 +67,9 @@ describe('i18n', () => {
   describe('toolsV2 interpolation', () => {
     it('interpolates planMode keys with params', () => {
       expect(t('toolsV2.planMode.exitFailedDetail', { message: 'timeout' })).toContain('timeout');
-      expect(t('toolsV2.planMode.noPlanFileDetail', { path: '/tmp/plan.md' })).toContain('/tmp/plan.md');
+      expect(t('toolsV2.planMode.noPlanFileDetail', { path: '/tmp/plan.md' })).toContain(
+        '/tmp/plan.md',
+      );
       expect(t('toolsV2.planMode.planSaved', { path: '/tmp/plan.md' })).toContain('/tmp/plan.md');
     });
 
@@ -81,8 +84,12 @@ describe('i18n', () => {
     });
 
     it('interpolates readMedia keys with params', () => {
-      expect(t('toolsV2.readMedia.fileTooLarge', { path: 'big.jpg', size: '999999', max: '50' })).toContain('big.jpg');
-      expect(t('toolsV2.readMedia.fileTooLarge', { path: 'big.jpg', size: '999999', max: '50' })).toContain('50');
+      expect(
+        t('toolsV2.readMedia.fileTooLarge', { path: 'big.jpg', size: '999999', max: '50' }),
+      ).toContain('big.jpg');
+      expect(
+        t('toolsV2.readMedia.fileTooLarge', { path: 'big.jpg', size: '999999', max: '50' }),
+      ).toContain('50');
     });
 
     it('interpolates abort keys (no params)', () => {
@@ -115,7 +122,9 @@ describe('i18n', () => {
               // Exception: only JS escape sequences like \n should not be flagged
               const prefix = value.substring(0, Math.max(0, singleBrace.index! - 1));
               if (!prefix.endsWith('\\')) {
-                expect.unreachable(`toolsV2.${fullKey} has single-brace placeholder "${singleBrace[0]}" in "${value}"`);
+                expect.unreachable(
+                  `toolsV2.${fullKey} has single-brace placeholder "${singleBrace[0]}" in "${value}"`,
+                );
               }
             }
           } else {

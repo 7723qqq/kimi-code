@@ -21,16 +21,14 @@ export const DebateParticipantSchema = z.object({
     .optional()
     .default('coder')
     .describe('Agent profile name, e.g. "coder" or "explore".'),
-  roleDescription: z
-    .string()
-    .trim()
-    .min(1)
-    .describe('Role description for this participant.'),
+  roleDescription: z.string().trim().min(1).describe('Role description for this participant.'),
   assignedStance: z
     .string()
     .trim()
     .optional()
-    .describe('Optional: assign a specific stance to this participant (e.g. "argue for migration").'),
+    .describe(
+      'Optional: assign a specific stance to this participant (e.g. "argue for migration").',
+    ),
 });
 
 export const SwarmDiscussionToolInputSchema = z.object({
@@ -38,7 +36,9 @@ export const SwarmDiscussionToolInputSchema = z.object({
     .enum(['discussion', 'debate'])
     .optional()
     .default('discussion')
-    .describe('"discussion" for open roundtable, "debate" for structured debate with opening/free-debate/closing phases.'),
+    .describe(
+      '"discussion" for open roundtable, "debate" for structured debate with opening/free-debate/closing phases.',
+    ),
   topic: z.string().trim().min(1).describe('The topic or question to discuss/debate.'),
   participants: z
     .array(DebateParticipantSchema)
@@ -56,7 +56,9 @@ export const SwarmDiscussionToolInputSchema = z.object({
     .string()
     .trim()
     .optional()
-    .describe('Optional prompt to generate a final summary or consensus after the discussion/debate.'),
+    .describe(
+      'Optional prompt to generate a final summary or consensus after the discussion/debate.',
+    ),
   enableVoting: z
     .boolean()
     .optional()
@@ -70,6 +72,5 @@ export interface IAgentSwarmDiscussionTool extends AgentTool<SwarmDiscussionTool
   readonly _serviceBrand: undefined;
 }
 
-export const IAgentSwarmDiscussionTool = createDecorator<IAgentSwarmDiscussionTool>(
-  'swarmDiscussionTool',
-);
+export const IAgentSwarmDiscussionTool =
+  createDecorator<IAgentSwarmDiscussionTool>('swarmDiscussionTool');

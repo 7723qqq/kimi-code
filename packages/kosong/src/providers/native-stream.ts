@@ -213,11 +213,21 @@ class NativeStreamedMessage implements StreamedMessage {
     };
   }
 
-  get id(): string | null { return this._id; }
-  get usage(): TokenUsage | null { return this._usage; }
-  get finishReason(): FinishReason | null { return this._finishReason; }
-  get rawFinishReason(): string | null { return this._rawFinishReason; }
-  get traceId(): string | null { return this._traceId; }
+  get id(): string | null {
+    return this._id;
+  }
+  get usage(): TokenUsage | null {
+    return this._usage;
+  }
+  get finishReason(): FinishReason | null {
+    return this._finishReason;
+  }
+  get rawFinishReason(): string | null {
+    return this._rawFinishReason;
+  }
+  get traceId(): string | null {
+    return this._traceId;
+  }
 
   async *[Symbol.asyncIterator](): AsyncIterator<StreamedMessagePart> {
     for (const part of this._parts) {
@@ -302,7 +312,14 @@ export async function tryNativeLlmStreamIncremental(
     if (error !== null && error !== undefined) {
       // napi TSFN follows Node callback conventions: first arg is the error.
       // Treat a callback-time error like a stream error event.
-      done = { error: error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error) };
+      done = {
+        error:
+          error instanceof Error
+            ? error.message
+            : typeof error === 'string'
+              ? error
+              : JSON.stringify(error),
+      };
       recordNativeFailure();
       settled = true;
       wake();
@@ -331,15 +348,23 @@ export async function tryNativeLlmStreamIncremental(
   };
 
   try {
-    (fn as (config: unknown, onEvent: (error: unknown, event: NativeLlmEventPayload) => void) => void)({
-      provider: config.provider,
-      url: config.url,
-      apiKey: config.apiKey,
-      model: config.model,
-      requestBody: config.requestBody,
-      timeoutMs: config.timeoutMs ?? null,
-      extraHeaders: config.extraHeaders ?? undefined,
-    }, onEvent);
+    (
+      fn as (
+        config: unknown,
+        onEvent: (error: unknown, event: NativeLlmEventPayload) => void,
+      ) => void
+    )(
+      {
+        provider: config.provider,
+        url: config.url,
+        apiKey: config.apiKey,
+        model: config.model,
+        requestBody: config.requestBody,
+        timeoutMs: config.timeoutMs ?? null,
+        extraHeaders: config.extraHeaders ?? undefined,
+      },
+      onEvent,
+    );
   } catch (error) {
     if (error instanceof Error) {
       const msg = error.message;
@@ -427,7 +452,6 @@ class NativeIncrementalStreamedMessage implements StreamedMessage {
     }
   }
 }
-
 
 /**
  * Try to execute an LLM stream via the Rust native module.

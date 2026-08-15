@@ -36,10 +36,7 @@ export interface InteractionRecord {
 
 export type InteractionModelState = Map<string, InteractionRecord>;
 
-export const InteractionModel = defineModel<InteractionModelState>(
-  'interaction',
-  () => new Map(),
-);
+export const InteractionModel = defineModel<InteractionModelState>('interaction', () => new Map());
 
 declare module '#/wire/types' {
   interface PersistedOpMap {

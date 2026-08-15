@@ -12,9 +12,8 @@ import { dirname, join } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 
-import { getDataDir } from '#/utils/paths';
-
 import { t } from '#/i18n';
+import { getDataDir } from '#/utils/paths';
 
 export function getInvalidTuiConfigMessage(): string {
   return t('tui.statusMessages.invalidTuiConfig');
@@ -184,10 +183,7 @@ export async function loadTuiConfig(
   }
 }
 
-export function parseTuiConfig(
-  tomlText: string,
-  warn?: (message: string) => void,
-): TuiConfig {
+export function parseTuiConfig(tomlText: string, warn?: (message: string) => void): TuiConfig {
   if (tomlText.trim().length === 0) {
     return DEFAULT_TUI_CONFIG;
   }

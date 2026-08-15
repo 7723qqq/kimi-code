@@ -37,9 +37,7 @@ export function selectMcpStartupStatusRows(
     .slice(0, MCP_STARTUP_STATUS_ROW_LIMIT);
 }
 
-export function formatMcpStartupStatusSummary(
-  servers: readonly McpServerStatusSnapshot[],
-): string {
+export function formatMcpStartupStatusSummary(servers: readonly McpServerStatusSnapshot[]): string {
   let failed = 0;
   let needsAuth = 0;
   let connecting = 0;

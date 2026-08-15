@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 import {
   fetchClientConfig,
@@ -10,11 +11,13 @@ import {
   peekClientConfig,
   resetClientConfigCache,
 } from '#/utils/client-configs';
-import { z } from 'zod';
 
 const configSchema = z.object({
   version: z.literal(1),
-  config: z.record(z.string(), z.object({ min_tokens_to_hint: z.number(), cache_duration: z.number() })),
+  config: z.record(
+    z.string(),
+    z.object({ min_tokens_to_hint: z.number(), cache_duration: z.number() }),
+  ),
 });
 
 const CONFIG = {
@@ -209,7 +212,9 @@ describe('peekClientConfig', () => {
       cacheFile: null,
     });
 
-    expect(peekClientConfig('estimated_cache_duration', configSchema, now + 60_000)).toEqual(CONFIG);
+    expect(peekClientConfig('estimated_cache_duration', configSchema, now + 60_000)).toEqual(
+      CONFIG,
+    );
     expect(
       peekClientConfig('estimated_cache_duration', configSchema, now + 25 * 60 * 60 * 1000),
     ).toBeUndefined();
@@ -247,7 +252,9 @@ describe('getClientConfig disk cache', () => {
     expect(result).toEqual(CONFIG);
     expect(fetchImpl).not.toHaveBeenCalled();
     // The in-process layer was warmed with the original fetch time.
-    expect(peekClientConfig('estimated_cache_duration', configSchema, now + 60_000)).toEqual(CONFIG);
+    expect(peekClientConfig('estimated_cache_duration', configSchema, now + 60_000)).toEqual(
+      CONFIG,
+    );
   });
 
   it('serves the disk entry after the in-process cache is dropped (restart)', async () => {
@@ -288,7 +295,9 @@ describe('getClientConfig disk cache', () => {
       cacheFile: file,
     });
     // 2h later (25h since the actual fetch): the warmed entry must be stale.
-    expect(peekClientConfig('estimated_cache_duration', configSchema, now + 2 * 60 * 60 * 1000)).toBeUndefined();
+    expect(
+      peekClientConfig('estimated_cache_duration', configSchema, now + 2 * 60 * 60 * 1000),
+    ).toBeUndefined();
   });
 
   it('refetches and rewrites the file when the disk entry is stale', async () => {

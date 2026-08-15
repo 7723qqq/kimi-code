@@ -1,9 +1,9 @@
 // apps/kimi-web/src/api/daemon/http.ts
 // DaemonHttpClient — REST transport with envelope unwrap and allowCodes support.
 
+import { traceRestFailure, traceRestRequest, traceRestResponse } from '../../debug/trace';
 import { buildRestUrl } from '../config';
 import { DaemonApiError, DaemonNetworkError } from '../errors';
-import { traceRestFailure, traceRestRequest, traceRestResponse } from '../../debug/trace';
 import { getCredential, markAuthRequired } from './serverAuth';
 import type { WireEnvelope } from './wire';
 
@@ -95,7 +95,10 @@ export class DaemonHttpClient {
     private readonly identity?: DaemonHttpClientIdentity,
   ) {}
 
-  async get<T>(path: string, query?: Record<string, string | number | boolean | undefined>): Promise<T> {
+  async get<T>(
+    path: string,
+    query?: Record<string, string | number | boolean | undefined>,
+  ): Promise<T> {
     return this.request<T>('GET', path, undefined, query);
   }
 
@@ -262,7 +265,9 @@ export class DaemonHttpClient {
       }
 
       const diagnosticResponse = response.clone();
-      const error = new TypeError(`Expected application/zip, received ${contentType ?? 'no content type'}`);
+      const error = new TypeError(
+        `Expected application/zip, received ${contentType ?? 'no content type'}`,
+      );
       traceRestFailure({
         method,
         path,
@@ -346,9 +351,21 @@ export class DaemonHttpClient {
     traceRestRequest({ method: 'POST', path, url, requestId, body: describeFormData(formData) });
     let response: Response;
     try {
-      response = await fetch(url, { method: 'POST', headers, body: formData, signal: timeoutSignal() });
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: timeoutSignal(),
+      });
     } catch (error) {
-      traceRestFailure({ method: 'POST', path, requestId, phase: 'fetch', durationMs: Date.now() - startedAt, error: error });
+      traceRestFailure({
+        method: 'POST',
+        path,
+        requestId,
+        phase: 'fetch',
+        durationMs: Date.now() - startedAt,
+        error: error,
+      });
       throw new DaemonNetworkError({
         message: `Network error calling POST ${path}`,
         cause: error,
@@ -367,7 +384,15 @@ export class DaemonHttpClient {
     try {
       envelope = (await response.json()) as WireEnvelope<T>;
     } catch (error) {
-      traceRestFailure({ method: 'POST', path, requestId, phase: 'parse', durationMs: Date.now() - startedAt, status: response.status, error: error });
+      traceRestFailure({
+        method: 'POST',
+        path,
+        requestId,
+        phase: 'parse',
+        durationMs: Date.now() - startedAt,
+        status: response.status,
+        error: error,
+      });
       throw new DaemonNetworkError({
         message: `Failed to parse JSON response from POST ${path}`,
         cause: error,
@@ -461,7 +486,14 @@ export class DaemonHttpClient {
         signal: timeoutSignal(),
       });
     } catch (error) {
-      traceRestFailure({ method, path, requestId, phase: 'fetch', durationMs: Date.now() - startedAt, error: error });
+      traceRestFailure({
+        method,
+        path,
+        requestId,
+        phase: 'fetch',
+        durationMs: Date.now() - startedAt,
+        error: error,
+      });
       throw new DaemonNetworkError({
         message: `Network error calling ${method} ${path}`,
         cause: error,
@@ -482,7 +514,15 @@ export class DaemonHttpClient {
     try {
       envelope = (await response.json()) as WireEnvelope<T>;
     } catch (error) {
-      traceRestFailure({ method, path, requestId, phase: 'parse', durationMs: Date.now() - startedAt, status: response.status, error: error });
+      traceRestFailure({
+        method,
+        path,
+        requestId,
+        phase: 'parse',
+        durationMs: Date.now() - startedAt,
+        status: response.status,
+        error: error,
+      });
       throw new DaemonNetworkError({
         message: `Failed to parse JSON response from ${method} ${path}`,
         cause: error,
@@ -545,10 +585,7 @@ export class DaemonHttpClient {
   }
 
   private checkAuthRequired(response: Response, envelopeCode: number): void {
-    if (
-      response.status === 401 ||
-      envelopeCode === SERVER_AUTH_UNAUTHORIZED_CODE
-    ) {
+    if (response.status === 401 || envelopeCode === SERVER_AUTH_UNAUTHORIZED_CODE) {
       markAuthRequired();
     }
   }

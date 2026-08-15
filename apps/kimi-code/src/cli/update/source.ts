@@ -164,9 +164,7 @@ export async function detectInstallSource(
   const platform = deps.platform ?? process.platform;
   const resolved: DetectInstallSourceDeps = {
     getPackageRoot: deps.getPackageRoot ?? getHostPackageRoot,
-    getGlobalPrefix:
-      deps.getGlobalPrefix ??
-      (() => npmGlobalPrefix(platform)),
+    getGlobalPrefix: deps.getGlobalPrefix ?? (() => npmGlobalPrefix(platform)),
     detectNative: deps.detectNative ?? detectNativeInstall,
     platform,
   };

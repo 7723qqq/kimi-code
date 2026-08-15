@@ -20,10 +20,9 @@ export interface LlmRequestTraceState {
   readonly seenToolsHashes: readonly string[];
 }
 
-export const LlmRequestTraceModel = defineModel<LlmRequestTraceState>(
-  'llm.requestTrace',
-  () => ({ seenToolsHashes: [] }),
-);
+export const LlmRequestTraceModel = defineModel<LlmRequestTraceState>('llm.requestTrace', () => ({
+  seenToolsHashes: [],
+}));
 
 const llmToolEntrySchema = z.object({
   name: z.string(),

@@ -819,8 +819,10 @@ export default {
         tabHintMarketplace: ' Tab switch · ↑↓ navigate · Enter open/install · Esc cancel',
         loadingMarketplace: 'Loading marketplace…',
         marketplaceUnavailable: 'Marketplace unavailable: {{message}}',
-        pluginMarketplaceEntrySourceRequired: 'Plugin marketplace entry {{id}} must define "source".',
-        pluginMarketplaceEntryFieldRequired: 'Plugin marketplace entry {{index}} must define "{{field}}".',
+        pluginMarketplaceEntrySourceRequired:
+          'Plugin marketplace entry {{id}} must define "source".',
+        pluginMarketplaceEntryFieldRequired:
+          'Plugin marketplace entry {{index}} must define "{{field}}".',
         useCustomTabHint: 'Use the Custom tab to install from a URL.',
         noPluginsFound: 'No plugins found.',
         marketplaceCount: '{{installed}} installed · {{available}} available',
@@ -1320,7 +1322,8 @@ export default {
         'Imported {{count}} provider{{plural}} ({{modelCount}} model{{modelPlural}}) from {{url}}:',
       providerDefaultSet: 'Default model set to {{id}}/{{model}}.',
       providerCatalogFetchFailed: 'Failed to fetch catalog from {{url}}{{suffix}}: {{error}}',
-      providerCatalogFallbackWarning: 'Warning: failed to reach {{url}}; using the built-in models.dev catalog snapshot.',
+      providerCatalogFallbackWarning:
+        'Warning: failed to reach {{url}}; using the built-in models.dev catalog snapshot.',
       // tui/commands/provider.ts
       addProviderTitle: 'Add a Third-party Provider',
       selectProviderTitle: 'Select a provider',

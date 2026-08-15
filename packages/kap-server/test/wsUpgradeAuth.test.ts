@@ -17,8 +17,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket, type RawData } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { fixedTokenAuth } from './helpers/fixedAuth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 const TOKEN = 'test-token';
 
@@ -35,7 +35,10 @@ interface ConnectOptions {
 }
 
 /** Resolve when the socket opens and the server's first frame arrives. */
-function openConn(url: string, opts?: ConnectOptions): Promise<{ ws: WebSocket; firstFrame: unknown }> {
+function openConn(
+  url: string,
+  opts?: ConnectOptions,
+): Promise<{ ws: WebSocket; firstFrame: unknown }> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, opts?.protocols, { headers: opts?.headers });
     ws.once('message', (data) => {
@@ -64,10 +67,7 @@ function expectRejected(url: string, opts?: ConnectOptions): Promise<void> {
       if (err !== undefined) reject(err);
       else resolve();
     };
-    const t = setTimeout(
-      () => done(new Error('connection was not rejected within timeout')),
-      1500,
-    );
+    const t = setTimeout(() => done(new Error('connection was not rejected within timeout')), 1500);
     ws.once('open', () => done(new Error('connection unexpectedly opened')));
     ws.once('error', () => done());
     ws.once('close', () => done());

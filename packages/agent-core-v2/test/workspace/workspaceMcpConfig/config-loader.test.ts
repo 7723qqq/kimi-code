@@ -9,12 +9,16 @@
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+
 import { join } from 'pathe';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { ErrorCodes, Error2 } from '#/errors';
-import { loadMcpServers, resolveMcpJsonPaths } from '#/workspace/workspaceMcpConfig/internal/config-loader';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import {
+  loadMcpServers,
+  resolveMcpJsonPaths,
+} from '#/workspace/workspaceMcpConfig/internal/config-loader';
 
 const fs = new HostFileSystem();
 
@@ -175,7 +179,11 @@ describe('loadMcpServers', () => {
       transport: 'stdio',
       command: 'shared-project',
     });
-    expect(servers['rootOnly']).toEqual({ transport: 'stdio', command: 'root-only', cwd: repoRoot });
+    expect(servers['rootOnly']).toEqual({
+      transport: 'stdio',
+      command: 'root-only',
+      cwd: repoRoot,
+    });
     expect(servers['userOnly']).toEqual({ transport: 'stdio', command: 'user-only' });
     expect(servers['projectOnly']).toEqual({ transport: 'http', url: 'https://mcp.example.com' });
   });

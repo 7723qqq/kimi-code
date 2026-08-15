@@ -19,7 +19,6 @@
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-
 import type {
   HostEnvironmentInfo,
   OsKind,

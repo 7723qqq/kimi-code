@@ -23,7 +23,6 @@
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { type IDisposable } from '#/_base/di/lifecycle';
-
 import { StorageError, StorageErrors } from '#/persistence/interface/storage';
 
 export class AppendLogCorruptedError extends StorageError {

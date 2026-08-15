@@ -10,19 +10,23 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { PARENT_SESSION_ID_KEY, type ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import type { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import {
+  PARENT_SESSION_ID_KEY,
+  type ISessionIndex,
+  type SessionSummary,
+} from '#/app/sessionIndex/sessionIndex';
 import type { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
-import { filterSessionResults, materializeSessionResultFilters } from '#/features/sessionQuery/filters';
+import {
+  filterSessionResults,
+  materializeSessionResultFilters,
+} from '#/features/sessionQuery/filters';
 import { traceLineage } from '#/features/sessionQuery/lineage';
 import { SessionQueryService } from '#/features/sessionQuery/sessionQueryService';
 import type { SessionLineageNode, SessionRecord } from '#/features/sessionQuery/types';
+import type { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 
-function record(
-  id: string,
-  overrides: Partial<SessionRecord> = {},
-): SessionRecord {
+function record(id: string, overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
     id,
     workspaceId: 'ws',
@@ -33,10 +37,7 @@ function record(
   };
 }
 
-function summary(
-  id: string,
-  overrides: Partial<SessionSummary> = {},
-): SessionSummary {
+function summary(id: string, overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {
     id,
     workspaceId: 'ws',
@@ -63,7 +64,9 @@ describe('filterSessionResults', () => {
   });
 
   it('filters by id', () => {
-    expect(filterSessionResults(records, [{ kind: 'id', values: ['b'] }]).map((r) => r.id)).toEqual(['b']);
+    expect(filterSessionResults(records, [{ kind: 'id', values: ['b'] }]).map((r) => r.id)).toEqual(
+      ['b'],
+    );
   });
 
   it('filters by created-at range inclusively', () => {
@@ -211,10 +214,7 @@ describe('SessionQueryService', () => {
 
   it('derives parent session ids from custom.parent_session_id', async () => {
     const service = makeService(
-      [
-        summary('child', { custom: { [PARENT_SESSION_ID_KEY]: 'parent' } }),
-        summary('parent', {}),
-      ],
+      [summary('child', { custom: { [PARENT_SESSION_ID_KEY]: 'parent' } }), summary('parent', {})],
       [],
     );
     const record = await service.getSession('child');

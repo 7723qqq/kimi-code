@@ -34,7 +34,10 @@ export function displayName(value: string | undefined): string | undefined {
   // local path and leak it into the reference.
   const leaf = value.slice(Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\')) + 1);
   // eslint-disable-next-line unicorn/escape-case -- the literal backslash names the Windows separator.
-  const clean = leaf.replaceAll(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 255);
+  const clean = leaf
+    .replaceAll(/[\u0000-\u001F\u007F]/g, '')
+    .trim()
+    .slice(0, 255);
   return clean === '' ? undefined : clean;
 }
 

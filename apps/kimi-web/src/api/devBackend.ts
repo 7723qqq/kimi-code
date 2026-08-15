@@ -19,8 +19,7 @@ export interface DevBackendState {
 /** Synchronous initial state from the Vite-injected define (no flicker). */
 export function initialDevBackendState(): DevBackendState | null {
   if (!import.meta.env.DEV) return null;
-  const presets =
-    typeof __KIMI_DEV_BACKENDS__ !== 'undefined' ? __KIMI_DEV_BACKENDS__ : null;
+  const presets = typeof __KIMI_DEV_BACKENDS__ !== 'undefined' ? __KIMI_DEV_BACKENDS__ : null;
   if (!presets) return null;
   const current =
     typeof __KIMI_DEV_PROXY_TARGET__ !== 'undefined' && __KIMI_DEV_PROXY_TARGET__

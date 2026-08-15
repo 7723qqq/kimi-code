@@ -77,30 +77,101 @@ function stripStringsAndComments(src: string): string {
     const nl = c === '\n' ? '\n' : ' ';
     switch (state) {
       case 'code':
-        if (c === '/' && c2 === '/') { state = 'line'; out += '  '; i += 2; continue; }
-        if (c === '/' && c2 === '*') { state = 'block'; out += '  '; i += 2; continue; }
-        if (c === "'") { state = 'sq'; out += ' '; i += 1; continue; }
-        if (c === '"') { state = 'dq'; out += ' '; i += 1; continue; }
-        if (c === '`') { state = 'tpl'; out += ' '; i += 1; continue; }
-        out += c; i += 1; continue;
+        if (c === '/' && c2 === '/') {
+          state = 'line';
+          out += '  ';
+          i += 2;
+          continue;
+        }
+        if (c === '/' && c2 === '*') {
+          state = 'block';
+          out += '  ';
+          i += 2;
+          continue;
+        }
+        if (c === "'") {
+          state = 'sq';
+          out += ' ';
+          i += 1;
+          continue;
+        }
+        if (c === '"') {
+          state = 'dq';
+          out += ' ';
+          i += 1;
+          continue;
+        }
+        if (c === '`') {
+          state = 'tpl';
+          out += ' ';
+          i += 1;
+          continue;
+        }
+        out += c;
+        i += 1;
+        continue;
       case 'line':
-        if (c === '\n') { state = 'code'; out += '\n'; } else out += ' ';
-        i += 1; continue;
+        if (c === '\n') {
+          state = 'code';
+          out += '\n';
+        } else out += ' ';
+        i += 1;
+        continue;
       case 'block':
-        if (c === '*' && c2 === '/') { state = 'code'; out += '  '; i += 2; continue; }
-        out += nl; i += 1; continue;
+        if (c === '*' && c2 === '/') {
+          state = 'code';
+          out += '  ';
+          i += 2;
+          continue;
+        }
+        out += nl;
+        i += 1;
+        continue;
       case 'sq':
-        if (c === '\\') { out += '  '; i += 2; continue; }
-        if (c === "'") { state = 'code'; out += ' '; i += 1; continue; }
-        out += nl; i += 1; continue;
+        if (c === '\\') {
+          out += '  ';
+          i += 2;
+          continue;
+        }
+        if (c === "'") {
+          state = 'code';
+          out += ' ';
+          i += 1;
+          continue;
+        }
+        out += nl;
+        i += 1;
+        continue;
       case 'dq':
-        if (c === '\\') { out += '  '; i += 2; continue; }
-        if (c === '"') { state = 'code'; out += ' '; i += 1; continue; }
-        out += nl; i += 1; continue;
+        if (c === '\\') {
+          out += '  ';
+          i += 2;
+          continue;
+        }
+        if (c === '"') {
+          state = 'code';
+          out += ' ';
+          i += 1;
+          continue;
+        }
+        out += nl;
+        i += 1;
+        continue;
       case 'tpl':
-        if (c === '\\') { out += '  '; i += 2; continue; }
-        if (c === '`') { state = 'code'; out += ' '; i += 1; continue; }
-        out += nl; i += 1; continue;
+        if (c === '\\') {
+          out += '  ';
+          i += 2;
+          continue;
+        }
+        if (c === '`') {
+          state = 'code';
+          out += ' ';
+          i += 1;
+          continue;
+        }
+        out += nl;
+        i += 1;
+        continue;
     }
   }
   return out;

@@ -62,20 +62,14 @@ describe('path helpers', () => {
   });
 
   it('returns absolute bin path with executable name', () => {
-    expect(nativeBinPath('darwin-arm64', 'darwin')).toBe(
-      p('dist-native/bin/darwin-arm64/kimi'),
-    );
-    expect(nativeBinPath('win32-x64', 'win32')).toBe(
-      p('dist-native/bin/win32-x64/kimi.exe'),
-    );
+    expect(nativeBinPath('darwin-arm64', 'darwin')).toBe(p('dist-native/bin/darwin-arm64/kimi'));
+    expect(nativeBinPath('win32-x64', 'win32')).toBe(p('dist-native/bin/win32-x64/kimi.exe'));
   });
 
   it('returns intermediate artifact paths', () => {
     expect(nativeJsBundlePath()).toBe(p('dist-native/intermediates/main.cjs'));
     expect(nativeBlobPath()).toBe(p('dist-native/intermediates/kimi.blob'));
-    expect(nativeSeaConfigPath()).toBe(
-      p('dist-native/intermediates/sea-config.json'),
-    );
+    expect(nativeSeaConfigPath()).toBe(p('dist-native/intermediates/sea-config.json'));
   });
 
   it('returns manifest key for target', () => {

@@ -9,12 +9,7 @@
  * - `@moonshot-ai/i18n-shared/web`  — Pure-JS browser factory (with React hook)
  */
 
-export type {
-  Locale,
-  MessageValue,
-  TranslationKey,
-  I18nInstance,
-} from './types.js';
+export type { Locale, MessageValue, TranslationKey, I18nInstance } from './types.js';
 
 export { collectLeafKeys } from './types.js';
 export { resolveMessage, interpolate, translate } from './core.js';

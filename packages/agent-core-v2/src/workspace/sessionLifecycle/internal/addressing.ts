@@ -11,6 +11,7 @@
  */
 
 import { join as nativeJoin } from 'node:path';
+
 import { join } from 'pathe';
 
 import { ErrorCodes, Error2 } from '#/errors';

@@ -1,6 +1,7 @@
 import { t } from '#/i18n';
-import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
+
 import { isExperimentalFlagEnabled } from '../../commands/experimental-flags';
+import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
 export type SettingsSelection =
   | 'model'

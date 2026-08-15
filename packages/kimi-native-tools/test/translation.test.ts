@@ -93,7 +93,9 @@ describe('nativeTranslateCached', () => {
 
   it('produces identical results to nativeTranslate', () => {
     const uncached = native.nativeTranslate(zhJson, enJson, 'common.greeting', { name: 'Rust' });
-    const cached = native.nativeTranslateCached(zhJson, enJson, 'common.greeting', { name: 'Rust' });
+    const cached = native.nativeTranslateCached(zhJson, enJson, 'common.greeting', {
+      name: 'Rust',
+    });
     expect(cached).toBe(uncached);
     expect(cached).toBe('你好，Rust！');
   });

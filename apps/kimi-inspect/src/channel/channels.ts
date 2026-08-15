@@ -74,10 +74,9 @@ export async function probeDebugSurface(options: {
     res = await fetch(url, { headers });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `cannot reach ${options.baseUrl} — is kap-server running? (${reason})`,
-      { cause: error },
-    );
+    throw new Error(`cannot reach ${options.baseUrl} — is kap-server running? (${reason})`, {
+      cause: error,
+    });
   }
   if (!res.ok) {
     throw new Error(

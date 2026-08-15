@@ -7,15 +7,17 @@
 //   - every recovered key's value is correct.
 // This is the durability contract for sequential 'always' writes.
 
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { test } from 'vitest';
+
 import { MiniDb } from '../../src/index.js';
 import { tmpDir, rmrf } from './helpers/tmp.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = import.meta.dirname;
 const WRITER = path.join(__dirname, 'helpers', 'crash-writer.ts');
 
 function crashWriter(dir: string, compactEvery: number, runMs: number): Promise<void> {
@@ -53,22 +55,26 @@ async function verifyContiguous(dir, label) {
   return last; // highest contiguous index
 }
 
-test('crash-recovery: kill mid-write, recovery yields a contiguous correct prefix', { timeout: 60_000 }, async () => {
-  // Each run spawns a child process (the dominant cost); 5 runs with random kill
-  // times still sample the crash window well.
-  const runs = 5;
-  for (let r = 0; r < runs; r++) {
-    const dir = await tmpDir();
-    try {
-      const runMs = Math.floor(Math.random() * 150);
-      await crashWriter(dir, 0, runMs);
-      const last = await verifyContiguous(dir, `run${r}`);
-      assert.ok(last >= 2, `run${r}: expected several durable keys, got up to k${last}`);
-    } finally {
-      await rmrf(dir);
+test(
+  'crash-recovery: kill mid-write, recovery yields a contiguous correct prefix',
+  { timeout: 60_000 },
+  async () => {
+    // Each run spawns a child process (the dominant cost); 5 runs with random kill
+    // times still sample the crash window well.
+    const runs = 5;
+    for (let r = 0; r < runs; r++) {
+      const dir = await tmpDir();
+      try {
+        const runMs = Math.floor(Math.random() * 150);
+        await crashWriter(dir, 0, runMs);
+        const last = await verifyContiguous(dir, `run${r}`);
+        assert.ok(last >= 2, `run${r}: expected several durable keys, got up to k${last}`);
+      } finally {
+        await rmrf(dir);
+      }
     }
-  }
-});
+  },
+);
 
 test('crash-recovery: kill during compaction, still consistent', { timeout: 60_000 }, async () => {
   const runs = 3;

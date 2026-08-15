@@ -18,12 +18,8 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { IAgentLifecycleService, getLiveSessionById } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
-import {
-  IAgentLifecycleService,
-  getLiveSessionById,
-} from '@moonshot-ai/agent-core-v2';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
@@ -104,7 +100,9 @@ describe('local/local on-disk layout (byte compatibility)', () => {
     const indexLines = (await readFile(join(home!, 'session_index.jsonl'), 'utf8'))
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line) as { sessionId: string; sessionDir: string; workDir: string });
+      .map(
+        (line) => JSON.parse(line) as { sessionId: string; sessionDir: string; workDir: string },
+      );
     expect(indexLines).toEqual([{ sessionId, sessionDir, workDir }]);
 
     // state.json — the session metadata document at the v1 path.
@@ -143,9 +141,9 @@ describe('local/local on-disk layout (byte compatibility)', () => {
     });
     expect(second.code).toBe(0);
     expect(second.data.workspace_id).toBe(workspaceId);
-    const workspacesAfter = JSON.parse(
-      await readFile(join(home!, 'workspaces.json'), 'utf8'),
-    ) as { workspaces: Record<string, unknown> };
+    const workspacesAfter = JSON.parse(await readFile(join(home!, 'workspaces.json'), 'utf8')) as {
+      workspaces: Record<string, unknown>;
+    };
     expect(Object.keys(workspacesAfter.workspaces)).toEqual([workspaceId]);
     const indexAfter = (await readFile(join(home!, 'session_index.jsonl'), 'utf8'))
       .trim()

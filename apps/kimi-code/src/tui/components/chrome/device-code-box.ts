@@ -10,7 +10,6 @@ import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
-
 import { currentTheme } from '#/tui/theme';
 
 export interface DeviceCodeBoxParams {

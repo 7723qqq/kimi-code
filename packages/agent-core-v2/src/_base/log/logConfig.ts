@@ -60,9 +60,7 @@ export function resolveLoggingConfig(input: ResolveLoggingInput): LoggingConfig 
 }
 
 export function logSeed(config: LoggingConfig): ScopeSeed {
-  return [
-    [ILogOptions as ServiceIdentifier<unknown>, config satisfies ILogOptions],
-  ];
+  return [[ILogOptions as ServiceIdentifier<unknown>, config satisfies ILogOptions]];
 }
 
 function parseLevel(value: string | undefined): LogLevel | undefined {

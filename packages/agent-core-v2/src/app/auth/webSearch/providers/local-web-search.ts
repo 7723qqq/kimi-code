@@ -17,8 +17,8 @@
  * (default 10).
  */
 
-import { Error2, ErrorCodes } from '#/errors';
 import type { WebSearchProvider, WebSearchResult } from '#/agent/tools/web-search/web-search';
+import { Error2, ErrorCodes } from '#/errors';
 
 import { searchBaidu } from '../engines/baidu';
 import { searchBing } from '../engines/bing';
@@ -30,8 +30,8 @@ import { searchJuejin } from '../engines/juejin';
 import { searchLinuxDo } from '../engines/linuxdo';
 import { searchSogou } from '../engines/sogou';
 import { searchStartpage } from '../engines/startpage';
-import { searchZhihu } from '../engines/zhihu';
 import type { SearchEngineFn } from '../engines/types';
+import { searchZhihu } from '../engines/zhihu';
 
 export type LocalSearchEngine = string;
 
@@ -68,9 +68,7 @@ export function resolveSearchEngines(
   return ordered.length > 0 ? ordered : ['duckduckgo'];
 }
 
-export function resolveResultLimit(
-  env: Record<string, string | undefined> = process.env,
-): number {
+export function resolveResultLimit(env: Record<string, string | undefined> = process.env): number {
   const raw = Number(env['KIMI_CODE_SEARCH_RESULTS']);
   return Number.isFinite(raw) && raw > 0 && raw <= 20 ? Math.floor(raw) : 10;
 }
@@ -112,10 +110,7 @@ export class LocalWebSearchProvider implements WebSearchProvider {
       } catch (error) {
         // Abort is a caller decision, not an engine failure: propagate it
         // immediately instead of falling through to the remaining engines.
-        if (
-          signal?.aborted === true ||
-          (error instanceof Error && error.name === 'AbortError')
-        ) {
+        if (signal?.aborted === true || (error instanceof Error && error.name === 'AbortError')) {
           throw error;
         }
         failures.push(`${engine}: ${error instanceof Error ? error.message : String(error)}`);

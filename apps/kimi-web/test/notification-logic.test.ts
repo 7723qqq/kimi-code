@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { i18n } from '../src/i18n';
-import { STORAGE_KEYS, safeGetString } from '../src/lib/storage';
+
 import {
   approvalNotificationCopy,
   completionNotificationCopy,
@@ -8,6 +7,8 @@ import {
   shouldNotifyCompletion,
   useNotification,
 } from '../src/composables/client/useNotification';
+import { i18n } from '../src/i18n';
+import { STORAGE_KEYS, safeGetString } from '../src/lib/storage';
 
 function createMemoryStorage(): Storage {
   const data = new Map<string, string>();

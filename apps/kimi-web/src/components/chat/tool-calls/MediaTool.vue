@@ -1,6 +1,7 @@
 <!-- apps/kimi-web/src/components/chat/tool-calls/MediaTool.vue -->
 <script setup lang="ts">
 import { computed } from 'vue';
+
 import type { ToolCall, ToolMedia } from '../../../types';
 import Tooltip from '../../ui/Tooltip.vue';
 
@@ -39,11 +40,7 @@ function openMediaPreview(): void {
       <div class="media-title">{{ mediaTitle }}</div>
     </Tooltip>
     <Tooltip v-if="media.kind === 'image'" :text="media.path || mediaTitle">
-      <button
-        type="button"
-        class="media-image-button"
-        @click="openMediaPreview"
-      >
+      <button type="button" class="media-image-button" @click="openMediaPreview">
         <img
           class="media-image"
           :src="media.url"

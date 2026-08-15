@@ -24,7 +24,11 @@ import {
   type SessionStatsState,
 } from '../src/lib/sessionStats';
 
-function frame(type: string, payload: Record<string, unknown> | null, timestamp = '2026-08-15T00:00:00.000Z'): SessionStatsFrame {
+function frame(
+  type: string,
+  payload: Record<string, unknown> | null,
+  timestamp = '2026-08-15T00:00:00.000Z',
+): SessionStatsFrame {
   return { type, session_id: 's1', timestamp, payload };
 }
 
@@ -54,13 +58,17 @@ describe('feedSessionStats', () => {
   it('ignores subagent (non-main) frames', () => {
     let s: SessionStatsState = createSessionStatsState();
     s = feedSessionStats(s, frame('turn.started', { agentId: 'sub-1' }));
-    s = feedSessionStats(s, frame('turn.step.completed', { agentId: 'sub-1', usage: { output: 5 } }));
+    s = feedSessionStats(
+      s,
+      frame('turn.step.completed', { agentId: 'sub-1', usage: { output: 5 } }),
+    );
     expect(s.stats).toEqual(createSessionStatsState().stats);
   });
 
   it('accumulates LLM wall time, TTFT, decode throughput, and usage from step completion', () => {
     let s: SessionStatsState = createSessionStatsState();
-    s = feedSessionStats(s,
+    s = feedSessionStats(
+      s,
       stepCompleted({
         llmRequestBuildMs: 100,
         llmFirstTokenLatencyMs: 800,
@@ -68,7 +76,8 @@ describe('feedSessionStats', () => {
         usage: { inputOther: 1_000, output: 400, inputCacheRead: 500, inputCacheCreation: 200 },
       }),
     );
-    s = feedSessionStats(s,
+    s = feedSessionStats(
+      s,
       stepCompleted({
         llmRequestBuildMs: 50,
         llmFirstTokenLatencyMs: 1_200,
@@ -89,9 +98,7 @@ describe('feedSessionStats', () => {
 
   it('does not count decode time when the step reports no output tokens', () => {
     let s: SessionStatsState = createSessionStatsState();
-    s = feedSessionStats(s,
-      stepCompleted({ llmStreamDurationMs: 4_000, usage: { output: 0 } }),
-    );
+    s = feedSessionStats(s, stepCompleted({ llmStreamDurationMs: 4_000, usage: { output: 0 } }));
     expect(s.stats.decodeMs).toBe(0);
     expect(s.stats.decodeTokens).toBe(0);
   });
@@ -100,7 +107,11 @@ describe('feedSessionStats', () => {
     let s: SessionStatsState = createSessionStatsState();
     s = feedSessionStats(
       s,
-      frame('tool.call.started', { toolCallId: 'call-1', toolName: 'Bash' }, '2026-08-15T00:00:01.000Z'),
+      frame(
+        'tool.call.started',
+        { toolCallId: 'call-1', toolName: 'Bash' },
+        '2026-08-15T00:00:01.000Z',
+      ),
     );
     s = feedSessionStats(
       s,
@@ -165,7 +176,11 @@ describe('derived figures', () => {
     let s: SessionStatsState = createSessionStatsState();
     s = feedSessionStats(
       s,
-      stepCompleted({ llmFirstTokenLatencyMs: 600, llmStreamDurationMs: 4_000, usage: { output: 2_000 } }),
+      stepCompleted({
+        llmFirstTokenLatencyMs: 600,
+        llmStreamDurationMs: 4_000,
+        usage: { output: 2_000 },
+      }),
     );
     expect(averageTtftMs(s.stats)).toBe(600);
     expect(tokensPerSecond(s.stats)).toBe(500);
@@ -190,7 +205,12 @@ describe('derived figures', () => {
 
 describe('normalizeUsage', () => {
   it('handles missing or malformed usage', () => {
-    expect(normalizeUsage(undefined)).toEqual({ input: 0, output: 0, cacheRead: 0, cacheCreate: 0 });
+    expect(normalizeUsage(undefined)).toEqual({
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheCreate: 0,
+    });
     expect(normalizeUsage({ inputOther: 10, output: 2 })).toEqual({
       input: 10,
       output: 2,

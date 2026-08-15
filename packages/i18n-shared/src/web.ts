@@ -10,9 +10,9 @@
  * - Optional `useLocale()` React hook for React-based apps
  */
 
-import type { Locale, MessageValue, TranslationKey, I18nInstance } from './types.js';
-import { detectLocaleWeb } from './detect.js';
 import { translate } from './core.js';
+import { detectLocaleWeb } from './detect.js';
+import type { Locale, MessageValue, TranslationKey, I18nInstance } from './types.js';
 
 // ── Factory ──────────────────────────────────────────────────────────────────
 

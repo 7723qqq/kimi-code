@@ -30,15 +30,11 @@
  * optionally without breaking existing callers.
  */
 
-import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { collection } from '#/_base/di/collection';
-import { LifecycleScope } from '#/app/scopes';
+import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import type {
-  AgentTool,
-  ToolDisclosure,
-  ToolSource,
-} from '#/tool/toolContract';
+import { LifecycleScope } from '#/app/scopes';
+import type { AgentTool, ToolDisclosure, ToolSource } from '#/tool/toolContract';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyAgentTool = AgentTool<any>;

@@ -1,48 +1,52 @@
 <script setup lang="ts">
-import { useData, withBase } from 'vitepress'
-import { computed, ref } from 'vue'
+import { useData, withBase } from 'vitepress';
+import { computed, ref } from 'vue';
 
-const { lang } = useData()
-const isZh = computed(() => lang.value.startsWith('zh'))
+const { lang } = useData();
+const isZh = computed(() => lang.value.startsWith('zh'));
 
-const installMacCommand = 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash'
-const installWinCommand = 'irm https://code.kimi.com/kimi-code/install.ps1 | iex'
-const runCommand = 'kimi'
+const installMacCommand = 'curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash';
+const installWinCommand = 'irm https://code.kimi.com/kimi-code/install.ps1 | iex';
+const runCommand = 'kimi';
 
-const copy = computed(() => isZh.value
-  ? {
-      title: '一行命令开始',
-      lede: '装好之后跑 kimi，立刻在你当前的项目里开聊。',
-      macLabel: 'macOS / Linux',
-      winLabel: 'Windows (PowerShell)',
-      runLabel: '在任意目录运行',
-      copyHint: '复制',
-      copiedHint: '已复制',
-      ctaText: '查看完整安装指南',
-      ctaHref: '/zh/guides/getting-started',
-    }
-  : {
-      title: 'Get started in one line',
-      lede: 'Once installed, run kimi inside any project to start a conversation.',
-      macLabel: 'macOS / Linux',
-      winLabel: 'Windows (PowerShell)',
-      runLabel: 'Run anywhere',
-      copyHint: 'Copy',
-      copiedHint: 'Copied',
-      ctaText: 'Read the full install guide',
-      ctaHref: '/en/guides/getting-started',
-    })
+const copy = computed(() =>
+  isZh.value
+    ? {
+        title: '一行命令开始',
+        lede: '装好之后跑 kimi，立刻在你当前的项目里开聊。',
+        macLabel: 'macOS / Linux',
+        winLabel: 'Windows (PowerShell)',
+        runLabel: '在任意目录运行',
+        copyHint: '复制',
+        copiedHint: '已复制',
+        ctaText: '查看完整安装指南',
+        ctaHref: '/zh/guides/getting-started',
+      }
+    : {
+        title: 'Get started in one line',
+        lede: 'Once installed, run kimi inside any project to start a conversation.',
+        macLabel: 'macOS / Linux',
+        winLabel: 'Windows (PowerShell)',
+        runLabel: 'Run anywhere',
+        copyHint: 'Copy',
+        copiedHint: 'Copied',
+        ctaText: 'Read the full install guide',
+        ctaHref: '/en/guides/getting-started',
+      },
+);
 
-const copiedKey = ref<string | null>(null)
-let copiedTimer: ReturnType<typeof setTimeout> | null = null
+const copiedKey = ref<string | null>(null);
+let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 function copyText(value: string, key: string) {
-  if (typeof navigator === 'undefined' || !navigator.clipboard) return
+  if (typeof navigator === 'undefined' || !navigator.clipboard) return;
   navigator.clipboard.writeText(value).then(() => {
-    copiedKey.value = key
-    if (copiedTimer) clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => { copiedKey.value = null }, 1600)
-  })
+    copiedKey.value = key;
+    if (copiedTimer) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copiedKey.value = null;
+    }, 1600);
+  });
 }
 </script>
 
@@ -104,7 +108,13 @@ function copyText(value: string, key: string) {
     <a class="KimiQuick__more" :href="withBase(copy.ctaHref)">
       {{ copy.ctaText }}
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        <path
+          d="M6 3l5 5-5 5"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
       </svg>
     </a>
   </section>
@@ -149,7 +159,9 @@ function copyText(value: string, key: string) {
   line-height: 1.4;
   color: var(--vp-c-text-1);
   overflow: hidden;
-  transition: border-color var(--kimi-transition), box-shadow var(--kimi-transition);
+  transition:
+    border-color var(--kimi-transition),
+    box-shadow var(--kimi-transition);
 }
 .KimiQuick__cmd:hover {
   border-color: var(--vp-c-brand-1);
@@ -186,7 +198,10 @@ function copyText(value: string, key: string) {
   border: 1px solid var(--vp-c-divider);
   border-radius: 8px;
   cursor: pointer;
-  transition: color var(--kimi-transition), border-color var(--kimi-transition), background var(--kimi-transition);
+  transition:
+    color var(--kimi-transition),
+    border-color var(--kimi-transition),
+    background var(--kimi-transition);
 }
 .KimiQuick__copy:hover {
   color: var(--vp-c-brand-1);
@@ -201,7 +216,9 @@ function copyText(value: string, key: string) {
   font-weight: 600;
   color: var(--vp-c-brand-1);
   text-decoration: none;
-  transition: transform var(--kimi-transition), color var(--kimi-transition);
+  transition:
+    transform var(--kimi-transition),
+    color var(--kimi-transition);
 }
 .KimiQuick__more:hover {
   color: var(--vp-c-brand-2);

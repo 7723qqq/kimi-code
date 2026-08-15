@@ -16,13 +16,12 @@
  * from the journal. Bound at Session scope.
  */
 
-import { Emitter, type Event } from '#/_base/event';
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
+import { Emitter, type Event } from '#/_base/event';
 import { defineState } from '#/_base/state/stateRegistry';
-
+import { LifecycleScope } from '#/app/scopes';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { IWireService } from '#/wire/wire';
@@ -60,8 +59,11 @@ export const interactionNextIdKey = defineState<number>('interaction.nextId', ()
 export class SessionInteractionService extends Service implements ISessionInteractionService {
   declare readonly _serviceBrand: undefined;
 
-  private readonly _onDidChangePending = this._register(new Emitter<InteractionPendingChangedEvent>());
-  readonly onDidChangePending: Event<InteractionPendingChangedEvent> = this._onDidChangePending.event;
+  private readonly _onDidChangePending = this._register(
+    new Emitter<InteractionPendingChangedEvent>(),
+  );
+  readonly onDidChangePending: Event<InteractionPendingChangedEvent> =
+    this._onDidChangePending.event;
   private readonly _onDidResolve = this._register(new Emitter<InteractionResolution>());
   readonly onDidResolve: Event<InteractionResolution> = this._onDidResolve.event;
 
@@ -187,8 +189,8 @@ export class SessionInteractionService extends Service implements ISessionIntera
     if (this.instantiation === undefined) return undefined;
     const agentId = origin.agentId ?? MAIN_AGENT_ID;
     try {
-      return this.instantiation.invokeFunction(
-        (accessor) => accessor.get(IAgentLifecycleService).get(agentId)?.accessor.get(IWireService),
+      return this.instantiation.invokeFunction((accessor) =>
+        accessor.get(IAgentLifecycleService).get(agentId)?.accessor.get(IWireService),
       );
     } catch {
       return undefined;

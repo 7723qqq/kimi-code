@@ -1,12 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createDecorator } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  _clearScopedRegistryForTests,
-  registerScopedService,
-} from '#/_base/di/scope';
+import { _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
+import { LifecycleScope } from '#/app/scopes';
 
 interface IGreeter {
   greet(): string;

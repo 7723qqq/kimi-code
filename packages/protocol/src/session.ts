@@ -1,9 +1,6 @@
 import { z } from 'zod';
 
-import {
-  promptPermissionModeSchema,
-  promptThinkingSchema,
-} from './rest/prompt';
+import { promptPermissionModeSchema, promptThinkingSchema } from './rest/prompt';
 import { isoDateTimeSchema } from './time';
 import { workspaceIdSchema } from './workspace';
 

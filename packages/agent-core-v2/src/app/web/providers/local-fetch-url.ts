@@ -16,9 +16,9 @@ import { lookup as callbackLookup, type LookupAddress, type LookupOptions } from
 import { lookup } from 'node:dns/promises';
 import { BlockList, isIP, type LookupFunction } from 'node:net';
 
+import { t } from '@moonshot-ai/kimi-i18n';
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
-import { t } from '@moonshot-ai/kimi-i18n';
 import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici';
 
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
@@ -85,8 +85,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
   constructor(options: LocalFetchURLProviderOptions = {}) {
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
-    this.pinnedFetchImpl =
-      options.pinnedFetchImpl ?? (undiciFetch as unknown as PinnedFetch);
+    this.pinnedFetchImpl = options.pinnedFetchImpl ?? (undiciFetch as unknown as PinnedFetch);
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.allowPrivateAddresses = options.allowPrivateAddresses ?? false;
   }
@@ -97,26 +96,16 @@ export class LocalFetchURLProvider implements UrlFetcher {
   ): Promise<UrlFetchResult> {
     const dispatchers: Dispatcher[] = [];
     try {
-      const response = await this.requestWithValidatedRedirects(
-        url,
-        options?.signal,
-        dispatchers,
-      );
+      const response = await this.requestWithValidatedRedirects(url, options?.signal, dispatchers);
       return await this.readResponse(response);
     } finally {
-      await Promise.all(
-        dispatchers.map((dispatcher) =>
-          dispatcher.close().catch(() => {
-          }),
-        ),
-      );
+      await Promise.all(dispatchers.map((dispatcher) => dispatcher.close().catch(() => {})));
     }
   }
 
   private async readResponse(response: Response): Promise<UrlFetchResult> {
     if (response.status >= 400) {
-      await response.body?.cancel().catch(() => {
-      });
+      await response.body?.cancel().catch(() => {});
       throw new HttpFetchError(
         response.status,
         `HTTP ${String(response.status)} ${response.statusText}`,
@@ -127,8 +116,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
     if (contentLengthRaw !== null) {
       const cl = Number(contentLengthRaw);
       if (Number.isFinite(cl) && cl > this.maxBytes) {
-        await response.body?.cancel().catch(() => {
-        });
+        await response.body?.cancel().catch(() => {});
         throw new Error2(
           ErrorCodes.WEB_FETCH_FAILED,
           `Response body too large: ${String(cl)} bytes exceeds maxBytes (${String(this.maxBytes)}).`,
@@ -178,8 +166,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
       if (!REDIRECT_STATUSES.has(response.status)) return response;
       const location = response.headers.get('location');
       if (location === null) return response;
-      await response.body?.cancel().catch(() => {
-      });
+      await response.body?.cancel().catch(() => {});
       if (redirects >= MAX_REDIRECT_HOPS) {
         throw new Error2(
           ErrorCodes.WEB_FETCH_FAILED,
@@ -228,8 +215,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
           return title.length > 0 ? `# ${title}\n\n${text}` : text;
         }
       }
-    } catch {
-    }
+    } catch {}
 
     const { document } = parseHTML(html);
     const titleText = (document.querySelector('title')?.textContent ?? '').trim();
@@ -297,8 +283,7 @@ async function readBodyStreamed(
       chunks.push(value);
     }
   } catch (error) {
-    await reader.cancel().catch(() => {
-    });
+    await reader.cancel().catch(() => {});
     throw error;
   }
   return Buffer.concat(chunks).toString('utf8');
@@ -310,12 +295,17 @@ interface SafeFetchTarget {
   addresses?: LookupAddress[];
 }
 
-async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promise<SafeFetchTarget> {
+async function resolveSafeFetchTarget(
+  url: string,
+  allowPrivate: boolean,
+): Promise<SafeFetchTarget> {
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error2(ErrorCodes.WEB_INVALID_URL, t('toolsV2.fetchUrl.invalidUrl', { url }), { details: { url } });
+    throw new Error2(ErrorCodes.WEB_INVALID_URL, t('toolsV2.fetchUrl.invalidUrl', { url }), {
+      details: { url },
+    });
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error2(
@@ -330,9 +320,13 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
   if (allowPrivate) return { host, port };
   if (isIP(host) !== 0) {
     if (isBlockedAddress(host)) {
-      throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, t('toolsV2.fetchUrl.privateAddress', { host }), {
-        details: { host },
-      });
+      throw new Error2(
+        ErrorCodes.WEB_PRIVATE_ADDRESS,
+        t('toolsV2.fetchUrl.privateAddress', { host }),
+        {
+          details: { host },
+        },
+      );
     }
     return { host, port };
   }

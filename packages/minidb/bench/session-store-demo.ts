@@ -6,6 +6,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
 import { SessionStore } from './session-store.js';
 
 const HOME = path.join(os.homedir(), '.kimi-code');
@@ -38,11 +39,16 @@ async function main() {
   t = performance.now();
   const p1 = store.listSessions(wsId, { limit: 5, offset: 0 });
   const p2 = store.listSessions(wsId, { limit: 5, offset: 5 });
-  console.log(`\n[2] listSessions(${wsId}) page1=${p1.items.length} page2=${p2.items.length} in ${ms(performance.now() - t)}`);
-  for (const s of p1.items) console.log(`    ${new Date(s.updatedAt ?? 0).toISOString().slice(0, 10)}  ${s.title.slice(0, 50)}`);
+  console.log(
+    `\n[2] listSessions(${wsId}) page1=${p1.items.length} page2=${p2.items.length} in ${ms(performance.now() - t)}`,
+  );
+  for (const s of p1.items)
+    console.log(
+      `    ${new Date(s.updatedAt ?? 0).toISOString().slice(0, 10)}  ${s.title.slice(0, 50)}`,
+    );
 
   // 3. precise get
-  if (p1.items.length) {
+  if (p1.items.length > 0) {
     const sid = p1.items[0]!.sessionId;
     t = performance.now();
     const s = store.getSession(sid);
@@ -58,19 +64,22 @@ async function main() {
     t = performance.now();
     const hits = store.search(q, { limit: 3 });
     console.log(`\n[4] search("${q}") -> ${hits.length} in ${ms(performance.now() - t)}`);
-    for (const h of hits) console.log(`    [${h.score.toFixed(3)}] ${h.workspaceName} :: ${h.title.slice(0, 50)}`);
+    for (const h of hits)
+      console.log(`    [${h.score.toFixed(3)}] ${h.workspaceName} :: ${h.title.slice(0, 50)}`);
   }
 
   // 4b. search scoped to a workspace
   t = performance.now();
   const scoped = store.search('database', { workspaceId: wsId, limit: 3 });
-  console.log(`\n[4b] search("database", workspace=${wsId}) -> ${scoped.length} in ${ms(performance.now() - t)}`);
+  console.log(
+    `\n[4b] search("database", workspace=${wsId}) -> ${scoped.length} in ${ms(performance.now() - t)}`,
+  );
 
   await store.db.close();
   console.log('\ndone.');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

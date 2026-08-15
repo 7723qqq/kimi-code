@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
-
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { CodexBackend } from '#/session/subagent/backend/codexBackend';
+import { describe, expect, it } from 'vitest';
+
 import type { IConfigService } from '#/app/config/config';
 import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
+import { CodexBackend } from '#/session/subagent/backend/codexBackend';
 
 const FAKE_SERVER = fileURLToPath(new URL('./fixtures/fake-codex-server.mjs', import.meta.url));
 
@@ -62,7 +62,11 @@ describe('CodexBackend', () => {
   it('settles as aborted when the request signal aborts', async () => {
     const backend = new CodexBackend(makeRunner({ FAKE_CODEX_SLOW_MS: '500' }), makeConfig());
     const controller = new AbortController();
-    const run = await backend.start({ prompt: 'do the thing', cwd: '/ws', signal: controller.signal });
+    const run = await backend.start({
+      prompt: 'do the thing',
+      cwd: '/ws',
+      signal: controller.signal,
+    });
     controller.abort();
     const result = await run.result;
     expect(result.stopReason).toBe('aborted');

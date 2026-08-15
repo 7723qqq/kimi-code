@@ -2,9 +2,7 @@ import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SlashCommandHost } from '#/tui/commands';
-import {
-  applyExperimentalFeatureChanges,
-} from '#/tui/commands/config';
+import { applyExperimentalFeatureChanges } from '#/tui/commands/config';
 import {
   isExperimentalFlagEnabled,
   setExperimentalFeatures,
@@ -15,7 +13,8 @@ vi.mock('#/i18n', () => ({
   t: (key: string) => {
     const translations: Record<string, string> = {
       'tui.messages.configNoExperimentalChanges': 'No experimental feature changes to apply.',
-      'tui.statusMessages.experimentalUpdatedSessionReloaded': 'Experimental features updated. Session reloaded.',
+      'tui.statusMessages.experimentalUpdatedSessionReloaded':
+        'Experimental features updated. Session reloaded.',
       'tui.statusMessages.experimentalUpdated': 'Experimental features updated.',
     };
     return translations[key] ?? key;
@@ -24,9 +23,7 @@ vi.mock('#/i18n', () => ({
   getLocale: () => 'en',
 }));
 
-function feature(
-  overrides: Partial<ExperimentalFeatureState> = {},
-): ExperimentalFeatureState {
+function feature(overrides: Partial<ExperimentalFeatureState> = {}): ExperimentalFeatureState {
   return {
     id: 'micro_compaction',
     title: 'Micro compaction',
@@ -89,12 +86,10 @@ describe('experimental feature command handlers', () => {
   it('persists config overrides, refreshes command flags, closes the panel, and reloads', async () => {
     const host = makeHost();
 
-    await applyExperimentalFeatureChanges(host, [
-      { id: 'micro_compaction', enabled: false },
-    ]);
+    await applyExperimentalFeatureChanges(host, [{ id: 'micro_compaction', enabled: false }]);
 
     expect(host.harness.setConfig).toHaveBeenCalledWith({
-      experimental: { 'micro_compaction': false },
+      experimental: { micro_compaction: false },
     });
     expect(host.harness.getExperimentalFeatures).toHaveBeenCalledOnce();
     expect(isExperimentalFlagEnabled('micro_compaction')).toBe(false);

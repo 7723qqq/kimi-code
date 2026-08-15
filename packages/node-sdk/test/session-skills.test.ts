@@ -10,15 +10,10 @@ import { join } from 'node:path';
 import type * as KosongModule from '@moonshot-ai/kosong';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
-import {
-  createKimiHarness,
-  type Event,
-  type KimiError,
-  type SkillSummary,
-} from '#/index';
+import { createKimiHarness, type Event, type KimiError, type SkillSummary } from '#/index';
 import type { SDKRpcClientBase } from '#/rpc';
-
 import { normalizeWorkDir } from '#/v2/session-mapper';
+
 import {
   makeTempDir,
   removeTempDirs,
@@ -178,7 +173,9 @@ describe('Session skills', () => {
       expect(state['isCustomTitle']).toBe(false);
       expect(state['lastPrompt']).toBe('/review src/app.ts');
 
-      const skillDir = normalizeWorkDir(await realpath(join(workDir, '.kimi-code', 'skills', 'review')));
+      const skillDir = normalizeWorkDir(
+        await realpath(join(workDir, '.kimi-code', 'skills', 'review')),
+      );
       await expect(
         waitForAgentWireEvent(
           homeDir,

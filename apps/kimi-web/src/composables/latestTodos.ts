@@ -6,8 +6,8 @@
 // current state — older calls and queries don't matter.
 
 import type { AppMessage } from '../api/types';
-import type { TodoView } from '../types';
 import { normalizeToolName } from '../lib/toolMeta';
+import type { TodoView } from '../types';
 
 function toStatus(raw: unknown): TodoView['status'] {
   if (raw === 'in_progress') return 'in_progress';

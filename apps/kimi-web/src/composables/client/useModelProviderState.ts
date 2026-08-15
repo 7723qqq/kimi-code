@@ -6,6 +6,7 @@
 // in-flight set, thinking storage) are injected by the facade.
 
 import { ref, watch, type ComputedRef } from 'vue';
+
 import { getKimiWebApi } from '../../api';
 import type {
   AppMessage,
@@ -16,16 +17,16 @@ import type {
   OAuthLoginStartResult,
   ThinkingLevel,
 } from '../../api/types';
-import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
 import {
   defaultThinkingLevelFor,
   levelDeclaredBy,
   thinkingLevelForModelSwitch,
   thinkingLevelToConfig,
 } from '../../lib/modelThinking';
-import { beginLocalTurn, settleLocalTurn } from './useWorkspaceState';
+import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
 import type { ActivityState } from '../../types';
 import type { ExtendedState } from '../useKimiWebClient';
+import { beginLocalTurn, settleLocalTurn } from './useWorkspaceState';
 
 const STARRED_MODELS_STORAGE_KEY = STORAGE_KEYS.starredModels;
 
@@ -77,7 +78,10 @@ export interface UseModelProviderStateDeps {
   /** Persist profile fields to the daemon. Resolves false (after surfacing the
    *  failure itself) when the daemon rejected the patch — awaited callers that
    *  order strictly after the profile must NOT proceed on false. */
-  persistSessionProfile: (patch: PersistSessionProfilePatch, sessionId?: string) => Promise<boolean>;
+  persistSessionProfile: (
+    patch: PersistSessionProfilePatch,
+    sessionId?: string,
+  ) => Promise<boolean>;
   activity: ComputedRef<ActivityState>;
   /** Replace one session in place (matched by id). Owned by the facade so the
    *  model module never assigns rawState.sessions directly. */
@@ -89,10 +93,7 @@ export interface UseModelProviderStateDeps {
   ) => void;
 }
 
-export function useModelProviderState(
-  rawState: ExtendedState,
-  deps: UseModelProviderStateDeps,
-) {
+export function useModelProviderState(rawState: ExtendedState, deps: UseModelProviderStateDeps) {
   const {
     pushOperationFailure,
     refreshSessionStatus,
@@ -123,8 +124,7 @@ export function useModelProviderState(
     if (modelId === undefined || modelId === null || modelId.length === 0) return undefined;
     // Prefer the exact id — model names can collide across providers.
     return (
-      models.value.find((m) => m.id === modelId) ??
-      models.value.find((m) => m.model === modelId)
+      models.value.find((m) => m.id === modelId) ?? models.value.find((m) => m.model === modelId)
     );
   }
 
@@ -134,7 +134,7 @@ export function useModelProviderState(
       : undefined;
     const rawModel =
       activeSession === undefined
-        ? draftModel.value ?? rawState.defaultModel
+        ? (draftModel.value ?? rawState.defaultModel)
         : activeSession.model || rawState.defaultModel;
     return modelById(rawModel)?.id ?? rawModel ?? undefined;
   }
@@ -323,9 +323,7 @@ export function useModelProviderState(
     const sid = rawState.activeSessionId;
     const targetModel = modelById(modelId);
     const prevThinking = rawState.thinking;
-    const prevSessionModel = sid
-      ? rawState.sessions.find((s) => s.id === sid)?.model
-      : undefined;
+    const prevSessionModel = sid ? rawState.sessions.find((s) => s.id === sid)?.model : undefined;
     const isSwitch = currentModelId() !== (targetModel?.id ?? modelId);
     // On a real switch, pre-select the target model's catalog default (see
     // thinkingLevelForModelSwitch); re-selecting keeps the live level.
@@ -407,7 +405,11 @@ export function useModelProviderState(
    * creating a session, so a concurrent session switch can't redirect the
    * activation to the wrong session. No session at all is a no-op.
    */
-  async function activateSkill(skillName: string, args?: string, sessionId?: string): Promise<void> {
+  async function activateSkill(
+    skillName: string,
+    args?: string,
+    sessionId?: string,
+  ): Promise<void> {
     const sid = sessionId ?? rawState.activeSessionId;
     if (!sid) return;
     const guarded = activity.value === 'idle' && !rawState.inFlightBySession[sid];
@@ -449,7 +451,8 @@ export function useModelProviderState(
       // that as "unset" and resolve through the configured default, same as
       // the prompt/BTW/steer paths, before selecting the thinking level.
       const rawModel = rawState.sessions.find((s) => s.id === sid)?.model;
-      const skillModel = (rawModel && rawModel.length > 0 ? rawModel : rawState.defaultModel) ?? undefined;
+      const skillModel =
+        (rawModel && rawModel.length > 0 ? rawModel : rawState.defaultModel) ?? undefined;
       const persisted = await persistSessionProfile(
         { thinking: (await resolveThinkingForPrompt(sid, skillModel)) ?? rawState.thinking },
         sid,
@@ -462,7 +465,8 @@ export function useModelProviderState(
         updateSessionMessages(sid, (msgs) => msgs.filter((m) => m.id !== tempId));
       }
       // The persist failure was already surfaced by persistSessionProfile.
-      if (error !== PROFILE_PERSIST_FAILED) pushOperationFailure('activateSkill', error, { sessionId: sid });
+      if (error !== PROFILE_PERSIST_FAILED)
+        pushOperationFailure('activateSkill', error, { sessionId: sid });
     } finally {
       // The daemon answered the activation (accepted or rejected) — the
       // pending window in which a snapshot can't reflect this turn is over.

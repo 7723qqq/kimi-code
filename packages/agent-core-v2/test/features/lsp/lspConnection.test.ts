@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
-
 import { PassThrough } from 'node:stream';
+
+import { describe, expect, it } from 'vitest';
 
 import { MessageDecoder } from '#/features/lsp/framing';
 import {
@@ -8,8 +8,8 @@ import {
   LspServerError,
   LspTransportClosedError,
 } from '#/features/lsp/lspConnection';
-import type { IProcess } from '#/session/process/processRunner';
 import type { LspMessage } from '#/features/lsp/protocol';
+import type { IProcess } from '#/session/process/processRunner';
 
 interface FakeProcessHarness {
   readonly process: IProcess;
@@ -45,7 +45,9 @@ function makeFakeProcess(): FakeProcessHarness {
     decoder,
     write: (message) => {
       const body = Buffer.from(JSON.stringify(message), 'utf8');
-      stdout.write(Buffer.concat([Buffer.from(`Content-Length: ${body.byteLength}\r\n\r\n`, 'utf8'), body]));
+      stdout.write(
+        Buffer.concat([Buffer.from(`Content-Length: ${body.byteLength}\r\n\r\n`, 'utf8'), body]),
+      );
     },
     close: () => stdout.end(),
   };
@@ -61,7 +63,9 @@ describe('LspConnection', () => {
   it('sends a request and resolves with the response', async () => {
     const harness = makeFakeProcess();
     const connection = new LspConnection(harness.process);
-    const promise = connection.request('textDocument/definition', { position: { line: 0, character: 0 } });
+    const promise = connection.request('textDocument/definition', {
+      position: { line: 0, character: 0 },
+    });
     const request = lastRequest(harness);
     expect(request).toMatchObject({ jsonrpc: '2.0', method: 'textDocument/definition' });
     harness.write({ jsonrpc: '2.0', id: (request as { id: number }).id, result: { ok: true } });
@@ -90,7 +94,12 @@ describe('LspConnection', () => {
       if (method === 'workspace/configuration') return [null];
       throw new Error('nope');
     });
-    harness.write({ jsonrpc: '2.0', id: 7, method: 'workspace/configuration', params: { items: [{ section: 'x' }] } });
+    harness.write({
+      jsonrpc: '2.0',
+      id: 7,
+      method: 'workspace/configuration',
+      params: { items: [{ section: 'x' }] },
+    });
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(lastRequest(harness)).toMatchObject({ id: 7, result: [null] });
 

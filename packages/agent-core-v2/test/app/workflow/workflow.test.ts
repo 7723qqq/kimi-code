@@ -10,8 +10,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { parseMeta, listBuiltins, getBuiltin } from '#/app/workflow/workflowRegistry';
+
 import { WorkflowTool, WorkflowToolInputSchema } from '#/app/workflow/tools/workflow';
+import { parseMeta, listBuiltins, getBuiltin } from '#/app/workflow/workflowRegistry';
 import { WorkflowService } from '#/app/workflow/workflowService';
 
 // ── Registry tests ─────────────────────────────────────────────────
@@ -81,7 +82,7 @@ export const meta = {
   describe('listBuiltins', () => {
     it('returns all built-in workflows', () => {
       const builtins = listBuiltins();
-      const names = builtins.map((m) => m.name).sort();
+      const names = builtins.map((m) => m.name).toSorted();
 
       expect(builtins.length).toBeGreaterThanOrEqual(9);
       expect(names).toContain('deep-research');
@@ -104,7 +105,7 @@ export const meta = {
 
     it('returns sorted by name', () => {
       const names = listBuiltins().map((m) => m.name);
-      const sorted = [...names].sort();
+      const sorted = [...names].toSorted();
       expect(names).toEqual(sorted);
     });
   });
@@ -136,7 +137,12 @@ export const meta = {
 
 describe('workflowTypes', () => {
   it('WorkflowStatus enum has all expected values', () => {
-    const validStatuses: ReadonlySet<string> = new Set(['running', 'completed', 'failed', 'cancelled']);
+    const validStatuses: ReadonlySet<string> = new Set([
+      'running',
+      'completed',
+      'failed',
+      'cancelled',
+    ]);
     expect(validStatuses.has('running')).toBe(true);
     expect(validStatuses.has('completed')).toBe(true);
     expect(validStatuses.has('failed')).toBe(true);
@@ -159,7 +165,8 @@ describe('WorkflowTool input schema', () => {
   it('validates a run operation with script', () => {
     const result = WorkflowToolInputSchema.safeParse({
       operation: 'run',
-      script: 'export const meta = { name: "x", description: "y" }; const r = await agent("hello"); return r;',
+      script:
+        'export const meta = { name: "x", description: "y" }; const r = await agent("hello"); return r;',
     });
     expect(result.success).toBe(true);
   });
@@ -273,7 +280,7 @@ describe('workflow runtime primitives', () => {
 
     const out = await Promise.all(tasks.map((t) => Promise.resolve().then(() => t())));
     expect(out).toEqual([2, 4, 6]);
-    expect(results.sort()).toEqual([1, 2, 3]);
+    expect(results.toSorted()).toEqual([1, 2, 3]);
   });
 
   it('pipeline runs items through stages', async () => {
@@ -281,7 +288,10 @@ describe('workflow runtime primitives', () => {
     const stage1 = async (prev: unknown, item: number) => (item as number) * 2;
     const stage2 = async (prev: unknown, _item: number) => (prev as number) + 1;
 
-    const pipeline = <T>(items: T[], ...stages: ((prev: unknown, item: T, index: number) => Promise<unknown>)[]) =>
+    const pipeline = <T>(
+      items: T[],
+      ...stages: ((prev: unknown, item: T, index: number) => Promise<unknown>)[]
+    ) =>
       Promise.all(
         items.map((item, index) =>
           stages.reduce(
@@ -325,7 +335,12 @@ describe('workflow runtime primitives', () => {
 describe('WorkflowService behavior', () => {
   it('status returns undefined for unknown runId', () => {
     const svc = new WorkflowService(
-      { homeDir: '/tmp', configPath: '/tmp/config', sessionsDir: '/tmp/sessions', getEnv: () => undefined } as any,
+      {
+        homeDir: '/tmp',
+        configPath: '/tmp/config',
+        sessionsDir: '/tmp/sessions',
+        getEnv: () => undefined,
+      } as any,
       { error: () => {}, warn: () => {}, info: () => {}, debug: () => {}, trace: () => {} } as any,
       { getWebSearchProvider: () => undefined } as any,
     );
@@ -334,7 +349,12 @@ describe('WorkflowService behavior', () => {
 
   it('cancel on unknown runId does not throw', async () => {
     const svc = new WorkflowService(
-      { homeDir: '/tmp', configPath: '/tmp/config', sessionsDir: '/tmp/sessions', getEnv: () => undefined } as any,
+      {
+        homeDir: '/tmp',
+        configPath: '/tmp/config',
+        sessionsDir: '/tmp/sessions',
+        getEnv: () => undefined,
+      } as any,
       { error: () => {}, warn: () => {}, info: () => {}, debug: () => {}, trace: () => {} } as any,
       { getWebSearchProvider: () => undefined } as any,
     );
@@ -385,7 +405,8 @@ describe('workflow script structure', () => {
   it('each built-in script handles errors gracefully', () => {
     for (const meta of listBuiltins()) {
       const entry = getBuiltin(meta.name);
-      const hasErrorReturn = entry!.script.includes("error: '") || entry!.script.includes('error: "');
+      const hasErrorReturn =
+        entry!.script.includes("error: '") || entry!.script.includes('error: "');
       const hasTryCatch = entry!.script.includes('try {') || entry!.script.includes('.catch(');
       expect(hasErrorReturn || hasTryCatch).toBe(true);
     }
@@ -402,8 +423,8 @@ describe('workflow sandbox primitives', () => {
         const response = await globalThis.fetch(url, { signal: AbortSignal.timeout(5_000) });
         const body = await response.text();
         return { ok: response.ok, status: response.status, body };
-      } catch (err) {
-        return { ok: false, status: 0, body: String(err) };
+      } catch (error) {
+        return { ok: false, status: 0, body: String(error) };
       }
     };
 
@@ -423,12 +444,22 @@ describe('workflow sandbox primitives', () => {
       try {
         const result = await execAsync(command, { timeout: 5_000, windowsHide: true });
         return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', exitCode: 0 };
-      } catch (err: unknown) {
-        if (err && typeof err === 'object' && 'code' in err && 'stdout' in err && 'stderr' in err) {
-          const cmdErr = err as { code: number | string; stdout: string; stderr: string };
-          return { stdout: cmdErr.stdout ?? '', stderr: cmdErr.stderr ?? '', exitCode: typeof cmdErr.code === 'number' ? cmdErr.code : 1 };
+      } catch (error: unknown) {
+        if (
+          error &&
+          typeof error === 'object' &&
+          'code' in error &&
+          'stdout' in error &&
+          'stderr' in error
+        ) {
+          const cmdErr = error as { code: number | string; stdout: string; stderr: string };
+          return {
+            stdout: cmdErr.stdout ?? '',
+            stderr: cmdErr.stderr ?? '',
+            exitCode: typeof cmdErr.code === 'number' ? cmdErr.code : 1,
+          };
         }
-        return { stdout: '', stderr: String(err), exitCode: 1 };
+        return { stdout: '', stderr: String(error), exitCode: 1 };
       }
     };
 
@@ -445,12 +476,22 @@ describe('workflow sandbox primitives', () => {
       try {
         const result = await execAsync(command, { timeout: 5_000, windowsHide: true });
         return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', exitCode: 0 };
-      } catch (err: unknown) {
-        if (err && typeof err === 'object' && 'code' in err && 'stdout' in err && 'stderr' in err) {
-          const cmdErr = err as { code: number | string; stdout: string; stderr: string };
-          return { stdout: cmdErr.stdout ?? '', stderr: cmdErr.stderr ?? '', exitCode: typeof cmdErr.code === 'number' ? cmdErr.code : 1 };
+      } catch (error: unknown) {
+        if (
+          error &&
+          typeof error === 'object' &&
+          'code' in error &&
+          'stdout' in error &&
+          'stderr' in error
+        ) {
+          const cmdErr = error as { code: number | string; stdout: string; stderr: string };
+          return {
+            stdout: cmdErr.stdout ?? '',
+            stderr: cmdErr.stderr ?? '',
+            exitCode: typeof cmdErr.code === 'number' ? cmdErr.code : 1,
+          };
         }
-        return { stdout: '', stderr: String(err), exitCode: 1 };
+        return { stdout: '', stderr: String(error), exitCode: 1 };
       }
     };
 

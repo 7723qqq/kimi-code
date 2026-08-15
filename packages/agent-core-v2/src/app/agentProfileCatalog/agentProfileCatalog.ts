@@ -36,9 +36,10 @@
  * profiles through.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import type { ILogger } from '#/_base/log/log';
 import type { ISessionProcessRunner } from '#/session/process/processRunner';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 export const DEFAULT_AGENT_PROFILE_NAME = 'agent';
 
@@ -75,7 +76,10 @@ export interface AgentProfileContext {
 export interface EnvironmentDisclosureSnapshot {
   readonly cwd: string;
   readonly date:
-    | { readonly disclosed: true; readonly value: { readonly localDate: string; readonly timeZone: string } }
+    | {
+        readonly disclosed: true;
+        readonly value: { readonly localDate: string; readonly timeZone: string };
+      }
     | { readonly disclosed: false };
 }
 
@@ -116,9 +120,7 @@ export type AgentProfileInput = Omit<AgentProfile, 'systemPrompt' | 'renderSyste
   (
     | {
         readonly systemPrompt: (context: AgentProfileContext) => string;
-        readonly renderSystemPrompt?: (
-          context: AgentProfileContext,
-        ) => SystemPromptRenderResult;
+        readonly renderSystemPrompt?: (context: AgentProfileContext) => SystemPromptRenderResult;
       }
     | {
         readonly systemPrompt?: (context: AgentProfileContext) => string;
@@ -146,7 +148,5 @@ export function normalizeAgentProfile(input: AgentProfileInput): AgentProfile {
       }),
     };
   }
-  throw new Error(
-    t('v2Errors.agentProfileSystemPromptRequired', { name: input.name }),
-  );
+  throw new Error(t('v2Errors.agentProfileSystemPromptRequired', { name: input.name }));
 }

@@ -8,12 +8,12 @@
  * Exit code: 0 if all keys match, 1 if any mismatch is found.
  */
 
-import { pathToFileURL, fileURLToPath } from 'node:url';
-import { resolve, dirname } from 'node:path';
 import { register } from 'node:module';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __filename = import.meta.filename;
+const __dirname = import.meta.dirname;
 const ROOT = resolve(__dirname, '..');
 
 // ── Locale source definitions ────────────────────────────────────────────────
@@ -65,7 +65,7 @@ function collectLeafKeys(obj, prefix = '') {
       keys.push(fullKey);
     }
   }
-  return keys.sort((a, b) => a.localeCompare(b));
+  return keys.toSorted((a, b) => a.localeCompare(b));
 }
 
 // ── Dynamic TS loader ────────────────────────────────────────────────────────
@@ -87,13 +87,13 @@ async function loadModule(p) {
   try {
     const mod = await import(fileUrl);
     return mod.default || mod;
-  } catch (err) {
+  } catch (error) {
     // Try .ts extension explicitly
     try {
       const mod = await import(`${fileUrl}`);
       return mod.default || mod;
     } catch {
-      throw new Error(`Cannot load ${p}: ${err.message}`);
+      throw new Error(`Cannot load ${p}: ${error.message}`);
     }
   }
 }
@@ -155,9 +155,9 @@ for (const source of LOCALE_SOURCES) {
         }
       }
     }
-  } catch (err) {
+  } catch (error) {
     hasErrors = true;
-    console.error(`✗ ${source.name}: ${err.message}`);
+    console.error(`✗ ${source.name}: ${error.message}`);
   }
 }
 

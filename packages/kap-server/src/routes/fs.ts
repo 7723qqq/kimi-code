@@ -196,17 +196,13 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       const { session_id, tail } = req.params as { session_id: string; tail: string };
 
       if (!tail.startsWith(FS_TAIL_PREFIX)) {
-        reply.send(
-          errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id),
-        );
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
         return;
       }
 
       const action = tail.slice(FS_TAIL_PREFIX.length);
       if (!(FS_ACTIONS as readonly string[]).includes(action)) {
-        reply.send(
-          errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id),
-        );
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
         return;
       }
       const fsAction = action as FsAction;
@@ -473,7 +469,12 @@ async function handleRead(core: Scope, sessionId: string, req: Req, reply: Reply
   reply.send(okEnvelope(data, req.id));
 }
 
-async function handleListMany(core: Scope, sessionId: string, req: Req, reply: Reply): Promise<void> {
+async function handleListMany(
+  core: Scope,
+  sessionId: string,
+  req: Req,
+  reply: Reply,
+): Promise<void> {
   const parsed = fsListManyRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
@@ -493,7 +494,12 @@ async function handleStat(core: Scope, sessionId: string, req: Req, reply: Reply
   reply.send(okEnvelope(data, req.id));
 }
 
-async function handleStatMany(core: Scope, sessionId: string, req: Req, reply: Reply): Promise<void> {
+async function handleStatMany(
+  core: Scope,
+  sessionId: string,
+  req: Req,
+  reply: Reply,
+): Promise<void> {
   const parsed = fsStatManyRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
@@ -533,7 +539,12 @@ async function handleGrep(core: Scope, sessionId: string, req: Req, reply: Reply
   reply.send(okEnvelope(data, req.id));
 }
 
-async function handleGitStatus(core: Scope, sessionId: string, req: Req, reply: Reply): Promise<void> {
+async function handleGitStatus(
+  core: Scope,
+  sessionId: string,
+  req: Req,
+  reply: Reply,
+): Promise<void> {
   const parsed = fsGitStatusRequestSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     reply.send(buildValidationEnvelope(parsed.error.issues, req.id));
@@ -611,7 +622,9 @@ function sendMappedError(reply: Reply, req: { id: string }, err: unknown): void 
   if (isError2(err)) {
     switch (err.code) {
       case ErrorCodes.FS_PATH_ESCAPES:
-        reply.send(errEnvelope(ErrorCode.FS_PATH_ESCAPES_SESSION, err.message, requestId, err.stack));
+        reply.send(
+          errEnvelope(ErrorCode.FS_PATH_ESCAPES_SESSION, err.message, requestId, err.stack),
+        );
         return;
       case ErrorCodes.FS_PATH_NOT_FOUND:
         reply.send(errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, err.message, requestId, err.stack));

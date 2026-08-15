@@ -9,13 +9,22 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { filterSessionEvents, searchEventDocuments, compileSessionTextFilter } from '#/features/sessionQuery/search';
 import { SessionSearchCursor } from '#/features/sessionQuery/cursor';
 import { SessionEventIndex } from '#/features/sessionQuery/eventIndex';
-import { wireRecordText } from '#/features/sessionQuery/eventText';
 import type { SessionEventSearchDocument } from '#/features/sessionQuery/events';
+import { wireRecordText } from '#/features/sessionQuery/eventText';
+import {
+  filterSessionEvents,
+  searchEventDocuments,
+  compileSessionTextFilter,
+} from '#/features/sessionQuery/search';
 
-function doc(seq: number, text: string, time = seq * 1000, type = 'context.append_message'): SessionEventSearchDocument {
+function doc(
+  seq: number,
+  text: string,
+  time = seq * 1000,
+  type = 'context.append_message',
+): SessionEventSearchDocument {
   return { sessionId: 's1', seq, type, time, text };
 }
 
@@ -42,8 +51,12 @@ describe('filterSessionEvents', () => {
   });
 
   it('filters by seq and time ranges inclusively', () => {
-    expect(filterSessionEvents(docs, [{ kind: 'seq', from: 1, to: 2 }]).map((d) => d.seq)).toEqual([1, 2]);
-    expect(filterSessionEvents(docs, [{ kind: 'time', from: 1000 }]).map((d) => d.seq)).toEqual([1, 2]);
+    expect(filterSessionEvents(docs, [{ kind: 'seq', from: 1, to: 2 }]).map((d) => d.seq)).toEqual([
+      1, 2,
+    ]);
+    expect(filterSessionEvents(docs, [{ kind: 'time', from: 1000 }]).map((d) => d.seq)).toEqual([
+      1, 2,
+    ]);
   });
 
   it('rejects regex injection in text filters', () => {
@@ -100,7 +113,10 @@ describe('wireRecordText', () => {
 
   it('extracts content-part text', () => {
     expect(
-      wireRecordText({ type: 'x', content: [{ type: 'text', text: 'part one' }, { type: 'other' }] }),
+      wireRecordText({
+        type: 'x',
+        content: [{ type: 'text', text: 'part one' }, { type: 'other' }],
+      }),
     ).toBe('part one');
   });
 
@@ -113,14 +129,19 @@ describe('SessionEventIndex', () => {
   it('reads wire records into event documents with seq/time/type/text', async () => {
     const records = [
       { type: 'metadata', protocol_version: '1', created_at: 1 },
-      { type: 'context.append_message', time: 100, message: { role: 'user', content: [{ type: 'text', text: 'hello world' }] } },
+      {
+        type: 'context.append_message',
+        time: 100,
+        message: { role: 'user', content: [{ type: 'text', text: 'hello world' }] },
+      },
       { type: 'llm.request', time: 200, prompt: 'analyze this' },
     ];
     const logStub = {
       revision: () => 7,
-      read: () => (async function* () {
-        for (const record of records) yield record;
-      })(),
+      read: () =>
+        (async function* () {
+          for (const record of records) yield record;
+        })(),
     };
     const bootstrapStub = { scope: () => 'sessions' };
     const index = new SessionEventIndex(bootstrapStub as never, logStub as never);

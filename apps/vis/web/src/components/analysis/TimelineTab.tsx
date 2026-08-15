@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { t } from '../../i18n';
 import { useSession } from '../../hooks/useSession';
 import { useWire } from '../../hooks/useWire';
+import { t } from '../../i18n';
 import {
   analyzeWire,
   type Analysis,
@@ -11,9 +11,9 @@ import {
   type TurnNode,
 } from '../../lib/analysis';
 import type { WireEntry } from '../../types';
-import { formatBytes } from '../shared/SizePreview';
 import { formatDuration, formatTokens } from '../../util/time';
 import { Pill } from '../shared/Pill';
+import { formatBytes } from '../shared/SizePreview';
 
 interface TimelineTabProps {
   sessionId: string;
@@ -49,7 +49,9 @@ export function TimelineTab({ sessionId }: TimelineTabProps) {
           <span className="text-fg-3">{t('timeline.agent')}</span>
           <select
             value={agentId}
-            onChange={(ev) => { setAgentId(ev.target.value); }}
+            onChange={(ev) => {
+              setAgentId(ev.target.value);
+            }}
             className="border border-border bg-surface-0 px-2 py-1 font-mono text-[12px] text-fg-0 focus:border-border-strong focus:outline-none"
           >
             {agents.length === 0 ? <option value={agentId}>{agentId}</option> : null}
@@ -65,7 +67,9 @@ export function TimelineTab({ sessionId }: TimelineTabProps) {
       {isLoading ? (
         <div className="p-6 font-mono text-[12px] text-fg-3">{t('timeline.analyzing')}</div>
       ) : error ? (
-        <div className="p-6 font-mono text-[12px] text-[var(--color-sev-error)]">{error.message}</div>
+        <div className="p-6 font-mono text-[12px] text-[var(--color-sev-error)]">
+          {error.message}
+        </div>
       ) : analysis === null || analysis.summary.turnCount === 0 ? (
         <div className="p-6 font-mono text-[12px] text-fg-3">{t('timeline.noTurns')}</div>
       ) : (
@@ -90,14 +94,19 @@ export function TimelineTab({ sessionId }: TimelineTabProps) {
 }
 
 function SectionTitle({ children }: { children: import('react').ReactNode }) {
-  return <h3 className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">{children}</h3>;
+  return (
+    <h3 className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">{children}</h3>
+  );
 }
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div className="border border-border bg-surface-0 px-3 py-2">
       <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-fg-3">{label}</div>
-      <div className="mt-0.5 font-mono text-[14px] tabular" style={tone ? { color: tone } : undefined}>
+      <div
+        className="mt-0.5 font-mono text-[14px] tabular"
+        style={tone ? { color: tone } : undefined}
+      >
         {value}
       </div>
     </div>
@@ -119,8 +128,14 @@ function SummaryGrid({ analysis }: { analysis: Analysis }) {
       />
       <Stat label={t('timeline.statTotalTokens')} value={formatTokens(s.totalTokens)} />
       <Stat label={t('timeline.statPeakContext')} value={formatTokens(s.peakContextTokens)} />
-      <Stat label={t('timeline.statCacheHit')} value={hit === null ? '—' : `${(hit * 100).toFixed(0)}%`} />
-      <Stat label={t('timeline.statActiveWall')} value={`${formatDuration(s.activeMs)} / ${formatDuration(s.wallClockMs)}`} />
+      <Stat
+        label={t('timeline.statCacheHit')}
+        value={hit === null ? '—' : `${(hit * 100).toFixed(0)}%`}
+      />
+      <Stat
+        label={t('timeline.statActiveWall')}
+        value={`${formatDuration(s.activeMs)} / ${formatDuration(s.wallClockMs)}`}
+      />
     </div>
   );
 }
@@ -133,14 +148,23 @@ function ContextSparkline({ analysis }: { analysis: Analysis }) {
   const H = 44;
   const dx = W / (pts.length - 1);
   const path = pts
-    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${(i * dx).toFixed(1)} ${(H - (p.contextTokens / peak) * H).toFixed(1)}`)
+    .map(
+      (p, i) =>
+        `${i === 0 ? 'M' : 'L'} ${(i * dx).toFixed(1)} ${(H - (p.contextTokens / peak) * H).toFixed(1)}`,
+    )
     .join(' ');
   return (
     <section className="mt-6">
       <SectionTitle>{t('timeline.contextFill', { tokens: formatTokens(peak) })}</SectionTitle>
       <div className="mt-2 border border-border bg-surface-0 p-3">
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-12 w-full">
-          <path d={path} fill="none" stroke="var(--color-cat-conversation)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+          <path
+            d={path}
+            fill="none"
+            stroke="var(--color-cat-conversation)"
+            strokeWidth="1.5"
+            vectorEffect="non-scaling-stroke"
+          />
         </svg>
         <div className="mt-1 flex justify-between font-mono text-[10px] text-fg-3">
           <span>{t('timeline.step1')}</span>
@@ -160,8 +184,13 @@ function ToolStatsTable({ analysis }: { analysis: Analysis }) {
         <table className="w-full font-mono text-[11px]">
           <thead>
             <tr className="border-b border-border text-fg-3">
-              <Th align="left">{t('timeline.colTool')}</Th><Th>{t('timeline.colCalls')}</Th><Th>{t('timeline.colErrors')}</Th><Th>{t('timeline.colTruncated')}</Th>
-              <Th>{t('timeline.colAvg')}</Th><Th>{t('timeline.colMax')}</Th><Th>{t('timeline.colOutput')}</Th>
+              <Th align="left">{t('timeline.colTool')}</Th>
+              <Th>{t('timeline.colCalls')}</Th>
+              <Th>{t('timeline.colErrors')}</Th>
+              <Th>{t('timeline.colTruncated')}</Th>
+              <Th>{t('timeline.colAvg')}</Th>
+              <Th>{t('timeline.colMax')}</Th>
+              <Th>{t('timeline.colOutput')}</Th>
             </tr>
           </thead>
           <tbody>
@@ -169,8 +198,12 @@ function ToolStatsTable({ analysis }: { analysis: Analysis }) {
               <tr key={t.name} className="border-b border-border/50">
                 <td className="px-2 py-1 text-fg-0">{t.name}</td>
                 <Td>{t.count}</Td>
-                <Td tone={t.errorCount > 0 ? 'var(--color-sev-error)' : undefined}>{t.errorCount}</Td>
-                <Td tone={t.truncatedCount > 0 ? 'var(--color-sev-warning)' : undefined}>{t.truncatedCount}</Td>
+                <Td tone={t.errorCount > 0 ? 'var(--color-sev-error)' : undefined}>
+                  {t.errorCount}
+                </Td>
+                <Td tone={t.truncatedCount > 0 ? 'var(--color-sev-warning)' : undefined}>
+                  {t.truncatedCount}
+                </Td>
                 <Td>{formatDuration(t.avgMs)}</Td>
                 <Td>{formatDuration(t.maxMs)}</Td>
                 <Td>{formatBytes(t.totalOutputBytes)}</Td>
@@ -183,21 +216,45 @@ function ToolStatsTable({ analysis }: { analysis: Analysis }) {
   );
 }
 
-function Th({ children, align = 'right' }: { children: import('react').ReactNode; align?: 'left' | 'right' }) {
-  return <th className={`px-2 py-1 font-normal ${align === 'left' ? 'text-left' : 'text-right tabular'}`}>{children}</th>;
+function Th({
+  children,
+  align = 'right',
+}: {
+  children: import('react').ReactNode;
+  align?: 'left' | 'right';
+}) {
+  return (
+    <th
+      className={`px-2 py-1 font-normal ${align === 'left' ? 'text-left' : 'text-right tabular'}`}
+    >
+      {children}
+    </th>
+  );
 }
 function Td({ children, tone }: { children: import('react').ReactNode; tone?: string }) {
-  return <td className="px-2 py-1 text-right tabular text-fg-1" style={tone ? { color: tone } : undefined}>{children}</td>;
+  return (
+    <td
+      className="px-2 py-1 text-right tabular text-fg-1"
+      style={tone ? { color: tone } : undefined}
+    >
+      {children}
+    </td>
+  );
 }
 
 function ConfigChanges({ analysis }: { analysis: Analysis }) {
   if (analysis.configChanges.length === 0) return null;
   return (
     <section className="mt-6">
-      <SectionTitle>{t('timeline.configChanges', { count: analysis.configChanges.length })}</SectionTitle>
+      <SectionTitle>
+        {t('timeline.configChanges', { count: analysis.configChanges.length })}
+      </SectionTitle>
       <div className="mt-2 flex flex-col gap-1">
         {analysis.configChanges.map((c) => (
-          <div key={c.lineNo} className="flex flex-wrap items-center gap-2 border border-border bg-surface-0 px-3 py-1.5 font-mono text-[11px]">
+          <div
+            key={c.lineNo}
+            className="flex flex-wrap items-center gap-2 border border-border bg-surface-0 px-3 py-1.5 font-mono text-[11px]"
+          >
             <span className="text-fg-3 tabular">{t('timeline.line', { no: c.lineNo })}</span>
             {c.changed.map((ch) => (
               <Pill key={ch.field} tone="config" variant="outline">
@@ -219,12 +276,17 @@ function IdleGaps({ analysis }: { analysis: Analysis }) {
       <SectionTitle>{t('timeline.longestIdleGaps')}</SectionTitle>
       <div className="mt-2 flex flex-col gap-1">
         {gaps.map((g, i) => (
-          <div key={i} className="flex items-center gap-3 border border-border bg-surface-0 px-3 py-1.5 font-mono text-[11px]">
+          <div
+            key={i}
+            className="flex items-center gap-3 border border-border bg-surface-0 px-3 py-1.5 font-mono text-[11px]"
+          >
             <Pill tone={g.kind === 'between_turns' ? 'meta' : 'warning'} variant="outline">
               {g.kind === 'between_turns' ? t('timeline.waiting') : t('timeline.inTurn')}
             </Pill>
             <span className="text-fg-0 tabular">{formatDuration(g.gapMs)}</span>
-            <span className="ml-auto text-fg-3 tabular">{t('timeline.lineRange', { from: g.afterLineNo, to: g.beforeLineNo })}</span>
+            <span className="ml-auto text-fg-3 tabular">
+              {t('timeline.lineRange', { from: g.afterLineNo, to: g.beforeLineNo })}
+            </span>
           </div>
         ))}
       </div>
@@ -234,30 +296,46 @@ function IdleGaps({ analysis }: { analysis: Analysis }) {
 
 function TurnCard({ turn }: { turn: TurnNode }) {
   const [open, setOpen] = useState(turn.index === 0);
-  const totalTokens = turn.tokens.inputOther + turn.tokens.output + turn.tokens.inputCacheRead + turn.tokens.inputCacheCreation;
+  const totalTokens =
+    turn.tokens.inputOther +
+    turn.tokens.output +
+    turn.tokens.inputCacheRead +
+    turn.tokens.inputCacheCreation;
   return (
     <div className="border border-border bg-surface-0">
       <button
         type="button"
-        onClick={() => { setOpen((v) => !v); }}
+        onClick={() => {
+          setOpen((v) => !v);
+        }}
         className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left hover:bg-surface-1"
       >
         <span className="text-fg-3">{open ? '▾' : '▸'}</span>
         <Pill tone={turn.trigger === 'steer' ? 'turn' : 'conversation'} variant="outline">
-          {t('timeline.turn', { index: turn.index })}{turn.trigger === 'steer' ? t('timeline.steer') : ''}
+          {t('timeline.turn', { index: turn.index })}
+          {turn.trigger === 'steer' ? t('timeline.steer') : ''}
         </Pill>
         {turn.originKind && turn.originKind !== 'user' ? (
-          <Pill tone="meta" variant="outline">{turn.originKind}</Pill>
+          <Pill tone="meta" variant="outline">
+            {turn.originKind}
+          </Pill>
         ) : null}
         {turn.cancelled ? <Pill tone="warning">{t('timeline.cancelled')}</Pill> : null}
-        {turn.toolErrorCount > 0 ? <Pill tone="error">{t('timeline.err', { count: turn.toolErrorCount })}</Pill> : null}
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-1" title={turn.promptText}>
+        {turn.toolErrorCount > 0 ? (
+          <Pill tone="error">{t('timeline.err', { count: turn.toolErrorCount })}</Pill>
+        ) : null}
+        <span
+          className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-1"
+          title={turn.promptText}
+        >
           {turn.promptText || t('timeline.noPromptText')}
         </span>
         <span className="flex shrink-0 items-center gap-3 font-mono text-[11px] text-fg-3 tabular">
           <span>{t('timeline.stepsCount', { count: turn.steps.length })}</span>
           <span>{t('timeline.toolsCount', { count: turn.toolCallCount })}</span>
-          <span title={t('timeline.totalTokensTitle')}>{t('timeline.tok', { count: formatTokens(totalTokens) })}</span>
+          <span title={t('timeline.totalTokensTitle')}>
+            {t('timeline.tok', { count: formatTokens(totalTokens) })}
+          </span>
           <span title={t('timeline.activeExecTitle')}>{formatDuration(turn.durationMs)}</span>
         </span>
       </button>
@@ -281,46 +359,74 @@ function TurnCard({ turn }: { turn: TurnNode }) {
 }
 
 function StepRow({ step, turnDurationMs }: { step: StepNode; turnDurationMs?: number }) {
-  const widthPct = turnDurationMs && step.durationMs ? Math.max(2, (step.durationMs / turnDurationMs) * 100) : 0;
+  const widthPct =
+    turnDurationMs && step.durationMs ? Math.max(2, (step.durationMs / turnDurationMs) * 100) : 0;
   return (
-    <div className="border-l-2 pl-2" style={{ borderColor: step.isError ? 'var(--color-sev-error)' : 'var(--color-border)' }}>
+    <div
+      className="border-l-2 pl-2"
+      style={{ borderColor: step.isError ? 'var(--color-sev-error)' : 'var(--color-border)' }}
+    >
       <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
         <span className="text-fg-2">{t('timeline.step', { step: step.step })}</span>
         {step.finishReason ? (
-          <span className={step.isError ? 'text-[var(--color-sev-error)]' : 'text-fg-3'}>{step.finishReason}</span>
+          <span className={step.isError ? 'text-[var(--color-sev-error)]' : 'text-fg-3'}>
+            {step.finishReason}
+          </span>
         ) : null}
-        <span className="text-fg-3 tabular" title={t('timeline.stepDurationTitle')}>{formatDuration(step.durationMs)}</span>
+        <span className="text-fg-3 tabular" title={t('timeline.stepDurationTitle')}>
+          {formatDuration(step.durationMs)}
+        </span>
         {step.llmFirstTokenLatencyMs !== undefined ? (
           <span
             className="text-fg-3 tabular"
             title={
               step.llmServerFirstTokenMs !== undefined && step.llmRequestBuildMs !== undefined
-                ? t('timeline.ttftTitleDetail', { api: step.llmServerFirstTokenMs, client: step.llmRequestBuildMs })
+                ? t('timeline.ttftTitleDetail', {
+                    api: step.llmServerFirstTokenMs,
+                    client: step.llmRequestBuildMs,
+                  })
                 : t('timeline.ttftTitle')
             }
           >
             {t('timeline.ttft', { ms: step.llmFirstTokenLatencyMs })}
             {step.llmServerFirstTokenMs !== undefined && step.llmRequestBuildMs !== undefined
-              ? t('timeline.ttftDetail', { api: step.llmServerFirstTokenMs, client: step.llmRequestBuildMs })
+              ? t('timeline.ttftDetail', {
+                  api: step.llmServerFirstTokenMs,
+                  client: step.llmRequestBuildMs,
+                })
               : ''}
           </span>
         ) : null}
         {step.llmServerDecodeMs !== undefined && step.llmClientConsumeMs !== undefined ? (
-          <span
-            className="text-fg-3 tabular"
-            title={t('timeline.decodeTitle')}
-          >
-            {t('timeline.decode', { server: step.llmServerDecodeMs, client: step.llmClientConsumeMs })}
+          <span className="text-fg-3 tabular" title={t('timeline.decodeTitle')}>
+            {t('timeline.decode', {
+              server: step.llmServerDecodeMs,
+              client: step.llmClientConsumeMs,
+            })}
           </span>
         ) : null}
         {step.contextTokens !== undefined ? (
-          <span className="text-fg-3 tabular" title={t('timeline.contextFillTitle')}>{t('timeline.ctx', { tokens: formatTokens(step.contextTokens) })}</span>
+          <span className="text-fg-3 tabular" title={t('timeline.contextFillTitle')}>
+            {t('timeline.ctx', { tokens: formatTokens(step.contextTokens) })}
+          </span>
         ) : null}
-        {step.content.thinkChars > 0 ? <span className="text-[var(--color-cat-meta)]" title={t('timeline.reasoningCharsTitle')}>💭 {step.content.thinkChars}</span> : null}
+        {step.content.thinkChars > 0 ? (
+          <span className="text-[var(--color-cat-meta)]" title={t('timeline.reasoningCharsTitle')}>
+            💭 {step.content.thinkChars}
+          </span>
+        ) : null}
       </div>
       {widthPct > 0 ? (
         <div className="mt-0.5 h-1 w-full bg-surface-2">
-          <div className="h-1" style={{ width: `${widthPct}%`, backgroundColor: step.isError ? 'var(--color-sev-error)' : 'var(--color-cat-conversation)' }} />
+          <div
+            className="h-1"
+            style={{
+              width: `${widthPct}%`,
+              backgroundColor: step.isError
+                ? 'var(--color-sev-error)'
+                : 'var(--color-cat-conversation)',
+            }}
+          />
         </div>
       ) : null}
       {step.toolCalls.length > 0 ? (
@@ -335,20 +441,43 @@ function StepRow({ step, turnDurationMs }: { step: StepNode; turnDurationMs?: nu
 }
 
 function ToolRow({ tc, stepDurationMs }: { tc: ToolCallNode; stepDurationMs?: number }) {
-  const widthPct = stepDurationMs && tc.durationMs ? Math.max(2, (tc.durationMs / stepDurationMs) * 100) : 0;
+  const widthPct =
+    stepDurationMs && tc.durationMs ? Math.max(2, (tc.durationMs / stepDurationMs) * 100) : 0;
   return (
     <div className="flex flex-wrap items-center gap-2 pl-3 font-mono text-[11px]">
       <span className="text-[var(--color-cat-tools)]">{tc.name}</span>
-      <span className="text-fg-3 tabular" title={t('timeline.callResultTitle')}>{formatDuration(tc.durationMs)}</span>
+      <span className="text-fg-3 tabular" title={t('timeline.callResultTitle')}>
+        {formatDuration(tc.durationMs)}
+      </span>
       {tc.outputBytes !== undefined ? (
-        <span className="text-fg-3 tabular" title={t('timeline.resultOutputTitle')}>{formatBytes(tc.outputBytes)}</span>
+        <span className="text-fg-3 tabular" title={t('timeline.resultOutputTitle')}>
+          {formatBytes(tc.outputBytes)}
+        </span>
       ) : null}
-      {tc.isError ? <Pill tone="error" variant="outline">{t('timeline.error')}</Pill> : null}
-      {tc.truncated ? <Pill tone="warning" variant="outline">{t('timeline.truncated')}</Pill> : null}
-      {tc.resultLineNo === undefined ? <Pill tone="warning" variant="outline">{t('timeline.noResult')}</Pill> : null}
+      {tc.isError ? (
+        <Pill tone="error" variant="outline">
+          {t('timeline.error')}
+        </Pill>
+      ) : null}
+      {tc.truncated ? (
+        <Pill tone="warning" variant="outline">
+          {t('timeline.truncated')}
+        </Pill>
+      ) : null}
+      {tc.resultLineNo === undefined ? (
+        <Pill tone="warning" variant="outline">
+          {t('timeline.noResult')}
+        </Pill>
+      ) : null}
       {widthPct > 0 ? (
         <div className="ml-auto h-1 w-24 bg-surface-2">
-          <div className="h-1" style={{ width: `${widthPct}%`, backgroundColor: tc.isError ? 'var(--color-sev-error)' : 'var(--color-cat-tools)' }} />
+          <div
+            className="h-1"
+            style={{
+              width: `${widthPct}%`,
+              backgroundColor: tc.isError ? 'var(--color-sev-error)' : 'var(--color-cat-tools)',
+            }}
+          />
         </div>
       ) : null}
     </div>

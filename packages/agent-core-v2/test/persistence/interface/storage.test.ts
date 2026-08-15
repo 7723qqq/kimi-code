@@ -4,9 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -16,10 +16,7 @@ interface ServiceHandle {
   readonly cleanup?: () => Promise<void>;
 }
 
-function storageServiceSuite(
-  name: string,
-  setup: () => Promise<ServiceHandle>,
-): void {
+function storageServiceSuite(name: string, setup: () => Promise<ServiceHandle>): void {
   describe(name, () => {
     let service: IFileSystemStorageService;
     let cleanup: (() => Promise<void>) | undefined;
@@ -33,8 +30,7 @@ function storageServiceSuite(
       await cleanup?.();
     });
 
-    const settle = (): Promise<void> =>
-      new Promise((resolve) => setTimeout(resolve, 100));
+    const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 100));
 
     it('read returns undefined for a missing key', async () => {
       expect(await service.read('s', 'missing')).toBeUndefined();
@@ -92,7 +88,10 @@ function storageServiceSuite(
     it('watch fires when a watched key is written', async ({ skip }) => {
       if (service.watch === undefined) skip();
       const fired = new Promise<void>((resolve) => {
-        const sub = service.watch!('s', 'k')(() => {
+        const sub = service.watch!(
+          's',
+          'k',
+        )(() => {
           sub.dispose();
           resolve();
         });
@@ -105,7 +104,10 @@ function storageServiceSuite(
     it('watch does not fire for an unrelated key', async ({ skip }) => {
       if (service.watch === undefined) skip();
       let count = 0;
-      const sub = service.watch!('s', 'k')(() => {
+      const sub = service.watch!(
+        's',
+        'k',
+      )(() => {
         count++;
       });
       await service.write('s', 'other', enc.encode('v'));
@@ -118,7 +120,10 @@ function storageServiceSuite(
       if (service.watch === undefined) skip();
       await service.write('s', 'k', enc.encode('x'));
       const fired = new Promise<void>((resolve) => {
-        const sub = service.watch!('s', 'k')(() => {
+        const sub = service.watch!(
+          's',
+          'k',
+        )(() => {
           sub.dispose();
           resolve();
         });

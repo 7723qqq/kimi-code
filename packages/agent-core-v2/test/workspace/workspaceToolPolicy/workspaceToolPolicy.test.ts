@@ -5,8 +5,9 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { LifecycleScope } from '#/app/scopes';
+
 import { createScopedTestHost, stubPair, type ScopedTestHost } from '#/_base/di/test';
+import { LifecycleScope } from '#/app/scopes';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceToolPolicy } from '#/workspace/workspaceToolPolicy/workspaceToolPolicy';
 import {

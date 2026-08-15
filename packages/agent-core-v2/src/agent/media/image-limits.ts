@@ -43,7 +43,9 @@ export class ImageLimits {
 
   /** Longest-edge ceiling (px) for compressing images for the model. */
   maxEdgePx(): number {
-    return maxImageEdgeFromEnv(this.env) ?? this.config?.maxEdgePx ?? resolveMaxImageEdgePx(this.env);
+    return (
+      maxImageEdgeFromEnv(this.env) ?? this.config?.maxEdgePx ?? resolveMaxImageEdgePx(this.env)
+    );
   }
 
   /** Raw-byte budget for model-initiated image reads (ReadMediaFile default path). */

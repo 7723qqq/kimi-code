@@ -48,5 +48,7 @@ export interface CronCreateOutput {
   readonly nextFireAt: number | null;
 }
 
-export interface ICronCreateTool extends AgentTool<CronCreateInput> { readonly _serviceBrand: undefined }
+export interface ICronCreateTool extends AgentTool<CronCreateInput> {
+  readonly _serviceBrand: undefined;
+}
 export const ICronCreateTool = createDecorator<ICronCreateTool>('cronCreateTool');

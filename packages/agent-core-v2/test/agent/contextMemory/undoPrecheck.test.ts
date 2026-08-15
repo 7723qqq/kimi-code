@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  computeUndoCut,
-  contextUndo,
-  isFullyUndoable,
-} from '#/agent/contextMemory/contextOps';
+import { computeUndoCut, contextUndo, isFullyUndoable } from '#/agent/contextMemory/contextOps';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 
 function text(value: string): { type: 'text'; text: string } {
@@ -99,13 +95,7 @@ describe('computeUndoCut', () => {
 
 describe('contextUndo op', () => {
   it('slices the history at the cut point, dropping post-cut injections too', () => {
-    const state = [
-      user(USER_ORIGIN),
-      assistant(),
-      user(USER_ORIGIN),
-      injection(),
-      assistant(),
-    ];
+    const state = [user(USER_ORIGIN), assistant(), user(USER_ORIGIN), injection(), assistant()];
     const next = contextUndo.apply(state, { count: 1 });
     expect(next).toEqual([user(USER_ORIGIN), assistant()]);
   });

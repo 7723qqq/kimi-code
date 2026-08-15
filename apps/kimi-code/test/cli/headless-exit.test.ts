@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Writable } from 'node:stream';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { drainStdio, finalizeHeadlessRun, scheduleHeadlessForceExit } from '#/cli/headless-exit';
 
@@ -26,7 +27,7 @@ describe('scheduleHeadlessForceExit', () => {
     clearTimeout(handle);
   });
 
-  it('schedules an unref\'d timer so a healthy run still exits naturally', () => {
+  it("schedules an unref'd timer so a healthy run still exits naturally", () => {
     // Real timers: an un-unref'd guard would itself keep the event loop alive,
     // turning the fix into a regression (every healthy run would wait the full
     // grace before exiting). hasRef() must be false.

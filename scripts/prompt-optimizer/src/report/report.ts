@@ -7,8 +7,9 @@
 
 import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
-import type { BenchmarkResult, PruneReport, ModelProfile } from '../types';
+
 import { aggregateResults } from '../benchmark/runner';
+import type { BenchmarkResult, PruneReport, ModelProfile } from '../types';
 
 export interface CompareInput {
   name: string;
@@ -35,31 +36,33 @@ export function generateComparisonReport(inputs: CompareInput[]): string {
   // Pass rate row
   lines.push(
     padRight('Pass rate', 22) +
-    aggregates.map((a) => padRight(`${(a.agg.passRate * 100).toFixed(1)}%`, 16)).join(''),
+      aggregates.map((a) => padRight(`${(a.agg.passRate * 100).toFixed(1)}%`, 16)).join(''),
   );
 
   // Rule compliance row
   lines.push(
     padRight('Rule compliance', 22) +
-    aggregates.map((a) => padRight(`${(a.agg.avgRuleCompliance * 100).toFixed(1)}%`, 16)).join(''),
+      aggregates
+        .map((a) => padRight(`${(a.agg.avgRuleCompliance * 100).toFixed(1)}%`, 16))
+        .join(''),
   );
 
   // Tool accuracy row
   lines.push(
     padRight('Tool accuracy', 22) +
-    aggregates.map((a) => padRight(`${(a.agg.avgToolAccuracy * 100).toFixed(1)}%`, 16)).join(''),
+      aggregates.map((a) => padRight(`${(a.agg.avgToolAccuracy * 100).toFixed(1)}%`, 16)).join(''),
   );
 
   // Token efficiency row
   lines.push(
     padRight('Avg tokens', 22) +
-    aggregates.map((a) => padRight(a.agg.avgTokenEfficiency.toFixed(0), 16)).join(''),
+      aggregates.map((a) => padRight(a.agg.avgTokenEfficiency.toFixed(0), 16)).join(''),
   );
 
   // Conciseness row
   lines.push(
     padRight('Conciseness', 22) +
-    aggregates.map((a) => padRight(`${(a.agg.avgConciseness * 100).toFixed(1)}%`, 16)).join(''),
+      aggregates.map((a) => padRight(`${(a.agg.avgConciseness * 100).toFixed(1)}%`, 16)).join(''),
   );
 
   lines.push('─'.repeat(90));
@@ -91,7 +94,7 @@ export function generateComparisonReport(inputs: CompareInput[]): string {
       }
     }
   }
-  const sorted = [...allViolations.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const sorted = [...allViolations.entries()].toSorted((a, b) => b[1] - a[1]).slice(0, 5);
   for (const [rule, count] of sorted) {
     lines.push(`  ${count}x  ${rule}`);
   }
@@ -106,7 +109,7 @@ export function loadReports(dir: string, prefix: string): CompareInput[] {
   if (!existsSync(dir)) return [];
   const files = readdirSync(dir)
     .filter((f) => f.startsWith(prefix) && f.endsWith('.json'))
-    .sort();
+    .toSorted();
 
   return files.map((f) => {
     const content = JSON.parse(readFileSync(resolve(dir, f), 'utf-8'));
@@ -141,16 +144,17 @@ export function writeReport(
 /**
  * Generate a summary dashboard combining prune + probe data.
  */
-export function generateDashboard(
-  pruneReport?: PruneReport,
-  modelProfile?: ModelProfile,
-): string {
+export function generateDashboard(pruneReport?: PruneReport, modelProfile?: ModelProfile): string {
   const lines: string[] = ['Prompt Optimizer Dashboard', '═'.repeat(60), ''];
 
   if (pruneReport) {
     lines.push(`Prompt Size: ${pruneReport.totalTokens} tokens`);
-    lines.push(`Prunable: ${pruneReport.prunableTokens} tokens (${((pruneReport.prunableTokens / pruneReport.totalTokens) * 100).toFixed(1)}%)`);
-    lines.push(`Sections: ${pruneReport.sections.length} total, ${pruneReport.sections.filter((s) => s.verdict === 'PRUNE').length} removable`);
+    lines.push(
+      `Prunable: ${pruneReport.prunableTokens} tokens (${((pruneReport.prunableTokens / pruneReport.totalTokens) * 100).toFixed(1)}%)`,
+    );
+    lines.push(
+      `Sections: ${pruneReport.sections.length} total, ${pruneReport.sections.filter((s) => s.verdict === 'PRUNE').length} removable`,
+    );
     lines.push('');
   }
 
@@ -159,7 +163,9 @@ export function generateDashboard(
     lines.push(`Overall Strength: ${(modelProfile.overallStrength * 100).toFixed(0)}%`);
     const weak = modelProfile.dimensions.filter((d) => d.score < 0.7);
     if (weak.length > 0) {
-      lines.push(`Weak dimensions: ${weak.map((d) => `${d.dimension}(${(d.score * 100).toFixed(0)}%)`).join(', ')}`);
+      lines.push(
+        `Weak dimensions: ${weak.map((d) => `${d.dimension}(${(d.score * 100).toFixed(0)}%)`).join(', ')}`,
+      );
     }
     lines.push('');
   }

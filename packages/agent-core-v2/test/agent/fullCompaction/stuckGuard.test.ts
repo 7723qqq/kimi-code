@@ -12,9 +12,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { IEventBus } from '#/app/event/eventBus';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import type { CompactionStuckEvent } from '#/agent/fullCompaction/compactionOps';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IEventBus } from '#/app/event/eventBus';
+
 import { testAgent } from '../../harness';
 
 const CATALOGUED_PROVIDER = {
@@ -79,7 +80,10 @@ describe('compaction stuck guard', () => {
     // A summary as large as the history: after this round the context is
     // still over the trigger -> stuck.
     const stuck = nextStuck(ctx);
-    ctx.mockNextResponse({ type: 'text', text: 'huge summary that does not shrink the context '.repeat(2000) });
+    ctx.mockNextResponse({
+      type: 'text',
+      text: 'huge summary that does not shrink the context '.repeat(2000),
+    });
     await ctx.rpc.beginCompaction({});
     const stuckEvent = await stuck;
 
@@ -115,7 +119,10 @@ describe('compaction stuck guard', () => {
 
     // Round 1: no-progress compaction (huge summary) -> stuck.
     const stuck = nextStuck(ctx);
-    ctx.mockNextResponse({ type: 'text', text: 'huge summary that does not shrink the context '.repeat(2000) });
+    ctx.mockNextResponse({
+      type: 'text',
+      text: 'huge summary that does not shrink the context '.repeat(2000),
+    });
     await ctx.rpc.beginCompaction({});
     await stuck;
     expect(stuckFlag(ctx)).toBe(true);

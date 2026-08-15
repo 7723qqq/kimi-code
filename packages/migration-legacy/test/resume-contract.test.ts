@@ -1,3 +1,8 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 /**
  * End-to-end check that a migrated session lands in the exact on-disk layout
  * the session picker reads. The migrator writes session buckets named by
@@ -21,14 +26,10 @@
  * session-resume surface.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import { encodeWorkDirKey, normalizeWorkDir } from '../src/v1-compat.js';
 import { migrateOneSession, type MigrateOneResult } from '../src/sessions/migrate-one.js';
 import { computeWorkdirBucket } from '../src/sessions/workdir-bucket.js';
+import { encodeWorkDirKey, normalizeWorkDir } from '../src/v1-compat.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
 const WORK_DIR = '/Users/example/proj';
@@ -60,9 +61,7 @@ describe('migrated session lands in the picker-visible layout', () => {
     // Both sides are the local v1-compat copy; this guards against a future
     // edit re-diverging computeWorkdirBucket from encodeWorkDirKey (the
     // picker's lookup is `readdir(encodeWorkDirKey(workDir))`).
-    expect(computeWorkdirBucket(WORK_DIR)).toBe(
-      encodeWorkDirKey(normalizeWorkDir(WORK_DIR)),
-    );
+    expect(computeWorkdirBucket(WORK_DIR)).toBe(encodeWorkDirKey(normalizeWorkDir(WORK_DIR)));
   });
 
   it('migrated session is visible under the same workDir bucket', async () => {
@@ -101,9 +100,7 @@ describe('migrated session lands in the picker-visible layout', () => {
       (result as Extract<MigrateOneResult, { outcome: 'migrated' }>).targetDir,
     );
     expect(events[0]?.['type']).toBe('metadata');
-    expect(events.filter((e) => e['type'] === 'context.append_message').length).toBeGreaterThan(
-      0,
-    );
+    expect(events.filter((e) => e['type'] === 'context.append_message').length).toBeGreaterThan(0);
   });
 
   it('agents.main.homedir points at the replayed wire history', async () => {
@@ -159,11 +156,12 @@ describe('migrated session lands in the picker-visible layout', () => {
     const assistant = events
       .filter((e) => e['type'] === 'context.append_message')
       .map((e) => e['message'] as Record<string, unknown>)
-      .find((message) =>
-        Array.isArray(message['toolCalls']) &&
-        (message['toolCalls'] as Array<Record<string, unknown>>).some(
-          (call) => call['id'] === 'tool_y3SXWWQIUysddnYoklaWhUeE',
-        ),
+      .find(
+        (message) =>
+          Array.isArray(message['toolCalls']) &&
+          (message['toolCalls'] as Array<Record<string, unknown>>).some(
+            (call) => call['id'] === 'tool_y3SXWWQIUysddnYoklaWhUeE',
+          ),
       );
     expect(assistant).toBeDefined();
 

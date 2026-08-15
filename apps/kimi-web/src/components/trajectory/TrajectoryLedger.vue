@@ -9,6 +9,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type {
   TrajectoryGroupModel,
   TrajectoryRecord,
@@ -56,7 +57,8 @@ function groupTitle(group: TrajectoryGroupModel): string {
 /** "1.5s · bash×2 · read×1" — wall-clock span plus the tool histogram. */
 function groupDesc(group: TrajectoryGroupModel): string {
   const parts: string[] = [];
-  if (group.stats.wallMs !== null) parts.push(`${Math.max(1, Math.round(group.stats.wallMs / 100) / 10)}s`);
+  if (group.stats.wallMs !== null)
+    parts.push(`${Math.max(1, Math.round(group.stats.wallMs / 100) / 10)}s`);
   const tools = [...group.stats.tools.entries()]
     .sort((left, right) => right[1] - left[1])
     .map(([name, count]) => (count === 1 ? name : `${name}×${count}`));
@@ -86,9 +88,7 @@ const rows = computed<readonly DisplayRow[]>(() => {
   for (const turn of props.turns) {
     const turnKey = turn.turn === null ? 'between' : String(turn.turn);
     const turnTitle =
-      turn.turn === null
-        ? t('trajectory.betweenTurns')
-        : t('trajectory.turn', { turn: turn.turn });
+      turn.turn === null ? t('trajectory.betweenTurns') : t('trajectory.turn', { turn: turn.turn });
     if (props.collapsedTurns?.has(turn.turn ?? -1) === true) {
       const count = turn.groups.reduce((sum, g) => sum + g.records.length, 0);
       out.push({
@@ -108,12 +108,29 @@ const rows = computed<readonly DisplayRow[]>(() => {
       for (const record of group.records) {
         if (record.requestOnly === true) continue;
         if (firstInTurn) {
-          out.push({ key: `turn\u0000${turnKey}`, height: TURN_HEADER_HEIGHT, kind: 'turn', turn: turn.turn, title: turnTitle });
+          out.push({
+            key: `turn\u0000${turnKey}`,
+            height: TURN_HEADER_HEIGHT,
+            kind: 'turn',
+            turn: turn.turn,
+            title: turnTitle,
+          });
         }
         if (firstInGroup) {
-          out.push({ key: `group\u0000${turnKey}\u0000${record.group}`, height: GROUP_HEADER_HEIGHT, kind: 'group', title, desc });
+          out.push({
+            key: `group\u0000${turnKey}\u0000${record.group}`,
+            height: GROUP_HEADER_HEIGHT,
+            kind: 'group',
+            title,
+            desc,
+          });
         }
-        out.push({ key: `record\u0000${record.id}`, height: RECORD_HEIGHT, kind: 'record', record });
+        out.push({
+          key: `record\u0000${record.id}`,
+          height: RECORD_HEIGHT,
+          kind: 'record',
+          record,
+        });
         firstInTurn = false;
         firstInGroup = false;
       }
@@ -124,7 +141,9 @@ const rows = computed<readonly DisplayRow[]>(() => {
 
 /** Records in display order — the keyboard navigation sequence. */
 const navRecords = computed(() =>
-  rows.value.flatMap((row) => (row.kind === 'record' && row.record !== undefined ? [row.record] : [])),
+  rows.value.flatMap((row) =>
+    row.kind === 'record' && row.record !== undefined ? [row.record] : [],
+  ),
 );
 
 const scrollTop = ref(0);
@@ -205,9 +224,12 @@ function moveSelection(delta: 1 | -1): void {
   const list = navRecords.value;
   if (list.length === 0) return;
   const current = list.findIndex((record) => record.id === props.selectedId);
-  const next = current === -1
-    ? (delta === 1 ? 0 : list.length - 1)
-    : Math.min(list.length - 1, Math.max(0, current + delta));
+  const next =
+    current === -1
+      ? delta === 1
+        ? 0
+        : list.length - 1
+      : Math.min(list.length - 1, Math.max(0, current + delta));
   const record = list[next];
   if (record !== undefined && record.id !== props.selectedId) emit('select', record);
 }
@@ -239,9 +261,7 @@ watch(
     void nextTick(() => {
       const el = viewport.value;
       if (el === null) return;
-      const index = rows.value.findIndex(
-        (row) => row.kind === 'record' && row.record?.id === id,
-      );
+      const index = rows.value.findIndex((row) => row.kind === 'record' && row.record?.id === id);
       if (index === -1) return;
       const offset = rowOffsets.value[index] ?? 0;
       const bottom = offset + RECORD_HEIGHT;
@@ -283,7 +303,9 @@ watch(
         </div>
         <div v-else-if="item.row.kind === 'group'" class="trajectory-ledger__group">
           <span class="trajectory-ledger__group-title">{{ item.row.title }}</span>
-          <span v-if="item.row.desc" class="trajectory-ledger__group-desc">{{ item.row.desc }}</span>
+          <span v-if="item.row.desc" class="trajectory-ledger__group-desc">{{
+            item.row.desc
+          }}</span>
         </div>
         <div
           v-else-if="item.row.kind === 'summary'"
@@ -320,7 +342,8 @@ watch(
               v-if="item.row.record.result !== undefined"
               class="trajectory-ledger__result"
               :class="{ error: item.row.record.isError === true }"
-            >→ {{ item.row.record.result }}</span>
+              >→ {{ item.row.record.result }}</span
+            >
           </span>
           <span v-if="item.row.record.kind === 'assistant'" class="trajectory-ledger__tokens">
             <span v-if="item.row.record.input !== undefined">{{ item.row.record.input }}</span>
@@ -328,7 +351,11 @@ watch(
             <span v-if="item.row.record.think !== undefined">{{ item.row.record.think }}</span>
           </span>
           <span class="trajectory-ledger__duration">
-            {{ item.row.record.timeSeconds === null ? '' : Math.round(item.row.record.timeSeconds) + 's' }}
+            {{
+              item.row.record.timeSeconds === null
+                ? ''
+                : Math.round(item.row.record.timeSeconds) + 's'
+            }}
           </span>
         </div>
       </div>
@@ -435,13 +462,19 @@ watch(
   cursor: pointer;
   border-left: 2px solid transparent;
 }
-.trajectory-ledger__record:hover { background: var(--color-hover); }
+.trajectory-ledger__record:hover {
+  background: var(--color-hover);
+}
 .trajectory-ledger__record.selected {
   background: var(--color-surface-raised);
   border-left-color: var(--color-accent);
 }
-.trajectory-ledger__record.focused { background: var(--color-accent-soft); }
-.trajectory-ledger__record.error .trajectory-ledger__text { color: var(--color-danger); }
+.trajectory-ledger__record.focused {
+  background: var(--color-accent-soft);
+}
+.trajectory-ledger__record.error .trajectory-ledger__text {
+  color: var(--color-danger);
+}
 .trajectory-ledger__index {
   color: var(--color-text-faint);
   font-family: var(--font-mono);

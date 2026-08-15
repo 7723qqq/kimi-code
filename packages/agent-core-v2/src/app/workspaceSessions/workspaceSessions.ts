@@ -10,7 +10,6 @@
  */
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-
 import type { SessionSummary } from '#/app/sessionIndex/sessionIndex';
 
 export type { SessionSummary };

@@ -18,8 +18,9 @@
 // exactly why a sound did or didn't play.
 
 import { ref } from 'vue';
-import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
+
 import { traceClientEvent } from '../../debug/trace';
+import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
 
 function loadSound(): boolean {
   // Off by default — a completion sound is easy to opt into via Settings, and
@@ -96,7 +97,13 @@ function setSoundOnComplete(on: boolean): void {
   if (on) ensureAudioUnlocked();
 }
 
-function tone(ctx: AudioContext, freq: number, start: number, duration: number, peak: number): void {
+function tone(
+  ctx: AudioContext,
+  freq: number,
+  start: number,
+  duration: number,
+  peak: number,
+): void {
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = 'sine';

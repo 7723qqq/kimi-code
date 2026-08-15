@@ -138,7 +138,13 @@ describe('FileMentionProvider', () => {
   it('opens add-dir directory completions after slash command completion and entering slash', async () => {
     const provider = new FileMentionProvider([ADD_DIR_COMMAND], workDir, NO_FD);
     const command = ADD_DIR_COMMAND;
-    const completed = provider.applyCompletion(['/add'], 0, 4, { value: command.name, label: command.name }, '/add');
+    const completed = provider.applyCompletion(
+      ['/add'],
+      0,
+      4,
+      { value: command.name, label: command.name },
+      '/add',
+    );
     const completedLine = completed.lines[0]!;
     const line = `${completedLine}/`;
     const result = await provider.getSuggestions([line], 0, line.length, { signal: ctrl() });
@@ -164,11 +170,7 @@ describe('FileMentionProvider', () => {
   });
 
   it('prefers exact alias matches over fuzzy skill matches', async () => {
-    const provider = new FileMentionProvider(
-      [NEW_COMMAND, LARK_CALENDAR_COMMAND],
-      workDir,
-      NO_FD,
-    );
+    const provider = new FileMentionProvider([NEW_COMMAND, LARK_CALENDAR_COMMAND], workDir, NO_FD);
     const line = '/clear';
 
     const result = await provider.getSuggestions([line], 0, line.length, { signal: ctrl() });
@@ -400,9 +402,14 @@ describe('FileMentionProvider', () => {
       writeFileSync(join(workDir, 'README.md'), 'readme');
       const provider = new FileMentionProvider([], workDir, FD_PATH!);
 
-      const result = await provider.getSuggestions(['@zzz-no-match-xyz'], 0, '@zzz-no-match-xyz'.length, {
-        signal: ctrl(),
-      });
+      const result = await provider.getSuggestions(
+        ['@zzz-no-match-xyz'],
+        0,
+        '@zzz-no-match-xyz'.length,
+        {
+          signal: ctrl(),
+        },
+      );
 
       expect(result).toBeNull();
     },
@@ -478,45 +485,48 @@ describe('FileMentionProvider', () => {
     expect(dir.lines[0]).toBe('hey @src/');
   });
 
-  describe.skipIf(process.platform === 'win32')('bash-mode path completion dotfile filtering', () => {
-    it('hides dot-prefixed entries (matching /add-dir) in bash mode', async () => {
-      mkdirSync(join(workDir, '.hidden'));
-      mkdirSync(join(workDir, 'visible'));
-      writeFileSync(join(workDir, '.dotfile'), '');
-      writeFileSync(join(workDir, 'normal.txt'), '');
+  describe.skipIf(process.platform === 'win32')(
+    'bash-mode path completion dotfile filtering',
+    () => {
+      it('hides dot-prefixed entries (matching /add-dir) in bash mode', async () => {
+        mkdirSync(join(workDir, '.hidden'));
+        mkdirSync(join(workDir, 'visible'));
+        writeFileSync(join(workDir, '.dotfile'), '');
+        writeFileSync(join(workDir, 'normal.txt'), '');
 
-      const provider = new FileMentionProvider([], workDir, NO_FD, [], () => 'bash');
-      const text = `cd ${workDir}/`;
-      const result = await provider.getSuggestions([text], 0, text.length, {
-        signal: ctrl(),
-        force: true,
+        const provider = new FileMentionProvider([], workDir, NO_FD, [], () => 'bash');
+        const text = `cd ${workDir}/`;
+        const result = await provider.getSuggestions([text], 0, text.length, {
+          signal: ctrl(),
+          force: true,
+        });
+
+        expect(result).not.toBeNull();
+        const labels = result!.items.map((item) => item.label);
+        expect(labels).toContain('visible/');
+        expect(labels).toContain('normal.txt');
+        expect(labels).not.toContain('.hidden/');
+        expect(labels).not.toContain('.dotfile');
       });
 
-      expect(result).not.toBeNull();
-      const labels = result!.items.map((item) => item.label);
-      expect(labels).toContain('visible/');
-      expect(labels).toContain('normal.txt');
-      expect(labels).not.toContain('.hidden/');
-      expect(labels).not.toContain('.dotfile');
-    });
+      it('keeps dot-prefixed entries in prompt mode', async () => {
+        mkdirSync(join(workDir, '.hidden'));
+        writeFileSync(join(workDir, '.dotfile'), '');
 
-    it('keeps dot-prefixed entries in prompt mode', async () => {
-      mkdirSync(join(workDir, '.hidden'));
-      writeFileSync(join(workDir, '.dotfile'), '');
+        const provider = new FileMentionProvider([], workDir, NO_FD, [], () => 'prompt');
+        const text = `cd ${workDir}/`;
+        const result = await provider.getSuggestions([text], 0, text.length, {
+          signal: ctrl(),
+          force: true,
+        });
 
-      const provider = new FileMentionProvider([], workDir, NO_FD, [], () => 'prompt');
-      const text = `cd ${workDir}/`;
-      const result = await provider.getSuggestions([text], 0, text.length, {
-        signal: ctrl(),
-        force: true,
+        expect(result).not.toBeNull();
+        const labels = result!.items.map((item) => item.label);
+        expect(labels).toContain('.hidden/');
+        expect(labels).toContain('.dotfile');
       });
-
-      expect(result).not.toBeNull();
-      const labels = result!.items.map((item) => item.label);
-      expect(labels).toContain('.hidden/');
-      expect(labels).toContain('.dotfile');
-    });
-  });
+    },
+  );
 
   describe('bash-mode path applyCompletion', () => {
     it('does not double the leading slash for a bare / path', () => {
@@ -561,13 +571,7 @@ describe('FileMentionProvider', () => {
 
     it('keeps pi-tui slash-command behaviour in prompt mode', () => {
       const provider = new FileMentionProvider([], workDir, NO_FD, [], () => 'prompt');
-      const result = provider.applyCompletion(
-        ['/'],
-        0,
-        1,
-        { value: 'help', label: 'help' },
-        '/',
-      );
+      const result = provider.applyCompletion(['/'], 0, 1, { value: 'help', label: 'help' }, '/');
       // pi-tui's slash-command branch: beforePrefix + '/' + value + ' '
       expect(result.lines[0]).toBe('/help ');
     });

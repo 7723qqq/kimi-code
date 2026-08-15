@@ -20,7 +20,6 @@
 import { parseKimiCodeCustomHeaders } from '@moonshot-ai/kimi-code-oauth';
 
 import { BugIndicatingError } from '#/_base/errors/errors';
-
 import type { ModelCapability } from '#/kosong/contract/capability';
 import type { InspectionSource, ResolutionTrace } from '#/kosong/contract/inspection';
 import type { Protocol, ProtocolProviderOptions } from '#/kosong/protocol/protocol';
@@ -28,10 +27,8 @@ import type { Protocol, ProtocolProviderOptions } from '#/kosong/protocol/protoc
 import type { AnthropicModelProfile } from '../provider/bases/anthropic/anthropic-profile';
 import type { ProviderConfig } from '../provider/provider';
 import { getProviderDefinition } from '../provider/providerDefinition';
-
 import type { ModelRecord } from './model';
 import type { ResolvedModelAuthMaterial } from './model.types';
-
 
 export interface InspectedAuth {
   readonly kind: 'apiKey' | 'oauth' | 'none';
@@ -83,7 +80,6 @@ export interface ModelInspection {
   readonly sources: Readonly<Record<string, InspectionSource>>;
 }
 
-
 export const TRACE = {
   configuredModel: 'configuredModel',
   effectiveModel: 'effectiveModel',
@@ -120,7 +116,6 @@ export class ResolutionTraceCollector implements ResolutionTrace {
   }
 }
 
-
 const SECRET_KEY_RE = /api[-_]?key|token|secret|password|authorization/i;
 
 export function maskSecret(value: string): string {
@@ -133,13 +128,15 @@ export function redactSecrets<T>(value: T): T {
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value)) {
-      out[key] = typeof item === 'string' && SECRET_KEY_RE.test(key) ? maskSecret(item) : redactSecrets(item);
+      out[key] =
+        typeof item === 'string' && SECRET_KEY_RE.test(key)
+          ? maskSecret(item)
+          : redactSecrets(item);
     }
     return out as T;
   }
   return value;
 }
-
 
 export function attributeEffectiveFields(
   trace: ResolutionTraceCollector,
@@ -214,7 +211,10 @@ export function attributeProviderOptions(
   for (const key of Object.keys(options)) {
     const path = `resolved.providerOptions.${key}`;
     if (key === 'vertexai') {
-      trace.record(path, { kind: 'env', detail: 'provider env bag supplies both vertex coordinates' });
+      trace.record(path, {
+        kind: 'env',
+        detail: 'provider env bag supplies both vertex coordinates',
+      });
       continue;
     }
     if (key === 'project') {
@@ -235,7 +235,6 @@ export function attributeProviderOptions(
     trace.record(path, source ?? { kind: 'config', detail: '[models.*] section' });
   }
 }
-
 
 interface ResolvedModelLike {
   readonly protocol: Protocol;
@@ -314,7 +313,10 @@ export function assembleModelInspection(args: {
   const wireNameField = effective.name !== undefined ? 'name' : 'model';
   sources.set(
     'resolved.wireName',
-    sources.get(`model.effective.${wireNameField}`) ?? { kind: 'config', detail: '[models.*] section' },
+    sources.get(`model.effective.${wireNameField}`) ?? {
+      kind: 'config',
+      detail: '[models.*] section',
+    },
   );
   sources.set('resolved.alwaysThinking', {
     kind: 'synthesized',
@@ -495,7 +497,7 @@ function attributeHeaders(
     getProviderDefinition(providerConfig.type)?.hostHeaders === 'full';
   const hostLayer: Readonly<Record<string, string>> = forwardsAll
     ? rawHost
-    : trace.captured<Readonly<Record<string, string>>>(TRACE.thirdPartyHeaders) ?? {};
+    : (trace.captured<Readonly<Record<string, string>>>(TRACE.thirdPartyHeaders) ?? {});
   const customLayer = providerConfig?.customHeaders ?? {};
   for (const key of Object.keys(model.headers)) {
     const path = `resolved.headers.${key}`;

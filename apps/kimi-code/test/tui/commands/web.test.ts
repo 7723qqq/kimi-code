@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { findBuiltInSlashCommand, resolveSlashCommandAvailability } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import { findBuiltInSlashCommand, resolveSlashCommandAvailability } from '#/tui/commands/index';
 import { handleWebCommand, webSessionUrl } from '#/tui/commands/web';
 
 const mocks = vi.hoisted(() => ({
@@ -135,9 +135,7 @@ describe('handleWebCommand', () => {
     await task(0);
 
     expect(mocks.startServerForeground).toHaveBeenCalledOnce();
-    expect(mocks.openUrl).toHaveBeenCalledWith(
-      'http://127.0.0.1:58627/sessions/ses-1#token=tok-1',
-    );
+    expect(mocks.openUrl).toHaveBeenCalledWith('http://127.0.0.1:58627/sessions/ses-1#token=tok-1');
     const written = writeSpy.mock.calls.map((call) => String(call[0])).join('');
     expect(written).toContain('Kimi server ready');
     expect(written).toContain('Ctrl+C');

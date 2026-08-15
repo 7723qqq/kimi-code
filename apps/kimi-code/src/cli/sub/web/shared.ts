@@ -110,7 +110,10 @@ export function parseLogLevel(raw: string | undefined): ServerLogLevel {
     return raw as ServerLogLevel;
   }
   throw new Error(
-    t('tui.statusMessages.serverInvalidLogLevel', { raw: raw ?? '<none>', allowed: VALID_LOG_LEVELS.join(', ') }),
+    t('tui.statusMessages.serverInvalidLogLevel', {
+      raw: raw ?? '<none>',
+      allowed: VALID_LOG_LEVELS.join(', '),
+    }),
   );
 }
 
@@ -144,10 +147,9 @@ export function resolveServerToken(homeDir: string): string {
   try {
     return readFileSync(tokenPath, 'utf8').trim();
   } catch (error) {
-    throw new Error(
-      t('tui.statusMessages.serverTokenNotFound', { path: tokenPath }),
-      { cause: error },
-    );
+    throw new Error(t('tui.statusMessages.serverTokenNotFound', { path: tokenPath }), {
+      cause: error,
+    });
   }
 }
 

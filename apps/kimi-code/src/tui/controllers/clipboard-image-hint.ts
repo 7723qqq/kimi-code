@@ -3,9 +3,9 @@ import type { TUI } from '@moonshot-ai/pi-tui';
 import { t } from '#/i18n';
 import { clipboardHasImage } from '#/utils/clipboard/clipboard-has-image';
 
+import type { FooterComponent } from '../components/chrome/footer';
 import { FOCUS_DEBOUNCE_MS, HINT_DISPLAY_MS } from '../constant/clipboard-image-hint';
 import { TERMINAL_FOCUS_IN, TERMINAL_FOCUS_OUT } from '../utils/terminal-focus';
-import type { FooterComponent } from '../components/chrome/footer';
 
 export interface ClipboardImageHintHost {
   readonly ui: TUI;

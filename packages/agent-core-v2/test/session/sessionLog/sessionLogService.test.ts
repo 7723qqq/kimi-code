@@ -1,9 +1,9 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
+import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { LifecycleScope } from '#/app/scopes';
+
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -11,14 +11,11 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
-import {
-  logSeed,
-  resolveLoggingConfig,
-  resolveSessionLogPath,
-} from '#/_base/log/logConfig';
+import { logSeed, resolveLoggingConfig, resolveSessionLogPath } from '#/_base/log/logConfig';
 import { AppLogService } from '#/_base/log/logService';
-import { SessionLogService } from '#/session/sessionLog/sessionLogService';
+import { LifecycleScope } from '#/app/scopes';
 import { makeSessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
+import { SessionLogService } from '#/session/sessionLog/sessionLogService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
@@ -54,21 +51,27 @@ afterEach(async () => {
 function buildHost() {
   const cfg = resolveLoggingConfig({
     homeDir,
-    env: { KIMI_LOG_LEVEL: 'debug', KIMI_LOG_SESSION_MAX_BYTES: '8388608', KIMI_LOG_SESSION_FILES: '2' },
+    env: {
+      KIMI_LOG_LEVEL: 'debug',
+      KIMI_LOG_SESSION_MAX_BYTES: '8388608',
+      KIMI_LOG_SESSION_FILES: '2',
+    },
   });
   return createScopedTestHost(logSeed(cfg));
 }
 
 function testSessionSeed() {
   return [
-    ...sessionContextSeed(makeSessionContext({
-      sessionId: 's1',
-      workspaceId: 'test-workspace',
-      sessionDir,
-      sessionScope: 'sessions/test-workspace/s1',
-      metaScope: 'sessions/test-workspace/s1/session-meta',
-      cwd: sessionDir,
-    })),
+    ...sessionContextSeed(
+      makeSessionContext({
+        sessionId: 's1',
+        workspaceId: 'test-workspace',
+        sessionDir,
+        sessionScope: 'sessions/test-workspace/s1',
+        metaScope: 'sessions/test-workspace/s1/session-meta',
+        cwd: sessionDir,
+      }),
+    ),
     [IWorkspaceStateService, new WorkspaceStateService()] as const,
   ];
 }
@@ -195,9 +198,27 @@ describe('SessionLogService', () => {
 describe('ILogService cross-scope resolution', () => {
   beforeEach(() => {
     _clearScopedRegistryForTests();
-    registerScopedService(LifecycleScope.Session, ISessionStateService, SessionStateService, ScopeActivation.OnScopeCreated, 'state');
-    registerScopedService(LifecycleScope.App, ILogService, AppLogService, ScopeActivation.OnDemand, 'log');
-    registerScopedService(LifecycleScope.Session, ILogService, SessionLogService, ScopeActivation.OnDemand, 'log');
+    registerScopedService(
+      LifecycleScope.Session,
+      ISessionStateService,
+      SessionStateService,
+      ScopeActivation.OnScopeCreated,
+      'state',
+    );
+    registerScopedService(
+      LifecycleScope.App,
+      ILogService,
+      AppLogService,
+      ScopeActivation.OnDemand,
+      'log',
+    );
+    registerScopedService(
+      LifecycleScope.Session,
+      ILogService,
+      SessionLogService,
+      ScopeActivation.OnDemand,
+      'log',
+    );
   });
 
   it('resolves the single token to the nearest scope binding', () => {

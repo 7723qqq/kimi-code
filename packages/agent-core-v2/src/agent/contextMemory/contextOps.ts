@@ -48,11 +48,7 @@ import {
   createCompactionSummaryMessage,
   type ContextCompactionShapeInput,
 } from './compactionHandoff';
-import {
-  isPromptOwnedInjection,
-  isUndoAnchor,
-  isValidUndoCount,
-} from './conversationTime';
+import { isPromptOwnedInjection, isUndoAnchor, isValidUndoCount } from './conversationTime';
 import {
   foldAppendMessage,
   foldLoopEvent,
@@ -348,10 +344,7 @@ export function computeUndoCut(state: readonly ContextMessage[], count: number):
       remaining--;
       removedCount++;
       cutIndex = i;
-      while (
-        cutIndex > 0 &&
-        isPromptOwnedInjection(state[cutIndex - 1]!, message)
-      ) {
+      while (cutIndex > 0 && isPromptOwnedInjection(state[cutIndex - 1]!, message)) {
         cutIndex--;
       }
     }

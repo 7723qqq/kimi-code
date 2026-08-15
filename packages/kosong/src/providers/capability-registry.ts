@@ -21,12 +21,7 @@ const OPENAI_RESPONSES_DEVELOPER_ROLE_MODELS = new Set([
   'o4-mini',
 ]);
 
-const OPENAI_VISION_TOOL_PREFIXES = [
-  'gpt-4o',
-  'gpt-4-turbo',
-  'gpt-4.1',
-  'gpt-4.5',
-] as const;
+const OPENAI_VISION_TOOL_PREFIXES = ['gpt-4o', 'gpt-4-turbo', 'gpt-4.1', 'gpt-4.5'] as const;
 
 // Claude prefixes are grouped by capability set, not by version family:
 // a new model joins the group whose capability it matches (e.g. Fable sits

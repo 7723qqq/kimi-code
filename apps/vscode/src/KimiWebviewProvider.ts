@@ -1,7 +1,8 @@
-import * as vscode from "vscode";
-import type { KimiHarness } from "@moonshot-ai/kimi-code-sdk";
-import { Events } from "../shared/bridge";
-import { BridgeHandler } from "./bridge-handler";
+import type { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import * as vscode from 'vscode';
+
+import { Events } from '../shared/bridge';
+import { BridgeHandler } from './bridge-handler';
 
 function getNonce(): string {
   return crypto.randomUUID();
@@ -52,11 +53,16 @@ export class KimiWebviewProvider implements vscode.WebviewViewProvider {
   createPanel(): vscode.WebviewPanel {
     const webviewId = `panel_${crypto.randomUUID()}`;
 
-    const panel = vscode.window.createWebviewPanel("kimiPanel", "Kimi Code", vscode.ViewColumn.One, {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-      localResourceRoots: [this.extensionUri],
-    });
+    const panel = vscode.window.createWebviewPanel(
+      'kimiPanel',
+      'Kimi Code',
+      vscode.ViewColumn.One,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [this.extensionUri],
+      },
+    );
 
     this.setupWebview(webviewId, panel.webview);
 
@@ -72,11 +78,18 @@ export class KimiWebviewProvider implements vscode.WebviewViewProvider {
     this.broadcastInternal(event, data);
   }
 
-  async insertEditorMention(documentUri: vscode.Uri, selection: vscode.Selection): Promise<boolean> {
+  async insertEditorMention(
+    documentUri: vscode.Uri,
+    selection: vscode.Selection,
+  ): Promise<boolean> {
     let inserted = false;
     await Promise.all(
       [...this.webviews.keys()].map(async (webviewId) => {
-        const mention = await this.bridgeHandler.getEditorMention(webviewId, documentUri, selection);
+        const mention = await this.bridgeHandler.getEditorMention(
+          webviewId,
+          documentUri,
+          selection,
+        );
         if (mention === null) return;
         inserted = true;
         this.broadcastInternal(Events.InsertMention, { mention }, webviewId);
@@ -141,7 +154,9 @@ export class KimiWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   private getHtml(webviewId: string, webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview.js"));
+    const scriptUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview.js'),
+    );
     const baseUri = webview.asWebviewUri(this.extensionUri).toString();
     const nonce = getNonce();
 
@@ -154,7 +169,7 @@ export class KimiWebviewProvider implements vscode.WebviewViewProvider {
       `connect-src ${webview.cspSource}`,
       `worker-src ${webview.cspSource} blob:`,
       `script-src 'nonce-${nonce}' ${webview.cspSource}`,
-    ].join("; ");
+    ].join('; ');
 
     return `<!DOCTYPE html>
 <html lang="en">

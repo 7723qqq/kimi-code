@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, it, expect } from 'vitest';
 
+import type { ToolInputDisplay } from '../display';
 import {
   agentEventSchema,
   assistantDeltaEventSchema,
@@ -12,7 +13,6 @@ import {
   toolCallStartedEventSchema,
 } from '../events';
 import type { Event } from '../events';
-import type { ToolInputDisplay } from '../display';
 
 type _AssertEventNonNever = Event extends never ? never : true;
 const _assertEvent: _AssertEventNonNever = true;
@@ -25,9 +25,7 @@ const sdkPackageName = ['@moonshot-ai', 'kimi-code-sdk'].join('/');
 
 function readPackageFiles(): string {
   const files = ['package.json', ...sourceFiles(join(packageRoot, 'src'))];
-  return files
-    .map((file) => readFileSync(join(packageRoot, file), 'utf8'))
-    .join('\n');
+  return files.map((file) => readFileSync(join(packageRoot, file), 'utf8')).join('\n');
 }
 
 function sourceFiles(dir: string): string[] {

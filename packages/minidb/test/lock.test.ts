@@ -1,9 +1,11 @@
-// test/lock.test.js
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
+// test/lock.test.js
+import { test } from 'vitest';
+
 import { MiniDb } from '../src/index.js';
 import { LockError, LockFile } from '../src/lockfile.js';
 
@@ -76,49 +78,63 @@ test('a stale lock (dead PID) is taken over', async () => {
 
 // ---- owner token: per-instance ownership (review #10/#11 regression) ------
 
-test('two same-process contenders over a stale corpse: exactly one wins, zero double-wins', { timeout: 120_000 }, async () => {
-  const dir = await tmpDir();
-  try {
-    const lockPath = path.join(dir, 'db.lock');
-    for (let i = 0; i < 100; i++) {
-      await fs.writeFile(lockPath, JSON.stringify({ pid: 999999, ts: Date.now() }));
-      const a = new LockFile(lockPath);
-      const b = new LockFile(lockPath);
-      const wins = await Promise.all([a.acquire(), b.acquire()]);
-      assert.equal(wins.filter(Boolean).length, 1, `iteration ${i}: exactly one winner`);
-      await a.release();
-      await b.release();
-      // The winner's release unlinked its own lock; nothing may be left.
-      assert.equal(
-        await fs.stat(lockPath).then(() => true, () => false),
-        false,
-        `iteration ${i}: lock released`,
-      );
+test(
+  'two same-process contenders over a stale corpse: exactly one wins, zero double-wins',
+  { timeout: 120_000 },
+  async () => {
+    const dir = await tmpDir();
+    try {
+      const lockPath = path.join(dir, 'db.lock');
+      for (let i = 0; i < 100; i++) {
+        await fs.writeFile(lockPath, JSON.stringify({ pid: 999999, ts: Date.now() }));
+        const a = new LockFile(lockPath);
+        const b = new LockFile(lockPath);
+        const wins = await Promise.all([a.acquire(), b.acquire()]);
+        assert.equal(wins.filter(Boolean).length, 1, `iteration ${i}: exactly one winner`);
+        await a.release();
+        await b.release();
+        // The winner's release unlinked its own lock; nothing may be left.
+        assert.equal(
+          await fs.stat(lockPath).then(
+            () => true,
+            () => false,
+          ),
+          false,
+          `iteration ${i}: lock released`,
+        );
+      }
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
     }
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-});
+  },
+);
 
-test('a racing renew() never re-publishes a released lock (100 iterations)', { timeout: 60_000 }, async () => {
-  const dir = await tmpDir();
-  try {
-    for (let i = 0; i < 100; i++) {
-      const lockPath = path.join(dir, `db-${i}.lock`);
-      const lock = new LockFile(lockPath);
-      assert.equal(await lock.acquire(), true);
-      await Promise.all([lock.renew(), lock.release()]);
-      assert.equal(lock.held, false);
-      assert.equal(
-        await fs.stat(lockPath).then(() => true, () => false),
-        false,
-        `iteration ${i}: no ghost lock`,
-      );
+test(
+  'a racing renew() never re-publishes a released lock (100 iterations)',
+  { timeout: 60_000 },
+  async () => {
+    const dir = await tmpDir();
+    try {
+      for (let i = 0; i < 100; i++) {
+        const lockPath = path.join(dir, `db-${i}.lock`);
+        const lock = new LockFile(lockPath);
+        assert.equal(await lock.acquire(), true);
+        await Promise.all([lock.renew(), lock.release()]);
+        assert.equal(lock.held, false);
+        assert.equal(
+          await fs.stat(lockPath).then(
+            () => true,
+            () => false,
+          ),
+          false,
+          `iteration ${i}: no ghost lock`,
+        );
+      }
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
     }
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-});
+  },
+);
 
 test('renew() keeps the owner token, so release() still recognizes the lock', async () => {
   const dir = await tmpDir();
@@ -131,7 +147,13 @@ test('renew() keeps the owner token, so release() still recognizes the lock', as
     const after = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { token?: string };
     assert.equal(after.token, before.token, 'renew preserves the owner token');
     await lock.release();
-    assert.equal(await fs.stat(lockPath).then(() => true, () => false), false);
+    assert.equal(
+      await fs.stat(lockPath).then(
+        () => true,
+        () => false,
+      ),
+      false,
+    );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -149,7 +171,10 @@ test('acquire() on an already-held lock is an idempotent true and does not re-mi
     assert.equal(after.token, before.token, 'token is not re-minted');
     await lock.release();
     assert.equal(
-      await fs.stat(lockPath).then(() => true, () => false),
+      await fs.stat(lockPath).then(
+        () => true,
+        () => false,
+      ),
       false,
       'release still recognizes and unlinks its own lock',
     );
@@ -176,7 +201,10 @@ test('a legacy tokenless lock file is respected while alive and taken over when 
     await fs.writeFile(deadPath, JSON.stringify({ pid: 999999, ts: Date.now() }));
     const taker = new LockFile(deadPath);
     assert.equal(await taker.acquire(), true);
-    const taken = JSON.parse(await fs.readFile(deadPath, 'utf8')) as { pid: number; token?: string };
+    const taken = JSON.parse(await fs.readFile(deadPath, 'utf8')) as {
+      pid: number;
+      token?: string;
+    };
     assert.equal(taken.pid, process.pid);
     assert.ok(
       typeof taken.token === 'string' && taken.token.startsWith(`${process.pid}:`),
@@ -211,7 +239,10 @@ test('close() still releases the lock when the WAL close fails; a retry finishes
     assert.match(String(err.errors[0]), /injected close failure/);
     // The lock release was NOT skipped by the WAL failure.
     assert.equal(
-      await fs.stat(path.join(dir, 'db.lock')).then(() => true, () => false),
+      await fs.stat(path.join(dir, 'db.lock')).then(
+        () => true,
+        () => false,
+      ),
       false,
       'lock released despite the WAL close failure',
     );
@@ -264,7 +295,10 @@ test('close() aggregates every cleanup error instead of stopping at the first', 
     // Retry: the WAL close is now a no-op, the lock release runs for real.
     await db.close();
     assert.equal(
-      await fs.stat(path.join(dir, 'db.lock')).then(() => true, () => false),
+      await fs.stat(path.join(dir, 'db.lock')).then(
+        () => true,
+        () => false,
+      ),
       false,
       'lock released on the retry',
     );
@@ -301,7 +335,10 @@ test('close() waits out a failing in-flight compaction and still cleans up every
     await closing;
     assert.match(String(db.lastCompactError), /injected compaction failure/);
     assert.equal(
-      await fs.stat(path.join(dir, 'db.lock')).then(() => true, () => false),
+      await fs.stat(path.join(dir, 'db.lock')).then(
+        () => true,
+        () => false,
+      ),
       false,
       'lock released despite the failed compaction',
     );

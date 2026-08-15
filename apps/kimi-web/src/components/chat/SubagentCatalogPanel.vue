@@ -6,6 +6,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { AppTask } from '../../api/types';
 import PanelHeader from '../ui/PanelHeader.vue';
 import SubagentCatalogNode from './SubagentCatalogNode.vue';
@@ -45,9 +46,7 @@ function buildTree(tasks: AppTask[]): CatalogNode[] {
   return roots;
 }
 
-const subagentTasks = computed(() =>
-  props.tasks.filter((task) => task.kind === 'subagent'),
-);
+const subagentTasks = computed(() => props.tasks.filter((task) => task.kind === 'subagent'));
 
 const tree = computed(() => buildTree(subagentTasks.value));
 </script>

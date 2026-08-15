@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, it } from 'vitest';
+
 import { computeWorkdirBucket, oldMd5BucketName } from '../../src/sessions/workdir-bucket.js';
 import { encodeWorkDirKey } from '../../src/v1-compat.js';
-import { createHash } from 'node:crypto';
 
 /**
  * `computeWorkdirBucket` aliases the local v1-compat copy of agent-core's
@@ -14,7 +16,10 @@ describe('computeWorkdirBucket', () => {
   it('produces wd_<slug>_<sha256-12> for a normal path', () => {
     const bucket = computeWorkdirBucket('/Users/me/Developer/proj');
     expect(bucket).toMatch(/^wd_proj_[0-9a-f]{12}$/);
-    const expected = createHash('sha256').update('/Users/me/Developer/proj').digest('hex').slice(0, 12);
+    const expected = createHash('sha256')
+      .update('/Users/me/Developer/proj')
+      .digest('hex')
+      .slice(0, 12);
     expect(bucket).toBe(`wd_proj_${expected}`);
   });
 

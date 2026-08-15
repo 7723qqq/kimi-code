@@ -10,7 +10,6 @@ import { describe, expect, it } from 'vitest';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
@@ -20,14 +19,15 @@ import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { LifecycleScope } from '#/app/scopes';
 import { createHooks } from '#/hooks';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionTodoService } from '#/session/todo/sessionTodo';
+import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import type { ISessionTodoService } from '#/session/todo/sessionTodo';
 import { SessionTodoService } from '#/session/todo/sessionTodoService';
 import { readTodoItems, type TodoItem } from '#/session/todo/todoItem';
 import { TODO_LIST_REMINDER_VARIANT } from '#/session/todo/todoListReminder';
-import { IWireService, type WireHooks } from '#/wire/wire';
 import type { WireRecord } from '#/wire/record';
+import { IWireService, type WireHooks } from '#/wire/wire';
 
 interface RecordedTodoSet {
   readonly todos: readonly TodoItem[];
@@ -194,8 +194,22 @@ describe('SessionTodoService', () => {
     expect(service.getTodos()).toEqual([]);
 
     const next: TodoItem[] = [
-      { id: 'T1', parentId: null, title: 'a', status: 'open', createdAt: Date.now(), updatedAt: Date.now() },
-      { id: 'T2', parentId: null, title: 'b', status: 'in_progress', createdAt: Date.now(), updatedAt: Date.now() },
+      {
+        id: 'T1',
+        parentId: null,
+        title: 'a',
+        status: 'open',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      {
+        id: 'T2',
+        parentId: null,
+        title: 'b',
+        status: 'in_progress',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
     ];
     service.setTodos(next);
     expect(service.getTodos()).toEqual([
@@ -214,8 +228,26 @@ describe('SessionTodoService', () => {
 
     const seen: Array<readonly TodoItem[]> = [];
     const d = service.onDidChange((todos) => seen.push(todos));
-    service.setTodos([{ id: 'T1', parentId: null, title: 'x', status: 'open', createdAt: Date.now(), updatedAt: Date.now() }]);
-    service.setTodos([{ id: 'T1', parentId: null, title: 'y', status: 'done', createdAt: Date.now(), updatedAt: Date.now() }]);
+    service.setTodos([
+      {
+        id: 'T1',
+        parentId: null,
+        title: 'x',
+        status: 'open',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]);
+    service.setTodos([
+      {
+        id: 'T1',
+        parentId: null,
+        title: 'y',
+        status: 'done',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]);
     d.dispose();
 
     expect(seen).toEqual([
@@ -248,9 +280,7 @@ describe('SessionTodoService', () => {
     main.eventBus.publish({ type: 'context.undone', turns: 1 });
     subscription.dispose();
 
-    expect(seen).toEqual([
-      [expect.objectContaining({ title: 'kept', status: 'open' })],
-    ]);
+    expect(seen).toEqual([[expect.objectContaining({ title: 'kept', status: 'open' })]]);
   });
 
   it('appends a tools.update_store record to the main agent wire on setTodos', () => {
@@ -258,7 +288,16 @@ describe('SessionTodoService', () => {
     const lifecycle = makeLifecycleStub([main.handle]);
     const service = new SessionTodoService(lifecycle.service);
 
-    service.setTodos([{ id: 'T1', parentId: null, title: 'persist me', status: 'in_progress', createdAt: Date.now(), updatedAt: Date.now() }]);
+    service.setTodos([
+      {
+        id: 'T1',
+        parentId: null,
+        title: 'persist me',
+        status: 'in_progress',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]);
 
     expect(main.appended).toEqual([
       {
@@ -272,7 +311,18 @@ describe('SessionTodoService', () => {
   it('does not append to the wire when the main agent is absent', () => {
     const lifecycle = makeLifecycleStub();
     const service = new SessionTodoService(lifecycle.service);
-    expect(() => service.setTodos([{ id: 'T1', parentId: null, title: 'x', status: 'open', createdAt: Date.now(), updatedAt: Date.now() }])).not.toThrow();
+    expect(() =>
+      service.setTodos([
+        {
+          id: 'T1',
+          parentId: null,
+          title: 'x',
+          status: 'open',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ]),
+    ).not.toThrow();
     expect(service.getTodos()).toEqual([]);
   });
 
@@ -296,10 +346,25 @@ describe('SessionTodoService', () => {
     const service = new SessionTodoService(lifecycle.service);
 
     await main.restore([
-      { type: 'tools.update_store', key: 'todo', value: [{ id: 'T1', parentId: null, title: 'restored', status: 'done', createdAt: Date.now(), updatedAt: Date.now() }] },
+      {
+        type: 'tools.update_store',
+        key: 'todo',
+        value: [
+          {
+            id: 'T1',
+            parentId: null,
+            title: 'restored',
+            status: 'done',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        ],
+      },
     ]);
 
-    expect(service.getTodos()).toEqual([expect.objectContaining({ title: 'restored', status: 'done' })]);
+    expect(service.getTodos()).toEqual([
+      expect.objectContaining({ title: 'restored', status: 'done' }),
+    ]);
   });
 
   it('disposes per-agent bindings when the agent is disposed', () => {

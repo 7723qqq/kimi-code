@@ -9,16 +9,12 @@
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import type {
-  AgentTool,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentKnowledgeService } from '../knowledge';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type { AgentTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
+import { IAgentKnowledgeService } from '../knowledge';
 import TOOL_DESCRIPTION from './knowledge-tool.md?raw';
 
 const KnowledgeInputSchema = z.object({
@@ -64,15 +60,21 @@ export class KnowledgeTool implements IKnowledgeTool {
         const results = this.knowledge.search(query, input.scope, tags);
         if (results.length === 0) return { output: 'No matching knowledge entries found.' };
         return {
-          output: results.map((r, i) =>
-            `${i + 1}. [${r.entry.category}] ${r.entry.title} (confidence: ${r.entry.confidence})\n   ${r.entry.content.split('\n')[0]}`
-          ).join('\n\n'),
+          output: results
+            .map(
+              (r, i) =>
+                `${i + 1}. [${r.entry.category}] ${r.entry.title} (confidence: ${r.entry.confidence})\n   ${r.entry.content.split('\n')[0]}`,
+            )
+            .join('\n\n'),
         };
       }
 
       case 'add': {
         if (!input.title || !input.content || !input.category) {
-          return { output: 'Error: title, content, and category are required for add action.', isError: true };
+          return {
+            output: 'Error: title, content, and category are required for add action.',
+            isError: true,
+          };
         }
         const entry = this.knowledge.add({
           title: input.title,
@@ -92,10 +94,13 @@ export class KnowledgeTool implements IKnowledgeTool {
       }
 
       case 'confirm': {
-        if (!input.id) return { output: 'Error: id is required for confirm action.', isError: true };
+        if (!input.id)
+          return { output: 'Error: id is required for confirm action.', isError: true };
         const ok = this.knowledge.confirm(input.id);
         return {
-          output: ok ? `Confirmed entry ${input.id} (confidence → 1.0)` : `Entry ${input.id} not found.`,
+          output: ok
+            ? `Confirmed entry ${input.id} (confidence → 1.0)`
+            : `Entry ${input.id} not found.`,
           isError: !ok,
         };
       }

@@ -54,7 +54,8 @@ function parseArguments(argv) {
       help = true;
     } else if (argument === '--base-dir') {
       const value = argv[++index];
-      if (value === undefined || value.startsWith('-')) throw new Error('--base-dir requires a value.');
+      if (value === undefined || value.startsWith('-'))
+        throw new Error('--base-dir requires a value.');
       baseDir = value;
     } else {
       throw new Error(`Unknown option: ${argument}`);
@@ -77,7 +78,9 @@ async function main() {
 
 if (isMainModule(import.meta.url)) {
   main().catch((error) => {
-    console.error(`Development environment setup failed: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `Development environment setup failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
     process.exitCode = 1;
   });
 }

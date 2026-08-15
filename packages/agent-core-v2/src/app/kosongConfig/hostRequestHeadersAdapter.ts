@@ -14,10 +14,10 @@
  * on the full-headers path never touch it.
  */
 
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import { IHostRequestHeaders } from '#/kosong/model/hostRequestHeaders';
 
 export class HostRequestHeadersAdapter implements IHostRequestHeaders {

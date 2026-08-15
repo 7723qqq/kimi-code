@@ -8,6 +8,7 @@
  */
 
 import type { AgentActivityState } from '@moonshot-ai/agent-core-v2/agent/activityView/activityView';
+import type { SkillSummary } from '@moonshot-ai/agent-core-v2/app/skillCatalog/types';
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -25,10 +26,9 @@ import type {
   SessionMeta,
   SessionMetaPatch,
 } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
-import type { SkillSummary } from '@moonshot-ai/agent-core-v2/app/skillCatalog/types';
 
-import type { ScopeRef } from '../channel.js';
 import type { McpServerConfig } from '../../contract/mcp.js';
+import type { ScopeRef } from '../channel.js';
 import { RPCError } from '../errors.js';
 import type { ScopedCaller } from './global.js';
 
@@ -150,9 +150,7 @@ export function createSessionFacade(call: ScopedCaller, sessionId: string): Sess
     get: read,
     setTitle: (title) => call(scope, 'sessionMetadata', 'setTitle', [title]) as Promise<void>,
     generateTitle: (opts) =>
-      call(scope, 'sessionTitleService', 'generateTitle', [opts]) as Promise<
-        string | undefined
-      >,
+      call(scope, 'sessionTitleService', 'generateTitle', [opts]) as Promise<string | undefined>,
     update: (patch) => call(scope, 'sessionMetadata', 'update', [patch]) as Promise<void>,
     setArchived: (archived) =>
       call(scope, 'sessionMetadata', 'setArchived', [archived]) as Promise<void>,

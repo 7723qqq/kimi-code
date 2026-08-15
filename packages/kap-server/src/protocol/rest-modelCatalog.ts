@@ -11,13 +11,12 @@
  * around them, plus the manual create/replace/delete write surface.
  */
 
-import { z } from 'zod';
-
 import { PROVIDER_ID_PATTERN } from '@moonshot-ai/agent-core-v2';
 import {
   modelCatalogItemSchema,
   providerCatalogItemSchema,
 } from '@moonshot-ai/agent-core-v2/kosong/model/catalog';
+import { z } from 'zod';
 
 export const listModelsResponseSchema = z.object({
   items: z.array(modelCatalogItemSchema),

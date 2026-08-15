@@ -60,8 +60,8 @@ function checkPlaceholders(filePath) {
     delete require.cache[require.resolve(filePath)];
     const mod = require(filePath);
     data = mod.default || mod;
-  } catch (err) {
-    errors.push(`Failed to load ${filePath}: ${err.message}`);
+  } catch (error) {
+    errors.push(`Failed to load ${filePath}: ${error.message}`);
     return errors;
   }
 
@@ -75,7 +75,7 @@ function checkPlaceholders(filePath) {
     if (opens !== closes) {
       errors.push(
         `${filePath} → ${path}: mismatched placeholder braces ` +
-        `({{ count: ${opens}, }} count: ${closes}) in "${value.substring(0, 60)}${value.length > 60 ? '...' : ''}"`,
+          `({{ count: ${opens}, }} count: ${closes}) in "${value.slice(0, 60)}${value.length > 60 ? '...' : ''}"`,
       );
     }
   }
@@ -94,8 +94,8 @@ function checkPlaceholderParity(enPath, zhPath) {
   try {
     delete require.cache[require.resolve(enPath)];
     delete require.cache[require.resolve(zhPath)];
-    enData = (require(enPath)).default || require(enPath);
-    zhData = (require(zhPath)).default || require(zhPath);
+    enData = require(enPath).default || require(enPath);
+    zhData = require(zhPath).default || require(zhPath);
   } catch {
     // Skip parity check if files can't be loaded (already reported above)
     return errors;
@@ -104,22 +104,31 @@ function checkPlaceholderParity(enPath, zhPath) {
   const enStrings = collectStrings(enData);
   const zhStrings = collectStrings(zhData);
 
-  const enMap = new Map(enStrings.map(s => [s.path, s.value]));
-  const zhMap = new Map(zhStrings.map(s => [s.path, s.value]));
+  const enMap = new Map(enStrings.map((s) => [s.path, s.value]));
+  const zhMap = new Map(zhStrings.map((s) => [s.path, s.value]));
 
   // Check keys present in en but missing or different placeholders in zh
   for (const [key, enValue] of enMap) {
     const zhValue = zhMap.get(key);
     if (zhValue === undefined) continue; // missing key handled by type check
 
-    const enPlaceholders = [...enValue.matchAll(PLACEHOLDER_WELL_FORMED)].map(m => m[1]).filter(p => !PLURAL_MARKERS.has(p)).sort((a, b) => a.localeCompare(b));
-    const zhPlaceholders = [...zhValue.matchAll(PLACEHOLDER_WELL_FORMED)].map(m => m[1]).filter(p => !PLURAL_MARKERS.has(p)).sort((a, b) => a.localeCompare(b));
+    const enPlaceholders = [...enValue.matchAll(PLACEHOLDER_WELL_FORMED)]
+      .map((m) => m[1])
+      .filter((p) => !PLURAL_MARKERS.has(p))
+      .toSorted((a, b) => a.localeCompare(b));
+    const zhPlaceholders = [...zhValue.matchAll(PLACEHOLDER_WELL_FORMED)]
+      .map((m) => m[1])
+      .filter((p) => !PLURAL_MARKERS.has(p))
+      .toSorted((a, b) => a.localeCompare(b));
 
-    if (enPlaceholders.length > 0 && JSON.stringify(enPlaceholders) !== JSON.stringify(zhPlaceholders)) {
+    if (
+      enPlaceholders.length > 0 &&
+      JSON.stringify(enPlaceholders) !== JSON.stringify(zhPlaceholders)
+    ) {
       errors.push(
         `${path.basename(zhPath)} → ${String(key)}: placeholder mismatch\n` +
-        `  en: {{${enPlaceholders.join('}}, {{')}}}\n` +
-        `  zh: {{${zhPlaceholders.join('}}, {{')}}}`,
+          `  en: {{${enPlaceholders.join('}}, {{')}}}\n` +
+          `  zh: {{${zhPlaceholders.join('}}, {{')}}}`,
       );
     }
   }
@@ -132,10 +141,19 @@ function checkPlaceholderParity(enPath, zhPath) {
 const LOCALE_PAIRS = [
   { en: 'packages/i18n/src/locales/en.ts', zh: 'packages/i18n/src/locales/zh.ts' },
   { en: 'apps/kimi-code/src/i18n/locales/en.ts', zh: 'apps/kimi-code/src/i18n/locales/zh.ts' },
-  { en: 'packages/kap-server/src/i18n-locales/en.ts', zh: 'packages/kap-server/src/i18n-locales/zh.ts' },
-  { en: 'apps/kimi-inspect/src/i18n/locales/en.ts', zh: 'apps/kimi-inspect/src/i18n/locales/zh.ts' },
+  {
+    en: 'packages/kap-server/src/i18n-locales/en.ts',
+    zh: 'packages/kap-server/src/i18n-locales/zh.ts',
+  },
+  {
+    en: 'apps/kimi-inspect/src/i18n/locales/en.ts',
+    zh: 'apps/kimi-inspect/src/i18n/locales/zh.ts',
+  },
   { en: 'apps/vis/web/src/i18n/locales/en.ts', zh: 'apps/vis/web/src/i18n/locales/zh.ts' },
-  { en: 'apps/vscode/webview-ui/src/i18n/locales/en.ts', zh: 'apps/vscode/webview-ui/src/i18n/locales/zh.ts' },
+  {
+    en: 'apps/vscode/webview-ui/src/i18n/locales/en.ts',
+    zh: 'apps/vscode/webview-ui/src/i18n/locales/zh.ts',
+  },
 ];
 
 let totalErrors = 0;

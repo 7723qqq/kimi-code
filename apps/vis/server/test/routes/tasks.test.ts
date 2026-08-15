@@ -3,23 +3,36 @@ import { join } from 'node:path';
 
 import { describe, it, expect, afterEach } from 'vitest';
 
-import { buildSessionFixture } from '../fixtures/build';
 import { tasksRoute } from '../../src/routes/tasks';
+import { buildSessionFixture } from '../fixtures/build';
 
 describe('tasks route', () => {
   let cleanup: (() => Promise<void>) | null = null;
-  afterEach(async () => { if (cleanup) await cleanup(); cleanup = null; });
+  afterEach(async () => {
+    if (cleanup) await cleanup();
+    cleanup = null;
+  });
 
   // Tasks live under the spawning agent's homedir (<session>/agents/main/tasks),
   // NOT the session root — seed there so the test mirrors real on-disk layout.
   async function seed(sessionDir: string): Promise<void> {
     const dir = join(sessionDir, 'agents', 'main', 'tasks');
     await mkdir(join(dir, 'bash-12345678'), { recursive: true });
-    await writeFile(join(dir, 'bash-12345678.json'), JSON.stringify({
-      taskId: 'bash-12345678', kind: 'process', description: 'build',
-      command: 'pnpm build', pid: 7, exitCode: 0, status: 'completed',
-      detached: true, startedAt: 100, endedAt: 200,
-    }));
+    await writeFile(
+      join(dir, 'bash-12345678.json'),
+      JSON.stringify({
+        taskId: 'bash-12345678',
+        kind: 'process',
+        description: 'build',
+        command: 'pnpm build',
+        pid: 7,
+        exitCode: 0,
+        status: 'completed',
+        detached: true,
+        startedAt: 100,
+        endedAt: 200,
+      }),
+    );
     await writeFile(join(dir, 'bash-12345678', 'output.log'), 'line one\nline two\n');
   }
 
@@ -33,7 +46,12 @@ describe('tasks route', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       sessionId: string;
-      tasks: { task: { taskId: string }; agentId: string; outputSizeBytes: number; outputExists: boolean }[];
+      tasks: {
+        task: { taskId: string };
+        agentId: string;
+        outputSizeBytes: number;
+        outputExists: boolean;
+      }[];
     };
     expect(body.sessionId).toBe('session_fixture');
     expect(body.tasks).toHaveLength(1);
@@ -60,7 +78,13 @@ describe('tasks route', () => {
 
     const res = await app.request('/session_fixture/tasks/bash-12345678/output?offset=0&limit=8');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { content: string; size: number; eof: boolean; offset: number; nextOffset: number };
+    const body = (await res.json()) as {
+      content: string;
+      size: number;
+      eof: boolean;
+      offset: number;
+      nextOffset: number;
+    };
     expect(body.content).toBe('line one');
     expect(body.size).toBe(18);
     expect(body.eof).toBe(false);
@@ -74,7 +98,7 @@ describe('tasks route', () => {
     const app = tasksRoute(home);
     const res = await app.request('/session_fixture/tasks/bash-00000000/output');
     expect(res.status).toBe(200);
-    expect((await res.json())).toMatchObject({ size: 0, content: '', eof: true });
+    expect(await res.json()).toMatchObject({ size: 0, content: '', eof: true });
   });
 
   it('rejects an unsafe task id with 400', async () => {

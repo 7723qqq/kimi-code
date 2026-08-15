@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import { Emitter } from '#/_base/event';
 import {
   FiberProtocolError,
   FiberState,
@@ -14,6 +13,7 @@ import { createDecorator, ref, type LiveRef } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { Service } from '#/_base/di/service';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
+import { Emitter } from '#/_base/event';
 import type { Ledger } from '#/_base/lifecycle/ledger';
 
 interface IFoo {
@@ -213,7 +213,9 @@ describe('Service — kernel construction protocol (L3)', () => {
     ix.provide(IBar, new SyncDescriptor(Consumer));
     const consumer = ix.invokeFunction((a) => a.get(IBar)) as unknown as Consumer;
     let changes = 0;
-    consumer.fooRef.onDidChange(() => { changes += 1; });
+    consumer.fooRef.onDidChange(() => {
+      changes += 1;
+    });
 
     // The subscriptions anchor to the instance's own book; the container
     // ledger no longer holds the ref entry.

@@ -11,12 +11,13 @@
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
+
 import type { AppSubagentPhase } from '../../../api/types';
 import type { SwarmMember } from '../../../composables/swarmGroups';
-import { toolLabel } from '../../../lib/toolMeta';
 import { parseSwarmResult } from '../../../lib/parseSwarmResult';
 import { buildSwarmCardRows, type SwarmCardRow } from '../../../lib/swarmCardRows';
+import { toolLabel } from '../../../lib/toolMeta';
+import type { FilePreviewRequest, ToolCall, ToolMedia } from '../../../types';
 import Icon from '../../ui/Icon.vue';
 import StatusDot from '../../ui/StatusDot.vue';
 import Tooltip from '../../ui/Tooltip.vue';
@@ -77,10 +78,16 @@ const description = computed(() => input.value.description ?? '');
 const members = computed(() => resolveSwarmMembers?.(props.tool.id) ?? []);
 const result = computed(() => parseSwarmResult(props.tool.output));
 
-const status = computed<'running' | 'ok' | 'error'>(() => props.tool.status as 'running' | 'ok' | 'error');
+const status = computed<'running' | 'ok' | 'error'>(
+  () => props.tool.status as 'running' | 'ok' | 'error',
+);
 const aggregateStatus = computed<'running' | 'ok' | 'error'>(() => {
   if (status.value === 'running') return 'running';
-  if (status.value === 'error' || (result.value?.failed ?? 0) > 0 || (result.value?.aborted ?? 0) > 0)
+  if (
+    status.value === 'error' ||
+    (result.value?.failed ?? 0) > 0 ||
+    (result.value?.aborted ?? 0) > 0
+  )
     return 'error';
   return 'ok';
 });
@@ -108,7 +115,9 @@ const counts = computed<PhaseCounts>(() => {
 
 const total = computed(() => rows.value.length || input.value.itemCount || 0);
 const done = computed(() => counts.value.completed + counts.value.failed);
-const inProgress = computed(() => counts.value.working + counts.value.suspended + counts.value.queued);
+const inProgress = computed(
+  () => counts.value.working + counts.value.suspended + counts.value.queued,
+);
 
 const PHASE_ORDER: readonly { phase: AppSubagentPhase; cls: string }[] = [
   { phase: 'completed', cls: 's-ok' },
@@ -173,7 +182,10 @@ function phaseLabel(phase: AppSubagentPhase): string {
 </script>
 
 <template>
-  <div class="swarm-card" :class="{ open, err: aggregateStatus === 'error', stacked: stackPosition !== 'single' }">
+  <div
+    class="swarm-card"
+    :class="{ open, err: aggregateStatus === 'error', stacked: stackPosition !== 'single' }"
+  >
     <button class="head" type="button" :aria-expanded="open" @click="toggle">
       <Icon class="ic" name="git-pull-request" size="sm" />
       <span class="title">{{ label }}</span>
@@ -199,7 +211,12 @@ function phaseLabel(phase: AppSubagentPhase): string {
             {{ t('tools.swarm.runningSub', { count: inProgress }) }}
           </span>
           <span v-else-if="result" class="lbl">
-            {{ t('tools.swarm.doneSub', { completed: result.completed, failed: result.failed + result.aborted }) }}
+            {{
+              t('tools.swarm.doneSub', {
+                completed: result.completed,
+                failed: result.failed + result.aborted,
+              })
+            }}
           </span>
           <span v-else class="lbl">{{ t('tools.swarm.waiting') }}</span>
         </div>
@@ -235,7 +252,17 @@ function phaseLabel(phase: AppSubagentPhase): string {
               <span class="mact">{{ row.activity }}</span>
             </Tooltip>
             <span class="mphase">{{ phaseLabel(row.phase) }}</span>
-            <Icon class="mcar" :name="rowHasLiveTask(row) ? 'arrow-right' : isRowOpen(row.id) ? 'chevron-down' : 'chevron-right'" size="sm" />
+            <Icon
+              class="mcar"
+              :name="
+                rowHasLiveTask(row)
+                  ? 'arrow-right'
+                  : isRowOpen(row.id)
+                    ? 'chevron-down'
+                    : 'chevron-right'
+              "
+              size="sm"
+            />
           </button>
           <div v-show="isRowOpen(row.id)" class="member-body">{{ row.body }}</div>
         </div>
@@ -385,11 +412,21 @@ function phaseLabel(phase: AppSubagentPhase): string {
   border-radius: var(--radius-full);
   min-width: 3px;
 }
-.s-ok { background: var(--color-success); }
-.s-run { background: var(--color-accent); }
-.s-warn { background: var(--color-warning); }
-.s-fail { background: var(--color-danger); }
-.s-queue { background: var(--color-line); }
+.s-ok {
+  background: var(--color-success);
+}
+.s-run {
+  background: var(--color-accent);
+}
+.s-warn {
+  background: var(--color-warning);
+}
+.s-fail {
+  background: var(--color-danger);
+}
+.s-queue {
+  background: var(--color-line);
+}
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -467,10 +504,18 @@ function phaseLabel(phase: AppSubagentPhase): string {
   font: var(--text-xs) var(--font-mono);
   color: var(--color-text-faint);
 }
-.phase-completed .mphase { color: var(--color-success); }
-.phase-failed .mphase { color: var(--color-danger); }
-.phase-working .mphase { color: var(--color-accent); }
-.phase-suspended .mphase { color: var(--color-warning); }
+.phase-completed .mphase {
+  color: var(--color-success);
+}
+.phase-failed .mphase {
+  color: var(--color-danger);
+}
+.phase-working .mphase {
+  color: var(--color-accent);
+}
+.phase-suspended .mphase {
+  color: var(--color-warning);
+}
 .mcar {
   margin-left: 4px;
   color: var(--color-text-faint);

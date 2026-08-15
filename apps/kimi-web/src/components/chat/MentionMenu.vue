@@ -2,6 +2,7 @@
 <!-- Popup list of file paths shown when user types @ in the Composer textarea. -->
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
+
 import { iconSvg } from '../../lib/icons';
 import type { FileItem } from '../../types';
 
@@ -35,10 +36,47 @@ const ICON_IMAGE = iconSvg('image', 'sm');
 const ICON_GENERIC = iconSvg('file', 'sm');
 
 const CODE_EXT = new Set([
-  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'vue', 'json', 'py', 'go', 'rs',
-  'java', 'kt', 'c', 'h', 'cpp', 'cc', 'hpp', 'cs', 'rb', 'php', 'swift',
-  'sh', 'bash', 'zsh', 'css', 'scss', 'less', 'html', 'htm', 'xml', 'sql',
-  'yaml', 'yml', 'toml', 'lua', 'dart', 'scala', 'clj', 'ex', 'exs',
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'vue',
+  'json',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'kt',
+  'c',
+  'h',
+  'cpp',
+  'cc',
+  'hpp',
+  'cs',
+  'rb',
+  'php',
+  'swift',
+  'sh',
+  'bash',
+  'zsh',
+  'css',
+  'scss',
+  'less',
+  'html',
+  'htm',
+  'xml',
+  'sql',
+  'yaml',
+  'yml',
+  'toml',
+  'lua',
+  'dart',
+  'scala',
+  'clj',
+  'ex',
+  'exs',
 ]);
 const DOC_EXT = new Set(['md', 'markdown', 'mdx', 'txt', 'rst', 'adoc', 'pdf', 'doc', 'docx']);
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'avif']);
@@ -64,7 +102,9 @@ function fileIcon(item: FileItem): string {
     <div v-if="props.loading" class="mention-state dim">{{ t('mention.searching') }}</div>
 
     <!-- Empty state (not loading, no items) -->
-    <div v-else-if="props.items.length === 0" class="mention-state dim">{{ t('mention.noMatch') }}</div>
+    <div v-else-if="props.items.length === 0" class="mention-state dim">
+      {{ t('mention.noMatch') }}
+    </div>
 
     <!-- File items -->
     <div
@@ -90,7 +130,7 @@ function fileIcon(item: FileItem): string {
 <style scoped>
 /* `[role="listbox"]` raises specificity (0,3,0) so the redesign's surface +
    shadow-md win over any global menu styles. */
-.mention-menu[role="listbox"] {
+.mention-menu[role='listbox'] {
   position: absolute;
   bottom: calc(100% + 4px);
   left: 0;
@@ -171,6 +211,11 @@ function fileIcon(item: FileItem): string {
 }
 
 /* ---- Menu surface defaults ---- */
-.mention-menu { border-radius: var(--radius-lg); box-shadow: var(--sh); }
-.mention-state { font-family: var(--sans); }
+.mention-menu {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--sh);
+}
+.mention-state {
+  font-family: var(--sans);
+}
 </style>

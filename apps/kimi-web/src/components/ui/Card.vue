@@ -1,11 +1,14 @@
 <!-- apps/kimi-web/src/components/ui/Card.vue -->
 <!-- Design-system §03 Card: a single flat surface with head / body / foot slots. -->
 <script setup lang="ts">
-withDefaults(defineProps<{
-  elevated?: boolean;
-}>(), {
-  elevated: false,
-});
+withDefaults(
+  defineProps<{
+    elevated?: boolean;
+  }>(),
+  {
+    elevated: false,
+  },
+);
 </script>
 
 <template>
@@ -23,7 +26,10 @@ withDefaults(defineProps<{
   border-radius: var(--radius-md);
   overflow: hidden;
 }
-.ui-card.is-elevated { box-shadow: var(--shadow-md); border-color: transparent; }
+.ui-card.is-elevated {
+  box-shadow: var(--shadow-md);
+  border-color: transparent;
+}
 
 .ui-card__head {
   display: flex;
@@ -37,7 +43,10 @@ withDefaults(defineProps<{
   font-weight: var(--weight-medium);
   color: var(--color-text);
 }
-.ui-card__body { padding: 14px; color: var(--color-text-muted); }
+.ui-card__body {
+  padding: 14px;
+  color: var(--color-text-muted);
+}
 .ui-card__foot {
   display: flex;
   align-items: center;

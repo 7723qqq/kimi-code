@@ -73,7 +73,11 @@ describe('fetchOpenPlatformModels', () => {
     const fetchMock = vi.fn(async () => makeModelsResponse());
     const platform = getOpenPlatformById('moonshot-cn')!;
 
-    const models = await fetchOpenPlatformModels(platform, 'sk-test', fetchMock as unknown as typeof fetch);
+    const models = await fetchOpenPlatformModels(
+      platform,
+      'sk-test',
+      fetchMock as unknown as typeof fetch,
+    );
 
     expect(models).toHaveLength(3);
     expect(models[0]).toMatchObject({
@@ -109,7 +113,7 @@ describe('fetchOpenPlatformModels', () => {
       platform,
       'sk-bad',
       fetchMock as unknown as typeof fetch,
-    ).catch((caught: unknown) => caught);
+    ).catch((error: unknown) => error);
 
     expect(error).toBeInstanceOf(OpenPlatformApiError);
     expect((error as OpenPlatformApiError).status).toBe(401);
@@ -130,11 +134,26 @@ describe('filterModelsByPrefix', () => {
   it('filters by allowedPrefixes when present', () => {
     const platform = getOpenPlatformById('moonshot-cn')!;
     const models = [
-      { id: 'kimi-k2-0712-preview', contextLength: 256000, supportsReasoning: true, supportsImageIn: true, supportsVideoIn: true },
-      { id: 'gpt-4', contextLength: 1000, supportsReasoning: false, supportsImageIn: false, supportsVideoIn: false },
+      {
+        id: 'kimi-k2-0712-preview',
+        contextLength: 256000,
+        supportsReasoning: true,
+        supportsImageIn: true,
+        supportsVideoIn: true,
+      },
+      {
+        id: 'gpt-4',
+        contextLength: 1000,
+        supportsReasoning: false,
+        supportsImageIn: false,
+        supportsVideoIn: false,
+      },
     ];
 
-    const filtered = filterModelsByPrefix(models as unknown as import('../src/managed-kimi-code').ManagedKimiCodeModelInfo[], platform);
+    const filtered = filterModelsByPrefix(
+      models as unknown as import('../src/managed-kimi-code').ManagedKimiCodeModelInfo[],
+      platform,
+    );
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.id).toBe('kimi-k2-0712-preview');
   });
@@ -146,11 +165,26 @@ describe('filterModelsByPrefix', () => {
       baseUrl: 'https://example.com/v1',
     };
     const models = [
-      { id: 'model-a', contextLength: 1000, supportsReasoning: false, supportsImageIn: false, supportsVideoIn: false },
-      { id: 'model-b', contextLength: 2000, supportsReasoning: false, supportsImageIn: false, supportsVideoIn: false },
+      {
+        id: 'model-a',
+        contextLength: 1000,
+        supportsReasoning: false,
+        supportsImageIn: false,
+        supportsVideoIn: false,
+      },
+      {
+        id: 'model-b',
+        contextLength: 2000,
+        supportsReasoning: false,
+        supportsImageIn: false,
+        supportsVideoIn: false,
+      },
     ];
 
-    const filtered = filterModelsByPrefix(models as unknown as import('../src/managed-kimi-code').ManagedKimiCodeModelInfo[], platform);
+    const filtered = filterModelsByPrefix(
+      models as unknown as import('../src/managed-kimi-code').ManagedKimiCodeModelInfo[],
+      platform,
+    );
     expect(filtered).toHaveLength(2);
   });
 });
@@ -180,7 +214,11 @@ describe('fetchOpenPlatformModels supports_thinking_type', () => {
     );
     const platform = getOpenPlatformById('moonshot-cn')!;
 
-    const models = await fetchOpenPlatformModels(platform, 'sk-test', fetchMock as unknown as typeof fetch);
+    const models = await fetchOpenPlatformModels(
+      platform,
+      'sk-test',
+      fetchMock as unknown as typeof fetch,
+    );
 
     expect(models[0]?.supportsThinkingType).toBe('only');
     expect(models[1]?.supportsThinkingType).toBeUndefined();
@@ -259,8 +297,21 @@ describe('applyOpenPlatformConfig', () => {
     };
     const platform = getOpenPlatformById('moonshot-cn')!;
     const models = [
-      { id: 'kimi-k2-0712-preview', contextLength: 256000, supportsReasoning: true, supportsImageIn: true, supportsVideoIn: true, displayName: 'Kimi K2' },
-      { id: 'kimi-k2-lite', contextLength: 128000, supportsReasoning: false, supportsImageIn: false, supportsVideoIn: false },
+      {
+        id: 'kimi-k2-0712-preview',
+        contextLength: 256000,
+        supportsReasoning: true,
+        supportsImageIn: true,
+        supportsVideoIn: true,
+        displayName: 'Kimi K2',
+      },
+      {
+        id: 'kimi-k2-lite',
+        contextLength: 128000,
+        supportsReasoning: false,
+        supportsImageIn: false,
+        supportsVideoIn: false,
+      },
     ];
 
     const result = applyOpenPlatformConfig(config, {
@@ -305,7 +356,13 @@ describe('applyOpenPlatformConfig', () => {
     };
     const platform = getOpenPlatformById('moonshot-cn')!;
     const models = [
-      { id: 'kimi-k2-0712-preview', contextLength: 256000, supportsReasoning: true, supportsImageIn: true, supportsVideoIn: true },
+      {
+        id: 'kimi-k2-0712-preview',
+        contextLength: 256000,
+        supportsReasoning: true,
+        supportsImageIn: true,
+        supportsVideoIn: true,
+      },
     ];
 
     applyOpenPlatformConfig(config, {
@@ -469,16 +526,19 @@ describe('fetchOpenPlatformModels — astron embedded efforts', () => {
   });
 });
 
-
 describe('removeOpenPlatformConfig', () => {
   it('removes provider, its models, and defaultModel when matched', () => {
     const config: ManagedKimiConfigShape = {
       providers: {
         'moonshot-cn': { type: 'kimi', baseUrl: 'https://api.moonshot.cn/v1', apiKey: 'sk-test' },
-        'other': { type: 'kimi', baseUrl: 'https://other.test/v1', apiKey: 'sk-other' },
+        other: { type: 'kimi', baseUrl: 'https://other.test/v1', apiKey: 'sk-other' },
       },
       models: {
-        'moonshot-cn/kimi-k2': { provider: 'moonshot-cn', model: 'kimi-k2', maxContextSize: 256000 },
+        'moonshot-cn/kimi-k2': {
+          provider: 'moonshot-cn',
+          model: 'kimi-k2',
+          maxContextSize: 256000,
+        },
         'other/model': { provider: 'other', model: 'other-model', maxContextSize: 1000 },
       },
       defaultModel: 'moonshot-cn/kimi-k2',
@@ -499,7 +559,11 @@ describe('removeOpenPlatformConfig', () => {
         'moonshot-cn': { type: 'kimi', baseUrl: 'https://api.moonshot.cn/v1', apiKey: 'sk-test' },
       },
       models: {
-        'moonshot-cn/kimi-k2': { provider: 'moonshot-cn', model: 'kimi-k2', maxContextSize: 256000 },
+        'moonshot-cn/kimi-k2': {
+          provider: 'moonshot-cn',
+          model: 'kimi-k2',
+          maxContextSize: 256000,
+        },
       },
       defaultModel: 'other/model',
     };

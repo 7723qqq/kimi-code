@@ -90,10 +90,16 @@ describe('estimateTokensForMessage(s)', () => {
 
   it('counts media parts with the flat media estimate', () => {
     expect(
-      estimateTokensForContentPart({ type: 'image_url', imageUrl: { url: 'data:image/png;base64,AAAA' } }),
+      estimateTokensForContentPart({
+        type: 'image_url',
+        imageUrl: { url: 'data:image/png;base64,AAAA' },
+      }),
     ).toBe(MEDIA_TOKEN_ESTIMATE);
     expect(
-      estimateTokensForContentPart({ type: 'video_url', videoUrl: { url: 'data:video/mp4;base64,AAAA' } }),
+      estimateTokensForContentPart({
+        type: 'video_url',
+        videoUrl: { url: 'data:video/mp4;base64,AAAA' },
+      }),
     ).toBe(MEDIA_TOKEN_ESTIMATE);
     expect(estimateTokensForContentPart({ type: 'think', think: 'abcd' })).toBe(1);
   });

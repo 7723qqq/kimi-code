@@ -9,13 +9,14 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join as pathJoin } from 'node:path';
+
 import { join } from 'pathe';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness } from '#/index';
-import type { KimiError , KimiHarness } from '#/index';
-import type { ResumeSessionInput, ResumedSessionSummary } from '#/types';
+import type { KimiError, KimiHarness } from '#/index';
 import { SDKRpcClientBase } from '#/rpc';
-import { afterEach, describe, expect, it } from 'vitest';
+import type { ResumeSessionInput, ResumedSessionSummary } from '#/types';
 
 import { waitForAgentWireEvent } from './session-runtime-helpers';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
@@ -83,7 +84,10 @@ class StubRpc extends SDKRpcClientBase {
     };
   }
 
-  override async resumeSession(input: { id: string; workDir?: string }): Promise<ResumedSessionSummary> {
+  override async resumeSession(input: {
+    id: string;
+    workDir?: string;
+  }): Promise<ResumedSessionSummary> {
     return {
       id: input.id,
       workDir: '/tmp/work',
@@ -137,7 +141,10 @@ describe('KimiHarness.createSession transport link', () => {
       // SDK harness's attribution-carrying events.
       expect(
         records.filter(
-          (record) => record.event === 'session_started' && record.properties !== undefined && 'client_name' in record.properties,
+          (record) =>
+            record.event === 'session_started' &&
+            record.properties !== undefined &&
+            'client_name' in record.properties,
         ),
       ).toHaveLength(1);
       expect(records).toContainEqual({
@@ -151,7 +158,10 @@ describe('KimiHarness.createSession transport link', () => {
 
       expect(
         records.filter(
-          (record) => record.event === 'session_started' && record.properties !== undefined && 'client_name' in record.properties,
+          (record) =>
+            record.event === 'session_started' &&
+            record.properties !== undefined &&
+            'client_name' in record.properties,
         ),
       ).toHaveLength(2);
       expect(records).toContainEqual({
@@ -840,9 +850,9 @@ max_context_size = 1000
       // v1 rejected a differing profile on resume; v2's resumeSession has no
       // agentProfile channel and re-selects the persisted binding (pinned in
       // the migration tracker).
-      await expect(
-        harness.resumeSession({ id: session.id, agentProfile: 'agent' }),
-      ).resolves.toBe(session);
+      await expect(harness.resumeSession({ id: session.id, agentProfile: 'agent' })).resolves.toBe(
+        session,
+      );
     } finally {
       await harness.close();
     }

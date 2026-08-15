@@ -27,12 +27,14 @@
  */
 
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { defineState } from '#/_base/state/stateRegistry';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import { type ModelRequester } from '#/kosong/model/modelRequester';
@@ -40,8 +42,6 @@ import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { extendWorkspaceWithSkillRoots } from '#/tool/path-access';
 
 import { IAgentMediaToolsRegistrar } from './mediaTools';

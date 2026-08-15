@@ -1,8 +1,8 @@
-import { createDecorator } from "#/_base/di/instantiation";
-import type { IDisposable } from "#/_base/di/lifecycle";
-import type { ContentPart } from "#/kosong/contract/message";
-import type { Tool } from "#/kosong/contract/tool";
+import { createDecorator } from '#/_base/di/instantiation';
+import type { IDisposable } from '#/_base/di/lifecycle';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import type { ContentPart } from '#/kosong/contract/message';
+import type { Tool } from '#/kosong/contract/tool';
 
 export interface ContextInjectionContext<D = unknown> {
   readonly injectedPositions: readonly number[];
@@ -39,10 +39,7 @@ export type ContextInjectionProvider<D = unknown> = (
 export interface IAgentContextInjectorService {
   readonly _serviceBrand: undefined;
 
-  register<D = unknown>(
-    name: string,
-    provider: ContextInjectionProvider<D>,
-  ): IDisposable;
+  register<D = unknown>(name: string, provider: ContextInjectionProvider<D>): IDisposable;
 
   reconcileWhenIdle(name: string): Promise<void>;
 }

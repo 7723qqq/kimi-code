@@ -18,8 +18,8 @@ import {
   providersFromToml,
   providersToToml,
 } from '#/app/kosongConfig/configSection';
-import { ProviderService } from '#/kosong/provider/providerService';
 import { type ProviderConfig } from '#/kosong/provider/provider';
+import { ProviderService } from '#/kosong/provider/providerService';
 
 describe('ProviderTypeSchema (enum validation)', () => {
   it('parses unregistered vendor names — resolve-time validation, not parse-time', () => {
@@ -61,7 +61,9 @@ describe('providers TOML transforms', () => {
 });
 
 describe('ProviderService', () => {
-  function createService(providers: Readonly<Record<string, ProviderConfig>> = {}): ProviderService {
+  function createService(
+    providers: Readonly<Record<string, ProviderConfig>> = {},
+  ): ProviderService {
     const service = new ProviderService();
     service.loadAll({ ...providers }, undefined);
     return service;
@@ -122,7 +124,10 @@ describe('ProviderService', () => {
     service.loadAll({ moonshot: { type: 'kimi' } }, undefined);
     expect(events).toHaveLength(0);
 
-    service.loadAll({ moonshot: { type: 'kimi' }, other: { baseUrl: 'https://example.com' } }, undefined);
+    service.loadAll(
+      { moonshot: { type: 'kimi' }, other: { baseUrl: 'https://example.com' } },
+      undefined,
+    );
     expect(events).toEqual([{ added: ['other'], removed: [], changed: [] }]);
   });
 

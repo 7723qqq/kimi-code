@@ -110,7 +110,9 @@ export class WrappingSelectList extends SelectList {
         const indent = ' '.repeat(descriptionStart);
         if (isSelected) {
           return descriptionLines.map((line, index) =>
-            theme.selectedText(index === 0 ? `${prefix}${truncatedValue}${spacing}${line}` : indent + line),
+            theme.selectedText(
+              index === 0 ? `${prefix}${truncatedValue}${spacing}${line}` : indent + line,
+            ),
           );
         }
         return descriptionLines.map((line, index) =>
@@ -123,7 +125,9 @@ export class WrappingSelectList extends SelectList {
 
     const maxWidth = width - prefixWidth - 2;
     const truncatedValue = this.truncatePrimaryValue(item, isSelected, maxWidth, maxWidth);
-    return [isSelected ? theme.selectedText(`${prefix}${truncatedValue}`) : prefix + truncatedValue];
+    return [
+      isSelected ? theme.selectedText(`${prefix}${truncatedValue}`) : prefix + truncatedValue,
+    ];
   }
 
   private truncatePrimaryValue(

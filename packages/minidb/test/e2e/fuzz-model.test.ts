@@ -4,15 +4,24 @@
 // reference model, and assert they always agree. Seeded so any failure is
 // reproducible by re-running with the same seed.
 
-import { expect, test } from 'vitest';
 import assert from 'node:assert/strict';
+
+import { expect, test } from 'vitest';
+
 import { MiniDb } from '../../src/index.js';
 import { Model } from './helpers/model.js';
 import { mulberry32, randInt, pick } from './helpers/prng.js';
 import { tmpDir, rmrf } from './helpers/tmp.js';
 
 const KEYS = Array.from({ length: 24 }, (_, i) => 'k' + i);
-const VALUES = [{ a: 1 }, { b: [1, 2, 3] }, { s: 'hello' }, { n: 42 }, null, { nested: { x: 1, y: [2] } }];
+const VALUES = [
+  { a: 1 },
+  { b: [1, 2, 3] },
+  { s: 'hello' },
+  { n: 42 },
+  null,
+  { nested: { x: 1, y: [2] } },
+];
 
 async function runSeed(seed, steps) {
   const rng = mulberry32(seed >>> 0);
@@ -58,11 +67,15 @@ async function runSeed(seed, steps) {
   }
 }
 
-test('fuzz-model: random op sequences match a reference model (many seeds)', { timeout: 60_000 }, async () => {
-  // Mix of small and large seeds. 6 seeds × 250 steps ≈ 1.5k ops total, still
-  // hitting every op branch (including reopen + full compare) many times per seed.
-  const seeds = [1, 2, 3, 99999, 0xdeadbeef, 20240625];
-  for (const seed of seeds) {
-    await expect(runSeed(seed, 250)).resolves.toBeUndefined();
-  }
-});
+test(
+  'fuzz-model: random op sequences match a reference model (many seeds)',
+  { timeout: 60_000 },
+  async () => {
+    // Mix of small and large seeds. 6 seeds × 250 steps ≈ 1.5k ops total, still
+    // hitting every op branch (including reopen + full compare) many times per seed.
+    const seeds = [1, 2, 3, 99999, 0xdeadbeef, 20240625];
+    for (const seed of seeds) {
+      await expect(runSeed(seed, 250)).resolves.toBeUndefined();
+    }
+  },
+);

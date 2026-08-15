@@ -30,8 +30,8 @@
  * `search-worker.mjs` sibling (packaged npm layout).
  */
 
-import fsSync from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import fsSync from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -102,7 +102,11 @@ export interface SearchWorkerHostOptions {
   /** Worker heap cap, mirroring the text-build worker. Default 1024. */
   readonly maxOldSpaceMb?: number;
   /** Test hook: worker factory override. */
-  readonly workerFactory?: (entry: { url: URL; data: SearchWorkerData; execArgv: string[] }) => Worker;
+  readonly workerFactory?: (entry: {
+    url: URL;
+    data: SearchWorkerData;
+    execArgv: string[];
+  }) => Worker;
 }
 
 interface WorkerEntryResolution {
@@ -306,9 +310,13 @@ export class SearchWorkerHost {
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       if (type !== 'close') {
         const timeoutMs =
-          type === 'sync' || type === 'reindex' || type === 'open' || type === 'refresh' || type === 'status'
-            ? this.options.syncTimeoutMs ?? DEFAULT_SYNC_TIMEOUT_MS
-            : this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+          type === 'sync' ||
+          type === 'reindex' ||
+          type === 'open' ||
+          type === 'refresh' ||
+          type === 'status'
+            ? (this.options.syncTimeoutMs ?? DEFAULT_SYNC_TIMEOUT_MS)
+            : (this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
         watchdog = setTimeout(() => this.onRequestTimeout(id), timeoutMs);
         watchdog.unref?.();
       }
@@ -370,7 +378,8 @@ export class SearchWorkerHost {
     if (result === null || typeof result !== 'object') return;
     const direct = (result as { lockToken?: unknown }).lockToken;
     const nested = (result as { index?: { lockToken?: unknown } }).index?.lockToken;
-    const token = typeof direct === 'string' ? direct : typeof nested === 'string' ? nested : undefined;
+    const token =
+      typeof direct === 'string' ? direct : typeof nested === 'string' ? nested : undefined;
     if (token !== undefined) this.lockToken = token;
     const readOnly =
       (result as { readOnly?: unknown }).readOnly === true ||
@@ -462,7 +471,9 @@ export class SearchWorkerHost {
       dir: this.dir,
       bootSalt: randomUUID(),
       textBuildWorkerPath:
-        textBuild.configured && textBuild.entry.kind === 'packaged' ? textBuild.entry.path : undefined,
+        textBuild.configured && textBuild.entry.kind === 'packaged'
+          ? textBuild.entry.path
+          : undefined,
     };
     let worker: Worker;
     try {
@@ -475,7 +486,9 @@ export class SearchWorkerHost {
         new Worker(entry.url, {
           workerData: data,
           execArgv: entry.execArgv,
-          resourceLimits: { maxOldGenerationSizeMb: this.options.maxOldSpaceMb ?? DEFAULT_MAX_OLD_SPACE_MB },
+          resourceLimits: {
+            maxOldGenerationSizeMb: this.options.maxOldSpaceMb ?? DEFAULT_MAX_OLD_SPACE_MB,
+          },
           name: 'kimi-search-worker',
         });
     } catch (error) {
@@ -659,7 +672,11 @@ export class SearchWorkerHost {
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         cleanup();
-        reject(new Error(`ready handshake timed out after ${this.options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS}ms`));
+        reject(
+          new Error(
+            `ready handshake timed out after ${this.options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS}ms`,
+          ),
+        );
       }, this.options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS);
       timer.unref?.();
       const onMessage = (event: SearchWorkerEvent): void => {

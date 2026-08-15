@@ -7,8 +7,9 @@
  * already drive runtime validation — no second source of truth.
  */
 
-import { envelopeSchema } from '../protocol/envelope';
 import { z } from 'zod';
+
+import { envelopeSchema } from '../protocol/envelope';
 
 /**
  * Convert a Zod schema to a plain JSON Schema object suitable for
@@ -63,9 +64,7 @@ function jsonSchemaForTarget(
  * Wrap a data Zod schema in the server's envelope shape and return its
  * JSON Schema representation.
  */
-export function envelopeJsonSchema(
-  dataSchema: z.ZodTypeAny,
-): Record<string, unknown> {
+export function envelopeJsonSchema(dataSchema: z.ZodTypeAny): Record<string, unknown> {
   return outputJsonSchema(envelopeSchema(dataSchema));
 }
 

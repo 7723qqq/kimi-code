@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type {
-  CascadeEngine,
-  CascadeHistoryEntry,
-  UnitStateChange,
-} from '#/_base/di/cascadeEngine';
+import type { CascadeEngine, CascadeHistoryEntry, UnitStateChange } from '#/_base/di/cascadeEngine';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { CascadeConflictError } from '#/_base/di/errors';
 import { createDecorator } from '#/_base/di/instantiation';
@@ -33,7 +29,6 @@ function ledgerOf(ix: InstantiationService): Ledger {
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
-
 
 interface IRoot {
   label: string;
@@ -340,7 +335,14 @@ describe('cascade engine — mechanism matrix', () => {
     expect(events).toEqual(['leaf-start', 'leaf-end', 'mid-start']);
     gates.mid.resolve();
     await done;
-    expect(events).toEqual(['leaf-start', 'leaf-end', 'mid-start', 'mid-end', 'root-start', 'root-end']);
+    expect(events).toEqual([
+      'leaf-start',
+      'leaf-end',
+      'mid-start',
+      'mid-end',
+      'root-start',
+      'root-end',
+    ]);
     ix.dispose();
   });
 
@@ -358,7 +360,11 @@ describe('cascade engine — mechanism matrix', () => {
       },
     });
 
-    const first = ix.cascade.submit({ action: 'unprovide', token: IRoot, reason: 'feature "x" unloaded' });
+    const first = ix.cascade.submit({
+      action: 'unprovide',
+      token: IRoot,
+      reason: 'feature "x" unloaded',
+    });
     expect(seen).toHaveLength(1);
     expect(seen[0]!.reason).toBe('feature "x" unloaded');
     expect(seen[0]!.affected).toContain('cascade-leaf');
@@ -478,7 +484,8 @@ describe('cascade engine — mechanism matrix', () => {
     ix.dispose();
   });
 
-  it('12. ledger balance: arbitrary sequences leave no leaks or dangling edges', async () => {    const ix = makeContainer();
+  it('12. ledger balance: arbitrary sequences leave no leaks or dangling edges', async () => {
+    const ix = makeContainer();
     provideChain(ix);
     expect(ledgerOf(ix).size).toBe(6);
 
@@ -526,10 +533,11 @@ describe('cascade engine — mechanism matrix', () => {
 
   it('14. a rejecting abort hook is logged, never a veto (best-effort §4.5)', async () => {
     const reported: unknown[] = [];
-    const { setUnexpectedErrorHandler, resetUnexpectedErrorHandler } = await import(
-      '#/_base/errors/unexpectedError'
-    );
-    setUnexpectedErrorHandler((err) => { reported.push(err); });
+    const { setUnexpectedErrorHandler, resetUnexpectedErrorHandler } =
+      await import('#/_base/errors/unexpectedError');
+    setUnexpectedErrorHandler((err) => {
+      reported.push(err);
+    });
     try {
       const ix = makeContainer();
       provideChain(ix);
@@ -618,7 +626,7 @@ describe('cascade engine — cross-scope orchestration (D9)', () => {
     parent.dispose();
   });
 
-  it('siblings are isolated: one child scope\'s change never touches the other', () => {
+  it("siblings are isolated: one child scope's change never touches the other", () => {
     const parent = makeContainer();
     parent.provide(IRoot, new SyncDescriptor(Root));
     const childA = parent.createChild(new ServiceCollection());
@@ -692,9 +700,9 @@ describe('cascade engine — introspection (debug surface)', () => {
     class SpyRoot implements IRoot {
       label = 'spy';
       constructor() {
-        stateDuringCtor = ix.cascade.unitsSnapshot().find(
-          (unit) => unit.token === 'cascade-root',
-        )?.state;
+        stateDuringCtor = ix.cascade
+          .unitsSnapshot()
+          .find((unit) => unit.token === 'cascade-root')?.state;
       }
     }
     ix.provide(IRoot, new SyncDescriptor(SpyRoot));
@@ -747,7 +755,9 @@ describe('cascade engine — introspection (debug surface)', () => {
   it('onDidChangeUnitState fires the transition sequence (incl. Failed with error)', () => {
     const ix = makeContainer();
     const seen: UnitStateChange[] = [];
-    ix.cascade.onDidChangeUnitState((change) => { seen.push(change); });
+    ix.cascade.onDidChangeUnitState((change) => {
+      seen.push(change);
+    });
 
     ix.provide(IRoot, new SyncDescriptor(Root));
     expect(seen).toEqual([
@@ -784,7 +794,9 @@ describe('cascade engine — introspection (debug surface)', () => {
   it('onDidCascade fires once per completed transaction with the history entry', () => {
     const ix = makeContainer();
     const fired: CascadeHistoryEntry[] = [];
-    ix.cascade.onDidCascade((entry) => { fired.push(entry); });
+    ix.cascade.onDidCascade((entry) => {
+      fired.push(entry);
+    });
 
     provideChain(ix);
     expect(fired).toHaveLength(3);
@@ -798,8 +810,12 @@ describe('cascade engine — introspection (debug surface)', () => {
     const parent = makeContainer();
     const added: CascadeEngine[] = [];
     const removed: CascadeEngine[] = [];
-    parent.cascadeTree.onDidAddEngine((engine) => { added.push(engine); });
-    parent.cascadeTree.onDidRemoveEngine((engine) => { removed.push(engine); });
+    parent.cascadeTree.onDidAddEngine((engine) => {
+      added.push(engine);
+    });
+    parent.cascadeTree.onDidRemoveEngine((engine) => {
+      removed.push(engine);
+    });
 
     const child = parent.createChild(new ServiceCollection());
     expect(added).toEqual([child.cascade]);

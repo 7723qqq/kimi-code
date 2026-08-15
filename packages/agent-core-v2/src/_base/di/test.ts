@@ -2,10 +2,7 @@
  * `di` domain — scoped test host and service-stub helpers for DI domain tests.
  */
 
-export {
-  createServices,
-  TestInstantiationService,
-} from './testInstantiationService';
+export { createServices, TestInstantiationService } from './testInstantiationService';
 export type {
   CreateServicesOptions,
   ServiceGroup,
@@ -13,7 +10,7 @@ export type {
 } from './testInstantiationService';
 
 import { type ServiceIdentifier } from './instantiation';
-import type { Scope} from './scope';
+import type { Scope } from './scope';
 import { createAppScope, type ScopeKind, type ScopeSeed } from './scope';
 
 export interface ScopedTestHost {

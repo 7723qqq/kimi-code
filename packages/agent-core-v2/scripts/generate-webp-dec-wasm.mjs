@@ -1,3 +1,4 @@
+import { readFileSync, writeFileSync } from 'node:fs';
 /**
  * Regenerate `src/agent/media/webp-dec-wasm.ts` from the installed
  * `@jsquash/webp` package.
@@ -11,7 +12,6 @@
  *   node scripts/generate-webp-dec-wasm.mjs
  */
 import { createRequire } from 'node:module';
-import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const packageRoot = resolve(import.meta.dirname, '..');

@@ -1,7 +1,5 @@
 <!-- apps/kimi-web/src/components/chat/Markdown.vue -->
 <script setup lang="ts">
-import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
-import { useI18n } from 'vue-i18n';
 import {
   MarkdownRender,
   enableKatex,
@@ -12,15 +10,18 @@ import {
   clearMermaidWorker,
 } from 'markstream-vue';
 import type { MarkdownIt } from 'markstream-vue';
-import { useIsDark } from '../../composables/useIsDark';
-import type { FilePreviewRequest } from '../../types';
-import { collectFilePathAliases, findFilePathLinks } from '../../lib/filePathLinks';
-import { markdownRenderPlan } from '../../lib/markdownPerformance';
-import { copyCodeBlockFallback, copyTextToClipboard } from '../../lib/clipboard';
 import * as katexWorkerModule from 'markstream-vue/workers/katexRenderer.worker?worker&type=module';
 import * as mermaidWorkerModule from 'markstream-vue/workers/mermaidParser.worker?worker&type=module';
-import Tooltip from '../ui/Tooltip.vue';
+import { computed, inject, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+import { useIsDark } from '../../composables/useIsDark';
+import { copyCodeBlockFallback, copyTextToClipboard } from '../../lib/clipboard';
+import { collectFilePathAliases, findFilePathLinks } from '../../lib/filePathLinks';
+import { markdownRenderPlan } from '../../lib/markdownPerformance';
+import type { FilePreviewRequest } from '../../types';
 import Icon from '../ui/Icon.vue';
+import Tooltip from '../ui/Tooltip.vue';
 // px-based CSS build (our app is px, not rem). Imported here so the styles
 // load wherever Markdown is used; scoped overrides below re-skin it to
 // Terminal Pro. Importing the same file from multiple components is a no-op
@@ -133,7 +134,8 @@ const allowBatchRender = computed(() => !props.streaming);
 // (png/gif/jpeg/webp/avif/bmp) — svg images stay on their original src.
 // ---------------------------------------------------------------------------
 
-const IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+const IMG_PLACEHOLDER =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 // src → resolved data URL, or '' when resolution failed (keep the original
 // src so the user at least sees an honest broken-image state).
@@ -211,11 +213,7 @@ function processFileLinks(): void {
   while (node) {
     const text = node as Text;
     const parent = text.parentElement;
-    if (
-      parent &&
-      !parent.closest('a, pre, .md-file-link, svg') &&
-      text.data.trim().length > 0
-    ) {
+    if (parent && !parent.closest('a, pre, .md-file-link, svg') && text.data.trim().length > 0) {
       textNodes.push(text);
     }
     node = walker.nextNode();
@@ -377,9 +375,7 @@ const codeBlockProps = {
 // preserved), all other markdown goes through markstream.
 // ---------------------------------------------------------------------------
 
-type Segment =
-  | { kind: 'md'; text: string }
-  | { kind: 'diff'; code: string };
+type Segment = { kind: 'md'; text: string } | { kind: 'diff'; code: string };
 
 // Match a fenced ```diff block (``` or ~~~, optional info after `diff`). The
 // closing fence must use the same marker. Capture group 2 is the body.
@@ -466,7 +462,11 @@ function copyDiff(code: string, idx: number) {
         <div class="diff-bar">
           <span class="diff-lang">diff</span>
           <Tooltip :text="t('filePreview.copyCode')">
-            <button class="diff-copy" :aria-label="t('filePreview.copyCode')" @click="copyDiff(seg.code, i)">
+            <button
+              class="diff-copy"
+              :aria-label="t('filePreview.copyCode')"
+              @click="copyDiff(seg.code, i)"
+            >
               <Icon :name="copiedDiff === i ? 'check' : 'copy'" size="sm" />
             </button>
           </Tooltip>
@@ -568,10 +568,21 @@ function copyDiff(code: string, idx: number) {
   margin: 0.85em 0 0.35em;
   line-height: var(--leading-tight);
 }
-.md :deep(h1) { font-size: max(var(--text-xl), calc(var(--content-font-size) + 3px)); border-bottom: 1px solid var(--color-line); padding-bottom: 4px; }
-.md :deep(h2) { font-size: max(var(--text-lg), calc(var(--content-font-size) + 2px)); }
-.md :deep(h3) { font-size: max(var(--text-lg), calc(var(--content-font-size) + 1px)); }
-.md :deep(h4) { font-size: max(var(--text-base), calc(var(--content-font-size) + 1px)); color: var(--color-text-muted); }
+.md :deep(h1) {
+  font-size: max(var(--text-xl), calc(var(--content-font-size) + 3px));
+  border-bottom: 1px solid var(--color-line);
+  padding-bottom: 4px;
+}
+.md :deep(h2) {
+  font-size: max(var(--text-lg), calc(var(--content-font-size) + 2px));
+}
+.md :deep(h3) {
+  font-size: max(var(--text-lg), calc(var(--content-font-size) + 1px));
+}
+.md :deep(h4) {
+  font-size: max(var(--text-base), calc(var(--content-font-size) + 1px));
+  color: var(--color-text-muted);
+}
 
 /* Paragraphs */
 .md :deep(p) {
@@ -600,7 +611,7 @@ function copyDiff(code: string, idx: number) {
 /* Inline code — small mono chip */
 .md :deep(:not(pre) > code),
 .md :deep(.inline-code) {
-  font: .9em var(--font-mono);
+  font: 0.9em var(--font-mono);
   background: var(--color-surface-sunken);
   color: var(--color-fg);
   padding: 0 4px;
@@ -651,7 +662,8 @@ function copyDiff(code: string, idx: number) {
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background var(--duration-base) var(--ease-out),
+  transition:
+    background var(--duration-base) var(--ease-out),
     color var(--duration-base) var(--ease-out);
 }
 .md :deep(.code-block-header .code-action-btn:hover) {
@@ -882,7 +894,8 @@ function copyDiff(code: string, idx: number) {
   border-radius: var(--radius-sm);
   cursor: pointer;
   padding: 2px 6px;
-  transition: background var(--duration-base) var(--ease-out),
+  transition:
+    background var(--duration-base) var(--ease-out),
     color var(--duration-base) var(--ease-out);
 }
 .diff-copy:hover {
@@ -946,8 +959,14 @@ function copyDiff(code: string, idx: number) {
 .md .markdown-renderer {
   font-family: var(--sans);
 }
-.md .code-block-container { border-radius: var(--radius-md); }
-.md .diff-wrap { border-radius: var(--radius-md); }
+.md .code-block-container {
+  border-radius: var(--radius-md);
+}
+.md .diff-wrap {
+  border-radius: var(--radius-md);
+}
 .md :not(pre) > code,
-.md .inline-code { border-radius: var(--radius-sm); }
+.md .inline-code {
+  border-radius: var(--radius-sm);
+}
 </style>

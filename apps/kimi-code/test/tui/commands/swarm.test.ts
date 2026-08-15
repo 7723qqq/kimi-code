@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { handleSwarmCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import { handleSwarmCommand } from '#/tui/commands/index';
 import { currentTheme } from '#/tui/theme';
 
 const ENTER = '\r';
@@ -42,7 +42,9 @@ function makeHost(
     },
     session: hasSession ? session : undefined,
     requireSession: () => session,
-    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    setAppState: vi.fn((patch: Record<string, unknown>) =>
+      Object.assign(host.state.appState, patch),
+    ),
     showError: vi.fn(),
     showStatus: vi.fn(),
     mountEditorReplacement: vi.fn(),
@@ -68,7 +70,9 @@ function markerAddChild(host: SlashCommandHost): ReturnType<typeof vi.fn> {
 }
 
 function expectSwarmMarker(host: SlashCommandHost, text: string): void {
-  const components = markerAddChild(host).mock.calls.map(([component]) => component as TestComponent);
+  const components = markerAddChild(host).mock.calls.map(
+    ([component]) => component as TestComponent,
+  );
   const rendered = stripAnsi(components.at(-1)?.render(80).join('\n') ?? '');
   expect(rendered).toContain(text);
 }

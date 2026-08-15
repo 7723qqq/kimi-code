@@ -47,12 +47,15 @@ export class BannerComponent implements Component {
     // Body lines (continuations of the main text) indent to match the first
     // line's main-text column, which starts right after the tag display. When
     // the tag is on its own line, the main text aligns with the tag text.
-    const bodyIndent = inlineTag ? ' '.repeat(tagWidth) : tagOnOwnLine ? ' '.repeat(hangingWidth) : '';
+    const bodyIndent = inlineTag
+      ? ' '.repeat(tagWidth)
+      : tagOnOwnLine
+        ? ' '.repeat(hangingWidth)
+        : '';
     // Descriptive subtext lines (the second line in the design) start at the
     // column after the leading star + space, aligning with the tag text itself.
     const descIndent = showTag ? ' '.repeat(hangingWidth) : '';
-    const bodyContentWidth =
-      width - (inlineTag ? tagWidth : tagOnOwnLine ? hangingWidth : 0);
+    const bodyContentWidth = width - (inlineTag ? tagWidth : tagOnOwnLine ? hangingWidth : 0);
     const descContentWidth = width - (showTag ? hangingWidth : 0);
 
     if (bodyContentWidth <= 0) {

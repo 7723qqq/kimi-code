@@ -14,16 +14,16 @@
 import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
 
-import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { createDecorator } from '#/_base/di/instantiation';
+import { Disposable } from '#/_base/di/lifecycle';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -49,9 +49,8 @@ export interface IAgentCheckpointService {
   readonly _serviceBrand: undefined;
 }
 
-export const IAgentCheckpointService = createDecorator<IAgentCheckpointService>(
-  'agentCheckpointService',
-);
+export const IAgentCheckpointService =
+  createDecorator<IAgentCheckpointService>('agentCheckpointService');
 
 interface FileSnapshot {
   readonly path: string;
@@ -84,7 +83,8 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
   constructor(
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentConversationUndoParticipantRegistry undoRegistry: IAgentConversationUndoParticipantRegistry,
+    @IAgentConversationUndoParticipantRegistry
+    undoRegistry: IAgentConversationUndoParticipantRegistry,
     @IAgentScopeContext agent: IAgentScopeContext,
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @IHostFileSystem private readonly fs: IHostFileSystem,
@@ -103,13 +103,10 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
       }),
     );
     this._register(
-      toolExecutor.hooks.onDidExecuteTool.register(
-        'checkpoint-after',
-        async (ctx, next) => {
-          await this.recordAfterWrite(ctx);
-          await next(ctx);
-        },
-      ),
+      toolExecutor.hooks.onDidExecuteTool.register('checkpoint-after', async (ctx, next) => {
+        await this.recordAfterWrite(ctx);
+        await next(ctx);
+      }),
     );
     this._register(
       undoRegistry.register({
@@ -250,7 +247,9 @@ function isNotFound(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
 
-function collectWritePaths(accesses: readonly { kind: string; operation?: string; path?: string }[] | undefined): string[] {
+function collectWritePaths(
+  accesses: readonly { kind: string; operation?: string; path?: string }[] | undefined,
+): string[] {
   const paths: string[] = [];
   for (const access of accesses ?? []) {
     if (access.kind !== 'file') continue;

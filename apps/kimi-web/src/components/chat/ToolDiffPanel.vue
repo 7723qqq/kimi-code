@@ -4,9 +4,10 @@
      accurately represents the operation, otherwise the raw tool output. -->
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
+
 import type { ToolDiffTarget } from '../../types';
-import DiffLines from './DiffLines.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
+import DiffLines from './DiffLines.vue';
 
 const props = defineProps<{ target: ToolDiffTarget }>();
 

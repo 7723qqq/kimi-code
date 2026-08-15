@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { IAgentGuardianService} from '#/agent/guardian/guardianService';
+import type { IAgentGuardianService } from '#/agent/guardian/guardianService';
 import { GuardianService, parseAssessment } from '#/agent/guardian/guardianService';
 import { GuardianReviewPermissionPolicyService } from '#/agent/permissionPolicy/policies/guardian-review';
 import type { PermissionPolicyResult } from '#/agent/permissionPolicy/types';
@@ -38,7 +38,9 @@ describe('parseAssessment', () => {
   });
 });
 
-function hookContext(overrides: Partial<ResolvedToolExecutionHookContext>): ResolvedToolExecutionHookContext {
+function hookContext(
+  overrides: Partial<ResolvedToolExecutionHookContext>,
+): ResolvedToolExecutionHookContext {
   return {
     turnId: 1,
     toolCall: { type: 'function', id: 'call_1', name: 'Bash', arguments: '{"command":"rm -rf /"}' },
@@ -54,9 +56,11 @@ function hookContext(overrides: Partial<ResolvedToolExecutionHookContext>): Reso
   } as unknown as ResolvedToolExecutionHookContext;
 }
 
-const mockMode = (mode: string) => ({ mode } as never);
-const mockGuardian = (enabled: boolean, verdict: Awaited<ReturnType<IAgentGuardianService['review']>>) =>
-  ({ enabled, circuitOpen: false, review: async () => verdict } as never);
+const mockMode = (mode: string) => ({ mode }) as never;
+const mockGuardian = (
+  enabled: boolean,
+  verdict: Awaited<ReturnType<IAgentGuardianService['review']>>,
+) => ({ enabled, circuitOpen: false, review: async () => verdict }) as never;
 
 describe('GuardianReviewPermissionPolicyService', () => {
   it('is a no-op outside yolo mode', async () => {
@@ -111,7 +115,9 @@ describe('GuardianReviewPermissionPolicyService', () => {
     );
     const result = await policy.evaluate(hookContext({}));
     expect(result?.kind).toBe('approve');
-    expect((result as { reason?: Record<string, string> }).reason?.['guardian']).toContain('safe write');
+    expect((result as { reason?: Record<string, string> }).reason?.['guardian']).toContain(
+      'safe write',
+    );
   });
 
   it('downgrades a reviewer allow to a human ask when risk is not low', async () => {
@@ -185,7 +191,12 @@ describe('GuardianService circuit breaker', () => {
       { get: () => [] } as never,
       { publish: () => {} } as never,
     );
-    return { service, setVerdict: (text: string) => { verdictText = text; } };
+    return {
+      service,
+      setVerdict: (text: string) => {
+        verdictText = text;
+      },
+    };
   }
 
   const denyVerdict =

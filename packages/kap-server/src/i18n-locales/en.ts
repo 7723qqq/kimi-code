@@ -22,7 +22,8 @@ export default {
       statusInstalled: 'installed',
     },
     systemd: {
-      alreadyExists: 'systemd unit already installed at {{path}}. Rerun with --force to replace it.',
+      alreadyExists:
+        'systemd unit already installed at {{path}}. Rerun with --force to replace it.',
       installed: 'Kimi server systemd unit {{status}} at {{path}} (port {{port}}).',
       nothingToRemove: 'systemd unit was not installed; nothing to remove.',
       removed: 'systemd unit removed ({{path}}).',
@@ -40,7 +41,8 @@ export default {
       nothingToRemove: 'LaunchAgent was not installed; nothing to remove.',
       removed: 'LaunchAgent removed ({{path}}).',
       notInstalled: 'LaunchAgent is not installed. Run `kimi server install` first.',
-      kickstartBootstrapFailed: 'launchctl kickstart + bootstrap both failed: {{error1}} / {{error2}}',
+      kickstartBootstrapFailed:
+        'launchctl kickstart + bootstrap both failed: {{error1}} / {{error2}}',
       kickstartFailedAfterBootstrap: 'launchctl kickstart failed after bootstrap: {{error}}',
       started: 'Kimi server started ({{name}}).',
       killBootoutFailed: 'launchctl kill + bootout both failed: {{error1}} / {{error2}}',

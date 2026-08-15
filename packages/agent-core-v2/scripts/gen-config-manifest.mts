@@ -68,9 +68,12 @@ function scanSectionOwners(): Map<string, string> {
   for (const file of walk(SRC)) {
     const source = readFileSync(file, 'utf-8');
     if (!source.includes('registerConfigSection(')) continue;
-    for (const match of source.matchAll(/registerConfigSection\(\s*(?:'([^']+)'|([A-Za-z0-9_$]+))/g)) {
+    for (const match of source.matchAll(
+      /registerConfigSection\(\s*(?:'([^']+)'|([A-Za-z0-9_$]+))/g,
+    )) {
       const ident = match[2];
-      const domain = match[1] ?? (ident === undefined ? undefined : constStringValue(source, ident));
+      const domain =
+        match[1] ?? (ident === undefined ? undefined : constStringValue(source, ident));
       if (domain !== undefined) owners.set(domain, relative(PKG, file));
     }
   }
@@ -139,7 +142,9 @@ function flattenEnvBindings(bindings: unknown, path: string[] = []): EnvRow[] {
     }
     return [{ field: path.join('.'), env: binding.env, detail: detail.join('; ') }];
   }
-  return Object.entries(bindings).flatMap(([key, value]) => flattenEnvBindings(value, [...path, key]));
+  return Object.entries(bindings).flatMap(([key, value]) =>
+    flattenEnvBindings(value, [...path, key]),
+  );
 }
 
 function snakePath(field: string): string {
@@ -194,7 +199,10 @@ function renderBody(section: ConfigSectionContribution): string[] {
     if (options.defaultValue !== undefined) {
       return [`${key} = ${truncate(toTomlValue(options.defaultValue))}`];
     }
-    return [`[${key}]`, `# (${schema === undefined ? 'no schema — passthrough' : 'schema uses transforms; see the owner file'})`];
+    return [
+      `[${key}]`,
+      `# (${schema === undefined ? 'no schema — passthrough' : 'schema uses transforms; see the owner file'})`,
+    ];
   }
 
   // Object with named fields.
@@ -293,7 +301,9 @@ function renderSection(section: ConfigSectionContribution, owner: string | undef
   if (envRows.length > 0) {
     lines.push('#   env:');
     for (const row of envRows) {
-      lines.push(`#     ${snakePath(row.field)} <- ${row.env}${row.detail === '' ? '' : ` (${row.detail})`}`);
+      lines.push(
+        `#     ${snakePath(row.field)} <- ${row.env}${row.detail === '' ? '' : ` (${row.detail})`}`,
+      );
     }
   }
   lines.push(RULE);

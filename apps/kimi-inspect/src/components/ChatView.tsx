@@ -603,7 +603,11 @@ export function ChatView({
         <div className="flex items-center gap-2 border-b border-neutral-800 px-4 py-2">
           <span className="font-mono text-[11px] text-neutral-400">{sessionId}</span>
           <Badge tone="sky">{t('chat.agentLabel', { agentId })}</Badge>
-          {running ? <Badge tone="amber">{t('chat.turnRunning')}</Badge> : <Badge tone="green">{t('chat.idle')}</Badge>}
+          {running ? (
+            <Badge tone="amber">{t('chat.turnRunning')}</Badge>
+          ) : (
+            <Badge tone="green">{t('chat.idle')}</Badge>
+          )}
           {state.pendingInteractions.size > 0 ? (
             <Badge tone="amber">{state.pendingInteractions.size} pending</Badge>
           ) : null}

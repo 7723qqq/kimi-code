@@ -12,9 +12,10 @@
  * right scope's event stream on every transport.
  */
 
-import type { IDisposable, KlientChannel, ScopeRef } from '../channel.js';
-import type { EventRegistration } from '#/contract/types';
 import type { KlientEventPayloads } from '#/contract/global/events';
+import type { EventRegistration } from '#/contract/types';
+
+import type { IDisposable, KlientChannel, ScopeRef } from '../channel.js';
 import { parseEvent } from '../validation.js';
 
 export interface KlientEvents<TPayloadMap extends object = KlientEventPayloads> {
@@ -52,9 +53,9 @@ function rawTypeOf(raw: unknown): string | undefined {
   return typeof type === 'string' ? type : undefined;
 }
 
-export class EventHub<TPayloadMap extends object = KlientEventPayloads>
-  implements KlientEvents<TPayloadMap>
-{
+export class EventHub<
+  TPayloadMap extends object = KlientEventPayloads,
+> implements KlientEvents<TPayloadMap> {
   private readonly listeners = new Map<string, Set<AnyListener>>();
   private readonly subs = new Map<string, SharedSub>();
   private readonly errorListeners = new Set<(error: Error) => void>();

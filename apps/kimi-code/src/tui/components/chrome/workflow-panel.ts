@@ -21,7 +21,6 @@ import { truncateToWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
-
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 
@@ -75,7 +74,7 @@ export class WorkflowPanelComponent implements Component {
     const c = currentTheme.palette;
     const lines: string[] = [
       chalk.hex(c.border)('\u2500'.repeat(width)),
-      chalk.hex(c.primary).bold(`  \u26a1 ${t('tui.chrome.workflowPanel.header')}`),
+      chalk.hex(c.primary).bold(`  \u26A1 ${t('tui.chrome.workflowPanel.header')}`),
     ];
 
     const visible = this.expanded ? this.runs : this.runs.slice(0, MAX_VISIBLE_RUNS);
@@ -90,11 +89,7 @@ export class WorkflowPanelComponent implements Component {
       const parts: string[] = [];
       if (running > 0) parts.push(`${running} ${t('tui.chrome.workflowPanel.running')}`);
       const suffix = parts.length > 0 ? ` (${parts.join(', ')})` : '';
-      lines.push(
-        chalk.hex(c.textDim)(
-          `  \u2026 +${hidden} more${suffix}`,
-        ),
-      );
+      lines.push(chalk.hex(c.textDim)(`  \u2026 +${hidden} more${suffix}`));
     }
 
     return lines.map((line) => truncateToWidth(line, width));
@@ -105,13 +100,13 @@ function renderRunRow(run: WorkflowRunData, c: ColorPalette, _width: number): st
   const badge = statusBadge(run.status, c);
   const elapsed = formatElapsed(run.startedAt, run.finishedAt);
   const phase = run.currentPhase
-    ? chalk.hex(c.textDim)(` \u00b7 ${chalk.hex(c.text)(run.currentPhase)}`)
+    ? chalk.hex(c.textDim)(` \u00B7 ${chalk.hex(c.text)(run.currentPhase)}`)
     : '';
   const agents =
     run.agentCount > 0
-      ? chalk.hex(c.textDim)(` \u00b7 ${run.agentCount} agent${run.agentCount > 1 ? 's' : ''}`)
+      ? chalk.hex(c.textDim)(` \u00B7 ${run.agentCount} agent${run.agentCount > 1 ? 's' : ''}`)
       : '';
-  const timeStr = chalk.hex(c.textDim)(` \u00b7 ${elapsed}`);
+  const timeStr = chalk.hex(c.textDim)(` \u00B7 ${elapsed}`);
 
   return `  ${badge} ${chalk.hex(c.text)(run.name)}${timeStr}${phase}${agents}`;
 }
@@ -119,7 +114,7 @@ function renderRunRow(run: WorkflowRunData, c: ColorPalette, _width: number): st
 function statusBadge(status: WorkflowStatus, c: ColorPalette): string {
   switch (status) {
     case 'running':
-      return chalk.hex(c.warning).bold('\u25cf');
+      return chalk.hex(c.warning).bold('\u25CF');
     case 'completed':
       return chalk.hex(c.success)('\u2713');
     case 'failed':

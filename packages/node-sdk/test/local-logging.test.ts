@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness, flushDiagnosticLogs, log } from '#/index';
 import { __resetRootLoggerForTest, getRootLogger } from '#/legacy';
+
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];

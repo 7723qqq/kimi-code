@@ -11,8 +11,7 @@ vi.mock('#/i18n', () => ({
     const translations: Record<string, string> = {
       'tui.diffPreview.moreChangesHidden': '{{n}} more changes hidden',
       'tui.diffPreview.unchangedLines': '{{n}} unchanged line(s) …',
-      'tui.diffPreview.moreChangesHiddenWithHint':
-        '{{n}} more changes hidden, {{hint}} to expand',
+      'tui.diffPreview.moreChangesHiddenWithHint': '{{n}} more changes hidden, {{hint}} to expand',
     };
     const msg = translations[key] ?? key;
     if (!params) return msg;
@@ -157,15 +156,10 @@ describe('renderDiffLinesClustered', () => {
       oldLines.push(`old${String(i)}`);
       newLines.push(`new${String(i)}`);
     }
-    const out = renderDiffLinesClustered(
-      oldLines.join('\n'),
-      newLines.join('\n'),
-      'big.ts',
-      {
-        contextLines: 3,
-        maxLines: 10,
-      },
-    );
+    const out = renderDiffLinesClustered(oldLines.join('\n'), newLines.join('\n'), 'big.ts', {
+      contextLines: 3,
+      maxLines: 10,
+    });
     // header + 10 body rows + truncation footer
     expect(out.length).toBe(12);
     const text = stripAnsi(out.join('\n'));

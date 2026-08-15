@@ -69,7 +69,11 @@ export const WAL_FILE = 'db.wal';
 export const SECONDARY_INDEXES_FILE = 'db.indexes.json';
 export const COMPOUND_INDEXES_FILE = 'db.compound-indexes.json';
 export const TEXT_INDEXES_FILE = 'db.textindexes.json';
-export const SIDECAR_FILES = [SECONDARY_INDEXES_FILE, COMPOUND_INDEXES_FILE, TEXT_INDEXES_FILE] as const;
+export const SIDECAR_FILES = [
+  SECONDARY_INDEXES_FILE,
+  COMPOUND_INDEXES_FILE,
+  TEXT_INDEXES_FILE,
+] as const;
 
 /** Per-text-index postings files at the ROOT are the legacy (pre-generation)
  *  location: read-only in-memory-base instances and the generations-disabled
@@ -107,7 +111,7 @@ export function textDocsFile(name: string): string {
 /** Index names land in file names; keep the same sanitization the legacy
  *  root postings path used so both locations agree. */
 export function sanitizeIndexName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  return name.replaceAll(/[^a-zA-Z0-9_.-]/g, '_');
 }
 
 /** Generation directory id: monotonically increasing, zero-padded so
@@ -200,13 +204,15 @@ export interface GenerationManifest {
  *  SAME persisted definition shape (the sidecar entries), so a sidecar
  *  round-trip never changes it. */
 export function indexDefHash(def: unknown): string {
-  return crc32(Buffer.from(stableJson(def), 'utf8')).toString(16).padStart(8, '0');
+  return crc32(Buffer.from(stableJson(def), 'utf8'))
+    .toString(16)
+    .padStart(8, '0');
 }
 
 function stableJson(v: unknown): string {
   if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null';
   if (Array.isArray(v)) return `[${v.map(stableJson).join(',')}]`;
-  const keys = Object.keys(v as Record<string, unknown>).sort();
+  const keys = Object.keys(v as Record<string, unknown>).toSorted();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson((v as Record<string, unknown>)[k])}`).join(',')}}`;
 }
 
@@ -242,7 +248,9 @@ export function isPersistentFile(name: string): boolean {
  *  writes use `<file>.tmp-<pid>-<seq>` names, matched by isStaleTmpFile
  *  instead. Only the sole writer may delete them at open — a read-only
  *  opener must never touch a live writer's in-flight temps. */
-export const STALE_TMP_FILES: readonly string[] = [SNAPSHOT_FILE, WAL_FILE, ...SIDECAR_FILES].map((f) => `${f}.tmp`);
+export const STALE_TMP_FILES: readonly string[] = [SNAPSHOT_FILE, WAL_FILE, ...SIDECAR_FILES].map(
+  (f) => `${f}.tmp`,
+);
 
 /** Is `name` a unique-suffixed atomic-write temp (`<file>.tmp-<pid>-<seq>`)
  *  of one of the primary/sidecar/CURRENT files, orphaned by a crash between
@@ -251,7 +259,9 @@ export const STALE_TMP_FILES: readonly string[] = [SNAPSHOT_FILE, WAL_FILE, ...S
  *  never matched. Same deletion discipline as STALE_TMP_FILES: only the sole
  *  writer at open. */
 export function isStaleTmpFile(name: string): boolean {
-  return [SNAPSHOT_FILE, WAL_FILE, CURRENT_FILE, ...SIDECAR_FILES].some((f) => name.startsWith(`${f}.tmp-`));
+  return [SNAPSHOT_FILE, WAL_FILE, CURRENT_FILE, ...SIDECAR_FILES].some((f) =>
+    name.startsWith(`${f}.tmp-`),
+  );
 }
 
 /** A failed postings rebuild orphans `db.text-*.postings.tmp` (its atomic

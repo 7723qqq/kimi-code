@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { nextTick, ref, type Ref } from 'vue';
+
 import type { AppSkill } from '../src/api/types';
 import { useSlashMenu } from '../src/composables/useSlashMenu';
 
@@ -23,7 +24,9 @@ function setup(initialText = '', skills: AppSkill[] = []) {
     focus: () => {},
   };
   const text = ref(initialText);
-  const textareaRef = ref(textarea as unknown as HTMLTextAreaElement) as Ref<HTMLTextAreaElement | null>;
+  const textareaRef = ref(
+    textarea as unknown as HTMLTextAreaElement,
+  ) as Ref<HTMLTextAreaElement | null>;
   const emitted: string[] = [];
   const pushed: string[] = [];
   const slash = useSlashMenu({
@@ -84,14 +87,18 @@ describe('useSlashMenu — update', () => {
   });
 
   it('includes session skills as /skill:<skill-name>', () => {
-    const { slash } = setup('/', [{ name: 'deploy', description: 'deploy stuff', source: 'project' } as AppSkill]);
+    const { slash } = setup('/', [
+      { name: 'deploy', description: 'deploy stuff', source: 'project' } as AppSkill,
+    ]);
     slash.update();
     const names = slash.items.value.map((i) => i.name);
     expect(names).toContain('/skill:deploy');
   });
 
   it('keeps builtin-sourced skills unprefixed', () => {
-    const { slash } = setup('/', [{ name: 'update-config', description: 'edit config', source: 'builtin' } as AppSkill]);
+    const { slash } = setup('/', [
+      { name: 'update-config', description: 'edit config', source: 'builtin' } as AppSkill,
+    ]);
     slash.update();
     const names = slash.items.value.map((i) => i.name);
     expect(names).toContain('/update-config');
@@ -99,7 +106,9 @@ describe('useSlashMenu — update', () => {
   });
 
   it('matches a prefixed skill when filtering by its bare name', () => {
-    const { slash } = setup('/depl', [{ name: 'deploy', description: 'deploy stuff', source: 'project' } as AppSkill]);
+    const { slash } = setup('/depl', [
+      { name: 'deploy', description: 'deploy stuff', source: 'project' } as AppSkill,
+    ]);
     slash.update();
     expect(slash.items.value.map((i) => i.name)).toContain('/skill:deploy');
   });

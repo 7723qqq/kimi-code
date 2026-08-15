@@ -9,17 +9,16 @@
  * pattern used by every agent tool. Bound at Agent scope.
  */
 
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import { type ToolExecution } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-
 import { IAgentTaskService } from '#/agent/task/task';
 import type { AgentTaskInfo } from '#/agent/task/task';
 import { formatPlainObject } from '#/agent/task/tools/format';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { matchesGlobRuleSubject } from '#/tool/rule-match';
+import { type ToolExecution } from '#/tool/toolContract';
+
 import { ITaskListTool, TaskListInputSchema, type TaskListInput } from './task-list';
 import TASK_LIST_DESCRIPTION from './task-list.md?raw';
-
 
 export function formatTaskList(tasks: readonly AgentTaskInfo[], activeOnly: boolean): string {
   const label = activeOnly ? 'active_background_tasks' : 'background_tasks';

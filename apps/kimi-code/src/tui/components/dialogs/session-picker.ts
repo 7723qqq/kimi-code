@@ -10,10 +10,11 @@ import {
   visibleWidth,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
+
+import { t } from '#/i18n';
 import { formatSessionLabel } from '#/migration/index';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import { t } from '#/i18n';
 import { SearchableList } from '#/tui/utils/searchable-list';
 
 export interface SessionRow {
@@ -255,7 +256,10 @@ export class SessionPickerComponent extends Container implements Focusable {
   // prevents the "Rendered line exceeds terminal width" crash (issue #240).
   private renderLines(width: number): string[] {
     const lines: string[] = [currentTheme.fg('primary', '─'.repeat(width))];
-    const title = this.scope === 'all' ? t('tui.dialogs.sessionPicker.titleAll') : t('tui.dialogs.sessionPicker.titleCwd');
+    const title =
+      this.scope === 'all'
+        ? t('tui.dialogs.sessionPicker.titleAll')
+        : t('tui.dialogs.sessionPicker.titleCwd');
     const scopeHint =
       this.onToggleScope === undefined
         ? undefined
@@ -266,7 +270,10 @@ export class SessionPickerComponent extends Container implements Focusable {
     if (this.loading) {
       lines.push(currentTheme.boldFg('primary', truncateToWidth(title, width, ELLIPSIS)));
       lines.push(
-        currentTheme.fg('textMuted', truncateToWidth(t('tui.dialogs.sessionPicker.loading'), width, ELLIPSIS)),
+        currentTheme.fg(
+          'textMuted',
+          truncateToWidth(t('tui.dialogs.sessionPicker.loading'), width, ELLIPSIS),
+        ),
       );
       lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
@@ -282,7 +289,10 @@ export class SessionPickerComponent extends Container implements Focusable {
       );
       lines.push('');
       lines.push(
-        currentTheme.fg('textMuted', truncateToWidth(t('tui.dialogs.sessionPicker.empty'), width, ELLIPSIS)),
+        currentTheme.fg(
+          'textMuted',
+          truncateToWidth(t('tui.dialogs.sessionPicker.empty'), width, ELLIPSIS),
+        ),
       );
       lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
@@ -290,7 +300,9 @@ export class SessionPickerComponent extends Container implements Focusable {
 
     const view = this.list.view();
     const titleSuffix =
-      view.query.length === 0 ? currentTheme.fg('textMuted', '  ' + t('tui.dialogs.modelSelector.searchHint')) : '';
+      view.query.length === 0
+        ? currentTheme.fg('textMuted', '  ' + t('tui.dialogs.modelSelector.searchHint'))
+        : '';
     const hintParts = [
       ...(view.query.length > 0 ? [t('tui.dialogs.modelSelector.hintBackspace')] : []),
       t('tui.dialogs.modelSelector.hintNavigate'),
@@ -304,12 +316,20 @@ export class SessionPickerComponent extends Container implements Focusable {
     lines.push('');
 
     if (view.query.length > 0) {
-      lines.push(currentTheme.fg('primary', t('tui.dialogs.sessionPicker.searchLabel')) + currentTheme.fg('text', view.query));
+      lines.push(
+        currentTheme.fg('primary', t('tui.dialogs.sessionPicker.searchLabel')) +
+          currentTheme.fg('text', view.query),
+      );
     }
 
     const loadedSessions = this.loadedSessions(view.items);
     if (loadedSessions.length === 0) {
-      lines.push(currentTheme.fg('textMuted', truncateToWidth(t('tui.dialogs.modelSelector.noMatches'), width, ELLIPSIS)));
+      lines.push(
+        currentTheme.fg(
+          'textMuted',
+          truncateToWidth(t('tui.dialogs.modelSelector.noMatches'), width, ELLIPSIS),
+        ),
+      );
       lines.push(currentTheme.fg('primary', '─'.repeat(width)));
       return lines;
     }
@@ -352,13 +372,25 @@ export class SessionPickerComponent extends Container implements Focusable {
           : '';
       const totalSuffix =
         view.query.length > 0
-          ? t("tui.dialogs.sessionPicker.footerLoadedMatches", { loaded: String(loadedSessions.length), total: String(filteredCount) })
+          ? t('tui.dialogs.sessionPicker.footerLoadedMatches', {
+              loaded: String(loadedSessions.length),
+              total: String(filteredCount),
+            })
           : this.hasMore || this.loadingMore
-            ? t("tui.dialogs.sessionPicker.footerLoaded", { count: String(loadedSessions.length) })
+            ? t('tui.dialogs.sessionPicker.footerLoaded', { count: String(loadedSessions.length) })
             : loadedSessions.length === this.sessions.length
-              ? t("tui.dialogs.sessionPicker.footerSessions", { count: String(loadedSessions.length) })
-              : t("tui.dialogs.sessionPicker.footerLoadedSessions", { loaded: String(loadedSessions.length), total: String(this.sessions.length) });
-      const footer = t("tui.dialogs.sessionPicker.footerShowing", { from: String(visibleStart + 1), to: String(visibleStart + visibleSessions.length), totalSuffix: totalSuffix + moreSuffix });
+              ? t('tui.dialogs.sessionPicker.footerSessions', {
+                  count: String(loadedSessions.length),
+                })
+              : t('tui.dialogs.sessionPicker.footerLoadedSessions', {
+                  loaded: String(loadedSessions.length),
+                  total: String(this.sessions.length),
+                });
+      const footer = t('tui.dialogs.sessionPicker.footerShowing', {
+        from: String(visibleStart + 1),
+        to: String(visibleStart + visibleSessions.length),
+        totalSuffix: totalSuffix + moreSuffix,
+      });
       lines.push(currentTheme.fg('textMuted', truncateToWidth(footer, width, ELLIPSIS)));
     }
 

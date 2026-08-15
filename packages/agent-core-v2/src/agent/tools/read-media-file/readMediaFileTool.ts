@@ -54,27 +54,10 @@
  * contract.
  */
 
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ContentPart } from '#/kosong/contract/message';
-import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
-import { inlineVideoPart, isVideoUploadAuthError } from '#/agent/media/videoUpload';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import {
-  ToolAccesses,
-  type AgentTool,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
-import {
-  MEDIA_SNIFF_BYTES,
-  detectFileType,
-  sniffImageDimensions,
-} from '#/agent/media/file-type';
+import { renderPrompt } from '#/_base/utils/render-prompt';
+import { MEDIA_SNIFF_BYTES, detectFileType, sniffImageDimensions } from '#/agent/media/file-type';
 import {
   IMAGE_BYTE_BUDGET,
   MAX_IMAGE_DECODE_BYTES,
@@ -90,9 +73,23 @@ import {
   buildImageConversionGuidance,
   isModelAcceptedImageMime,
 } from '#/agent/media/image-format-policy';
+import { inlineVideoPart, isVideoUploadAuthError } from '#/agent/media/videoUpload';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { ModelCapability } from '#/kosong/contract/capability';
+import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
+import type { ContentPart } from '#/kosong/contract/message';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
-import { renderPrompt } from '#/_base/utils/render-prompt';
+import {
+  ToolAccesses,
+  type AgentTool,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+
 import {
   MAX_MEDIA_BYTES,
   MAX_MEDIA_MEGABYTES,
@@ -101,7 +98,6 @@ import {
   type VideoUploader,
 } from './read-media-file';
 import readMediaDescriptionHead from './read-media.md?raw';
-
 
 function buildDescription(capabilities: ModelCapability): string {
   const head = renderPrompt(readMediaDescriptionHead, { MAX_MEDIA_MEGABYTES });
@@ -125,7 +121,6 @@ function buildDescription(capabilities: ModelCapability): string {
   }
   return lines.join('\n');
 }
-
 
 interface ImageDelivery {
   readonly kind: 'untouched' | 'downsampled' | 'crop' | 'full';
@@ -357,7 +352,10 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
         };
       }
 
-      if (fileType.kind === 'video' && (args.region !== undefined || args.full_resolution === true)) {
+      if (
+        fileType.kind === 'video' &&
+        (args.region !== undefined || args.full_resolution === true)
+      ) {
         return {
           isError: true,
           output: 'region and full_resolution apply only to image files.',
@@ -418,7 +416,13 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
             telemetry: this.compressTelemetry,
           });
           if (!outcome.ok) {
-            return { isError: true, output: t('toolsV2.readMedia.cannotReadRegion', { path: args.path, error: outcome.error }) };
+            return {
+              isError: true,
+              output: t('toolsV2.readMedia.cannotReadRegion', {
+                path: args.path,
+                error: outcome.error,
+              }),
+            };
           }
           const base64 = Buffer.from(outcome.data).toString('base64');
           mediaPart = {

@@ -52,8 +52,12 @@ function SessionItem({ session, isSelected, onSelect, onDelete, dirLabel }: Sess
         'group relative px-2 py-1 rounded-md cursor-pointer transition-colors',
         isSelected ? 'bg-accent' : 'hover:bg-accent/50',
       )}
-      onMouseEnter={() =>{  setIsHovered(true); }}
-      onMouseLeave={() =>{  setIsHovered(false); }}
+      onMouseEnter={() => {
+        setIsHovered(true);
+      }}
+      onMouseLeave={() => {
+        setIsHovered(false);
+      }}
       onClick={onSelect}
     >
       <p className="text-xs leading-relaxed line-clamp-3 text-foreground">
@@ -76,7 +80,9 @@ function SessionItem({ session, isSelected, onSelect, onDelete, dirLabel }: Sess
             <DropdownMenuTrigger asChild>
               <button
                 className="p-1 -m-1 rounded hover:bg-muted transition-colors"
-                onClick={(e) =>{  e.stopPropagation(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
               >
                 <IconDots className="size-3.5 text-muted-foreground" />
               </button>
@@ -206,7 +212,9 @@ export function SessionList({ onClose }: SessionListProps) {
             <Input
               placeholder="Search conversations..."
               value={searchQuery}
-              onChange={(e) =>{  setSearchQuery(e.target.value); }}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+              }}
               className="pl-8 h-8 text-xs"
             />
           </div>
@@ -228,7 +236,9 @@ export function SessionList({ onClose }: SessionListProps) {
                   onSelect={() => {
                     void handleSelect(session);
                   }}
-                  onDelete={() =>{  setDeleteTarget(session); }}
+                  onDelete={() => {
+                    setDeleteTarget(session);
+                  }}
                   dirLabel={getWorkDirLabel(session.workDir)}
                 />
               ))

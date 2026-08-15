@@ -22,10 +22,10 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+
 import { MiniDb } from '../src/index.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = import.meta.dirname;
 const WORKER = path.join(__dirname, 'cluster-worker.ts');
 
 const PROCESSES = (process.env.CLUSTER_BENCH_PROCESSES ?? '1,2,4,8').split(',').map(Number);
@@ -49,19 +49,26 @@ interface Report {
 
 function runWorker(args: string[]): Promise<Report> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', WORKER, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, ['--import', 'tsx', WORKER, ...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
     child.stderr.on('data', (d) => (stderr += d));
     child.on('error', reject);
     child.on('exit', (code) => {
-      const lines = stdout.trim().split('\n').filter((l) => l.startsWith('{'));
+      const lines = stdout
+        .trim()
+        .split('\n')
+        .filter((l) => l.startsWith('{'));
       if (code !== 0 || lines.length === 0) {
-        reject(new Error(`worker failed (code=${code}) args=${args.join(' ')}\n${stderr}\n${stdout}`));
+        reject(
+          new Error(`worker failed (code=${code}) args=${args.join(' ')}\n${stderr}\n${stdout}`),
+        );
         return;
       }
-      const report = JSON.parse(lines[lines.length - 1]!) as Report;
+      const report = JSON.parse(lines.at(-1)!) as Report;
       if (!report.ok) reject(new Error(`worker error args=${args.join(' ')}: ${report.error}`));
       else resolve(report);
     });
@@ -146,7 +153,8 @@ async function benchCell(procs: number, shards: number): Promise<CellResult> {
     const readWall = Math.max(...reads.map((r) => r.ms));
 
     const agg = (total: number, wall: number) => (total / wall) * 1000;
-    const perProc = (reports: Report[]) => (KEYS / (reports.reduce((s, r) => s + r.ms, 0) / reports.length)) * 1000;
+    const perProc = (reports: Report[]) =>
+      (KEYS / (reports.reduce((s, r) => s + r.ms, 0) / reports.length)) * 1000;
     return {
       procs,
       shards,
@@ -193,7 +201,9 @@ function printMatrix(title: string, cells: CellResult[], pick: (c: CellResult) =
   for (const p of PROCESSES) {
     const row = [
       String(p).padEnd(5),
-      ...SHARDS.map((s) => fmt(pick(cells.find((c) => c.procs === p && c.shards === s)!)).padStart(12)),
+      ...SHARDS.map((s) =>
+        fmt(pick(cells.find((c) => c.procs === p && c.shards === s)!)).padStart(12),
+      ),
     ].join(' | ');
     console.log(`  ${row}`);
   }
@@ -230,7 +240,7 @@ async function main(): Promise<void> {
   console.log('');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

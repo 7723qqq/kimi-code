@@ -2,8 +2,8 @@
 <!-- Design-system §03 Sheet / BottomSheet: mobile bottom panel (≤640px dialogs
      anchor here). Top radius xl + drag handle + xl shadow. -->
 <script setup lang="ts">
-import IconButton from './IconButton.vue';
 import Icon from './Icon.vue';
+import IconButton from './IconButton.vue';
 
 defineProps<{ open: boolean; title?: string }>();
 
@@ -67,6 +67,15 @@ function close() {
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
 }
-.ui-sheet__title { flex: 1; font-size: var(--text-lg); font-weight: var(--weight-medium); color: var(--color-text); }
-.ui-sheet__body { padding: var(--space-2) var(--space-4) var(--space-5); overflow: auto; color: var(--color-text); }
+.ui-sheet__title {
+  flex: 1;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+.ui-sheet__body {
+  padding: var(--space-2) var(--space-4) var(--space-5);
+  overflow: auto;
+  color: var(--color-text);
+}
 </style>

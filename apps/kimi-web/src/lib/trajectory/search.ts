@@ -62,12 +62,13 @@ export class TrajectorySearchIndex {
           const id = record.id;
           const sources = recordSources(turn.turn, group.title, record);
           const previous = this.entries.get(id);
-          const entry = previous !== undefined && sameSources(previous.sources, sources)
-            ? previous
-            : {
-                sources,
-                text: sources.join('\n').toLocaleLowerCase(),
-              };
+          const entry =
+            previous !== undefined && sameSources(previous.sources, sources)
+              ? previous
+              : {
+                  sources,
+                  text: sources.join('\n').toLocaleLowerCase(),
+                };
           this.entries.set(id, entry);
           seen.add(id);
         }

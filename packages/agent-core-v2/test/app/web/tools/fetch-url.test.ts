@@ -11,12 +11,16 @@ import { lookup } from 'node:dns/promises';
 
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { LocalFetchURLProvider, type PinnedFetch } from '#/app/web/providers/local-fetch-url';
 import { FetchURLTool } from '#/agent/tools/fetch-url/fetchUrlTool';
+import { LocalFetchURLProvider, type PinnedFetch } from '#/app/web/providers/local-fetch-url';
+import type { UrlFetcher, UrlFetchResult } from '#/app/web/tools/fetch-url-types';
 import type { IWebFetchService } from '#/app/web/web';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
-import type { UrlFetcher, UrlFetchResult } from '#/app/web/tools/fetch-url-types';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
 
 vi.mock('node:dns/promises', () => ({ lookup: vi.fn() }));
 
@@ -34,7 +38,9 @@ beforeEach(() => {
   (lookup as unknown as Mock).mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
 });
 
-function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
+function isPromiseLike(
+  value: ToolExecution | Promise<ToolExecution>,
+): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -156,9 +162,9 @@ describe('FetchURLTool abort signal', () => {
   it('returns an error with HttpFetchError code and status', async () => {
     const controller = new AbortController();
     const { HttpFetchError } = await import('#/app/web/tools/fetch-url-types');
-    const fetch = vi.fn<UrlFetcher['fetch']>().mockRejectedValue(
-      new HttpFetchError(403, 'Forbidden'),
-    );
+    const fetch = vi
+      .fn<UrlFetcher['fetch']>()
+      .mockRejectedValue(new HttpFetchError(403, 'Forbidden'));
     const tool = makeTool({
       _serviceBrand: undefined,
       getUrlFetcher: () => ({ fetch }),
@@ -331,9 +337,7 @@ describe('LocalFetchURLProvider abort signal', () => {
     );
     const provider = new LocalFetchURLProvider({ pinnedFetchImpl, maxBytes: 1024 * 1024 });
 
-    await expect(provider.fetch('https://example.com/large')).rejects.toThrow(
-      'exceeds maxBytes',
-    );
+    await expect(provider.fetch('https://example.com/large')).rejects.toThrow('exceeds maxBytes');
   });
 
   it('allows private addresses when allowPrivateAddresses is true', async () => {

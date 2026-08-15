@@ -27,10 +27,7 @@ export async function detectPendingMigration(
 ): Promise<MigrationPlan | null> {
   const { sourceHome, targetHome } = input;
   if (!existsSync(sourceHome)) return null;
-  if (
-    input.ignoreMarker !== true &&
-    shouldSuppressMigration({ sourceHome, targetHome })
-  ) {
+  if (input.ignoreMarker !== true && shouldSuppressMigration({ sourceHome, targetHome })) {
     return null;
   }
 
@@ -47,10 +44,7 @@ export async function detectPendingMigration(
   // /login flow will pick up the auth conversation when the user first uses
   // the app. Treat oauth-only as "nothing to migrate".
   const nothingToMigrate =
-    plan.totalSessions === 0 &&
-    !plan.hasConfig &&
-    !plan.hasMcp &&
-    !plan.hasUserHistory;
+    plan.totalSessions === 0 && !plan.hasConfig && !plan.hasMcp && !plan.hasUserHistory;
   if (nothingToMigrate) return null;
 
   return plan;

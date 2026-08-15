@@ -208,8 +208,7 @@ export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): v
           resourceLabel: 'terminal',
         });
         if (parsed.kind !== 'action') {
-          const message =
-            parsed.kind === 'invalid' ? parsed.reason : `unsupported action: ${tail}`;
+          const message = parsed.kind === 'invalid' ? parsed.reason : `unsupported action: ${tail}`;
           reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, message, req.id));
           return;
         }
@@ -242,7 +241,9 @@ function sendMappedError(
         reply.send(errEnvelope(ErrorCode.TERMINAL_NOT_FOUND, err.message, requestId, err.stack));
         return;
       case ErrorCodes.FS_PATH_ESCAPES:
-        reply.send(errEnvelope(ErrorCode.FS_PATH_ESCAPES_SESSION, err.message, requestId, err.stack));
+        reply.send(
+          errEnvelope(ErrorCode.FS_PATH_ESCAPES_SESSION, err.message, requestId, err.stack),
+        );
         return;
     }
   }

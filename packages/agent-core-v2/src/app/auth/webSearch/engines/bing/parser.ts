@@ -84,7 +84,11 @@ function sanitizeBingUrl(rawUrl: string | null | undefined): string {
   } else if (resolvedUrl.startsWith('/')) {
     // Relative jump paths are Bing-internal redirects, not real result URLs;
     // a scheme-bearing `/ck/a` link is decoded from its `u` parameter below.
-    if (resolvedUrl.startsWith('/search') || resolvedUrl.startsWith('/ck/a') || resolvedUrl.startsWith('/newtabredir')) {
+    if (
+      resolvedUrl.startsWith('/search') ||
+      resolvedUrl.startsWith('/ck/a') ||
+      resolvedUrl.startsWith('/newtabredir')
+    ) {
       return '';
     }
     resolvedUrl = `https://cn.bing.com${resolvedUrl}`;
@@ -102,7 +106,9 @@ function sanitizeBingUrl(rawUrl: string | null | undefined): string {
     }
     if (
       hostname.endsWith('bing.com') &&
-      (pathname.startsWith('/search') || pathname.startsWith('/ck/a') || pathname.startsWith('/newtabredir'))
+      (pathname.startsWith('/search') ||
+        pathname.startsWith('/ck/a') ||
+        pathname.startsWith('/newtabredir'))
     ) {
       return '';
     }
@@ -147,7 +153,9 @@ function extractDescription(element: EngineElement | null, title: string): strin
   if (directSnippet) {
     return directSnippet.slice(0, 400);
   }
-  const fallbackText = normalizeWhitespace(element?.textContent ?? '').replace(title, '').trim();
+  const fallbackText = normalizeWhitespace(element?.textContent ?? '')
+    .replace(title, '')
+    .trim();
   return fallbackText.slice(0, 400);
 }
 
@@ -183,7 +191,8 @@ function collectFallbackLinks(
       break;
     }
     const url = sanitizeBingUrl(
-      (linkElement.getAttribute('href') ?? linkElement.getAttribute('redirecturl')) ??
+      linkElement.getAttribute('href') ??
+        linkElement.getAttribute('redirecturl') ??
         linkElement.getAttribute('data-h'),
     );
     if (!url || seenUrls.has(url)) {
@@ -191,7 +200,8 @@ function collectFallbackLinks(
     }
     const container = closestElement(linkElement, 'li, .b_algo, .b_ans');
     const title = extractTitle(container, url, index);
-    const description = extractDescription(container, title) || `Result from ${new URL(url).hostname}`;
+    const description =
+      extractDescription(container, title) || `Result from ${new URL(url).hostname}`;
     seenUrls.add(url);
     results.push({
       title,
@@ -222,7 +232,8 @@ export function parseBingSearchResults(htmlContent: string, limit: number): Bing
       }
       const titleLink = node.querySelector('h2 a, .b_title a, a.tilk, a[target="_blank"]');
       const url = sanitizeBingUrl(
-        (titleLink?.getAttribute('href') ?? titleLink?.getAttribute('redirecturl')) ??
+        titleLink?.getAttribute('href') ??
+          titleLink?.getAttribute('redirecturl') ??
           titleLink?.getAttribute('data-h'),
       );
       if (!url || seenUrls.has(url)) {

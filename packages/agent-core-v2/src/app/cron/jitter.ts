@@ -75,8 +75,7 @@ export function jitteredNextCronRunMs(
     return idealMs;
   }
   const nextNext = computeNextCronRun(parsed, idealMs);
-  const period =
-    nextNext !== null && nextNext > idealMs ? nextNext - idealMs : MS_PER_DAY;
+  const period = nextNext !== null && nextNext > idealMs ? nextNext - idealMs : MS_PER_DAY;
   const periodCap = period * config.recurringMaxFractionOfPeriod;
   const cap = Math.min(periodCap, config.recurringMaxMs);
   if (!(cap > 0)) {

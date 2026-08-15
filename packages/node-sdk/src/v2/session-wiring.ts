@@ -1,3 +1,20 @@
+import {
+  IAgentLifecycleService,
+  IAgentProfileService,
+  IAgentTokenCountingService,
+  IAgentUsageService,
+  IEventBus,
+  ISessionApprovalService,
+  ISessionInteractionService,
+  ISessionQuestionService,
+  MAIN_AGENT_ID,
+  type DomainEvent,
+  type IAgentScopeHandle,
+  type IDisposable,
+  type Interaction,
+  type ISessionScopeHandle,
+} from '@moonshot-ai/agent-core-v2';
+
 /**
  * Per-live-session event/interaction wiring for the v2 client.
  *
@@ -37,22 +54,6 @@ import type {
   ToolCallResponse,
   ToolInputDisplay,
 } from '#/events';
-import {
-  IAgentLifecycleService,
-  IAgentProfileService,
-  IAgentTokenCountingService,
-  IAgentUsageService,
-  IEventBus,
-  ISessionApprovalService,
-  ISessionInteractionService,
-  ISessionQuestionService,
-  MAIN_AGENT_ID,
-  type DomainEvent,
-  type IAgentScopeHandle,
-  type IDisposable,
-  type Interaction,
-  type ISessionScopeHandle,
-} from '@moonshot-ai/agent-core-v2';
 
 /**
  * The client surface the wiring drives — the base class's own public methods,

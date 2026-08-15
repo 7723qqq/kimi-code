@@ -7,6 +7,7 @@
 
 import { Text, truncateToWidth, type Component, type TUI } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
@@ -14,7 +15,6 @@ import {
   THINKING_PREVIEW_LINES,
 } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 
@@ -118,7 +118,8 @@ export class ThinkingComponent implements Component {
     } else {
       const lines: string[] = [''];
       for (let i = 0; i < contentLines.length; i++) {
-        const p = i === 0 && this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
+        const p =
+          i === 0 && this.showMarker ? currentTheme.fg('textDim', STATUS_BULLET) : MESSAGE_INDENT;
         lines.push(p + contentLines[i]);
       }
 

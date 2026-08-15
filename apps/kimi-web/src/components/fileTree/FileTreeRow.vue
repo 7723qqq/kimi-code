@@ -6,7 +6,13 @@
      cache. -->
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
-import { useFileTreeBrowser, sortEntries, gitLabel, gitClass } from '../../composables/useFileTreeBrowser';
+
+import {
+  useFileTreeBrowser,
+  sortEntries,
+  gitLabel,
+  gitClass,
+} from '../../composables/useFileTreeBrowser';
 import Icon from '../ui/Icon.vue';
 import Spinner from '../ui/Spinner.vue';
 
@@ -29,9 +35,10 @@ const store = useFileTreeBrowser();
 const entries = store.dirChildren(props.dirPath);
 const sorted = sortEntries(entries);
 const filterValue = (props.filter ?? '').trim().toLowerCase();
-const visible = filterValue !== ''
-  ? sorted.filter((e) => store.isDirectory(e) || e.name.toLowerCase().includes(filterValue))
-  : sorted;
+const visible =
+  filterValue !== ''
+    ? sorted.filter((e) => store.isDirectory(e) || e.name.toLowerCase().includes(filterValue))
+    : sorted;
 </script>
 
 <template>
@@ -46,7 +53,12 @@ const visible = filterValue !== ''
         @keydown.enter="store.toggleDir(entry)"
         @keydown.space.prevent="store.toggleDir(entry)"
       >
-        <Icon class="ft-chevron" :class="{ open: store.expanded.value.has(entry.path) }" name="chevron-right" size="sm" />
+        <Icon
+          class="ft-chevron"
+          :class="{ open: store.expanded.value.has(entry.path) }"
+          name="chevron-right"
+          size="sm"
+        />
         <Icon class="ft-folder" name="folder" size="sm" />
         <span class="ft-name">{{ entry.name }}</span>
         <span v-if="store.expanded.value.has(entry.path)" class="ft-spin">
@@ -70,7 +82,10 @@ const visible = filterValue !== ''
         </span>
       </div>
       <!-- Recursive children of an expanded directory -->
-      <div v-if="store.isDirectory(entry) && store.expanded.value.has(entry.path)" class="ft-children">
+      <div
+        v-if="store.isDirectory(entry) && store.expanded.value.has(entry.path)"
+        class="ft-children"
+      >
         <div v-if="store.loadingDirs.value.has(entry.path)" class="ft-loading ft-inline">
           <Spinner size="sm" />
           <span>{{ t('fileTree.loading') }}</span>
@@ -90,9 +105,15 @@ const visible = filterValue !== ''
 </template>
 
 <style scoped>
-.ft-rows { min-width: 0; }
-.ft-row { min-width: 0; }
-.ft-children { margin-left: 14px; }
+.ft-rows {
+  min-width: 0;
+}
+.ft-row {
+  min-width: 0;
+}
+.ft-children {
+  margin-left: 14px;
+}
 .ft-row-main {
   display: flex;
   align-items: center;
@@ -103,17 +124,31 @@ const visible = filterValue !== ''
   cursor: pointer;
   outline: none;
 }
-.ft-row-main:hover { background: var(--color-surface-sunken); }
-.ft-row-main:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; }
-.ft-file.selected { background: var(--color-accent-soft); }
+.ft-row-main:hover {
+  background: var(--color-surface-sunken);
+}
+.ft-row-main:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+.ft-file.selected {
+  background: var(--color-accent-soft);
+}
 .ft-chevron {
   flex: none;
   color: var(--color-text-faint);
   transition: transform 0.12s;
 }
-.ft-chevron.open { transform: rotate(90deg); }
-.ft-folder { flex: none; color: var(--color-text-faint); }
-.ft-file.selected .ft-folder { color: var(--color-accent-hover); }
+.ft-chevron.open {
+  transform: rotate(90deg);
+}
+.ft-folder {
+  flex: none;
+  color: var(--color-text-faint);
+}
+.ft-file.selected .ft-folder {
+  color: var(--color-accent-hover);
+}
 .ft-name {
   flex: 1;
   min-width: 0;
@@ -122,18 +157,36 @@ const visible = filterValue !== ''
   white-space: nowrap;
   color: var(--color-text);
 }
-.ft-spin { flex: none; display: inline-flex; }
+.ft-spin {
+  flex: none;
+  display: inline-flex;
+}
 .ft-git {
   flex: none;
   font-size: calc(var(--text-xs) - 1px);
   padding: 0 5px;
   border-radius: 999px;
 }
-.st-modified { color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 12%, transparent); }
-.st-added { color: var(--color-success); background: color-mix(in srgb, var(--color-success) 12%, transparent); }
-.st-deleted { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 12%, transparent); }
-.st-conflict { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 12%, transparent); }
-.st-untracked { color: var(--color-text-muted); background: var(--color-surface-sunken); }
+.st-modified {
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+}
+.st-added {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+}
+.st-deleted {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+.st-conflict {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+.st-untracked {
+  color: var(--color-text-muted);
+  background: var(--color-surface-sunken);
+}
 
 .ft-loading {
   display: flex;
@@ -143,7 +196,9 @@ const visible = filterValue !== ''
   color: var(--color-text-muted);
   font-size: var(--text-base);
 }
-.ft-inline { padding: 4px 8px; }
+.ft-inline {
+  padding: 4px 8px;
+}
 .ft-empty {
   padding: 6px 8px;
   color: var(--color-text-faint);

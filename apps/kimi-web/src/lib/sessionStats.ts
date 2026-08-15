@@ -83,8 +83,7 @@ export function normalizeUsage(raw: unknown): {
   readonly cacheRead: number;
   readonly cacheCreate: number;
 } {
-  const usage =
-    raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const usage = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
   const inputOther = num(usage['inputOther']);
   const output = num(usage['output']);
@@ -207,9 +206,7 @@ export function feedSessionStats(
  */
 export function cacheHitPercent(stats: SessionStats): number | null {
   const cacheTraffic = stats.cacheReadTokens + stats.cacheCreationTokens;
-  return cacheTraffic === 0
-    ? null
-    : Math.round((stats.cacheReadTokens / cacheTraffic) * 100);
+  return cacheTraffic === 0 ? null : Math.round((stats.cacheReadTokens / cacheTraffic) * 100);
 }
 
 /** Average first-token latency in ms; null when no step recorded one. */

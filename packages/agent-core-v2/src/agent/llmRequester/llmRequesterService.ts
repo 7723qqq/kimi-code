@@ -33,25 +33,33 @@
  */
 
 import { createHash } from 'node:crypto';
-import { LifecycleScope } from '#/app/scopes';
+
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { ILogService, type LogContext } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
+import { isAbortError } from '#/_base/utils/abort';
+import { retryErrorFields } from '#/_base/utils/retry';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import {
   IAgentContextProjectorService,
   type MediaStripSnapshot,
 } from '#/agent/contextProjector/contextProjector';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { IAgentVideoResolverService } from '#/agent/media/videoResolver';
+import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
-import { IInstantiationService } from '#/_base/di/instantiation';
-import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
-import { IAgentVideoResolverService } from '#/agent/media/videoResolver';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
+import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
+import { LifecycleScope } from '#/app/scopes';
+import type { ApiErrorEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
 import {
   APIRequestTooLargeError,
   APIStatusError,
@@ -62,10 +70,13 @@ import {
 } from '#/kosong/contract/errors';
 import { isToolCall, type Message, type StreamedMessagePart } from '#/kosong/contract/message';
 import { type ThinkingEffort } from '#/kosong/contract/provider';
+import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
 import { type Tool } from '#/kosong/contract/tool';
 import { emptyUsage, inputTotal, type TokenUsage } from '#/kosong/contract/usage';
-import { ILogService, type LogContext } from '#/_base/log/log';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
+import { completionBudgetParams, resolveCompletionBudget } from '#/kosong/model/completionBudget';
+import { IModelService } from '#/kosong/model/model';
+import type { ModelOverrides } from '#/kosong/model/model.types';
 import {
   effectiveMaxCompletionTokens,
   type ModelRequestEvent,
@@ -73,16 +84,10 @@ import {
   type ModelRequester,
   type ModelRequestTiming,
 } from '#/kosong/model/modelRequester';
-import type { ModelOverrides } from '#/kosong/model/model.types';
-import { IModelService } from '#/kosong/model/model';
-import { completionBudgetParams, resolveCompletionBudget } from '#/kosong/model/completionBudget';
 import { resolveThinkingKeep, type ThinkingConfig } from '#/kosong/model/thinking';
-import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import type { Protocol } from '#/kosong/protocol/protocol';
-import type { ApiErrorEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IWireService } from '#/wire/wire';
 import type { PayloadOf } from '#/wire/types';
+import { IWireService } from '#/wire/wire';
 
 import {
   IAgentLLMRequesterService,
@@ -94,20 +99,13 @@ import {
   type AgentLLMRequestTask,
   type PreparedTurnRequestConfig,
 } from './llmRequester';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
-import {
-  ToolCallIdNormalizer,
-  type ToolCallIdResponseNormalizer,
-} from './toolCallIdNormalizer';
 import {
   LlmRequestTraceModel,
   llmRequest,
   llmToolsSnapshot,
   type LlmRequestToolSchema,
 } from './llmRequestOps';
-import { isAbortError } from '#/_base/utils/abort';
-import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
-import { retryErrorFields } from '#/_base/utils/retry';
+import { ToolCallIdNormalizer, type ToolCallIdResponseNormalizer } from './toolCallIdNormalizer';
 
 const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
@@ -262,14 +260,9 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     const startedAt = Date.now();
     trace.set(undefined);
     try {
-      return await this.runRequest(
-        this.resolveRequest(overrides),
-        onPart,
-        signal,
-        (traceId) => {
-          trace.set(traceId);
-        },
-      );
+      return await this.runRequest(this.resolveRequest(overrides), onPart, signal, (traceId) => {
+        trace.set(traceId);
+      });
     } catch (error) {
       this.logRequestFailure(error, overrides, signal);
       trace.set(this.trackApiError(error, startedAt, signal, overrides.source, trace.traceId));
@@ -392,16 +385,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       const projected = requestInput(projection);
       const input = {
         ...projected,
-        messages: await this.videoResolver.resolve(
-          projected.messages,
-          request.requester,
-          signal,
-        ),
+        messages: await this.videoResolver.resolve(projected.messages, request.requester, signal),
       };
       const fields =
-        projection === 'normal'
-          ? request.logFields
-          : { ...request.logFields, projection };
+        projection === 'normal' ? request.logFields : { ...request.logFields, projection };
       this.warnAboutAnthropicThinkingEffort(request);
       const logInput: LLMRequestLogInput = {
         protocol: request.model.protocol,
@@ -498,11 +485,12 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       };
     };
 
-    const initialProjection: RequestProjection = mediaStripSnapshot !== undefined
-      ? 'media-stripped'
-      : this.isRecoveryTurn(this.mediaDegradedTurns, request.source)
-        ? 'media-degraded'
-        : 'normal';
+    const initialProjection: RequestProjection =
+      mediaStripSnapshot !== undefined
+        ? 'media-stripped'
+        : this.isRecoveryTurn(this.mediaDegradedTurns, request.source)
+          ? 'media-degraded'
+          : 'normal';
     let projection: RequestProjection = initialProjection;
     for (;;) {
       try {
@@ -516,13 +504,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         ) {
           signal?.throwIfAborted();
           if (projection === 'normal') {
-            this.log.warn(
-              'provider rejected request as too large; resending with degraded media',
-              {
-                model: request.model.name,
-                ...request.logFields,
-              },
-            );
+            this.log.warn('provider rejected request as too large; resending with degraded media', {
+              model: request.model.name,
+              ...request.logFields,
+            });
             this.markRecoveryTurn(this.mediaDegradedTurns, request.source);
             projection = 'media-degraded';
           } else {
@@ -601,15 +586,16 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         effort,
         knownEfforts,
       });
-    } catch {
-    }
+    } catch {}
     try {
       this.eventBus.publish({ type: 'warning', code, message });
-    } catch {
-    }
+    } catch {}
   }
 
-  private isRecoveryTurn(set: ReadonlySet<number>, source: AgentLLMRequestSource | undefined): boolean {
+  private isRecoveryTurn(
+    set: ReadonlySet<number>,
+    source: AgentLLMRequestSource | undefined,
+  ): boolean {
     if (source?.type !== 'turn') return false;
     return set.has(source.turnId);
   }
@@ -653,9 +639,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       }),
       capability: resolved.modelCapabilities,
       usedContextTokens:
-        overrides.messages === undefined
-          ? this.tokenCounting.get().measured
-          : undefined,
+        overrides.messages === undefined ? this.tokenCounting.get().measured : undefined,
     });
     const requester = this.modelCatalog.getRequester(resolved.modelAlias);
 
@@ -666,7 +650,8 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       params: { ...baseParams, ...budgetParams },
       modelAlias: resolved.modelAlias,
       thinkingEffort: resolved.thinkingLevel,
-      systemPrompt: overrides.systemPrompt ?? turnConfig?.systemPrompt ?? this.profile.getSystemPrompt(),
+      systemPrompt:
+        overrides.systemPrompt ?? turnConfig?.systemPrompt ?? this.profile.getSystemPrompt(),
       tools: [...(overrides.tools ?? this.defaultTools())],
       messages: [...messages],
       source: overrides.source,
@@ -674,7 +659,9 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     };
   }
 
-  private resolveTurnConfig(source: AgentLLMRequestSource | undefined): TurnRequestConfig | undefined {
+  private resolveTurnConfig(
+    source: AgentLLMRequestSource | undefined,
+  ): TurnRequestConfig | undefined {
     if (source?.type !== 'turn') return undefined;
     return this.getOrCreateTurnConfig(source.turnId);
   }
@@ -752,9 +739,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       toolSelect: this.toolSelect.enabled(),
       systemPromptHash,
       systemPrompt:
-        input.systemPrompt === this.profile.data().systemPrompt
-          ? undefined
-          : input.systemPrompt,
+        input.systemPrompt === this.profile.data().systemPrompt ? undefined : input.systemPrompt,
       toolsHash,
       messageCount: input.messages.length,
       turnStep: stringField(fields, 'turnStep'),
@@ -787,14 +772,12 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   }
 
   private defaultTools(): readonly Tool[] {
-    return this.toolSelect
-      .shapeTools(this.tools.list())
-      .map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
-        deferred: tool.deferred,
-      }));
+    return this.toolSelect.shapeTools(this.tools.list()).map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
+      deferred: tool.deferred,
+    }));
   }
 }
 
@@ -865,9 +848,10 @@ const toolsHashCache = new Map<
   }
 >();
 
-function cachedToolSignature(
-  tools: readonly Tool[],
-): { readonly tools: readonly LlmRequestToolSchema[]; readonly hash: string } {
+function cachedToolSignature(tools: readonly Tool[]): {
+  readonly tools: readonly LlmRequestToolSchema[];
+  readonly hash: string;
+} {
   const wireTools = providerVisibleTools(tools);
   const key = wireTools
     .map((tool) => (tool.deferred === true ? `${tool.name}#deferred` : tool.name))
@@ -909,7 +893,9 @@ function sameToolObjects(a: readonly Tool[], b: readonly Tool[]): boolean {
   return true;
 }
 
-function requestKindForRecord(fields: AgentLLMRequestLogFields): PayloadOf<typeof llmRequest>['kind'] {
+function requestKindForRecord(
+  fields: AgentLLMRequestLogFields,
+): PayloadOf<typeof llmRequest>['kind'] {
   if (fields['kind'] === 'compaction') return 'compaction';
   if (fields['requestKind'] === 'full_compaction') return 'compaction';
   return 'loop';

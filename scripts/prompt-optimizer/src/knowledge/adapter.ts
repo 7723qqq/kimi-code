@@ -49,13 +49,20 @@ function exec(args: string[], dbPath?: string): string {
  */
 export function knowledgeSearch(
   query: string,
-  options?: { scopePath?: string; tags?: string[]; limit?: number; minConfidence?: number; dbPath?: string },
+  options?: {
+    scopePath?: string;
+    tags?: string[];
+    limit?: number;
+    minConfidence?: number;
+    dbPath?: string;
+  },
 ): KnowledgeSearchResult[] {
   const args = ['search', query];
   if (options?.scopePath) args.push('--scope', options.scopePath);
   if (options?.tags?.length) args.push('--tags', options.tags.join(','));
   if (options?.limit) args.push('--limit', String(options.limit));
-  if (options?.minConfidence !== undefined) args.push('--min-confidence', String(options.minConfidence));
+  if (options?.minConfidence !== undefined)
+    args.push('--min-confidence', String(options.minConfidence));
 
   try {
     const output = exec(args, options?.dbPath);
@@ -69,7 +76,15 @@ export function knowledgeSearch(
  * Add a new entry to the knowledge base (used by the AI learner).
  */
 export function knowledgeAdd(input: KnowledgeAddInput, dbPath?: string): string | null {
-  const args = ['add', '--title', input.title, '--content', input.content, '--category', input.category];
+  const args = [
+    'add',
+    '--title',
+    input.title,
+    '--content',
+    input.content,
+    '--category',
+    input.category,
+  ];
   if (input.tags?.length) args.push('--tags', input.tags.join(','));
   if (input.scope) args.push('--scope', input.scope);
   if (input.source) args.push('--source', input.source);

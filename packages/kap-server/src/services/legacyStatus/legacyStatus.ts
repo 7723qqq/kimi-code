@@ -105,12 +105,8 @@ export interface LegacyStatusSnapshot {
 
 /** Read the current combined status when the handle exposes a complete agent. */
 export function readLegacyStatus(agent: IAgentScopeHandle): LegacyStatusSnapshot | undefined {
-  const profile = agent.accessor.get(IAgentProfileService) as
-    | IAgentProfileService
-    | undefined;
-  const usageService = agent.accessor.get(IAgentUsageService) as
-    | IAgentUsageService
-    | undefined;
+  const profile = agent.accessor.get(IAgentProfileService) as IAgentProfileService | undefined;
+  const usageService = agent.accessor.get(IAgentUsageService) as IAgentUsageService | undefined;
   const tokenCounting = agent.accessor.get(IAgentTokenCountingService) as
     | IAgentTokenCountingService
     | undefined;

@@ -2,8 +2,9 @@
  * `skillCatalog` domain — builtin `update-config` skill definition.
  */
 
-import type { SkillDefinition } from '#/app/skillCatalog/types';
 import { parseSkillText } from '#/app/skillCatalog/parser';
+import type { SkillDefinition } from '#/app/skillCatalog/types';
+
 import UPDATE_CONFIG_BODY from './update-config.md?raw';
 
 const PSEUDO_PATH = 'builtin://update-config';

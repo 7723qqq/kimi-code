@@ -16,8 +16,9 @@ import {
   type Focusable,
   truncateToWidth,
 } from '@moonshot-ai/pi-tui';
-import { currentTheme } from '#/tui/theme';
+
 import { t } from '#/i18n';
+import { currentTheme } from '#/tui/theme';
 
 export interface KeyboardShortcut {
   readonly keys: string;
@@ -138,7 +139,9 @@ export class HelpPanelComponent extends Container implements Focusable {
       const slice = content.slice(this.scrollTop, this.scrollTop + maxVisible);
       const from = this.scrollTop + 1;
       const to = this.scrollTop + slice.length;
-      const scrollInfo = muted(t('tui.dialogs.helpPanel.showing', { from, to, total: content.length }));
+      const scrollInfo = muted(
+        t('tui.dialogs.helpPanel.showing', { from, to, total: content.length }),
+      );
       return [lines[0] ?? '', ...slice, scrollInfo, lines.at(-1) ?? ''].map((line) =>
         truncateToWidth(line, width),
       );

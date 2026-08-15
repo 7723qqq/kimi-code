@@ -23,13 +23,17 @@ function isLockError(e: unknown): boolean {
 }
 
 /** Retry a write op on lock contention with jittered backoff; counts retries. */
-async function withRetry<T>(fn: () => Promise<T>, stats: { retries: number }, deadlineMs = 60_000): Promise<T> {
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  stats: { retries: number },
+  deadlineMs = 60_000,
+): Promise<T> {
   const deadline = Date.now() + deadlineMs;
   for (;;) {
     try {
       return await fn();
-    } catch (e) {
-      if (!isLockError(e) || Date.now() > deadline) throw e;
+    } catch (error) {
+      if (!isLockError(error) || Date.now() > deadline) throw error;
       stats.retries++;
       await sleep(20 + Math.floor(Math.random() * 60));
     }
@@ -66,7 +70,11 @@ async function main(): Promise<void> {
     // writekeys <dir> <shardCount> <key1,key2,...>
     const [dir, shardCount, keysCsv] = rest;
     const keys = keysCsv!.split(',');
-    const db = await ClusterDb.open({ dir: dir!, shardCount: Number(shardCount), valueCodec: 'json' });
+    const db = await ClusterDb.open({
+      dir: dir!,
+      shardCount: Number(shardCount),
+      valueCodec: 'json',
+    });
     const t0 = performance.now();
     for (const key of keys) {
       await withRetry(() => db.set(key, { key }), stats);
@@ -80,7 +88,12 @@ async function main(): Promise<void> {
   if (mode === 'verify') {
     // verify <dir> <shardCount> <prefix> <n>
     const [dir, shardCount, prefix, n] = rest;
-    const db = await ClusterDb.open({ dir: dir!, shardCount: Number(shardCount), valueCodec: 'json', readOnly: true });
+    const db = await ClusterDb.open({
+      dir: dir!,
+      shardCount: Number(shardCount),
+      valueCodec: 'json',
+      readOnly: true,
+    });
     const count = Number(n);
     let found = 0;
     for (let i = 0; i < count; i++) {
@@ -99,7 +112,12 @@ async function main(): Promise<void> {
   if (mode === 'wait-read') {
     // wait-read <dir> <shardCount> <key> <expectedI> <timeoutMs>
     const [dir, shardCount, key, expectedI, timeoutMs] = rest;
-    const db = await ClusterDb.open({ dir: dir!, shardCount: Number(shardCount), valueCodec: 'json', readOnly: true });
+    const db = await ClusterDb.open({
+      dir: dir!,
+      shardCount: Number(shardCount),
+      valueCodec: 'json',
+      readOnly: true,
+    });
     const t0 = performance.now();
     const deadline = t0 + Number(timeoutMs);
     for (;;) {
@@ -137,7 +155,12 @@ async function main(): Promise<void> {
     // hold <dir> <shardCount> <key> — write one key, then keep the process
     // (and its shard write lock) alive until killed.
     const [dir, shardCount, key] = rest;
-    const db = await ClusterDb.open({ dir: dir!, shardCount: Number(shardCount), valueCodec: 'json', lockHoldMs: 0 });
+    const db = await ClusterDb.open({
+      dir: dir!,
+      shardCount: Number(shardCount),
+      valueCodec: 'json',
+      lockHoldMs: 0,
+    });
     await db.set(key!, { heldBy: process.pid });
     out({ ok: 1, mode, holding: key, pid: process.pid });
     setInterval(() => {}, 60_000); // stay alive; killed by the parent
@@ -158,9 +181,15 @@ async function main(): Promise<void> {
       valueCodec: 'json',
       fsyncPolicy: 'no',
       lockHoldMs: 0,
-      compactThresholdBytes: Number(compactThresholdBytes) > 0 ? Number(compactThresholdBytes) : undefined,
+      compactThresholdBytes:
+        Number(compactThresholdBytes) > 0 ? Number(compactThresholdBytes) : undefined,
     });
-    const doc = (i: number) => ({ n: i, c: `c${i % 7}`, u: `${seed}-u${i}`, t: `alpha beta w${i % 13}` });
+    const doc = (i: number) => ({
+      n: i,
+      c: `c${i % 7}`,
+      u: `${seed}-u${i}`,
+      t: `alpha beta w${i % 13}`,
+    });
     const keys = (function* (): Generator<string> {
       for (let seq = 0; ; seq++) {
         const key = `${seed}:${seq}`;
@@ -180,7 +209,12 @@ async function main(): Promise<void> {
       if (i % 5 === 1) {
         const j = i - 1;
         await withRetry(
-          () => db.set(loopKeys[j]!, { ...doc(j), n: j * 10, t: `alpha changed w${j % 13}` }, { dt: { created: 1700000009000 + j } }),
+          () =>
+            db.set(
+              loopKeys[j]!,
+              { ...doc(j), n: j * 10, t: `alpha changed w${j % 13}` },
+              { dt: { created: 1700000009000 + j } },
+            ),
           stats,
         );
         frames++;
@@ -197,8 +231,17 @@ async function main(): Promise<void> {
         await withRetry(
           () =>
             db.batch([
-              { op: 'set', key: b1, value: { ...doc(i + 100000), u: `${seed}-ub${i}a` }, dt: { created: 1700001000000 + i } },
-              { op: 'set', key: b2, value: { ...doc(i + 100001), u: `${seed}-ub${i}b`, t: 'alpha batch' } },
+              {
+                op: 'set',
+                key: b1,
+                value: { ...doc(i + 100000), u: `${seed}-ub${i}a` },
+                dt: { created: 1700001000000 + i },
+              },
+              {
+                op: 'set',
+                key: b2,
+                value: { ...doc(i + 100001), u: `${seed}-ub${i}b`, t: 'alpha batch' },
+              },
               { op: 'set', key: b3, value: { ...doc(i + 100002), u: `${seed}-ub${i}c` } },
               { op: 'del', key: b1 },
             ]),
@@ -209,11 +252,23 @@ async function main(): Promise<void> {
       if (i % 11 === 5) {
         // TTL keys come from the same shard-targeted generator, so every op
         // of the storm appends to this one shard's WAL.
-        await withRetry(() => db.set(keys.next().value!, { ...doc(i + 200000), u: `${seed}-uts${i}` }, { ttl: 50 }), stats);
+        await withRetry(
+          () =>
+            db.set(keys.next().value!, { ...doc(i + 200000), u: `${seed}-uts${i}` }, { ttl: 50 }),
+          stats,
+        );
         frames++;
       }
       if (i % 11 === 6) {
-        await withRetry(() => db.set(keys.next().value!, { ...doc(i + 300000), u: `${seed}-utl${i}` }, { ttl: 3_600_000 }), stats);
+        await withRetry(
+          () =>
+            db.set(
+              keys.next().value!,
+              { ...doc(i + 300000), u: `${seed}-utl${i}` },
+              { ttl: 3_600_000 },
+            ),
+          stats,
+        );
         frames++;
       }
     }
@@ -229,7 +284,12 @@ async function main(): Promise<void> {
     // parent can verify its cached shard reader detects the change purely
     // from the file fingerprint.
     const [dir, shardCount, action] = rest;
-    const db = await ClusterDb.open({ dir: dir!, shardCount: Number(shardCount), valueCodec: 'json', lockHoldMs: 0 });
+    const db = await ClusterDb.open({
+      dir: dir!,
+      shardCount: Number(shardCount),
+      valueCodec: 'json',
+      lockHoldMs: 0,
+    });
     if (action === 'create') await db.createCompoundIndex('cg', { groupBy: 'c', orderBy: 'n' });
     else await db.dropCompoundIndex('cg');
     out({ ok: 1, mode, action });
@@ -241,7 +301,11 @@ async function main(): Promise<void> {
   process.exit(1);
 }
 
-main().catch((e) => {
-  out({ ok: 0, mode, error: String(e && (e as Error).stack ? (e as Error).stack : e) });
+main().catch((error) => {
+  out({
+    ok: 0,
+    mode,
+    error: String(error && (error as Error).stack ? (error as Error).stack : error),
+  });
   process.exit(1);
 });

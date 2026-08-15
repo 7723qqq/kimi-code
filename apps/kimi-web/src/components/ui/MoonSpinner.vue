@@ -7,14 +7,17 @@ const MOON_FRAMES = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '�
 const MOON_FRAME_MS = 120;
 const MOON_FAST_FRAME_MS = 60;
 
-withDefaults(defineProps<{
-  size?: 'sm' | 'md' | 'lg';
-  fast?: boolean;
-  label?: string;
-}>(), {
-  size: 'md',
-  label: 'Waiting for response…',
-});
+withDefaults(
+  defineProps<{
+    size?: 'sm' | 'md' | 'lg';
+    fast?: boolean;
+    label?: string;
+  }>(),
+  {
+    size: 'md',
+    label: 'Waiting for response…',
+  },
+);
 
 function moonFrameStyle(index: number): Record<string, string> {
   return {
@@ -51,9 +54,21 @@ function moonFrameStyle(index: number): Record<string, string> {
   user-select: none;
   flex: none;
 }
-.ui-moon--sm { width: 14px; height: 14px; font-size: 14px; }
-.ui-moon--md { width: 18px; height: 18px; font-size: 18px; }
-.ui-moon--lg { width: 24px; height: 24px; font-size: 24px; }
+.ui-moon--sm {
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+}
+.ui-moon--md {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+}
+.ui-moon--lg {
+  width: 24px;
+  height: 24px;
+  font-size: 24px;
+}
 
 .ui-moon__frame {
   position: absolute;
@@ -73,12 +88,23 @@ function moonFrameStyle(index: number): Record<string, string> {
 }
 
 @keyframes ui-moon-frame {
-  0%, 12.49% { opacity: 1; }
-  12.5%, 100% { opacity: 0; }
+  0%,
+  12.49% {
+    opacity: 1;
+  }
+  12.5%,
+  100% {
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ui-moon__frame { animation: none; opacity: 0; }
-  .ui-moon__frame:nth-child(4) { opacity: 1; }
+  .ui-moon__frame {
+    animation: none;
+    opacity: 0;
+  }
+  .ui-moon__frame:nth-child(4) {
+    opacity: 1;
+  }
 }
 </style>

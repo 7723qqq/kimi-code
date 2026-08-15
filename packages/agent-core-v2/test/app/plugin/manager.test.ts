@@ -6,8 +6,8 @@
  * Run: pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run test/app/plugin/manager.test.ts
  */
 
-import { createServer } from 'node:http';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -26,7 +26,11 @@ describe('PluginManager', () => {
     root = await mkdtemp(join(tmpdir(), 'plugin-manager-root-'));
     await mkdir(join(home, 'plugins'), { recursive: true });
     await mkdir(join(root, 'commands'), { recursive: true });
-    await writeFile(join(root, 'commands', 'deploy.md'), '---\ndescription: Deploy\n---\n\nBody', 'utf8');
+    await writeFile(
+      join(root, 'commands', 'deploy.md'),
+      '---\ndescription: Deploy\n---\n\nBody',
+      'utf8',
+    );
     await writeFile(
       join(root, 'kimi.plugin.json'),
       JSON.stringify({
@@ -88,7 +92,11 @@ describe('PluginManager', () => {
   it('installs a local-path plugin into the managed root', async () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), 'plugin-install-source-'));
     try {
-      await writeFile(join(sourceRoot, 'kimi.plugin.json'), JSON.stringify({ name: 'other' }), 'utf8');
+      await writeFile(
+        join(sourceRoot, 'kimi.plugin.json'),
+        JSON.stringify({ name: 'other' }),
+        'utf8',
+      );
       const manager = new PluginManager({ kimiHomeDir: home });
 
       const record = await manager.install(sourceRoot);
@@ -105,7 +113,11 @@ describe('PluginManager', () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), 'plugin-zip-source-'));
     let server: ReturnType<typeof createServer> | undefined;
     try {
-      await writeFile(join(sourceRoot, 'kimi.plugin.json'), JSON.stringify({ name: 'zip-plugin' }), 'utf8');
+      await writeFile(
+        join(sourceRoot, 'kimi.plugin.json'),
+        JSON.stringify({ name: 'zip-plugin' }),
+        'utf8',
+      );
       const zip = await createZipFromDir(sourceRoot);
       server = createServer((_req, res) => {
         res.end(zip);
@@ -136,7 +148,11 @@ describe('PluginManager', () => {
   it('installs a github plugin through codeload', async () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), 'plugin-github-source-'));
     try {
-      await writeFile(join(sourceRoot, 'kimi.plugin.json'), JSON.stringify({ name: 'github-plugin' }), 'utf8');
+      await writeFile(
+        join(sourceRoot, 'kimi.plugin.json'),
+        JSON.stringify({ name: 'github-plugin' }),
+        'utf8',
+      );
       const zip = await createZipFromDir(sourceRoot);
       const fetchMock = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
         const url =
@@ -168,8 +184,9 @@ describe('PluginManager', () => {
       const stored = JSON.parse(
         await readFile(join(home, 'plugins', 'installed.json'), 'utf8'),
       ) as { plugins: Array<{ id: string; github?: { installedSha?: string } }> };
-      expect(stored.plugins.find((plugin) => plugin.id === 'github-plugin')?.github?.installedSha)
-        .toBe('1111111111111111111111111111111111111111');
+      expect(
+        stored.plugins.find((plugin) => plugin.id === 'github-plugin')?.github?.installedSha,
+      ).toBe('1111111111111111111111111111111111111111');
       expect(manager.get('github-plugin')?.manifest?.name).toBe('github-plugin');
     } finally {
       await rm(sourceRoot, { recursive: true, force: true });

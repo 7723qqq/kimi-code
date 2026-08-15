@@ -6,6 +6,7 @@
      the unified v2 dialog look. -->
 <script setup lang="ts">
 import { nextTick, onMounted, ref } from 'vue';
+
 import { setCredential } from '../api/daemon/serverAuth';
 import Button from './ui/Button.vue';
 import Input from './ui/Input.vue';
@@ -36,13 +37,18 @@ function onKeydown(e: KeyboardEvent): void {
 </script>
 
 <template>
-  <div class="server-auth-overlay" role="dialog" aria-modal="true" aria-labelledby="server-auth-title">
+  <div
+    class="server-auth-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="server-auth-title"
+  >
     <div class="server-auth-card">
       <div class="server-auth-head">
         <h1 id="server-auth-title" class="server-auth-title">Server token required</h1>
         <p class="server-auth-hint">
-          This server is protected. Enter the bearer token printed when the server
-          started (or the password set via <code>KIMI_CODE_PASSWORD</code>).
+          This server is protected. Enter the bearer token printed when the server started (or the
+          password set via <code>KIMI_CODE_PASSWORD</code>).
         </p>
       </div>
       <div class="server-auth-body">

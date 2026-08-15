@@ -117,14 +117,18 @@ export function ContentPartView({ part }: { part: ContentPart }) {
     case 'text':
       return (
         <div className="border border-border bg-surface-0 p-2">
-          <div className="mb-1 text-fg-3">{t('wirePart.textBytes', { count: part.text.length })}</div>
+          <div className="mb-1 text-fg-3">
+            {t('wirePart.textBytes', { count: part.text.length })}
+          </div>
           <pre className="whitespace-pre-wrap break-words text-fg-1">{part.text}</pre>
         </div>
       );
     case 'think':
       return (
         <div className="border border-[var(--color-cat-config)]/40 bg-surface-0 p-2">
-          <div className="mb-1 text-[var(--color-cat-config)]">{t('wirePart.thinkBytes', { count: part.think.length })}</div>
+          <div className="mb-1 text-[var(--color-cat-config)]">
+            {t('wirePart.thinkBytes', { count: part.think.length })}
+          </div>
           <pre className="whitespace-pre-wrap break-words text-fg-1">{part.think}</pre>
         </div>
       );
@@ -207,7 +211,9 @@ export function MessageDetail({ message }: { message: ContextMessage }) {
 
       {message.content.length > 0 ? (
         <div>
-          <div className="mb-1 text-fg-2">{t('wirePart.contentParts', { count: message.content.length })}</div>
+          <div className="mb-1 text-fg-2">
+            {t('wirePart.contentParts', { count: message.content.length })}
+          </div>
           <div className="space-y-1">
             {message.content.map((part, i) => (
               <ContentPartView key={i} part={part} />
@@ -260,9 +266,7 @@ export function LoopEventDetail({ event }: { event: LoopRecordedEvent }) {
             </FieldRow>
             {event.description ? (
               <FieldRow label="description" wide>
-                <pre className="whitespace-pre-wrap break-words text-fg-1">
-                  {event.description}
-                </pre>
+                <pre className="whitespace-pre-wrap break-words text-fg-1">{event.description}</pre>
               </FieldRow>
             ) : null}
           </div>

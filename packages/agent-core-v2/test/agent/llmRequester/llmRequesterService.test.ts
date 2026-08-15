@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { ILogService } from '#/_base/log/log';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
@@ -24,26 +25,29 @@ import {
   type MediaStripSnapshot,
 } from '#/agent/contextProjector/contextProjector';
 import { AgentContextProjectorService } from '#/agent/contextProjector/contextProjectorService';
-import { AgentLLMRequesterService } from '#/agent/llmRequester/llmRequesterService';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { AgentLLMRequesterService } from '#/agent/llmRequester/llmRequesterService';
+import { IAgentVideoResolverService } from '#/agent/media/videoResolver';
+import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
+import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
-import { IAgentVideoResolverService } from '#/agent/media/videoResolver';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import { IConfigService } from '#/app/config/config';
 import type { IEventBus } from '#/app/event/eventBus';
 import { type DomainEvent } from '#/app/event/eventBus';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { Error2, ErrorCodes } from '#/errors';
+import type { ModelCapability } from '#/kosong/contract/capability';
 import {
   APIConnectionError,
   APIEmptyResponseError,
   APIRequestTooLargeError,
   APIStatusError,
 } from '#/kosong/contract/errors';
-import { emptyUsage, type TokenUsage } from '#/kosong/contract/usage';
 import {
   isToolCall,
   type Message,
@@ -51,7 +55,7 @@ import {
   type ToolCall,
 } from '#/kosong/contract/message';
 import type { ThinkingEffort } from '#/kosong/contract/provider';
-import type { ModelCapability } from '#/kosong/contract/capability';
+import { emptyUsage, type TokenUsage } from '#/kosong/contract/usage';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import { IModelService } from '#/kosong/model/model';
 import {
@@ -59,14 +63,10 @@ import {
   type ModelRequestInput,
   type ModelRequester,
 } from '#/kosong/model/modelRequester';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ILogService } from '#/_base/log/log';
-import { Error2, ErrorCodes } from '#/errors';
-import { IWireService } from '#/wire/wire';
 import type { WireRecord } from '#/wire/record';
-import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { IWireService } from '#/wire/wire';
 
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { recordingWireLog, registerTestAgentWire } from '../../wire/stubs';
 
 const capabilities: ModelCapability = {
@@ -110,8 +110,7 @@ function createRequester(
         calls.value === 1
           ? firstCallError === null
             ? undefined
-            : (firstCallError ??
-              new APIStatusError(400, 'messages: `tool_use` ids must be unique'))
+            : (firstCallError ?? new APIStatusError(400, 'messages: `tool_use` ids must be unique'))
           : subsequentCallErrors[calls.value - 2];
       if (error !== undefined) throw error;
       yield {
@@ -140,9 +139,7 @@ function createService(
         Partial<
           Pick<
             IAgentContextProjectorService,
-            | 'captureMediaStripSnapshot'
-            | 'projectMediaDegraded'
-            | 'projectMediaStripped'
+            'captureMediaStripSnapshot' | 'projectMediaDegraded' | 'projectMediaStripped'
           >
         >)
     | undefined,
@@ -207,10 +204,7 @@ function createService(
   ix.stub(IAgentMicroCompactionService, { compact: (messages) => messages });
   ix.stub(IAgentVideoResolverService, { resolve: async (messages) => messages });
   if (projector === undefined) {
-    ix.set(
-      IAgentContextProjectorService,
-      new SyncDescriptor(AgentContextProjectorService),
-    );
+    ix.set(IAgentContextProjectorService, new SyncDescriptor(AgentContextProjectorService));
   } else {
     ix.stub(IAgentContextProjectorService, {
       captureMediaStripSnapshot: () => testSnapshot,
@@ -545,12 +539,7 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
       toolCalls: [],
     });
     const { service } = createService(
-      createRequester(
-        calls,
-        BODY_TOO_LARGE_413,
-        [BODY_TOO_LARGE_413],
-        capturedInputs,
-      ),
+      createRequester(calls, BODY_TOO_LARGE_413, [BODY_TOO_LARGE_413], capturedInputs),
       undefined,
     );
 
@@ -559,10 +548,7 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
       source: { type: 'turn', turnId: 1, step: 1 },
     });
     await service.request({
-      messages: [
-        imageMessage(oldUrl, 'rejected-id'),
-        imageMessage(newUrl, 'recovery-id'),
-      ],
+      messages: [imageMessage(oldUrl, 'rejected-id'), imageMessage(newUrl, 'recovery-id')],
       source: { type: 'turn', turnId: 1, step: 2 },
     });
 
@@ -598,9 +584,9 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
       },
     );
 
-    await expect(
-      service.request({ source: { type: 'turn', turnId: 1, step: 1 } }),
-    ).rejects.toBe(BODY_TOO_LARGE_413);
+    await expect(service.request({ source: { type: 'turn', turnId: 1, step: 1 } })).rejects.toBe(
+      BODY_TOO_LARGE_413,
+    );
     expect(calls.value).toBe(3);
     expect(projectCalls).toBe(1);
     expect(degradedCalls).toBe(1);
@@ -698,9 +684,13 @@ describe('AgentLLMRequesterService trace id', () => {
     const headersArrived = createControlledPromise<void>();
     const releaseStream = createControlledPromise<void>();
     Object.defineProperty(requester, 'request', {
-      value: async function* (_input: unknown, _signal: unknown, requestOptions: {
-        onTraceId?: (traceId: string | null) => void;
-      }) {
+      value: async function* (
+        _input: unknown,
+        _signal: unknown,
+        requestOptions: {
+          onTraceId?: (traceId: string | null) => void;
+        },
+      ) {
         requestOptions.onTraceId?.('trace-req-1');
         headersArrived.resolve();
         await releaseStream;
@@ -830,9 +820,7 @@ describe('AgentLLMRequesterService trace id', () => {
 });
 
 describe('AgentLLMRequesterService tool call id normalization', () => {
-  function createScriptedRequester(
-    script: { ids: string[]; error?: Error }[],
-  ): ModelRequester {
+  function createScriptedRequester(script: { ids: string[]; error?: Error }[]): ModelRequester {
     const base = createRequester({ value: 0 });
     let callIndex = 0;
     return {
@@ -937,19 +925,15 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
   });
 
   it('rewrites an id that already exists in the restored context', async () => {
-    const { service } = createService(
-      createScriptedRequester([{ ids: ['Bash_0'] }]),
-      undefined,
-      {
-        contextMessages: [
-          {
-            role: 'assistant',
-            content: [],
-            toolCalls: [{ type: 'function', id: 'Bash_0', name: 'Bash', arguments: '{}' }],
-          },
-        ],
-      },
-    );
+    const { service } = createService(createScriptedRequester([{ ids: ['Bash_0'] }]), undefined, {
+      contextMessages: [
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [{ type: 'function', id: 'Bash_0', name: 'Bash', arguments: '{}' }],
+        },
+      ],
+    });
 
     const result = await service.request();
     expect(result.message.toolCalls[0]!.id).toBe('Bash_0__2');

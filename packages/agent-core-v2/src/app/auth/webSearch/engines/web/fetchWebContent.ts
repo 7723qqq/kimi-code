@@ -21,8 +21,8 @@
  * with no extractable content return `undefined`.
  */
 
-import { lookup } from 'node:dns/promises';
 import type { LookupAddress } from 'node:dns';
+import { lookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 
 import { Readability } from '@mozilla/readability';
@@ -44,7 +44,8 @@ const MAX_REDIRECT_HOPS = 5;
 const FALLBACK_HEADERS: Record<string, string> = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-  'Accept': 'text/markdown,text/plain,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  Accept:
+    'text/markdown,text/plain,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
 };
 
@@ -114,7 +115,6 @@ function isMarkdownPath(url: URL): boolean {
   return pathname.endsWith('.md') || pathname.endsWith('.markdown') || pathname.endsWith('.mdx');
 }
 
-
 function shouldDebugReadabilityFallback(): boolean {
   return process.env['OPEN_WEBSEARCH_DEBUG'] === '1';
 }
@@ -131,7 +131,9 @@ function logReadabilityFallback(message: string, error?: unknown): void {
 }
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 function removeAll($: ReturnType<typeof loadHtml>, selector: string): void {
@@ -144,8 +146,8 @@ function extractMainTextFromHtml(html: string): { title: string; text: string; m
   const $ = loadHtml(html);
   const title = $('title').first().text().trim();
   const metaDescription =
-    ($('meta[name="description"]').attr('content')?.trim() ??
-    $('meta[property="og:description"]').attr('content')?.trim()) ??
+    $('meta[name="description"]').attr('content')?.trim() ??
+    $('meta[property="og:description"]').attr('content')?.trim() ??
     '';
   removeAll($, 'script, style, noscript, template, iframe, svg, canvas');
   const preferredContainers = [
@@ -258,16 +260,24 @@ function assertPublicHttpUrl(url: string | URL, label = 'URL'): URL {
   const host = hostRaw.startsWith('[') && hostRaw.endsWith(']') ? hostRaw.slice(1, -1) : hostRaw;
   if (isIP(host) !== 0) {
     if (isBlockedAddress(host)) {
-      throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `${label} points to a private or local network target.`, {
-        details: { url: parsed.toString(), host },
-      });
+      throw new Error2(
+        ErrorCodes.WEB_FETCH_FAILED,
+        `${label} points to a private or local network target.`,
+        {
+          details: { url: parsed.toString(), host },
+        },
+      );
     }
     return parsed;
   }
   if (host === 'localhost' || host.endsWith('.localhost')) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `${label} points to a private or local network target.`, {
-      details: { url: parsed.toString(), host },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `${label} points to a private or local network target.`,
+      {
+        details: { url: parsed.toString(), host },
+      },
+    );
   }
   return parsed;
 }
@@ -284,11 +294,10 @@ async function assertPublicHttpUrlResolved(url: string | URL, label = 'URL'): Pr
     addresses = await lookup(host, { all: true });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error2(
-      ErrorCodes.WEB_FETCH_FAILED,
-      `${label} could not be resolved: ${detail}`,
-      { cause: error, details: { url: parsed.toString(), host } },
-    );
+    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `${label} could not be resolved: ${detail}`, {
+      cause: error,
+      details: { url: parsed.toString(), host },
+    });
   }
   for (const entry of addresses) {
     if (isBlockedAddress(entry.address)) {
@@ -365,15 +374,23 @@ async function requestWithSafeRedirects(
       }
     }
     if (response.status < 200 || response.status >= 300) {
-      throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Request failed: HTTP ${String(response.status)}.`, {
-        details: { status: response.status, url: currentUrl },
-      });
+      throw new Error2(
+        ErrorCodes.WEB_FETCH_FAILED,
+        `Request failed: HTTP ${String(response.status)}.`,
+        {
+          details: { status: response.status, url: currentUrl },
+        },
+      );
     }
     return { response, finalUrl: currentUrl };
   }
-  throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Too many redirects (max ${String(MAX_REDIRECT_HOPS)})`, {
-    details: { url },
-  });
+  throw new Error2(
+    ErrorCodes.WEB_FETCH_FAILED,
+    `Too many redirects (max ${String(MAX_REDIRECT_HOPS)})`,
+    {
+      details: { url },
+    },
+  );
 }
 
 function tooLargeError(bytes: number): Error2 {
@@ -414,8 +431,7 @@ async function readBodyWithLimit(response: EngineHttpResponse): Promise<string> 
       chunks.push(value);
     }
   } catch (error) {
-    await reader.cancel().catch(() => {
-    });
+    await reader.cancel().catch(() => {});
     throw error;
   }
   return Buffer.concat(chunks).toString('utf8');
@@ -431,7 +447,12 @@ export async function fetchWebContent(
   // Pre-flight check to avoid reading oversized payloads when Content-Length
   // is present. (The original HEAD pre-flight is not ported — the undici
   // shim only supports GET/POST.)
-  const { response, finalUrl } = await requestWithSafeRedirects('GET', parsedUrl.toString(), options, 'Request URL');
+  const { response, finalUrl } = await requestWithSafeRedirects(
+    'GET',
+    parsedUrl.toString(),
+    options,
+    'Request URL',
+  );
   const contentType = response.header('content-type') ?? '';
   const contentLengthRaw = response.header('content-length');
   if (contentLengthRaw !== null) {
@@ -469,17 +490,27 @@ export async function fetchWebContent(
     extractedContent = normalizeText(raw);
   }
 
-  if (options.readability === true && (lowerContentType.includes('text/html') || looksLikeHtml(raw))) {
+  if (
+    options.readability === true &&
+    (lowerContentType.includes('text/html') || looksLikeHtml(raw))
+  ) {
     try {
       const { document } = parseHTML(raw);
-      const article = new Readability(document as unknown as ReadabilityDocument, { charThreshold: 0 }).parse();
+      const article = new Readability(document as unknown as ReadabilityDocument, {
+        charThreshold: 0,
+      }).parse();
       const articleContent = article?.content;
       if (article !== null && articleContent !== null && articleContent !== undefined) {
-        const readableText = normalizeText(article.textContent ?? extractReadableTextFromHtml(articleContent));
+        const readableText = normalizeText(
+          article.textContent ?? extractReadableTextFromHtml(articleContent),
+        );
         if (readableText !== '') {
           readabilityApplied = true;
           readableHtml = articleContent;
-          links = options.includeLinks === true ? extractReadableLinks(articleContent, finalUrl) : undefined;
+          links =
+            options.includeLinks === true
+              ? extractReadableLinks(articleContent, finalUrl)
+              : undefined;
           byline = article.byline?.trim() ?? undefined;
           excerpt = article.excerpt?.trim() ?? undefined;
           siteName = article.siteName?.trim() ?? undefined;

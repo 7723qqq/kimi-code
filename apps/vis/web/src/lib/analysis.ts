@@ -227,7 +227,13 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
   let prevTime: number | undefined;
   let prevLineNo = 0;
 
-  const startTurn = (trigger: 'prompt' | 'steer', lineNo: number, time: number | undefined, text: string, originKind: string | undefined): TurnNode => {
+  const startTurn = (
+    trigger: 'prompt' | 'steer',
+    lineNo: number,
+    time: number | undefined,
+    text: string,
+    originKind: string | undefined,
+  ): TurnNode => {
     const node: TurnNode = {
       index: turns.length,
       trigger,
@@ -261,7 +267,8 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
           gapMs: t - prevTime,
           // A gap straddling a turn boundary is "waiting for the user"; a gap
           // inside a turn is the agent/tool being slow.
-          kind: rec.type === 'turn.prompt' || rec.type === 'turn.steer' ? 'between_turns' : 'in_turn',
+          kind:
+            rec.type === 'turn.prompt' || rec.type === 'turn.steer' ? 'between_turns' : 'in_turn',
         });
       }
       prevTime = t;
@@ -295,17 +302,26 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
         break;
       case 'context.apply_compaction':
         contextTokens = rec.tokensAfter;
-        contextSeries.push({ lineNo: entry.lineNo, time: t, turnIndex: current?.index ?? -1, step: -1, contextTokens });
+        contextSeries.push({
+          lineNo: entry.lineNo,
+          time: t,
+          turnIndex: current?.index ?? -1,
+          step: -1,
+          contextTokens,
+        });
         if (contextTokens > peakContext) peakContext = contextTokens;
         break;
 
       case 'config.update': {
         const changed: { field: string; value: string }[] = [];
-        if (rec.profileName !== undefined) changed.push({ field: 'profile', value: rec.profileName });
+        if (rec.profileName !== undefined)
+          changed.push({ field: 'profile', value: rec.profileName });
         if (rec.modelAlias !== undefined) changed.push({ field: 'model', value: rec.modelAlias });
-        if (rec.thinkingEffort !== undefined) changed.push({ field: 'thinking', value: rec.thinkingEffort });
+        if (rec.thinkingEffort !== undefined)
+          changed.push({ field: 'thinking', value: rec.thinkingEffort });
         if (rec.cwd !== undefined) changed.push({ field: 'cwd', value: rec.cwd });
-        if (rec.systemPrompt !== undefined) changed.push({ field: 'systemPrompt', value: `${rec.systemPrompt.length} chars` });
+        if (rec.systemPrompt !== undefined)
+          changed.push({ field: 'systemPrompt', value: `${rec.systemPrompt.length} chars` });
         if (changed.length > 0) configChanges.push({ lineNo: entry.lineNo, time: t, changed });
         break;
       }
@@ -313,7 +329,13 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
       case 'context.append_loop_event': {
         const ev = rec.event;
         if (ev.type === 'step.begin') {
-          current ??= startTurn('prompt', entry.lineNo, t, '(no prompt record)', undefined as string | undefined);
+          current ??= startTurn(
+            'prompt',
+            entry.lineNo,
+            t,
+            '(no prompt record)',
+            undefined as string | undefined,
+          );
           const step: StepNode = {
             uuid: ev.uuid,
             step: ev.step,
@@ -338,7 +360,8 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
             step.llmServerFirstTokenMs = ev.llmServerFirstTokenMs;
             step.llmServerDecodeMs = ev.llmServerDecodeMs;
             step.llmClientConsumeMs = ev.llmClientConsumeMs;
-            if (step.beginTime !== undefined && t !== undefined) step.durationMs = t - step.beginTime;
+            if (step.beginTime !== undefined && t !== undefined)
+              step.durationMs = t - step.beginTime;
             // Steps don't carry a generic 'error' finish reason (errors are
             // thrown, not recorded). 'filtered' means the provider blocked the
             // response — the closest persisted step-level failure signal.
@@ -438,7 +461,17 @@ export function analyzeWire(entries: readonly WireEntry[]): Analysis {
 function recordToolStat(map: Map<string, ToolStat>, node: ToolCallNode): void {
   let s = map.get(node.name);
   if (!s) {
-    s = { name: node.name, count: 0, errorCount: 0, truncatedCount: 0, timedCount: 0, totalMs: 0, avgMs: null, maxMs: null, totalOutputBytes: 0 };
+    s = {
+      name: node.name,
+      count: 0,
+      errorCount: 0,
+      truncatedCount: 0,
+      timedCount: 0,
+      totalMs: 0,
+      avgMs: null,
+      maxMs: null,
+      totalOutputBytes: 0,
+    };
     map.set(node.name, s);
   }
   s.count += 1;

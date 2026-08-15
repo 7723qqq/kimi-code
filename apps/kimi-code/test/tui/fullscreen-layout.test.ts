@@ -1,3 +1,4 @@
+import { Spacer, type Terminal, TuiAltScreen } from '@moonshot-ai/pi-tui';
 /**
  * Fullscreen layout contract tests: the docked chrome must keep the editor's
  * full height (top border / input / bottom border) even when the transcript
@@ -6,9 +7,6 @@
  * the editor's bottom border row was clipped off screen.
  */
 import { describe, expect, it, vi } from 'vitest';
-
-import { Spacer, type Terminal, TuiAltScreen } from '@moonshot-ai/pi-tui';
-import { VirtualTerminal } from '../../../../packages/pi-tui/test/virtual-terminal';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { MoonLoader } from '#/tui/components/chrome/moon-loader';
@@ -20,6 +18,8 @@ import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { createTUIState, type KimiTUIOptions } from '#/tui/kimi-tui';
 import type { AppState } from '#/tui/types';
 import { createEmptySessionStats } from '#/tui/utils/session-stats';
+
+import { VirtualTerminal } from '../../../../packages/pi-tui/test/virtual-terminal';
 
 const WIDTH = 120;
 const HEIGHT = 30;

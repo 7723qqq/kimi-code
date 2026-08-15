@@ -7,8 +7,6 @@ import {
   type KimiConfig,
   type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
-
-import type { PromptHarness } from './prompt-session';
 import {
   initializeTelemetry,
   setTelemetryContext,
@@ -18,6 +16,7 @@ import {
 
 import { CLI_USER_AGENT_PRODUCT, WEB_UI_MODE } from '#/constant/app';
 
+import type { PromptHarness } from './prompt-session';
 import { createKimiCodeHostIdentity } from './version';
 
 export interface CliTelemetryBootstrap {

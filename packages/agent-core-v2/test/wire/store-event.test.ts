@@ -6,13 +6,13 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { defineModel } from '#/wire/model';
-import { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import type { IWireService } from '#/wire/wire';
 
 import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from './stubs';
 
@@ -85,12 +85,12 @@ beforeEach(() => {
 
 afterEach(() => disposables.dispose());
 
-async function readRecords(
-  target: IAppendLogStore = log,
-  key = KEY,
-): Promise<WireRecord[]> {
+async function readRecords(target: IAppendLogStore = log, key = KEY): Promise<WireRecord[]> {
   const out: WireRecord[] = [];
-  for await (const record of target.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of target.read<WireRecord>(
+    testWireScope(SCOPE, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -135,12 +135,7 @@ describe('WireService Op.toEvent', () => {
     const seen: DomainEvent[] = [];
     disposables.add(replay.eventBus.subscribe((e) => seen.push(e)));
 
-    await restoreTestAgentWire(
-      replay.wire,
-      replay.log,
-      testWireScope(SCOPE, 'replay'),
-      records,
-    );
+    await restoreTestAgentWire(replay.wire, replay.log, testWireScope(SCOPE, 'replay'), records);
 
     expect(replay.wire.getModel(CounterModel)).toEqual({ value: 4 });
     expect(seen).toEqual([]);

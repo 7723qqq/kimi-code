@@ -21,12 +21,12 @@ import { ToolCallComponent } from '#/tui/components/messages/tool-call';
 import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import type { StreamingUIController } from '#/tui/controllers/streaming-ui';
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
+import { replayBackgroundProjection } from '#/tui/utils/message-replay';
+import type { TaskNotificationOrigin } from '#/tui/utils/message-replay';
 import {
   TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
   TRANSCRIPT_KEEP_RECENT_STEPS,
 } from '#/tui/utils/transcript-window';
-import { replayBackgroundProjection } from '#/tui/utils/message-replay';
-import type { TaskNotificationOrigin } from '#/tui/utils/message-replay';
 
 vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
 

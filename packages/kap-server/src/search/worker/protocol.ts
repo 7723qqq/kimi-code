@@ -55,8 +55,18 @@ export interface SearchWorkerData {
 /** RPC calls: carry a request id and always produce a response. */
 export type SearchWorkerCall =
   | { readonly id: number; readonly v: number; readonly type: 'open' }
-  | { readonly id: number; readonly v: number; readonly type: 'search'; readonly params: CoreSearchParams }
-  | { readonly id: number; readonly v: number; readonly type: 'sync'; readonly params: { readonly sessions: readonly SyncSessionInput[] } }
+  | {
+      readonly id: number;
+      readonly v: number;
+      readonly type: 'search';
+      readonly params: CoreSearchParams;
+    }
+  | {
+      readonly id: number;
+      readonly v: number;
+      readonly type: 'sync';
+      readonly params: { readonly sessions: readonly SyncSessionInput[] };
+    }
   | { readonly id: number; readonly v: number; readonly type: 'refresh' }
   | { readonly id: number; readonly v: number; readonly type: 'reindex' }
   | { readonly id: number; readonly v: number; readonly type: 'status' }

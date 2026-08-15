@@ -134,22 +134,34 @@ describe('fetchLatestFromCdn', () => {
     ['latest.json is missing (HTTP 404)', { status: 404 }],
     ['latest.json fetch throws', new Error('network down')],
     ['body is not valid JSON', { body: 'not json {' }],
-    ['version is not semver', { body: JSON.stringify({ version: 'nope', publishedAt: '2026-06-12T00:00:00.000Z' }) }],
-    ['publishedAt is unparseable', { body: JSON.stringify({ version: '2.0.0', publishedAt: 'garbage' }) }],
-    ['a batch percent is out of range', {
-      body: JSON.stringify({
-        version: '2.0.0',
-        publishedAt: '2026-06-12T00:00:00.000Z',
-        rollout: [{ percent: 150, delaySeconds: 0 }],
-      }),
-    }],
-    ['a batch delay is negative', {
-      body: JSON.stringify({
-        version: '2.0.0',
-        publishedAt: '2026-06-12T00:00:00.000Z',
-        rollout: [{ percent: 100, delaySeconds: -1 }],
-      }),
-    }],
+    [
+      'version is not semver',
+      { body: JSON.stringify({ version: 'nope', publishedAt: '2026-06-12T00:00:00.000Z' }) },
+    ],
+    [
+      'publishedAt is unparseable',
+      { body: JSON.stringify({ version: '2.0.0', publishedAt: 'garbage' }) },
+    ],
+    [
+      'a batch percent is out of range',
+      {
+        body: JSON.stringify({
+          version: '2.0.0',
+          publishedAt: '2026-06-12T00:00:00.000Z',
+          rollout: [{ percent: 150, delaySeconds: 0 }],
+        }),
+      },
+    ],
+    [
+      'a batch delay is negative',
+      {
+        body: JSON.stringify({
+          version: '2.0.0',
+          publishedAt: '2026-06-12T00:00:00.000Z',
+          rollout: [{ percent: 100, delaySeconds: -1 }],
+        }),
+      },
+    ],
   ];
 
   for (const [name, route] of fallbackCases) {
@@ -187,9 +199,13 @@ describe('fetchLatestFromCdn', () => {
       const f = vi.fn(async (input: string | URL, init?: RequestInit) => {
         if (String(input) === KIMI_CODE_CDN_LATEST_JSON_URL) {
           return new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener('abort', () => {
-              reject(new Error('aborted'));
-            }, { once: true });
+            init?.signal?.addEventListener(
+              'abort',
+              () => {
+                reject(new Error('aborted'));
+              },
+              { once: true },
+            );
           });
         }
         if (String(input) === KIMI_CODE_CDN_LATEST_URL) {
@@ -215,9 +231,13 @@ describe('fetchLatestFromCdn', () => {
     try {
       const f = vi.fn(async (_input: string | URL, init?: RequestInit) => {
         return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => {
-            reject(new Error('aborted'));
-          }, { once: true });
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              reject(new Error('aborted'));
+            },
+            { once: true },
+          );
         });
       }) as unknown as typeof fetch;
 

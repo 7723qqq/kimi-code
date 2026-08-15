@@ -7,6 +7,7 @@
 
 import type { IPluginService } from '#/app/plugin/plugin';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
+
 import type { FetchLike } from '../host';
 
 export interface CapabilityEntryContext {

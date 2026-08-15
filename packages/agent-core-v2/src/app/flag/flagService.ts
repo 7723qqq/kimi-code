@@ -7,11 +7,11 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { parseBooleanEnv } from '#/_base/utils/env';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
 
 import {
   type ExperimentalFeatureState,
@@ -74,9 +74,7 @@ export class FlagService extends Disposable implements IFlagService {
   }
 
   snapshot(): ExperimentalFlagMap {
-    return Object.fromEntries(
-      this.registry.list().map((def) => [def.id, this.enabled(def.id)]),
-    );
+    return Object.fromEntries(this.registry.list().map((def) => [def.id, this.enabled(def.id)]));
   }
 
   enabledIds(): readonly FlagId[] {

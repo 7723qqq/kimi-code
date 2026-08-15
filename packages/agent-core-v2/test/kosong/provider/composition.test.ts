@@ -48,13 +48,11 @@
 
 import { createServer } from 'node:http';
 
+import { APIError as AnthropicAPIError } from '@anthropic-ai/sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { APIError as AnthropicAPIError } from '@anthropic-ai/sdk';
-
 import { isUnknownCapability } from '#/kosong/contract/capability';
-import type {
-  APIStatusError} from '#/kosong/contract/errors';
+import type { APIStatusError } from '#/kosong/contract/errors';
 import {
   APIConnectionError,
   APIProviderQuotaExhaustedError,
@@ -76,8 +74,8 @@ import {
 import '#/kosong/provider/bases/google-genai/index';
 import { GoogleGenAIChatProvider } from '#/kosong/provider/bases/google-genai/google-genai';
 import '#/kosong/provider/bases/openai/index';
-import { OpenAIResponsesChatProvider } from '#/kosong/provider/bases/openai/openai-responses';
 import { OpenAILegacyChatProvider } from '#/kosong/provider/bases/openai/openai-legacy';
+import { OpenAIResponsesChatProvider } from '#/kosong/provider/bases/openai/openai-responses';
 import { ProtocolAdapterRegistry } from '#/kosong/provider/protocolAdapterRegistry';
 import {
   getProviderDefinition,
@@ -308,16 +306,20 @@ describe('resolveCapability', () => {
   });
 
   it('kimi declares no vendor-level capability — the base catalog answers instead', () => {
-    expect(isUnknownCapability(registry.resolveCapability('openai', 'kimi-for-coding', 'kimi'))).toBe(
-      true,
-    );
+    expect(
+      isUnknownCapability(registry.resolveCapability('openai', 'kimi-for-coding', 'kimi')),
+    ).toBe(true);
     expect(registry.resolveCapability('openai', 'gpt-4o', 'kimi').image_in).toBe(true);
   });
 });
 
 describe('explainCapability', () => {
   it('reports the trait level when a trait hook answers', () => {
-    const { capability, source } = registry.explainCapability('openai', 'special-model', 'cap-vendor');
+    const { capability, source } = registry.explainCapability(
+      'openai',
+      'special-model',
+      'cap-vendor',
+    );
     expect(capability.image_in).toBe(true);
     expect(source.kind).toBe('builtin');
     expect(source.detail).toContain('trait');
@@ -497,7 +499,6 @@ describe('kimi provider definitions', () => {
     ).toThrow(/already registered/);
   });
 });
-
 
 const PROBE_HISTORY: Message[] = [
   { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },

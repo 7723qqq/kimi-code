@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { retryBackoffDelays } from '#/_base/utils/retry';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { ContinuationStepRequest } from '#/agent/loop/stepRequest';
+import { IEventBus } from '#/app/event/eventBus';
 import {
   APIConnectionError,
   APIProviderRateLimitError,
@@ -8,10 +12,6 @@ import {
   VideoUploadUnsupportedError,
 } from '#/kosong/contract/errors';
 import { emptyUsage } from '#/kosong/contract/usage';
-import { IEventBus } from '#/app/event/eventBus';
-import { retryBackoffDelays } from '#/_base/utils/retry';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { ContinuationStepRequest } from '#/agent/loop/stepRequest';
 
 import { createTestAgent, llmGenerateServices, type TestAgentContext } from '../../harness';
 import { nextTurnMessage } from '../loop/helpers';
@@ -298,12 +298,15 @@ describe('stepRetry plugin', () => {
   it('honors loop_control.max_attempts_per_step', async () => {
     vi.useFakeTimers();
     let calls = 0;
-    ctx = createTestAgent(llmGenerateServices(async () => {
-      calls += 1;
-      throw new APIConnectionError('terminated');
-    }), {
-      initialConfig: { loopControl: { maxAttemptsPerStep: 1 } },
-    });
+    ctx = createTestAgent(
+      llmGenerateServices(async () => {
+        calls += 1;
+        throw new APIConnectionError('terminated');
+      }),
+      {
+        initialConfig: { loopControl: { maxAttemptsPerStep: 1 } },
+      },
+    );
 
     const result = await runTurn(1);
 

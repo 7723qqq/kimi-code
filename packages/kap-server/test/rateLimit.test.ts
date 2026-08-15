@@ -2,10 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createAuthHook } from '../src/middleware/auth';
-import {
-  createAuthFailureLimiter,
-  type AuthFailureLimiter,
-} from '../src/middleware/rateLimit';
+import { createAuthFailureLimiter, type AuthFailureLimiter } from '../src/middleware/rateLimit';
 import type { IAuthTokenService } from '../src/services/auth/authTokenService';
 
 const TOKEN = 'test-token';

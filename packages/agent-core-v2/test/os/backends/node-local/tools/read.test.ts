@@ -19,11 +19,8 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { PathSecurityError } from '#/tool/path-access';
+import { tryNativeRead } from '#/_base/native-tools';
 import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
-import type { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   MAX_BYTES,
   MAX_LINE_LENGTH,
@@ -34,8 +31,16 @@ import {
 } from '#/agent/tools/os/read/read';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { tryNativeRead } from '#/_base/native-tools';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { PathSecurityError } from '#/tool/path-access';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
+import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 
 // The Rust native tools addon is loadable in the vitest environment (activated
 // indirectly through the workspace), so ReadTool's `tryNativeRead` fast-path
@@ -156,7 +161,9 @@ function toolWithContent(content: string, workspace = PERMISSIVE_WORKSPACE) {
   return new ReadTool(createSpiedFs(content).fs, createTestEnv(), workspace);
 }
 
-function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
+function isPromiseLike(
+  value: ToolExecution | Promise<ToolExecution>,
+): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -565,7 +572,10 @@ describe('ReadTool', () => {
         // No NUL bytes (so the binary preflight passes), but the payload is
         // mostly malformed UTF-8 and not GBK either — the fallback chain
         // must refuse instead of returning replacement characters.
-        bytes: Buffer.concat([Buffer.from('text header\n'), Buffer.from([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff])]),
+        bytes: Buffer.concat([
+          Buffer.from('text header\n'),
+          Buffer.from([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
+        ]),
         readLines: async function* readLines(
           _path: string,
           options?: { errors?: 'strict' | 'replace' | 'ignore' },
@@ -1136,10 +1146,7 @@ describe('ReadTool native fast-path routing', () => {
   it('consults the native reader for UTF-16 headers instead of transcoding in TS', async () => {
     // BOM + "ab\n" as UTF-16 LE — the native reader transcodes it itself,
     // so the TS whole-file decode path never runs.
-    const utf16 = Buffer.concat([
-      Buffer.from([0xff, 0xfe]),
-      Buffer.from('a\0b\0\n\0', 'latin1'),
-    ]);
+    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('a\0b\0\n\0', 'latin1')]);
     const { fs } = createSpiedMapFs({
       '/tmp/native-utf16.txt': { bytes: utf16 },
     });

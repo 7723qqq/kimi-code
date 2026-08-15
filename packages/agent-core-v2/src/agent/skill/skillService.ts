@@ -15,30 +15,31 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
-import type { ContentPart } from '#/kosong/contract/message';
-
-import type { ContextMessage, SkillActivationOrigin } from '#/agent/contextMemory/types';
-import { promptMetadataTextFromSkill, renderUserSlashSkillPrompt } from './prompt';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { t } from '@moonshot-ai/kimi-i18n';
+
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { ErrorCodes, Error2 } from '#/errors';
-import { isUserActivatableSkillType, type SkillDefinition } from '#/app/skillCatalog/types';
-import { IAgentPromptService, type PromptLaunchResult } from '#/agent/prompt/prompt';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { ContextMessage, SkillActivationOrigin } from '#/agent/contextMemory/types';
 import type { Turn } from '#/agent/loop/loop';
+import { IAgentPromptService, type PromptLaunchResult } from '#/agent/prompt/prompt';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IEventService } from '#/app/event/event';
+import { LifecycleScope } from '#/app/scopes';
+import { isUserActivatableSkillType, type SkillDefinition } from '#/app/skillCatalog/types';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ErrorCodes, Error2 } from '#/errors';
+import type { ContentPart } from '#/kosong/contract/message';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { IWireService } from '#/wire/wire';
+
+import { promptMetadataTextFromSkill, renderUserSlashSkillPrompt } from './prompt';
 import { IAgentSkillService, type SkillActivationInput } from './skill';
 import { skillActivate } from './skillOps';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { IEventService } from '#/app/event/event';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
 
 export class AgentSkillService extends Service implements IAgentSkillService {
   declare readonly _serviceBrand: undefined;
@@ -63,10 +64,7 @@ export class AgentSkillService extends Service implements IAgentSkillService {
       throw new Error2(ErrorCodes.SKILL_NOT_FOUND, t('errors.skillNotFound'));
     }
     if (!isUserActivatableSkillType(skill.metadata.type)) {
-      throw new Error2(
-        ErrorCodes.SKILL_TYPE_UNSUPPORTED,
-        t('errors.skillTypeUnsupported'),
-      );
+      throw new Error2(ErrorCodes.SKILL_TYPE_UNSUPPORTED, t('errors.skillTypeUnsupported'));
     }
 
     const skillArgs = input.args ?? '';
@@ -99,10 +97,7 @@ export class AgentSkillService extends Service implements IAgentSkillService {
       content,
     );
     if (turn === undefined) {
-      throw new Error2(
-        ErrorCodes.TURN_AGENT_BUSY,
-        t('errors.turnAgentBusy'),
-      );
+      throw new Error2(ErrorCodes.TURN_AGENT_BUSY, t('errors.turnAgentBusy'));
     }
     // Awaited (not fire-and-forget): the caller gets the launched turn id and
     // activation failures (unknown skill, busy) surface instead of vanishing.

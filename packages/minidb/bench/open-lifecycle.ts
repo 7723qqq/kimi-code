@@ -23,8 +23,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
-import { MiniDb } from '../src/index.js';
+
 import { GEN_BUILD_WAL_DELTA_BYTES } from '../src/generation-builder.js';
+import { MiniDb } from '../src/index.js';
 
 const fmt = (n) => n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 const MIB = 1024 * 1024;
@@ -49,7 +50,18 @@ const LATIN_VOCAB =
   'wal sync snapshot compaction recovery index query cache buffer frame codec store delta merge rotate flush token parse schema server client socket thread worker queue stream ledger journal cursor segment batch commit'.split(
     ' ',
   );
-const CJK_VOCAB = ['持久化', '快照', '索引', '恢复', '压缩', '查询', '缓存', '日志', '事务', '复制'];
+const CJK_VOCAB = [
+  '持久化',
+  '快照',
+  '索引',
+  '恢复',
+  '压缩',
+  '查询',
+  '缓存',
+  '日志',
+  '事务',
+  '复制',
+];
 
 function makeMessages(count, seed) {
   const rng = mulberry32(seed);
@@ -198,7 +210,9 @@ async function populateWithGeneration(dir, docs) {
   db.genBuildKickMinIntervalMs = Number.POSITIVE_INFINITY;
   const CHUNK = 1000;
   for (let base = 0; base < docs.length; base += CHUNK) {
-    await db.batch(docs.slice(base, base + CHUNK).map((d) => ({ op: 'set', key: d.key, value: d })));
+    await db.batch(
+      docs.slice(base, base + CHUNK).map((d) => ({ op: 'set', key: d.key, value: d })),
+    );
   }
   await db.createTextIndex('word', { fields: ['body'] });
   await db.createTextIndex('ngram', { fields: ['body'], tokenizer: 'ngram' });
@@ -233,14 +247,26 @@ async function largeWalScenario({ docs, deltaBytes }) {
   let deltaOps = 0;
   let closePublished = false;
   {
-    const db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     const generation = db.getIndexGeneration()?.id ?? null;
     const writtenBase = db.stats.walBytesWritten;
     let i = 0;
     while (db.stats.walBytesWritten - writtenBase < target) {
       const ops = [];
       for (let k = 0; k < 100; k++) {
-        ops.push({ op: 'set', key: `d${i * 100 + k}`, value: { body: `delta ${i} ${k} ${'y'.repeat(200)}`, ts: 1_700_100_000_000 + i * 100 + k } });
+        ops.push({
+          op: 'set',
+          key: `d${i * 100 + k}`,
+          value: {
+            body: `delta ${i} ${k} ${'y'.repeat(200)}`,
+            ts: 1_700_100_000_000 + i * 100 + k,
+          },
+        });
       }
       await db.batch(ops);
       i++;
@@ -254,7 +280,15 @@ async function largeWalScenario({ docs, deltaBytes }) {
   let db;
   await measure(`open with large WAL delta (${fmt(target)} B), N=${fmt(docs.length)}`, async () => {
     db = await MiniDb.open({ dir, ...OPEN_OPTS });
-    return { extra: { docs: docs.length, deltaBytes: target, deltaOps, closePublishedGeneration: closePublished, ...lifecycleExtra(db) } };
+    return {
+      extra: {
+        docs: docs.length,
+        deltaBytes: target,
+        deltaOps,
+        closePublishedGeneration: closePublished,
+        ...lifecycleExtra(db),
+      },
+    };
   });
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -295,14 +329,18 @@ async function corruptGenerationScenario({ docs, readyTimeoutMs }) {
     }
   }
   let db;
-  await measure(`open with corrupt generation (full-recovery fallback), N=${fmt(docs.length)}`, async () => {
-    db = await MiniDb.open({ dir, ...OPEN_OPTS });
-    return { extra: { docs: docs.length, ...lifecycleExtra(db) } };
-  });
+  await measure(
+    `open with corrupt generation (full-recovery fallback), N=${fmt(docs.length)}`,
+    async () => {
+      db = await MiniDb.open({ dir, ...OPEN_OPTS });
+      return { extra: { docs: docs.length, ...lifecycleExtra(db) } };
+    },
+  );
   await measure(`deferred text rebuild (degraded -> ready), N=${fmt(docs.length)}`, async () => {
     const t0 = Date.now();
     while (db.lifecycleStatus().state !== 'ready') {
-      if (Date.now() - t0 > readyTimeoutMs) throw new Error(`timed out waiting for ready (state=${db.lifecycleStatus().state})`);
+      if (Date.now() - t0 > readyTimeoutMs)
+        throw new Error(`timed out waiting for ready (state=${db.lifecycleStatus().state})`);
       await new Promise((r) => setTimeout(r, 5));
     }
     return {
@@ -328,15 +366,37 @@ async function main() {
 
   const SEED = Number(process.env.BENCH_SEED || 42);
   const sizes = quick
-    ? { small: 2_000, walCorpus: 5_000, walDeltaBytes: 1.5 * MIB, largeGen: 8_000, corrupt: 8_000, readyTimeoutMs: 120_000 }
-    : { small: 20_000, walCorpus: 50_000, walDeltaBytes: 3 * MIB, largeGen: 200_000, corrupt: 100_000, readyTimeoutMs: 600_000 };
+    ? {
+        small: 2_000,
+        walCorpus: 5_000,
+        walDeltaBytes: 1.5 * MIB,
+        largeGen: 8_000,
+        corrupt: 8_000,
+        readyTimeoutMs: 120_000,
+      }
+    : {
+        small: 20_000,
+        walCorpus: 50_000,
+        walDeltaBytes: 3 * MIB,
+        largeGen: 200_000,
+        corrupt: 100_000,
+        readyTimeoutMs: 600_000,
+      };
 
-  console.log(`\nminidb open-lifecycle baseline  (seed=${SEED}${quick ? ', QUICK' : ''}, node ${process.version})\n`);
+  console.log(
+    `\nminidb open-lifecycle baseline  (seed=${SEED}${quick ? ', QUICK' : ''}, node ${process.version})\n`,
+  );
 
   await smallCorpusScenario({ docs: makeMessages(sizes.small, SEED) });
-  await largeWalScenario({ docs: makeMessages(sizes.walCorpus, SEED), deltaBytes: sizes.walDeltaBytes });
+  await largeWalScenario({
+    docs: makeMessages(sizes.walCorpus, SEED),
+    deltaBytes: sizes.walDeltaBytes,
+  });
   await largeGenerationScenario({ docs: makeMessages(sizes.largeGen, SEED) });
-  await corruptGenerationScenario({ docs: makeMessages(sizes.corrupt, SEED), readyTimeoutMs: sizes.readyTimeoutMs });
+  await corruptGenerationScenario({
+    docs: makeMessages(sizes.corrupt, SEED),
+    readyTimeoutMs: sizes.readyTimeoutMs,
+  });
 
   const report = {
     schemaVersion: 1,

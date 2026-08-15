@@ -457,9 +457,13 @@ describe('shouldDisplayBanner', () => {
   });
 
   it('returns true for once banners without a shown record', () => {
-    expect(shouldDisplayBanner({ ...banner, key: 'once', display: 'once' }, { version: 1, shown: {} }, now)).toBe(
-      true,
-    );
+    expect(
+      shouldDisplayBanner(
+        { ...banner, key: 'once', display: 'once' },
+        { version: 1, shown: {} },
+        now,
+      ),
+    ).toBe(true);
   });
 
   it('returns false for once banners with a shown record', () => {

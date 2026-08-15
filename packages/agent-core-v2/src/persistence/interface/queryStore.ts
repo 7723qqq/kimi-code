@@ -154,4 +154,5 @@ export interface IQueryStore {
   close(): Promise<void>;
 }
 
-export const IQueryStore: ServiceIdentifier<IQueryStore> = createDecorator<IQueryStore>('queryStore');
+export const IQueryStore: ServiceIdentifier<IQueryStore> =
+  createDecorator<IQueryStore>('queryStore');

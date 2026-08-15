@@ -20,18 +20,18 @@
 import { randomUUID } from 'node:crypto';
 
 import { type IDisposable } from '#/_base/di/lifecycle';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { abortable } from '#/_base/utils/abort';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { LifecycleScope } from '#/app/scopes';
+import { ISessionInteractionService } from '#/session/interaction/interaction';
 import type {
   ExecutableTool,
   ExecutableToolContext,
   ExecutableToolResult,
 } from '#/tool/toolContract';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { IWireService } from '#/wire/wire';
 
 import { IAgentUserToolService, type UserToolRegistration } from './userTool';
@@ -87,13 +87,15 @@ export class AgentUserToolService extends Service implements IAgentUserToolServi
   private restoreRegisteredTools(): void {
     const persistedActive = this.profile.getActiveToolNames();
     for (const registration of this.wire.getModel(UserToolModel).values()) {
-      const activate =
-        persistedActive === undefined || persistedActive.includes(registration.name);
+      const activate = persistedActive === undefined || persistedActive.includes(registration.name);
       this.applyRegister(registration, { activate });
     }
   }
 
-  private applyRegister(input: UserToolRegistration, options?: { readonly activate?: boolean }): void {
+  private applyRegister(
+    input: UserToolRegistration,
+    options?: { readonly activate?: boolean },
+  ): void {
     const { name, description, parameters } = input;
     this.applyUnregister(name);
     const tool: ExecutableTool = {

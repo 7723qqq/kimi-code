@@ -12,11 +12,18 @@
  * Wiring: real v2 engine, in-process, two temp homes; no provider calls.
  * Run: pnpm exec vitest run test/v1-v2-parity.test.ts
  */
-import { appendFile, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   IAgentLifecycleService,
@@ -24,8 +31,8 @@ import {
   ISessionQuestionService,
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
-
 import { mcpOAuthStoreKey } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { startMcpAuthStatusServer } from './mcp-auth-status-server';
 
@@ -241,8 +248,7 @@ const KNOWN_DIFFS = {
   // differs by design (v1: one salvage summary naming the dropped sections;
   // v2: one structured diagnostic per dropped domain). Parity is enforced on
   // the warning count; message text is compared only when both are empty.
-  getConfigDiagnostics: (diagnostics: ConfigDiagnostics): unknown =>
-    diagnostics.warnings.length,
+  getConfigDiagnostics: (diagnostics: ConfigDiagnostics): unknown => diagnostics.warnings.length,
   // `getPluginInfo` carries volatile install facts: `root` / `manifestPath`
   // point into the per-home managed copy and `installedAt` / `updatedAt` are
   // stamped at install time — per-home and per-run by construction, not a
@@ -303,9 +309,7 @@ const KNOWN_DIFFS = {
   // ids) and v1 has no such field; the count compares only in the pre-LLM
   // state where both sides still estimate.
   getContext: (context: { readonly history: readonly unknown[] }): unknown =>
-    context.history.length === 0
-      ? context
-      : { history: stripOriginDisclosure(context.history) },
+    context.history.length === 0 ? context : { history: stripOriginDisclosure(context.history) },
   // Plan ids are random per engine (hero slugs) and the plan path embeds
   // both the per-home session dir and the id, so the comparison covers the
   // content and the path LAYOUT (id scrubbed); the id itself is asserted
@@ -427,10 +431,7 @@ function projectResumedSession(resumed: ResumedSessionSummary, home: HomePair): 
   return projected;
 }
 
-function projectResumedAgents(
-  agents: ResumedSessionSummary['agents'],
-  home: HomePair,
-): unknown {
+function projectResumedAgents(agents: ResumedSessionSummary['agents'], home: HomePair): unknown {
   const projected: Record<string, unknown> = {};
   for (const [agentId, agent] of Object.entries(agents)) {
     projected[agentId] = projectResumedAgent(agent, home);
@@ -498,8 +499,7 @@ function projectResumedAgent(agent: ResumedAgentState, home: HomePair): unknown 
       .toSorted((a, b) => String(a.name).localeCompare(String(b.name)));
   }
   const context = projected['context'] as { readonly history: readonly unknown[] };
-  projected['context'] =
-    context.history.length === 0 ? context : { history: context.history };
+  projected['context'] = context.history.length === 0 ? context : { history: context.history };
   const replay = (projected['replay'] as readonly Record<string, unknown>[])
     .filter((record) => record['type'] !== 'config_updated')
     .map((record) => {
@@ -758,10 +758,7 @@ describe('v1↔v2 return-value parity', () => {
         experimental: { 'new-flag': false },
         yolo: true,
       };
-      const [v1Config, v2Config] = await Promise.all([
-        v1.setConfig(patch),
-        v2.setConfig(patch),
-      ]);
+      const [v1Config, v2Config] = await Promise.all([v1.setConfig(patch), v2.setConfig(patch)]);
       const project = KNOWN_DIFFS.setConfig;
       expect(normalize(project(v2Config), '')).toEqual(normalize(project(v1Config), ''));
       // The write also persisted: a fresh read through each engine agrees.
@@ -929,15 +926,7 @@ async function writeFixturePlugin(dir: string): Promise<void> {
 
 async function writeManagedFixtureSkill(home: HomePair, body: string): Promise<void> {
   await writeFile(
-    join(
-      home.real,
-      'plugins',
-      'managed',
-      FIXTURE_PLUGIN_ID,
-      'skills',
-      'parity-skill',
-      'SKILL.md',
-    ),
+    join(home.real, 'plugins', 'managed', FIXTURE_PLUGIN_ID, 'skills', 'parity-skill', 'SKILL.md'),
     `---\nname: parity-skill\ndescription: Skill from the parity fixture plugin\n---\n\n${body}\n`,
     'utf-8',
   );
@@ -966,9 +955,7 @@ async function closePluginPair(pair: PluginParityPair): Promise<void> {
   await pair.v2.close();
 }
 
-function installFixtureOnBoth(
-  pair: PluginParityPair,
-): Promise<[PluginSummary, PluginSummary]> {
+function installFixtureOnBoth(pair: PluginParityPair): Promise<[PluginSummary, PluginSummary]> {
   return Promise.all([
     pair.v1.installPlugin(pair.sourceDir),
     pair.v2.installPlugin(pair.sourceDir),
@@ -1155,9 +1142,9 @@ describe('v1↔v2 plugin parity', () => {
       const session = await pair.v2.createSession({ workDir, permission: 'yolo' });
 
       await pair.v2.reloadPlugins();
-      expect(JSON.stringify((await pair.v2.getContext({ sessionId: session.id })).history)).toContain(
-        'Parity skill body.',
-      );
+      expect(
+        JSON.stringify((await pair.v2.getContext({ sessionId: session.id })).history),
+      ).toContain('Parity skill body.');
 
       await writeManagedFixtureSkill(pair.v2Home, 'Live reload skill body.');
       await pair.v2.reloadPlugins();
@@ -1309,7 +1296,10 @@ async function createOnBoth(
  *  cold-resume the source on both engines first to give the fork the same
  *  roster to copy. */
 async function materializeMainAgentOnBoth(pair: SessionParityPair, id: string): Promise<void> {
-  await Promise.all([pair.v1.closeSession({ sessionId: id }), pair.v2.closeSession({ sessionId: id })]);
+  await Promise.all([
+    pair.v1.closeSession({ sessionId: id }),
+    pair.v2.closeSession({ sessionId: id }),
+  ]);
   await Promise.all([pair.v1.resumeSession({ id }), pair.v2.resumeSession({ id })]);
 }
 
@@ -1421,7 +1411,11 @@ async function sessionDirExists(home: HomePair, sessionId: string): Promise<bool
       await readdir(join(sessionsRoot, bucket, sessionId));
       return true;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && (error as NodeJS.ErrnoException).code !== 'ENOTDIR') throw error;
+      if (
+        (error as NodeJS.ErrnoException).code !== 'ENOENT' &&
+        (error as NodeJS.ErrnoException).code !== 'ENOTDIR'
+      )
+        throw error;
     }
   }
   return false;
@@ -1484,10 +1478,7 @@ describe('v1↔v2 session lifecycle parity', () => {
         pair.v2.renameSession({ id: 'session_parity_one', title: 'Parity Session One' }),
       ]);
       const project = KNOWN_DIFFS.listSessions;
-      const [v1All, v2All] = await Promise.all([
-        pair.v1.listSessions(),
-        pair.v2.listSessions(),
-      ]);
+      const [v1All, v2All] = await Promise.all([pair.v1.listSessions(), pair.v2.listSessions()]);
       expect(normalize(project(v2All, pair.v2Home), 'id')).toEqual(
         normalize(project(v1All, pair.v1Home), 'id'),
       );
@@ -1525,10 +1516,7 @@ describe('v1↔v2 session lifecycle parity', () => {
         pair.v1.renameSession({ id: 'session_parity_rename', title: 'Renamed After Close' }),
         pair.v2.renameSession({ id: 'session_parity_rename', title: 'Renamed After Close' }),
       ]);
-      const [v1List, v2List] = await Promise.all([
-        pair.v1.listSessions(),
-        pair.v2.listSessions(),
-      ]);
+      const [v1List, v2List] = await Promise.all([pair.v1.listSessions(), pair.v2.listSessions()]);
       const project = KNOWN_DIFFS.listSessions;
       expect(normalize(project(v2List, pair.v2Home), 'id')).toEqual(
         normalize(project(v1List, pair.v1Home), 'id'),
@@ -1556,10 +1544,7 @@ describe('v1↔v2 session lifecycle parity', () => {
         pair.v2.closeSession({ sessionId: 'session_parity_close' }),
       ]);
       const project = KNOWN_DIFFS.listSessions;
-      const [v1List, v2List] = await Promise.all([
-        pair.v1.listSessions(),
-        pair.v2.listSessions(),
-      ]);
+      const [v1List, v2List] = await Promise.all([pair.v1.listSessions(), pair.v2.listSessions()]);
       expect(normalize(project(v2List, pair.v2Home), 'id')).toEqual(
         normalize(project(v1List, pair.v1Home), 'id'),
       );
@@ -1591,10 +1576,7 @@ describe('v1↔v2 session lifecycle parity', () => {
         pair.v2.deleteSession({ sessionId: 'session_parity_delete' }),
       ]);
       const project = KNOWN_DIFFS.listSessions;
-      const [v1List, v2List] = await Promise.all([
-        pair.v1.listSessions(),
-        pair.v2.listSessions(),
-      ]);
+      const [v1List, v2List] = await Promise.all([pair.v1.listSessions(), pair.v2.listSessions()]);
       expect(normalize(project(v2List, pair.v2Home), 'id')).toEqual(
         normalize(project(v1List, pair.v1Home), 'id'),
       );
@@ -1643,10 +1625,7 @@ describe('v1↔v2 session lifecycle parity', () => {
       // The fork merges source and caller custom metadata (goal excluded).
       expect(v1Fork.metadata).toEqual({ origin: 'source', shared: 'fork', fork: 'yes' });
       expect(v2Fork.metadata).toEqual({ origin: 'source', shared: 'fork', fork: 'yes' });
-      const [v1List, v2List] = await Promise.all([
-        pair.v1.listSessions(),
-        pair.v2.listSessions(),
-      ]);
+      const [v1List, v2List] = await Promise.all([pair.v1.listSessions(), pair.v2.listSessions()]);
       const projectList = KNOWN_DIFFS.listSessions;
       expect(normalize(projectList(v2List, pair.v2Home), 'id')).toEqual(
         normalize(projectList(v1List, pair.v1Home), 'id'),
@@ -1869,10 +1848,7 @@ describe('v1↔v2 session lifecycle parity', () => {
           metadata: { b: '2', shared: 'new' },
         }),
       ]);
-      const [v1List, v2List] = await Promise.all([
-        pair.v1.listSessions(),
-        pair.v2.listSessions(),
-      ]);
+      const [v1List, v2List] = await Promise.all([pair.v1.listSessions(), pair.v2.listSessions()]);
       const project = KNOWN_DIFFS.listSessions;
       expect(normalize(project(v2List, pair.v2Home), 'id')).toEqual(
         normalize(project(v1List, pair.v1Home), 'id'),
@@ -1991,7 +1967,9 @@ model = "second-brain"
 max_context_size = 128000
 `;
 
-async function makeAgentParityPair(configToml: string = AGENT_CONFIG_TOML): Promise<SessionParityPair> {
+async function makeAgentParityPair(
+  configToml: string = AGENT_CONFIG_TOML,
+): Promise<SessionParityPair> {
   const v1HomeDir = await makeTempDir('kimi-sdk-parity-v1-home-');
   const v2HomeDir = await makeTempDir('kimi-sdk-parity-v2-home-');
   const workDir = await makeTempDir('kimi-sdk-parity-work-');
@@ -2043,10 +2021,7 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v2.getUsage(input),
       ]);
       expect(normalize(v2Usage, '')).toEqual(normalize(v1Usage, ''));
-      const [v1Plan, v2Plan] = await Promise.all([
-        pair.v1.getPlan(input),
-        pair.v2.getPlan(input),
-      ]);
+      const [v1Plan, v2Plan] = await Promise.all([pair.v1.getPlan(input), pair.v2.getPlan(input)]);
       expect(v2Plan).toEqual(v1Plan);
       expect(v1Plan).toBeNull();
     } finally {
@@ -2225,10 +2200,7 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.setPlanMode({ ...input, enabled: true }),
         pair.v2.setPlanMode({ ...input, enabled: true }),
       ]);
-      const [v1Plan, v2Plan] = await Promise.all([
-        pair.v1.getPlan(input),
-        pair.v2.getPlan(input),
-      ]);
+      const [v1Plan, v2Plan] = await Promise.all([pair.v1.getPlan(input), pair.v2.getPlan(input)]);
       const projectPlan = KNOWN_DIFFS.getPlan;
       expect(projectPlan(v2Plan, pair.v2Home)).toEqual(projectPlan(v1Plan, pair.v1Home));
       expect(v1Plan?.id.length).toBeGreaterThan(0);
@@ -2269,10 +2241,7 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.setPlanMode({ ...input, enabled: false }),
         pair.v2.setPlanMode({ ...input, enabled: false }),
       ]);
-      const [v1Off, v2Off] = await Promise.all([
-        pair.v1.getPlan(input),
-        pair.v2.getPlan(input),
-      ]);
+      const [v1Off, v2Off] = await Promise.all([pair.v1.getPlan(input), pair.v2.getPlan(input)]);
       expect(v2Off).toEqual(v1Off);
       expect(v1Off).toBeNull();
     } finally {
@@ -2288,8 +2257,16 @@ describe('v1↔v2 agent interaction parity', () => {
       await createOnBoth(pair, { id: 'session_parity_agent_import' });
       const input = { sessionId: 'session_parity_agent_import' } as const;
       await Promise.all([
-        pair.v1.importContext({ ...input, content: 'Earlier user: keep the API stable.', source: "file 'notes.md'" }),
-        pair.v2.importContext({ ...input, content: 'Earlier user: keep the API stable.', source: "file 'notes.md'" }),
+        pair.v1.importContext({
+          ...input,
+          content: 'Earlier user: keep the API stable.',
+          source: "file 'notes.md'",
+        }),
+        pair.v2.importContext({
+          ...input,
+          content: 'Earlier user: keep the API stable.',
+          source: "file 'notes.md'",
+        }),
       ]);
       const [v1Context, v2Context] = await Promise.all([
         pair.v1.getContext(input),
@@ -2337,7 +2314,10 @@ describe('v1↔v2 agent interaction parity', () => {
 
   it('importContext rejects an overflowing import with context.overflow on both engines', async () => {
     const restoreEnv = scrubConfigEnv();
-    const tinyConfig = AGENT_CONFIG_TOML.replace('max_context_size = 262144', 'max_context_size = 16');
+    const tinyConfig = AGENT_CONFIG_TOML.replace(
+      'max_context_size = 262144',
+      'max_context_size = 16',
+    );
     const pair = await makeAgentParityPair(tinyConfig);
     try {
       await createOnBoth(pair, { id: 'session_parity_agent_import_overflow' });
@@ -2376,8 +2356,16 @@ describe('v1↔v2 agent interaction parity', () => {
       // dedupes — a distinct mode records on both), plan mode, a goal
       // lifecycle, and a shell command.
       await Promise.all([
-        pair.v1.importContext({ ...input, content: 'Resume replay import.', source: "file 'r.md'" }),
-        pair.v2.importContext({ ...input, content: 'Resume replay import.', source: "file 'r.md'" }),
+        pair.v1.importContext({
+          ...input,
+          content: 'Resume replay import.',
+          source: "file 'r.md'",
+        }),
+        pair.v2.importContext({
+          ...input,
+          content: 'Resume replay import.',
+          source: "file 'r.md'",
+        }),
       ]);
       // v2's context append journals through the agent's activity lane and
       // can land after a subsequent immediate-write record; let it settle so
@@ -2404,10 +2392,7 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v2.runShellCommand({ ...input, command: 'echo parity-resume' }),
       ]);
       expect(v2Shell).toEqual(v1Shell);
-      await Promise.all([
-        pair.v1.closeSession(input),
-        pair.v2.closeSession(input),
-      ]);
+      await Promise.all([pair.v1.closeSession(input), pair.v2.closeSession(input)]);
       // The same tool-store record through both restore paths (the TUI's
       // todo panel reads `toolStore['todo']`).
       const todoRecord: JsonObject = {
@@ -2431,7 +2416,9 @@ describe('v1↔v2 agent interaction parity', () => {
       const v1Agent = v1Resumed.agents['main']!;
       const v2Agent = v2Resumed.agents['main']!;
       expect(v2Agent.replay.map((record) => record.type)).toEqual(
-        v1Agent.replay.filter((record) => record.type !== 'config_updated').map((record) => record.type),
+        v1Agent.replay
+          .filter((record) => record.type !== 'config_updated')
+          .map((record) => record.type),
       );
       expect(v2Agent.replay.map((record) => record.type)).toEqual([
         'permission_updated',
@@ -2467,9 +2454,7 @@ describe('v1↔v2 agent interaction parity', () => {
       expect(project(v2Limited, pair.v2Home)).toEqual(project(v1Limited, pair.v1Home));
       const v1LimitedTypes = v1Limited.agents['main']!.replay.map((record) => record.type);
       expect(v1LimitedTypes).toEqual(['message', 'message']);
-      expect(v2Limited.agents['main']!.replay.map((record) => record.type)).toEqual(
-        v1LimitedTypes,
-      );
+      expect(v2Limited.agents['main']!.replay.map((record) => record.type)).toEqual(v1LimitedTypes);
     } finally {
       await closeSessionPair(pair);
       restoreEnv();
@@ -2714,8 +2699,16 @@ describe('v1↔v2 agent interaction parity', () => {
       await createOnBoth(pair, { id: 'session_parity_agent_shell' });
       const input = { sessionId: 'session_parity_agent_shell' } as const;
       const [v1Shell, v2Shell] = await Promise.all([
-        pair.v1.runShellCommand({ ...input, command: 'echo out; echo err >&2', commandId: 'cmd-mixed' }),
-        pair.v2.runShellCommand({ ...input, command: 'echo out; echo err >&2', commandId: 'cmd-mixed' }),
+        pair.v1.runShellCommand({
+          ...input,
+          command: 'echo out; echo err >&2',
+          commandId: 'cmd-mixed',
+        }),
+        pair.v2.runShellCommand({
+          ...input,
+          command: 'echo out; echo err >&2',
+          commandId: 'cmd-mixed',
+        }),
       ]);
       expect(v2Shell).toEqual(v1Shell);
       expect(v1Shell).toEqual({ stdout: 'out\n', stderr: 'err\n', isError: false });
@@ -2770,10 +2763,7 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v2.prompt({ ...input, input: [{ type: 'text', text: 'hello parity' }] }),
       ]);
       const project = KNOWN_DIFFS.listSessions;
-      const [v1List, v2List] = await Promise.all([
-        pair.v1.listSessions(),
-        pair.v2.listSessions(),
-      ]);
+      const [v1List, v2List] = await Promise.all([pair.v1.listSessions(), pair.v2.listSessions()]);
       expect(normalize(project(v2List, pair.v2Home), 'id')).toEqual(
         normalize(project(v1List, pair.v1Home), 'id'),
       );
@@ -2805,10 +2795,7 @@ describe('v1↔v2 agent interaction parity', () => {
       // turn is returned instead of rejecting, and the metadata is updated.
       await pair.v1.steer({ ...input, input: [{ type: 'text', text: 'steer text' }] });
       await pair.v2.steer({ ...input, input: [{ type: 'text', text: 'steer text' }] });
-      const [v1List, v2List] = await Promise.all([
-        pair.v1.listSessions(),
-        pair.v2.listSessions(),
-      ]);
+      const [v1List, v2List] = await Promise.all([pair.v1.listSessions(), pair.v2.listSessions()]);
       expect(v1List[0]?.title).toBe('steer text');
       expect(v1List[0]?.lastPrompt).toBe('steer text');
       expect(v2List[0]?.title).toBe('steer text');
@@ -2854,10 +2841,7 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v2.activateSkill({ ...input, name: 'parity-skill', args: 'some args' }),
       ]);
       const project = KNOWN_DIFFS.listSessions;
-      const [v1List, v2List] = await Promise.all([
-        pair.v1.listSessions(),
-        pair.v2.listSessions(),
-      ]);
+      const [v1List, v2List] = await Promise.all([pair.v1.listSessions(), pair.v2.listSessions()]);
       expect(normalize(project(v2List, pair.v2Home), 'id')).toEqual(
         normalize(project(v1List, pair.v1Home), 'id'),
       );
@@ -2936,10 +2920,7 @@ describe('v1↔v2 agent interaction parity', () => {
         const list = await pair.v2.listSessions();
         return list.length === 1 && list[0]?.lastPrompt === '/parity-plugin:parity-command';
       });
-      const [v1List, v2List] = await Promise.all([
-        pair.v1.listSessions(),
-        pair.v2.listSessions(),
-      ]);
+      const [v1List, v2List] = await Promise.all([pair.v1.listSessions(), pair.v2.listSessions()]);
       expect(normalize(project(v2List, pair.v2Home), 'id')).toEqual(
         normalize(project(v1List, pair.v1Home), 'id'),
       );
@@ -2970,12 +2951,12 @@ describe('v1↔v2 agent interaction parity', () => {
         code: ErrorCodes.SESSION_INIT_FAILED,
         message: 'Main agent has no model bound',
       });
-      await expect(pair.v1.generateAgentsMd({ sessionId: 'session_missing' })).rejects.toMatchObject(
-        { code: ErrorCodes.SESSION_NOT_FOUND },
-      );
-      await expect(pair.v2.generateAgentsMd({ sessionId: 'session_missing' })).rejects.toMatchObject(
-        { code: ErrorCodes.SESSION_NOT_FOUND },
-      );
+      await expect(
+        pair.v1.generateAgentsMd({ sessionId: 'session_missing' }),
+      ).rejects.toMatchObject({ code: ErrorCodes.SESSION_NOT_FOUND });
+      await expect(
+        pair.v2.generateAgentsMd({ sessionId: 'session_missing' }),
+      ).rejects.toMatchObject({ code: ErrorCodes.SESSION_NOT_FOUND });
     } finally {
       await closeSessionPair(pair);
       restoreEnv();
@@ -3006,12 +2987,12 @@ describe('v1↔v2 agent interaction parity', () => {
       expect(v1Warnings).toHaveLength(1);
       expect(v1Warnings[0]).toMatchObject({ code: 'agents-md-oversized', severity: 'warning' });
       expect(v1Warnings[0]?.message).toContain('exceeds the recommended');
-      await expect(pair.v1.getSessionWarnings({ sessionId: 'session_missing' })).rejects.toMatchObject(
-        { code: ErrorCodes.SESSION_NOT_FOUND },
-      );
-      await expect(pair.v2.getSessionWarnings({ sessionId: 'session_missing' })).rejects.toMatchObject(
-        { code: ErrorCodes.SESSION_NOT_FOUND },
-      );
+      await expect(
+        pair.v1.getSessionWarnings({ sessionId: 'session_missing' }),
+      ).rejects.toMatchObject({ code: ErrorCodes.SESSION_NOT_FOUND });
+      await expect(
+        pair.v2.getSessionWarnings({ sessionId: 'session_missing' }),
+      ).rejects.toMatchObject({ code: ErrorCodes.SESSION_NOT_FOUND });
     } finally {
       await closeSessionPair(pair);
       restoreEnv();
@@ -3111,7 +3092,10 @@ describe('v1↔v2 goal parity', () => {
       const projectCancel = KNOWN_DIFFS.cancelGoal;
       expect(projectCancel(v2Cancelled)).toEqual(projectCancel(v1Cancelled));
       expect(v1Cancelled.status).toBe('active');
-      const [v1Empty, v2Empty] = await Promise.all([pair.v1.getGoal(input), pair.v2.getGoal(input)]);
+      const [v1Empty, v2Empty] = await Promise.all([
+        pair.v1.getGoal(input),
+        pair.v2.getGoal(input),
+      ]);
       expect(projectGet(v2Empty)).toEqual(projectGet(v1Empty));
       expect(v1Empty.goal).toBeNull();
       // Lifecycle calls without a goal reject identically.
@@ -3267,7 +3251,11 @@ async function startDetachedBackgroundTask(
   return { taskId: task.taskId, run };
 }
 
-async function stopAndSettle(rpc: SDKRpcClientBase, sessionId: string, taskId: string): Promise<void> {
+async function stopAndSettle(
+  rpc: SDKRpcClientBase,
+  sessionId: string,
+  taskId: string,
+): Promise<void> {
   await rpc.stopBackgroundTask({ sessionId, taskId });
   // v1 fire-and-forgets the stop; poll both engines for the terminal state.
   await waitForBackgroundTask(
@@ -3940,10 +3928,8 @@ describe('v1↔v2 global MCP parity', () => {
       // sides, so the config.invalid message matches too.
       await expectSameMcpRejection(
         pair,
-        (client) =>
-          client.addGlobalMcpServer({ name: 'invalid' } as never),
-        (client) =>
-          client.addGlobalMcpServer({ name: 'invalid' } as never),
+        (client) => client.addGlobalMcpServer({ name: 'invalid' } as never),
+        (client) => client.addGlobalMcpServer({ name: 'invalid' } as never),
       );
       // Removing an unknown name is NOT an error on either engine — the
       // unchanged list comes back.
@@ -4340,8 +4326,16 @@ describe('v1↔v2 event & interaction parity', () => {
       pair.v1.onEvent((event) => v1Events.push(event));
       pair.v2.onEvent((event) => v2Events.push(event));
       await Promise.all([
-        pair.v1.runShellCommand({ ...input, command: 'echo out; echo err >&2', commandId: 'cmd-ev' }),
-        pair.v2.runShellCommand({ ...input, command: 'echo out; echo err >&2', commandId: 'cmd-ev' }),
+        pair.v1.runShellCommand({
+          ...input,
+          command: 'echo out; echo err >&2',
+          commandId: 'cmd-ev',
+        }),
+        pair.v2.runShellCommand({
+          ...input,
+          command: 'echo out; echo err >&2',
+          commandId: 'cmd-ev',
+        }),
       ]);
       const v1Projected = projectShellStream(v1Events, input.sessionId);
       const v2Projected = projectShellStream(v2Events, input.sessionId);
@@ -4487,7 +4481,12 @@ describe('v1↔v2 event & interaction parity', () => {
       pair.v1.setApprovalHandler(sessionId, undefined);
       pair.v2.setApprovalHandler(sessionId, undefined);
       const [v1Unanswered, v2Unanswered] = await Promise.all([
-        pair.v1.requestApproval({ ...requestInput, toolCallId: 'tc-2', sessionId, agentId: 'main' }),
+        pair.v1.requestApproval({
+          ...requestInput,
+          toolCallId: 'tc-2',
+          sessionId,
+          agentId: 'main',
+        }),
         v2Approvals.request({ ...requestInput, toolCallId: 'tc-2', sessionId, agentId: 'main' }),
       ]);
       expect(v2Unanswered).toEqual(v1Unanswered);
@@ -4508,7 +4507,12 @@ describe('v1↔v2 event & interaction parity', () => {
       pair.v1.setApprovalHandler(sessionId, failing);
       pair.v2.setApprovalHandler(sessionId, failing);
       const [v1Failed, v2Failed] = await Promise.all([
-        pair.v1.requestApproval({ ...requestInput, toolCallId: 'tc-3', sessionId, agentId: 'main' }),
+        pair.v1.requestApproval({
+          ...requestInput,
+          toolCallId: 'tc-3',
+          sessionId,
+          agentId: 'main',
+        }),
         v2Approvals.request({ ...requestInput, toolCallId: 'tc-3', sessionId, agentId: 'main' }),
       ]);
       expect(v2Failed).toEqual(v1Failed);
@@ -4571,7 +4575,12 @@ describe('v1↔v2 event & interaction parity', () => {
       pair.v1.setQuestionHandler(sessionId, undefined);
       pair.v2.setQuestionHandler(sessionId, undefined);
       const [v1Dismissed, v2Dismissed] = await Promise.all([
-        pair.v1.requestQuestion({ ...requestInput, toolCallId: 'tc-2', sessionId, agentId: 'main' }),
+        pair.v1.requestQuestion({
+          ...requestInput,
+          toolCallId: 'tc-2',
+          sessionId,
+          agentId: 'main',
+        }),
         v2Questions.request({ ...requestInput, toolCallId: 'tc-2' }, { agentId: 'main' }),
       ]);
       expect(v2Dismissed).toEqual(v1Dismissed);
@@ -4588,7 +4597,12 @@ describe('v1↔v2 event & interaction parity', () => {
       pair.v1.setQuestionHandler(sessionId, failing);
       pair.v2.setQuestionHandler(sessionId, failing);
       const [v1Failed, v2Failed] = await Promise.all([
-        pair.v1.requestQuestion({ ...requestInput, toolCallId: 'tc-3', sessionId, agentId: 'main' }),
+        pair.v1.requestQuestion({
+          ...requestInput,
+          toolCallId: 'tc-3',
+          sessionId,
+          agentId: 'main',
+        }),
         v2Questions.request({ ...requestInput, toolCallId: 'tc-3' }, { agentId: 'main' }),
       ]);
       expect(v2Failed).toEqual(v1Failed);
@@ -4774,8 +4788,7 @@ describe('v1↔v2 residual surface parity', () => {
     try {
       await createOnBoth(pair, { id: 'session_parity_swarm' });
       const input = { sessionId: 'session_parity_swarm' } as const;
-      const statusOnBoth = () =>
-        Promise.all([pair.v1.getStatus(input), pair.v2.getStatus(input)]);
+      const statusOnBoth = () => Promise.all([pair.v1.getStatus(input), pair.v2.getStatus(input)]);
       const historyOnBoth = () =>
         Promise.all([pair.v1.getContext(input), pair.v2.getContext(input)]);
 

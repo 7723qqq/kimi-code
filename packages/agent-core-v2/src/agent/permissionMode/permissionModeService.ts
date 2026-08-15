@@ -12,26 +12,20 @@
  * through `telemetry`. Bound at Agent scope.
  */
 
-import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
 import { PermissionModeInjection } from '#/agent/permissionMode/injection/permissionModeInjection';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import {
-  IAgentLifecycleService,
-  MAIN_AGENT_ID,
-} from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { IWireService } from '#/wire/wire';
+
 import { IAgentPermissionModeService, type PermissionModeChangedContext } from './permissionMode';
-import {
-  PermissionModeConfiguredModel,
-  PermissionModeModel,
-  setMode,
-} from './permissionModeOps';
+import { PermissionModeConfiguredModel, PermissionModeModel, setMode } from './permissionModeOps';
 
 export class AgentPermissionModeService extends Service implements IAgentPermissionModeService {
   declare readonly _serviceBrand: undefined;

@@ -9,17 +9,17 @@
  * the model. Bound at Agent scope — contributed by `LspFeature`.
  */
 
-import type { ToolExecution } from '#/tool/toolContract';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { Error2, ErrorCodes } from '#/errors';
 import { ILspService, type LspQueryResult } from '#/features/lsp/lsp';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { LspHover, LspHoverContents, LspLocation } from '#/features/lsp/protocol';
 import { uriToPath } from '#/features/lsp/translate';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type { ToolExecution } from '#/tool/toolContract';
 
-import DESCRIPTION from './lsp.md?raw';
-import type { ILspTool} from './lsp';
+import type { ILspTool } from './lsp';
 import { LspInputSchema, type LspInput } from './lsp';
+import DESCRIPTION from './lsp.md?raw';
 
 const MAX_LOCATIONS = 100;
 const MAX_RESULT_CHARS = 16000;

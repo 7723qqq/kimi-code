@@ -29,12 +29,12 @@
  * `setOptions`.
  */
 
-import type { ProviderConfig } from '@moonshot-ai/kimi-code-sdk';
 import {
   getOpenPlatformById,
   isOpenPlatformId,
   type CustomRegistrySource,
 } from '@moonshot-ai/kimi-code-oauth';
+import type { ProviderConfig } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Key,
@@ -44,12 +44,12 @@ import {
   type Focusable,
 } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
+import { t } from '#/i18n';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
-import { printableChar } from '#/tui/utils/printable-key';
 import { pageView, type PageView } from '#/tui/utils/paging';
+import { printableChar } from '#/tui/utils/printable-key';
 
 interface ConfirmState {
   readonly label: string;
@@ -204,7 +204,10 @@ function buildRows(opts: ProviderManagerOptions): readonly Row[] {
     });
   }
 
-  return [...sources, { kind: 'add', id: '__add__', label: t('tui.dialogs.providerManager.addRowLabel') }];
+  return [
+    ...sources,
+    { kind: 'add', id: '__add__', label: t('tui.dialogs.providerManager.addRowLabel') },
+  ];
 }
 
 export class ProviderManagerComponent extends Container implements Focusable {
@@ -408,11 +411,7 @@ export class ProviderManagerComponent extends Container implements Focusable {
   }
 }
 
-
-function renderRow(
-  row: Row,
-  ctx: { isSelected: boolean; width: number },
-): string[] {
+function renderRow(row: Row, ctx: { isSelected: boolean; width: number }): string[] {
   const { isSelected, width } = ctx;
   const pointer = isSelected ? SELECT_POINTER : ' ';
   const pointerStyle = (text: string) =>

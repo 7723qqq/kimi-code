@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import '@xterm/xterm/css/xterm.css';
-
 import type { FitAddon as FitAddonType } from '@xterm/addon-fit';
 import type { Terminal as XTerm, ITheme } from '@xterm/xterm';
 import { computed, nextTick, onMounted, onUnmounted, ref, toRef, watch } from 'vue';
+
 import { useIsDark } from '../composables/useIsDark';
 import { useTerminal } from '../composables/useTerminal';
 import Button from './ui/Button.vue';
@@ -172,7 +172,9 @@ onUnmounted(() => {
       <div class="terminal-meta">
         <span class="terminal-dot" :class="{ on: terminalClient.connected.value }"></span>
         <span v-if="terminalClient.terminal.value">{{ terminalClient.terminal.value.shell }}</span>
-        <span v-if="terminalClient.terminal.value" class="terminal-cwd">{{ terminalClient.terminal.value.cwd }}</span>
+        <span v-if="terminalClient.terminal.value" class="terminal-cwd">{{
+          terminalClient.terminal.value.cwd
+        }}</span>
         <span v-if="terminalClient.readOnly.value" class="terminal-readonly">exited</span>
       </div>
       <div class="terminal-actions">
@@ -184,7 +186,9 @@ onUnmounted(() => {
     <div class="terminal-surface">
       <div ref="hostRef" class="terminal-host"></div>
       <div v-if="terminalClient.loading.value" class="terminal-overlay">starting terminal...</div>
-      <div v-else-if="terminalClient.error.value" class="terminal-overlay error">{{ terminalClient.error.value }}</div>
+      <div v-else-if="terminalClient.error.value" class="terminal-overlay error">
+        {{ terminalClient.error.value }}
+      </div>
     </div>
   </section>
 </template>

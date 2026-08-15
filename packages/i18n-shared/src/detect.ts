@@ -45,7 +45,7 @@ export function detectLocaleNode(): Locale {
   if (kimiLang === 'zh' || isZh(kimiLang)) return 'zh';
   if (kimiLang === 'en' || isEn(kimiLang)) return 'en';
 
-  const systemLang = (env['LANG'] ?? env['LC_ALL']) ?? env['LC_MESSAGES'];
+  const systemLang = env['LANG'] ?? env['LC_ALL'] ?? env['LC_MESSAGES'];
   if (isZh(systemLang)) return 'zh';
 
   return 'en';

@@ -57,9 +57,7 @@ const DEFAULT_BAN_MS = 60_000;
  * failure window so the map does not grow without bound on a long-lived
  * public server. The timer is `unref`-ed so it never keeps the process alive.
  */
-export function createAuthFailureLimiter(
-  opts?: AuthFailureLimiterOptions,
-): AuthFailureLimiter {
+export function createAuthFailureLimiter(opts?: AuthFailureLimiterOptions): AuthFailureLimiter {
   const maxFailures = opts?.maxFailures ?? DEFAULT_MAX_FAILURES;
   const windowMs = opts?.windowMs ?? DEFAULT_WINDOW_MS;
   const banMs = opts?.banMs ?? DEFAULT_BAN_MS;

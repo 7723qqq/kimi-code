@@ -1,12 +1,14 @@
-// test/recovery.test.js
-import { afterEach, test, vi } from 'vitest';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
 import type { PathLike } from 'node:fs';
+import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { MiniDb } from '../src/index.js';
+
+// test/recovery.test.js
+import { afterEach, test, vi } from 'vitest';
+
 import { HEADER_SIZE, CRC_SIZE, encodeFrame, TYPE_SET } from '../src/codec.js';
+import { MiniDb } from '../src/index.js';
 
 afterEach(() => {
   vi.doUnmock('node:fs');
@@ -22,7 +24,12 @@ async function tmpDir() {
 const FRAME = HEADER_SIZE + 2 + 2 + 0 + CRC_SIZE;
 
 async function writeFive(dir) {
-  const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'always', autoCompact: false });
+  const db = await MiniDb.open({
+    dir,
+    valueCodec: 'string',
+    fsyncPolicy: 'always',
+    autoCompact: false,
+  });
   for (let i = 0; i < 5; i++) await db.set(`k${i}`, `v${i}`);
   await db.close();
 }
@@ -70,7 +77,9 @@ test('resync: multiple corrupt frames are each skipped', async () => {
     const db = await MiniDb.open({ dir, valueCodec: 'string' });
     assert.equal(db.recoveryInfo.corruptRanges.length, 2);
     assert.deepEqual(
-      [...new Set(['k0', 'k1', 'k2', 'k3', 'k4'].filter((k) => db.get(k) !== undefined))].toSorted(),
+      [
+        ...new Set(['k0', 'k1', 'k2', 'k3', 'k4'].filter((k) => db.get(k) !== undefined)),
+      ].toSorted(),
       ['k0', 'k2', 'k4'],
     );
     await db.close();
@@ -121,88 +130,135 @@ test('strict mode truncates at the first bad frame', async () => {
 // after its watermark; the result must be identical to a from-scratch replay
 // (store, dt, compound, secondary, unique and text indexes alike).
 for (const valueMode of ['memory', 'disk'] as const) {
-  test(`catchUpFromWal (${valueMode}): mixed tail applies identically to a full reopen`, { timeout: 60_000 }, async () => {
-    const dir = await tmpDir();
-    try {
-      const doc = (i: number) => ({ n: i, c: `c${i % 7}`, u: `u${i}`, t: `alpha beta w${i % 13}` });
-      const writer = await MiniDb.open<Record<string, unknown>>({
-        dir,
-        valueCodec: 'json',
-        valueMode,
-        fsyncPolicy: 'no',
-        autoCompact: false,
-      });
-      await writer.createIndex('c', { field: 'c' });
-      await writer.createIndex('n', { field: 'n', type: 'range' });
-      await writer.createIndex('u', { field: 'u', unique: true });
-      await writer.createTextIndex('t', { fields: ['t'] });
-      await writer.createCompoundIndex('cg', { groupBy: 'c', orderBy: 'n' });
-      for (let i = 0; i < 2000; i++) await writer.set(`pre:${i}`, doc(i), { dt: { created: 1700000000000 + i } });
+  test(
+    `catchUpFromWal (${valueMode}): mixed tail applies identically to a full reopen`,
+    { timeout: 60_000 },
+    async () => {
+      const dir = await tmpDir();
+      try {
+        const doc = (i: number) => ({
+          n: i,
+          c: `c${i % 7}`,
+          u: `u${i}`,
+          t: `alpha beta w${i % 13}`,
+        });
+        const writer = await MiniDb.open<Record<string, unknown>>({
+          dir,
+          valueCodec: 'json',
+          valueMode,
+          fsyncPolicy: 'no',
+          autoCompact: false,
+        });
+        await writer.createIndex('c', { field: 'c' });
+        await writer.createIndex('n', { field: 'n', type: 'range' });
+        await writer.createIndex('u', { field: 'u', unique: true });
+        await writer.createTextIndex('t', { fields: ['t'] });
+        await writer.createCompoundIndex('cg', { groupBy: 'c', orderBy: 'n' });
+        for (let i = 0; i < 2000; i++)
+          await writer.set(`pre:${i}`, doc(i), { dt: { created: 1700000000000 + i } });
 
-      const reader = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', valueMode, readOnly: true });
-      const ri = reader.recoveryInfo!;
-      assert.ok(ri.walScanEnd > 0);
-      assert.ok(ri.walIno !== 0);
+        const reader = await MiniDb.open<Record<string, unknown>>({
+          dir,
+          valueCodec: 'json',
+          valueMode,
+          readOnly: true,
+        });
+        const ri = reader.recoveryInfo!;
+        assert.ok(ri.walScanEnd > 0);
+        assert.ok(ri.walIno !== 0);
 
-      // Mixed storm: updates, new sets, dels, one BATCH frame, short/long TTL,
-      // dt-only change. 500 + 500 + 300 + 1 + 2 = 1303 appended frames.
-      for (let i = 1500; i < 2000; i++) {
-        await writer.set(`pre:${i}`, { ...doc(i), n: i * 10, t: `alpha changed w${i % 13}` }, { dt: { created: 1700000009000 + i } });
+        // Mixed storm: updates, new sets, dels, one BATCH frame, short/long TTL,
+        // dt-only change. 500 + 500 + 300 + 1 + 2 = 1303 appended frames.
+        for (let i = 1500; i < 2000; i++) {
+          await writer.set(
+            `pre:${i}`,
+            { ...doc(i), n: i * 10, t: `alpha changed w${i % 13}` },
+            { dt: { created: 1700000009000 + i } },
+          );
+        }
+        for (let i = 0; i < 500; i++)
+          await writer.set(
+            `s:${i}`,
+            { ...doc(i), u: `us${i}` },
+            { dt: { created: 1700001000000 + i } },
+          );
+        for (let i = 0; i < 1500; i += 5) await writer.del(`pre:${i}`);
+        await writer.batch([
+          { op: 'set', key: 's:b1', value: doc(9001), dt: { created: 1700002000000 } },
+          { op: 'set', key: 's:b2', value: { ...doc(9002), t: 'alpha batch' } },
+          { op: 'del', key: 's:b1' },
+        ]);
+        await writer.set('s:short', doc(9100), { ttl: 1 });
+        await writer.set('s:long', doc(9101), { ttl: 3_600_000 });
+
+        const res = await reader.catchUpFromWal(ri.walScanEnd);
+        assert.ok(res, 'clean watermark must catch up');
+        assert.equal(res.appliedFrames, 1303);
+        assert.ok(res.offset > ri.walScanEnd);
+
+        // Reference: a full from-scratch replay of the same files.
+        const ref = await MiniDb.open<Record<string, unknown>>({
+          dir,
+          valueCodec: 'json',
+          valueMode,
+          readOnly: true,
+        });
+        const sortByKey = (a: { key: string }, b: { key: string }): number =>
+          a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+        assert.equal(reader.size, ref.size);
+        assert.deepEqual(reader.scan(), ref.scan());
+        assert.deepEqual(reader.dtColumns(), ref.dtColumns());
+        assert.deepEqual(
+          reader.findEq('c', 'c3').toSorted(sortByKey),
+          ref.findEq('c', 'c3').toSorted(sortByKey),
+        );
+        assert.deepEqual(reader.findEq('u', 'u1700'), ref.findEq('u', 'u1700'));
+        assert.deepEqual(
+          reader.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey),
+          ref.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey),
+        );
+        assert.deepEqual(
+          reader.dtRange('created', { gte: 1700000009000, limit: 20 }),
+          ref.dtRange('created', { gte: 1700000009000, limit: 20 }),
+        );
+        assert.deepEqual(
+          reader.compoundRange('cg', 'c2', { limit: 25 }),
+          ref.compoundRange('cg', 'c2', { limit: 25 }),
+        );
+        assert.deepEqual(reader.search('t', 'alpha'), ref.search('t', 'alpha'));
+        assert.deepEqual(reader.search('t', 'changed'), ref.search('t', 'changed'));
+        assert.deepEqual(reader.search('t', 'batch'), ref.search('t', 'batch'));
+        assert.equal(reader.get('s:short'), undefined);
+        assert.equal(ref.get('s:short'), undefined);
+        assert.deepEqual(reader.get('s:long'), ref.get('s:long'));
+
+        // No new writes: catch-up is a cheap no-op at the same offset.
+        assert.deepEqual(await reader.catchUpFromWal(res.offset), {
+          offset: res.offset,
+          appliedFrames: 0,
+        });
+        // Not a frame boundary (byte 3 of the first frame's header: flags=0).
+        assert.equal(await reader.catchUpFromWal(3), null);
+
+        await ref.close();
+        await reader.close();
+        await writer.close();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
       }
-      for (let i = 0; i < 500; i++) await writer.set(`s:${i}`, { ...doc(i), u: `us${i}` }, { dt: { created: 1700001000000 + i } });
-      for (let i = 0; i < 1500; i += 5) await writer.del(`pre:${i}`);
-      await writer.batch([
-        { op: 'set', key: 's:b1', value: doc(9001), dt: { created: 1700002000000 } },
-        { op: 'set', key: 's:b2', value: { ...doc(9002), t: 'alpha batch' } },
-        { op: 'del', key: 's:b1' },
-      ]);
-      await writer.set('s:short', doc(9100), { ttl: 1 });
-      await writer.set('s:long', doc(9101), { ttl: 3_600_000 });
-
-      const res = await reader.catchUpFromWal(ri.walScanEnd);
-      assert.ok(res, 'clean watermark must catch up');
-      assert.equal(res.appliedFrames, 1303);
-      assert.ok(res.offset > ri.walScanEnd);
-
-      // Reference: a full from-scratch replay of the same files.
-      const ref = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json', valueMode, readOnly: true });
-      const sortByKey = (a: { key: string }, b: { key: string }): number => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
-      assert.equal(reader.size, ref.size);
-      assert.deepEqual(reader.scan(), ref.scan());
-      assert.deepEqual(reader.dtColumns(), ref.dtColumns());
-      assert.deepEqual(reader.findEq('c', 'c3').toSorted(sortByKey), ref.findEq('c', 'c3').toSorted(sortByKey));
-      assert.deepEqual(reader.findEq('u', 'u1700'), ref.findEq('u', 'u1700'));
-      assert.deepEqual(
-        reader.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey),
-        ref.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey),
-      );
-      assert.deepEqual(reader.dtRange('created', { gte: 1700000009000, limit: 20 }), ref.dtRange('created', { gte: 1700000009000, limit: 20 }));
-      assert.deepEqual(reader.compoundRange('cg', 'c2', { limit: 25 }), ref.compoundRange('cg', 'c2', { limit: 25 }));
-      assert.deepEqual(reader.search('t', 'alpha'), ref.search('t', 'alpha'));
-      assert.deepEqual(reader.search('t', 'changed'), ref.search('t', 'changed'));
-      assert.deepEqual(reader.search('t', 'batch'), ref.search('t', 'batch'));
-      assert.equal(reader.get('s:short'), undefined);
-      assert.equal(ref.get('s:short'), undefined);
-      assert.deepEqual(reader.get('s:long'), ref.get('s:long'));
-
-      // No new writes: catch-up is a cheap no-op at the same offset.
-      assert.deepEqual(await reader.catchUpFromWal(res.offset), { offset: res.offset, appliedFrames: 0 });
-      // Not a frame boundary (byte 3 of the first frame's header: flags=0).
-      assert.equal(await reader.catchUpFromWal(3), null);
-
-      await ref.close();
-      await reader.close();
-      await writer.close();
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 }
 
 test('catchUpFromWal: a torn tail pauses the catch-up and a later call completes it', async () => {
   const dir = await tmpDir();
   try {
-    const writer = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
+    const writer = await MiniDb.open({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     for (let i = 0; i < 10; i++) await writer.set(`k${i}`, { n: i });
     const reader = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
     const ri = reader.recoveryInfo!;
@@ -238,7 +294,12 @@ test('catchUpFromWal: a torn tail pauses the catch-up and a later call completes
 test('catchUpFromWal: a compaction rotation swaps the WAL inode and the catch-up declines', async () => {
   const dir = await tmpDir();
   try {
-    const writer = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
+    const writer = await MiniDb.open({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     for (let i = 0; i < 100; i++) await writer.set(`k${i}`, { n: i });
     const reader = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
     const ri = reader.recoveryInfo!;
@@ -266,7 +327,12 @@ test('catchUpFromWal: a compaction rotation swaps the WAL inode and the catch-up
 test('catchUpFromWal: concurrent calls are serialized instead of interleaving mid-apply', async () => {
   const dir = await tmpDir();
   try {
-    const writer = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
+    const writer = await MiniDb.open({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     for (let i = 0; i < 50; i++) await writer.set(`k${i}`, { n: i });
     const reader = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
     const ri = reader.recoveryInfo!;
@@ -291,45 +357,57 @@ test('catchUpFromWal: concurrent calls are serialized instead of interleaving mi
   }
 });
 
-test('catchUpFromWal: a large tail applies in cooperative slices (event loop stays live)', { timeout: 60_000 }, async () => {
-  const dir = await tmpDir();
-  try {
-    const writer = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
-    for (let i = 0; i < 100; i++) await writer.set(`pre:${i}`, { n: i, t: `alpha ${i}` });
-    await writer.createTextIndex('t', { fields: ['t'] });
-    const reader = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
-    const ri = reader.recoveryInfo!;
-    // 8000 single-op frames: WAL_APPLY_OPS_PER_SLICE (512) alone forces ~15
-    // yields mid-apply even when every op is cheap.
-    for (let i = 0; i < 8000; i++) await writer.set(`s:${i}`, { n: i, t: `alpha beta ${i}` });
+test(
+  'catchUpFromWal: a large tail applies in cooperative slices (event loop stays live)',
+  { timeout: 60_000 },
+  async () => {
+    const dir = await tmpDir();
+    try {
+      const writer = await MiniDb.open({
+        dir,
+        valueCodec: 'json',
+        fsyncPolicy: 'no',
+        autoCompact: false,
+      });
+      for (let i = 0; i < 100; i++) await writer.set(`pre:${i}`, { n: i, t: `alpha ${i}` });
+      await writer.createTextIndex('t', { fields: ['t'] });
+      const reader = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
+      const ri = reader.recoveryInfo!;
+      // 8000 single-op frames: WAL_APPLY_OPS_PER_SLICE (512) alone forces ~15
+      // yields mid-apply even when every op is cheap.
+      for (let i = 0; i < 8000; i++) await writer.set(`s:${i}`, { n: i, t: `alpha beta ${i}` });
 
-    // Count event-loop turns observed while the catch-up runs. The async
-    // scan contributes about one (a sub-window file fills in one read); an
-    // UNSLICED apply would add none, the sliced one adds one per 512 ops.
-    let loopTurns = 0;
-    let catchUpDone = false;
-    const probe = (async () => {
-      for (;;) {
-        await new Promise((r) => setImmediate(r));
-        if (catchUpDone) return;
-        loopTurns++;
-      }
-    })();
-    const res = await reader.catchUpFromWal(ri.walScanEnd);
-    catchUpDone = true;
-    await probe;
+      // Count event-loop turns observed while the catch-up runs. The async
+      // scan contributes about one (a sub-window file fills in one read); an
+      // UNSLICED apply would add none, the sliced one adds one per 512 ops.
+      let loopTurns = 0;
+      let catchUpDone = false;
+      const probe = (async () => {
+        for (;;) {
+          await new Promise((r) => setImmediate(r));
+          if (catchUpDone) return;
+          loopTurns++;
+        }
+      })();
+      const res = await reader.catchUpFromWal(ri.walScanEnd);
+      catchUpDone = true;
+      await probe;
 
-    assert.ok(res && res.appliedFrames === 8000);
-    assert.ok(loopTurns >= 3, `expected the sliced apply to yield repeatedly, observed ${loopTurns} loop turn(s)`);
-    assert.equal(reader.size, 8100);
-    assert.ok(reader.search('t', 'beta').length > 0);
+      assert.ok(res && res.appliedFrames === 8000);
+      assert.ok(
+        loopTurns >= 3,
+        `expected the sliced apply to yield repeatedly, observed ${loopTurns} loop turn(s)`,
+      );
+      assert.equal(reader.size, 8100);
+      assert.ok(reader.search('t', 'beta').length > 0);
 
-    await reader.close();
-    await writer.close();
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-});
+      await reader.close();
+      await writer.close();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  },
+);
 
 // ---- generation pairing (stat-pairing; review #15) --------------------------
 //
@@ -378,44 +456,69 @@ function swapWalInodeSync(real: FsSyncModule, walPath: string): void {
 
 // The WAL inode swap is simulated with POSIX rename-over-open semantics,
 // which Windows cannot reproduce (an open WAL handle blocks rename/unlink).
-test('generation pairing: a rotation-like WAL inode swap at the post-scan forensics is retried to a consistent read-only open', { skip: process.platform === 'win32' }, async () => {
-  const dir = await tmpDir();
-  try {
-    const writer = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false, indexGenerations: false });
-    for (let i = 0; i < 50; i++) await writer.set(`k${i}`, `v${i}`);
+test(
+  'generation pairing: a rotation-like WAL inode swap at the post-scan forensics is retried to a consistent read-only open',
+  { skip: process.platform === 'win32' },
+  async () => {
+    const dir = await tmpDir();
+    try {
+      const writer = await MiniDb.open<string>({
+        dir,
+        valueCodec: 'string',
+        fsyncPolicy: 'no',
+        autoCompact: false,
+        indexGenerations: false,
+      });
+      for (let i = 0; i < 50; i++) await writer.set(`k${i}`, `v${i}`);
 
-    // The injection fires when recover takes its post-scan path stat of
-    // db.wal (forensics round 2): the WAL is swapped for a new inode between
-    // the scan and the verification — precisely the rotation race the
-    // pairing exists to catch. One-shot: the retried pass sees a stable pair.
-    const walPath = path.join(dir, 'db.wal');
-    let swaps = 0;
-    mockFsSyncForWal(walPath, {
-      onStatSync: (call, real) => {
-        if (call === 1) {
-          swapWalInodeSync(real, walPath);
-          swaps++;
-        }
-      },
-    });
-    const { MiniDb: MockedMiniDb } = await import('../src/index.js');
-    const reader = await MockedMiniDb.open<string>({ dir, valueCodec: 'string', readOnly: true, indexGenerations: false });
-    assert.equal(swaps, 1);
-    assert.equal(reader.recoveryInfo!.generationRetries, 1, 'the swapped inode forced exactly one retry');
-    assert.equal(reader.size, 50);
-    assert.equal(reader.get('k0'), 'v0');
-    assert.equal(reader.get('k49'), 'v49');
-    await reader.close();
-    await writer.close();
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-});
+      // The injection fires when recover takes its post-scan path stat of
+      // db.wal (forensics round 2): the WAL is swapped for a new inode between
+      // the scan and the verification — precisely the rotation race the
+      // pairing exists to catch. One-shot: the retried pass sees a stable pair.
+      const walPath = path.join(dir, 'db.wal');
+      let swaps = 0;
+      mockFsSyncForWal(walPath, {
+        onStatSync: (call, real) => {
+          if (call === 1) {
+            swapWalInodeSync(real, walPath);
+            swaps++;
+          }
+        },
+      });
+      const { MiniDb: MockedMiniDb } = await import('../src/index.js');
+      const reader = await MockedMiniDb.open<string>({
+        dir,
+        valueCodec: 'string',
+        readOnly: true,
+        indexGenerations: false,
+      });
+      assert.equal(swaps, 1);
+      assert.equal(
+        reader.recoveryInfo!.generationRetries,
+        1,
+        'the swapped inode forced exactly one retry',
+      );
+      assert.equal(reader.size, 50);
+      assert.equal(reader.get('k0'), 'v0');
+      assert.equal(reader.get('k49'), 'v49');
+      await reader.close();
+      await writer.close();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  },
+);
 
 test('generation pairing: churn beyond the retry budget throws RECOVERY_GENERATION_CHURN and leaves no partial state', async () => {
   const dir = await tmpDir();
   try {
-    const writer = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false, indexGenerations: false });
+    const writer = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+      indexGenerations: false,
+    });
     for (let i = 0; i < 50; i++) await writer.set(`k${i}`, `v${i}`);
     await writer.close();
 
@@ -431,9 +534,15 @@ test('generation pairing: churn beyond the retry budget throws RECOVERY_GENERATI
     });
     const { MiniDb: MockedMiniDb } = await import('../src/index.js');
     await assert.rejects(
-      MockedMiniDb.open<string>({ dir, valueCodec: 'string', readOnly: true, indexGenerations: false }),
+      MockedMiniDb.open<string>({
+        dir,
+        valueCodec: 'string',
+        readOnly: true,
+        indexGenerations: false,
+      }),
       (e: unknown) =>
-        (e as { code?: string }).code === 'RECOVERY_GENERATION_CHURN' && (e as Error).name === 'RecoveryGenerationChurnError',
+        (e as { code?: string }).code === 'RECOVERY_GENERATION_CHURN' &&
+        (e as Error).name === 'RecoveryGenerationChurnError',
     );
     assert.equal(swaps, 5, 'one swap per pass: the initial attempt plus 4 retries');
 
@@ -452,7 +561,13 @@ test('generation pairing: churn beyond the retry budget throws RECOVERY_GENERATI
 test('generation pairing: append-only WAL growth between the forensic rounds does not trigger a retry', async () => {
   const dir = await tmpDir();
   try {
-    const writer = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false, indexGenerations: false });
+    const writer = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+      indexGenerations: false,
+    });
     for (let i = 0; i < 50; i++) await writer.set(`k${i}`, `v${i}`);
     await writer.close();
 
@@ -463,13 +578,25 @@ test('generation pairing: append-only WAL growth between the forensic rounds doe
     mockFsSyncForWal(walPath, {
       onStatSync: (call, real) => {
         if (call === 1) {
-          real.appendFileSync(walPath, encodeFrame({ type: TYPE_SET, key: Buffer.from('late'), value: Buffer.from('z') }));
+          real.appendFileSync(
+            walPath,
+            encodeFrame({ type: TYPE_SET, key: Buffer.from('late'), value: Buffer.from('z') }),
+          );
         }
       },
     });
     const { MiniDb: MockedMiniDb } = await import('../src/index.js');
-    const reader = await MockedMiniDb.open<string>({ dir, valueCodec: 'string', readOnly: true, indexGenerations: false });
-    assert.equal(reader.recoveryInfo!.generationRetries, 0, 'append-only growth must not be retried');
+    const reader = await MockedMiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      readOnly: true,
+      indexGenerations: false,
+    });
+    assert.equal(
+      reader.recoveryInfo!.generationRetries,
+      0,
+      'append-only growth must not be retried',
+    );
     assert.equal(reader.size, 50);
     // The late frame landed after the scan: outside the recovered view, to be
     // picked up by a later catch-up instead.
@@ -484,7 +611,13 @@ test('generation pairing: append-only WAL growth between the forensic rounds doe
 test('generation pairing (disk mode): a ValueReader attach to the wrong inode retries the whole recovery', async () => {
   const dir = await tmpDir();
   try {
-    const writer = await MiniDb.open<string>({ dir, valueCodec: 'string', valueMode: 'disk', fsyncPolicy: 'no', autoCompact: false });
+    const writer = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      valueMode: 'disk',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     for (let i = 0; i < 50; i++) await writer.set(`k${i}`, `v${i}`);
     await writer.close();
 
@@ -503,9 +636,19 @@ test('generation pairing (disk mode): a ValueReader attach to the wrong inode re
       },
     });
     const { MiniDb: MockedMiniDb } = await import('../src/index.js');
-    const reader = await MockedMiniDb.open<string>({ dir, valueCodec: 'string', valueMode: 'disk', readOnly: true, indexGenerations: false });
+    const reader = await MockedMiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      valueMode: 'disk',
+      readOnly: true,
+      indexGenerations: false,
+    });
     assert.equal(swaps, 1);
-    assert.equal(reader.recoveryInfo!.generationRetries, 1, 'the mismatched attach forced exactly one retry');
+    assert.equal(
+      reader.recoveryInfo!.generationRetries,
+      1,
+      'the mismatched attach forced exactly one retry',
+    );
     // Every pointer reads back the right bytes through the correctly-attached
     // reader.
     assert.equal(reader.size, 50);
@@ -521,7 +664,13 @@ test('generation pairing (disk mode): a failing ValueReader open() closes the pa
   try {
     // Seed with a snapshot on disk so the attach opens (and would leak) the
     // snapshot fd before the WAL open throws.
-    const writer = await MiniDb.open<string>({ dir, valueCodec: 'string', valueMode: 'disk', fsyncPolicy: 'no', autoCompact: false });
+    const writer = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      valueMode: 'disk',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     for (let i = 0; i < 50; i++) await writer.set(`k${i}`, `v${i}`);
     await writer.compact();
     await writer.close();
@@ -533,7 +682,8 @@ test('generation pairing (disk mode): a failing ValueReader open() closes the pa
     const walPath = path.join(dir, 'db.wal');
     mockFsSyncForWal(walPath, {
       onOpenSync: (call) => {
-        if (call === 2) throw Object.assign(new Error('injected wal open failure'), { code: 'EMFILE' });
+        if (call === 2)
+          throw Object.assign(new Error('injected wal open failure'), { code: 'EMFILE' });
       },
     });
     const { MiniDb: MockedMiniDb } = await import('../src/index.js');
@@ -546,16 +696,31 @@ test('generation pairing (disk mode): a failing ValueReader open() closes the pa
     };
     try {
       await assert.rejects(
-        MockedMiniDb.open<string>({ dir, valueCodec: 'string', valueMode: 'disk', readOnly: true, indexGenerations: false }),
+        MockedMiniDb.open<string>({
+          dir,
+          valueCodec: 'string',
+          valueMode: 'disk',
+          readOnly: true,
+          indexGenerations: false,
+        }),
         (e: unknown) => (e as { code?: string }).code === 'EMFILE',
       );
     } finally {
       ValueReader.prototype.close = origClose;
     }
-    assert.equal(closes, 1, 'the partially attached ValueReader was closed instead of leaking its snapshot fd');
+    assert.equal(
+      closes,
+      1,
+      'the partially attached ValueReader was closed instead of leaking its snapshot fd',
+    );
 
     // The injected failure was transient: a clean open recovers everything.
-    const db = await MiniDb.open<string>({ dir, valueCodec: 'string', valueMode: 'disk', readOnly: true });
+    const db = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      valueMode: 'disk',
+      readOnly: true,
+    });
     assert.equal(db.size, 50);
     assert.equal(db.get('k49'), 'v49');
     await db.close();
@@ -567,7 +732,13 @@ test('generation pairing (disk mode): a failing ValueReader open() closes the pa
 test('generation pairing: a stable writer costs a read-only open zero retries', async () => {
   const dir = await tmpDir();
   try {
-    const writer = await MiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false, indexGenerations: false });
+    const writer = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+      indexGenerations: false,
+    });
     for (let i = 0; i < 20; i++) await writer.set(`k${i}`, `v${i}`);
 
     const reader = await MiniDb.open<string>({ dir, valueCodec: 'string', readOnly: true });
@@ -580,68 +751,94 @@ test('generation pairing: a stable writer costs a read-only open zero retries', 
   }
 });
 
-test('a read-only open racing a compaction rotation always recovers one complete generation', { timeout: 30_000 }, async () => {
-  // Deterministic interleave, no sleeps: the writer's rotation is parked
-  // BETWEEN its two renames (the new snapshot is already in place, the old
-  // full WAL is still at db.wal) while the read-only open runs its whole
-  // recovery inside that window. The only consistent outcomes are one
-  // complete generation or the other — never a mix.
-  let armed = true;
-  let parked!: () => void;
-  let release!: () => void;
-  const parkedPromise = new Promise<void>((r) => (parked = r));
-  const gate = new Promise<void>((r) => (release = r));
-  const rename = async (src: PathLike, dst: PathLike): Promise<void> => {
-    if (armed && String(src).endsWith('db.wal.tmp') && String(dst).endsWith('db.wal')) {
-      armed = false;
-      parked();
-      await gate;
+test(
+  'a read-only open racing a compaction rotation always recovers one complete generation',
+  { timeout: 30_000 },
+  async () => {
+    // Deterministic interleave, no sleeps: the writer's rotation is parked
+    // BETWEEN its two renames (the new snapshot is already in place, the old
+    // full WAL is still at db.wal) while the read-only open runs its whole
+    // recovery inside that window. The only consistent outcomes are one
+    // complete generation or the other — never a mix.
+    let armed = true;
+    let parked!: () => void;
+    let release!: () => void;
+    const parkedPromise = new Promise<void>((r) => (parked = r));
+    const gate = new Promise<void>((r) => (release = r));
+    const rename = async (src: PathLike, dst: PathLike): Promise<void> => {
+      if (armed && String(src).endsWith('db.wal.tmp') && String(dst).endsWith('db.wal')) {
+        armed = false;
+        parked();
+        await gate;
+      }
+      return fs.rename(src, dst);
+    };
+    const mocked = { ...fs, rename };
+    vi.doMock('node:fs/promises', () => ({ ...mocked, default: mocked }));
+
+    const { MiniDb: MockedMiniDb } = await import('../src/index.js');
+    const dir = await tmpDir();
+    try {
+      const writer = await MockedMiniDb.open<string>({
+        dir,
+        valueCodec: 'string',
+        fsyncPolicy: 'no',
+        autoCompact: false,
+        indexGenerations: false,
+      });
+      const N = 100;
+      for (let i = 0; i < N; i++) await writer.set(`k${i}`, `v${i}`);
+
+      const compactPromise = writer.compact();
+      await parkedPromise; // the rotation is now parked between the two renames
+
+      // The reader opens in the mid-rotation window: new snapshot + old full
+      // WAL is a complete, consistent pairing (the replay is idempotent), and
+      // the stable window costs no retry.
+      const midReader = await MockedMiniDb.open<string>({
+        dir,
+        valueCodec: 'string',
+        readOnly: true,
+        indexGenerations: false,
+      });
+      assert.equal(midReader.size, N);
+      assert.equal(midReader.get('k0'), 'v0');
+      assert.equal(midReader.get(`k${N - 1}`), `v${N - 1}`);
+      assert.equal(midReader.recoveryInfo!.generationRetries, 0);
+      await midReader.close();
+
+      release();
+      await compactPromise;
+
+      // After the rotation, a fresh open recovers the new generation, complete.
+      const postReader = await MockedMiniDb.open<string>({
+        dir,
+        valueCodec: 'string',
+        readOnly: true,
+        indexGenerations: false,
+      });
+      assert.equal(postReader.size, N);
+      assert.equal(postReader.get('k0'), 'v0');
+      assert.equal(postReader.get(`k${N - 1}`), `v${N - 1}`);
+      assert.equal(postReader.recoveryInfo!.generationRetries, 0);
+      await postReader.close();
+      await writer.close();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
     }
-    return fs.rename(src, dst);
-  };
-  const mocked = { ...fs, rename };
-  vi.doMock('node:fs/promises', () => ({ ...mocked, default: mocked }));
-
-  const { MiniDb: MockedMiniDb } = await import('../src/index.js');
-  const dir = await tmpDir();
-  try {
-    const writer = await MockedMiniDb.open<string>({ dir, valueCodec: 'string', fsyncPolicy: 'no', autoCompact: false, indexGenerations: false });
-    const N = 100;
-    for (let i = 0; i < N; i++) await writer.set(`k${i}`, `v${i}`);
-
-    const compactPromise = writer.compact();
-    await parkedPromise; // the rotation is now parked between the two renames
-
-    // The reader opens in the mid-rotation window: new snapshot + old full
-    // WAL is a complete, consistent pairing (the replay is idempotent), and
-    // the stable window costs no retry.
-    const midReader = await MockedMiniDb.open<string>({ dir, valueCodec: 'string', readOnly: true, indexGenerations: false });
-    assert.equal(midReader.size, N);
-    assert.equal(midReader.get('k0'), 'v0');
-    assert.equal(midReader.get(`k${N - 1}`), `v${N - 1}`);
-    assert.equal(midReader.recoveryInfo!.generationRetries, 0);
-    await midReader.close();
-
-    release();
-    await compactPromise;
-
-    // After the rotation, a fresh open recovers the new generation, complete.
-    const postReader = await MockedMiniDb.open<string>({ dir, valueCodec: 'string', readOnly: true, indexGenerations: false });
-    assert.equal(postReader.size, N);
-    assert.equal(postReader.get('k0'), 'v0');
-    assert.equal(postReader.get(`k${N - 1}`), `v${N - 1}`);
-    assert.equal(postReader.recoveryInfo!.generationRetries, 0);
-    await postReader.close();
-    await writer.close();
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
-});
+  },
+);
 
 // ---- stage 6: async frame scanner -------------------------------------------
 
-import { scanFrameRefsFd, scanFrameRefsFdAsync, MAGIC, DEFAULT_RESYNC_CANDIDATE_BUDGET } from '../src/codec.js';
 import fsSync from 'node:fs';
+
+import {
+  scanFrameRefsFd,
+  scanFrameRefsFdAsync,
+  MAGIC,
+  DEFAULT_RESYNC_CANDIDATE_BUDGET,
+} from '../src/codec.js';
 
 test('async scanner: results match the sync scanner on clean and corrupt files', async () => {
   const dir = await tmpDir();
@@ -673,8 +870,22 @@ test('async scanner: results match the sync scanner on clean and corrupt files',
         fsSync.closeSync(fd2);
       }
       assert.deepEqual(
-        asyncRes.frames.map((f) => [f.type, f.frameOff, f.valueOff, f.valLen, f.frameLen, f.key.toString('binary')]),
-        syncRes.frames.map((f) => [f.type, f.frameOff, f.valueOff, f.valLen, f.frameLen, f.key.toString('binary')]),
+        asyncRes.frames.map((f) => [
+          f.type,
+          f.frameOff,
+          f.valueOff,
+          f.valLen,
+          f.frameLen,
+          f.key.toString('binary'),
+        ]),
+        syncRes.frames.map((f) => [
+          f.type,
+          f.frameOff,
+          f.valueOff,
+          f.valLen,
+          f.frameLen,
+          f.key.toString('binary'),
+        ]),
       );
       assert.deepEqual(asyncRes.corruptRanges, syncRes.corruptRanges);
       assert.equal(asyncRes.eofOffset, syncRes.eofOffset);
@@ -726,7 +937,13 @@ test('async scanner: cancellation aborts the scan with AbortError', async () => 
   try {
     // A file large enough to span many yield points.
     const big = Buffer.concat(
-      Array.from({ length: 200 }, (_, i) => encodeFrame({ type: TYPE_SET, key: Buffer.from(`k${i}`), value: Buffer.alloc(1 << 16, i & 0xff) })),
+      Array.from({ length: 200 }, (_, i) =>
+        encodeFrame({
+          type: TYPE_SET,
+          key: Buffer.from(`k${i}`),
+          value: Buffer.alloc(1 << 16, i & 0xff),
+        }),
+      ),
     );
     const walPath = path.join(dir, 'db.wal');
     await fs.writeFile(walPath, big);
@@ -734,7 +951,10 @@ test('async scanner: cancellation aborts the scan with AbortError', async () => 
     try {
       const controller = new AbortController();
       controller.abort(); // pre-aborted: the scan must not even start
-      await assert.rejects(scanFrameRefsFdAsync(fd, { signal: controller.signal }), (e) => (e as Error).name === 'AbortError');
+      await assert.rejects(
+        scanFrameRefsFdAsync(fd, { signal: controller.signal }),
+        (e) => (e as Error).name === 'AbortError',
+      );
     } finally {
       fsSync.closeSync(fd);
     }
@@ -803,7 +1023,13 @@ test('a generation WAL delta of large batch frames replays every op through the 
     let db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
     db.genBuildKickMinIntervalMs = Number.POSITIVE_INFINITY; // exactly one explicit generation
     for (let base = 0; base < 2000; base += 500) {
-      await db.batch(Array.from({ length: 500 }, (_, i) => ({ op: 'set' as const, key: `b${base + i}`, value: { n: base + i } })));
+      await db.batch(
+        Array.from({ length: 500 }, (_, i) => ({
+          op: 'set' as const,
+          key: `b${base + i}`,
+          value: { n: base + i },
+        })),
+      );
     }
     await db.rebuildGeneration();
     await db.close();
@@ -815,7 +1041,13 @@ test('a generation WAL delta of large batch frames replays every op through the 
     db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
     const gen = db.getIndexGeneration()?.id;
     for (let base = 0; base < 3000; base += 500) {
-      await db.batch(Array.from({ length: 500 }, (_, i) => ({ op: 'set' as const, key: `d${base + i}`, value: { n: base + i } })));
+      await db.batch(
+        Array.from({ length: 500 }, (_, i) => ({
+          op: 'set' as const,
+          key: `d${base + i}`,
+          value: { n: base + i },
+        })),
+      );
     }
     await db.close();
     assert.equal(db.getIndexGeneration()?.id, gen); // no close-time republish: the delta must be replayed

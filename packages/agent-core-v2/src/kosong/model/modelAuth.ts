@@ -31,7 +31,6 @@ import {
 } from '../provider/bases/anthropic/anthropic-profile';
 import type { ProviderConfig } from '../provider/provider';
 import { explainProviderEndpoint } from '../provider/providerDefinition';
-
 import type { ModelRecord } from './model';
 import type { ResolvedModelAuthMaterial } from './model.types';
 import { drivesThinkingThroughTraits } from './thinking';
@@ -99,10 +98,7 @@ export function resolveModelAuthMaterial(
   return {};
 }
 
-export function effectiveModelConfig(
-  model: ModelRecord,
-  providerType?: string,
-): ModelRecord {
+export function effectiveModelConfig(model: ModelRecord, providerType?: string): ModelRecord {
   const { overrides, ...base } = model;
   const effective: ModelRecord = overrides === undefined ? model : { ...base, ...overrides };
   if (
@@ -128,7 +124,9 @@ function withAnthropicProfile(model: ModelRecord, providerType?: string): ModelR
   const profile =
     wireName === undefined
       ? undefined
-      : providerType !== undefined && !drivesThinkingThroughTraits(providerType) && protocol === 'anthropic'
+      : providerType !== undefined &&
+          !drivesThinkingThroughTraits(providerType) &&
+          protocol === 'anthropic'
         ? (matchKnownAnthropicModelProfile(wireName) ?? matchUnknownClaudeProfile(wireName))
         : matchKnownAnthropicModelProfile(wireName);
   if (profile === undefined) return model;
@@ -144,8 +142,7 @@ function withAnthropicProfile(model: ModelRecord, providerType?: string): ModelR
     ...model,
     capabilities: hasCapability ? capabilities : [...capabilities, capability],
     supportEfforts,
-    defaultEffort:
-      model.defaultEffort ?? (supportEfforts.includes('high') ? 'high' : undefined),
+    defaultEffort: model.defaultEffort ?? (supportEfforts.includes('high') ? 'high' : undefined),
   };
 }
 

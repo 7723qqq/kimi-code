@@ -18,9 +18,7 @@ import { buildWebCommand } from './run';
 
 export function registerWebCommand(program: Command): void {
   const web = buildWebCommand(
-    program
-      .command('web')
-      .description('Run the local Kimi server and open the web UI.'),
+    program.command('web').description('Run the local Kimi server and open the web UI.'),
   );
   registerRotateTokenCommand(web);
   registerDeprecatedServerCommand(program);

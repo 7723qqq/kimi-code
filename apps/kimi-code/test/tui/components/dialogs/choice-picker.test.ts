@@ -168,8 +168,14 @@ describe('ChoicePickerComponent', () => {
       return picker.render(120).find((line) => strip(line).includes('Include your codebase'));
     };
 
-    const warningLine = currentTheme.fg('warning', '    Include your codebase for deeper diagnosis.');
-    const mutedLine = currentTheme.fg('textMuted', '    Include your codebase for deeper diagnosis.');
+    const warningLine = currentTheme.fg(
+      'warning',
+      '    Include your codebase for deeper diagnosis.',
+    );
+    const mutedLine = currentTheme.fg(
+      'textMuted',
+      '    Include your codebase for deeper diagnosis.',
+    );
 
     // Selected option: description uses the configured tone.
     expect(renderDescLine('logs+codebase')).toBe(warningLine);

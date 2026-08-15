@@ -7,8 +7,9 @@
      same. Dev tooling: labels are intentionally not localized. -->
 <script setup lang="ts">
 import { createApp, onBeforeUnmount, onMounted, ref, type App } from 'vue';
-import KapDebugView from './KapDebugView.vue';
+
 import Tooltip from '../components/ui/Tooltip.vue';
+import KapDebugView from './KapDebugView.vue';
 
 const isOpen = ref(false);
 
@@ -51,7 +52,11 @@ function setupPopupDocument(win: Window): HTMLElement {
 function teardown(): void {
   themeObserver?.disconnect();
   themeObserver = null;
-  try { kapApp?.unmount(); } catch { /* ignore */ }
+  try {
+    kapApp?.unmount();
+  } catch {
+    /* ignore */
+  }
   kapApp = null;
   kapWin = null;
   isOpen.value = false;
@@ -76,7 +81,10 @@ function openKapWindow(): void {
   themeObserver = new MutationObserver(() => {
     if (kapWin && !kapWin.closed) syncThemeAttrs(kapWin.document);
   });
-  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: [...THEME_ATTRS] });
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: [...THEME_ATTRS],
+  });
 
   win.addEventListener('pagehide', teardown);
   win.addEventListener('beforeunload', teardown);
@@ -97,9 +105,7 @@ onBeforeUnmount(() => {
 <template>
   <!-- The launcher stays in the corner: opens the KAP window, or refocuses it. -->
   <Tooltip :text="isOpen ? 'Focus KAP debug window' : 'Open KAP debug window'">
-    <button class="kap-fab" type="button" @click="openKapWindow">
-      KAP
-    </button>
+    <button class="kap-fab" type="button" @click="openKapWindow">KAP</button>
   </Tooltip>
 </template>
 
@@ -121,5 +127,8 @@ onBeforeUnmount(() => {
   cursor: pointer;
   opacity: 0.75;
 }
-.kap-fab:hover { opacity: 1; color: var(--color-accent); }
+.kap-fab:hover {
+  opacity: 1;
+  color: var(--color-accent);
+}
 </style>

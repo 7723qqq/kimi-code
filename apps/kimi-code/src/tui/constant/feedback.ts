@@ -7,9 +7,8 @@
  * visual contract.
  */
 
-import { t } from '#/i18n';
-
 import { FEEDBACK_VERSION_PREFIX } from '#/constant/app';
+import { t } from '#/i18n';
 
 export {
   FEEDBACK_ISSUE_URL,

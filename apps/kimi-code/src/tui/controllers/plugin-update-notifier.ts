@@ -10,6 +10,7 @@ import {
   readPluginUpdateNoticeState,
   writePluginUpdateNoticeState,
 } from '#/utils/plugin-update-notice-state';
+
 import { isOfficialPluginInstall } from '../utils/plugin-source-label';
 
 /**

@@ -9,22 +9,20 @@
  * turn driving itself is delegated to a pure helper. Bound at Session scope.
  */
 
-import { Service } from '#/_base/di/service';
-import { Error2, ErrorCodes } from '#/errors';
 import { t } from '@moonshot-ai/kimi-i18n';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  type IAgentScopeHandle,
-  ScopeActivation,
-  registerScopedService,
-} from '#/_base/di/scope';
+
+import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { Emitter } from '#/_base/event';
-import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { LifecycleScope } from '#/app/scopes';
+import { Error2, ErrorCodes } from '#/errors';
 import { createHooks } from '#/hooks';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 
+import { runAgentTurn } from './runAgentTurn';
 import {
   type AgentRunHandle,
   type AgentRunRequest,
@@ -33,7 +31,6 @@ import {
   ISessionSubagentService,
   type RunAgentOptions,
 } from './subagent';
-import { runAgentTurn } from './runAgentTurn';
 
 export class SessionSubagentService extends Service implements ISessionSubagentService {
   declare readonly _serviceBrand: undefined;

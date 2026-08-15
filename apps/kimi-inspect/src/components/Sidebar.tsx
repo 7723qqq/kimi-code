@@ -12,12 +12,12 @@
 import { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
 import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
 import { ISessionIndex } from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
-import { ISessionLifecycleService } from '@moonshot-ai/agent-core-v2/workspace/sessionLifecycle/sessionLifecycle';
 import {
   IWorkspaceService,
   type Workspace,
 } from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
 import { IModelCatalog } from '@moonshot-ai/agent-core-v2/kosong/model/catalog';
+import { ISessionLifecycleService } from '@moonshot-ai/agent-core-v2/workspace/sessionLifecycle/sessionLifecycle';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
@@ -197,7 +197,10 @@ export function Sidebar({
     refetchInterval: 15_000,
   });
 
-  const items = useMemo(() => sessions.data?.pages.flatMap((page) => page.items) ?? [], [sessions.data]);
+  const items = useMemo(
+    () => sessions.data?.pages.flatMap((page) => page.items) ?? [],
+    [sessions.data],
+  );
 
   const createSession = async (ws: Workspace | null) => {
     // With a workspace, the server derives workDir from workspace.root, so no cwd is needed.
@@ -250,7 +253,9 @@ export function Sidebar({
 
   const onSortClick = (column: ColumnId) => {
     if (column === 'updated') {
-      setSort((s) => (s === 'meta.updated_at_desc' ? 'meta.updated_at_asc' : 'meta.updated_at_desc'));
+      setSort((s) =>
+        s === 'meta.updated_at_desc' ? 'meta.updated_at_asc' : 'meta.updated_at_desc',
+      );
     } else if (column === 'created') {
       setSort('meta.created_at_desc');
     }
@@ -299,10 +304,7 @@ export function Sidebar({
       {/* Toolbar: new session + column config */}
       <div className="flex items-center justify-between border-b border-neutral-800 px-2 py-1">
         <NewSessionMenu workspaces={workspaces.data ?? []} onCreate={createSession} />
-        <ColumnMenu
-          visible={visibleColumns}
-          onToggle={toggleColumn}
-        />
+        <ColumnMenu visible={visibleColumns} onToggle={toggleColumn} />
       </div>
 
       {/* Header row */}

@@ -5,11 +5,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
+
 import { copyTextToClipboard } from '../../lib/clipboard';
+import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
 import Button from '../ui/Button.vue';
-import IconButton from '../ui/IconButton.vue';
 import Icon from '../ui/Icon.vue';
+import IconButton from '../ui/IconButton.vue';
 import Menu from '../ui/Menu.vue';
 import MenuItem from '../ui/MenuItem.vue';
 import Tooltip from '../ui/Tooltip.vue';
@@ -32,7 +33,9 @@ function isMacOS(): boolean {
   try {
     // @ts-expect-error userAgentData is experimental
     if (navigator.userAgentData?.platform === 'macOS') return true;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return false;
 }
 
@@ -51,7 +54,9 @@ function compactPath(path: string, maxLength = 22): string {
 }
 
 const hasWorkDir = computed(() => Boolean(props.workDir && props.workDir.trim().length > 0));
-const displayPath = computed(() => (hasWorkDir.value ? compactPath(props.workDir!) : 'No directory'));
+const displayPath = computed(() =>
+  hasWorkDir.value ? compactPath(props.workDir!) : 'No directory',
+);
 
 const TARGETS: Array<{ id: TargetId; label: string; macOnly?: boolean }> = [
   { id: 'finder', label: 'Finder', macOnly: true },
@@ -92,11 +97,15 @@ loadLastTarget();
 function saveLastTarget(id: TargetId): void {
   try {
     safeSetString(LAST_TARGET_KEY, id);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   lastTargetId.value = id;
 }
 
-const lastTarget = computed(() => visibleTargets.value.find((t) => t.id === lastTargetId.value) ?? null);
+const lastTarget = computed(
+  () => visibleTargets.value.find((t) => t.id === lastTargetId.value) ?? null,
+);
 
 // Menu state
 const menuOpen = ref(false);
@@ -171,29 +180,23 @@ async function copyPath(): Promise<void> {
   const ok = await copyTextToClipboard(props.workDir);
   if (!ok) return;
   copiedPath.value = true;
-  setTimeout(() => { copiedPath.value = false; }, 1200);
+  setTimeout(() => {
+    copiedPath.value = false;
+  }, 1200);
 }
 </script>
 
 <template>
   <div v-if="isMac" class="open-group">
     <Tooltip :text="workDir ?? ''">
-      <span
-        class="open-label"
-        :class="{ muted: !hasWorkDir }"
-      >
+      <span class="open-label" :class="{ muted: !hasWorkDir }">
         <Icon name="folder" size="sm" />
         <span class="open-path">{{ displayPath }}</span>
       </span>
     </Tooltip>
 
     <Tooltip :text="lastTarget ? `Open in ${lastTarget.label}` : t('header.openInEditor')">
-      <Button
-        size="sm"
-        variant="secondary"
-        :disabled="!hasWorkDir"
-        @click.stop="handleQuickOpen"
-      >
+      <Button size="sm" variant="secondary" :disabled="!hasWorkDir" @click.stop="handleQuickOpen">
         {{ t('header.openInEditorShort') }}
       </Button>
     </Tooltip>
@@ -209,13 +212,7 @@ async function copyPath(): Promise<void> {
       <Icon name="chevron-down" size="sm" />
     </IconButton>
 
-    <Menu
-      v-if="menuOpen"
-      ref="menuRef"
-      class="open-menu"
-      :style="menuStyle"
-      @click.stop
-    >
+    <Menu v-if="menuOpen" ref="menuRef" class="open-menu" :style="menuStyle" @click.stop>
       <MenuItem
         v-for="target in visibleTargets"
         :key="target.id"
@@ -234,12 +231,7 @@ async function copyPath(): Promise<void> {
 
   <!-- Non-mac fallback: maintain the previous simple open-in-editor button -->
   <Tooltip :text="t('header.openInEditor')">
-    <button
-      v-else
-      type="button"
-      class="open-fallback"
-      @click="emit('openInApp', 'vscode')"
-    >
+    <button v-else type="button" class="open-fallback" @click="emit('openInApp', 'vscode')">
       <Icon name="external-link" size="sm" />
       <span class="open-fallback-label">{{ t('header.openInEditorShort') }}</span>
     </button>
@@ -266,8 +258,12 @@ async function copyPath(): Promise<void> {
   color: var(--dim);
   max-width: 180px;
 }
-.open-label.muted { color: var(--muted); }
-.open-label svg { flex: none; }
+.open-label.muted {
+  color: var(--muted);
+}
+.open-label svg {
+  flex: none;
+}
 .open-path {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -279,7 +275,13 @@ async function copyPath(): Promise<void> {
   left: 0;
   z-index: var(--z-dropdown);
 }
-.om-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.om-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .om-last {
   flex: none;
   font-size: max(9px, calc(var(--ui-font-size) - 4px));
@@ -300,16 +302,24 @@ async function copyPath(): Promise<void> {
   padding: 0;
   cursor: pointer;
 }
-.open-fallback:hover { color: var(--color-text); }
-.open-fallback svg { flex: none; }
+.open-fallback:hover {
+  color: var(--color-text);
+}
+.open-fallback svg {
+  flex: none;
+}
 
 @media (max-width: 980px) {
   .open-fallback-label,
   .open-path,
-  .open-quick { display: none; }
+  .open-quick {
+    display: none;
+  }
 }
 @media (max-width: 640px) {
   .open-group,
-  .open-fallback { display: none; }
+  .open-fallback {
+    display: none;
+  }
 }
 </style>

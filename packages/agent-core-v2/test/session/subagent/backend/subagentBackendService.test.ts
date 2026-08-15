@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { acpStopReason } from '#/session/subagent/backend/acpBackend';
-import { SubagentBackendService } from '#/session/subagent/backend/subagentBackendService';
 import type { IConfigService } from '#/app/config/config';
 import type { ISessionProcessRunner } from '#/session/process/processRunner';
+import { acpStopReason } from '#/session/subagent/backend/acpBackend';
+import { SubagentBackendService } from '#/session/subagent/backend/subagentBackendService';
 
 describe('acpStopReason', () => {
   it('maps ACP stop reasons to backend stop reasons', () => {
@@ -21,7 +21,12 @@ describe('SubagentBackendService', () => {
       {} as ISessionProcessRunner,
       { get: () => undefined } as unknown as IConfigService,
     );
-    expect(service.list().map((backend) => backend.name).toSorted()).toEqual(['acp', 'claude-code', 'codex']);
+    expect(
+      service
+        .list()
+        .map((backend) => backend.name)
+        .toSorted(),
+    ).toEqual(['acp', 'claude-code', 'codex']);
     expect(service.getBackend('codex')?.name).toBe('codex');
     expect(service.getBackend('claude-code')?.name).toBe('claude-code');
     expect(service.getBackend('acp')?.name).toBe('acp');

@@ -3,14 +3,15 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, provide, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import Markdown from './chat/Markdown.vue';
-import type { FileData, FilePreviewRequest } from '../types';
+
 import { copyTextToClipboard } from '../lib/clipboard';
-import SegmentedControl from './ui/SegmentedControl.vue';
+import type { FileData, FilePreviewRequest } from '../types';
+import Markdown from './chat/Markdown.vue';
 import Button from './ui/Button.vue';
-import IconButton from './ui/IconButton.vue';
 import Icon from './ui/Icon.vue';
+import IconButton from './ui/IconButton.vue';
 import PanelHeader from './ui/PanelHeader.vue';
+import SegmentedControl from './ui/SegmentedControl.vue';
 import Tooltip from './ui/Tooltip.vue';
 
 const { t } = useI18n();
@@ -32,7 +33,10 @@ function resolveRelativePath(src: string, base: string): string {
 
 // Wrap the app-level image resolver so that relative image paths inside a
 // Markdown file are resolved against that file's directory.
-const parentResolveImage = inject<(src: string) => Promise<string>>('resolveImage', async (src: string) => src);
+const parentResolveImage = inject<(src: string) => Promise<string>>(
+  'resolveImage',
+  async (src: string) => src,
+);
 const markdownBaseDir = computed(() => {
   const path = props.file?.path ?? '';
   const lastSlash = path.lastIndexOf('/');
@@ -98,7 +102,16 @@ const rootRef = ref<HTMLElement | null>(null);
 // Content type detection
 // ---------------------------------------------------------------------------
 
-type ContentKind = 'markdown' | 'json' | 'html' | 'pdf' | 'csv' | 'image' | 'video' | 'text' | 'binary';
+type ContentKind =
+  | 'markdown'
+  | 'json'
+  | 'html'
+  | 'pdf'
+  | 'csv'
+  | 'image'
+  | 'video'
+  | 'text'
+  | 'binary';
 
 const contentKind = computed<ContentKind>(() => {
   const f = props.file;
@@ -107,9 +120,21 @@ const contentKind = computed<ContentKind>(() => {
   const lang = f.languageId ?? '';
   const lowerPath = f.path.toLowerCase();
 
-  if (mime === 'text/markdown' || lang === 'markdown' || lang === 'md' || lowerPath.endsWith('.mdx')) return 'markdown';
+  if (
+    mime === 'text/markdown' ||
+    lang === 'markdown' ||
+    lang === 'md' ||
+    lowerPath.endsWith('.mdx')
+  )
+    return 'markdown';
   if (mime === 'application/json' || lang === 'json') return 'json';
-  if (mime === 'text/html' || lang === 'html' || lowerPath.endsWith('.html') || lowerPath.endsWith('.htm')) return 'html';
+  if (
+    mime === 'text/html' ||
+    lang === 'html' ||
+    lowerPath.endsWith('.html') ||
+    lowerPath.endsWith('.htm')
+  )
+    return 'html';
   if (mime === 'application/pdf' || lowerPath.endsWith('.pdf')) return 'pdf';
   if (mime === 'text/csv' || lang === 'csv' || lowerPath.endsWith('.csv')) return 'csv';
   if (mime.startsWith('image/')) return 'image';
@@ -262,7 +287,9 @@ function copyContent(): void {
   void copyTextToClipboard(sourceText.value).then((ok) => {
     if (!ok) return;
     copied.value = true;
-    setTimeout(() => { copied.value = false; }, 1400);
+    setTimeout(() => {
+      copied.value = false;
+    }, 1400);
   });
 }
 
@@ -271,7 +298,9 @@ function copyPath(): void {
   void copyTextToClipboard(props.file.path).then((ok) => {
     if (!ok) return;
     copiedPath.value = true;
-    setTimeout(() => { copiedPath.value = false; }, 1400);
+    setTimeout(() => {
+      copiedPath.value = false;
+    }, 1400);
   });
 }
 
@@ -389,7 +418,10 @@ function highlightLine(line: string): string {
   }
 
   if (contentKind.value === 'html' || lang === 'html' || lang === 'xml' || lang === 'svg') {
-    html = html.replace(/\s([A-Za-z_:][-A-Za-z0-9_:.]*)(=)/g, ' <span class="tok-attr">$1</span>$2');
+    html = html.replace(
+      /\s([A-Za-z_:][-A-Za-z0-9_:.]*)(=)/g,
+      ' <span class="tok-attr">$1</span>$2',
+    );
     html = html.replace(/(&quot;.*?&quot;)/g, '<span class="tok-string">$1</span>');
     html = html.replace(/(&lt;\/?)([A-Za-z][\w:-]*)/g, '$1<span class="tok-tag">$2</span>');
     return html;
@@ -448,7 +480,9 @@ function truncatePath(path: string, maxLen = 55): string {
           <span class="fp-path">{{ truncatePath(file.path) }}</span>
         </Tooltip>
         <span class="fp-meta">
-          <span v-if="file.lineCount" class="fp-lines">{{ t('filePreview.lineCount', { count: file.lineCount }) }}</span>
+          <span v-if="file.lineCount" class="fp-lines">{{
+            t('filePreview.lineCount', { count: file.lineCount })
+          }}</span>
           <span class="fp-size">{{ formatSize(file.size) }}</span>
         </span>
         <SegmentedControl
@@ -481,7 +515,15 @@ function truncatePath(path: string, maxLen = 55): string {
           ]"
           @update:model-value="setImageFit"
         />
-        <div v-if="contentKind === 'text' || contentKind === 'json' || contentKind === 'html' || contentKind === 'csv'" class="fp-search">
+        <div
+          v-if="
+            contentKind === 'text' ||
+            contentKind === 'json' ||
+            contentKind === 'html' ||
+            contentKind === 'csv'
+          "
+          class="fp-search"
+        >
           <input
             v-model="searchQuery"
             class="fp-search-input"
@@ -491,23 +533,48 @@ function truncatePath(path: string, maxLen = 55): string {
           <span v-if="searchQuery.trim()" class="fp-search-count">
             {{ searchMatches.length }}
           </span>
-          <IconButton size="sm" :disabled="searchMatches.length === 0" :label="t('filePreview.prevMatch')" @click="nextMatch(-1)">
+          <IconButton
+            size="sm"
+            :disabled="searchMatches.length === 0"
+            :label="t('filePreview.prevMatch')"
+            @click="nextMatch(-1)"
+          >
             <Icon name="arrow-up" size="md" />
           </IconButton>
-          <IconButton size="sm" :disabled="searchMatches.length === 0" :label="t('filePreview.nextMatch')" @click="nextMatch(1)">
+          <IconButton
+            size="sm"
+            :disabled="searchMatches.length === 0"
+            :label="t('filePreview.nextMatch')"
+            @click="nextMatch(1)"
+          >
             <Icon name="arrow-down" size="md" />
           </IconButton>
         </div>
         <!-- Icon actions: text labels made the header wrap to two rows at the
              default panel width — icon-only buttons keep it single-line. -->
-        <IconButton size="sm" :class="{ copied: copiedPath }" :label="copiedPath ? t('filePreview.copied') : t('filePreview.copyPath')" @click="copyPath">
+        <IconButton
+          size="sm"
+          :class="{ copied: copiedPath }"
+          :label="copiedPath ? t('filePreview.copied') : t('filePreview.copyPath')"
+          @click="copyPath"
+        >
           <Icon v-if="!copiedPath" name="link" size="md" />
           <Icon v-else class="fp-check" name="check" size="md" />
         </IconButton>
-        <IconButton v-if="externalActions" size="sm" :label="t('filePreview.openInEditor')" @click="emit('openExternal')">
+        <IconButton
+          v-if="externalActions"
+          size="sm"
+          :label="t('filePreview.openInEditor')"
+          @click="emit('openExternal')"
+        >
           <Icon name="external-link" size="md" />
         </IconButton>
-        <IconButton v-if="externalActions" size="sm" :label="t('filePreview.reveal')" @click="emit('reveal')">
+        <IconButton
+          v-if="externalActions"
+          size="sm"
+          :label="t('filePreview.reveal')"
+          @click="emit('reveal')"
+        >
           <Icon name="folder" size="md" />
         </IconButton>
         <a
@@ -534,7 +601,11 @@ function truncatePath(path: string, maxLen = 55): string {
       </PanelHeader>
 
       <!-- Body: Markdown -->
-      <div v-if="contentKind === 'markdown'" class="fp-body" :class="{ 'fp-markdown': markdownMode === 'preview' }">
+      <div
+        v-if="contentKind === 'markdown'"
+        class="fp-body"
+        :class="{ 'fp-markdown': markdownMode === 'preview' }"
+      >
         <Markdown
           v-if="markdownMode === 'preview'"
           :text="decodedContent"
@@ -609,7 +680,12 @@ function truncatePath(path: string, maxLen = 55): string {
       <div v-else-if="contentKind === 'csv'" class="fp-body fp-table-wrap">
         <table class="fp-table">
           <tbody>
-            <tr v-for="(row, ri) in csvRows" :key="ri" :class="lineClass(ri + 1)" :data-line="ri + 1">
+            <tr
+              v-for="(row, ri) in csvRows"
+              :key="ri"
+              :class="lineClass(ri + 1)"
+              :data-line="ri + 1"
+            >
               <th>{{ ri + 1 }}</th>
               <td v-for="(cell, ci) in row" :key="ci">{{ cell }}</td>
             </tr>
@@ -631,7 +707,9 @@ function truncatePath(path: string, maxLen = 55): string {
           <span class="fp-binary-icon">
             <Icon name="image-off" size="lg" />
           </span>
-          <span class="fp-binary-label">{{ t('filePreview.imageNoPreview', { mime: file.mime, size: formatSize(file.size) }) }}</span>
+          <span class="fp-binary-label">{{
+            t('filePreview.imageNoPreview', { mime: file.mime, size: formatSize(file.size) })
+          }}</span>
         </div>
       </div>
 
@@ -644,7 +722,9 @@ function truncatePath(path: string, maxLen = 55): string {
           <span class="fp-binary-icon">
             <Icon name="image-off" size="lg" />
           </span>
-          <span class="fp-binary-label">{{ t('filePreview.videoNoPreview', { mime: file.mime, size: formatSize(file.size) }) }}</span>
+          <span class="fp-binary-label">{{
+            t('filePreview.videoNoPreview', { mime: file.mime, size: formatSize(file.size) })
+          }}</span>
         </div>
       </div>
 
@@ -671,7 +751,12 @@ function truncatePath(path: string, maxLen = 55): string {
             <Icon name="file-off" size="lg" />
           </span>
           <span class="fp-binary-label">
-            {{ t('filePreview.binaryNoPreview', { mime: file.mime || t('filePreview.unknownType'), size: formatSize(file.size) }) }}
+            {{
+              t('filePreview.binaryNoPreview', {
+                mime: file.mime || t('filePreview.unknownType'),
+                size: formatSize(file.size),
+              })
+            }}
           </span>
         </div>
       </div>
@@ -881,12 +966,24 @@ function truncatePath(path: string, maxLen = 55): string {
   color: var(--fp-token-keyword);
   font-weight: 500;
 }
-.fp-line-text :deep(.tok-string) { color: var(--fp-token-string); }
+.fp-line-text :deep(.tok-string) {
+  color: var(--fp-token-string);
+}
 .fp-line-text :deep(.tok-number),
-.fp-line-text :deep(.tok-literal) { color: var(--fp-token-literal); }
-.fp-line-text :deep(.tok-comment) { color: var(--muted); font-style: italic; }
-.fp-line-text :deep(.tok-tag) { color: var(--fp-token-tag); font-weight: 500; }
-.fp-line-text :deep(.tok-attr) { color: var(--fp-token-literal); }
+.fp-line-text :deep(.tok-literal) {
+  color: var(--fp-token-literal);
+}
+.fp-line-text :deep(.tok-comment) {
+  color: var(--muted);
+  font-style: italic;
+}
+.fp-line-text :deep(.tok-tag) {
+  color: var(--fp-token-tag);
+  font-weight: 500;
+}
+.fp-line-text :deep(.tok-attr) {
+  color: var(--fp-token-literal);
+}
 
 /* ---- HTML / PDF ---- */
 .fp-html-frame,
@@ -983,7 +1080,11 @@ function truncatePath(path: string, maxLen = 55): string {
 }
 
 /* ---- Spinner ---- */
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 .spinner {
   display: inline-block;
@@ -1001,15 +1102,32 @@ function truncatePath(path: string, maxLen = 55): string {
 @media (max-width: 640px) {
   /* Hide the line-count chip on the narrowest screens to keep the header tidy;
      the size chip + copy stay. */
-  .fp-lines { display: none; }
-  .fp-markdown { padding: 14px 16px; }
-  .fp-body.fp-code { -webkit-overflow-scrolling: touch; }
+  .fp-lines {
+    display: none;
+  }
+  .fp-markdown {
+    padding: 14px 16px;
+  }
+  .fp-body.fp-code {
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 .fp-empty,
-.fp-loading { font-family: var(--sans); }
-.fp-binary-card { border: 1px solid var(--color-line); border-radius: var(--radius-md); }
-.fp-binary-label { font-family: var(--sans); }
-.fp-image { border-radius: var(--radius-md); }
-.seg-btn { font-family: var(--sans); }
+.fp-loading {
+  font-family: var(--sans);
+}
+.fp-binary-card {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+.fp-binary-label {
+  font-family: var(--sans);
+}
+.fp-image {
+  border-radius: var(--radius-md);
+}
+.seg-btn {
+  font-family: var(--sans);
+}
 </style>

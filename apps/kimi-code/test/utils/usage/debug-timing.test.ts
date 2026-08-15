@@ -83,9 +83,7 @@ describe('formatStepDebugTiming', () => {
       llmStreamDurationMs: 1,
       usage: { output: 44 },
     });
-    expect(result).toBe(
-      '[Debug] TTFT: 1.2s | 44 tokens in 1ms (stream too short for TPS)',
-    );
+    expect(result).toBe('[Debug] TTFT: 1.2s | 44 tokens in 1ms (stream too short for TPS)');
   });
 
   it('computes TPS once the streamed window reaches the reliability threshold', () => {

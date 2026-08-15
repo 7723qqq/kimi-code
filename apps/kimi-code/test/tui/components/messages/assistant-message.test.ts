@@ -3,8 +3,8 @@ import * as cliHighlight from 'cli-highlight';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
-import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { STREAMING_MARKDOWN_TAIL_CHARS } from '#/tui/constant/streaming';
+import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import { setMarkdownRenderLatex } from '#/tui/utils/markdown-options';
 
@@ -19,9 +19,7 @@ vi.mock('cli-highlight', async () => {
 });
 
 function strip(text: string): string {
-  return text
-    .replaceAll(/\u001B\[[0-9;]*m/g, '')
-    .replaceAll(/\u001B\]133;[ABC]\u0007/g, '');
+  return text.replaceAll(/\u001B\[[0-9;]*m/g, '').replaceAll(/\u001B\]133;[ABC]\u0007/g, '');
 }
 
 describe('AssistantMessageComponent', () => {
@@ -124,9 +122,7 @@ describe('AssistantMessageComponent', () => {
     const streamingChild = (component as any).contentContainer.children[0] as Markdown;
     expect((streamingChild as any).text.length).toBeLessThanOrEqual(STREAMING_MARKDOWN_TAIL_CHARS);
     // The streaming view is bounded, so re-lexing it per flush stays cheap.
-    expect((streamingChild as any).text).toBe(
-      big.slice(-STREAMING_MARKDOWN_TAIL_CHARS).trim(),
-    );
+    expect((streamingChild as any).text).toBe(big.slice(-STREAMING_MARKDOWN_TAIL_CHARS).trim());
 
     component.updateContent(big, { transient: false });
     const finalizedChild = (component as any).contentContainer.children[0] as Markdown;

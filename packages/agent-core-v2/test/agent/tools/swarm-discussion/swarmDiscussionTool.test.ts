@@ -1,20 +1,20 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { setLocale } from '@moonshot-ai/kimi-i18n';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
+import {
+  IAgentSwarmDiscussionTool,
+  SwarmDiscussionToolInputSchema,
+} from '#/agent/tools/swarm-discussion/swarm-discussion';
+import { SwarmDiscussionTool } from '#/agent/tools/swarm-discussion/swarmDiscussionTool';
 import type { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import type {
   IPersistentSubagentService,
   PersistentSubagentHost,
   PersistentSubagentSpawnOptions,
 } from '#/session/subagent/persistentSubagent';
-import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
 import type { ExecutableToolContext } from '#/tool/toolContract';
-import {
-  IAgentSwarmDiscussionTool,
-  SwarmDiscussionToolInputSchema,
-} from '#/agent/tools/swarm-discussion/swarm-discussion';
-import { SwarmDiscussionTool } from '#/agent/tools/swarm-discussion/swarmDiscussionTool';
 
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
@@ -77,10 +77,7 @@ function createTool(stubs: ToolStubs): SwarmDiscussionTool {
   );
 }
 
-function context<Input>(
-  args: Input,
-  toolCallId = 'call_discussion',
-): TestContext<Input> {
+function context<Input>(args: Input, toolCallId = 'call_discussion'): TestContext<Input> {
   return { turnId: 0, toolCallId, args, signal };
 }
 
@@ -237,7 +234,9 @@ describe('SwarmDiscussionTool', () => {
     expect(result.isError).toBeUndefined();
     const output = result.output as string;
     expect(output).toContain('<debate_result>');
-    expect(output).toContain('<summary>speeches: 6, phases: 3, cross_refs: 0, position_changes: 2, status: completed</summary>');
+    expect(output).toContain(
+      '<summary>speeches: 6, phases: 3, cross_refs: 0, position_changes: 2, status: completed</summary>',
+    );
     expect(output).toContain('<phase name="opening" speeches="2" />');
     expect(output).toContain('<phase name="free_debate" speeches="2" />');
     expect(output).toContain('<phase name="closing" speeches="2" />');
@@ -278,8 +277,9 @@ describe('SwarmDiscussionTool', () => {
     expect(IAgentSwarmDiscussionTool).toBeDefined();
     expect(typeof IAgentSwarmDiscussionTool).toBe('function');
     expect(
-      getAgentToolContributions().some((contribution) => contribution.options.name === 'SwarmDiscussion'),
+      getAgentToolContributions().some(
+        (contribution) => contribution.options.name === 'SwarmDiscussion',
+      ),
     ).toBe(true);
   });
 });
-

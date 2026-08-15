@@ -141,7 +141,10 @@ export class DaemonEventSocket {
     };
 
     ws.onclose = (ev?: CloseEvent) => {
-      traceWsLifecycle('close', ev ? { code: ev.code, reason: ev.reason, wasClean: ev.wasClean } : undefined);
+      traceWsLifecycle(
+        'close',
+        ev ? { code: ev.code, reason: ev.reason, wasClean: ev.wasClean } : undefined,
+      );
       this.connected = false;
       this.ws = null;
       this.handlers.onConnectionState(false);

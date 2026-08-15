@@ -68,10 +68,10 @@ class ScriptedStream {
     const hasToolCall = this.parts.some((p) => p.type === 'function');
     this.id = `scripted-${String(this.index)}`;
     this.usage = { ...ZERO_USAGE, output: this.parts.length };
-    this.finishReason =
-      this.response.finishReason ?? (hasToolCall ? 'tool_calls' : 'completed');
+    this.finishReason = this.response.finishReason ?? (hasToolCall ? 'tool_calls' : 'completed');
     this.rawFinishReason =
-      this.response.rawFinishReason ?? (this.finishReason === 'completed' ? 'stop' : this.finishReason);
+      this.response.rawFinishReason ??
+      (this.finishReason === 'completed' ? 'stop' : this.finishReason);
   }
 }
 

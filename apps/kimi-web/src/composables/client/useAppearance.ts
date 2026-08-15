@@ -5,6 +5,7 @@
 // singletons so the whole app shares one instance.
 
 import { ref, watch } from 'vue';
+
 import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
 
 /** Color scheme: 'light', 'dark', or follow the OS preference ('system'). */

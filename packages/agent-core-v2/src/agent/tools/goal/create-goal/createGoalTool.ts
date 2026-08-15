@@ -11,23 +11,21 @@
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { type ToolExecution } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-
 import { IAgentGoalService } from '#/agent/goal/goal';
 import { goalForModel } from '#/agent/goal/tools/serialize';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { type ToolExecution } from '#/tool/toolContract';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
-import DESCRIPTION from './create-goal.md?raw';
 import {
   CreateGoalToolInputSchema,
   ICreateGoalTool,
   type CreateGoalToolInput,
 } from './create-goal';
+import DESCRIPTION from './create-goal.md?raw';
 
 export class CreateGoalTool implements ICreateGoalTool {
   declare readonly _serviceBrand: undefined;
@@ -62,7 +60,7 @@ export class CreateGoalTool implements ICreateGoalTool {
             output:
               'Completion criterion is required and must be at least 10 characters. ' +
               'Provide a concrete, verifiable check — e.g. what test to run, what command should succeed, ' +
-              'what condition must hold. If the user\'s request is vague, ask them via AskUserQuestion first.',
+              "what condition must hold. If the user's request is vague, ask them via AskUserQuestion first.",
           };
         }
         const snapshot = await this.goal.createGoal(

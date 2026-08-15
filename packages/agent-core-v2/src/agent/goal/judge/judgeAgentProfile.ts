@@ -10,9 +10,9 @@
  * `AgentGoalJudgeService` when launching a verification subagent.
  */
 
-import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 import type { AgentProfileContext } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import type { AgentProfileInput } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 
 export const GOAL_JUDGE_PROFILE_NAME = 'goal-judge';
 

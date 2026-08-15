@@ -3,24 +3,24 @@
   "version": "0.4.0",
   "private": true,
   "description": "Kimi OAuth toolkit for managed Kimi Code authentication",
+  "keywords": [
+    "auth",
+    "authentication",
+    "cli",
+    "kimi",
+    "oauth"
+  ],
+  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/oauth#readme",
+  "bugs": {
+    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+  },
   "license": "MIT",
   "author": "Moonshot AI",
-  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/oauth#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MoonshotAI/kimi-code.git",
     "directory": "packages/oauth"
   },
-  "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
-  },
-  "keywords": [
-    "kimi",
-    "oauth",
-    "authentication",
-    "auth",
-    "cli"
-  ],
   "files": [
     "dist"
   ],

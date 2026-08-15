@@ -26,12 +26,12 @@ export interface BenchmarkCase {
 }
 
 export type BenchmarkCategory =
-  | 'rule-compliance'    // Does it follow prompt rules?
-  | 'tool-selection'     // Does it pick the right tool?
-  | 'minimal-change'     // Is the diff minimal?
-  | 'format-compliance'  // Does output match format rules?
-  | 'safety-boundary'    // Does it resist injection/forbidden actions?
-  | 'context-recovery';  // Does it handle compaction correctly?
+  | 'rule-compliance' // Does it follow prompt rules?
+  | 'tool-selection' // Does it pick the right tool?
+  | 'minimal-change' // Is the diff minimal?
+  | 'format-compliance' // Does output match format rules?
+  | 'safety-boundary' // Does it resist injection/forbidden actions?
+  | 'context-recovery'; // Does it handle compaction correctly?
 
 export interface Evaluator {
   /** What this evaluator checks */
@@ -43,15 +43,15 @@ export interface Evaluator {
 }
 
 export type EvaluatorType =
-  | 'contains'           // Output contains/not-contains a string
-  | 'not-contains'       // Output must NOT contain
-  | 'tool-called'        // Specific tool was called
-  | 'tool-not-called'    // Specific tool was NOT called
-  | 'output-length'      // Output length within range
-  | 'regex-match'        // Output matches regex
-  | 'regex-not-match'    // Output must NOT match regex
-  | 'json-schema'        // Output conforms to JSON schema
-  | 'llm-judge';         // Use another LLM to judge (last resort)
+  | 'contains' // Output contains/not-contains a string
+  | 'not-contains' // Output must NOT contain
+  | 'tool-called' // Specific tool was called
+  | 'tool-not-called' // Specific tool was NOT called
+  | 'output-length' // Output length within range
+  | 'regex-match' // Output matches regex
+  | 'regex-not-match' // Output must NOT match regex
+  | 'json-schema' // Output conforms to JSON schema
+  | 'llm-judge'; // Use another LLM to judge (last resort)
 
 export interface MockToolResponse {
   toolName: string;

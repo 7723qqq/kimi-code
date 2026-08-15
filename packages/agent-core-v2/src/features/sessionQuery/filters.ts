@@ -84,8 +84,14 @@ function copyStrings(name: string, values: readonly string[]): string[] {
   return [...values];
 }
 
-function copyNullableStrings(name: string, values: readonly (string | null)[]): Array<string | null> {
-  if (!Array.isArray(values) || values.some((value) => value !== null && typeof value !== 'string')) {
+function copyNullableStrings(
+  name: string,
+  values: readonly (string | null)[],
+): Array<string | null> {
+  if (
+    !Array.isArray(values) ||
+    values.some((value) => value !== null && typeof value !== 'string')
+  ) {
     throw invalidFilter(`${name} filter values must be an array of strings or null`);
   }
   return [...values];
@@ -106,10 +112,16 @@ function copyRange(
 
 function unknownFilter(filter: never): never {
   const kind = (filter as { kind?: unknown }).kind;
-  throw invalidFilter(`unknown filter kind ${typeof kind === 'string' ? `"${kind}"` : '(missing)'}`);
+  throw invalidFilter(
+    `unknown filter kind ${typeof kind === 'string' ? `"${kind}"` : '(missing)'}`,
+  );
 }
 
-function assertAllowedValues(name: string, values: readonly string[], allowed: readonly string[]): void {
+function assertAllowedValues(
+  name: string,
+  values: readonly string[],
+  allowed: readonly string[],
+): void {
   for (const value of values) {
     if (!allowed.includes(value)) {
       throw invalidFilter(`${name} filter contains unknown value "${value}"`);
@@ -142,8 +154,5 @@ function invalidRange(name: string, detail: string): Error2 {
 }
 
 function invalidFilter(detail: string): Error2 {
-  return new Error2(
-    SessionQueryErrors.codes.SESSION_QUERY_INVALID_FILTER,
-    `session ${detail}`,
-  );
+  return new Error2(SessionQueryErrors.codes.SESSION_QUERY_INVALID_FILTER, `session ${detail}`);
 }

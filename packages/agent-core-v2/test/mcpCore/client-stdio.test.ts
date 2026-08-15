@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+
 import { join } from 'pathe';
 import { describe, expect, it } from 'vitest';
 
@@ -115,12 +116,7 @@ describe('StdioMcpClient', () => {
     try {
       await client.connect();
       const tools = await client.listTools();
-      expect(tools.map((t) => t.name).toSorted()).toEqual([
-        'boom',
-        'echo',
-        'read_env',
-        'whoami',
-      ]);
+      expect(tools.map((t) => t.name).toSorted()).toEqual(['boom', 'echo', 'read_env', 'whoami']);
       const echo = tools.find((t) => t.name === 'echo');
       expect(echo?.description).toBe('Echoes input text');
       expect(echo?.inputSchema).toMatchObject({ type: 'object' });

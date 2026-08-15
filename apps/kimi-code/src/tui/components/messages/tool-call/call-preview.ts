@@ -10,22 +10,23 @@
  */
 
 import { Text, type Component, type MarkdownTheme } from '@moonshot-ai/pi-tui';
+
+import { t } from '#/i18n';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import { COMMAND_PREVIEW_LINES } from '#/tui/constant/rendering';
 import { STREAMING_ARGS_PREVIEW_MAX_CHARS } from '#/tui/constant/streaming';
 import { currentTheme } from '#/tui/theme';
-import { t } from '#/i18n';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
 import { PlanBoxComponent } from '../plan-box';
 import { ShellExecutionComponent } from '../shell-execution';
+import { formatByteSize, formatElapsed, str } from './formatters';
 import {
   extractApprovedPlan,
   interpretExitPlanModeOutcome,
   isExitPlanModeOutcomeOutput,
 } from './plan-mode';
-import { formatByteSize, formatElapsed, str } from './formatters';
 import { extractPartialStringField } from './streaming-preview';
 
 /** Inputs needed to render the call preview block. */
@@ -62,12 +63,7 @@ export function buildCallPreview(ctx: CallPreviewContext): Component[] {
   }
 
   if (result === undefined && toolCall.truncated === true) {
-    return [
-      new Text(
-        currentTheme.dim(t('tui.messages.toolCall.argumentsTruncated')),
-        2, 0,
-      ),
-    ];
+    return [new Text(currentTheme.dim(t('tui.messages.toolCall.argumentsTruncated')), 2, 0)];
   }
 
   if (result === undefined && toolCall.streamingArguments !== undefined) {
@@ -111,7 +107,8 @@ function buildWritePreview(toolCall: ToolCallBlockData, shouldCap: boolean): Com
             total: allLines.length,
           }),
         ),
-        2, 0,
+        2,
+        0,
       ),
     );
   }
@@ -182,18 +179,14 @@ function buildStreamingWritePreview(previewText: string): Component[] {
     allLines.length > maxLines ? allLines.slice(allLines.length - maxLines) : allLines;
   const components: Component[] = [];
   for (const [i, line] of scrollLines.entries()) {
-    const originalLineNumber =
-      allLines.length > maxLines ? allLines.length - maxLines + i : i;
+    const originalLineNumber = allLines.length > maxLines ? allLines.length - maxLines + i : i;
     const lineNum = currentTheme.dim(String(originalLineNumber + 1).padStart(4) + '  ');
     components.push(new Text(lineNum + line, 2, 0));
   }
   return components;
 }
 
-function buildStreamingEditPreview(
-  previewText: string,
-  toolCall: ToolCallBlockData,
-): Component[] {
+function buildStreamingEditPreview(previewText: string, toolCall: ToolCallBlockData): Component[] {
   const filePath =
     extractPartialStringField(previewText, 'file_path') ??
     extractPartialStringField(previewText, 'path') ??
@@ -203,9 +196,7 @@ function buildStreamingEditPreview(
   const elapsedSeconds =
     startedAtMs === undefined ? 0 : Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
   const target =
-    filePath.length > 0
-      ? t('tui.messages.toolCall.preparingChangesTarget', { filePath })
-      : '';
+    filePath.length > 0 ? t('tui.messages.toolCall.preparingChangesTarget', { filePath }) : '';
   const progress = t('tui.messages.toolCall.preparingChanges', {
     target,
     size: formatByteSize(bytes),

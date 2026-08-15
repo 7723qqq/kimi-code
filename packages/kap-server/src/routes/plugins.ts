@@ -253,9 +253,7 @@ export function registerPluginsRoutes(
                 .find((candidate) => candidate !== undefined) ?? byId.get(entry.id))
             : byId.get(entry.id);
         const installedInfo =
-          record === undefined
-            ? undefined
-            : { enabled: record.enabled, version: record.version };
+          record === undefined ? undefined : { enabled: record.enabled, version: record.version };
         const updateAvailable =
           computeUpdateStatus(entry.version, record?.version, record !== undefined).kind ===
           'update';

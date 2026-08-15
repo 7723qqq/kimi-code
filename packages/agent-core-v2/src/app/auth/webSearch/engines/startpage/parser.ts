@@ -102,7 +102,10 @@ function extractSource(url: string): string {
 
 export function extractResultsFromHtml(html: string): StartpageSearchResult[] {
   if (isCaptchaPage(html)) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, 'Startpage returned a verification or anti-bot page');
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      'Startpage returned a verification or anti-bot page',
+    );
   }
   const $ = loadHtml(html);
   const results: StartpageSearchResult[] = [];

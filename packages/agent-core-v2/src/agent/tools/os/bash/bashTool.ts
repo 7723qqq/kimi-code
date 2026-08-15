@@ -40,28 +40,25 @@
  * load.
  */
 
-import { IAgentTaskService } from '#/agent/task/task';
-import { resolveAgentTaskConfig } from '#/agent/task/configSection';
-import { IConfigService } from '#/app/config/config';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionProcessRunner, type IProcess } from '#/session/process/processRunner';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import type { ExecutableToolResult, ToolExecution, ToolUpdate } from '#/tool/toolContract';
-import {
-  type ExecutableToolResultBuilderResult,
-  ToolResultBuilder,
-} from '#/tool/result-builder';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
-import { renderPrompt } from '#/_base/utils/render-prompt';
 import { t } from '@moonshot-ai/kimi-i18n';
+
 import { userCancellationReason } from '#/_base/utils/abort';
-import { isSandboxBackendAvailable, resolveSandboxPolicy } from '#/workspace/sandbox/sandbox';
+import { renderPrompt } from '#/_base/utils/render-prompt';
+import { resolveAgentTaskConfig } from '#/agent/task/configSection';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IConfigService } from '#/app/config/config';
 import { ISpillService, type SpillRef } from '#/features/spill/spill';
-import bashDescriptionTemplate from './bash.md?raw';
-import { ProcessTask } from './process-task';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { ISessionProcessRunner, type IProcess } from '#/session/process/processRunner';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { type ExecutableToolResultBuilderResult, ToolResultBuilder } from '#/tool/result-builder';
+import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
+import type { ExecutableToolResult, ToolExecution, ToolUpdate } from '#/tool/toolContract';
+import { isSandboxBackendAvailable, resolveSandboxPolicy } from '#/workspace/sandbox/sandbox';
+
 import {
   type BashInput,
   BashInputSchema,
@@ -71,6 +68,8 @@ import {
   MAX_BACKGROUND_TIMEOUT_S,
   MAX_TIMEOUT_S,
 } from './bash';
+import bashDescriptionTemplate from './bash.md?raw';
+import { ProcessTask } from './process-task';
 
 const MS_PER_SECOND = 1000;
 
@@ -94,8 +93,7 @@ function normalizeTimeoutMs(timeout: number | undefined, isBackground: boolean):
 async function disposeProcess(proc: IProcess): Promise<void> {
   try {
     await proc.dispose();
-  } catch {
-  }
+  } catch {}
 }
 
 function renderBashDescription(shellName: string): string {
@@ -274,11 +272,7 @@ export class BashTool implements IBashTool {
       ];
     }
     const shellCwd = this.isWindowsBash ? windowsPathToPosixPath(effectiveCwd) : effectiveCwd;
-    return [
-      this.env.shellPath,
-      '-c',
-      `cd ${shellQuote(shellCwd)} && ${command}`,
-    ];
+    return [this.env.shellPath, '-c', `cd ${shellQuote(shellCwd)} && ${command}`];
   }
 
   private async execution(
@@ -286,7 +280,8 @@ export class BashTool implements IBashTool {
     signal: AbortSignal,
     onUpdate?: (update: ToolUpdate) => void,
     onForegroundTaskStart?: (taskId: string) => void,
-  ): Promise<ExecutableToolResult> {    const validationError = this.validateRunRequest(args, signal);
+  ): Promise<ExecutableToolResult> {
+    const validationError = this.validateRunRequest(args, signal);
     if (validationError !== undefined) return validationError;
 
     const effectiveCwd = args.cwd ?? this.ctx.cwd;
@@ -310,10 +305,7 @@ export class BashTool implements IBashTool {
 
     const spill = this.spill;
     const builder = new ToolResultBuilder({
-      onTruncated:
-        spill === undefined
-          ? undefined
-          : (fullText) => this.spillSave(spill, fullText),
+      onTruncated: spill === undefined ? undefined : (fullText) => this.spillSave(spill, fullText),
     });
     let proc: IProcess;
     try {
@@ -420,8 +412,10 @@ export class BashTool implements IBashTool {
   private validateRunRequest(
     args: BashInput,
     signal: AbortSignal,
-  ): ExecutableToolResult | undefined {    if (signal.aborted) return { isError: true, output: t('shell.abortedBeforeStart') };
-    if (args.command.length === 0) return { isError: true, output: t('shell.commandCannotBeEmpty') };
+  ): ExecutableToolResult | undefined {
+    if (signal.aborted) return { isError: true, output: t('shell.abortedBeforeStart') };
+    if (args.command.length === 0)
+      return { isError: true, output: t('shell.commandCannotBeEmpty') };
     if (args.run_in_background !== true) return undefined;
     if (!this.allowBackground()) {
       return {
@@ -465,7 +459,8 @@ export class BashTool implements IBashTool {
     } else if (exitCode === 0) {
       result = builder.ok(t('shell.executedSuccessfully'));
     } else {
-      if (builder.nChars === 0) builder.write(t('shell.exitedWithCode', { exitCode: String(exitCode) }));
+      if (builder.nChars === 0)
+        builder.write(t('shell.exitedWithCode', { exitCode: String(exitCode) }));
       result = builder.error(t('shell.failedWithExitCode', { exitCode: String(exitCode) }), {
         brief: t('shell.failedWithExitCodeBrief', { exitCode: String(exitCode) }),
       });
@@ -482,17 +477,18 @@ export class BashTool implements IBashTool {
     const output = await this.tasks.getOutputSnapshot(taskId, 0);
     if (!output.fullOutputAvailable || output.outputPath === undefined) return result;
 
-    const taskOutputHint = this.allowBackground()
-      ? t('shell.taskOutputHint', { taskId })
-      : '';
+    const taskOutputHint = this.allowBackground() ? t('shell.taskOutputHint', { taskId }) : '';
     const reference =
-      '\n\n' + t('background.fullOutputSaved') + '\n' +
-      t('shell.taskIdLabel', { taskId }) + '\n' +
-      t('shell.outputPathLabel', { path: output.outputPath }) + '\n' +
-      (result.spilled !== undefined
-        ? result.spilled.retrievalHint + '\n'
-        : '') +
-      t('shell.outputSizeLabel', { bytes: String(output.outputSizeBytes) }) + '\n' +
+      '\n\n' +
+      t('background.fullOutputSaved') +
+      '\n' +
+      t('shell.taskIdLabel', { taskId }) +
+      '\n' +
+      t('shell.outputPathLabel', { path: output.outputPath }) +
+      '\n' +
+      (result.spilled !== undefined ? result.spilled.retrievalHint + '\n' : '') +
+      t('shell.outputSizeLabel', { bytes: String(output.outputSizeBytes) }) +
+      '\n' +
       t('shell.nextStepReadOutput', { hint: taskOutputHint });
     return { ...result, output: `${result.output}${reference}` };
   }
@@ -507,11 +503,16 @@ export class BashTool implements IBashTool {
   ): ExecutableToolResult {
     const status = this.tasks.getTask(taskId)?.status ?? 'running';
     const metadata =
-      t('shell.taskIdLabel', { taskId }) + '\n' +
-      t('shell.pidLabel', { pid: String(proc.pid) }) + '\n' +
-      t('shell.descriptionLabel', { description }) + '\n' +
-      t('shell.statusLabel', { status }) + '\n' +
-      t('shell.automaticNotification') + '\n' +
+      t('shell.taskIdLabel', { taskId }) +
+      '\n' +
+      t('shell.pidLabel', { pid: String(proc.pid) }) +
+      '\n' +
+      t('shell.descriptionLabel', { description }) +
+      '\n' +
+      t('shell.statusLabel', { status }) +
+      '\n' +
+      t('shell.automaticNotification') +
+      '\n' +
       this.nextStepLines(scenario) +
       t('shell.humanShellHint');
 
@@ -532,9 +533,7 @@ export class BashTool implements IBashTool {
     return result;
   }
 
-  private nextStepLines(
-    scenario: 'background_started' | 'foreground_detached',
-  ): string {
+  private nextStepLines(scenario: 'background_started' | 'foreground_detached'): string {
     if (scenario === 'foreground_detached') {
       const avoid = this.allowBackground()
         ? t('shell.nextStepWithTaskOutput')
@@ -548,7 +547,6 @@ export class BashTool implements IBashTool {
       return t('shell.nextStepBackgroundStartedNoBg');
     }
     return t('shell.nextStepBackgroundStarted');
-
   }
 }
 
@@ -568,8 +566,7 @@ function foregroundDescription(args: BashInput): string {
 function closeProcessStdin(proc: IProcess): void {
   try {
     proc.stdin.end();
-  } catch {
-  }
+  } catch {}
 }
 
 async function killSpawnedProcess(proc: IProcess): Promise<void> {

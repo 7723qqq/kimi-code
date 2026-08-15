@@ -47,7 +47,9 @@ export async function editInExternalEditor(
         stdio: 'inherit',
         shell: true,
       });
-      child.on('exit', (c) => { resolve(c ?? 0); });
+      child.on('exit', (c) => {
+        resolve(c ?? 0);
+      });
       child.on('error', reject);
     });
     if (code !== 0) return undefined;
@@ -58,4 +60,3 @@ export async function editInExternalEditor(
     });
   }
 }
-

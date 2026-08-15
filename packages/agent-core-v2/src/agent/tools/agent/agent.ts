@@ -72,7 +72,6 @@ export const SubagentToolInputSchema = z.preprocess(
 
 export type SubagentToolInput = z.infer<typeof SubagentToolInputSchema>;
 
-
 export const SubagentToolOutputSchema = z.object({
   result: z.string().describe('Aggregated text output from the subagent'),
   usage: z
@@ -94,7 +93,6 @@ export const RESUME_WITH_TYPE_UNAVAILABLE =
 export const USER_INTERRUPTED_SUBAGENT_MESSAGE =
   'The subagent was stopped before it finished by user.';
 export const SUBAGENT_STOPPED_MESSAGE = 'The subagent was stopped before it finished.';
-
 
 export interface ISubagentTool extends AgentTool<SubagentToolInput> {
   readonly _serviceBrand: undefined;

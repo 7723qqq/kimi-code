@@ -17,9 +17,8 @@
  * by the vendor's traits.
  */
 
-import { parseBooleanEnv } from '#/_base/utils/env';
 import { Error2 } from '#/_base/errors/errors';
-
+import { parseBooleanEnv } from '#/_base/utils/env';
 import type { ConfigEffectiveOverlay } from '#/app/config/config';
 import { registerConfigOverlay } from '#/app/config/configOverlayContributions';
 import { CONFIG_INVALID_ERROR_CODE } from '#/kosong/contract/errors';
@@ -93,9 +92,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function withoutKey(value: unknown, key: string): unknown {
-  if (
-    !(typeof value === 'object' && value !== null && !Array.isArray(value) && key in value)
-  ) {
+  if (!(typeof value === 'object' && value !== null && !Array.isArray(value) && key in value)) {
     return value;
   }
   const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };
@@ -106,10 +103,7 @@ function withoutKey(value: unknown, key: string): unknown {
 export const kimiModelEnvOverlay: ConfigEffectiveOverlay = {
   apply(effective, getEnv, validate) {
     const model = trimmed(getEnv('KIMI_MODEL_NAME'));
-    const temperature = parseFloatEnv(
-      getEnv('KIMI_MODEL_TEMPERATURE'),
-      'KIMI_MODEL_TEMPERATURE',
-    );
+    const temperature = parseFloatEnv(getEnv('KIMI_MODEL_TEMPERATURE'), 'KIMI_MODEL_TEMPERATURE');
     const topP = parseFloatEnv(getEnv('KIMI_MODEL_TOP_P'), 'KIMI_MODEL_TOP_P');
     const thinkingKeep = trimmed(getEnv('KIMI_MODEL_THINKING_KEEP'));
     const maxCompletionTokens =
@@ -143,7 +137,8 @@ export const kimiModelEnvOverlay: ConfigEffectiveOverlay = {
       maxOutputRaw === undefined
         ? undefined
         : parsePositiveInt(maxOutputRaw, 'KIMI_MODEL_MAX_OUTPUT_SIZE');
-    const capabilities = parseCapabilities(getEnv('KIMI_MODEL_CAPABILITIES')) ?? DEFAULT_CAPABILITIES;
+    const capabilities =
+      parseCapabilities(getEnv('KIMI_MODEL_CAPABILITIES')) ?? DEFAULT_CAPABILITIES;
     const displayName = trimmed(getEnv('KIMI_MODEL_DISPLAY_NAME'));
     const reasoningKey = trimmed(getEnv('KIMI_MODEL_REASONING_KEY'));
     const adaptiveThinking = parseBooleanVar(
@@ -169,13 +164,11 @@ export const kimiModelEnvOverlay: ConfigEffectiveOverlay = {
 
     const providers = asRecord(effective['providers']);
     const envProvider = asRecord(providers[ENV_MODEL_PROVIDER_KEY]);
-    const providerType =
-      typeof envProvider['type'] === 'string' ? envProvider['type'] : 'kimi';
+    const providerType = typeof envProvider['type'] === 'string' ? envProvider['type'] : 'kimi';
     const providerBaseUrl =
       typeof envProvider['baseUrl'] === 'string' && envProvider['baseUrl'].length > 0
         ? envProvider['baseUrl']
-        :
-          resolveProviderEndpoint(providerType, envBagOf(getEnv)).baseUrl;
+        : resolveProviderEndpoint(providerType, envBagOf(getEnv)).baseUrl;
     const providerPatch: Record<string, unknown> = {};
     if (envProvider['type'] === undefined) providerPatch['type'] = 'kimi';
     if (providerBaseUrl !== undefined && envProvider['baseUrl'] === undefined) {
@@ -212,7 +205,9 @@ export const kimiModelEnvOverlay: ConfigEffectiveOverlay = {
         return withoutKey(value, ENV_MODEL_ALIAS_KEY);
       case 'defaultModel':
         if (value !== ENV_MODEL_ALIAS_KEY) return value;
-        return typeof rawSnake['default_model'] === 'string' ? rawSnake['default_model'] : undefined;
+        return typeof rawSnake['default_model'] === 'string'
+          ? rawSnake['default_model']
+          : undefined;
       case 'modelOverrides':
         return undefined;
       default:
@@ -224,9 +219,12 @@ export const kimiModelEnvOverlay: ConfigEffectiveOverlay = {
 function envBagOf(
   getEnv: (name: string) => string | undefined,
 ): Readonly<Record<string, string | undefined>> {
-  return new Proxy<Record<string, string | undefined>>({}, {
-    get: (_target, key: string) => getEnv(key),
-  });
+  return new Proxy<Record<string, string | undefined>>(
+    {},
+    {
+      get: (_target, key: string) => getEnv(key),
+    },
+  );
 }
 
 function collectModelOverrides(input: {

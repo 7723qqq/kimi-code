@@ -1,8 +1,12 @@
-import { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '#/agent/mcp/tools/auth';
 import { describe, expect, it } from 'vitest';
 
-import { AlreadyAuthorizedError, type BeginAuthorizationResult, type McpOAuthService } from '#/mcpCore/oauth/service';
+import { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '#/agent/mcp/tools/auth';
 import { createMcpAuthTool } from '#/agent/mcp/tools/auth';
+import {
+  AlreadyAuthorizedError,
+  type BeginAuthorizationResult,
+  type McpOAuthService,
+} from '#/mcpCore/oauth/service';
 import type { ToolUpdate } from '#/tool/toolContract';
 
 import { executeTool } from '../../../mcpCore/stubs';

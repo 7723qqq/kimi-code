@@ -56,8 +56,10 @@ const child = spawn(
   'concurrently',
   [
     '-k',
-    '-n', 'server,web',
-    '-c', 'cyan,magenta',
+    '-n',
+    'server,web',
+    '-c',
+    'cyan,magenta',
     'pnpm --filter @moonshot-ai/vis-server dev',
     'pnpm --filter @moonshot-ai/vis-web dev',
   ],

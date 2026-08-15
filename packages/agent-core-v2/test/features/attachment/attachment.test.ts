@@ -9,12 +9,19 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { IConfigService } from '#/app/config/config';
 import { AttachmentService } from '#/features/attachment/attachmentService';
+import {
+  digest,
+  displayName,
+  objectPath,
+  saveObject,
+  readObject,
+} from '#/features/attachment/attachmentStore';
 import { AttachmentId } from '#/features/attachment/types';
-import { digest, displayName, objectPath, saveObject, readObject } from '#/features/attachment/attachmentStore';
 
 const scratchDirs: string[] = [];
 
@@ -133,12 +140,10 @@ describe('AttachmentService', () => {
     const root = scratchDir();
     const service = new AttachmentService({
       get: <T>(section: string): T | undefined =>
-        section === 'attachment'
-          ? ({ root, limits: { maxImageBytes: 10 } } as T)
-          : undefined,
+        section === 'attachment' ? ({ root, limits: { maxImageBytes: 10 } } as T) : undefined,
     } as unknown as IConfigService);
-    await expect(
-      service.saveImage({ data: PNG_1X1, mediaType: 'image/png' }),
-    ).rejects.toThrowError(/byte limit/i);
+    await expect(service.saveImage({ data: PNG_1X1, mediaType: 'image/png' })).rejects.toThrowError(
+      /byte limit/i,
+    );
   });
 });

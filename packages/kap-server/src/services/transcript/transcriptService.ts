@@ -40,8 +40,8 @@
  * (debounced per agent) and merged back live-first — see `healTurnOps`.
  */
 
-import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import {
   IAgentLifecycleService,
@@ -70,13 +70,13 @@ import {
   type TranscriptTurn,
 } from '@moonshot-ai/transcript';
 
-import { readWireRecords } from './wireRecords';
 import {
   bindSessionTranscript,
   descriptorFromMeta,
   type TranscriptBinding,
   type TranscriptBindingLogger,
 } from './coreBinding';
+import { readWireRecords } from './wireRecords';
 
 const SESSIONS_ROOT = 'sessions';
 const AGENTS_DIR = 'agents';
@@ -278,7 +278,11 @@ export class TranscriptService {
    * the rebuild are 0-based like the engine's, so future live turns continue
    * without colliding.
    */
-  private async backfillAgent(sessionId: string, store: TranscriptStore, agentId: string): Promise<void> {
+  private async backfillAgent(
+    sessionId: string,
+    store: TranscriptStore,
+    agentId: string,
+  ): Promise<void> {
     let snapshot: AgentTranscriptSnapshot | undefined;
     try {
       snapshot = await this.readColdSnapshot(sessionId, agentId);
@@ -303,7 +307,10 @@ export class TranscriptService {
       if (overlay !== undefined) ops.push(overlay);
       const result = transcript.apply(ops);
       if (result.gap !== undefined) {
-        this.deps.logger?.warn({ sessionId, agentId, gap: result.gap }, 'transcript: backfill append gap');
+        this.deps.logger?.warn(
+          { sessionId, agentId, gap: result.gap },
+          'transcript: backfill append gap',
+        );
       }
       // Fan the backfill out like any mapped-op batch so attached subscribers
       // converge; later resets carry it wholesale anyway.

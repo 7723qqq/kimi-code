@@ -51,11 +51,18 @@ async function createLockFile(
   const now = request.now ?? new Date();
   const file = await open(filePath, 'wx', 0o600);
   try {
-    await file.writeFile(`${JSON.stringify({
-      version: request.version,
-      pid: process.pid,
-      startedAt: now.toISOString(),
-    }, null, 2)}\n`, 'utf-8');
+    await file.writeFile(
+      `${JSON.stringify(
+        {
+          version: request.version,
+          pid: process.pid,
+          startedAt: now.toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    );
   } finally {
     await file.close();
   }

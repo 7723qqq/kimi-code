@@ -32,9 +32,9 @@ describe('skillRoots', () => {
 
       const roots = await projectRoots(root);
 
-      expect(roots.some((r) => r.path.endsWith('.kimi-code/skills') && r.source === 'project')).toBe(
-        true,
-      );
+      expect(
+        roots.some((r) => r.path.endsWith('.kimi-code/skills') && r.source === 'project'),
+      ).toBe(true);
     });
 
     it('falls back to the generic .agents/skills directory', async () => {
@@ -107,7 +107,12 @@ describe('skillRoots', () => {
       await mkdir(absDir, { recursive: true });
       await mkdir(join(root, 'relative'), { recursive: true });
 
-      const roots = await configuredRoots(['~', '~/notes', absDir, 'relative'], root, homeDir, 'extra');
+      const roots = await configuredRoots(
+        ['~', '~/notes', absDir, 'relative'],
+        root,
+        homeDir,
+        'extra',
+      );
       const paths = roots.map((root) => root.path);
 
       expect(roots.every((root) => root.source === 'extra')).toBe(true);

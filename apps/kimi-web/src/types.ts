@@ -378,11 +378,7 @@ export interface UIQuestion {
 }
 
 /** Activity state for the active session. */
-export type ActivityState =
-  | 'idle'
-  | 'running'
-  | 'awaiting-approval'
-  | 'awaiting-question';
+export type ActivityState = 'idle' | 'running' | 'awaiting-approval' | 'awaiting-question';
 
 /** Connection state for the WebSocket. */
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected';

@@ -1,6 +1,6 @@
 import { cp, mkdir, writeFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** Copy a fixture session into a temporary KIMI_CODE_HOME. */
@@ -36,7 +36,10 @@ export async function buildSessionFixture(name: string): Promise<{
 }
 
 async function mkdtemp(): Promise<string> {
-  const base = join(tmpdir(), `vis-fixture-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const base = join(
+    tmpdir(),
+    `vis-fixture-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  );
   await mkdir(base, { recursive: true });
   return base;
 }

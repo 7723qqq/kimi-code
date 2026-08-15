@@ -14,24 +14,15 @@
  * being constructed. Bound at Agent scope.
  */
 
-import type { ToolExecution } from '#/tool/toolContract';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
-
 import { ISessionTodoService } from '#/session/todo/sessionTodo';
-import {
-  TODO_LIST_TOOL_NAME,
-  renderTodoList,
-  type TodoItem,
-} from '#/session/todo/todoItem';
+import { TODO_LIST_TOOL_NAME, renderTodoList, type TodoItem } from '#/session/todo/todoItem';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type { ToolExecution } from '#/tool/toolContract';
 
-import {
-  ITodoListTool,
-  TodoListInputSchema,
-  type TodoListInput,
-} from './todo-list';
-import DESCRIPTION from './todo-list.md?raw';
+import { ITodoListTool, TodoListInputSchema, type TodoListInput } from './todo-list';
 import TODO_LIST_WRITE_REMINDER from './todo-list-write-reminder.md?raw';
+import DESCRIPTION from './todo-list.md?raw';
 
 export class TodoListTool implements ITodoListTool {
   declare readonly _serviceBrand: undefined;

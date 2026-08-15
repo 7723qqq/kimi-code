@@ -1,24 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentPlanService } from '#/features/plan/plan';
-import {
-  createTestAgent,
-  execEnvServices,
-  type TestAgentContext,
-} from '../../../harness';
+
+import { createTestAgent, execEnvServices, type TestAgentContext } from '../../../harness';
+import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 
 type InjectableDynamicInjector = {
   inject(boundary: undefined, isNewTurn: boolean): Promise<void>;
 };
 
-async function enterPlan(
-  plan: IAgentPlanService,
-  id = 'test-plan',
-): Promise<string> {
+async function enterPlan(plan: IAgentPlanService, id = 'test-plan'): Promise<string> {
   await plan.enter(id, false);
   const status = await plan.status();
   if (status === null) {
@@ -48,9 +42,7 @@ function planReminderMessages(context: IAgentContextMemoryService): readonly Con
 function lastPlanReminder(context: IAgentContextMemoryService): string {
   const message = planReminderMessages(context).at(-1);
   if (message === undefined) return '';
-  return message.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .join('');
+  return message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
 }
 
 describe('PlanModeService dynamic injection content', () => {
@@ -62,13 +54,15 @@ describe('PlanModeService dynamic injection content', () => {
 
   beforeEach(() => {
     readText = async () => '';
-    ctx = createTestAgent(execEnvServices({
-      hostFs: createFakeHostFs({
-        mkdir: vi.fn().mockResolvedValue(undefined),
-        readText: (path: string) => readText(path),
-        writeText: vi.fn(async () => {}),
+    ctx = createTestAgent(
+      execEnvServices({
+        hostFs: createFakeHostFs({
+          mkdir: vi.fn().mockResolvedValue(undefined),
+          readText: (path: string) => readText(path),
+          writeText: vi.fn(async () => {}),
+        }),
       }),
-    }));
+    );
     context = ctx.get(IAgentContextMemoryService);
     injector = ctx.get(IAgentContextInjectorService) as unknown as InjectableDynamicInjector;
     plan = ctx.get(IAgentPlanService);
@@ -103,7 +97,9 @@ describe('PlanModeService dynamic injection content', () => {
 
     expect(planFilePath).toContain('derived-plan.md');
     expect(lastPlanReminder(context)).toContain(`Plan file: ${planFilePath}`);
-    expect(lastPlanReminder(context)).not.toContain('Wait for the host to provide a plan file path');
+    expect(lastPlanReminder(context)).not.toContain(
+      'Wait for the host to provide a plan file path',
+    );
   });
 
   it('injects the exit reminder when plan mode turns off after being active', async () => {
@@ -144,13 +140,15 @@ describe('PlanModeService dynamic injection cadence', () => {
   let plan: IAgentPlanService;
 
   beforeEach(() => {
-    ctx = createTestAgent(execEnvServices({
-      hostFs: createFakeHostFs({
-        mkdir: vi.fn().mockResolvedValue(undefined),
-        readText: async () => '',
-        writeText: vi.fn(async () => {}),
+    ctx = createTestAgent(
+      execEnvServices({
+        hostFs: createFakeHostFs({
+          mkdir: vi.fn().mockResolvedValue(undefined),
+          readText: async () => '',
+          writeText: vi.fn(async () => {}),
+        }),
       }),
-    }));
+    );
     context = ctx.get(IAgentContextMemoryService);
     injector = ctx.get(IAgentContextInjectorService) as unknown as InjectableDynamicInjector;
     plan = ctx.get(IAgentPlanService);

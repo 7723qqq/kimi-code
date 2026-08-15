@@ -345,13 +345,7 @@ function readJpegExifOrientation(buf: Buffer): number | null {
       continue;
     }
     const marker = buf[offset + 1]!;
-    if (
-      marker >= 0xc0 &&
-      marker <= 0xcf &&
-      marker !== 0xc4 &&
-      marker !== 0xc8 &&
-      marker !== 0xcc
-    ) {
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
       return orientation;
     }
     if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
@@ -378,8 +372,10 @@ function readExifOrientation(buf: Buffer, start: number, end: number): number | 
   const byteOrder = buf.toString('latin1', tiff, tiff + 2);
   const le = byteOrder === 'II';
   if (!le && byteOrder !== 'MM') return null;
-  const u16 = (offset: number): number => (le ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset));
-  const u32 = (offset: number): number => (le ? buf.readUInt32LE(offset) : buf.readUInt32BE(offset));
+  const u16 = (offset: number): number =>
+    le ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset);
+  const u32 = (offset: number): number =>
+    le ? buf.readUInt32LE(offset) : buf.readUInt32BE(offset);
   if (u16(tiff + 2) !== 42) return null;
   const ifd = tiff + u32(tiff + 4);
   if (ifd + 2 > boundedEnd) return null;

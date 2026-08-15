@@ -24,20 +24,11 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { startServer, type RunningServer } from '../src';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 /** OpenAPI path-item keys that are HTTP methods (skip `parameters`, etc.). */
-const HTTP_METHODS = new Set([
-  'get',
-  'put',
-  'post',
-  'delete',
-  'options',
-  'head',
-  'patch',
-  'trace',
-]);
+const HTTP_METHODS = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']);
 
 /** Doc/meta endpoints outside the OpenAPI `paths` map to probe for reachability. */
 const META_ENDPOINTS = ['/openapi.json', '/asyncapi.json', '/'];
@@ -76,7 +67,9 @@ describe('API surface snapshot', () => {
     const base = `http://${server.host}:${server.port}`;
 
     // 1) Documented REST surface, derived from /openapi.json `paths`.
-    const openApiRes = await fetch(`${base}/openapi.json`, { headers: authHeaders(server) } as never);
+    const openApiRes = await fetch(`${base}/openapi.json`, {
+      headers: authHeaders(server),
+    } as never);
     expect(openApiRes.status).toBe(200);
     const openApi = (await openApiRes.json()) as {
       paths?: Record<string, Record<string, unknown>>;

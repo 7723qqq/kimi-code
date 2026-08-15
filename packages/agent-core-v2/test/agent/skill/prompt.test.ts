@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  renderModelToolSkillPrompt,
-  renderUserSlashSkillPrompt,
-} from '#/agent/skill/prompt';
+import { renderModelToolSkillPrompt, renderUserSlashSkillPrompt } from '#/agent/skill/prompt';
 
 describe('renderSkillLoadedBlock skill directory', () => {
   const base = {

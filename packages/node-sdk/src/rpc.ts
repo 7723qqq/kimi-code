@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { ErrorCodes, KimiError, log, makeErrorPayload } from '#/legacy';
+import type { AgentContextData, ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
+import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2';
+import type { Kaos } from '@moonshot-ai/kaos';
 
 import type { ApprovalHandler, Event, QuestionHandler } from '#/events';
 import type {
@@ -11,6 +13,7 @@ import type {
   ToolCallRequest,
   ToolCallResponse,
 } from '#/events';
+import { ErrorCodes, KimiError, log, makeErrorPayload } from '#/legacy';
 import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
@@ -56,9 +59,6 @@ import type {
   Unsubscribe,
   WorkspaceTrustInfo,
 } from '#/types';
-import type { Kaos } from '@moonshot-ai/kaos';
-import type { AgentContextData, ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
-import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2';
 
 const MAIN_AGENT_ID = 'main';
 
@@ -842,11 +842,7 @@ export abstract class SDKRpcClientBase {
     return rpc.setPluginEnabled({ id, enabled });
   }
 
-  async setPluginMcpServerEnabled(
-    id: string,
-    server: string,
-    enabled: boolean,
-  ): Promise<void> {
+  async setPluginMcpServerEnabled(id: string, server: string, enabled: boolean): Promise<void> {
     const rpc = await this.getRpc();
     return rpc.setPluginMcpServerEnabled({ id, server, enabled });
   }
@@ -921,7 +917,9 @@ export abstract class SDKRpcClientBase {
       try {
         listener(event);
       } catch (error) {
-        log.error('Event listener threw', { error: error instanceof Error ? error.message : String(error) });
+        log.error('Event listener threw', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   }

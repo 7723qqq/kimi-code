@@ -75,6 +75,8 @@
  * imports.
  */
 
+import { join } from 'node:path';
+
 import {
   builtinProductSkillsEnabled,
   visibleBuiltinSkills,
@@ -109,11 +111,10 @@ import {
   type ExtraSkillDirsConfig,
   type MergeAllAvailableSkillsConfig,
 } from '@moonshot-ai/agent-core-v2';
-import { join } from 'node:path';
 import { z } from 'zod';
 
-import { t } from '../i18n';
 import { errEnvelope, okEnvelope } from '../envelope';
+import { t } from '../i18n';
 import {
   assertPromptFileRefs,
   contentToCoreParts,
@@ -121,7 +122,6 @@ import {
 } from '../lib/promptMedia';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
-import { ensureMainAgent } from '../transport/mainAgent';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   activateSkillRequestSchema,
@@ -130,6 +130,7 @@ import {
 } from '../protocol/rest-skill';
 import { workspaceIdParamSchema } from '../protocol/rest-workspace';
 import type { SkillDescriptor } from '../protocol/skill';
+import { ensureMainAgent } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 
 interface SkillsRouteHost {
@@ -292,9 +293,7 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
       }
       if (parsed.kind === 'bare') {
         // No bare form for /skills/{name} — only :activate.
-        reply.send(
-          errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id),
-        );
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
         return;
       }
 
@@ -329,7 +328,9 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
             );
           }
           await assertPromptFileRefs(attachments, core.accessor.get(IFileService));
-          const telemetry = core.accessor.get(ITelemetryService).withContext({ sessionId: session_id });
+          const telemetry = core.accessor
+            .get(ITelemetryService)
+            .withContext({ sessionId: session_id });
           const sessionDir = resolved.handle.accessor.get(ISessionContext).sessionDir;
           const resolvedContent = await resolvePromptMediaFiles(
             attachments,
@@ -397,15 +398,18 @@ async function listWorkspaceSkillsForRoot(
   const useExplicitDirs = explicitDirs.length > 0;
   const rootOptions = { mergeAllAvailableSkills };
 
-  const [userRootList, projectRootList, explicitRootList, extraRootList, pluginRootList] = await Promise.all([
-    useExplicitDirs ? Promise.resolve([]) : userRoots(bootstrap.homeDir, bootstrap.osHomeDir, rootOptions),
-    useExplicitDirs ? Promise.resolve([]) : projectRoots(workDir, rootOptions),
-    useExplicitDirs
-      ? configuredRoots(explicitDirs, workDir, bootstrap.osHomeDir, 'user')
-      : Promise.resolve([]),
-    configuredRoots(extraSkillDirs, workDir, bootstrap.osHomeDir, 'extra'),
-    plugins.pluginSkillRoots(),
-  ]);
+  const [userRootList, projectRootList, explicitRootList, extraRootList, pluginRootList] =
+    await Promise.all([
+      useExplicitDirs
+        ? Promise.resolve([])
+        : userRoots(bootstrap.homeDir, bootstrap.osHomeDir, rootOptions),
+      useExplicitDirs ? Promise.resolve([]) : projectRoots(workDir, rootOptions),
+      useExplicitDirs
+        ? configuredRoots(explicitDirs, workDir, bootstrap.osHomeDir, 'user')
+        : Promise.resolve([]),
+      configuredRoots(extraSkillDirs, workDir, bootstrap.osHomeDir, 'extra'),
+      plugins.pluginSkillRoots(),
+    ]);
   const [user, project, explicit, extra, plugin] = await Promise.all([
     discovery.discover(userRootList),
     discovery.discover(projectRootList),

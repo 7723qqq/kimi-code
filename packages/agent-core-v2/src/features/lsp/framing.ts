@@ -24,10 +24,7 @@ export function encodeFrame(content: string): Buffer {
       `message body of ${body.byteLength} bytes exceeds the ${MAX_FRAME_BYTES}-byte frame limit`,
     );
   }
-  return Buffer.concat([
-    Buffer.from(`Content-Length: ${body.byteLength}\r\n\r\n`, 'utf8'),
-    body,
-  ]);
+  return Buffer.concat([Buffer.from(`Content-Length: ${body.byteLength}\r\n\r\n`, 'utf8'), body]);
 }
 
 export class MessageDecoder {

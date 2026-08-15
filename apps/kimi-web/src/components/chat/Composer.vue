@@ -3,14 +3,16 @@
 import { measureNaturalWidth, prepareWithSegments } from '@chenglou/pretext';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import SlashMenu from './SlashMenu.vue';
-import MentionMenu from './MentionMenu.vue';
-import { buildSlashItems, parseSlash, SKILL_COMMAND_PREFIX } from '../../lib/slashCommands';
+
+import type { AppGoal, AppModel, AppSkill, ThinkingLevel } from '../../api/types';
+import { useAttachmentUpload, type Attachment } from '../../composables/useAttachmentUpload';
+import { useComposerDraft } from '../../composables/useComposerDraft';
+import { useInputHistory } from '../../composables/useInputHistory';
+import type { PromptAttachment } from '../../composables/useKimiWebClient';
+import { useMentionMenu } from '../../composables/useMentionMenu';
+import { useSlashMenu } from '../../composables/useSlashMenu';
 import { getEnterBehavior } from '../../lib/enterBehavior';
 import { formatTokens } from '../../lib/formatTokens';
-import type { FileItem } from './MentionMenu.vue';
-import type { ActivationBadges, ConversationStatus, PermissionMode, QueuedPromptView } from '../../types';
-import type { AppGoal, AppModel, AppSkill, ThinkingLevel } from '../../api/types';
 import {
   commitLevel,
   effectiveThinkingLevel,
@@ -19,62 +21,72 @@ import {
   modelThinkingAvailability,
   segmentsFor,
 } from '../../lib/modelThinking';
-import { useInputHistory } from '../../composables/useInputHistory';
-import { useSlashMenu } from '../../composables/useSlashMenu';
-import { useMentionMenu } from '../../composables/useMentionMenu';
-import { useComposerDraft } from '../../composables/useComposerDraft';
-import { useAttachmentUpload, type Attachment } from '../../composables/useAttachmentUpload';
 import { openFileAttachment } from '../../lib/openFileAttachment';
-import type { PromptAttachment } from '../../composables/useKimiWebClient';
-import Spinner from '../ui/Spinner.vue';
+import { buildSlashItems, parseSlash, SKILL_COMMAND_PREFIX } from '../../lib/slashCommands';
+import type {
+  ActivationBadges,
+  ConversationStatus,
+  PermissionMode,
+  QueuedPromptView,
+} from '../../types';
 import Button from '../ui/Button.vue';
-import IconButton from '../ui/IconButton.vue';
-import Icon from '../ui/Icon.vue';
 import ContextRing from '../ui/ContextRing.vue';
+import Icon from '../ui/Icon.vue';
+import IconButton from '../ui/IconButton.vue';
+import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
 import AttachmentChip from './AttachmentChip.vue';
+import MentionMenu from './MentionMenu.vue';
+import type { FileItem } from './MentionMenu.vue';
+import SlashMenu from './SlashMenu.vue';
 
 // ---------------------------------------------------------------------------
 // Props & emits
 // ---------------------------------------------------------------------------
 
-const props = withDefaults(defineProps<{
-  running?: boolean;
-  /** True while the empty-composer first prompt is being created + submitted.
-   *  Disables the textarea and swaps the send button for a spinner. */
-  starting?: boolean;
-  /** Active session id — scopes the persisted unsent draft (per session). */
-  sessionId?: string;
-  queued?: QueuedPromptView[];
-  searchFiles?: (q: string) => Promise<FileItem[]>;
-  /** If undefined, attach button is hidden and paste/drag are no-ops. */
-  uploadImage?: (file: Blob, name?: string) => Promise<{ fileId: string; name: string; mediaType: string } | null>;
-  /** Status data (model, context, permission) — drives the bottom toolbar. */
-  status?: ConversationStatus;
-  thinking?: ThinkingLevel;
-  planMode?: boolean;
-  swarmMode?: boolean;
-  goalMode?: boolean;
-  goal?: AppGoal | null;
-  activationBadges?: ActivationBadges;
-  /** Available models for the quick-switch dropdown. */
-  models?: AppModel[];
-  /** Starred model ids shown at the top of the quick-switch dropdown. */
-  starredIds?: string[];
-  /** Session skills shown in the `/` menu (after the built-in commands). */
-  skills?: AppSkill[];
-  /** Hide the context-usage indicator (used on the empty-session landing page). */
-  hideContext?: boolean;
-}>(), {
-  running: false,
-  starting: false,
-  queued: () => [],
-  searchFiles: undefined,
-  uploadImage: undefined,
-  models: () => [],
-  starredIds: () => [],
-  skills: () => [],
-});
+const props = withDefaults(
+  defineProps<{
+    running?: boolean;
+    /** True while the empty-composer first prompt is being created + submitted.
+     *  Disables the textarea and swaps the send button for a spinner. */
+    starting?: boolean;
+    /** Active session id — scopes the persisted unsent draft (per session). */
+    sessionId?: string;
+    queued?: QueuedPromptView[];
+    searchFiles?: (q: string) => Promise<FileItem[]>;
+    /** If undefined, attach button is hidden and paste/drag are no-ops. */
+    uploadImage?: (
+      file: Blob,
+      name?: string,
+    ) => Promise<{ fileId: string; name: string; mediaType: string } | null>;
+    /** Status data (model, context, permission) — drives the bottom toolbar. */
+    status?: ConversationStatus;
+    thinking?: ThinkingLevel;
+    planMode?: boolean;
+    swarmMode?: boolean;
+    goalMode?: boolean;
+    goal?: AppGoal | null;
+    activationBadges?: ActivationBadges;
+    /** Available models for the quick-switch dropdown. */
+    models?: AppModel[];
+    /** Starred model ids shown at the top of the quick-switch dropdown. */
+    starredIds?: string[];
+    /** Session skills shown in the `/` menu (after the built-in commands). */
+    skills?: AppSkill[];
+    /** Hide the context-usage indicator (used on the empty-session landing page). */
+    hideContext?: boolean;
+  }>(),
+  {
+    running: false,
+    starting: false,
+    queued: () => [],
+    searchFiles: undefined,
+    uploadImage: undefined,
+    models: () => [],
+    starredIds: () => [],
+    skills: () => [],
+  },
+);
 
 const placeholder = computed(() =>
   props.starting
@@ -83,7 +95,7 @@ const placeholder = computed(() =>
       ? t('composer.placeholderRunning')
       : props.goalMode
         ? t('status.goalPlaceholder')
-        : t('composer.placeholder')
+        : t('composer.placeholder'),
 );
 
 const emit = defineEmits<{
@@ -179,9 +191,12 @@ watch(text, () => {
 // session), so reset the per-session expanded preference when the active
 // session changes. Without this, expanding in one chat would leave the next
 // session's draft stuck in the tall editor with Enter inserting newlines.
-watch(() => props.sessionId, () => {
-  expanded.value = false;
-});
+watch(
+  () => props.sessionId,
+  () => {
+    expanded.value = false;
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Sent-message history recall (shell-style ↑/↓). See useInputHistory for the
@@ -292,7 +307,9 @@ function focus(): void {
   // or if focus is triggered during an animation/transition.
   textareaRef.value?.focus({ preventScroll: true });
 }
-function loadAttachmentsForEdit(atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[]): void {
+function loadAttachmentsForEdit(
+  atts: { fileId?: string; kind: 'image' | 'video' | 'file'; url: string; name?: string }[],
+): void {
   loadAttachments(atts);
 }
 defineExpose({ loadForEdit, loadAttachmentsForEdit, focus });
@@ -341,7 +358,9 @@ function handleSubmit(): void {
     const parsed = parseSlash(trimmed);
     const known = parsed
       ? buildSlashItems(props.skills).some(
-          (item) => item.name === parsed.cmd || item.name === `/${SKILL_COMMAND_PREFIX}${parsed.cmd.slice(1)}`,
+          (item) =>
+            item.name === parsed.cmd ||
+            item.name === `/${SKILL_COMMAND_PREFIX}${parsed.cmd.slice(1)}`,
         )
       : false;
     if (parsed && known) {
@@ -457,7 +476,8 @@ function handleKeydown(e: KeyboardEvent): void {
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      slashActive.value = (slashActive.value - 1 + slashItems.value.length) % slashItems.value.length;
+      slashActive.value =
+        (slashActive.value - 1 + slashItems.value.length) % slashItems.value.length;
       return;
     }
     if (e.key === 'Enter' || e.key === 'Tab') {
@@ -482,7 +502,9 @@ function handleKeydown(e: KeyboardEvent): void {
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      mentionActive.value = (mentionActive.value - 1 + Math.max(1, mentionItems.value.length)) % Math.max(1, mentionItems.value.length);
+      mentionActive.value =
+        (mentionActive.value - 1 + Math.max(1, mentionItems.value.length)) %
+        Math.max(1, mentionItems.value.length);
       return;
     }
     if (e.key === 'Enter' || e.key === 'Tab') {
@@ -523,7 +545,15 @@ function handleKeydown(e: KeyboardEvent): void {
   // ArrowUp did nothing ("only one step back"). Walking freely while browsing
   // fixes that; typing exits history (handleInput resets browsing), after which
   // the arrows move the caret normally again.
-  if (!expanded.value && !slashOpen.value && !mentionOpen.value && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+  if (
+    !expanded.value &&
+    !slashOpen.value &&
+    !mentionOpen.value &&
+    !e.shiftKey &&
+    !e.altKey &&
+    !e.metaKey &&
+    !e.ctrlKey
+  ) {
     const browsing = history.isBrowsing();
     if (e.key === 'ArrowUp' && history.hasHistory() && (browsing || history.caretAtTextStart())) {
       e.preventDefault();
@@ -635,9 +665,7 @@ const showCompact = computed(() => pct.value >= 80);
 
 // Thinking toggle
 // Identity is the model id — display/model names can collide across providers.
-const currentModel = computed(() =>
-  props.models?.find((m) => m.id === props.status?.modelId),
-);
+const currentModel = computed(() => props.models?.find((m) => m.id === props.status?.modelId));
 const thinkingAvailability = computed(() => modelThinkingAvailability(currentModel.value));
 const thinkingSegments = computed(() => segmentsFor(currentModel.value));
 // The client resolves the level per model (the model's stored pick when still
@@ -676,11 +704,15 @@ function thinkingSegmentLabel(segment: string): string {
 // Plan toggle
 const planOn = computed(() => props.planMode === true);
 const swarmOn = computed(() => props.swarmMode === true);
-const goalStatus = computed(() => props.goal?.status ?? props.activationBadges?.goal?.status ?? null);
+const goalStatus = computed(
+  () => props.goal?.status ?? props.activationBadges?.goal?.status ?? null,
+);
 const goalActive = computed(() => goalStatus.value !== null && goalStatus.value !== 'complete');
 const goalArmed = computed(() => goalActive.value || props.goalMode === true);
 const goalCanPause = computed(() => goalStatus.value === 'active');
-const goalCanResume = computed(() => goalStatus.value === 'paused' || goalStatus.value === 'blocked');
+const goalCanResume = computed(
+  () => goalStatus.value === 'paused' || goalStatus.value === 'blocked',
+);
 
 // Modes selector (plan / goal / swarm) — the popover that replaces the bare
 // "plan" pill. Plan/Swarm are real client toggles; goal reflects agent-driven
@@ -721,9 +753,24 @@ function toggleModes(): void {
 }
 // Permission modes
 const PERM_MODES: { mode: PermissionMode; color: string; labelKey: string; descKey: string }[] = [
-  { mode: 'manual', color: 'var(--dim)', labelKey: 'status.permissionManual', descKey: 'status.permissionManualDesc' },
-  { mode: 'yolo', color: 'var(--color-warning)', labelKey: 'status.permissionYolo', descKey: 'status.permissionYoloDesc' },
-  { mode: 'auto', color: 'var(--color-danger)', labelKey: 'status.permissionAuto', descKey: 'status.permissionAutoDesc' },
+  {
+    mode: 'manual',
+    color: 'var(--dim)',
+    labelKey: 'status.permissionManual',
+    descKey: 'status.permissionManualDesc',
+  },
+  {
+    mode: 'yolo',
+    color: 'var(--color-warning)',
+    labelKey: 'status.permissionYolo',
+    descKey: 'status.permissionYoloDesc',
+  },
+  {
+    mode: 'auto',
+    color: 'var(--color-danger)',
+    labelKey: 'status.permissionAuto',
+    descKey: 'status.permissionAutoDesc',
+  },
 ];
 const MODE_DESC_KEYS = ['status.planDesc', 'status.swarmDesc', 'status.goalDesc'] as const;
 
@@ -735,8 +782,12 @@ function menuDescStyle(width: string): Record<string, string> {
   if (width) style['--composer-menu-desc-width'] = width;
   return style;
 }
-const permissionMenuStyle = computed<Record<string, string>>(() => menuDescStyle(permissionDescriptionWidth.value));
-const modeMenuMeasureStyle = computed<Record<string, string>>(() => menuDescStyle(modeDescriptionWidth.value));
+const permissionMenuStyle = computed<Record<string, string>>(() =>
+  menuDescStyle(permissionDescriptionWidth.value),
+);
+const modeMenuMeasureStyle = computed<Record<string, string>>(() =>
+  menuDescStyle(modeDescriptionWidth.value),
+);
 const modesMenuInlineStyle = computed<Record<string, string>>(() => ({
   ...modesMenuStyle.value,
   ...modeMenuMeasureStyle.value,
@@ -772,10 +823,7 @@ function measureMenuDescriptions(): void {
     0,
     ...PERM_MODES.map((opt) => measureTextWidth(t(opt.descKey), style)),
   );
-  const modeWidth = Math.max(
-    0,
-    ...MODE_DESC_KEYS.map((key) => measureTextWidth(t(key), style)),
-  );
+  const modeWidth = Math.max(0, ...MODE_DESC_KEYS.map((key) => measureTextWidth(t(key), style)));
   permissionDescriptionWidth.value = permissionWidth > 0 ? `${Math.ceil(permissionWidth)}px` : '';
   modeDescriptionWidth.value = modeWidth > 0 ? `${Math.ceil(modeWidth)}px` : '';
 }
@@ -834,9 +882,7 @@ function isStarred(modelId: string): boolean {
 }
 const starredOtherModels = computed(() => {
   if (!props.models?.length) return [];
-  return props.models.filter(
-    (m) => isStarred(m.id) && m.provider !== currentProvider.value,
-  );
+  return props.models.filter((m) => isStarred(m.id) && m.provider !== currentProvider.value);
 });
 
 function selectModel(modelId: string): void {
@@ -876,7 +922,9 @@ function selectModel(modelId: string): void {
     <div v-if="previewAttachment" class="att-lightbox" @click.self="closeAttachmentPreview">
       <div class="att-lightbox-card">
         <Tooltip :text="t('model.close')">
-          <button type="button" class="att-lightbox-close" @click="closeAttachmentPreview">✕</button>
+          <button type="button" class="att-lightbox-close" @click="closeAttachmentPreview">
+            ✕
+          </button>
         </Tooltip>
         <video
           v-if="previewAttachment.kind === 'video'"
@@ -885,7 +933,12 @@ function selectModel(modelId: string): void {
           controls
           playsinline
         />
-        <img v-else class="att-lightbox-media" :src="previewAttachment.previewUrl" :alt="previewAttachment.name" />
+        <img
+          v-else
+          class="att-lightbox-media"
+          :src="previewAttachment.previewUrl"
+          :alt="previewAttachment.name"
+        />
         <div class="att-lightbox-name">{{ previewAttachment.name }}</div>
       </div>
     </div>
@@ -976,7 +1029,8 @@ function selectModel(modelId: string): void {
             @click.stop="togglePermDropdown"
             @keydown.enter="togglePermDropdown"
             @keydown.space.prevent="togglePermDropdown"
-          >{{ permLabel }}</span>
+            >{{ permLabel }}</span
+          >
 
           <!-- Permission dropdown — anchored to the toolbar left side -->
           <div
@@ -994,7 +1048,9 @@ function selectModel(modelId: string): void {
               role="menuitem"
               @click="choosePermission(opt.mode)"
             >
-              <span class="pd-check"><Icon v-if="opt.mode === status.permission" name="check" size="sm" /></span>
+              <span class="pd-check"
+                ><Icon v-if="opt.mode === status.permission" name="check" size="sm"
+              /></span>
               <span class="pd-info">
                 <span class="pd-name" :style="{ color: opt.color }">{{ t(opt.labelKey) }}</span>
                 <span class="pd-desc">{{ t(opt.descKey) }}</span>
@@ -1016,9 +1072,21 @@ function selectModel(modelId: string): void {
               <span v-if="goalArmed" class="mode-tag">{{ t('status.goalLabel') }}</span>
             </button>
 
-            <div v-if="modesOpen" ref="modesMenuRef" class="modes-menu" :style="modesMenuInlineStyle" role="menu">
+            <div
+              v-if="modesOpen"
+              ref="modesMenuRef"
+              class="modes-menu"
+              :style="modesMenuInlineStyle"
+              role="menu"
+            >
               <!-- Plan — functional client toggle -->
-              <button type="button" class="mode-row" :class="{ on: planOn }" role="menuitem" @click="emit('togglePlan')">
+              <button
+                type="button"
+                class="mode-row"
+                :class="{ on: planOn }"
+                role="menuitem"
+                @click="emit('togglePlan')"
+              >
                 <span class="mode-row-icon"><Icon name="file-edit" size="sm" /></span>
                 <span class="mode-row-info">
                   <span class="mode-row-name">{{ t('status.planLabel') }}</span>
@@ -1027,7 +1095,13 @@ function selectModel(modelId: string): void {
                 <span class="mode-switch" :class="{ on: planOn }"><span class="mode-knob" /></span>
               </button>
               <!-- Swarm — functional client toggle -->
-              <button type="button" class="mode-row" :class="{ on: swarmOn }" role="menuitem" @click="emit('toggleSwarm')">
+              <button
+                type="button"
+                class="mode-row"
+                :class="{ on: swarmOn }"
+                role="menuitem"
+                @click="emit('toggleSwarm')"
+              >
                 <span class="mode-row-icon"><Icon name="sparkles" size="sm" /></span>
                 <span class="mode-row-info">
                   <span class="mode-row-name">{{ t('status.swarmLabel') }}</span>
@@ -1048,7 +1122,9 @@ function selectModel(modelId: string): void {
                     <span class="mode-row-name">{{ t('status.goalLabel') }}</span>
                     <span class="mode-row-desc">{{ t('status.goalDesc') }}</span>
                   </span>
-                  <span v-if="!goalActive" class="mode-switch" :class="{ on: props.goalMode }"><span class="mode-knob" /></span>
+                  <span v-if="!goalActive" class="mode-switch" :class="{ on: props.goalMode }"
+                    ><span class="mode-knob"
+                  /></span>
                 </button>
                 <div v-if="goalActive" class="mode-row-actions">
                   <Button
@@ -1084,13 +1160,14 @@ function selectModel(modelId: string): void {
               </div>
             </div>
           </div>
-
         </div>
 
         <!-- Right: ctx + model -->
         <div class="toolbar-right">
           <!-- Compact chip when context is high -->
-          <button v-if="showCompact" class="compact-chip" @click.stop="emit('compact')">/compact</button>
+          <button v-if="showCompact" class="compact-chip" @click.stop="emit('compact')">
+            /compact
+          </button>
 
           <!-- Context meter — circular ring only; the full usage (used/max/pct)
                lives in the tooltip. The ring is aria-hidden, so the trigger
@@ -1124,11 +1201,7 @@ function selectModel(modelId: string): void {
             <Icon class="cv" name="chevron-down" size="sm" />
           </span>
           <Tooltip v-if="running" :text="t('composer.interruptTitle')">
-            <button
-              class="stop"
-              :aria-label="t('composer.interrupt')"
-              @click="emit('interrupt')"
-            >
+            <button class="stop" :aria-label="t('composer.interrupt')" @click="emit('interrupt')">
               <Icon name="stop" size="sm" />
             </button>
           </Tooltip>
@@ -1147,7 +1220,9 @@ function selectModel(modelId: string): void {
         <!-- Model dropdown — current provider models + controls + more -->
         <div v-if="dropdownOpen && status" class="model-dropdown" role="menu" @click.stop>
           <!-- Starred models from other providers -->
-          <div v-if="starredOtherModels.length > 0" class="md-section">{{ t('status.starredModels') }}</div>
+          <div v-if="starredOtherModels.length > 0" class="md-section">
+            {{ t('status.starredModels') }}
+          </div>
           <button
             v-for="m in starredOtherModels"
             :key="m.id"
@@ -1156,7 +1231,9 @@ function selectModel(modelId: string): void {
             role="menuitem"
             @click="selectModel(m.id)"
           >
-            <span class="md-check"><Icon v-if="m.id === status.modelId" name="check" size="sm" /></span>
+            <span class="md-check"
+              ><Icon v-if="m.id === status.modelId" name="check" size="sm"
+            /></span>
             <span class="md-name">{{ m.displayName ?? m.model }}</span>
             <span class="md-provider">{{ m.provider }}</span>
             <Icon class="md-star" name="star" size="sm" />
@@ -1174,7 +1251,9 @@ function selectModel(modelId: string): void {
             role="menuitem"
             @click="selectModel(m.id)"
           >
-            <span class="md-check"><Icon v-if="m.id === status.modelId" name="check" size="sm" /></span>
+            <span class="md-check"
+              ><Icon v-if="m.id === status.modelId" name="check" size="sm"
+            /></span>
             <span class="md-name">{{ m.displayName ?? m.model }}</span>
             <Icon v-if="isStarred(m.id)" class="md-star" name="star" size="sm" />
           </button>
@@ -1185,10 +1264,9 @@ function selectModel(modelId: string): void {
                declared level; boolean models show On/Off; unsupported shows a note. -->
           <div class="md-thinking" :class="{ 'is-readonly': thinkingReadonly }">
             <span class="md-name">{{ t('status.thinkingLabel') }}</span>
-            <span
-              v-if="thinkingAvailability === 'unsupported'"
-              class="md-note"
-            >{{ t('status.modeNotSupported') }}</span>
+            <span v-if="thinkingAvailability === 'unsupported'" class="md-note">{{
+              t('status.modeNotSupported')
+            }}</span>
             <div
               v-else
               class="effort-segments"
@@ -1203,7 +1281,9 @@ function selectModel(modelId: string): void {
                 :class="{ 'is-active': seg === activeThinkingSegment }"
                 :disabled="thinkingReadonly"
                 @click="setThinkingSegment(seg)"
-              >{{ thinkingSegmentLabel(seg) }}</button>
+              >
+                {{ thinkingSegmentLabel(seg) }}
+              </button>
             </div>
           </div>
 
@@ -1213,23 +1293,30 @@ function selectModel(modelId: string): void {
           <div class="md-divider" />
 
           <!-- More models → open full picker -->
-          <button class="md-row md-row-more" role="menuitem" @click="closeDropdown(); emit('pickModel');">
+          <button
+            class="md-row md-row-more"
+            role="menuitem"
+            @click="
+              closeDropdown();
+              emit('pickModel');
+            "
+          >
             <span class="md-name">{{ t('status.moreModels') }}</span>
           </button>
         </div>
       </div>
-  </div>
-  <!-- Full-window drop target affordance: shown while files are dragged anywhere
+    </div>
+    <!-- Full-window drop target affordance: shown while files are dragged anywhere
        over the app (document-level listeners in useAttachmentUpload). Pure CSS
        show/hide — a Vue <Transition> can strand an invisible node when the drag
        ends before the enter transition starts. -->
-  <div class="drop-overlay" :class="{ show: isDragOver }" aria-hidden="true">
-    <div class="drop-card">
-      <Icon name="file-plus" size="lg" />
-      <span>{{ t('composer.dropToAttach') }}</span>
+    <div class="drop-overlay" :class="{ show: isDragOver }" aria-hidden="true">
+      <div class="drop-card">
+        <Icon name="file-plus" size="lg" />
+        <span>{{ t('composer.dropToAttach') }}</span>
+      </div>
     </div>
   </div>
-</div>
 </template>
 
 <style scoped>
@@ -1287,14 +1374,16 @@ function selectModel(modelId: string): void {
   border-radius: var(--radius-xl);
   background: var(--bg);
   box-shadow: var(--shadow-md);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 .composer-card:focus-within {
   border-color: var(--color-accent);
-  box-shadow: var(--shadow-md), 0 0 0 3px var(--color-accent-soft);
+  box-shadow:
+    var(--shadow-md),
+    0 0 0 3px var(--color-accent-soft);
 }
-
-
 
 /* Attachment strip — the chip itself is the shared AttachmentChip; this is
    only the row layout above the input. */
@@ -1347,9 +1436,9 @@ function selectModel(modelId: string): void {
   right: -14px;
   width: 28px;
   height: 28px;
-  border: 1px solid rgba(255,255,255,0.45);
+  border: 1px solid rgba(255, 255, 255, 0.45);
   border-radius: 50%;
-  background: rgba(20,23,28,0.82);
+  background: rgba(20, 23, 28, 0.82);
   color: var(--surface-light);
   cursor: pointer;
 }
@@ -1385,7 +1474,9 @@ function selectModel(modelId: string): void {
   color: var(--dim);
   cursor: pointer;
   padding: 0;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 
 .expand-btn:hover {
@@ -1449,7 +1540,9 @@ function selectModel(modelId: string): void {
   line-height: 17px;
   flex: none;
 }
-.compact-chip:hover { background: var(--panel2); }
+.compact-chip:hover {
+  background: var(--panel2);
+}
 
 /* Send button — circular accent icon. Always "send"; while running it enqueues
    (handled upstream). Interrupt is a separate Stop button so the two are never
@@ -1469,7 +1562,9 @@ function selectModel(modelId: string): void {
   cursor: pointer;
   flex-shrink: 0;
   margin-left: var(--space-2);
-  transition: background 0.25s ease, transform 0.12s ease;
+  transition:
+    background 0.25s ease,
+    transform 0.12s ease;
   position: relative;
 }
 
@@ -1524,7 +1619,11 @@ function selectModel(modelId: string): void {
   cursor: pointer;
   flex-shrink: 0;
   margin-left: var(--space-2);
-  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease,
+    transform 0.12s ease;
 }
 .stop:hover {
   background: var(--color-danger);
@@ -1578,7 +1677,9 @@ function selectModel(modelId: string): void {
   color: var(--color-text);
   cursor: pointer;
   user-select: none;
-  transition: background 0.1s, color 0.15s;
+  transition:
+    background 0.1s,
+    color 0.15s;
   font-family: var(--font-ui);
   font-weight: var(--weight-medium);
 }
@@ -1703,14 +1804,23 @@ function selectModel(modelId: string): void {
   border-radius: 6px;
   text-align: left;
 }
-.md-row:hover { background: var(--color-surface-sunken); }
+.md-row:hover {
+  background: var(--color-surface-sunken);
+}
 .md-row:disabled {
   cursor: default;
   opacity: 0.58;
 }
-.md-row:disabled:hover { background: none; }
-.md-row.is-current { color: var(--color-text); background: var(--color-accent-soft); }
-.md-row.is-on { color: var(--color-accent); }
+.md-row:disabled:hover {
+  background: none;
+}
+.md-row.is-current {
+  color: var(--color-text);
+  background: var(--color-accent-soft);
+}
+.md-row.is-on {
+  color: var(--color-accent);
+}
 .md-note {
   margin-left: auto;
   color: var(--muted);
@@ -1793,7 +1903,10 @@ function selectModel(modelId: string): void {
   padding: 4px 9px;
   border-radius: var(--radius-sm);
   white-space: nowrap;
-  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s,
+    box-shadow 0.12s;
 }
 .effort-seg:hover:not(:disabled):not(.is-active) {
   background: var(--color-surface-raised);
@@ -1864,8 +1977,12 @@ function selectModel(modelId: string): void {
   border-radius: 6px;
   text-align: left;
 }
-.pd-row:hover { background: var(--color-surface-sunken); }
-.pd-row.is-current { background: var(--color-accent-soft); }
+.pd-row:hover {
+  background: var(--color-surface-sunken);
+}
+.pd-row.is-current {
+  background: var(--color-accent-soft);
+}
 
 .pd-check {
   grid-column: 1;
@@ -1909,7 +2026,11 @@ function selectModel(modelId: string): void {
 /* Modes selector (plan / goal / swarm) — replaces the old plan pill + badges.
    z-index lifts the whole control (incl. its upward-opening menu) above the
    composer input row, which otherwise paints over the menu. */
-.modes { position: relative; display: inline-flex; z-index: var(--z-sticky); }
+.modes {
+  position: relative;
+  display: inline-flex;
+  z-index: var(--z-sticky);
+}
 .mode-pill {
   display: inline-flex;
   align-items: center;
@@ -1924,12 +2045,23 @@ function selectModel(modelId: string): void {
   color: var(--color-text);
   cursor: pointer;
   user-select: none;
-  transition: background 0.1s, color 0.15s;
+  transition:
+    background 0.1s,
+    color 0.15s;
 }
-.mode-pill:hover { background: var(--color-surface-sunken); }
-.mode-pill.on { background: var(--color-accent-soft); color: var(--color-accent-hover); }
-.mode-pill.open { background: var(--color-accent-soft); }
-.mode-label { flex: none; }
+.mode-pill:hover {
+  background: var(--color-surface-sunken);
+}
+.mode-pill.on {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+}
+.mode-pill.open {
+  background: var(--color-accent-soft);
+}
+.mode-label {
+  flex: none;
+}
 .mode-tag {
   flex: none;
   font-family: var(--font-ui);
@@ -1941,7 +2073,13 @@ function selectModel(modelId: string): void {
   padding: 0 6px;
   line-height: 16px;
 }
-.mode-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); flex: none; }
+.mode-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  flex: none;
+}
 
 .modes-menu {
   position: fixed;
@@ -1973,8 +2111,13 @@ function selectModel(modelId: string): void {
   font-family: var(--font-ui);
   text-align: left;
 }
-.mode-row:hover:not(:disabled) { background: var(--color-surface-sunken); }
-.mode-row:disabled { cursor: not-allowed; opacity: 0.45; }
+.mode-row:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+}
+.mode-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
 .mode-row-info {
   display: contents;
 }
@@ -2015,10 +2158,20 @@ function selectModel(modelId: string): void {
 .mode-row.on {
   background: var(--color-accent-soft);
 }
-.mode-row.on .mode-row-name { color: var(--color-accent-hover); }
-.mode-row.on .mode-row-icon { color: var(--color-accent-hover); }
-.mode-row-meta { font-family: var(--mono); font-size: calc(var(--ui-font-size) - 3px); color: var(--muted); }
-.mode-row:disabled .mode-row-meta { color: var(--faint); }
+.mode-row.on .mode-row-name {
+  color: var(--color-accent-hover);
+}
+.mode-row.on .mode-row-icon {
+  color: var(--color-accent-hover);
+}
+.mode-row-meta {
+  font-family: var(--mono);
+  font-size: calc(var(--ui-font-size) - 3px);
+  color: var(--muted);
+}
+.mode-row:disabled .mode-row-meta {
+  color: var(--faint);
+}
 .mode-switch {
   grid-column: 2;
   grid-row: 1;
@@ -2031,7 +2184,10 @@ function selectModel(modelId: string): void {
   position: relative;
   transition: background 0.15s;
 }
-.mode-switch.on { background: var(--color-accent); border-color: var(--color-accent); }
+.mode-switch.on {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
 .mode-knob {
   position: absolute;
   top: 1px;
@@ -2043,7 +2199,9 @@ function selectModel(modelId: string): void {
   box-shadow: var(--shadow-xs);
   transition: transform 0.15s;
 }
-.mode-switch.on .mode-knob { transform: translateX(15px); }
+.mode-switch.on .mode-knob {
+  transform: translateX(15px);
+}
 
 .mode-row-goal {
   --mode-row-icon-col: 14px;
@@ -2056,7 +2214,9 @@ function selectModel(modelId: string): void {
   padding: 0;
   gap: 0;
 }
-.mode-row-goal:hover { background: transparent; }
+.mode-row-goal:hover {
+  background: transparent;
+}
 .mode-row-goal.on {
   background: var(--color-accent-soft);
 }
@@ -2075,8 +2235,12 @@ function selectModel(modelId: string): void {
   font-family: var(--font-ui);
   text-align: left;
 }
-.mode-row-main:hover { background: var(--color-surface-sunken); }
-.mode-row-goal.on .mode-row-main .mode-row-name { color: var(--color-accent-hover); }
+.mode-row-main:hover {
+  background: var(--color-surface-sunken);
+}
+.mode-row-goal.on .mode-row-main .mode-row-name {
+  color: var(--color-accent-hover);
+}
 .mode-row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2088,7 +2252,9 @@ function selectModel(modelId: string): void {
 .mode-row-action {
   flex: none;
 }
-.mode-row-action :deep(.ui-button__content) { gap: var(--space-1); }
+.mode-row-action :deep(.ui-button__content) {
+  gap: var(--space-1);
+}
 .mode-row-input {
   flex: 1;
   min-width: 0;
@@ -2131,11 +2297,8 @@ function selectModel(modelId: string): void {
        and acts as a flex row; the textarea itself becomes the pill input. ---- */
 @media (max-width: 640px) {
   .composer {
-    padding:
-      9px
-      var(--dock-inline-right, max(12px, var(--safe-right)))
-      max(24px, var(--safe-bottom))
-      var(--dock-inline-left, max(12px, var(--safe-left)));
+    padding: 9px var(--dock-inline-right, max(12px, var(--safe-right)))
+      max(24px, var(--safe-bottom)) var(--dock-inline-left, max(12px, var(--safe-left)));
   }
   .composer-card {
     --composer-send-size: 36px;
@@ -2160,7 +2323,7 @@ function selectModel(modelId: string): void {
     display: none;
   }
   .send::after {
-    content: "↑";
+    content: '↑';
     /* Fixed icon glyph size — not part of the UI font scale. */
     font-size: 17px;
     line-height: 1;
@@ -2181,7 +2344,7 @@ function selectModel(modelId: string): void {
     display: none;
   }
   .stop::after {
-    content: "■";
+    content: '■';
     /* Fixed icon glyph size — not part of the UI font scale. */
     font-size: 17px;
     line-height: 1;

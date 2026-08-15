@@ -2,16 +2,16 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { parse as parseToml } from 'smol-toml';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
 import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
+import { parse as parseToml } from 'smol-toml';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -197,7 +197,10 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
    * take effect after the file watcher reloads, and a write that starts from
    * the pre-edit state would silently drop them.
    */
-  async function waitForServerState(check: () => Promise<boolean>, timeoutMs = 3000): Promise<void> {
+  async function waitForServerState(
+    check: () => Promise<boolean>,
+    timeoutMs = 3000,
+  ): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (await check()) return;
@@ -347,7 +350,10 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
       display_name: 'GPT-4.1',
     });
     expect(models['openai/gpt-4.1']?.['capabilities']).toEqual(['image_in', 'tool_use']);
-    expect(models['openai/gpt-4o-mini']).toMatchObject({ provider: 'openai', model: 'gpt-4o-mini' });
+    expect(models['openai/gpt-4o-mini']).toMatchObject({
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+    });
   });
 
   it('never touches the global default pointers on import', async () => {
@@ -622,7 +628,7 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
     expect(status).toBe(201);
     expect(body.code).toBe(0);
     expect(body.data.models_imported).toBe(2);
-    expect(body.data.providers.map((p) => p['id']).sort()).toEqual(['acme-claude', 'acme-gpt']);
+    expect(body.data.providers.map((p) => p['id']).toSorted()).toEqual(['acme-claude', 'acme-gpt']);
     expect(seen.authorization).toBe('Bearer tok-1');
 
     const config = await readConfigToml();

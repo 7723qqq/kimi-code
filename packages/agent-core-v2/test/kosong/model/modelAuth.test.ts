@@ -17,13 +17,13 @@ import { describe, expect, it } from 'vitest';
 import { ConfigErrors } from '#/app/config/errors';
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 import '#/kosong/provider/providers/standard.contrib';
-import type { ProviderConfig } from '#/kosong/provider/provider';
 import type { ModelRecord } from '#/kosong/model/model';
 import {
   deriveProviderId,
   effectiveModelConfig,
   resolveModelAuthMaterial,
 } from '#/kosong/model/modelAuth';
+import type { ProviderConfig } from '#/kosong/provider/provider';
 
 function authMaterial(args: {
   model: ModelRecord;

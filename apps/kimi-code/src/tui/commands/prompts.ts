@@ -1,3 +1,8 @@
+import { capabilitiesForModel } from '@moonshot-ai/kimi-code-oauth';
+import type {
+  ManagedKimiCodeModelInfo,
+  OpenPlatformDefinition,
+} from '@moonshot-ai/kimi-code-oauth';
 import {
   catalogModelToAlias,
   resolveCatalogImport,
@@ -6,16 +11,18 @@ import {
   type ModelAlias,
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
-import { capabilitiesForModel } from '@moonshot-ai/kimi-code-oauth';
-import type {
-  ManagedKimiCodeModelInfo,
-  OpenPlatformDefinition,
-} from '@moonshot-ai/kimi-code-oauth';
 
 import { t } from '#/i18n';
-import { ApiKeyInputDialogComponent, type ApiKeyInputResult } from '../components/dialogs/api-key-input-dialog';
+
+import {
+  ApiKeyInputDialogComponent,
+  type ApiKeyInputResult,
+} from '../components/dialogs/api-key-input-dialog';
 import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/choice-picker';
-import { FeedbackInputDialogComponent, type FeedbackInputDialogResult } from '../components/dialogs/feedback-input-dialog';
+import {
+  FeedbackInputDialogComponent,
+  type FeedbackInputDialogResult,
+} from '../components/dialogs/feedback-input-dialog';
 import { ModelSelectorComponent } from '../components/dialogs/model-selector';
 import { PlatformSelectorComponent } from '../components/dialogs/platform-selector';
 import type { SlashCommandHost } from './dispatch';
@@ -63,7 +70,9 @@ export interface FeedbackPromptResult {
   readonly value: string;
 }
 
-export function promptFeedbackInput(host: SlashCommandHost): Promise<FeedbackPromptResult | undefined> {
+export function promptFeedbackInput(
+  host: SlashCommandHost,
+): Promise<FeedbackPromptResult | undefined> {
   return new Promise((resolve) => {
     const dialog = new FeedbackInputDialogComponent((result: FeedbackInputDialogResult) => {
       host.restoreEditor();
@@ -77,7 +86,11 @@ export type FeedbackAttachmentLevel = 'none' | 'logs' | 'logs+codebase';
 
 function getFeedbackAttachmentOptions(): readonly ChoiceOption[] {
   return [
-    { value: 'none', label: t('tui.statusMessages.feedbackNoAttachment'), description: t('tui.statusMessages.feedbackNoAttachmentDesc') },
+    {
+      value: 'none',
+      label: t('tui.statusMessages.feedbackNoAttachment'),
+      description: t('tui.statusMessages.feedbackNoAttachmentDesc'),
+    },
     {
       value: 'logs',
       label: t('tui.statusMessages.feedbackLogsOnly'),
@@ -86,8 +99,7 @@ function getFeedbackAttachmentOptions(): readonly ChoiceOption[] {
     {
       value: 'logs+codebase',
       label: t('tui.statusMessages.feedbackLogsAndCodebase'),
-      description:
-        t('tui.statusMessages.feedbackLogsAndCodebaseDesc'),
+      description: t('tui.statusMessages.feedbackLogsAndCodebaseDesc'),
       descriptionTone: 'warning',
     },
   ];
@@ -137,7 +149,10 @@ export function promptApiKey(
  * was guessed, where the built-in default endpoint would point at the wrong
  * host. Esc cancels the import.
  */
-export function promptBaseUrl(host: SlashCommandHost, platformName: string): Promise<string | undefined> {
+export function promptBaseUrl(
+  host: SlashCommandHost,
+  platformName: string,
+): Promise<string | undefined> {
   return new Promise((resolve) => {
     const dialog = new ApiKeyInputDialogComponent(
       platformName,
@@ -156,15 +171,17 @@ export function promptBaseUrl(host: SlashCommandHost, platformName: string): Pro
   });
 }
 
-export function promptCatalogProviderSelection(host: SlashCommandHost, catalog: Catalog): Promise<string | undefined> {
+export function promptCatalogProviderSelection(
+  host: SlashCommandHost,
+  catalog: Catalog,
+): Promise<string | undefined> {
   return new Promise((resolve) => {
     const options: ChoiceOption[] = Object.entries(catalog)
       .filter(([, entry]) => resolveCatalogImport(entry).kind !== 'invalid')
       .map(([id, entry]) => ({
         value: id,
         label: entry.name ?? id,
-        description:
-          typeof entry.api === 'string' && entry.api.length > 0 ? entry.api : undefined,
+        description: typeof entry.api === 'string' && entry.api.length > 0 ? entry.api : undefined,
       }))
       .toSorted((a, b) => a.label.localeCompare(b.label));
 

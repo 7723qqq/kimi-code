@@ -1,14 +1,22 @@
-import { useState } from "react";
-import { t } from "@/i18n";
-import { IconPlus, IconChevronDown, IconInfoCircle } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { StreamingConfirmDialog } from "./StreamingConfirmDialog";
-import { KimiLogo } from "./KimiLogo";
-import { SessionList } from "./SessionList";
-import { useChatStore } from "@/stores";
-import { ChatStatus, TokenInfo } from "./ChatStatus";
+import { IconPlus, IconChevronDown, IconInfoCircle } from '@tabler/icons-react';
+import { useState } from 'react';
+
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { t } from '@/i18n';
+import { useChatStore } from '@/stores';
+
+import { ChatStatus, TokenInfo } from './ChatStatus';
+import { KimiLogo } from './KimiLogo';
+import { SessionList } from './SessionList';
+import { StreamingConfirmDialog } from './StreamingConfirmDialog';
 
 export function Header() {
   const [showSessionList, setShowSessionList] = useState(false);
@@ -77,15 +85,23 @@ export function Header() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-sm">Session Details</DialogTitle>
-            <DialogDescription className="text-xs">Details for this conversation.</DialogDescription>
+            <DialogDescription className="text-xs">
+              Details for this conversation.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Session ID</div>
-              <code className="text-xs font-mono text-foreground break-all select-all">{sessionId}</code>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+                Session ID
+              </div>
+              <code className="text-xs font-mono text-foreground break-all select-all">
+                {sessionId}
+              </code>
             </div>
             <div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">{t('header.messages')}</div>
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+                {t('header.messages')}
+              </div>
               <span className="text-xs text-foreground">{messages.length}</span>
             </div>
             <TokenInfo />

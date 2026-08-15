@@ -1,22 +1,23 @@
-import { type ToolCall } from '#/kosong/contract/message';
-import { emptyUsage } from '#/kosong/contract/usage';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { IDisposable } from '#/_base/di/lifecycle';
-import { IAgentProfileService } from '#/index';
-import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
-import type { ModelRequestTiming } from '#/kosong/model/modelRequester';
+import { userCancellationReason } from '#/_base/utils/abort';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentGoalService } from '#/agent/goal/goal';
+import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentLoopService, type Turn } from '#/agent/loop/loop';
 import { ContinuationStepRequest, MessageStepRequest } from '#/agent/loop/stepRequest';
 import { RetryStepRequest } from '#/agent/prompt/promptStepRequests';
-import type { ExecutableTool } from '#/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import { IEventBus } from '#/app/event/eventBus';
-import { userCancellationReason } from '#/_base/utils/abort';
+import { IAgentProfileService } from '#/index';
+import { type ToolCall } from '#/kosong/contract/message';
+import { emptyUsage } from '#/kosong/contract/usage';
+import type { ModelRequestTiming } from '#/kosong/model/modelRequester';
+import type { ExecutableTool } from '#/tool/toolContract';
 
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import {
   agentService,
   createTestAgent,
@@ -24,7 +25,6 @@ import {
   type TestAgentContext,
   type TestAgentOptions,
 } from '../../harness';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 
@@ -234,9 +234,7 @@ describe('Agent loop', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
     await ctx.untilTurnEnd();
 
-    expect(seenErrors).toEqual([
-      { step: 1, message: 'Unexpected generate call #1' },
-    ]);
+    expect(seenErrors).toEqual([{ step: 1, message: 'Unexpected generate call #1' }]);
     expect(ctx.allEvents).toContainEqual(
       expect.objectContaining({
         event: 'turn.ended',
@@ -586,8 +584,7 @@ describe('Agent loop', () => {
     await expect(next.result).resolves.toMatchObject({ type: 'completed' });
 
     expect(notification.aborted).toBe(false);
-    const delivered = ctx.llmCalls[1]!.history
-      .flatMap((message) => message.content)
+    const delivered = ctx.llmCalls[1]!.history.flatMap((message) => message.content)
       .map((part) => (part.type === 'text' ? part.text : ''))
       .join('\n');
     expect(delivered).toContain('background task finished');
@@ -668,7 +665,9 @@ describe('Agent loop', () => {
         await Promise.race([
           running,
           new Promise<void>((_, reject) => {
-            hookCtx.signal.addEventListener('abort', () => reject(hookCtx.signal.reason), { once: true });
+            hookCtx.signal.addEventListener('abort', () => reject(hookCtx.signal.reason), {
+              once: true,
+            });
           }),
         ]);
       }
@@ -700,7 +699,9 @@ describe('Agent loop', () => {
     loop.hooks.onWillBeginStep.register('test-dispose-loop', async (hookCtx, next) => {
       stepStarted();
       await new Promise<void>((_, reject) => {
-        hookCtx.signal.addEventListener('abort', () => reject(hookCtx.signal.reason), { once: true });
+        hookCtx.signal.addEventListener('abort', () => reject(hookCtx.signal.reason), {
+          once: true,
+        });
       });
       await next();
     });
@@ -891,17 +892,23 @@ describe('turn telemetry', () => {
     try {
       const localLoop = local.get(IAgentLoopService);
       local.get(IAgentProfileService).update({ activeToolNames: [] });
-      localLoop.hooks.onDidFinishStep.register('test-continue-after-first-step', async (hookCtx, next) => {
-        if (hookCtx.step === 1) {
-          localLoop.enqueue(new ContinuationStepRequest());
-          return;
-        }
-        await next();
-      });
-      localLoop.hooks.onWillBeginStep.register('test-fail-before-second-request', async (hookCtx, next) => {
-        if (hookCtx.step === 2) throw new Error('before step failed');
-        await next();
-      });
+      localLoop.hooks.onDidFinishStep.register(
+        'test-continue-after-first-step',
+        async (hookCtx, next) => {
+          if (hookCtx.step === 1) {
+            localLoop.enqueue(new ContinuationStepRequest());
+            return;
+          }
+          await next();
+        },
+      );
+      localLoop.hooks.onWillBeginStep.register(
+        'test-fail-before-second-request',
+        async (hookCtx, next) => {
+          if (hookCtx.step === 2) throw new Error('before step failed');
+          await next();
+        },
+      );
       local.mockNextProviderResponse({
         parts: [{ type: 'text', text: 'first' }],
         traceId: 'trace-step-1',
@@ -911,8 +918,12 @@ describe('turn telemetry', () => {
       await local.untilTurnEnd();
 
       expect(local.llmCalls).toHaveLength(1);
-      expect(records.find((record) => record.event === 'turn_interrupted')?.properties?.['trace_id']).toBeUndefined();
-      expect(records.find((record) => record.event === 'turn_ended')?.properties?.['trace_id']).toBeUndefined();
+      expect(
+        records.find((record) => record.event === 'turn_interrupted')?.properties?.['trace_id'],
+      ).toBeUndefined();
+      expect(
+        records.find((record) => record.event === 'turn_ended')?.properties?.['trace_id'],
+      ).toBeUndefined();
     } finally {
       await local.dispose();
     }
@@ -987,7 +998,11 @@ describe('turn telemetry', () => {
 
         expect(records).toContainEqual({
           event: 'turn_interrupted',
-          properties: expect.objectContaining({ turn_id: 0, interrupt_reason: expected, mode: 'agent' }),
+          properties: expect.objectContaining({
+            turn_id: 0,
+            interrupt_reason: expected,
+            mode: 'agent',
+          }),
         });
         expect(records).toContainEqual({
           event: 'turn_ended',
@@ -1024,10 +1039,12 @@ describe('interruption reminder', () => {
   }
 
   function remindersIn(target: TestAgentContext): ContextMessage[] {
-    return target.contextData().history.filter(
-      (message) =>
-        message.origin?.kind === 'injection' && message.origin.variant === 'interruption',
-    );
+    return target
+      .contextData()
+      .history.filter(
+        (message) =>
+          message.origin?.kind === 'injection' && message.origin.variant === 'interruption',
+      );
   }
 
   function interruptionReminders(): ContextMessage[] {
@@ -1086,7 +1103,7 @@ describe('interruption reminder', () => {
     expect(interruptionReminders()[0]!.content).toEqual([
       {
         type: 'text',
-        text: '<system-reminder>\nThe previous turn was interrupted by the user before completion; any partial output shown above is incomplete. The user\'s next message continues the conversation.\n</system-reminder>',
+        text: "<system-reminder>\nThe previous turn was interrupted by the user before completion; any partial output shown above is incomplete. The user's next message continues the conversation.\n</system-reminder>",
       },
     ]);
     expect(ctx.contextData().history.indexOf(interruptionReminders()[0]!)).toBe(2);
@@ -1106,9 +1123,7 @@ describe('interruption reminder', () => {
     subscription.dispose();
     expect(results).toEqual([true, true]);
     expect(
-      ctx.allEvents.filter(
-        (entry) => entry.type === '[wire]' && entry.event === 'turn.cancel',
-      ),
+      ctx.allEvents.filter((entry) => entry.type === '[wire]' && entry.event === 'turn.cancel'),
     ).toHaveLength(1);
     ctx.mockNextResponse({ type: 'text', text: 'second answer' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Next' }] });
@@ -1490,11 +1505,9 @@ describe('aborted step tool execution', () => {
       permissionModeServices('yolo'),
     );
     let interrupted: { readonly reason: string; readonly message?: string } | undefined;
-    const subscription = ctx
-      .get(IEventBus)
-      .subscribe('turn.step.interrupted', (event) => {
-        interrupted = event;
-      });
+    const subscription = ctx.get(IEventBus).subscribe('turn.step.interrupted', (event) => {
+      interrupted = event;
+    });
 
     try {
       const slowToolStarted = registerAbortableWorkTool(ctx);

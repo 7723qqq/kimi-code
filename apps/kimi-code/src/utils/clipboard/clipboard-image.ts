@@ -234,7 +234,11 @@ function readMediaFromText(text: string): ClipboardMedia | null {
   return readMediaFromPaths(parseClipboardPaths(text));
 }
 
-function runCommand(command: string, args: string[], options?: RunCommandOptions): { stdout: Buffer; ok: boolean } {
+function runCommand(
+  command: string,
+  args: string[],
+  options?: RunCommandOptions,
+): { stdout: Buffer; ok: boolean } {
   return runCommandBase(command, args, {
     timeoutMs: options?.timeoutMs ?? DEFAULT_READ_TIMEOUT_MS,
     env: options?.env,

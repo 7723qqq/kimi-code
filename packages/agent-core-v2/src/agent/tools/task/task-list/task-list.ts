@@ -29,6 +29,7 @@ export const TaskListInputSchema = z.object({
 
 export type TaskListInput = z.infer<typeof TaskListInputSchema>;
 
-
-export interface ITaskListTool extends AgentTool<TaskListInput> { readonly _serviceBrand: undefined }
+export interface ITaskListTool extends AgentTool<TaskListInput> {
+  readonly _serviceBrand: undefined;
+}
 export const ITaskListTool = createDecorator<ITaskListTool>('taskListTool');

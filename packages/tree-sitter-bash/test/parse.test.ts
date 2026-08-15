@@ -73,7 +73,10 @@ describe('parse entry contract', () => {
   });
 
   it('returns { ok: false, reason: "aborted" } when the node budget is exceeded', () => {
-    expect(parse('echo hello', { timeoutMs: 60_000, maxNodes: 1 })).toEqual({ ok: false, reason: 'aborted' });
+    expect(parse('echo hello', { timeoutMs: 60_000, maxNodes: 1 })).toEqual({
+      ok: false,
+      reason: 'aborted',
+    });
   });
 
   it('returns { ok: false, reason: "aborted" } when the deadline has passed', () => {
@@ -167,7 +170,10 @@ describe('expansions and substitutions', () => {
   });
 
   it('parses ${#v}, ${v:=word} and ${a[0]}', () => {
-    expectTree('echo ${#v}', `(program (command (command_name (word "echo")) (expansion "\${" "#" (variable_name "v") "}")))`);
+    expectTree(
+      'echo ${#v}',
+      `(program (command (command_name (word "echo")) (expansion "\${" "#" (variable_name "v") "}")))`,
+    );
     expectTree(
       'echo ${v:=word}',
       `(program (command (command_name (word "echo")) (expansion "\${" (variable_name "v") ":=" (word "word") "}")))`,
@@ -227,7 +233,10 @@ describe('redirects', () => {
       'cmd >| file',
       `(program (redirected_statement (command (command_name (word "cmd"))) (file_redirect ">|" (word "file"))))`,
     );
-    expectTree('cmd >&-', `(program (redirected_statement (command (command_name (word "cmd"))) (file_redirect ">&-")))`);
+    expectTree(
+      'cmd >&-',
+      `(program (redirected_statement (command (command_name (word "cmd"))) (file_redirect ">&-")))`,
+    );
     expectTree(
       'cmd < in',
       `(program (redirected_statement (command (command_name (word "cmd"))) (file_redirect "<" (word "in"))))`,
@@ -344,7 +353,10 @@ describe('statement lists', () => {
   });
 
   it('parses & background terminators', () => {
-    expectTree('a & b &', `(program (command (command_name (word "a"))) "&" (command (command_name (word "b"))) "&")`);
+    expectTree(
+      'a & b &',
+      `(program (command (command_name (word "a"))) "&" (command (command_name (word "b"))) "&")`,
+    );
   });
 
   it('parses |& pipelines', () => {
@@ -359,8 +371,14 @@ describe('statement lists', () => {
   });
 
   it('parses standalone assignments', () => {
-    expectTree('FOO=bar ls', `(program (command (variable_assignment (variable_name "FOO") "=" (word "bar")) (command_name (word "ls"))))`);
-    expectTree('VAR=value', `(program (variable_assignment (variable_name "VAR") "=" (word "value")))`);
+    expectTree(
+      'FOO=bar ls',
+      `(program (command (variable_assignment (variable_name "FOO") "=" (word "bar")) (command_name (word "ls"))))`,
+    );
+    expectTree(
+      'VAR=value',
+      `(program (variable_assignment (variable_name "VAR") "=" (word "value")))`,
+    );
     expectTree(
       'A=1 B=2',
       `(program (variable_assignments (variable_assignment (variable_name "A") "=" (number "1")) (variable_assignment (variable_name "B") "=" (number "2"))))`,
@@ -390,7 +408,9 @@ describe('statement lists', () => {
     const commands = descendantsOfType(root, 'command');
     expect(commands).toHaveLength(2);
     const argv = commands.map((cmd) =>
-      cmd.namedChildren.map((part) => (part.type === 'command_name' ? part.namedChildren[0]!.text : part.text)),
+      cmd.namedChildren.map((part) =>
+        part.type === 'command_name' ? part.namedChildren[0]!.text : part.text,
+      ),
     );
     expect(argv).toEqual([
       ['git', 'status'],

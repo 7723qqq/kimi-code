@@ -17,27 +17,27 @@
  */
 
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { Service } from '#/_base/di/service';
-import { Emitter, type Event } from '#/_base/event';
-import { LifecycleScope } from '#/app/scopes';
 import {
   createScopedChildHandle,
   type IWorkspaceScopeHandle,
   ScopeActivation,
   registerScopedService,
 } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
+import { Emitter, type Event } from '#/_base/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { workspacePersistenceScope } from '#/workspace/sessionLifecycle/internal/addressing';
+import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import {
   LOCAL_OS_BACKEND_ID,
   LOCAL_PERSISTENCE_BACKEND_ID,
   workspaceContextSeed,
   type IWorkspaceContext,
 } from '#/workspace/workspaceContext/workspaceContext';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { workspacePersistenceScope } from '#/workspace/sessionLifecycle/internal/addressing';
 
 import {
   IWorkspaceLifecycleService,
@@ -50,9 +50,7 @@ export class WorkspaceLifecycleService extends Service implements IWorkspaceLife
   declare readonly _serviceBrand: undefined;
   private readonly live = new Map<string, IWorkspaceScopeHandle>();
   private readonly materializing = new Map<string, Promise<IWorkspaceScopeHandle>>();
-  private readonly _onDidMaterializeHandler = this._register(
-    new Emitter<IWorkspaceScopeHandle>(),
-  );
+  private readonly _onDidMaterializeHandler = this._register(new Emitter<IWorkspaceScopeHandle>());
   readonly onDidMaterializeHandler: Event<IWorkspaceScopeHandle> =
     this._onDidMaterializeHandler.event;
 

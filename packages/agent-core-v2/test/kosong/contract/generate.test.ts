@@ -151,21 +151,15 @@ describe('generate() stream normalization', () => {
     const seenParts: StreamedMessagePart[] = [];
     const seenCalls: ToolCall[] = [];
 
-    const result = await generate(
-      provider,
-      SYSTEM_PROMPT,
-      NO_TOOLS,
-      HISTORY,
-      {
-        onMessagePart: (part) => {
-          seenParts.push(structuredClone(part));
-          if (part.type === 'text') part.text = 'MUTATED';
-        },
-        onToolCall: (call) => {
-          seenCalls.push(call);
-        },
+    const result = await generate(provider, SYSTEM_PROMPT, NO_TOOLS, HISTORY, {
+      onMessagePart: (part) => {
+        seenParts.push(structuredClone(part));
+        if (part.type === 'text') part.text = 'MUTATED';
       },
-    );
+      onToolCall: (call) => {
+        seenCalls.push(call);
+      },
+    });
 
     expect(seenParts).toHaveLength(2);
     expect(result.message.content).toEqual([{ type: 'text', text: 'abc' }]);

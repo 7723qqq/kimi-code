@@ -9,8 +9,8 @@
 
 import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
 import type { VideoURLPart } from '#/kosong/contract/message';
-import type { Protocol } from '#/kosong/protocol/protocol';
 import { ProtocolErrors } from '#/kosong/protocol/errors';
+import type { Protocol } from '#/kosong/protocol/protocol';
 
 export function isVideoUploadAuthError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
@@ -19,7 +19,9 @@ export function isVideoUploadAuthError(error: unknown): boolean {
   return statusCode === 401 || statusCode === 403;
 }
 
-export function isVideoUploadUnsupportedError(error: unknown): error is VideoUploadUnsupportedError {
+export function isVideoUploadUnsupportedError(
+  error: unknown,
+): error is VideoUploadUnsupportedError {
   return error instanceof VideoUploadUnsupportedError;
 }
 

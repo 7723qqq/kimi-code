@@ -1,3 +1,4 @@
+import type { ThinkingEffort } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Key,
@@ -6,8 +7,6 @@ import {
   wrapTextWithAnsi,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
-
-import type { ThinkingEffort } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
@@ -74,13 +73,20 @@ export class EffortSelectorComponent extends Container implements Focusable {
   }
 
   override render(width: number): string[] {
-    const hintParts = [t('tui.dialogs.effortSelector.hintSwitch'), t('tui.dialogs.effortSelector.hintSelect')];
-    if (this.opts.onSessionOnlySelect !== undefined) hintParts.push(t('tui.dialogs.effortSelector.hintSessionOnly'));
+    const hintParts = [
+      t('tui.dialogs.effortSelector.hintSwitch'),
+      t('tui.dialogs.effortSelector.hintSelect'),
+    ];
+    if (this.opts.onSessionOnlySelect !== undefined)
+      hintParts.push(t('tui.dialogs.effortSelector.hintSessionOnly'));
     hintParts.push(t('tui.dialogs.effortSelector.hintCancel'));
 
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ` ${this.opts.title ?? t('tui.dialogs.effortSelector.title')}`),
+      currentTheme.boldFg(
+        'primary',
+        ` ${this.opts.title ?? t('tui.dialogs.effortSelector.title')}`,
+      ),
       currentTheme.fg('textMuted', ` ${hintParts.join(' · ')}`),
     ];
     if (this.opts.warning !== undefined) {

@@ -1,9 +1,14 @@
 // apps/kimi-web/src/api/daemon/client.ts
 // DaemonKimiWebApi — implements KimiWebApi using the daemon REST + WS APIs.
 
+import { traceKeyEvent } from '../../debug/trace';
+import {
+  createSessionStatsState,
+  feedSessionStats,
+  type SessionStatsState,
+} from '../../lib/sessionStats';
 import type { KimiApiConfig } from '../config';
 import { buildRestUrl, buildWsUrl } from '../config';
-import { traceKeyEvent } from '../../debug/trace';
 import type {
   AppConfig,
   AppCronTask,
@@ -39,11 +44,6 @@ import type {
   QuestionResponse,
 } from '../types';
 import { createAgentProjector } from './agentEventProjector';
-import {
-  createSessionStatsState,
-  feedSessionStats,
-  type SessionStatsState,
-} from '../../lib/sessionStats';
 import { DaemonHttpClient } from './http';
 import {
   toAppApprovalRequest,
@@ -462,9 +462,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
   // GET /sessions/{id} — fetch one session (deep links to sessions outside the
   // first listSessions page).
   async getSession(sessionId: string): Promise<AppSession> {
-    const data = await this.http.get<WireSession>(
-      `/sessions/${encodeURIComponent(sessionId)}`,
-    );
+    const data = await this.http.get<WireSession>(`/sessions/${encodeURIComponent(sessionId)}`);
     return toAppSession(data);
   }
 
@@ -652,7 +650,8 @@ export class DaemonKimiWebApi implements KimiWebApi {
     webLog?: string,
   ): Promise<{ blob: Blob; fileName: string }> {
     const webLogBytes = webLog === undefined ? 0 : new TextEncoder().encode(webLog).byteLength;
-    const webLogEntries = webLog === undefined || webLog.length === 0 ? 0 : webLog.split('\n').length;
+    const webLogEntries =
+      webLog === undefined || webLog.length === 0 ? 0 : webLog.split('\n').length;
     const result = await this.http.postZip(
       `/sessions/${encodeURIComponent(sessionId)}/export`,
       { web_log: webLog },
@@ -669,16 +668,13 @@ export class DaemonKimiWebApi implements KimiWebApi {
   // Prompt
   // -------------------------------------------------------------------------
 
-  async submitPrompt(
-    sessionId: string,
-    input: PromptSubmission,
-  ): Promise<PromptSubmitResult> {
+  async submitPrompt(sessionId: string, input: PromptSubmission): Promise<PromptSubmitResult> {
     const startedAt = Date.now();
     traceKeyEvent('prompt:start', {
       sessionId,
       contentCount: input.content.length,
-      mediaCount: input.content.filter((part) =>
-        part.type === 'image' || part.type === 'video' || part.type === 'file'
+      mediaCount: input.content.filter(
+        (part) => part.type === 'image' || part.type === 'video' || part.type === 'file',
       ).length,
     });
     try {
@@ -761,10 +757,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
   // afterwards for the authoritative (un-paginated) transcript, so we only need
   // the call to succeed here.
   async undoSession(sessionId: string, count = 1): Promise<void> {
-    await this.http.post(
-      `/sessions/${encodeURIComponent(sessionId)}:undo`,
-      { count },
-    );
+    await this.http.post(`/sessions/${encodeURIComponent(sessionId)}:undo`, { count });
   }
 
   // POST /sessions/{id}:fork — fork the session into a new child session.
@@ -1099,10 +1092,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
   }> {
     const body: Record<string, unknown> = { workspace, query: input.query };
     if (input.limit !== undefined) body['limit'] = input.limit;
-    const data = await this.http.post<WireSearchFilesResult>(
-      `/workspace/fs:search`,
-      body,
-    );
+    const data = await this.http.post<WireSearchFilesResult>(`/workspace/fs:search`, body);
     return {
       items: data.items.map((item) => ({
         path: item.path,
@@ -1151,7 +1141,15 @@ export class DaemonKimiWebApi implements KimiWebApi {
   async getGitStatus(
     sessionId: string,
     paths?: string[],
-  ): Promise<{ branch: string; ahead: number; behind: number; entries: Record<string, string>; additions: number; deletions: number; pullRequest: { number: number; state: string; url: string } | null }> {
+  ): Promise<{
+    branch: string;
+    ahead: number;
+    behind: number;
+    entries: Record<string, string>;
+    additions: number;
+    deletions: number;
+    pullRequest: { number: number; state: string; url: string } | null;
+  }> {
     const body: Record<string, unknown> = {};
     if (paths !== undefined) body['paths'] = paths;
     const data = await this.http.post<WireGitStatusResult>(
@@ -1169,10 +1167,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
     };
   }
 
-  async getFileDiff(
-    sessionId: string,
-    path: string,
-  ): Promise<{ path: string; diff: string }> {
+  async getFileDiff(sessionId: string, path: string): Promise<{ path: string; diff: string }> {
     const data = await this.http.post<WireDiffResult>(
       `/sessions/${encodeURIComponent(sessionId)}/fs:diff`,
       { path },
@@ -1181,7 +1176,10 @@ export class DaemonKimiWebApi implements KimiWebApi {
   }
 
   getFileDownloadUrl(sessionId: string, path: string): string {
-    const encodedPath = path.split('/').map((part) => encodeURIComponent(part)).join('/');
+    const encodedPath = path
+      .split('/')
+      .map((part) => encodeURIComponent(part))
+      .join('/');
     return buildRestUrl(
       this.config.serverHttpUrl,
       `/sessions/${encodeURIComponent(sessionId)}/fs/${encodedPath}:download`,
@@ -1200,22 +1198,14 @@ export class DaemonKimiWebApi implements KimiWebApi {
     );
   }
 
-  async revealFile(
-    sessionId: string,
-    input: { path: string },
-  ): Promise<{ revealed: true }> {
+  async revealFile(sessionId: string, input: { path: string }): Promise<{ revealed: true }> {
     return this.http.post<{ revealed: true }>(
       `/sessions/${encodeURIComponent(sessionId)}/fs:reveal`,
       { path: input.path },
     );
   }
 
-  async openInApp(
-    sessionId: string,
-    appId: string,
-    path: string,
-    line?: number,
-  ): Promise<void> {
+  async openInApp(sessionId: string, appId: string, path: string, line?: number): Promise<void> {
     const body: Record<string, unknown> = { app_id: appId, path };
     if (line !== undefined) body['line'] = line;
     await this.http.post<{ opened: true }>(
@@ -1270,10 +1260,9 @@ export class DaemonKimiWebApi implements KimiWebApi {
    * PATCH /api/v1/workspaces/:id { name }. On error this throws.
    */
   async updateWorkspace(id: string, input: { name: string }): Promise<AppWorkspace> {
-    const data = await this.http.patch<WireWorkspace>(
-      `/workspaces/${encodeURIComponent(id)}`,
-      { name: input.name },
-    );
+    const data = await this.http.patch<WireWorkspace>(`/workspaces/${encodeURIComponent(id)}`, {
+      name: input.name,
+    });
     return toAppWorkspace(data);
   }
 
@@ -1423,9 +1412,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       ready: data.ready,
       providersCount: data.providers_count,
       defaultModel: data.default_model,
-      managedProvider: data.managed_provider
-        ? { status: data.managed_provider.status }
-        : null,
+      managedProvider: data.managed_provider ? { status: data.managed_provider.status } : null,
     };
   }
 
@@ -1480,9 +1467,16 @@ export class DaemonKimiWebApi implements KimiWebApi {
   // File upload
   // -------------------------------------------------------------------------
 
-  async uploadFile(input: { file: Blob; name?: string }): Promise<{ id: string; name: string; mediaType: string; size: number }> {
+  async uploadFile(input: {
+    file: Blob;
+    name?: string;
+  }): Promise<{ id: string; name: string; mediaType: string; size: number }> {
     const formData = new FormData();
-    formData.append('file', input.file, input.name ?? (input.file instanceof File ? input.file.name : 'upload'));
+    formData.append(
+      'file',
+      input.file,
+      input.name ?? (input.file instanceof File ? input.file.name : 'upload'),
+    );
     if (input.name !== undefined) {
       formData.append('name', input.name);
     }

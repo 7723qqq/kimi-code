@@ -45,17 +45,12 @@ export function readTodoItems(raw: unknown): readonly TodoItem[] {
 
     const id = typeof item['id'] === 'string' && item['id'] ? item['id'] : `T${counter}`;
     const parentId =
-      typeof item['parentId'] === 'string' && item['parentId']
-        ? item['parentId']
-        : null;
+      typeof item['parentId'] === 'string' && item['parentId'] ? item['parentId'] : null;
     const status = normalizeStatus(item['status']);
     const title = String(item['title']);
-    const description =
-      typeof item['description'] === 'string' ? item['description'] : undefined;
-    const createdAt =
-      typeof item['createdAt'] === 'number' ? item['createdAt'] : now;
-    const updatedAt =
-      typeof item['updatedAt'] === 'number' ? item['updatedAt'] : now;
+    const description = typeof item['description'] === 'string' ? item['description'] : undefined;
+    const createdAt = typeof item['createdAt'] === 'number' ? item['createdAt'] : now;
+    const updatedAt = typeof item['updatedAt'] === 'number' ? item['updatedAt'] : now;
 
     migrated.push({ id, parentId, title, status, description, createdAt, updatedAt });
   }
@@ -110,10 +105,7 @@ function isTodoStatus(value: unknown): value is TodoStatus {
  * Children of T1: T1.1, T1.2, …
  * Children of T1.1: T1.1.1, T1.1.2, …
  */
-export function nextChildId(
-  parentId: string | null,
-  siblings: readonly TodoItem[],
-): string {
+export function nextChildId(parentId: string | null, siblings: readonly TodoItem[]): string {
   const prefix = parentId ? `${parentId}.` : 'T';
   let max = 0;
   for (const s of siblings) {
@@ -128,10 +120,7 @@ export function nextChildId(
 /**
  * Render the todo list as a tree with indentation.
  */
-export function renderTodoList(
-  todos: readonly TodoItem[],
-  title = 'Current task list:',
-): string {
+export function renderTodoList(todos: readonly TodoItem[], title = 'Current task list:'): string {
   if (todos.length === 0) {
     return 'Todo list is empty.';
   }

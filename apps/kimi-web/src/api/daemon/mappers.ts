@@ -28,7 +28,6 @@ import type {
   QuestionOption,
   QuestionResponse,
 } from '../types';
-
 import type {
   WireApprovalRequest,
   WireApprovalResponse,
@@ -70,7 +69,9 @@ export function toAppSessionUsage(wire: WireSessionUsage): AppSessionUsage {
   };
 }
 
-export function toAppUsageDelta(wire: WireSessionUsageDelta | undefined): AppSessionUsageDelta | undefined {
+export function toAppUsageDelta(
+  wire: WireSessionUsageDelta | undefined,
+): AppSessionUsageDelta | undefined {
   if (wire === undefined) return undefined;
   return {
     inputTokens: wire.input_tokens,
@@ -450,24 +451,37 @@ export function toAppGoal(snapshot: unknown): AppGoal | null {
   }
 
   const budgetRaw = source['budget'];
-  const budget = budgetRaw && typeof budgetRaw === 'object' ? budgetRaw as Record<string, unknown> : {};
+  const budget =
+    budgetRaw && typeof budgetRaw === 'object' ? (budgetRaw as Record<string, unknown>) : {};
 
   return {
     goalId: recordString(source, 'goalId') ?? recordString(source, 'goal_id') ?? 'goal',
     objective: recordString(source, 'objective') ?? '',
-    completionCriterion: recordString(source, 'completionCriterion') ?? recordString(source, 'completion_criterion'),
+    completionCriterion:
+      recordString(source, 'completionCriterion') ?? recordString(source, 'completion_criterion'),
     status,
     turnsUsed: recordNumber(source, 'turnsUsed') ?? recordNumber(source, 'turns_used') ?? 0,
     tokensUsed: recordNumber(source, 'tokensUsed') ?? recordNumber(source, 'tokens_used') ?? 0,
     wallClockMs: recordNumber(source, 'wallClockMs') ?? recordNumber(source, 'wall_clock_ms') ?? 0,
-    terminalReason: recordString(source, 'terminalReason') ?? recordString(source, 'terminal_reason'),
+    terminalReason:
+      recordString(source, 'terminalReason') ?? recordString(source, 'terminal_reason'),
     budget: {
-      tokenBudget: recordNullableNumber(budget, 'tokenBudget') ?? recordNullableNumber(budget, 'token_budget'),
-      remainingTokens: recordNullableNumber(budget, 'remainingTokens') ?? recordNullableNumber(budget, 'remaining_tokens'),
-      turnBudget: recordNullableNumber(budget, 'turnBudget') ?? recordNullableNumber(budget, 'turn_budget'),
-      remainingTurns: recordNullableNumber(budget, 'remainingTurns') ?? recordNullableNumber(budget, 'remaining_turns'),
-      wallClockBudgetMs: recordNullableNumber(budget, 'wallClockBudgetMs') ?? recordNullableNumber(budget, 'wall_clock_budget_ms'),
-      remainingWallClockMs: recordNullableNumber(budget, 'remainingWallClockMs') ?? recordNullableNumber(budget, 'remaining_wall_clock_ms'),
+      tokenBudget:
+        recordNullableNumber(budget, 'tokenBudget') ?? recordNullableNumber(budget, 'token_budget'),
+      remainingTokens:
+        recordNullableNumber(budget, 'remainingTokens') ??
+        recordNullableNumber(budget, 'remaining_tokens'),
+      turnBudget:
+        recordNullableNumber(budget, 'turnBudget') ?? recordNullableNumber(budget, 'turn_budget'),
+      remainingTurns:
+        recordNullableNumber(budget, 'remainingTurns') ??
+        recordNullableNumber(budget, 'remaining_turns'),
+      wallClockBudgetMs:
+        recordNullableNumber(budget, 'wallClockBudgetMs') ??
+        recordNullableNumber(budget, 'wall_clock_budget_ms'),
+      remainingWallClockMs:
+        recordNullableNumber(budget, 'remainingWallClockMs') ??
+        recordNullableNumber(budget, 'remaining_wall_clock_ms'),
       overBudget: budget['overBudget'] === true || budget['over_budget'] === true,
     },
   };
@@ -716,7 +730,12 @@ export function toAppEvent(wire: WireEvent): AppEvent {
       return {
         type: 'modelCatalogChanged',
         changed: w.payload.changed.map(
-          (item: { provider_id: string; provider_name: string; added: number; removed: number }) => ({
+          (item: {
+            provider_id: string;
+            provider_name: string;
+            added: number;
+            removed: number;
+          }) => ({
             providerId: item.provider_id,
             providerName: item.provider_name,
             added: item.added,
@@ -765,7 +784,10 @@ export function toAppProvider(wire: WireProvider): AppProvider {
 }
 
 export function toAppConfig(wire: WireConfig): AppConfig {
-  const providers: Record<string, { type: string; baseUrl?: string; defaultModel?: string; hasApiKey: boolean }> = {};
+  const providers: Record<
+    string,
+    { type: string; baseUrl?: string; defaultModel?: string; hasApiKey: boolean }
+  > = {};
   for (const [id, provider] of Object.entries(wire.providers)) {
     providers[id] = {
       type: provider.type,

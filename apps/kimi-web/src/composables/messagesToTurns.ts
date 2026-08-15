@@ -9,9 +9,25 @@
 // TOOL-role messages fold their toolResult content into the preceding assistant
 // group rather than becoming separate turns.
 
-import type { AppMessage, AppApprovalRequest, AppTask, CompactionMarkerMetadata } from '../api/types';
+import type {
+  AppMessage,
+  AppApprovalRequest,
+  AppTask,
+  CompactionMarkerMetadata,
+} from '../api/types';
 import { COMPACTION_MARKER_METADATA_KEY } from '../api/types';
-import type { AgentMember, ApprovalBlock, ChatTurn, CronTurnData, DiffLine, ToolCall, ToolMedia, TurnAttachment, TurnBlock, TurnUsage } from '../types';
+import type {
+  AgentMember,
+  ApprovalBlock,
+  ChatTurn,
+  CronTurnData,
+  DiffLine,
+  ToolCall,
+  ToolMedia,
+  TurnAttachment,
+  TurnBlock,
+  TurnUsage,
+} from '../types';
 
 const READ_MEDIA_TOOL_RE = /^read[_-]?media(?:file)?$/i;
 const DATA_URL_RE = /^data:([^;]+);base64,(.*)$/s;
@@ -127,7 +143,9 @@ function contentPartsFromOutput(output: unknown): unknown[] | null {
   }
 }
 
-function mediaUrlPart(part: Record<string, unknown>): { kind: ToolMedia['kind']; url: string } | null {
+function mediaUrlPart(
+  part: Record<string, unknown>,
+): { kind: ToolMedia['kind']; url: string } | null {
   const type = part['type'];
   const kind =
     type === 'image_url'
@@ -212,7 +230,8 @@ function normalizeToolOutput(output: unknown): string[] | undefined {
       } else if (part && typeof part === 'object') {
         const p = part as Record<string, unknown>;
         if (p.type === 'text' && typeof p.text === 'string') lines.push(...p.text.split('\n'));
-        else if (p.type === 'think' && typeof p.think === 'string') lines.push(...p.think.split('\n'));
+        else if (p.type === 'think' && typeof p.think === 'string')
+          lines.push(...p.think.split('\n'));
         else if (p.type === 'image_url' || p.type === 'image') lines.push('[image]');
         else if (typeof p.type === 'string') lines.push(`[${p.type}]`);
         else lines.push(JSON.stringify(part));
@@ -425,11 +444,7 @@ function extractCronPrompt(text: string): string {
 
 function stripCronEnvelope(text: string): string {
   const lines = text.split('\n');
-  if (
-    lines.length >= 2 &&
-    lines[0]?.startsWith('<cron-fire ') &&
-    lines.at(-1) === '</cron-fire>'
-  ) {
+  if (lines.length >= 2 && lines[0]?.startsWith('<cron-fire ') && lines.at(-1) === '</cron-fire>') {
     return lines.slice(1, -1).join('\n');
   }
   return text;
@@ -467,7 +482,8 @@ function buildCronData(
       jobId: typeof origin['jobId'] === 'string' ? origin['jobId'] : undefined,
       cron: typeof origin['cron'] === 'string' ? origin['cron'] : undefined,
       recurring: typeof origin['recurring'] === 'boolean' ? origin['recurring'] : undefined,
-      coalescedCount: typeof origin['coalescedCount'] === 'number' ? origin['coalescedCount'] : undefined,
+      coalescedCount:
+        typeof origin['coalescedCount'] === 'number' ? origin['coalescedCount'] : undefined,
       stale: typeof origin['stale'] === 'boolean' ? origin['stale'] : undefined,
     },
   };
@@ -477,7 +493,6 @@ function buildCronTurn(msg: AppMessage, no: number, kind: 'cron_job' | 'cron_mis
   const { text, cron } = buildCronData(msg, kind);
   return { id: msg.id, role: 'cron', no, text, createdAt: msg.createdAt, cron };
 }
-
 
 /**
  * Whether a USER-role message should be shown. Mirrors agent-core's
@@ -508,15 +523,13 @@ function isCompactionSummaryMessage(msg: AppMessage): boolean {
   return origin?.kind === 'compaction_summary';
 }
 
-function continuesAssistantGroup(group: Group | null, promptId: string | undefined): group is Group {
+function continuesAssistantGroup(
+  group: Group | null,
+  promptId: string | undefined,
+): group is Group {
   if (group === null) return false;
-  return (
-    group.promptId === undefined ||
-    promptId === undefined ||
-    group.promptId === promptId
-  );
+  return group.promptId === undefined || promptId === undefined || group.promptId === promptId;
 }
-
 
 /** Extract the plan file path from an ExitPlanMode tool result. The approved
  *  output contains `Plan saved to: <path>`; this survives a page reload (unlike
@@ -680,7 +693,8 @@ export function messagesToTurns(
           // flushGroup settles dangling tools of finished turns back to 'ok'.
           status: 'running',
           output: c.outputLines,
-          planPath: c.toolName === 'ExitPlanMode' ? planReviewByToolCallId[c.toolCallId]?.path : undefined,
+          planPath:
+            c.toolName === 'ExitPlanMode' ? planReviewByToolCallId[c.toolCallId]?.path : undefined,
         };
         g.tools.push(toolCall);
         g.blocks.push({ kind: 'tool', tool: toolCall });
@@ -744,11 +758,14 @@ export function messagesToTurns(
       const src = c.source;
       if (src.kind === 'url') return { url: src.url, kind };
       if (src.kind === 'base64') return { url: `data:${src.mediaType};base64,${src.data}`, kind };
-      if (src.kind === 'file' && getFileUrl) return { url: getFileUrl(src.fileId), kind, fileId: src.fileId };
+      if (src.kind === 'file' && getFileUrl)
+        return { url: getFileUrl(src.fileId), kind, fileId: src.fileId };
     }
     if (c.type === 'file' && getFileUrl) {
-      if (c.mediaType.startsWith('image/')) return { url: getFileUrl(c.fileId), kind: 'image', fileId: c.fileId };
-      if (c.mediaType.startsWith('video/')) return { url: getFileUrl(c.fileId), kind: 'video', fileId: c.fileId };
+      if (c.mediaType.startsWith('image/'))
+        return { url: getFileUrl(c.fileId), kind: 'image', fileId: c.fileId };
+      if (c.mediaType.startsWith('video/'))
+        return { url: getFileUrl(c.fileId), kind: 'video', fileId: c.fileId };
     }
     return undefined;
   }
@@ -809,8 +826,7 @@ export function messagesToTurns(
         | undefined;
       const isSkillActivation =
         origin?.kind === 'skill_activation' && origin?.trigger === 'user-slash';
-      const isPluginCommand =
-        origin?.kind === 'plugin_command' && origin?.trigger === 'user-slash';
+      const isPluginCommand = origin?.kind === 'plugin_command' && origin?.trigger === 'user-slash';
 
       const textParts: string[] = [];
       const attachments: TurnAttachment[] = [];
@@ -892,7 +908,11 @@ export function messagesToTurns(
           ? { name: origin.skillName!, args: origin.skillArgs }
           : undefined,
         pluginCommand: isPluginCommand
-          ? { pluginId: origin.pluginId!, commandName: origin.commandName!, args: origin.commandArgs }
+          ? {
+              pluginId: origin.pluginId!,
+              commandName: origin.commandName!,
+              args: origin.commandArgs,
+            }
           : undefined,
         createdAt: msg.createdAt,
       });

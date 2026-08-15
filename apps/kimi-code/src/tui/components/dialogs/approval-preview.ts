@@ -26,12 +26,12 @@ import {
   type Focusable,
 } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import type { DiffDisplayBlock, FileContentDisplayBlock } from '#/tui/reverse-rpc/types';
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '#/tui/utils/printable-key';
-import { t } from '#/i18n';
 
 const ELLIPSIS = '…';
 
@@ -80,12 +80,7 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
     const visible = this.viewableRows();
     const k = printableChar(data);
 
-    if (
-      matchesKey(data, Key.escape) ||
-      matchesKey(data, Key.ctrl('e')) ||
-      k === 'q' ||
-      k === 'Q'
-    ) {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('e')) || k === 'q' || k === 'Q') {
       this.props.onClose();
       return;
     }
@@ -97,11 +92,11 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
       this.scrollBy(1);
       return;
     }
-    if (matchesKey(data, Key.pageUp) || k === ' ' || data === '\x02') {
+    if (matchesKey(data, Key.pageUp) || k === ' ' || data === '\u0002') {
       this.scrollBy(-Math.max(1, visible - 1));
       return;
     }
-    if (matchesKey(data, Key.pageDown) || data === '\x06') {
+    if (matchesKey(data, Key.pageDown) || data === '\u0006') {
       this.scrollBy(Math.max(1, visible - 1));
       return;
     }
@@ -170,7 +165,11 @@ export class ApprovalPreviewViewer extends Container implements Focusable {
     for (let i = 0; i < viewRows; i++) {
       const lineIndex = this.scrollTop + i;
       const raw = this.bodyLines[lineIndex] ?? '';
-      out.push(currentTheme.fg('primary', '│ ') + fitExactly(raw, innerWidth) + currentTheme.fg('primary', ' │'));
+      out.push(
+        currentTheme.fg('primary', '│ ') +
+          fitExactly(raw, innerWidth) +
+          currentTheme.fg('primary', ' │'),
+      );
     }
     out.push(bottom);
     return out;
@@ -216,16 +215,11 @@ function buildDiffBody(block: DiffDisplayBlock): BuiltBody {
   // followed by every changed line plus surrounding context. We pull the
   // header out into the viewer chrome so the body is purely scrollable diff
   // content; this also means we don't double-render the path.
-  const rendered = renderDiffLinesClustered(
-    block.old_text,
-    block.new_text,
-    block.path,
-    {
-      contextLines: 3,
-      oldStart: block.old_start ?? 1,
-      newStart: block.new_start ?? 1,
-    },
-  );
+  const rendered = renderDiffLinesClustered(block.old_text, block.new_text, block.path, {
+    contextLines: 3,
+    oldStart: block.old_start ?? 1,
+    newStart: block.new_start ?? 1,
+  });
   const [header = '', ...rest] = rendered;
   return { lines: rest, title: stripLeadingSpace(header) };
 }

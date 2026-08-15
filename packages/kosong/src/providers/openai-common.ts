@@ -1,4 +1,11 @@
 import {
+  APIConnectionError as OpenAIConnectionError,
+  APIConnectionTimeoutError as OpenAITimeoutError,
+  APIError as OpenAIAPIError,
+  OpenAIError,
+} from 'openai';
+
+import {
   APIConnectionError,
   APIProviderQuotaExhaustedError,
   APITimeoutError,
@@ -14,12 +21,6 @@ import type { ContentPart, Message } from '#/message';
 import type { FinishReason } from '#/provider';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
-import {
-  APIConnectionError as OpenAIConnectionError,
-  APIConnectionTimeoutError as OpenAITimeoutError,
-  APIError as OpenAIAPIError,
-  OpenAIError,
-} from 'openai';
 export interface OpenAIContentPart {
   type: string;
   text?: string | undefined;
@@ -236,7 +237,11 @@ export function extractUsage(usage: unknown): TokenUsage | null {
   // remainder of the prompt) is the closest proxy — without it the hit rate
   // reads/(reads+writes) would always be 100% whenever any token was read.
   const hasMissField = miss !== undefined;
-  const cacheCreation = hasMissField ? (miss ?? 0) : cached > 0 ? Math.max(promptTokens - cached, 0) : 0;
+  const cacheCreation = hasMissField
+    ? (miss ?? 0)
+    : cached > 0
+      ? Math.max(promptTokens - cached, 0)
+      : 0;
 
   return {
     inputOther: hasMissField ? 0 : cached > 0 ? 0 : Math.max(promptTokens - cached, 0),

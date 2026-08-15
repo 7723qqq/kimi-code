@@ -28,10 +28,7 @@ export interface ShutdownRouteOptions {
   readonly onShutdown: () => void;
 }
 
-export function registerShutdownRoutes(
-  app: ShutdownRouteHost,
-  opts: ShutdownRouteOptions,
-): void {
+export function registerShutdownRoutes(app: ShutdownRouteHost, opts: ShutdownRouteOptions): void {
   const route = defineRoute(
     {
       method: 'POST',
@@ -50,9 +47,5 @@ export function registerShutdownRoutes(
       setImmediate(() => opts.onShutdown());
     },
   );
-  app.post(
-    route.path,
-    route.options,
-    route.handler as Parameters<ShutdownRouteHost['post']>[2],
-  );
+  app.post(route.path, route.options, route.handler as Parameters<ShutdownRouteHost['post']>[2]);
 }

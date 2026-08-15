@@ -1,5 +1,6 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+
 import type { OldSessionState } from '../kimi-cli-schema.js';
 
 export interface StateWriteInput {
@@ -34,9 +35,7 @@ export async function writeSessionState(sessionDir: string, input: StateWriteInp
     isCustomTitle,
     lastPrompt: input.lastUserPrompt.slice(0, 200),
     additionalDirs:
-      input.oldState.additional_dirs?.length === 0
-        ? undefined
-        : input.oldState.additional_dirs,
+      input.oldState.additional_dirs?.length === 0 ? undefined : input.oldState.additional_dirs,
     agents: {
       main: {
         // kimi-core's `Session.resume()` treats `agents.main.homedir` as the

@@ -5,9 +5,9 @@
 // published index generation (stage 5) or, as the fallback, rebuilt from the
 // store wholesale; individual indexes are rebuilt on definition changes.
 
+import type { SecondaryImageIndex } from './gen-codec.js';
 import { SkipList, cmpNumber, cmpString } from './skiplist.js';
 import type { RangeOptions } from './skiplist.js';
-import type { SecondaryImageIndex } from './gen-codec.js';
 
 export type IndexType = 'equality' | 'range';
 
@@ -56,7 +56,12 @@ export class UniqueViolationError extends Error {
 }
 
 function getField(doc: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((o, k) => (o === null || o === undefined ? undefined : (o as Record<string, unknown>)[k]), doc);
+  return path
+    .split('.')
+    .reduce<unknown>(
+      (o, k) => (o === null || o === undefined ? undefined : (o as Record<string, unknown>)[k]),
+      doc,
+    );
 }
 
 function stableStringify(v: unknown): string {
@@ -109,7 +114,11 @@ function insertDoc(idx: AnyIndex, pk: string, doc: unknown): void {
     // Index each distinct numeric element once. Without the de-dupe, an
     // array like [10, 10, 10] would insert three (10, pk) nodes and the
     // same key would be reported three times by findRange.
-    const vals = [...new Set(flatten(value).filter((v): v is number => typeof v === 'number' && Number.isFinite(v)))];
+    const vals = [
+      ...new Set(
+        flatten(value).filter((v): v is number => typeof v === 'number' && Number.isFinite(v)),
+      ),
+    ];
     if (vals.length === 0) return;
     for (const v of vals) idx.list.insert(v, pk);
     idx.byPk.set(pk, vals);
@@ -173,7 +182,10 @@ function checkUniqueOnIndex(idx: AnyIndex, pk: string, doc: unknown): void {
 /** Validate one unique index for a batch of ops against the index state AFTER
  *  the whole batch (the per-index body of IndexManager.checkUniqueBatch;
  *  `lastOp` is the batch's last op per key). */
-function checkUniqueBatchOnIndex(idx: AnyIndex, lastOp: ReadonlyMap<string, { op: 'set' | 'del'; doc: unknown }>): void {
+function checkUniqueBatchOnIndex(
+  idx: AnyIndex,
+  lastOp: ReadonlyMap<string, { op: 'set' | 'del'; doc: unknown }>,
+): void {
   if (!idx.unique) return;
   // Batch-local claims: value -> claiming pk. Two different keys finally
   // claiming the same value is a conflict regardless of the live index.
@@ -239,7 +251,10 @@ export class IndexManager {
   }
 
   /** Validate the definition and construct the (empty) index state. */
-  private static build(name: string, { field, type = 'equality', unique = false, sparse = true }: IndexDef): AnyIndex {
+  private static build(
+    name: string,
+    { field, type = 'equality', unique = false, sparse = true }: IndexDef,
+  ): AnyIndex {
     if (!field) throw new TypeError('index requires a field');
     return type === 'range'
       ? {
@@ -268,7 +283,8 @@ export class IndexManager {
    *  error precedence. */
   stage(name: string, def: IndexDef): void {
     const idx = IndexManager.build(name, def);
-    if (this.indexes.has(name) || this.staged.has(name)) throw new Error(`index "${name}" already exists`);
+    if (this.indexes.has(name) || this.staged.has(name))
+      throw new Error(`index "${name}" already exists`);
     this.staged.set(name, idx);
   }
 
@@ -421,7 +437,15 @@ export class IndexManager {
 
   findRange(
     name: string,
-    opts: { min?: number; max?: number; minExclusive?: boolean; maxExclusive?: boolean; offset?: number; count?: number; reverse?: boolean } = {},
+    opts: {
+      min?: number;
+      max?: number;
+      minExclusive?: boolean;
+      maxExclusive?: boolean;
+      offset?: number;
+      count?: number;
+      reverse?: boolean;
+    } = {},
   ): { pk: string; value: number }[] {
     const idx = this.get(name);
     if (idx.type !== 'range') throw new Error(`index "${name}" is not a range index`);
@@ -457,7 +481,11 @@ export class IndexManager {
     for (const idx of this.indexes.values()) {
       const next: AnyIndex =
         idx.type === 'range'
-          ? { ...idx, list: new SkipList<number, string>({ compareKey: cmpNumber, compareVal: cmpString }), byPk: new Map() }
+          ? {
+              ...idx,
+              list: new SkipList<number, string>({ compareKey: cmpNumber, compareVal: cmpString }),
+              byPk: new Map(),
+            }
           : { ...idx, map: new Map(), byPk: new Map() };
       staged.push({ idx, next });
     }
@@ -498,7 +526,10 @@ export class IndexManager {
           type: 'equality',
           unique: idx.unique,
           sparse: idx.sparse,
-          equality: [...idx.map.entries()].map(([scalarKey, set]) => ({ scalarKey, pks: [...set] })),
+          equality: [...idx.map.entries()].map(([scalarKey, set]) => ({
+            scalarKey,
+            pks: [...set],
+          })),
           range: null,
         });
       }
@@ -550,7 +581,10 @@ export class IndexManager {
    *  mid-load yield can never expose a half-built index. Safe to yield while
    *  building: the containers are detached until the swap, and the store is
    *  not published until open() returns. */
-  async loadImageAsync(image: SecondaryImageIndex, opts: { sliceEvery?: number } = {}): Promise<void> {
+  async loadImageAsync(
+    image: SecondaryImageIndex,
+    opts: { sliceEvery?: number } = {},
+  ): Promise<void> {
     const sliceEvery = opts.sliceEvery ?? 32768;
     const idx = this.indexes.get(image.name);
     if (!idx) throw new Error(`no such index: ${image.name}`);

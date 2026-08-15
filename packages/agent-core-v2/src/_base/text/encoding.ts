@@ -71,7 +71,12 @@ export function detectTextEncoding(sample: Uint8Array): TextEncodingDetection {
     if (b0 === UTF16LE_BOM[0] && b1 === UTF16LE_BOM[1]) {
       return { encoding: 'utf-16le', seemsBinary: false };
     }
-    if (sample.length >= 3 && b0 === UTF8_BOM[0] && b1 === UTF8_BOM[1] && sample[2] === UTF8_BOM[2]) {
+    if (
+      sample.length >= 3 &&
+      b0 === UTF8_BOM[0] &&
+      b1 === UTF8_BOM[1] &&
+      sample[2] === UTF8_BOM[2]
+    ) {
       return { encoding: 'utf-8', seemsBinary: false };
     }
   }

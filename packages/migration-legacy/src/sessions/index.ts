@@ -2,8 +2,8 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { OldKimiJsonSchema, OldSessionStateSchema } from '../kimi-cli-schema.js';
-import { ensureSessionIndexEntry } from '../session-index.js';
 import { sourceKimiJson, sourceSessionsDir } from '../paths.js';
+import { ensureSessionIndexEntry } from '../session-index.js';
 import type { SessionsSummary } from '../types.js';
 import { classifySessionDir } from './classify.js';
 import { migrateOneSession } from './migrate-one.js';
@@ -30,9 +30,7 @@ interface SessionCandidate {
 
 const MD5_HEX_RE = /^[0-9a-f]{32}$/;
 
-export async function migrateSessionsStep(
-  input: SessionsStepInput,
-): Promise<SessionsSummary> {
+export async function migrateSessionsStep(input: SessionsStepInput): Promise<SessionsSummary> {
   const workdirs = await loadWorkdirs(input.sourceHome);
   const md5ToWorkdir = new Map<string, WorkdirMeta>();
   for (const wd of workdirs) {

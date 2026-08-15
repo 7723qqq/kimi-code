@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { createInitialState, reduceAppEvent } from '../src/api/daemon/eventReducer';
 import type { AppMessage, AppSession, AppTask } from '../src/api/types';
 import { i18n } from '../src/i18n';
@@ -77,7 +78,11 @@ describe('reduceAppEvent turnActiveChanged', () => {
       sessions: [makeSession('s1', '2026-01-01T00:00:00.000Z')],
       turnActiveBySession: { s1: true },
     };
-    const next = reduceAppEvent(state, { type: 'sessionDeleted', sessionId: 's1' }, { sessionId: 's1', seq: 1 });
+    const next = reduceAppEvent(
+      state,
+      { type: 'sessionDeleted', sessionId: 's1' },
+      { sessionId: 's1', seq: 1 },
+    );
     expect(next.turnActiveBySession['s1']).toBeUndefined();
   });
 });
@@ -351,7 +356,7 @@ describe('reduceAppEvent taskProgress', () => {
   it('accumulates the full progress output without truncating to a fixed window', () => {
     const state = {
       ...createInitialState(),
-      tasksBySession: { 's1': [makeSubagentTask('t1', 's1')] },
+      tasksBySession: { s1: [makeSubagentTask('t1', 's1')] },
     };
     let next = state;
     for (let i = 0; i < 60; i++) {
@@ -365,7 +370,13 @@ describe('reduceAppEvent taskProgress', () => {
       );
       next = reduceAppEvent(
         next,
-        { type: 'taskProgress', sessionId: 's1', taskId: 't1', outputChunk: `line ${i}`, stream: 'stdout' },
+        {
+          type: 'taskProgress',
+          sessionId: 's1',
+          taskId: 't1',
+          outputChunk: `line ${i}`,
+          stream: 'stdout',
+        },
         { sessionId: 's1', seq: i * 2 + 2 },
       );
     }
@@ -378,9 +389,15 @@ describe('reduceAppEvent taskProgress', () => {
   it('deduplicates a repeated trailing chunk', () => {
     const state = {
       ...createInitialState(),
-      tasksBySession: { 's1': [makeSubagentTask('t1', 's1')] },
+      tasksBySession: { s1: [makeSubagentTask('t1', 's1')] },
     };
-    const event = { type: 'taskProgress', sessionId: 's1', taskId: 't1', outputChunk: 'same', stream: 'stdout' } as const;
+    const event = {
+      type: 'taskProgress',
+      sessionId: 's1',
+      taskId: 't1',
+      outputChunk: 'same',
+      stream: 'stdout',
+    } as const;
     const once = reduceAppEvent(state, event, { sessionId: 's1', seq: 1 });
     const twice = reduceAppEvent(once, event, { sessionId: 's1', seq: 2 });
     expect(twice.tasksBySession['s1']?.[0]?.outputLines).toEqual(['same']);
@@ -388,12 +405,18 @@ describe('reduceAppEvent taskProgress', () => {
 
   it('caps accumulated output for non-subagent (background) tasks', () => {
     const bash: AppTask = { ...makeSubagentTask('b1', 's1'), kind: 'bash' };
-    const state = { ...createInitialState(), tasksBySession: { 's1': [bash] } };
+    const state = { ...createInitialState(), tasksBySession: { s1: [bash] } };
     let next = state;
     for (let i = 0; i < 60; i++) {
       next = reduceAppEvent(
         next,
-        { type: 'taskProgress', sessionId: 's1', taskId: 'b1', outputChunk: `line ${i}`, stream: 'stdout' },
+        {
+          type: 'taskProgress',
+          sessionId: 's1',
+          taskId: 'b1',
+          outputChunk: `line ${i}`,
+          stream: 'stdout',
+        },
         { sessionId: 's1', seq: i + 1 },
       );
     }
@@ -406,7 +429,7 @@ describe('reduceAppEvent taskProgress', () => {
   it('concatenates subagent text-kind chunks into a growing text block', () => {
     const state = {
       ...createInitialState(),
-      tasksBySession: { 's1': [makeSubagentTask('t1', 's1')] },
+      tasksBySession: { s1: [makeSubagentTask('t1', 's1')] },
     };
     let next = state;
     for (const chunk of ['Hello', ', ', 'world', '!']) {
@@ -432,7 +455,7 @@ describe('reduceAppEvent taskProgress', () => {
   it('preserves accumulated text across a taskCreated replacement', () => {
     const state = {
       ...createInitialState(),
-      tasksBySession: { 's1': [{ ...makeSubagentTask('t1', 's1'), text: 'partial' }] },
+      tasksBySession: { s1: [{ ...makeSubagentTask('t1', 's1'), text: 'partial' }] },
     };
     const next = reduceAppEvent(
       state,
@@ -446,7 +469,7 @@ describe('reduceAppEvent taskProgress', () => {
     const state = {
       ...createInitialState(),
       tasksBySession: {
-        's1': [
+        s1: [
           {
             ...makeSubagentTask('t1', 's1'),
             parentToolCallId: 'call-1',
@@ -481,7 +504,7 @@ describe('reduceAppEvent taskProgress', () => {
     const state = {
       ...createInitialState(),
       tasksBySession: {
-        's1': [{ ...makeSubagentTask('t1', 's1'), description: 'explore the auth flow' }],
+        s1: [{ ...makeSubagentTask('t1', 's1'), description: 'explore the auth flow' }],
       },
     };
     const next = reduceAppEvent(
@@ -500,7 +523,7 @@ describe('reduceAppEvent taskProgress', () => {
     const state = {
       ...createInitialState(),
       tasksBySession: {
-        's1': [{ ...makeSubagentTask('t1', 's1'), description: 'Sub Agent' }],
+        s1: [{ ...makeSubagentTask('t1', 's1'), description: 'Sub Agent' }],
       },
     };
     const next = reduceAppEvent(
@@ -714,7 +737,13 @@ describe('reduceAppEvent sessionUsageUpdated deltas', () => {
         type: 'sessionUsageUpdated',
         sessionId: 's1',
         usage: { ...USAGE },
-        delta: { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheCreationTokens: 4, costUsd: 0 },
+        delta: {
+          inputTokens: 1,
+          outputTokens: 2,
+          cacheReadTokens: 3,
+          cacheCreationTokens: 4,
+          costUsd: 0,
+        },
       },
       { sessionId: 's1', seq: 1 },
     );
@@ -738,7 +767,13 @@ describe('reduceAppEvent sessionUsageUpdated deltas', () => {
         type: 'sessionUsageUpdated',
         sessionId: 's1',
         usage: { ...USAGE },
-        delta: { inputTokens: 5, outputTokens: 6, cacheReadTokens: 7, cacheCreationTokens: 8, costUsd: 0 },
+        delta: {
+          inputTokens: 5,
+          outputTokens: 6,
+          cacheReadTokens: 7,
+          cacheCreationTokens: 8,
+          costUsd: 0,
+        },
       },
       { sessionId: 's1', seq: 2 },
     );
@@ -773,7 +808,13 @@ describe('reduceAppEvent sessionUsageUpdated deltas', () => {
         type: 'sessionUsageUpdated',
         sessionId: 's1',
         usage: { ...USAGE },
-        delta: { inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheCreationTokens: 4, costUsd: 0 },
+        delta: {
+          inputTokens: 1,
+          outputTokens: 2,
+          cacheReadTokens: 3,
+          cacheCreationTokens: 4,
+          costUsd: 0,
+        },
       },
       { sessionId: 's1', seq: 1 },
     );

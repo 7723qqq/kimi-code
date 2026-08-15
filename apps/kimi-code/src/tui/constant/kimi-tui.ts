@@ -1,7 +1,11 @@
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { t } from '#/i18n';
 
-export { DEFAULT_OAUTH_PROVIDER_NAME, OAUTH_LOGIN_REQUIRED_CODE, PRODUCT_NAME } from '#/constant/app';
+export {
+  DEFAULT_OAUTH_PROVIDER_NAME,
+  OAUTH_LOGIN_REQUIRED_CODE,
+  PRODUCT_NAME,
+} from '#/constant/app';
 
 export function getLlmNotSetMessage(): string {
   return t('tui.chrome.hints.llmNotSet');

@@ -9,21 +9,19 @@
  */
 
 import type { CollectionView } from '#/_base/di/collection';
-import { Emitter, type Event } from '#/_base/event';
 import type {
   FiberHandle,
   FiberProvideOptions,
   ServiceClassRecipe,
   ServiceRecipe,
 } from '#/_base/di/fiber';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { isServiceIdentifier, type ServiceIdentifier } from '#/_base/di/instantiation';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import {
-  IFeatureManager,
-  type ManagedUnitInfo,
-} from './featureManager';
+import { Emitter, type Event } from '#/_base/event';
+import { LifecycleScope } from '#/app/scopes';
+
+import { IFeatureManager, type ManagedUnitInfo } from './featureManager';
 import {
   FeatureServiceContribution,
   type ContributedFeatureService,

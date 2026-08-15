@@ -4,44 +4,43 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
+import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { AgentProfileService } from '#/agent/profile/profileService';
 import { ActiveToolsModel, ProfileModel } from '#/agent/profile/profileOps';
+import { AgentProfileService } from '#/agent/profile/profileService';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { AgentStateService } from '#/agent/state/agentStateService';
 import {
   DEFAULT_AGENT_PROFILE_NAME,
   type EnvironmentDisclosureSnapshot,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import { IProviderService } from '#/kosong/provider/provider';
-import { IProtocolAdapterRegistry, type Protocol } from '#/kosong/protocol/protocol';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { AgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContextService';
-import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { AgentStateService } from '#/agent/state/agentStateService';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IModelCatalog, type Model } from '#/kosong/model/catalog';
+import { IProtocolAdapterRegistry, type Protocol } from '#/kosong/protocol/protocol';
+import { IProviderService } from '#/kosong/provider/provider';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import type { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-
+import type { IWireService } from '#/wire/wire';
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 
-import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
 import { stubProviderService } from '../../app/provider/stubs';
+import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
 
 const SCOPE = 'wire';
 const KEY = 'profile-test';
@@ -194,10 +193,7 @@ function buildHost(key: string): {
   host.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   host.stub(ITelemetryService, createTelemetryStub());
   host.stub(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
-  host.stub(
-    IAgentTelemetryContextService,
-    new AgentTelemetryContextService(),
-  );
+  host.stub(IAgentTelemetryContextService, new AgentTelemetryContextService());
   host.stub(IConfigService, createConfigStub());
   host.stub(IModelCatalog, modelCatalog);
   host.stub(IProviderService, stubProviderService());
@@ -271,7 +267,10 @@ afterEach(() => disposables.dispose());
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await wire.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -332,12 +331,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     expect(activeToolsOf(wire)).toBeUndefined();
 
     const replay = buildHost('profile-replay-active-tools');
-    await restoreTestAgentWire(
-      replay.wire,
-      log,
-      testWireScope(SCOPE, KEY),
-      await readRecords(),
-    );
+    await restoreTestAgentWire(replay.wire, log, testWireScope(SCOPE, KEY), await readRecords());
     expect(activeToolsOf(replay.wire)).toBeUndefined();
     replay.ix.dispose();
   });
@@ -495,11 +489,13 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       host.wire,
       host.log,
       testWireScope(SCOPE, 'profile-replay-removed-model'),
-      [{
-        type: 'config.update',
-        modelAlias: 'removed-model',
-        thinkingEffort: 'high',
-      }],
+      [
+        {
+          type: 'config.update',
+          modelAlias: 'removed-model',
+          thinkingEffort: 'high',
+        },
+      ],
     );
 
     expect(host.svc.getEffectiveThinkingLevel()).toBe('high');

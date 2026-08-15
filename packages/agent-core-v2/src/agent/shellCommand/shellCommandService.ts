@@ -21,7 +21,7 @@
  * stays an instance field (per-command `AbortController`s, not plain data).
  */
 
-import { LifecycleScope } from '#/app/scopes';
+import { t } from '@moonshot-ai/kimi-i18n';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/_base/state/stateRegistry';
@@ -30,11 +30,11 @@ import { escapeXml } from '#/_base/utils/xml-escape';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentStateService } from '#/agent/state/agentState';
-import type { ToolUpdate } from '#/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { Error2, ErrorCodes } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
+import type { ToolUpdate } from '#/tool/toolContract';
 
 import {
   IAgentShellCommandService,

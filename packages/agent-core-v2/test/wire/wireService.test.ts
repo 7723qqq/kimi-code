@@ -6,18 +6,21 @@ import { createDecorator } from '#/_base/di/instantiation';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { TestInstantiationService } from '#/_base/di/test';
-import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { defineModel, type ModelDef } from '#/wire/model';
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
+import { defineModel, type ModelDef } from '#/wire/model';
 import { bindDefineOp, DuplicateOpError, type Op, type OpDescriptor } from '#/wire/op';
-import type { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import type { IWireService } from '#/wire/wire';
 import {
   builtinWireContribution,
   foldWireContributions,
@@ -153,7 +156,10 @@ async function readRecords(
   key = KEY,
 ): Promise<WireRecord[]> {
   const out: WireRecord[] = [];
-  for await (const record of target.read<WireRecord>(testWireScope(scope, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of target.read<WireRecord>(
+    testWireScope(scope, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -204,12 +210,7 @@ describe('WireService', () => {
       }),
     );
 
-    await restoreTestAgentWire(
-      replayed,
-      log2,
-      testWireScope(SCOPE, 'replay'),
-      records,
-    );
+    await restoreTestAgentWire(replayed, log2, testWireScope(SCOPE, 'replay'), records);
 
     expect(replayed.getModel(CounterModel)).toEqual({ value: 5 });
     expect(events).toEqual([]);
@@ -250,11 +251,9 @@ describe('WireService', () => {
       revision: () => 0,
     };
     const streamingIx = disposables.add(new TestInstantiationService());
-    streamed = registerTestAgentWire(
-      streamingIx,
-      testWireScope(SCOPE, 'streaming'),
-      { log: streamingLog },
-    );
+    streamed = registerTestAgentWire(streamingIx, testWireScope(SCOPE, 'streaming'), {
+      log: streamingLog,
+    });
 
     await streamed.restore();
 
@@ -300,16 +299,11 @@ describe('WireService', () => {
     const unexpected: unknown[] = [];
     setUnexpectedErrorHandler((error) => unexpected.push(error));
     try {
-      await restoreTestAgentWire(
-        wire,
-        log,
-        testWireScope(SCOPE, KEY),
-        [
-          { type: 'store.counter.add', by: 2 },
-          { type: 'no.such.op', foo: 1 },
-          { type: 'store.counter.add', by: 3 },
-        ],
-      );
+      await restoreTestAgentWire(wire, log, testWireScope(SCOPE, KEY), [
+        { type: 'store.counter.add', by: 2 },
+        { type: 'no.such.op', foo: 1 },
+        { type: 'store.counter.add', by: 3 },
+      ]);
 
       expect(wire.getModel(CounterModel)).toEqual({ value: 5 });
       expect(unexpected).toHaveLength(1);
@@ -326,16 +320,11 @@ describe('WireService', () => {
     const unexpected: unknown[] = [];
     setUnexpectedErrorHandler((error) => unexpected.push(error));
     try {
-      await restoreTestAgentWire(
-        wire,
-        log,
-        testWireScope(SCOPE, KEY),
-        [
-          { type: 'store.counter.add', by: 2 },
-          { type: 'interruptionReminder.recorded', turnId: 0 },
-          { type: 'store.counter.add', by: 3 },
-        ],
-      );
+      await restoreTestAgentWire(wire, log, testWireScope(SCOPE, KEY), [
+        { type: 'store.counter.add', by: 2 },
+        { type: 'interruptionReminder.recorded', turnId: 0 },
+        { type: 'store.counter.add', by: 3 },
+      ]);
 
       expect(wire.getModel(CounterModel)).toEqual({ value: 5 });
       expect(unexpected).toEqual([]);
@@ -446,7 +435,12 @@ describe('WireService × WireModelContribution fold', () => {
       crossReducers: new Map([
         [
           'store.counter.add',
-          [{ model: dynModel, reducer: (state: DynState, p: { by: number }) => ({ hits: state.hits + p.by }) }],
+          [
+            {
+              model: dynModel,
+              reducer: (state: DynState, p: { by: number }) => ({ hits: state.hits + p.by }),
+            },
+          ],
         ],
       ]),
     });

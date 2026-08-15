@@ -13,15 +13,12 @@
  */
 
 import type { SkillDefinition } from '#/app/skillCatalog/types';
+
 import { CHECK_KIMI_CODE_DOCS_SKILL } from './check-kimi-code-docs';
 import { CUSTOM_THEME_SKILL } from './custom-theme';
 import { IMPORT_FROM_CC_CODEX_SKILL } from './import-from-cc-codex';
 import { MCP_CONFIG_SKILL } from './mcp-config';
-import {
-  SUB_SKILL_CONSOLIDATE,
-  SUB_SKILL_PARENT,
-  SUB_SKILL_REVIEW,
-} from './sub-skill';
+import { SUB_SKILL_CONSOLIDATE, SUB_SKILL_PARENT, SUB_SKILL_REVIEW } from './sub-skill';
 import { UPDATE_CONFIG_SKILL } from './update-config';
 import { WRITE_GOAL_SKILL } from './write-goal';
 

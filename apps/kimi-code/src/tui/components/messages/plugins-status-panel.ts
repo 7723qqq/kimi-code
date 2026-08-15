@@ -2,6 +2,7 @@ import type { PluginInfo, PluginSummary } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
+
 import {
   CURATED_BADGE,
   OFFICIAL_BADGE,
@@ -62,7 +63,6 @@ export function buildPluginsListLines(input: PluginsListPanelInput): readonly st
   return lines;
 }
 
-
 export interface PluginsInfoPanelInput {
   readonly info: PluginInfo;
 }
@@ -111,19 +111,27 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
       `${muted(t('tui.messages.pluginsStatusPanel.originalSource'))} ${value(info.originalSource)}`,
     );
   }
-  lines.push(`${muted(t('tui.messages.pluginsStatusPanel.installedAt'))} ${value(info.installedAt)}`);
+  lines.push(
+    `${muted(t('tui.messages.pluginsStatusPanel.installedAt'))} ${value(info.installedAt)}`,
+  );
   if (info.updatedAt !== undefined && info.updatedAt !== info.installedAt) {
-    lines.push(`${muted(t('tui.messages.pluginsStatusPanel.lastUpdated'))} ${value(info.updatedAt)}`);
+    lines.push(
+      `${muted(t('tui.messages.pluginsStatusPanel.lastUpdated'))} ${value(info.updatedAt)}`,
+    );
   }
   if (info.manifestPath !== undefined) {
     const kindSuffix =
       info.manifestKind !== undefined
         ? ` ${muted(t('tui.messages.pluginsStatusPanel.manifestKind', { kind: info.manifestKind }))}`
         : '';
-    lines.push(`${muted(t('tui.messages.pluginsStatusPanel.manifest'))} ${value(info.manifestPath)}${kindSuffix}`);
+    lines.push(
+      `${muted(t('tui.messages.pluginsStatusPanel.manifest'))} ${value(info.manifestPath)}${kindSuffix}`,
+    );
   }
   if (info.shadowedManifestPath !== undefined) {
-    lines.push(`${muted(t('tui.messages.pluginsStatusPanel.shadowed'))} ${value(info.shadowedManifestPath)}`);
+    lines.push(
+      `${muted(t('tui.messages.pluginsStatusPanel.shadowed'))} ${value(info.shadowedManifestPath)}`,
+    );
   }
   const sessionStartSkill = info.manifest?.sessionStart?.skill;
   if (sessionStartSkill !== undefined) {
@@ -156,16 +164,14 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
         }),
       ),
     );
-    lines.push(
-      muted(
-        `  ${t('tui.messages.pluginsStatusPanel.mcpHint', { id: info.id })}`,
-      ),
-    );
+    lines.push(muted(`  ${t('tui.messages.pluginsStatusPanel.mcpHint', { id: info.id })}`));
     for (const server of info.mcpServers) {
       const enabled = server.enabled
         ? success(t('tui.messages.pluginsStatusPanel.enabled'))
         : muted(t('tui.messages.pluginsStatusPanel.disabled'));
-      lines.push(`  ${muted('-')} ${value(server.name)} ${enabled} ${muted(`(${server.runtimeName})`)}`);
+      lines.push(
+        `  ${muted('-')} ${value(server.name)} ${enabled} ${muted(`(${server.runtimeName})`)}`,
+      );
       if (server.transport === 'stdio') {
         const args =
           server.args !== undefined && server.args.length > 0 ? ` ${server.args.join(' ')}` : '';

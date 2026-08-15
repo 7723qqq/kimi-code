@@ -14,16 +14,12 @@
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolSelectService, SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type { ToolExecution } from '#/tool/toolContract';
 
-import {
-  ISelectToolsTool,
-  SelectToolsInputSchema,
-  type SelectToolsInput,
-} from './select-tools';
+import { ISelectToolsTool, SelectToolsInputSchema, type SelectToolsInput } from './select-tools';
 
 const DESCRIPTION =
   'Load one or more tools by name so you can call them. ' +
@@ -38,9 +34,7 @@ export class SelectToolsTool implements ISelectToolsTool {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SelectToolsInputSchema);
 
-  constructor(
-    @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
-  ) {}
+  constructor(@IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService) {}
 
   resolveExecution(args: SelectToolsInput): ToolExecution {
     return {
@@ -70,4 +64,7 @@ export class SelectToolsTool implements ISelectToolsTool {
   }
 }
 
-registerAgentToolService(ISelectToolsTool, SelectToolsTool, { name: SELECT_TOOLS_TOOL_NAME, domain: 'toolSelect' });
+registerAgentToolService(ISelectToolsTool, SelectToolsTool, {
+  name: SELECT_TOOLS_TOOL_NAME,
+  domain: 'toolSelect',
+});

@@ -5,7 +5,6 @@
  * reviews everything before the answers are emitted upstream.
  */
 
-import { t } from '#/i18n';
 import {
   Container,
   Input,
@@ -18,12 +17,13 @@ import {
   wrapTextWithAnsi,
 } from '@moonshot-ai/pi-tui';
 
-import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 import type {
   PendingQuestion,
   QuestionPanelResponse,
   QuestionSubmissionMethod,
 } from '#/tui/reverse-rpc/types';
+import { currentTheme } from '#/tui/theme';
 
 const NUMBER_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 const MAX_BODY_LINES = 12;
@@ -597,21 +597,9 @@ export class QuestionDialogComponent extends Container implements Focusable {
       const question = this.request.data.questions[i];
       if (question === undefined) continue;
       const answer = this.answers[i];
-      appendWrapped(
-        lines,
-        `  ${dim('Q')}  `,
-        '       ',
-        question.question,
-        renderWidth,
-      );
+      appendWrapped(lines, `  ${dim('Q')}  `, '       ', question.question, renderWidth);
       if (answer !== undefined && answer.length > 0) {
-        appendWrapped(
-          lines,
-          `  ${accent('→')}  `,
-          '       ',
-          text(answer),
-          renderWidth,
-        );
+        appendWrapped(lines, `  ${accent('→')}  `, '       ', text(answer), renderWidth);
       } else {
         lines.push(`  ${dim('→')}  ${dim(getNotAnsweredLabel())}`);
       }
@@ -642,8 +630,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
 
   private pushTabs(lines: string[]): void {
     const dim = (text: string) => currentTheme.fg('textDim', text);
-    const active = (text: string) =>
-      currentTheme.bg('primary', currentTheme.boldFg('text', text));
+    const active = (text: string) => currentTheme.bg('primary', currentTheme.boldFg('text', text));
 
     const tabs: string[] = [];
     for (let i = 0; i < this.request.data.questions.length; i++) {
@@ -679,7 +666,8 @@ export class QuestionDialogComponent extends Container implements Focusable {
     const optionCount = Math.min(this.displayOptions(questionIdx).length, NUMBER_KEYS.length);
     const numberHint = optionCount <= 1 ? '1' : `1-${String(optionCount)}`;
     const question = this.request.data.questions[questionIdx];
-    if (question === undefined) return dim(`  ${t('tui.dialogs.questionDialog.hintQuestion.cancel')}`);
+    if (question === undefined)
+      return dim(`  ${t('tui.dialogs.questionDialog.hintQuestion.cancel')}`);
 
     const actionKey = question.multi_select
       ? 'tui.dialogs.questionDialog.hintQuestion.toggle'
@@ -790,9 +778,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
     if (question.multi_select) {
       const checked = isSelected ? '✓' : ' ';
       const body = `  [${checked}] ${option.label}: `;
-      prefix = isSelected
-        ? currentTheme.boldFg('success', body)
-        : currentTheme.fg('primary', body);
+      prefix = isSelected ? currentTheme.boldFg('success', body) : currentTheme.fg('primary', body);
     } else {
       const body = `  → [${String(num)}] ${option.label}: `;
       prefix =
@@ -808,7 +794,7 @@ export class QuestionDialogComponent extends Container implements Focusable {
   }
 
   private otherDraftValue(questionIdx: number): string {
-    return (this.otherDrafts[questionIdx] ?? this.committedOtherValues[questionIdx]) ?? '';
+    return this.otherDrafts[questionIdx] ?? this.committedOtherValues[questionIdx] ?? '';
   }
 
   private syncOtherDraft(questionIdx: number): void {

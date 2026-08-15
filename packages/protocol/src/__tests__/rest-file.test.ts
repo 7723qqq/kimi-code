@@ -34,9 +34,7 @@ describe('getFileParamSchema (GET /api/v1/files/{file_id})', () => {
 
 describe('deleteFileParamSchema + deleteFileResponseSchema (DELETE /api/v1/files/{file_id})', () => {
   it('accepts a non-empty file_id', () => {
-    expect(deleteFileParamSchema.parse({ file_id: 'f_abc' }).file_id).toBe(
-      'f_abc',
-    );
+    expect(deleteFileParamSchema.parse({ file_id: 'f_abc' }).file_id).toBe('f_abc');
   });
 
   it('rejects an empty file_id', () => {
@@ -49,8 +47,6 @@ describe('deleteFileParamSchema + deleteFileResponseSchema (DELETE /api/v1/files
   });
 
   it('rejects `{deleted: false}` (false-positive defence)', () => {
-    expect(
-      deleteFileResponseSchema.safeParse({ deleted: false }).success,
-    ).toBe(false);
+    expect(deleteFileResponseSchema.safeParse({ deleted: false }).success).toBe(false);
   });
 });

@@ -27,13 +27,16 @@ describe('NoticeComponent', () => {
 
 describe('CronMessageComponent', () => {
   it('keeps title, detail, and prompt within narrow widths', () => {
-    const component = new CronMessageComponent('Please investigate the reminder payload and report back.', {
-      cron: '*/15 * * * *',
-      jobId: 'job-with-a-very-long-identifier-for-width-testing',
-      recurring: true,
-      missedCount: 3,
-      stale: true,
-    });
+    const component = new CronMessageComponent(
+      'Please investigate the reminder payload and report back.',
+      {
+        cron: '*/15 * * * *',
+        jobId: 'job-with-a-very-long-identifier-for-width-testing',
+        recurring: true,
+        missedCount: 3,
+        stale: true,
+      },
+    );
 
     for (const width of [39, 20, 10, 4]) {
       for (const line of component.render(width)) {

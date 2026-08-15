@@ -37,10 +37,9 @@
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, relative, resolve } from 'node:path';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const __dirname = import.meta.dirname;
 const PKG_ROOT = resolve(__dirname, '..');
 export const SRC_ROOT = join(PKG_ROOT, 'src');
 const TEST_ROOT = join(PKG_ROOT, 'test');
@@ -113,7 +112,7 @@ function kosongInfoOf(absPath) {
   const segments = rel.split(/[\\/]/);
   if (segments[0] !== 'kosong') return undefined;
   const sub = segments[1];
-  const last = segments[segments.length - 1] ?? '';
+  const last = segments.at(-1) ?? '';
   return {
     // A file directly under `src/kosong/` has no subdomain.
     sub: sub === undefined || sub.endsWith('.ts') ? undefined : sub,
@@ -312,7 +311,9 @@ export function checkSource(source, absFile) {
     if (KOSONG_BASE_ONLY_SUBDOMAINS.has(sourceKosong.sub)) {
       const targetDomain = targetDomainOf(targetAbs);
       const targetRel = relative(SRC_ROOT, targetAbs).split(/[\\/]/).join('/');
-      const targetStripped = targetRel.endsWith('.ts') ? targetRel.slice(0, -'.ts'.length) : targetRel;
+      const targetStripped = targetRel.endsWith('.ts')
+        ? targetRel.slice(0, -'.ts'.length)
+        : targetRel;
       if (targetDomain !== '_base' && !KOSONG_ALLOWED_VOCABULARY.has(targetStripped)) {
         violations.push({
           file: absFile,

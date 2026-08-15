@@ -13,12 +13,15 @@
  * of the workspace.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { BugIndicatingError } from '#/errors';
 import { IHostProcessService } from '#/os/interface/hostProcess';
-import { type IProcess, ISessionProcessRunner, type ProcessExecOptions } from '#/session/process/processRunner';
+import {
+  type IProcess,
+  ISessionProcessRunner,
+  type ProcessExecOptions,
+} from '#/session/process/processRunner';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 
 export class WorkspaceProcessRunnerService implements ISessionProcessRunner {

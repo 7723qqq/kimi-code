@@ -42,11 +42,7 @@ function readFragmentToken(): string | undefined {
   // address bar, browser history, or any screenshot of the window.
   const url = new URL(window.location.href);
   url.hash = '';
-  window.history.replaceState(
-    window.history.state,
-    '',
-    `${url.pathname}${url.search}`,
-  );
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
   return token;
 }
 
@@ -87,10 +83,7 @@ function decodeStoredCredential(raw: string): StoredCredential | undefined {
 }
 
 function persistCredential(stored: StoredCredential): void {
-  globalThis.localStorage?.setItem(
-    STORAGE_KEY,
-    encodeStoredCredential(stored),
-  );
+  globalThis.localStorage?.setItem(STORAGE_KEY, encodeStoredCredential(stored));
 }
 
 function loadStored(): StoredCredential | undefined {
@@ -198,13 +191,11 @@ function clearExpiredCredential(expired: StoredCredential): void {
     // cannot be cleared; otherwise a reload could migrate it into a fresh TTL.
     globalThis.sessionStorage?.removeItem(STORAGE_KEY);
     const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
-    const stored = raw === null || raw === undefined
-      ? undefined
-      : decodeStoredCredential(raw);
-    const matchesExpired = stored === undefined
-      ? raw === expired.credential
-      : stored.credential === expired.credential &&
-        stored.expiresAt === expired.expiresAt;
+    const stored = raw === null || raw === undefined ? undefined : decodeStoredCredential(raw);
+    const matchesExpired =
+      stored === undefined
+        ? raw === expired.credential
+        : stored.credential === expired.credential && stored.expiresAt === expired.expiresAt;
     if (matchesExpired) {
       globalThis.localStorage?.removeItem(STORAGE_KEY);
     }
@@ -243,12 +234,9 @@ export function clearCredential(): void {
     // removal would let a stale tab erase a newer token another tab stored
     // (e.g. right after `kimi web rotate-token`).
     const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
-    const stored = raw === null || raw === undefined
-      ? undefined
-      : decodeStoredCredential(raw);
+    const stored = raw === null || raw === undefined ? undefined : decodeStoredCredential(raw);
     const persistedCredential = stored?.credential ?? raw;
-    const matchesRejected = rejected !== undefined &&
-      persistedCredential === rejected.credential;
+    const matchesRejected = rejected !== undefined && persistedCredential === rejected.credential;
     if (matchesRejected) {
       globalThis.localStorage?.removeItem(STORAGE_KEY);
     }

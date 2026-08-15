@@ -1,18 +1,14 @@
-import { t } from '#/i18n';
+import type { Event, KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 import { Spacer } from '@moonshot-ai/pi-tui';
-import type {
-  Event,
-  KimiHarness,
-  Session,
-} from '@moonshot-ai/kimi-code-sdk';
 
-import { getNoActiveSessionMessage } from '../constant/kimi-tui';
+import { t } from '#/i18n';
+
 import { BtwPanelComponent } from '../components/panes/btw-panel';
-import { formatErrorMessage } from '../utils/event-payload';
-import { formatHookResultPlain } from '../utils/hook-result-format';
+import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { createMarkdownTheme } from '../theme/pi-tui-theme';
 import type { TUIState } from '../tui-state';
-
+import { formatErrorMessage } from '../utils/event-payload';
+import { formatHookResultPlain } from '../utils/hook-result-format';
 
 export interface BtwPanelHost {
   state: TUIState;
@@ -155,12 +151,9 @@ export class BtwPanelController {
     if (this.active?.panel === panel) this.active = undefined;
   }
 
-  private showBusyNotice(
-    active: { readonly panel: BtwPanelComponent },
-    input: string,
-  ): void {
+  private showBusyNotice(active: { readonly panel: BtwPanelComponent }, input: string): void {
     this.host.state.editor.setText(input);
-    active.panel.addTransientNotice(t("tui.statusMessages.btwBusyNotice"));
+    active.panel.addTransientNotice(t('tui.statusMessages.btwBusyNotice'));
     this.host.state.ui.requestRender();
   }
 
@@ -171,10 +164,12 @@ export class BtwPanelController {
       this.host.state.ui.requestRender();
       return;
     }
-    void this.withInteractiveAgent(agentId, () => session.prompt(prompt)).catch((error: unknown) => {
-      panel.markFailed(t('tui.messages.btwSendFailed', { error: formatErrorMessage(error) }));
-      this.host.state.ui.requestRender();
-    });
+    void this.withInteractiveAgent(agentId, () => session.prompt(prompt)).catch(
+      (error: unknown) => {
+        panel.markFailed(t('tui.messages.btwSendFailed', { error: formatErrorMessage(error) }));
+        this.host.state.ui.requestRender();
+      },
+    );
   }
 
   private async cancelAgent(agentId: string): Promise<void> {
@@ -196,10 +191,10 @@ export class BtwPanelController {
 
 function formatBtwTurnEnd(event: Extract<Event, { type: 'turn.ended' }>): string {
   if (event.reason === 'cancelled') {
-    return t("tui.statusMessages.btwInterrupted");
+    return t('tui.statusMessages.btwInterrupted');
   }
   if (event.error?.code === 'provider.filtered') {
-    return t("tui.statusMessages.btwFiltered");
+    return t('tui.statusMessages.btwFiltered');
   }
   if (event.error !== undefined) {
     return `[${event.error.code}] ${event.error.message}`;

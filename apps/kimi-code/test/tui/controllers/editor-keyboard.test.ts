@@ -294,7 +294,9 @@ describe('EditorKeyboardController Shift-Tab plan toggle', () => {
     const handlePlanToggle = vi.fn();
     const track = vi.fn();
     const showError = vi.fn();
-    const ensureSession = vi.fn(async (): Promise<{ id: string } | undefined> => ({ id: 'ses-lazy' }));
+    const ensureSession = vi.fn(async (): Promise<{ id: string } | undefined> => ({
+      id: 'ses-lazy',
+    }));
     const host = {
       state: {
         editor,

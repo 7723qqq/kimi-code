@@ -236,9 +236,7 @@ describe('detectFileType', () => {
 
   it('falls back to a media extension in media mode when sniffing is inconclusive', () => {
     const mpegProgramStreamHeader = Buffer.from([0x00, 0x00, 0x01, 0xba, 0x21, 0x00]);
-    expect(detectFileType('clip.mpg', mpegProgramStreamHeader, 'media')).toEqual<
-      FileType
-    >({
+    expect(detectFileType('clip.mpg', mpegProgramStreamHeader, 'media')).toEqual<FileType>({
       kind: 'video',
       mimeType: 'video/mpeg',
     });
@@ -305,7 +303,6 @@ describe('detectFileType', () => {
     expect(detectFileType('notes.txt', binaryHeader).kind).toBe('unknown');
   });
 });
-
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -426,7 +423,11 @@ describe('sniffImageDimensions', () => {
     data: Buffer;
     expected: ImageDimensions;
   }> = [
-    { name: 'PNG (IHDR big-endian uint32)', data: buildPng(800, 600), expected: { width: 800, height: 600 } },
+    {
+      name: 'PNG (IHDR big-endian uint32)',
+      data: buildPng(800, 600),
+      expected: { width: 800, height: 600 },
+    },
     {
       name: 'GIF87a (logical screen little-endian uint16)',
       data: buildGif('GIF87a', 320, 240),
@@ -437,7 +438,11 @@ describe('sniffImageDimensions', () => {
       data: buildGif('GIF89a', 1024, 768),
       expected: { width: 1024, height: 768 },
     },
-    { name: 'BMP (DIB little-endian int32)', data: buildBmp(640, 480), expected: { width: 640, height: 480 } },
+    {
+      name: 'BMP (DIB little-endian int32)',
+      data: buildBmp(640, 480),
+      expected: { width: 640, height: 480 },
+    },
     {
       name: 'BMP top-down (negative height → absolute value)',
       data: buildBmp(640, -480),
@@ -485,10 +490,13 @@ describe('sniffImageDimensions', () => {
       expect(sniffImageDimensions(data)).toEqual({ width: 80, height: 120, transposed: true });
     });
 
-    it.each([1, 2, 3, 4])('keeps width/height for non-transposing orientation %i', (orientation) => {
-      const data = buildJpegWithOrientation(120, 80, orientation);
-      expect(sniffImageDimensions(data)).toEqual({ width: 120, height: 80 });
-    });
+    it.each([1, 2, 3, 4])(
+      'keeps width/height for non-transposing orientation %i',
+      (orientation) => {
+        const data = buildJpegWithOrientation(120, 80, orientation);
+        expect(sniffImageDimensions(data)).toEqual({ width: 120, height: 80 });
+      },
+    );
 
     it('honors big-endian (MM) TIFF byte order', () => {
       const data = buildJpegWithOrientation(120, 80, 6, 'MM');

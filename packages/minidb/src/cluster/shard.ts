@@ -44,7 +44,11 @@ export class ShardHandle {
   /** Open the shard read-only. Does not touch db.lock, never fsyncs, and
    *  never auto-compacts (a read-only open must not rewrite a live writer's
    *  directory). */
-  static async openReader(shardId: number, dir: string, opts: ShardOpenOptions): Promise<ShardHandle> {
+  static async openReader(
+    shardId: number,
+    dir: string,
+    opts: ShardOpenOptions,
+  ): Promise<ShardHandle> {
     const db = await MiniDb.open({
       ...opts,
       dir,

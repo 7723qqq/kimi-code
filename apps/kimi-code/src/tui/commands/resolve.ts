@@ -1,17 +1,14 @@
 import { t } from '#/i18n';
+
+import { isExperimentalFlagEnabled } from './experimental-flags';
+import { parseSlashInput } from './parse';
 import {
   findBuiltInSlashCommand,
   resolveSlashCommandAvailability,
   type BuiltinSlashCommand,
   type BuiltinSlashCommandName,
 } from './registry';
-import { isExperimentalFlagEnabled } from './experimental-flags';
-import { parseSlashInput } from './parse';
-import type {
-  KimiSlashCommand,
-  SlashCommandBusyReason,
-  SlashCommandInvalidReason,
-} from './types';
+import type { KimiSlashCommand, SlashCommandBusyReason, SlashCommandInvalidReason } from './types';
 
 export type SlashCommandIntent =
   | { readonly kind: 'not-command' }
@@ -141,10 +138,7 @@ export function slashCommandBusyReason(
   return undefined;
 }
 
-export function slashBusyMessage(
-  commandName: string,
-  reason: SlashCommandBusyReason,
-): string {
+export function slashBusyMessage(commandName: string, reason: SlashCommandBusyReason): string {
   if (reason === 'streaming') {
     return t('tui.messages.resolveCannotWhileStreaming', { name: commandName });
   }

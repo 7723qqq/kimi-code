@@ -232,10 +232,7 @@ describe('FileSkillDiscovery', () => {
   });
 
   it('ignores node_modules and dot directories while walking', async () => {
-    await writeSkill(
-      'skills/node_modules/hidden/SKILL.md',
-      'name: hidden\ndescription: hidden',
-    );
+    await writeSkill('skills/node_modules/hidden/SKILL.md', 'name: hidden\ndescription: hidden');
 
     const result = await discover([skillRoot('skills')]);
 

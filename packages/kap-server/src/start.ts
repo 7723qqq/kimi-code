@@ -7,6 +7,11 @@
  * Core-scoped services through `core.accessor.get(IXxx)`.
  */
 
+import type { IncomingMessage } from 'node:http';
+import type { Socket } from 'node:net';
+import { join } from 'node:path';
+import type { Duplex } from 'node:stream';
+
 import {
   bootstrap,
   drainQueryStoreDisposals,
@@ -29,73 +34,54 @@ import {
   type Scope,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
-import {
-  createKimiDefaultHeaders,
-  type KimiHostIdentity,
-} from '@moonshot-ai/kimi-code-oauth';
-import { createAsyncApiDocument } from './protocol/asyncapi';
-import { enableEnvelopeStackTraces, setExposeErrorDetails } from './protocol/envelope';
+import { createKimiDefaultHeaders, type KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { installErrorHandler } from './error-handler';
 import { createInstanceRegistry, type InstanceRegistration } from './instanceRegistry';
+import { createAuthHook } from './middleware/auth';
+import { createHostCheck, isHostCheckDisabled, parseAllowedHosts } from './middleware/hostnames';
+import { createOriginHook, isOriginAllowed, parseCorsOrigins } from './middleware/origin';
+import { createAuthFailureLimiter } from './middleware/rateLimit';
+import { createSecurityHeadersHook } from './middleware/securityHeaders';
 import { transformOpenApiDocument } from './openapi/transforms';
-import { registerRequestLogging } from './requestLogging';
+import { createAsyncApiDocument } from './protocol/asyncapi';
+import { enableEnvelopeStackTraces, setExposeErrorDetails } from './protocol/envelope';
 import { resolveRequestId } from './request-id';
+import { registerRequestLogging } from './requestLogging';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
 import { registerApiV2Routes } from './routes/registerApiV2Routes';
 import { registerWebAssetRoutes } from './routes/webAssets';
+// Temporary feature: global message search. Importing this module registers
+// `IGlobalSearchService` (App scope) into the DI registry as a side effect, so
+// it MUST stay above any `bootstrap()` call — registration happens at module
+// evaluation time.
+import { drainGlobalSearchDisposals, IGlobalSearchService } from './search/searchService';
+import { classify } from './security/bindClassify';
+import { createAuthTokenService, type IAuthTokenService } from './services/auth/authTokenService';
+import { createCredentialValidator } from './services/auth/credentials';
+import { resolvePasswordHash } from './services/auth/password';
+import { createTokenStore } from './services/auth/tokenStore';
+import { GuiStoreService } from './services/guiStore/guiStoreService';
+import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
 import {
   createServerLogger,
   type ServerLogger,
   type ServerLogLevel,
 } from './services/pinoLoggerService';
-import { join } from 'node:path';
-import type { Socket } from 'node:net';
-import type { IncomingMessage } from 'node:http';
-import type { Duplex } from 'node:stream';
-
-import {
-  ConnectionRegistry,
-  type IConnectionRegistry,
-} from './transport/ws/connectionRegistry';
-import { extractWsBearerToken } from './transport/ws/bearerProtocol';
-import { SessionEventBroadcaster } from './transport/ws/v1/sessionEventBroadcaster';
-import type { ConfigWarningItem } from './transport/ws/v1/events';
-import { FsWatchBridge } from './transport/ws/v1/fsWatchBridge';
-import { registerWsV1, WS_PATH as WS_PATH_V1 } from './transport/ws/v1/registerWsV1';
-import { getServerVersion } from './version';
-import { classify } from './security/bindClassify';
-import {
-  createHostCheck,
-  isHostCheckDisabled,
-  parseAllowedHosts,
-} from './middleware/hostnames';
-import { createOriginHook, isOriginAllowed, parseCorsOrigins } from './middleware/origin';
-import { createSecurityHeadersHook } from './middleware/securityHeaders';
-import { createAuthHook } from './middleware/auth';
-import { GuiStoreService } from './services/guiStore/guiStoreService';
 import {
   initializeServerTelemetry,
   type ServerTelemetry,
   shutdownServerTelemetry,
 } from './services/telemetry';
 import { TranscriptService } from './services/transcript/transcriptService';
-import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
-import { createAuthFailureLimiter } from './middleware/rateLimit';
-import {
-  createAuthTokenService,
-  type IAuthTokenService,
-} from './services/auth/authTokenService';
-import { createCredentialValidator } from './services/auth/credentials';
-import { resolvePasswordHash } from './services/auth/password';
-import { createTokenStore } from './services/auth/tokenStore';
-
-// Temporary feature: global message search. Importing this module registers
-// `IGlobalSearchService` (App scope) into the DI registry as a side effect, so
-// it MUST stay above any `bootstrap()` call — registration happens at module
-// evaluation time.
-import { drainGlobalSearchDisposals, IGlobalSearchService } from './search/searchService';
+import { extractWsBearerToken } from './transport/ws/bearerProtocol';
+import { ConnectionRegistry, type IConnectionRegistry } from './transport/ws/connectionRegistry';
+import type { ConfigWarningItem } from './transport/ws/v1/events';
+import { FsWatchBridge } from './transport/ws/v1/fsWatchBridge';
+import { registerWsV1, WS_PATH as WS_PATH_V1 } from './transport/ws/v1/registerWsV1';
+import { SessionEventBroadcaster } from './transport/ws/v1/sessionEventBroadcaster';
+import { getServerVersion } from './version';
 
 export interface ServerHostIdentity extends KimiHostIdentity {
   /** Fills the `${product_name}` slot in the base system prompt. Defaults render the CLI text. */
@@ -612,9 +598,12 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
 
     if (opts.disableAuth !== true) {
       const authHeader = req.headers.authorization;
-      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
+      const bearerToken = authHeader?.startsWith('Bearer ')
+        ? authHeader.slice('Bearer '.length)
+        : null;
       const protocolToken = extractWsBearerToken(req.headers['sec-websocket-protocol']);
-      const candidate = bearerToken !== null && bearerToken.length > 0 ? bearerToken : protocolToken;
+      const candidate =
+        bearerToken !== null && bearerToken.length > 0 ? bearerToken : protocolToken;
       // Require a valid credential at the upgrade: a token-less (or invalid)
       // upgrade is rejected with 401 for `/api/v1/ws`.
       let ok = false;

@@ -9,7 +9,11 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { createInitialState, reduceAppEvent, type KimiClientState } from '../src/api/daemon/eventReducer';
+import {
+  createInitialState,
+  reduceAppEvent,
+  type KimiClientState,
+} from '../src/api/daemon/eventReducer';
 import type {
   AppEvent,
   AppMessage,
@@ -125,14 +129,13 @@ function pendingDelta(value: string, offset: number, options: DeltaOptions = {})
   };
 }
 
-function enqueueAppEvent(
-  enqueue: EventBatcher<PendingAppEvent>,
-  item: PendingAppEvent,
-): void {
+function enqueueAppEvent(enqueue: EventBatcher<PendingAppEvent>, item: PendingAppEvent): void {
   for (const part of splitOversizedAppRenderEvent(item)) enqueue(part);
 }
 
-function assistantState(content: AppMessage['content'] = [{ type: 'text', text: '' }]): KimiClientState {
+function assistantState(
+  content: AppMessage['content'] = [{ type: 'text', text: '' }],
+): KimiClientState {
   const state = createInitialState();
   state.messagesBySession['session-1'] = [
     {
@@ -410,9 +413,7 @@ describe('coalesceAppRenderEvents (lossless stream grouping)', () => {
 
     expect(reducerCalls).toBeGreaterThan(1);
     expect(reducerCalls).toBeLessThan(100);
-    expect(
-      groupLengths.every((length) => length <= REASONABLE_MAX_STREAM_GROUP_CHARS),
-    ).toBe(true);
+    expect(groupLengths.every((length) => length <= REASONABLE_MAX_STREAM_GROUP_CHARS)).toBe(true);
     let expectedOffset = 0;
     for (let index = 0; index < groupOffsets.length; index += 1) {
       expect(groupOffsets[index]).toBe(expectedOffset);
@@ -785,10 +786,13 @@ describe('isRenderEvent (queue classification)', () => {
     },
   );
 
-  it.each(['messageCreated', 'messageUpdated', 'sessionWorkChanged', 'approvalRequested', 'configChanged'])(
-    'classifies %s as a control event',
-    (type) => {
-      expect(isRenderEvent({ type } as AppEvent)).toBe(false);
-    },
-  );
+  it.each([
+    'messageCreated',
+    'messageUpdated',
+    'sessionWorkChanged',
+    'approvalRequested',
+    'configChanged',
+  ])('classifies %s as a control event', (type) => {
+    expect(isRenderEvent({ type } as AppEvent)).toBe(false);
+  });
 });

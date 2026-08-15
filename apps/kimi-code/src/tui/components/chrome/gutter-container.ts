@@ -64,7 +64,8 @@ export class GutterContainer extends Container {
       const lines = child.render(inner);
       childRefs.push(child);
       childRenderRefs.push(lines);
-      const reused = cacheValid && cache.childRefs[i] === child && cache.childRenderRefs[i] === lines;
+      const reused =
+        cacheValid && cache.childRefs[i] === child && cache.childRenderRefs[i] === lines;
       if (reused) {
         prefixed.push(cache.prefixed[i]!);
       } else {

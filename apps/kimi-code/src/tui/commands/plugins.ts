@@ -10,7 +10,11 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 import { Markdown, Spacer } from '@moonshot-ai/pi-tui';
 
-import { getNoActiveSessionMessage } from '../constant/kimi-tui';
+import { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV, QUOTA_CONSUMING_PLUGIN_IDS } from '#/constant/app';
+import { t } from '#/i18n';
+import { openUrl } from '#/utils/open-url';
+import { loadPluginMarketplace, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
+
 import {
   PluginInstallTrustConfirmComponent,
   PluginMcpSelectorComponent,
@@ -27,6 +31,7 @@ import {
   buildPluginsListLines,
 } from '../components/messages/plugins-status-panel';
 import { UsagePanelComponent } from '../components/messages/usage-panel';
+import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { createMarkdownTheme } from '../theme/pi-tui-theme';
 import { formatErrorMessage } from '../utils/event-payload';
 import { createMarkdownOptions } from '../utils/markdown-options';
@@ -35,10 +40,6 @@ import {
   isOfficialPluginInstall,
   isOfficialPluginSource,
 } from '../utils/plugin-source-label';
-import { t } from '#/i18n';
-import { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV, QUOTA_CONSUMING_PLUGIN_IDS } from '#/constant/app';
-import { loadPluginMarketplace, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
-import { openUrl } from '#/utils/open-url';
 import type { SlashCommandHost } from './dispatch';
 
 interface ShowPluginsPickerOptions {
@@ -97,7 +98,10 @@ async function resolvePluginApi(host: SlashCommandHost): Promise<PluginApi> {
 }
 
 export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: string): Promise<void> {
-  const args = rawArgs.trim().split(/\s+/).filter((part) => part.length > 0);
+  const args = rawArgs
+    .trim()
+    .split(/\s+/)
+    .filter((part) => part.length > 0);
   const sub = args[0];
   const rest = args.slice(1);
   const session = await resolvePluginApi(host);
@@ -121,12 +125,17 @@ export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: stri
         host.showStatus(t('tui.statusMessages.pluginsInstallCancelled'));
         return;
       }
-      const spinner = host.showProgressSpinner(t('tui.statusMessages.pluginsInstallingFrom', { source: truncateForStatus(source) }));
+      const spinner = host.showProgressSpinner(
+        t('tui.statusMessages.pluginsInstallingFrom', { source: truncateForStatus(source) }),
+      );
       try {
         await installPluginFromSource(host, source);
         spinner.stop({ ok: true, label: t('tui.statusMessages.pluginsInstallFinished') });
       } catch (error) {
-        spinner.stop({ ok: false, label: t('tui.statusMessages.pluginsInstallFailed', { error: formatErrorMessage(error) }) });
+        spinner.stop({
+          ok: false,
+          label: t('tui.statusMessages.pluginsInstallFailed', { error: formatErrorMessage(error) }),
+        });
         throw error;
       }
       return;
@@ -156,7 +165,11 @@ export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: stri
       const action = rest[0];
       const id = rest[1];
       const server = rest[2];
-      if ((action !== 'enable' && action !== 'disable') || id === undefined || server === undefined) {
+      if (
+        (action !== 'enable' && action !== 'disable') ||
+        id === undefined ||
+        server === undefined
+      ) {
         host.showError(t('tui.statusMessages.pluginsUsageMcp'));
         return;
       }
@@ -198,7 +211,12 @@ export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: stri
     }
     host.showError(t('tui.statusMessages.pluginsUnknownAction', { action: sub }));
   } catch (error) {
-    host.showError(t('tui.statusMessages.pluginsCommandFailed', { action: sub ?? '', error: formatErrorMessage(error) }));
+    host.showError(
+      t('tui.statusMessages.pluginsCommandFailed', {
+        action: sub ?? '',
+        error: formatErrorMessage(error),
+      }),
+    );
   }
 }
 
@@ -231,10 +249,7 @@ function logCapabilityStatus(capability: CapabilityStatus, installed?: boolean):
     steps: capability.steps,
   };
   const hasStepIssues = capability.steps.some((step) => step.state !== 'ok');
-  if (
-    capability.install.error !== undefined ||
-    (installed !== false && hasStepIssues)
-  ) {
+  if (capability.install.error !== undefined || (installed !== false && hasStepIssues)) {
     log.warn('capability needs attention', payload);
   } else {
     log.info('capability status', payload);
@@ -249,7 +264,9 @@ async function showPluginsPicker(
   try {
     plugins = await (await resolvePluginApi(host)).listPlugins();
   } catch (error) {
-    host.showError(t('tui.statusMessages.pluginsFailedToLoad', { error: formatErrorMessage(error) }));
+    host.showError(
+      t('tui.statusMessages.pluginsFailedToLoad', { error: formatErrorMessage(error) }),
+    );
     return;
   }
 
@@ -370,7 +387,9 @@ async function showPluginMcpPicker(
   try {
     info = await (await resolvePluginApi(host)).getPluginInfo(id);
   } catch (error) {
-    host.showError(t('tui.statusMessages.pluginsFailedToLoadMcp', { error: formatErrorMessage(error) }));
+    host.showError(
+      t('tui.statusMessages.pluginsFailedToLoadMcp', { error: formatErrorMessage(error) }),
+    );
     return;
   }
 
@@ -383,7 +402,9 @@ async function showPluginMcpPicker(
         // Every MCP action re-mounts a picker, so let the handler do the
         // mounting — pre-restoring the editor here would flash on toggle.
         void handlePluginMcpSelection(host, selection).catch((error: unknown) => {
-          host.showError(t('tui.statusMessages.pluginsMcpFailed', { error: formatErrorMessage(error) }));
+          host.showError(
+            t('tui.statusMessages.pluginsMcpFailed', { error: formatErrorMessage(error) }),
+          );
         });
       },
       onCancel: () => {
@@ -453,10 +474,7 @@ function isCapabilityEntry(host: SlashCommandHost, entry: PluginMarketplaceEntry
  * entry's detector (seconds of probes) just to print one hint line.
  */
 function isCapabilityPluginId(host: SlashCommandHost, id: string): boolean {
-  return (
-    host.engineV2 &&
-    (id === 'kimi-cu' || id === 'kimi-cu-win' || id === 'kimi-webbridge')
-  );
+  return host.engineV2 && (id === 'kimi-cu' || id === 'kimi-cu-win' || id === 'kimi-webbridge');
 }
 
 /** Poll a background capability install until it settles (or we run out of budget). */
@@ -509,9 +527,10 @@ async function installCapabilityFromPanel(
     // An install already running (started from another panel or client) is
     // followed, not restarted — the service rejects duplicate starts even
     // though the original is healthy.
-    const alreadyRunning = await api
-      .getCapability(entry.id)
-      .then((status) => status.install.running, () => false);
+    const alreadyRunning = await api.getCapability(entry.id).then(
+      (status) => status.install.running,
+      () => false,
+    );
     if (!alreadyRunning) {
       await api.installCapability(entry.id);
     } else {
@@ -567,7 +586,14 @@ async function installCapabilityFromPanel(
     host.showNotice(`${label} is installed.`);
     host.state.transcriptContainer.addChild(new Spacer(1));
     host.state.transcriptContainer.addChild(
-      new Markdown(WEBBRIDGE_POST_INSTALL_MARKDOWN, 2, 0, createMarkdownTheme(), undefined, createMarkdownOptions()),
+      new Markdown(
+        WEBBRIDGE_POST_INSTALL_MARKDOWN,
+        2,
+        0,
+        createMarkdownTheme(),
+        undefined,
+        createMarkdownOptions(),
+      ),
     );
     host.state.ui.requestRender();
     return;
@@ -608,7 +634,9 @@ async function installFromPanel(
       // instead of being dropped back at the editor.
       host.mountEditorReplacement(panel);
     }
-    host.showError(t('tui.statusMessages.pluginsFailedToInstall', { label, error: formatErrorMessage(error) }));
+    host.showError(
+      t('tui.statusMessages.pluginsFailedToInstall', { label, error: formatErrorMessage(error) }),
+    );
     return;
   }
   // Close the panel after installing so the result status and the
@@ -702,7 +730,10 @@ async function handlePluginsPanelSelection(
     case 'open-url':
       host.restoreEditor();
       openUrl(selection.url);
-      host.showStatus(t('tui.statusMessages.pluginsOpeningPage', { label: selection.label }), 'success');
+      host.showStatus(
+        t('tui.statusMessages.pluginsOpeningPage', { label: selection.label }),
+        'success',
+      );
       host.showStatus(t('tui.statusMessages.pluginsIfNotOpened', { url: selection.url }));
       return;
   }
@@ -769,10 +800,7 @@ async function renderPluginInfo(host: SlashCommandHost, id: string): Promise<voi
   host.state.ui.requestRender();
 }
 
-async function installPluginFromSource(
-  host: SlashCommandHost,
-  source: string,
-): Promise<void> {
+async function installPluginFromSource(host: SlashCommandHost, source: string): Promise<void> {
   const session = await resolvePluginApi(host);
   const beforeList = await session.listPlugins();
   const summary = await session.installPlugin(
@@ -807,7 +835,12 @@ function showPluginInstallResult(
   const mcpCount = summary.mcpServerCount;
   const mcpHint =
     mcpCount > 0
-      ? t(mcpCount === 1 ? 'tui.statusMessages.pluginsDeclaresMcp_one' : 'tui.statusMessages.pluginsDeclaresMcp_other', { count: mcpCount })
+      ? t(
+          mcpCount === 1
+            ? 'tui.statusMessages.pluginsDeclaresMcp_one'
+            : 'tui.statusMessages.pluginsDeclaresMcp_other',
+          { count: mcpCount },
+        )
       : '';
   const action = describeInstallAction(previous, summary);
   host.showStatus(`${action} (${summary.id}).${mcpHint}`);
@@ -819,10 +852,7 @@ function showPluginInstallResult(
   }
 }
 
-function describeInstallAction(
-  previous: PluginSummary | undefined,
-  next: PluginSummary,
-): string {
+function describeInstallAction(previous: PluginSummary | undefined, next: PluginSummary): string {
   const sourceLabel = formatPluginSourceLabel(next);
   const versionFromTo = (prev?: string, cur?: string): string => {
     if (prev === undefined || prev === cur) return cur === undefined ? '' : ` ${cur}`;
@@ -874,8 +904,14 @@ function truncateForStatus(input: string): string {
 
 async function reloadPlugins(host: SlashCommandHost): Promise<void> {
   const summary = await (await resolvePluginApi(host)).reloadPlugins();
-  const line = t('tui.statusMessages.pluginsReloadResult', { added: summary.added.length, removed: summary.removed.length }) +
-    (summary.errors.length > 0 ? t('tui.statusMessages.pluginsReloadResultErrors', { count: summary.errors.length }) : '');
+  const line =
+    t('tui.statusMessages.pluginsReloadResult', {
+      added: summary.added.length,
+      removed: summary.removed.length,
+    }) +
+    (summary.errors.length > 0
+      ? t('tui.statusMessages.pluginsReloadResultErrors', { count: summary.errors.length })
+      : '');
   host.showStatus(line);
   // Rebuild the TUI's plugin slash-command list from the reloaded service so
   // newly added/enabled commands resolve in this session-less UI right away.

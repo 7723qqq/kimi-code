@@ -13,13 +13,13 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { buildImageCompressionCaption } from '#/agent/media/image-compress';
 import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
+import type { IEventService } from '#/app/event/event';
 import {
   applyPromptMetadataUpdate,
   type PromptMetadataUpdateTarget,
 } from '#/session/sessionMetadata/promptMetadata';
-import { buildImageCompressionCaption } from '#/agent/media/image-compress';
-import type { IEventService } from '#/app/event/event';
 import {
   type ISessionMetadata,
   type SessionMeta,

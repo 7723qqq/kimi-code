@@ -4,9 +4,7 @@ import { resolve } from 'node:path';
 import { appRoot } from './paths.mjs';
 
 const packageName = '@moonshot-ai/kimi-code';
-const packageJson = JSON.parse(
-  await readFile(resolve(appRoot, 'package.json'), 'utf-8'),
-);
+const packageJson = JSON.parse(await readFile(resolve(appRoot, 'package.json'), 'utf-8'));
 
 function parsePublishedPackages() {
   const raw = process.env['CHANGESETS_PUBLISHED_PACKAGES'];

@@ -37,7 +37,10 @@ import {
   IWorkspaceInstructionsService,
   type WorkspaceInstructionsSnapshot,
 } from '#/workspace/workspaceInstructions/workspaceInstructions';
-import { IWorkspaceMcpService, type ISessionMcpOverlay } from '#/workspace/workspaceMcp/workspaceMcp';
+import {
+  IWorkspaceMcpService,
+  type ISessionMcpOverlay,
+} from '#/workspace/workspaceMcp/workspaceMcp';
 import { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalog';
 import { IWorkspaceToolPolicy } from '#/workspace/workspaceToolPolicy/workspaceToolPolicy';
 
@@ -309,15 +312,23 @@ describe('sessionSeed adapters', () => {
 
   describe('SessionInstructionsProviderAdapter', () => {
     it('live-reads the snapshot across an upstream swap and re-fires', () => {
-      const gen1 = new WorkspaceInstructionsStub({ agentsMd: 'one', agentsMdWarning: undefined , agentsMdPaths: undefined });
-      const gen2 = new WorkspaceInstructionsStub({ agentsMd: 'two', agentsMdWarning: 'big' , agentsMdPaths: undefined });
+      const gen1 = new WorkspaceInstructionsStub({
+        agentsMd: 'one',
+        agentsMdWarning: undefined,
+        agentsMdPaths: undefined,
+      });
+      const gen2 = new WorkspaceInstructionsStub({
+        agentsMd: 'two',
+        agentsMdWarning: 'big',
+        agentsMdPaths: undefined,
+      });
       const { workspace, session } = buildSession([stubPair(IWorkspaceInstructionsService, gen1)]);
       const provider = session.accessor.get(ISessionInstructionsProvider);
       let fired = 0;
       provider.onDidChange(() => fired++);
 
       expect(provider.agentsMd).toBe('one');
-      gen1.snapshot = { agentsMd: 'one-b', agentsMdWarning: undefined , agentsMdPaths: undefined };
+      gen1.snapshot = { agentsMd: 'one-b', agentsMdWarning: undefined, agentsMdPaths: undefined };
       expect(provider.agentsMd).toBe('one-b');
 
       workspace.instantiation.provide(IWorkspaceInstructionsService, gen2);

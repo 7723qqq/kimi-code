@@ -15,10 +15,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import Icon from '../ui/Icon.vue';
-import MessageTime from './MessageTime.vue';
+
 import { humanizeCron } from '../../lib/cronHumanize';
 import type { CronTurnData } from '../../types';
+import Icon from '../ui/Icon.vue';
+import MessageTime from './MessageTime.vue';
 
 const props = defineProps<{
   text: string;
@@ -78,7 +79,9 @@ const text = computed(() => props.text ?? '');
   >
     <div class="cn-bubble">
       <span class="cn-title">{{ title }}</span>
-      <template v-if="text"> <span class="cn-prompt">{{ text }}</span></template>
+      <template v-if="text">
+        <span class="cn-prompt">{{ text }}</span></template
+      >
     </div>
     <div class="cn-meta">
       <Icon name="clock" size="sm" class="cn-meta-ico" aria-hidden="true" />
@@ -92,7 +95,8 @@ const text = computed(() => props.text ?? '');
         v-if="cron?.jobId"
         class="cn-meta-item cn-id"
         :title="t('conversation.cron.job', { id: cron.jobId })"
-      >{{ cron.jobId }}</span>
+        >{{ cron.jobId }}</span
+      >
       <MessageTime v-if="createdAt" :time="createdAt" />
     </div>
   </div>

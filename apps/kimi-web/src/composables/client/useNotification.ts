@@ -13,6 +13,7 @@
 // explicitly opting in.
 
 import { ref, type Ref } from 'vue';
+
 import { i18n } from '../../i18n';
 import { safeGetString, safeSetString, STORAGE_KEYS } from '../../lib/storage';
 
@@ -143,17 +144,10 @@ export function questionNotificationCopy(
   };
 }
 
-export function approvalNotificationCopy(
-  sessionTitle: string,
-  toolName: string,
-): NotificationCopy {
+export function approvalNotificationCopy(sessionTitle: string, toolName: string): NotificationCopy {
   return {
     title: i18n.global.t('settings.notifyApprovalTitle'),
-    body: firstText(
-      toolName,
-      sessionTitle,
-      i18n.global.t('settings.notifyApprovalFallback'),
-    ),
+    body: firstText(toolName, sessionTitle, i18n.global.t('settings.notifyApprovalFallback')),
   };
 }
 

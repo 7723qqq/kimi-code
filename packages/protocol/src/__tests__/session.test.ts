@@ -157,9 +157,7 @@ describe('sessionCreateSchema', () => {
   });
 
   it('rejects malformed workspace_id', () => {
-    expect(
-      sessionCreateSchema.safeParse({ workspace_id: 'not-a-wd-key' }).success,
-    ).toBe(false);
+    expect(sessionCreateSchema.safeParse({ workspace_id: 'not-a-wd-key' }).success).toBe(false);
   });
 
   it('rejects metadata without cwd', () => {
@@ -179,9 +177,9 @@ describe('sessionUpdateSchema', () => {
   });
 
   it('parses a partial agent_config patch', () => {
-    expect(
-      sessionUpdateSchema.parse({ agent_config: { model: 'moonshot-v1-256k' } }),
-    ).toEqual({ agent_config: { model: 'moonshot-v1-256k' } });
+    expect(sessionUpdateSchema.parse({ agent_config: { model: 'moonshot-v1-256k' } })).toEqual({
+      agent_config: { model: 'moonshot-v1-256k' },
+    });
   });
 
   it('parses a runtime-controls patch (thinking + permission_mode + plan_mode)', () => {

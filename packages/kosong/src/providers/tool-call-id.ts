@@ -76,10 +76,7 @@ function collectToolCallIds(messages: Message[]): string[] {
   return ids;
 }
 
-function buildToolCallIdMap(
-  rawIds: string[],
-  policy: ToolCallIdPolicy,
-): Map<string, string> {
+function buildToolCallIdMap(rawIds: string[], policy: ToolCallIdPolicy): Map<string, string> {
   const mappedIds = new Map<string, string>();
   const usedIds = new Set<string>();
 
@@ -118,11 +115,7 @@ function makeUniqueToolCallId(
   }
 }
 
-function truncateToolCallId(
-  base: string,
-  maxLength: number | undefined,
-  suffix: string,
-): string {
+function truncateToolCallId(base: string, maxLength: number | undefined, suffix: string): string {
   if (maxLength === undefined) return `${base}${suffix}`;
   const baseLength = maxLength - suffix.length;
   if (baseLength <= 0) {

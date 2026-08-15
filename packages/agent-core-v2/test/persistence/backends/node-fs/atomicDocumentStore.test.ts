@@ -3,10 +3,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAtomicDocumentStore, IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { JsonAtomicDocumentStore, TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import {
+  JsonAtomicDocumentStore,
+  TomlAtomicDocumentStore,
+} from '#/persistence/backends/node-fs/atomicDocumentStore';
+import {
+  IAtomicDocumentStore,
+  IAtomicTomlDocumentStore,
+} from '#/persistence/interface/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 interface State {
   readonly title?: string;
@@ -82,7 +88,10 @@ describe('JsonAtomicDocumentStore', () => {
 
   it('watch fires when the document is set', async () => {
     const fired = new Promise<void>((resolve) => {
-      const sub = config.watch('session', 'state.json')(() => {
+      const sub = config.watch(
+        'session',
+        'state.json',
+      )(() => {
         sub.dispose();
         resolve();
       });
@@ -129,7 +138,10 @@ describe('JsonAtomicDocumentStore', () => {
 
   it('watch fires on subsequent set after initial watch registration', async () => {
     const events: number[] = [];
-    const sub = config.watch('session', 'counter.json')(() => {
+    const sub = config.watch(
+      'session',
+      'counter.json',
+    )(() => {
       events.push(events.length);
     });
     await config.set('session', 'counter.json', { v: 1 });
@@ -182,7 +194,10 @@ describe('TomlAtomicDocumentStore', () => {
 
   it('watch fires when the document is set', async () => {
     const fired = new Promise<void>((resolve) => {
-      const sub = config.watch('session', 'config.toml')(() => {
+      const sub = config.watch(
+        'session',
+        'config.toml',
+      )(() => {
         sub.dispose();
         resolve();
       });
@@ -210,7 +225,11 @@ describe('TomlAtomicDocumentStore', () => {
     await config.set('session', 'cfg-a.toml', {});
     await config.set('session', 'cfg-b.toml', {});
     await config.set('session', 'other.toml', {});
-    expect((await config.list('session')).toSorted()).toEqual(['cfg-a.toml', 'cfg-b.toml', 'other.toml']);
+    expect((await config.list('session')).toSorted()).toEqual([
+      'cfg-a.toml',
+      'cfg-b.toml',
+      'other.toml',
+    ]);
     expect((await config.list('session', 'cfg-')).toSorted()).toEqual(['cfg-a.toml', 'cfg-b.toml']);
   });
 

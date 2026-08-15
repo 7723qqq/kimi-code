@@ -2,26 +2,26 @@
   "name": "@moonshot-ai/kimi-code",
   "version": "0.36.1",
   "description": "The Starting Point for Next-Gen Agents",
+  "keywords": [
+    "agent",
+    "ai",
+    "cli",
+    "coding-agent",
+    "kimi",
+    "kimi-code",
+    "tui"
+  ],
+  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/apps/kimi-code#readme",
+  "bugs": {
+    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+  },
   "license": "MIT",
   "author": "Moonshot AI",
-  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/apps/kimi-code#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MoonshotAI/kimi-code.git",
     "directory": "apps/kimi-code"
   },
-  "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
-  },
-  "keywords": [
-    "kimi",
-    "kimi-code",
-    "cli",
-    "agent",
-    "coding-agent",
-    "ai",
-    "tui"
-  ],
   "bin": {
     "kimi": "dist/main.mjs"
   },
@@ -78,10 +78,8 @@
     "e2e:real": "pnpm -w run build:packages && KIMI_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts",
     "postinstall": "node scripts/postinstall.mjs"
   },
-  "optionalDependencies": {
-    "@mariozechner/clipboard": "^0.3.9",
-    "@moonshot-ai/kimi-native-tools": "workspace:^",
-    "node-pty": "^1.1.0"
+  "dependencies": {
+    "@moonshot-ai/kimi-agent": "workspace:^"
   },
   "devDependencies": {
     "@moonshot-ai/acp-server": "workspace:^",
@@ -109,10 +107,12 @@
     "yazl": "^3.3.1",
     "zod": "^4.3.6"
   },
+  "optionalDependencies": {
+    "@mariozechner/clipboard": "^0.3.9",
+    "@moonshot-ai/kimi-native-tools": "workspace:^",
+    "node-pty": "^1.1.0"
+  },
   "engines": {
     "node": ">=22.19.0"
-  },
-  "dependencies": {
-    "@moonshot-ai/kimi-agent": "workspace:^"
   }
 }

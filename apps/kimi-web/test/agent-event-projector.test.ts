@@ -4,7 +4,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { classifyFrame, createAgentProjector, subagentProgressText } from '../src/api/daemon/agentEventProjector';
+
+import {
+  classifyFrame,
+  createAgentProjector,
+  subagentProgressText,
+} from '../src/api/daemon/agentEventProjector';
 
 describe('subagentProgressText', () => {
   it('drops turn.step.started as noise', () => {
@@ -18,7 +23,10 @@ describe('subagentProgressText', () => {
   });
 
   it('summarizes a bash tool call with its command', () => {
-    const text = subagentProgressText('tool.call.started', { name: 'bash', args: { command: 'pnpm test' } });
+    const text = subagentProgressText('tool.call.started', {
+      name: 'bash',
+      args: { command: 'pnpm test' },
+    });
     expect(text).toContain('pnpm test');
     expect(text).not.toContain('"command"');
   });
@@ -29,7 +37,9 @@ describe('subagentProgressText', () => {
   });
 
   it('returns tool.progress update text', () => {
-    expect(subagentProgressText('tool.progress', { update: { text: 'working…' } })).toBe('working…');
+    expect(subagentProgressText('tool.progress', { update: { text: 'working…' } })).toBe(
+      'working…',
+    );
   });
 
   it('caps a long tool.progress text', () => {
@@ -180,8 +190,14 @@ describe('cron.fired prompt id isolation', () => {
 describe('classifyFrame cron.fired', () => {
   it('routes both raw and event.-prefixed cron.fired to the agent projector', () => {
     const payload = { origin: { kind: 'cron_job' }, prompt: 'x' };
-    expect(classifyFrame('cron.fired', payload)).toEqual({ route: 'agent', agentType: 'cron.fired' });
-    expect(classifyFrame('event.cron.fired', payload)).toEqual({ route: 'agent', agentType: 'cron.fired' });
+    expect(classifyFrame('cron.fired', payload)).toEqual({
+      route: 'agent',
+      agentType: 'cron.fired',
+    });
+    expect(classifyFrame('event.cron.fired', payload)).toEqual({
+      route: 'agent',
+      agentType: 'cron.fired',
+    });
   });
 });
 
@@ -240,7 +256,11 @@ describe('main-turn liveness projection', () => {
   it('turn.ended clears it and carries the reason', () => {
     const projector = createAgentProjector();
     projector.project('turn.started', { agentId: 'main', turnId: 1 }, 's1');
-    const events = projector.project('turn.ended', { agentId: 'main', turnId: 1, reason: 'cancelled' }, 's1');
+    const events = projector.project(
+      'turn.ended',
+      { agentId: 'main', turnId: 1, reason: 'cancelled' },
+      's1',
+    );
     expect(events).toContainEqual({
       type: 'turnActiveChanged',
       sessionId: 's1',
@@ -252,7 +272,11 @@ describe('main-turn liveness projection', () => {
   it('subagent turn boundaries never touch main-conversation liveness', () => {
     const projector = createAgentProjector();
     const started = projector.project('turn.started', { agentId: 'agent-2', turnId: 1 }, 's1');
-    const ended = projector.project('turn.ended', { agentId: 'agent-2', turnId: 1, reason: 'completed' }, 's1');
+    const ended = projector.project(
+      'turn.ended',
+      { agentId: 'agent-2', turnId: 1, reason: 'completed' },
+      's1',
+    );
     expect([...started, ...ended].some((e) => e.type === 'turnActiveChanged')).toBe(false);
   });
 });
@@ -285,7 +309,11 @@ describe('prompt-level lifecycle projection', () => {
 
   it('subagent-scoped prompt.aborted stays out of the main prompt channel', () => {
     const projector = createAgentProjector();
-    const events = projector.project('prompt.aborted', { agentId: 'agent-2', promptId: 'msg_3' }, 's1');
+    const events = projector.project(
+      'prompt.aborted',
+      { agentId: 'agent-2', promptId: 'msg_3' },
+      's1',
+    );
     expect(events.some((e) => e.type === 'promptAborted')).toBe(false);
   });
 
@@ -302,11 +330,15 @@ describe('step-boundary delta alignment', () => {
     const projector = createAgentProjector();
     projector.project('turn.started', { turnId: 1 }, 's1');
     projector.project('turn.step.started', { turnId: 1, step: 1 }, 's1');
-    projector.project('assistant.delta', { turnId: 1, delta: 'step-one text' }, 's1', { offset: 0 });
+    projector.project('assistant.delta', { turnId: 1, delta: 'step-one text' }, 's1', {
+      offset: 0,
+    });
     projector.project('turn.step.completed', { turnId: 1, step: 1 }, 's1');
     projector.project('turn.step.started', { turnId: 1, step: 2 }, 's1');
 
-    const events = projector.project('assistant.delta', { turnId: 1, delta: 'tail' }, 's1', { offset: 12 });
+    const events = projector.project('assistant.delta', { turnId: 1, delta: 'tail' }, 's1', {
+      offset: 12,
+    });
     expect(events).toContainEqual(
       expect.objectContaining({ type: 'historyCompacted', reason: 'delta_gap' }),
     );
@@ -325,7 +357,9 @@ describe('step-boundary delta alignment', () => {
     expect(msgId).toBeDefined();
 
     // Offset restarts at 0 for the new step and appends to ITS message.
-    const events = projector.project('assistant.delta', { turnId: 1, delta: 'step two' }, 's1', { offset: 0 });
+    const events = projector.project('assistant.delta', { turnId: 1, delta: 'step two' }, 's1', {
+      offset: 0,
+    });
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'assistantDelta',
@@ -345,7 +379,8 @@ describe('step-boundary delta alignment', () => {
       runningTools: [{ toolCallId: 'tc_1', name: 'bash', args: { command: 'ls' } }],
     });
     const created = seeded.find((e) => e.type === 'messageCreated');
-    const message = (created as { message: { id: string; content: unknown[] } } | undefined)?.message;
+    const message = (created as { message: { id: string; content: unknown[] } } | undefined)
+      ?.message;
     expect(message).toBeDefined();
 
     expect(message!.content).toEqual([
@@ -354,15 +389,14 @@ describe('step-boundary delta alignment', () => {
       { type: 'toolUse', toolCallId: 'tc_1', toolName: 'bash', input: { command: 'ls' } },
     ]);
 
-    const dup = projector.project('assistant.delta', { turnId: 7, delta: 'two part' }, 's1', { offset: 5 });
+    const dup = projector.project('assistant.delta', { turnId: 7, delta: 'two part' }, 's1', {
+      offset: 5,
+    });
     expect(dup).toEqual([]);
 
-    const cont = projector.project(
-      'assistant.delta',
-      { turnId: 7, delta: ' continues' },
-      's1',
-      { offset: 'step two partial'.length },
-    );
+    const cont = projector.project('assistant.delta', { turnId: 7, delta: ' continues' }, 's1', {
+      offset: 'step two partial'.length,
+    });
     expect(cont).toContainEqual(
       expect.objectContaining({
         type: 'assistantDelta',
@@ -378,20 +412,84 @@ describe('turn.step.retrying bubble reuse', () => {
   it('refills the abandoned bubble instead of stacking a duplicate one', () => {
     const projector = createAgentProjector();
     const sid = 's1';
-    projector.project('turn.started', { type: 'turn.started', turnId: 1, origin: { kind: 'user' }, agentId: 'main', sessionId: sid }, sid);
-    projector.project('turn.step.started', { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid }, sid);
-    projector.project('assistant.delta', { type: 'assistant.delta', turnId: 1, delta: 'AB', agentId: 'main', sessionId: sid }, sid, { offset: 0 });
-    projector.project('tool.call.started', { type: 'tool.call.started', turnId: 1, toolCallId: 'tc1', name: 'Bash', agentId: 'main', sessionId: sid }, sid);
+    projector.project(
+      'turn.started',
+      {
+        type: 'turn.started',
+        turnId: 1,
+        origin: { kind: 'user' },
+        agentId: 'main',
+        sessionId: sid,
+      },
+      sid,
+    );
+    projector.project(
+      'turn.step.started',
+      { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid },
+      sid,
+    );
+    projector.project(
+      'assistant.delta',
+      { type: 'assistant.delta', turnId: 1, delta: 'AB', agentId: 'main', sessionId: sid },
+      sid,
+      { offset: 0 },
+    );
+    projector.project(
+      'tool.call.started',
+      {
+        type: 'tool.call.started',
+        turnId: 1,
+        toolCallId: 'tc1',
+        name: 'Bash',
+        agentId: 'main',
+        sessionId: sid,
+      },
+      sid,
+    );
 
-    const retryEvents = projector.project('turn.step.retrying', { type: 'turn.step.retrying', turnId: 1, step: 1, failedAttempt: 1, nextAttempt: 2, maxAttempts: 10, delayMs: 100, agentId: 'main', sessionId: sid }, sid);
+    const retryEvents = projector.project(
+      'turn.step.retrying',
+      {
+        type: 'turn.step.retrying',
+        turnId: 1,
+        step: 1,
+        failedAttempt: 1,
+        nextAttempt: 2,
+        maxAttempts: 10,
+        delayMs: 100,
+        agentId: 'main',
+        sessionId: sid,
+      },
+      sid,
+    );
     expect(retryEvents).toContainEqual(expect.objectContaining({ type: 'messageUpdated' }));
 
-    const restarted = projector.project('turn.step.started', { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid }, sid);
+    const restarted = projector.project(
+      'turn.step.started',
+      { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid },
+      sid,
+    );
     // No new messageCreated for the retried step — the cleared bubble is reused.
     expect(restarted.filter((e) => e.type === 'messageCreated')).toEqual([]);
 
-    const deltas = projector.project('assistant.delta', { type: 'assistant.delta', turnId: 1, delta: 'ABC', agentId: 'main', sessionId: sid }, sid, { offset: 0 });
-    const toolEvents = projector.project('tool.call.started', { type: 'tool.call.started', turnId: 1, toolCallId: 'tc1', name: 'Bash', agentId: 'main', sessionId: sid }, sid);
+    const deltas = projector.project(
+      'assistant.delta',
+      { type: 'assistant.delta', turnId: 1, delta: 'ABC', agentId: 'main', sessionId: sid },
+      sid,
+      { offset: 0 },
+    );
+    const toolEvents = projector.project(
+      'tool.call.started',
+      {
+        type: 'tool.call.started',
+        turnId: 1,
+        toolCallId: 'tc1',
+        name: 'Bash',
+        agentId: 'main',
+        sessionId: sid,
+      },
+      sid,
+    );
 
     // The same bubble receives the retried stream: exactly one assistant
     // message id across the whole attempt→retry sequence.
@@ -406,34 +504,126 @@ describe('turn.step.retrying bubble reuse', () => {
   it('drops the reuse target when the turn ends before the retried step starts', () => {
     const projector = createAgentProjector();
     const sid = 's1';
-    projector.project('turn.started', { type: 'turn.started', turnId: 1, origin: { kind: 'user' }, agentId: 'main', sessionId: sid }, sid);
-    projector.project('turn.step.started', { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid }, sid);
-    projector.project('assistant.delta', { type: 'assistant.delta', turnId: 1, delta: 'AB', agentId: 'main', sessionId: sid }, sid, { offset: 0 });
-    projector.project('turn.step.retrying', { type: 'turn.step.retrying', turnId: 1, step: 1, failedAttempt: 1, nextAttempt: 2, maxAttempts: 10, delayMs: 100, agentId: 'main', sessionId: sid }, sid);
+    projector.project(
+      'turn.started',
+      {
+        type: 'turn.started',
+        turnId: 1,
+        origin: { kind: 'user' },
+        agentId: 'main',
+        sessionId: sid,
+      },
+      sid,
+    );
+    projector.project(
+      'turn.step.started',
+      { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid },
+      sid,
+    );
+    projector.project(
+      'assistant.delta',
+      { type: 'assistant.delta', turnId: 1, delta: 'AB', agentId: 'main', sessionId: sid },
+      sid,
+      { offset: 0 },
+    );
+    projector.project(
+      'turn.step.retrying',
+      {
+        type: 'turn.step.retrying',
+        turnId: 1,
+        step: 1,
+        failedAttempt: 1,
+        nextAttempt: 2,
+        maxAttempts: 10,
+        delayMs: 100,
+        agentId: 'main',
+        sessionId: sid,
+      },
+      sid,
+    );
 
     // The user aborts before the retried step.started ever arrives.
-    projector.project('turn.ended', { type: 'turn.ended', turnId: 1, reason: 'interrupted', agentId: 'main', sessionId: sid }, sid);
+    projector.project(
+      'turn.ended',
+      { type: 'turn.ended', turnId: 1, reason: 'interrupted', agentId: 'main', sessionId: sid },
+      sid,
+    );
 
     // The next prompt must open a fresh bubble — not refill the emptied one,
     // which would render the new response under the previous prompt.
-    projector.project('turn.started', { type: 'turn.started', turnId: 2, origin: { kind: 'user' }, agentId: 'main', sessionId: sid }, sid);
-    const started = projector.project('turn.step.started', { type: 'turn.step.started', turnId: 2, step: 1, agentId: 'main', sessionId: sid }, sid);
+    projector.project(
+      'turn.started',
+      {
+        type: 'turn.started',
+        turnId: 2,
+        origin: { kind: 'user' },
+        agentId: 'main',
+        sessionId: sid,
+      },
+      sid,
+    );
+    const started = projector.project(
+      'turn.step.started',
+      { type: 'turn.step.started', turnId: 2, step: 1, agentId: 'main', sessionId: sid },
+      sid,
+    );
     expect(started.filter((e) => e.type === 'messageCreated')).toHaveLength(1);
   });
 
   it('drops the reuse target when the step is interrupted before the retry restarts', () => {
     const projector = createAgentProjector();
     const sid = 's1';
-    projector.project('turn.started', { type: 'turn.started', turnId: 1, origin: { kind: 'user' }, agentId: 'main', sessionId: sid }, sid);
-    projector.project('turn.step.started', { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid }, sid);
-    projector.project('assistant.delta', { type: 'assistant.delta', turnId: 1, delta: 'AB', agentId: 'main', sessionId: sid }, sid, { offset: 0 });
-    projector.project('turn.step.retrying', { type: 'turn.step.retrying', turnId: 1, step: 1, failedAttempt: 1, nextAttempt: 2, maxAttempts: 10, delayMs: 100, agentId: 'main', sessionId: sid }, sid);
+    projector.project(
+      'turn.started',
+      {
+        type: 'turn.started',
+        turnId: 1,
+        origin: { kind: 'user' },
+        agentId: 'main',
+        sessionId: sid,
+      },
+      sid,
+    );
+    projector.project(
+      'turn.step.started',
+      { type: 'turn.step.started', turnId: 1, step: 1, agentId: 'main', sessionId: sid },
+      sid,
+    );
+    projector.project(
+      'assistant.delta',
+      { type: 'assistant.delta', turnId: 1, delta: 'AB', agentId: 'main', sessionId: sid },
+      sid,
+      { offset: 0 },
+    );
+    projector.project(
+      'turn.step.retrying',
+      {
+        type: 'turn.step.retrying',
+        turnId: 1,
+        step: 1,
+        failedAttempt: 1,
+        nextAttempt: 2,
+        maxAttempts: 10,
+        delayMs: 100,
+        agentId: 'main',
+        sessionId: sid,
+      },
+      sid,
+    );
 
-    projector.project('turn.step.interrupted', { type: 'turn.step.interrupted', turnId: 1, step: 1, agentId: 'main', sessionId: sid }, sid);
+    projector.project(
+      'turn.step.interrupted',
+      { type: 'turn.step.interrupted', turnId: 1, step: 1, agentId: 'main', sessionId: sid },
+      sid,
+    );
 
     // The next step.started creates a new bubble instead of reusing the
     // emptied one left by the interrupted retry attempt.
-    const started = projector.project('turn.step.started', { type: 'turn.step.started', turnId: 1, step: 2, agentId: 'main', sessionId: sid }, sid);
+    const started = projector.project(
+      'turn.step.started',
+      { type: 'turn.step.started', turnId: 1, step: 2, agentId: 'main', sessionId: sid },
+      sid,
+    );
     expect(started.filter((e) => e.type === 'messageCreated')).toHaveLength(1);
   });
 });

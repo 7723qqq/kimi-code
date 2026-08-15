@@ -19,15 +19,13 @@ import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
-import type { ISessionBtwService} from './btw';
+import type { ISessionBtwService } from './btw';
 import { SIDE_QUESTION_SYSTEM_REMINDER, TOOL_CALL_DISABLED_MESSAGE } from './btw';
 
 export class SessionBtwService implements ISessionBtwService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(
-    @IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService,
-  ) {}
+  constructor(@IAgentLifecycleService private readonly lifecycle: IAgentLifecycleService) {}
 
   async start(): Promise<string> {
     const child = await this.lifecycle.fork('main');
@@ -38,14 +36,12 @@ export class SessionBtwService implements ISessionBtwService {
         variant: 'btw',
       });
     const reason =
-      child.accessor.get(IAgentToolApprovalService)?.formatDenyMessage(
-        TOOL_CALL_DISABLED_MESSAGE,
-      ) ?? TOOL_CALL_DISABLED_MESSAGE;
-    child.accessor
-      .get(IAgentToolExecutorService)
-      ?.onBeforeExecuteTool((event) => {
-        event.veto(denyToolExecution(reason));
-      });
+      child.accessor
+        .get(IAgentToolApprovalService)
+        ?.formatDenyMessage(TOOL_CALL_DISABLED_MESSAGE) ?? TOOL_CALL_DISABLED_MESSAGE;
+    child.accessor.get(IAgentToolExecutorService)?.onBeforeExecuteTool((event) => {
+      event.veto(denyToolExecution(reason));
+    });
     return child.id;
   }
 }

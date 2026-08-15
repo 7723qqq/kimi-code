@@ -195,11 +195,7 @@ class LoggerImpl implements Logger {
     return new LoggerImpl({ ...this.boundCtx, ...ctx });
   }
 
-  private emitAt(
-    level: Exclude<LogLevel, 'off'>,
-    message: string,
-    payload: LogPayload,
-  ): void {
+  private emitAt(level: Exclude<LogLevel, 'off'>, message: string, payload: LogPayload): void {
     const root = getRootInternal();
     if (!root.isConfigured()) return;
     try {
@@ -241,9 +237,10 @@ function sameLoggingConfig(a: LoggingConfig, b: LoggingConfig): boolean {
   );
 }
 
-function resolvePayload(
-  payload: LogPayload,
-): { ctx: LogContext | undefined; error: LogEntry['error'] } {
+function resolvePayload(payload: LogPayload): {
+  ctx: LogContext | undefined;
+  error: LogEntry['error'];
+} {
   if (payload === undefined || payload === null) {
     return { ctx: undefined, error: undefined };
   }
@@ -380,9 +377,7 @@ export function redactCtx(ctx: LogContext): LogContext {
     }
     const out: Record<string, unknown> = {};
     for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = REDACTED_KEYS.has(normalizeKey(key))
-        ? REDACTED
-        : walk(raw, depth + 1);
+      out[key] = REDACTED_KEYS.has(normalizeKey(key)) ? REDACTED : walk(raw, depth + 1);
     }
     return out;
   };
@@ -489,13 +484,13 @@ export function formatEntry(entry: LogEntry, options: FormatOptions = {}): Forma
 
   const time = new Date(entry.t).toISOString();
   const label = LEVEL_LABEL[entry.level];
-  const rendered = pairs.length === 0
-    ? `${time} ${label} ${msg}`
-    : `${time} ${label} ${msg}  ${pairs.join(' ')}`;
+  const rendered =
+    pairs.length === 0 ? `${time} ${label} ${msg}` : `${time} ${label} ${msg}  ${pairs.join(' ')}`;
 
-  let head = Buffer.byteLength(rendered, 'utf-8') > ENTRY_MAX_BYTES
-    ? clipBytes(rendered, ENTRY_MAX_BYTES)
-    : rendered;
+  let head =
+    Buffer.byteLength(rendered, 'utf-8') > ENTRY_MAX_BYTES
+      ? clipBytes(rendered, ENTRY_MAX_BYTES)
+      : rendered;
 
   if (options.ansi === true) {
     head = `${ANSI_LEVEL[entry.level]}${head}${ANSI_RESET}`;
@@ -531,7 +526,9 @@ class AsyncSerialQueue {
     // Swallow rejection on the tail to prevent unhandled rejection in the
     // serial chain — the actual error surfaces through the returned `next`
     // promise which the caller awaits.
-    this.tail = next.catch(() => { /* intentional — serial queue tail guard */ });
+    this.tail = next.catch(() => {
+      /* intentional — serial queue tail guard */
+    });
     return next;
   }
 }

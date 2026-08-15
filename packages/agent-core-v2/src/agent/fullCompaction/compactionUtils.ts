@@ -1,16 +1,10 @@
-import {
-  estimateTokensForMessage,
-  estimateTokensForMessages,
-} from '#/kosong/contract/tokens';
 import { isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import {
-  APIEmptyResponseError,
-  APIStatusError,
-} from '#/app/llmProtocol/errors';
 import type { AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
+import { APIEmptyResponseError, APIStatusError } from '#/app/llmProtocol/errors';
 import type { Message } from '#/app/llmProtocol/message';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
+import { estimateTokensForMessage, estimateTokensForMessages } from '#/kosong/contract/tokens';
 
 export const COMPACTION_OVERFLOW_SHRINK_RATIOS = [0.7, 0.5, 0.35] as const;
 
@@ -48,9 +42,7 @@ export function collectSummary(finish: AgentLLMRequestFinish): CompactionAttempt
     .join('')
     .trim();
   if (summary.length === 0) {
-    throw new APIEmptyResponseError(
-      'The compaction response did not contain a non-empty summary.',
-    );
+    throw new APIEmptyResponseError('The compaction response did not contain a non-empty summary.');
   }
 
   return { summary, usage: finish.usage };
@@ -70,9 +62,10 @@ export function shrinkCompactionHistoryAfterOverflow<T extends Message>(
   attempt: number,
 ): T[] {
   if (messages.length <= 1) return messages.slice();
-  const ratio = COMPACTION_OVERFLOW_SHRINK_RATIOS[
-    Math.min(attempt - 1, COMPACTION_OVERFLOW_SHRINK_RATIOS.length - 1)
-  ]!;
+  const ratio =
+    COMPACTION_OVERFLOW_SHRINK_RATIOS[
+      Math.min(attempt - 1, COMPACTION_OVERFLOW_SHRINK_RATIOS.length - 1)
+    ]!;
   const tokenBudget = Math.floor(estimateTokensForMessages(messages) * ratio);
   return takeRecentMessagesWithinTokenBudget(messages, tokenBudget);
 }
@@ -100,7 +93,9 @@ export function dropOldestMessageAndLeadingToolResults<T extends { readonly role
   return dropLeadingToolResults(messages.slice(1));
 }
 
-export function dropLeadingToolResults<T extends { readonly role: string }>(messages: readonly T[]): T[] {
+export function dropLeadingToolResults<T extends { readonly role: string }>(
+  messages: readonly T[],
+): T[] {
   let start = 0;
   while (start < messages.length && messages[start]!.role === 'tool') {
     start += 1;
@@ -130,10 +125,9 @@ export interface SnipToolResultOptions {
   readonly tailLines?: number;
 }
 
-export function snipLargeToolResults<T extends { readonly role: string; readonly content: readonly unknown[] }>(
-  messages: readonly T[],
-  options?: SnipToolResultOptions,
-): T[] {
+export function snipLargeToolResults<
+  T extends { readonly role: string; readonly content: readonly unknown[] },
+>(messages: readonly T[], options?: SnipToolResultOptions): T[] {
   const minBytes = options?.minBytes ?? DEFAULT_TOOL_RESULT_SNIP_MIN_BYTES;
   const headLines = options?.headLines ?? DEFAULT_TOOL_RESULT_SNIP_HEAD_LINES;
   const tailLines = options?.tailLines ?? DEFAULT_TOOL_RESULT_SNIP_TAIL_LINES;

@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { AgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContextService';
+
 import { recordingTelemetry, type TelemetryRecord } from './stubs';
 
 describe('AgentTelemetryContextService', () => {

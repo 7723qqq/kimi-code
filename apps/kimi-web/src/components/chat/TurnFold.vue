@@ -6,8 +6,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import Icon from '../ui/Icon.vue';
+
 import { formatDuration } from '../chatTurnRendering';
+import Icon from '../ui/Icon.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -46,13 +47,7 @@ const label = computed(() =>
 
 <template>
   <div class="turn-fold" :class="{ open, streaming }">
-    <button
-      type="button"
-      class="tf-head"
-      :aria-expanded="open"
-      :aria-label="label"
-      @click="toggle"
-    >
+    <button type="button" class="tf-head" :aria-expanded="open" :aria-label="label" @click="toggle">
       <span class="tf-sum" :title="label">{{ label }}</span>
       <Icon class="tf-car" :name="open ? 'chevron-down' : 'chevron-right'" size="sm" />
     </button>

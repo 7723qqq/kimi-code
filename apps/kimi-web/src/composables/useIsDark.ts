@@ -29,11 +29,9 @@ export function useIsDark(): Ref<boolean> {
       attributes: true,
       attributeFilter: ['data-color-scheme'],
     });
-    window
-      .matchMedia('(prefers-color-scheme: dark)')
-      .addEventListener('change', () => {
-        isDark.value = compute();
-      });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      isDark.value = compute();
+    });
   }
   return isDark;
 }

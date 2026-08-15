@@ -24,5 +24,7 @@ export const SetGoalBudgetToolInputSchema = z
 
 export type SetGoalBudgetToolInput = z.infer<typeof SetGoalBudgetToolInputSchema>;
 
-export interface ISetGoalBudgetTool extends AgentTool<SetGoalBudgetToolInput> { readonly _serviceBrand: undefined }
+export interface ISetGoalBudgetTool extends AgentTool<SetGoalBudgetToolInput> {
+  readonly _serviceBrand: undefined;
+}
 export const ISetGoalBudgetTool = createDecorator<ISetGoalBudgetTool>('setGoalBudgetTool');

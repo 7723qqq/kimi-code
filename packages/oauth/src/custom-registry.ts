@@ -1,7 +1,7 @@
 import { readApiErrorMessage } from './api-error';
+import type { ManagedKimiConfigShape, ManagedKimiModelAlias } from './managed-kimi-code';
 import { CUSTOM_REGISTRY_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import { isRecord, MAX_HTTP_RESPONSE_BYTES, readResponseBodyWithLimit } from './utils';
-import type { ManagedKimiConfigShape, ManagedKimiModelAlias } from './managed-kimi-code';
 
 export type { ManagedKimiConfigShape };
 
@@ -29,11 +29,7 @@ export interface FetchCustomRegistryOptions {
  * mirrors these literal values. `kimi` is included because the api.json schema
  * permits it even though kokub itself only emits the other three.
  */
-export type CustomRegistryProviderType =
-  | 'anthropic'
-  | 'openai'
-  | 'openai_responses'
-  | 'kimi';
+export type CustomRegistryProviderType = 'anthropic' | 'openai' | 'openai_responses' | 'kimi';
 
 export interface CustomRegistryModelEntry {
   readonly id: string;
@@ -84,7 +80,9 @@ export class CustomRegistryApiError extends Error {
 }
 
 function isAllowedProviderType(value: unknown): value is CustomRegistryProviderType {
-  return typeof value === 'string' && ALLOWED_PROVIDER_TYPES.has(value as CustomRegistryProviderType);
+  return (
+    typeof value === 'string' && ALLOWED_PROVIDER_TYPES.has(value as CustomRegistryProviderType)
+  );
 }
 
 function toStringArrayOrUndefined(value: unknown): readonly string[] | undefined {

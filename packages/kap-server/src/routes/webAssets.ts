@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises';
 import { extname, join, normalize, relative, resolve, sep } from 'node:path';
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
+
 import { t } from '../i18n';
 
 interface WebAssetRouteHost {
@@ -71,10 +72,7 @@ function cacheControl(assetsDir: string, filePath: string): string {
   return 'no-cache';
 }
 
-async function resolveStaticFile(
-  assetsDir: string,
-  pathname: string,
-): Promise<string | undefined> {
+async function resolveStaticFile(assetsDir: string, pathname: string): Promise<string | undefined> {
   let decoded: string;
   try {
     decoded = decodeURIComponent(pathname);
@@ -85,10 +83,7 @@ async function resolveStaticFile(
   const normalized = normalize(decoded).replace(/^(\.\.(?:[/\\]|$))+/, '');
   const relative = normalized === sep ? 'index.html' : normalized.replace(/^[/\\]/, '');
   const root = resolve(assetsDir);
-  const candidate = resolve(
-    root,
-    relative.endsWith(sep) ? join(relative, 'index.html') : relative,
-  );
+  const candidate = resolve(root, relative.endsWith(sep) ? join(relative, 'index.html') : relative);
   if (candidate !== root && !candidate.startsWith(`${root}${sep}`)) {
     return undefined;
   }

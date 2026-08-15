@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { LifecycleScope } from '#/app/scopes';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
@@ -20,8 +20,8 @@ import {
 import { SessionInteractionService } from '#/session/interaction/interactionService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
 
 import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
 
@@ -170,8 +170,18 @@ describe('SessionInteractionService', () => {
   it('cancelPendingForTurn clears pending interactions whose turn has ended (矛盾 c)', () => {
     const svc = ix.get(ISessionInteractionService);
 
-    svc.enqueue({ id: 'a1', kind: 'approval', payload: {}, origin: { agentId: 'main', turnId: 3 } });
-    svc.enqueue({ id: 'a2', kind: 'approval', payload: {}, origin: { agentId: 'main', turnId: 7 } });
+    svc.enqueue({
+      id: 'a1',
+      kind: 'approval',
+      payload: {},
+      origin: { agentId: 'main', turnId: 3 },
+    });
+    svc.enqueue({
+      id: 'a2',
+      kind: 'approval',
+      payload: {},
+      origin: { agentId: 'main', turnId: 7 },
+    });
     expect(svc.listPending()).toHaveLength(2);
 
     svc.cancelPendingForTurn(3);
@@ -275,7 +285,10 @@ describe('SessionInteractionService', () => {
 
     const last = main.dispatched.at(-1);
     expect(last?.type).toBe('interaction.resolved');
-    expect(last?.payload).toEqual({ id: 'i1', response: { cancelled: true, reason: 'turn_ended' } });
+    expect(last?.payload).toEqual({
+      id: 'i1',
+      response: { cancelled: true, reason: 'turn_ended' },
+    });
   });
 
   it('kernel semantics are unchanged when the origin agent is absent', async () => {
@@ -308,7 +321,10 @@ describe('interaction ops (wire-backed)', () => {
   async function readRecords(key = KEY): Promise<WireRecord[]> {
     await wire.flush();
     const out: WireRecord[] = [];
-    for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
+    for await (const record of log.read<WireRecord>(
+      testWireScope(SCOPE, key),
+      AGENT_WIRE_RECORD_KEY,
+    )) {
       out.push(record);
     }
     return out;
@@ -365,7 +381,13 @@ describe('interaction ops (wire-backed)', () => {
     const records: WireRecord[] = [
       { type: 'interaction.request', id: 'i1', kind: 'question', request: { q: '?' } },
       { type: 'interaction.resolved', id: 'i1', response: { answer: 'a' } },
-      { type: 'interaction.request', id: 'i2', kind: 'approval', toolCallId: 'call-2', request: {} },
+      {
+        type: 'interaction.request',
+        id: 'i2',
+        kind: 'approval',
+        toolCallId: 'call-2',
+        request: {},
+      },
     ] as unknown as WireRecord[];
 
     const ix2 = disposables.add(new TestInstantiationService());

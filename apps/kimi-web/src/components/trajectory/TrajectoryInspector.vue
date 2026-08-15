@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { TrajectoryRecord } from '../../lib/trajectory/records';
 import { formatDurationMillis } from '../../lib/trajectory/timeline';
 import Badge from '../ui/Badge.vue';
@@ -32,45 +33,62 @@ const kindLabel = computed(() => {
 });
 
 const startedLabel = computed(() =>
-  props.record.startedAt === null
-    ? '—'
-    : new Date(props.record.startedAt).toLocaleTimeString(),
+  props.record.startedAt === null ? '—' : new Date(props.record.startedAt).toLocaleTimeString(),
 );
 
-const tokens = computed(() => [
-  props.record.input === undefined ? null : [t('trajectory.input'), String(props.record.input)] as const,
-  props.record.output === undefined ? null : [t('trajectory.output'), String(props.record.output)] as const,
-  props.record.cacheRead === undefined ? null : [t('trajectory.cacheRead'), String(props.record.cacheRead)] as const,
-  props.record.cacheWrite === undefined ? null : [t('trajectory.cacheWrite'), String(props.record.cacheWrite)] as const,
-  props.record.think === undefined ? null : [t('trajectory.think'), String(props.record.think)] as const,
-].filter((entry): entry is readonly [string, string] => entry !== null));
+const tokens = computed(() =>
+  [
+    props.record.input === undefined
+      ? null
+      : ([t('trajectory.input'), String(props.record.input)] as const),
+    props.record.output === undefined
+      ? null
+      : ([t('trajectory.output'), String(props.record.output)] as const),
+    props.record.cacheRead === undefined
+      ? null
+      : ([t('trajectory.cacheRead'), String(props.record.cacheRead)] as const),
+    props.record.cacheWrite === undefined
+      ? null
+      : ([t('trajectory.cacheWrite'), String(props.record.cacheWrite)] as const),
+    props.record.think === undefined
+      ? null
+      : ([t('trajectory.think'), String(props.record.think)] as const),
+  ].filter((entry): entry is readonly [string, string] => entry !== null),
+);
 
-const timing = computed(() => [
-  props.record.ttftMs === undefined || props.record.ttftMs === null
-    ? null
-    : [t('trajectory.ttft'), formatDurationMillis(props.record.ttftMs)] as const,
-  props.record.streamMs === undefined || props.record.streamMs === null
-    ? null
-    : [t('trajectory.stream'), formatDurationMillis(props.record.streamMs)] as const,
-  props.record.requestBuildMs === undefined || props.record.requestBuildMs === null
-    ? null
-    : [t('trajectory.requestBuild'), formatDurationMillis(props.record.requestBuildMs)] as const,
-].filter((entry): entry is readonly [string, string] => entry !== null));
+const timing = computed(() =>
+  [
+    props.record.ttftMs === undefined || props.record.ttftMs === null
+      ? null
+      : ([t('trajectory.ttft'), formatDurationMillis(props.record.ttftMs)] as const),
+    props.record.streamMs === undefined || props.record.streamMs === null
+      ? null
+      : ([t('trajectory.stream'), formatDurationMillis(props.record.streamMs)] as const),
+    props.record.requestBuildMs === undefined || props.record.requestBuildMs === null
+      ? null
+      : ([
+          t('trajectory.requestBuild'),
+          formatDurationMillis(props.record.requestBuildMs),
+        ] as const),
+  ].filter((entry): entry is readonly [string, string] => entry !== null),
+);
 
-const sections = computed(() => [
-  props.record.thinkingDetail === undefined
-    ? null
-    : [t('trajectory.think'), props.record.thinkingDetail] as const,
-  props.record.inputDetail === undefined
-    ? null
-    : [t('trajectory.input'), props.record.inputDetail] as const,
-  props.record.outputDetail === undefined
-    ? null
-    : [t('trajectory.output'), props.record.outputDetail] as const,
-  props.record.result === undefined
-    ? null
-    : [t('trajectory.result'), props.record.result] as const,
-].filter((entry): entry is readonly [string, string] => entry !== null));
+const sections = computed(() =>
+  [
+    props.record.thinkingDetail === undefined
+      ? null
+      : ([t('trajectory.think'), props.record.thinkingDetail] as const),
+    props.record.inputDetail === undefined
+      ? null
+      : ([t('trajectory.input'), props.record.inputDetail] as const),
+    props.record.outputDetail === undefined
+      ? null
+      : ([t('trajectory.output'), props.record.outputDetail] as const),
+    props.record.result === undefined
+      ? null
+      : ([t('trajectory.result'), props.record.result] as const),
+  ].filter((entry): entry is readonly [string, string] => entry !== null),
+);
 </script>
 
 <template>
@@ -79,14 +97,23 @@ const sections = computed(() => [
       <Badge :variant="record.isError === true ? 'danger' : 'neutral'">{{ kindLabel }}</Badge>
       <span class="trajectory-inspector__index">#{{ record.index }}</span>
       <span class="trajectory-inspector__turn">
-        {{ record.turn === null ? t('trajectory.betweenTurns') : t('trajectory.turn', { turn: record.turn }) }}
+        {{
+          record.turn === null
+            ? t('trajectory.betweenTurns')
+            : t('trajectory.turn', { turn: record.turn })
+        }}
       </span>
       <button type="button" class="trajectory-inspector__clear" @click="emit('clear')">
         {{ t('trajectory.clearSelection') }}
       </button>
     </div>
     <div class="trajectory-inspector__meta">
-      <span>{{ t('trajectory.duration') }}: {{ formatDurationMillis(record.timeSeconds === null ? null : record.timeSeconds * 1000) }}</span>
+      <span
+        >{{ t('trajectory.duration') }}:
+        {{
+          formatDurationMillis(record.timeSeconds === null ? null : record.timeSeconds * 1000)
+        }}</span
+      >
       <span>{{ t('trajectory.startedAt') }}: {{ startedLabel }}</span>
     </div>
     <template v-if="tokens.length > 0">

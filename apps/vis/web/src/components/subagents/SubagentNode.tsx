@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
-import type { AgentNode } from '../../types';
+
 import { t } from '../../i18n';
+import type { AgentNode } from '../../types';
 import { Pill, type PillTone } from '../shared/Pill';
 
 const TYPE_TONE: Record<AgentNode['type'], PillTone> = {
@@ -40,9 +41,7 @@ export function SubagentNode({ node, sessionId }: Props) {
               </Pill>
             ) : null}
             {node.parentAgentId !== null ? (
-              <span className="font-mono text-[10.5px] text-fg-3">
-                ← {node.parentAgentId}
-              </span>
+              <span className="font-mono text-[10.5px] text-fg-3">← {node.parentAgentId}</span>
             ) : null}
             {broken ? (
               <Pill tone="warning" variant="outline">
@@ -51,15 +50,10 @@ export function SubagentNode({ node, sessionId }: Props) {
             ) : null}
             <span className="ml-auto font-mono text-[10.5px] text-fg-3 tabular">
               {node.wireRecordCount} {t('wire.records', { count: node.wireRecordCount })}
-              {node.wireProtocolVersion !== null
-                ? ` · v${node.wireProtocolVersion}`
-                : ''}
+              {node.wireProtocolVersion !== null ? ` · v${node.wireProtocolVersion}` : ''}
             </span>
           </div>
-          <div
-            className="mt-1 truncate font-mono text-[10.5px] text-fg-3"
-            title={node.homedir}
-          >
+          <div className="mt-1 truncate font-mono text-[10.5px] text-fg-3" title={node.homedir}>
             {node.homedir}
           </div>
         </div>

@@ -16,7 +16,6 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { ProviderCatalogItem } from '#/kosong/model/catalog';
 
-
 export interface ModelsDevModelItem {
   readonly id: string;
   readonly name?: string;
@@ -36,7 +35,6 @@ export interface ModelsDevProviderItem {
   readonly env_key: string | null;
   readonly models: readonly ModelsDevModelItem[];
 }
-
 
 export const PROVIDER_ID_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\-_ ]*$/u;
 
@@ -70,9 +68,7 @@ export interface IModelsDevImportService {
   importModelsDevProvider(
     options: ImportModelsDevProviderOptions,
   ): Promise<ImportModelsDevProviderResult>;
-  importCustomRegistry(
-    options: ImportCustomRegistryOptions,
-  ): Promise<ImportCustomRegistryResult>;
+  importCustomRegistry(options: ImportCustomRegistryOptions): Promise<ImportCustomRegistryResult>;
 }
 
 export const IModelsDevImportService: ServiceIdentifier<IModelsDevImportService> =

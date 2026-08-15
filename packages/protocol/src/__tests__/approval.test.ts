@@ -157,9 +157,7 @@ describe('listPendingApprovalsResponseSchema (REST pending recovery)', () => {
   });
 
   it('rejects unsupported status query', () => {
-    expect(() =>
-      listPendingApprovalsQuerySchema.parse({ status: 'resolved' }),
-    ).toThrow();
+    expect(() => listPendingApprovalsQuerySchema.parse({ status: 'resolved' })).toThrow();
   });
 
   it('returns approval request items', () => {

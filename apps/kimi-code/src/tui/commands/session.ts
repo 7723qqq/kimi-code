@@ -4,10 +4,11 @@ import { pathToFileURL } from 'node:url';
 
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import { detectInstallSource } from '#/cli/update/source';
+import { t } from '#/i18n';
 import { detectShellEnvironment } from '#/utils/process/shell-env';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
+
 import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { isAbortError } from '../utils/errors';
 import { formatErrorMessage } from '../utils/event-payload';
@@ -117,9 +118,10 @@ export async function handleExportMdCommand(host: SlashCommandHost, args: string
     const defaultName = `kimi-export-${shortId}-${timestamp}.md`;
 
     const trimmedArgs = args.trim();
-    const outputPath = trimmedArgs.length > 0
-      ? resolve(trimmedArgs)
-      : resolve(host.state.appState.workDir, defaultName);
+    const outputPath =
+      trimmedArgs.length > 0
+        ? resolve(trimmedArgs)
+        : resolve(host.state.appState.workDir, defaultName);
 
     const md = buildExportMarkdown({
       sessionId: session.id,
@@ -133,7 +135,10 @@ export async function handleExportMdCommand(host: SlashCommandHost, args: string
     await writeFile(outputPath, md, 'utf-8');
 
     const linked = toTerminalHyperlink(outputPath, pathToFileURL(outputPath).href);
-    host.showNotice(t('tui.statusMessages.sessionExportComplete', { count: context.history.length }), linked);
+    host.showNotice(
+      t('tui.statusMessages.sessionExportComplete', { count: context.history.length }),
+      linked,
+    );
   } catch (error) {
     const msg = formatErrorMessage(error);
     host.showError(t('tui.statusMessages.sessionFailedToExport', { message: msg }));

@@ -15,34 +15,31 @@
  */
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IFlagService } from '#/app/flag/flag';
-import { IEventBus } from '#/app/event/eventBus';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { MicroCompactionFinishedEvent } from '#/app/telemetry/events';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
-import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { IEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
+import type { MicroCompactionFinishedEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { estimateTokensForContentParts, estimateTokensForMessages } from '#/kosong/contract/tokens';
 import { IWireService } from '#/wire/wire';
-import {
-  estimateTokensForContentParts,
-  estimateTokensForMessages,
-} from '#/kosong/contract/tokens';
 
 import { MICRO_COMPACTION_FLAG_ID } from './flag';
-import {
-  MicroCompactionModel,
-  microCompactionApply,
-  microCompactionClamp,
-} from './microCompactionOps';
 import {
   DEFAULT_MICRO_COMPACTION_CONFIG,
   IAgentMicroCompactionService,
   type MicroCompactionConfig,
 } from './microCompaction';
+import {
+  MicroCompactionModel,
+  microCompactionApply,
+  microCompactionClamp,
+} from './microCompactionOps';
 
 interface TruncationEffect {
   readonly truncatedToolResultCount: number;
@@ -53,7 +50,8 @@ interface TruncationEffect {
 // NOTE: stays Disposable — its own 'config' collides with the Fiber
 export class AgentMicroCompactionService
   extends Disposable
-  implements IAgentMicroCompactionService {
+  implements IAgentMicroCompactionService
+{
   declare readonly _serviceBrand: undefined;
 
   private _config: MicroCompactionConfig = { ...DEFAULT_MICRO_COMPACTION_CONFIG };
@@ -115,9 +113,7 @@ export class AgentMicroCompactionService
       modelCapabilities.max_input_tokens ?? modelCapabilities.max_context_tokens;
     const contextTokens = this.tokenCounting.get().size;
     const contextUsageRatio =
-      maxContextTokens !== undefined && maxContextTokens > 0
-        ? contextTokens / maxContextTokens
-        : 1;
+      maxContextTokens !== undefined && maxContextTokens > 0 ? contextTokens / maxContextTokens : 1;
     if (contextUsageRatio < config.minContextUsageRatio) return;
 
     const previousCutoff = this.cutoff;

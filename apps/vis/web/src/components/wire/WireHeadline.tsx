@@ -1,5 +1,5 @@
-import type { AgentRecord } from '../../types';
 import { t } from '../../i18n';
+import type { AgentRecord } from '../../types';
 import { Dim, type HeadlineRender } from './parts';
 import { rendererFor } from './renderers';
 

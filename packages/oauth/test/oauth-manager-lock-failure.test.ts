@@ -74,22 +74,25 @@ describe('OAuthManager refresh lock failure', () => {
     vi.restoreAllMocks();
   });
 
-  it.skipIf(process.platform === 'win32')('fails closed instead of refreshing without a configured cross-process lock', async () => {
-    const storage = new InMemoryStorage();
-    storage.token = makeToken();
-    lockMock.lock.mockRejectedValue(new Error('lock busy'));
-    const refreshImpl = vi.fn().mockResolvedValue(makeToken({ accessToken: 'at-new' }));
+  it.skipIf(process.platform === 'win32')(
+    'fails closed instead of refreshing without a configured cross-process lock',
+    async () => {
+      const storage = new InMemoryStorage();
+      storage.token = makeToken();
+      lockMock.lock.mockRejectedValue(new Error('lock busy'));
+      const refreshImpl = vi.fn().mockResolvedValue(makeToken({ accessToken: 'at-new' }));
 
-    const mgr = new OAuthManager({
-      config,
-      storage,
-      configDir: dir,
-      now: () => 1_000_000_000,
-      refreshTokenImpl: refreshImpl,
-    });
+      const mgr = new OAuthManager({
+        config,
+        storage,
+        configDir: dir,
+        now: () => 1_000_000_000,
+        refreshTokenImpl: refreshImpl,
+      });
 
-    await expect(mgr.ensureFresh()).rejects.toBeInstanceOf(OAuthError);
-    await expect(mgr.ensureFresh()).rejects.toThrow(/refresh lock/i);
-    expect(refreshImpl).not.toHaveBeenCalled();
-  });
+      await expect(mgr.ensureFresh()).rejects.toBeInstanceOf(OAuthError);
+      await expect(mgr.ensureFresh()).rejects.toThrow(/refresh lock/i);
+      expect(refreshImpl).not.toHaveBeenCalled();
+    },
+  );
 });

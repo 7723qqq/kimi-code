@@ -23,14 +23,19 @@
 
 import { createReadStream, mkdirSync } from 'node:fs';
 import { mkdir, open, readFile, readdir, unlink } from 'node:fs/promises';
+
 import { FSWatcher } from 'chokidar';
 import { dirname, join, normalize } from 'pathe';
 
-import { DisposableStore, combinedDisposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { Emitter, type Event } from '#/_base/event';
+import {
+  DisposableStore,
+  combinedDisposable,
+  toDisposable,
+  type IDisposable,
+} from '#/_base/di/lifecycle';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import { Emitter, type Event } from '#/_base/event';
 import { atomicWrite, atomicWriteStream, syncDir } from '#/_base/utils/fs';
-
 import type {
   IFileSystemStorageService,
   StorageAppendOptions,
@@ -254,8 +259,7 @@ export class FileStorageService implements IFileSystemStorageService {
     };
   }
 
-  async flush(): Promise<void> {
-  }
+  async flush(): Promise<void> {}
 
   async close(): Promise<void> {}
 

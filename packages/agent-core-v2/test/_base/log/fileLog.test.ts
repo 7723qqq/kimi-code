@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'pathe';
 
+import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FileLogWriter, PENDING_MAX, RotatingFileWriter } from '#/_base/log/fileLog';
@@ -100,9 +100,9 @@ describe('RotatingFileWriter', () => {
     });
     badWriter.enqueue('x\n');
     expect(await badWriter.flush()).toBe(false);
-    expect(
-      stderrSpy.mock.calls.some((c) => String(c[0]).includes('[logger] write failed')),
-    ).toBe(true);
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('[logger] write failed'))).toBe(
+      true,
+    );
     stderrSpy.mockRestore();
   });
 
@@ -227,7 +227,13 @@ describe('FileLogWriter (ILogWriter)', () => {
   it('writes an error-level entry with stack trace', async () => {
     const path = join(workDir, 'error.log');
     const sink = new FileLogWriter({ path, maxBytes: 1_000_000, files: 2 });
-    sink.write(entry({ level: 'error', msg: 'fail', error: { message: 'boom', stack: 'Error: boom\n    at fn (t.ts:1)' } }));
+    sink.write(
+      entry({
+        level: 'error',
+        msg: 'fail',
+        error: { message: 'boom', stack: 'Error: boom\n    at fn (t.ts:1)' },
+      }),
+    );
     await sink.flush();
     const text = await readFile(path, 'utf-8');
     expect(text).toContain('ERROR fail');

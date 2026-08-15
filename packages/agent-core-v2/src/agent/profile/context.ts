@@ -379,7 +379,6 @@ function dedupeDirs(dirs: readonly string[]): string[] {
   return result;
 }
 
-
 interface ListDirectoryOptions {
   readonly collapseHiddenDirs?: boolean;
 }

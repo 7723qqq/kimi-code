@@ -1,10 +1,11 @@
-import { defineConfig, type Plugin } from 'vite';
-import vue from '@vitejs/plugin-vue';
-import Icons from 'unplugin-icons/vite';
-import { FileSystemIconLoader } from 'unplugin-icons/loaders';
 import { readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
+
+import vue from '@vitejs/plugin-vue';
+import { FileSystemIconLoader } from 'unplugin-icons/loaders';
+import Icons from 'unplugin-icons/vite';
+import { defineConfig, type Plugin } from 'vite';
 
 const webPort = Number(process.env.WEB_PORT) || 5175;
 // Dev-proxy backend presets: `default` is the kap-server started by the root

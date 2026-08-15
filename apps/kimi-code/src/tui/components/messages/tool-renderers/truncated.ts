@@ -1,8 +1,8 @@
 import { Text, truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
-import { t } from '#/i18n';
 
 import type { ResultRenderer } from './types';
 import { PREVIEW_LINES } from './types';
@@ -88,7 +88,10 @@ export class TruncatedOutputComponent implements Component {
     if (this.tail) {
       const shown = contentLines.slice(contentLines.length - this.maxLines);
       return [
-        this.renderHint(width, t('tui.statusMessages.truncatedEarlierLines', { remaining: String(remaining) })),
+        this.renderHint(
+          width,
+          t('tui.statusMessages.truncatedEarlierLines', { remaining: String(remaining) }),
+        ),
         ...shown,
       ];
     }

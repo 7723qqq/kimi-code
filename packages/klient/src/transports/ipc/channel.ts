@@ -9,12 +9,7 @@
 
 import { createConnection, type Socket } from 'node:net';
 
-import type {
-  EventSourceRef,
-  IDisposable,
-  KlientChannel,
-  ScopeRef,
-} from '../../core/channel.js';
+import type { EventSourceRef, IDisposable, KlientChannel, ScopeRef } from '../../core/channel.js';
 import { RPCError } from '../../core/errors.js';
 import { trimTrailingUndefined } from '../args.js';
 import { encodeFrame, NdjsonDecoder, type IpcFrame } from './codec.js';
@@ -130,7 +125,12 @@ export class IpcChannel implements KlientChannel {
     return promise;
   }
 
-  stream(scope: ScopeRef, service: string, method: string, args: unknown[]): AsyncIterable<unknown> {
+  stream(
+    scope: ScopeRef,
+    service: string,
+    method: string,
+    args: unknown[],
+  ): AsyncIterable<unknown> {
     return {
       [Symbol.asyncIterator]: () => {
         // Simple queue: push/pull with deferred promises. `buffer` holds
@@ -278,15 +278,19 @@ export class IpcChannel implements KlientChannel {
       source.kind === 'stream'
         ? { ...base, event: source.name }
         : { ...base, service: source.service, event: source.event };
-    void this.ready.then(() => {
-      this.send(frame);
-    }).catch(() => {});
+    void this.ready
+      .then(() => {
+        this.send(frame);
+      })
+      .catch(() => {});
     return {
       dispose: () => {
         if (!this.listens.delete(id)) return;
-        void this.ready.then(() => {
-          this.send({ type: 'unlisten', id });
-        }).catch(() => {});
+        void this.ready
+          .then(() => {
+            this.send({ type: 'unlisten', id });
+          })
+          .catch(() => {});
       },
     };
   }

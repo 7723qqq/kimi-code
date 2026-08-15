@@ -42,7 +42,7 @@ function loadBinding() {
   // Try from release build directory (cargo build --release).
   const ext = process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so';
   // Rust crate name is kimi_native_tools (underscores), JS package is kimi-native-tools (hyphens).
-  const rustName = BINDING_NAME.replaceAll(/-/g, '_');
+  const rustName = BINDING_NAME.replaceAll('-', '_');
   const releasePath = path.join(__dirname, 'target', 'release', `${rustName}.${ext}`);
   try {
     if (fs.existsSync(releasePath)) {
@@ -64,7 +64,7 @@ function loadBinding() {
 
   throw new Error(
     `Failed to load kimi-native-tools binding for ${process.platform}-${process.arch}. ` +
-    'Run `npm run build` or `cargo build --release` to compile the native module.'
+      'Run `npm run build` or `cargo build --release` to compile the native module.',
   );
 }
 
@@ -133,11 +133,7 @@ async function nativeFetchUrl(url, options = {}) {
  * @returns {Promise<{results: Array<{title: string, url: string, snippet: string, siteName?: string}>, error?: string}>}
  */
 async function nativeWebSearch(query, options = {}) {
-  return binding.nativeWebSearch(
-    query,
-    options.timeoutMs ?? null,
-    options.maxResults ?? null,
-  );
+  return binding.nativeWebSearch(query, options.timeoutMs ?? null, options.maxResults ?? null);
 }
 
 // ============================================================================
@@ -215,11 +211,7 @@ function nativeLlmStreamStreaming(config, onEvent) {
  * @returns {Promise<{ content: string, lineCount: number, error?: string }>}
  */
 async function nativeRead(path, options = {}) {
-  return binding.nativeRead(
-    path,
-    options.lineOffset ?? null,
-    options.nLines ?? null,
-  );
+  return binding.nativeRead(path, options.lineOffset ?? null, options.nLines ?? null);
 }
 
 // ============================================================================
@@ -236,11 +228,7 @@ async function nativeRead(path, options = {}) {
  * @returns {Promise<Array<{ content: string, lineCount: number, error?: string }>>}
  */
 async function nativeBatchRead(paths, options = {}) {
-  return binding.nativeBatchRead(
-    paths,
-    options.lineOffsets ?? null,
-    options.nLinesArray ?? null,
-  );
+  return binding.nativeBatchRead(paths, options.lineOffsets ?? null, options.nLinesArray ?? null);
 }
 
 // ============================================================================
@@ -257,11 +245,7 @@ async function nativeBatchRead(paths, options = {}) {
  * @returns {Promise<{ bytesWritten: number, error?: string }>}
  */
 async function nativeWrite(path, content, options = {}) {
-  return binding.nativeWrite(
-    path,
-    content,
-    options.mode ?? null,
-  );
+  return binding.nativeWrite(path, content, options.mode ?? null);
 }
 // ============================================================================
 // File cache
@@ -291,12 +275,7 @@ function nativeFileCacheInvalidate(path) {
  * @returns {{ success: boolean, error?: string, replacements: number }}
  */
 function nativeEdit(path, oldString, newString, options = {}) {
-  return binding.nativeEdit(
-    path,
-    oldString,
-    newString,
-    options.replaceAll ?? null,
-  );
+  return binding.nativeEdit(path, oldString, newString, options.replaceAll ?? null);
 }
 
 // ============================================================================
@@ -358,11 +337,7 @@ function nativeGrep(pattern, options = {}) {
  * @returns {{ files: string[], error?: string, truncated: boolean }}
  */
 function nativeGlob(pattern, options = {}) {
-  return binding.nativeGlob(
-    pattern,
-    options.path ?? null,
-    options.includeDirs ?? null,
-  );
+  return binding.nativeGlob(pattern, options.path ?? null, options.includeDirs ?? null);
 }
 
 /**
@@ -392,10 +367,7 @@ function nativeGlobMatchesAny(globs, path) {
  * @returns {{ output: string, error?: string }}
  */
 function nativeListDirectory(options = {}) {
-  return binding.nativeListDirectory(
-    options.path ?? null,
-    options.collapseHiddenDirs ?? null,
-  );
+  return binding.nativeListDirectory(options.path ?? null, options.collapseHiddenDirs ?? null);
 }
 
 // ============================================================================
@@ -424,7 +396,9 @@ function nativeSniffImageDimensions(data) {
 function nativeDetectFileType(path, header) {
   const r = binding.nativeDetectFileType(path, new Uint8Array(header));
   // napi-rs: struct fields arrive as snake_case; normalize to camelCase.
-  return r ? { kind: r.kind, mimeType: r.mime_type ?? r.mimeType } : { kind: 'unknown', mimeType: '' };
+  return r
+    ? { kind: r.kind, mimeType: r.mime_type ?? r.mimeType }
+    : { kind: 'unknown', mimeType: '' };
 }
 
 /**
@@ -505,16 +479,9 @@ function nativeTruncateTextToTokensFromEnd(text, maxTokens) {
  * @returns {{ exitCode: number, stdout: string, stderr: string, timedOut: boolean, error?: string }}
  */
 function nativeBash(command, options = {}) {
-  const envPairs = options.env
-    ? options.env.map(([k, v]) => [k, v])
-    : null;
+  const envPairs = options.env ? options.env.map(([k, v]) => [k, v]) : null;
 
-  return binding.nativeBash(
-    command,
-    options.cwd ?? null,
-    options.timeout ?? null,
-    envPairs,
-  );
+  return binding.nativeBash(command, options.cwd ?? null, options.timeout ?? null, envPairs);
 }
 
 // ============================================================================
@@ -703,7 +670,13 @@ function nativeGrepStructured(
  * @param {boolean} alreadyTruncated - Whether truncation already occurred.
  * @returns {{output: string, charsWritten: number, newNchars: number, truncated: boolean}}
  */
-function nativeWriteToolOutputChunk(text, currentNchars, maxChars, maxLineLength, alreadyTruncated) {
+function nativeWriteToolOutputChunk(
+  text,
+  currentNchars,
+  maxChars,
+  maxLineLength,
+  alreadyTruncated,
+) {
   return binding.nativeWriteToolOutputChunk(
     text,
     currentNchars,
@@ -898,8 +871,22 @@ function nativeGoalApplyUpdate(goalJson, updateJson) {
 }
 
 /** Compute chargeable token delta between two usage snapshots. */
-function nativeGoalComputeTokenDelta(prevInput, prevCached, prevOutput, currInput, currCached, currOutput) {
-  return binding.nativeGoalComputeTokenDelta(prevInput, prevCached, prevOutput, currInput, currCached, currOutput);
+function nativeGoalComputeTokenDelta(
+  prevInput,
+  prevCached,
+  prevOutput,
+  currInput,
+  currCached,
+  currOutput,
+) {
+  return binding.nativeGoalComputeTokenDelta(
+    prevInput,
+    prevCached,
+    prevOutput,
+    currInput,
+    currCached,
+    currOutput,
+  );
 }
 
 /** Render the continuation steering prompt. */

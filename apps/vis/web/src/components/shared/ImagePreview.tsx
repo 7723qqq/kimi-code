@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { t } from '../../i18n';
 
+import { t } from '../../i18n';
 import { CopyButton } from './CopyButton';
 
 interface ImagePreviewProps {
@@ -26,7 +26,9 @@ export function ImagePreview({ url, label = 'image_url' }: ImagePreviewProps) {
   if (!supported) {
     return (
       <div className="border border-border bg-surface-0 p-2">
-        <div className="mb-1 font-mono text-[10px] text-fg-3">{label} {t('imagePreview.unsupportedScheme')}</div>
+        <div className="mb-1 font-mono text-[10px] text-fg-3">
+          {label} {t('imagePreview.unsupportedScheme')}
+        </div>
         <span className="break-all font-mono text-[12px] text-fg-1">{url}</span>
       </div>
     );
@@ -72,10 +74,7 @@ export function ImagePreview({ url, label = 'image_url' }: ImagePreviewProps) {
           onError={() => {
             setFailed(true);
           }}
-          className={
-            'block max-w-full object-contain ' +
-            (open ? 'max-h-[80vh]' : 'max-h-[220px]')
-          }
+          className={'block max-w-full object-contain ' + (open ? 'max-h-[80vh]' : 'max-h-[220px]')}
         />
       )}
     </div>

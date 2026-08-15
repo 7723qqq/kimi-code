@@ -20,8 +20,9 @@ import {
   visibleWidth,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
-import { currentTheme } from '#/tui/theme';
+
 import { t } from '#/i18n';
+import { currentTheme } from '#/tui/theme';
 
 export type FeedbackInputDialogResult =
   | { readonly kind: 'ok'; readonly value: string }
@@ -96,15 +97,7 @@ export class FeedbackInputDialogComponent extends Container implements Focusable
     const footerLine = truncateToWidth(footerStyled, innerWidth, '…');
     const inputLine = this.input.render(innerWidth)[0] ?? '> ';
 
-    const contentLines: string[] = [
-      titleLine,
-      '',
-      subtitleLine,
-      '',
-      inputLine,
-      '',
-      footerLine,
-    ];
+    const contentLines: string[] = [titleLine, '', subtitleLine, '', inputLine, '', footerLine];
 
     if (safeWidth < 4) {
       return ['', ...contentLines.map((line) => truncateToWidth(line, safeWidth, '…'))];

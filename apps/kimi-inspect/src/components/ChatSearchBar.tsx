@@ -11,8 +11,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { useConnection } from '../connection';
-import { fetchSearchPage, type SearchHit } from '../search/api';
 import { t } from '../i18n';
+import { fetchSearchPage, type SearchHit } from '../search/api';
 import { Badge, ErrorLine, relTime } from '../ui';
 
 const PAGE_SIZE = 20;
@@ -132,7 +132,9 @@ export function ChatSearchBar({
                       {hit.role}
                     </Badge>
                     {hit.agentId !== '' ? <Badge tone="neutral">agent: {hit.agentId}</Badge> : null}
-                    <span className="ml-auto text-[10px] text-neutral-600">{relTime(hit.time)}</span>
+                    <span className="ml-auto text-[10px] text-neutral-600">
+                      {relTime(hit.time)}
+                    </span>
                   </div>
                   <div className="whitespace-pre-wrap text-[12px] text-neutral-300">
                     {hit.snippet}

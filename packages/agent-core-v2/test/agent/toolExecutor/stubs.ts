@@ -8,8 +8,8 @@
  */
 
 import { AsyncEmitter, type IWaitUntilData } from '#/_base/event';
-import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { BeforeToolExecuteEmitter } from '#/agent/toolExecutor/beforeToolExecuteEvent';
+import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type {
   BeforeExecuteDecision,
   ResolvedToolExecutionHookContext,
@@ -24,10 +24,7 @@ export interface ToolExecutorEventStubs {
   fireBeforeExecute(
     context: ResolvedToolExecutionHookContext,
   ): Promise<BeforeExecuteDecision | undefined>;
-  fireWillExecute(
-    data: IWaitUntilData<WillExecuteToolEvent>,
-    signal: AbortSignal,
-  ): Promise<void>;
+  fireWillExecute(data: IWaitUntilData<WillExecuteToolEvent>, signal: AbortSignal): Promise<void>;
 }
 
 export function stubToolExecutorEvents(): ToolExecutorEventStubs {

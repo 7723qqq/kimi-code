@@ -5,18 +5,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+
+import { getKimiWebApi } from '../../api';
+import { isDaemonApiError } from '../../api/errors';
+import type { AppSession } from '../../api/types';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import { isMacosDesktop } from '../../lib/desktopFlag';
-import { getKimiWebApi } from '../../api';
-import type { AppSession } from '../../api/types';
-import { isDaemonApiError } from '../../api/errors';
+import SessionToolsDialog from '../SessionToolsDialog.vue';
+import Icon from '../ui/Icon.vue';
+import IconButton from '../ui/IconButton.vue';
 import Menu from '../ui/Menu.vue';
 import MenuItem from '../ui/MenuItem.vue';
-import IconButton from '../ui/IconButton.vue';
-import Icon from '../ui/Icon.vue';
 import Tooltip from '../ui/Tooltip.vue';
 import WorkspaceFileBrowser from '../WorkspaceFileBrowser.vue';
-import SessionToolsDialog from '../SessionToolsDialog.vue';
 
 const { t } = useI18n();
 
@@ -374,13 +375,7 @@ function childTitle(child: AppSession): string {
     </IconButton>
 
     <!-- Fixed more menu -->
-    <Menu
-      v-if="menuOpen"
-      ref="menuRef"
-      class="ch-menu"
-      :style="menuStyle"
-      @click.stop
-    >
+    <Menu v-if="menuOpen" ref="menuRef" class="ch-menu" :style="menuStyle" @click.stop>
       <MenuItem @click="onCopyAll">
         <Icon :name="copied ? 'check' : 'copy'" size="sm" />
         {{ copied ? t('header.copied') : t('header.copyAll') }}
@@ -433,16 +428,8 @@ function childTitle(child: AppSession): string {
     <!-- Git branch + status — plain text with semantic colors. Renders for any
          git repo, even a detached HEAD (empty branch → "detached" label), so the
          diff counter below is never hidden just because there's no branch name. -->
-    <button
-      v-if="isGitRepo"
-      type="button"
-      class="ch-git"
-      @click="emit('openChanges')"
-    >
-      <span
-        class="ch-branch"
-        :class="{ 'ch-detached': !branch }"
-      >
+    <button v-if="isGitRepo" type="button" class="ch-git" @click="emit('openChanges')">
+      <span class="ch-branch" :class="{ 'ch-detached': !branch }">
         {{ branch || t('header.detached') }}
       </span>
       <span v-if="ahead > 0 || behind > 0" class="ch-pill ch-sync-pill">
@@ -473,10 +460,7 @@ function childTitle(child: AppSession): string {
       :workspace-root="workspaceRoot"
     />
 
-    <SessionToolsDialog
-      v-model:open="sessionToolsOpen"
-      :session-id="sessionId"
-    />
+    <SessionToolsDialog v-model:open="sessionToolsOpen" :session-id="sessionId" />
   </header>
 </template>
 
@@ -502,7 +486,14 @@ function childTitle(child: AppSession): string {
 .chat-header.macos-desktop input {
   -webkit-app-region: no-drag;
 }
-.ch-id { display: flex; align-items: center; gap: 6px; min-width: 0; flex: none; max-width: 46%; }
+.ch-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: none;
+  max-width: 46%;
+}
 .ch-parent {
   flex: none;
   display: inline-flex;
@@ -518,7 +509,9 @@ function childTitle(child: AppSession): string {
   cursor: pointer;
   min-width: 0;
 }
-.ch-parent:hover { border-color: var(--color-line-strong); }
+.ch-parent:hover {
+  border-color: var(--color-line-strong);
+}
 .ch-parent-title {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -531,14 +524,26 @@ function childTitle(child: AppSession): string {
   letter-spacing: 0.05em;
   color: var(--color-text-faint);
 }
-.ch-child-label.ch-child-error { text-transform: none; letter-spacing: 0; color: var(--color-danger); }
+.ch-child-label.ch-child-error {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-danger);
+}
 .ch-child-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ch-ws { color: var(--color-text-muted); font-size: var(--text-base); font-weight: var(--weight-medium); flex: none; }
-.ch-sep { color: var(--color-text-faint); flex: none; }
+.ch-ws {
+  color: var(--color-text-muted);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  flex: none;
+}
+.ch-sep {
+  color: var(--color-text-faint);
+  flex: none;
+}
 .ch-ses {
   color: var(--color-text);
   font-size: var(--text-base);
@@ -575,7 +580,9 @@ function childTitle(child: AppSession): string {
   min-width: 0;
   cursor: pointer;
 }
-.ch-git:hover .ch-branch { color: var(--color-text); }
+.ch-git:hover .ch-branch {
+  color: var(--color-text);
+}
 .ch-branch {
   color: var(--dim);
   min-width: 0;
@@ -584,7 +591,10 @@ function childTitle(child: AppSession): string {
   white-space: nowrap;
   margin-right: 4px;
 }
-.ch-detached { color: var(--muted); font-style: italic; }
+.ch-detached {
+  color: var(--muted);
+  font-style: italic;
+}
 .ch-pill {
   display: inline-flex;
   align-items: center;
@@ -595,18 +605,42 @@ function childTitle(child: AppSession): string {
   border: 1px solid var(--line);
   font-size: calc(var(--ui-font-size) - 3px);
 }
-.ch-sync-pill { border-color: var(--line); }
-.ch-diff-pill { border-color: color-mix(in srgb, var(--color-success) 20%, var(--line)); }
-.ch-ahead { color: var(--color-warning); flex: none; }
-.ch-behind { color: var(--color-accent-hover); flex: none; }
-.ch-add { color: var(--color-success); flex: none; }
-.ch-del { color: var(--color-danger); flex: none; }
-.ch-spacer { flex: 1; min-width: 0; }
+.ch-sync-pill {
+  border-color: var(--line);
+}
+.ch-diff-pill {
+  border-color: color-mix(in srgb, var(--color-success) 20%, var(--line));
+}
+.ch-ahead {
+  color: var(--color-warning);
+  flex: none;
+}
+.ch-behind {
+  color: var(--color-accent-hover);
+  flex: none;
+}
+.ch-add {
+  color: var(--color-success);
+  flex: none;
+}
+.ch-del {
+  color: var(--color-danger);
+  flex: none;
+}
+.ch-spacer {
+  flex: 1;
+  min-width: 0;
+}
 
 /* Overflow "…" trigger — IconButton (md). The "open" state keeps the
    sunken highlight while the menu is showing. */
-.ch-act-more.open { background: var(--color-surface-sunken); color: var(--color-text); }
-.ch-act-files { flex: none; }
+.ch-act-more.open {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.ch-act-files {
+  flex: none;
+}
 
 /* GitHub PR badge — semantic state colors aligned with GitHub
    (open=green, merged=purple, closed=red, draft=gray). */
@@ -625,13 +659,37 @@ function childTitle(child: AppSession): string {
   font-weight: 500;
   cursor: pointer;
 }
-.ch-pr svg { flex: none; }
-.ch-pr.pr-open { color: var(--color-success); border-color: var(--color-success-bd); background: var(--color-success-soft); }
-.ch-pr.pr-merged { color: var(--color-done); border-color: var(--color-done-bd); background: var(--color-done-soft); }
-.ch-pr.pr-closed { color: var(--color-danger); border-color: var(--color-danger-bd); background: var(--color-danger-soft); }
-.ch-pr.pr-draft { color: var(--color-text-muted); border-color: var(--color-line-strong); background: var(--color-surface-sunken); }
-.ch-pr.pr-unknown { color: var(--color-text-muted); border-color: var(--color-line-strong); background: var(--color-surface-sunken); }
-.ch-pr:hover { border-color: var(--color-line-strong); }
+.ch-pr svg {
+  flex: none;
+}
+.ch-pr.pr-open {
+  color: var(--color-success);
+  border-color: var(--color-success-bd);
+  background: var(--color-success-soft);
+}
+.ch-pr.pr-merged {
+  color: var(--color-done);
+  border-color: var(--color-done-bd);
+  background: var(--color-done-soft);
+}
+.ch-pr.pr-closed {
+  color: var(--color-danger);
+  border-color: var(--color-danger-bd);
+  background: var(--color-danger-soft);
+}
+.ch-pr.pr-draft {
+  color: var(--color-text-muted);
+  border-color: var(--color-line-strong);
+  background: var(--color-surface-sunken);
+}
+.ch-pr.pr-unknown {
+  color: var(--color-text-muted);
+  border-color: var(--color-line-strong);
+  background: var(--color-surface-sunken);
+}
+.ch-pr:hover {
+  border-color: var(--color-line-strong);
+}
 
 /* Fixed more-menu, anchored to the kebab trigger. Surface / items come from
    the Menu + MenuItem primitives; only positioning stays here. */
@@ -644,9 +702,13 @@ function childTitle(child: AppSession): string {
 
 /* On a narrow conversation column, the action labels collapse to icons. */
 @media (max-width: 980px) {
-  .ch-act-label { display: none; }
+  .ch-act-label {
+    display: none;
+  }
 }
 @media (max-width: 640px) {
-  .chat-header { display: none; }
+  .chat-header {
+    display: none;
+  }
 }
 </style>

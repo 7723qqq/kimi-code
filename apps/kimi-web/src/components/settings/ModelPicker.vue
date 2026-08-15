@@ -3,15 +3,16 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { AppModel } from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
 import { formatTokens } from '../../lib/formatTokens';
-import Dialog from '../ui/Dialog.vue';
-import Button from '../ui/Button.vue';
-import IconButton from '../ui/IconButton.vue';
-import Icon from '../ui/Icon.vue';
-import Input from '../ui/Input.vue';
 import Badge from '../ui/Badge.vue';
+import Button from '../ui/Button.vue';
+import Dialog from '../ui/Dialog.vue';
+import Icon from '../ui/Icon.vue';
+import IconButton from '../ui/IconButton.vue';
+import Input from '../ui/Input.vue';
 import Spinner from '../ui/Spinner.vue';
 
 const { t } = useI18n();
@@ -82,7 +83,9 @@ const flat = computed<AppModel[]>(() => filtered.value);
 const selectedIdx = ref(0);
 
 // Reset selection when filter changes
-watch([query, activeTab], () => { selectedIdx.value = 0; });
+watch([query, activeTab], () => {
+  selectedIdx.value = 0;
+});
 watch(providerTabs, (tabs) => {
   if (!tabs.some((tab) => tab.id === activeTab.value)) activeTab.value = 'all';
 });
@@ -134,7 +137,14 @@ function selectTab(tabId: string): void {
 </script>
 
 <template>
-  <Dialog :open="true" :close-on-esc="false" :title="t('model.title')" size="xl" height="fixed" @close="emit('close')">
+  <Dialog
+    :open="true"
+    :close-on-esc="false"
+    :title="t('model.title')"
+    size="xl"
+    height="fixed"
+    @close="emit('close')"
+  >
     <div ref="dialogRef" class="mp">
       <!-- Search -->
       <div class="search-wrap">
@@ -194,11 +204,15 @@ function selectTab(tabId: string): void {
             <span class="model-name">{{ m.displayName ?? m.model }}</span>
             <span class="model-id">{{ m.id }}</span>
             <span v-if="m.capabilities && m.capabilities.length > 0" class="caps">
-              <Badge v-for="cap in m.capabilities" :key="cap" variant="info" size="sm">{{ cap }}</Badge>
+              <Badge v-for="cap in m.capabilities" :key="cap" variant="info" size="sm">{{
+                cap
+              }}</Badge>
             </span>
           </span>
           <span class="model-provider">{{ m.provider }}</span>
-          <span class="model-ctx">{{ t('model.contextSuffix', { size: formatTokens(m.maxContextSize) }) }}</span>
+          <span class="model-ctx">{{
+            t('model.contextSuffix', { size: formatTokens(m.maxContextSize) })
+          }}</span>
           <IconButton
             size="sm"
             :label="isStarred(m.id) ? t('model.unstarTitle') : t('model.starTitle')"
@@ -220,10 +234,16 @@ function selectTab(tabId: string): void {
 </template>
 
 <style scoped>
-.mp { display: flex; flex-direction: column; gap: var(--space-2); }
+.mp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
 
 /* Search */
-.search-wrap { padding-bottom: var(--space-1); }
+.search-wrap {
+  padding-bottom: var(--space-1);
+}
 
 .tab-strip {
   display: flex;
@@ -247,9 +267,12 @@ function selectTab(tabId: string): void {
   cursor: pointer;
   color: var(--color-text);
   min-width: 0;
-  transition: background var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
 }
-.model-row:hover, .model-row.is-selected {
+.model-row:hover,
+.model-row.is-selected {
   background: var(--color-surface-sunken);
 }
 .model-row.is-current {
@@ -323,7 +346,9 @@ function selectTab(tabId: string): void {
   font-family: var(--font-ui);
   font-size: var(--text-base);
 }
-.state-row.unavail { color: var(--color-warning); }
+.state-row.unavail {
+  color: var(--color-warning);
+}
 
 .empty {
   padding: var(--space-5) 0;

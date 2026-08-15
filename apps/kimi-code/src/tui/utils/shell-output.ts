@@ -50,7 +50,11 @@ export function sanitizeShellOutput(text: string): string {
  * Never throws: if anything goes wrong (theme lookup, huge input, …) it falls
  * back to a best-effort plain view so a render error can never crash the TUI.
  */
-export function formatBashOutputForDisplay(stdout: string, stderr: string, isError?: boolean): string {
+export function formatBashOutputForDisplay(
+  stdout: string,
+  stderr: string,
+  isError?: boolean,
+): string {
   try {
     const dim = (s: string): string => currentTheme.fg('textDim', s);
     const parts: string[] = [];
@@ -64,7 +68,10 @@ export function formatBashOutputForDisplay(stdout: string, stderr: string, isErr
     }
     return parts.length > 0 ? parts.join('\n') : dim(t('tui.shellOutput.noOutput'));
   } catch {
-    const plain = [sanitizeShellOutput(String(stdout ?? '')), sanitizeShellOutput(String(stderr ?? ''))]
+    const plain = [
+      sanitizeShellOutput(String(stdout ?? '')),
+      sanitizeShellOutput(String(stderr ?? '')),
+    ]
       .filter((s) => s.length > 0)
       .join('\n');
     return plain.length > 0 ? plain : t('tui.shellOutput.noOutput');

@@ -21,38 +21,40 @@
 
 import { join } from 'node:path';
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
-import { Emitter } from '#/_base/event';
-import { Error2, ErrorCodes } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
-import { LifecycleScope } from '#/app/scopes';
 import {
   createScopedChildHandle,
   type IAgentScopeHandle,
   ScopeActivation,
   registerScopedService,
 } from '#/_base/di/scope';
+import { Emitter } from '#/_base/event';
+import { abortError } from '#/_base/utils/abort';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { PermissionModeConfiguredModel } from '#/agent/permissionMode/permissionModeOps';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
-import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
-import { PermissionModeConfiguredModel } from '#/agent/permissionMode/permissionModeOps';
-import type { PermissionMode } from '#/agent/permissionPolicy/types';
-import { IAgentTaskService } from '#/agent/task/task';
+import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { Error2, ErrorCodes } from '#/errors';
+import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { abortError } from '#/_base/utils/abort';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
-import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { IWireService } from '#/wire/wire';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
+
 import {
   type AgentListFilter,
   type CreateAgentOptions,
@@ -148,17 +150,12 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   private async doCreate(agentId: string, opts: CreateAgentOptions): Promise<IAgentScopeHandle> {
     const agentScope = this.ctx.scope(`agents/${agentId}`);
     const agentHomedir = join(this.bootstrap.homeDir, agentScope);
-    const handle = createScopedChildHandle(
-      this.instantiation,
-      LifecycleScope.Agent,
-      agentId,
-      {
-        seeds: [
-          [IAgentScopeContext, makeAgentScopeContext({ agentId, agentScope })],
-          [ITelemetryService, this.telemetry.withContext({ agent_id: agentId })],
-        ],
-      },
-    ) as IAgentScopeHandle;
+    const handle = createScopedChildHandle(this.instantiation, LifecycleScope.Agent, agentId, {
+      seeds: [
+        [IAgentScopeContext, makeAgentScopeContext({ agentId, agentScope })],
+        [ITelemetryService, this.telemetry.withContext({ agent_id: agentId })],
+      ],
+    }) as IAgentScopeHandle;
     this.handles.set(agentId, handle);
     try {
       const wire = handle.accessor.get(IWireService);
@@ -179,16 +176,13 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       if (this.handles.get(agentId) === handle) this.handles.delete(agentId);
       try {
         handle.dispose();
-      } catch { }
+      } catch {}
       this.onDidDisposeEmitter.fire(agentId);
       throw error;
     }
   }
 
-  private async bindBootstrap(
-    handle: IAgentScopeHandle,
-    opts: CreateAgentOptions,
-  ): Promise<void> {
+  private async bindBootstrap(handle: IAgentScopeHandle, opts: CreateAgentOptions): Promise<void> {
     if (opts.binding !== undefined) {
       await handle.accessor.get(IAgentProfileService).bind(opts.binding);
     }
@@ -203,14 +197,22 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
   async fork(sourceAgentId: string, opts?: ForkAgentOptions): Promise<IAgentScopeHandle> {
     const source = this.handles.get(sourceAgentId);
     if (source === undefined) {
-      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, t('v2Errors.sourceAgentDoesNotExist', { sourceAgentId }), {
-        details: { agentId: sourceAgentId },
-      });
+      throw new Error2(
+        ErrorCodes.AGENT_NOT_FOUND,
+        t('v2Errors.sourceAgentDoesNotExist', { sourceAgentId }),
+        {
+          details: { agentId: sourceAgentId },
+        },
+      );
     }
     if (opts?.agentId !== undefined && this.handles.has(opts.agentId)) {
-      throw new Error2(ErrorCodes.AGENT_ALREADY_EXISTS, t('v2Errors.agentAlreadyExists', { agentId: opts.agentId }), {
-        details: { agentId: opts.agentId },
-      });
+      throw new Error2(
+        ErrorCodes.AGENT_ALREADY_EXISTS,
+        t('v2Errors.agentAlreadyExists', { agentId: opts.agentId }),
+        {
+          details: { agentId: opts.agentId },
+        },
+      );
     }
     const child = await this.create({ agentId: opts?.agentId, forkedFrom: source.id });
 

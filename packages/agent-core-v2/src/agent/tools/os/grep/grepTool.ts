@@ -32,34 +32,13 @@
  * load.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
 import { normalize } from 'pathe';
 
-import { tryNativeGrepStructured } from '#/_base/native-tools';
-
-import { ToolResultBuilder } from '#/tool/result-builder';
-import {
-  ToolAccesses,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IHostProcessService } from '#/os/interface/hostProcess';
 import { unwrapErrorCause } from '#/_base/errors/errors';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import {
-  extendWorkspaceWithSkillRoots,
-  resolvePathAccessPath,
-  type PathClass,
-  isSensitiveFile,
-  SENSITIVE_DOT_VARIANT_SUFFIXES,
-  type WorkspaceConfig,
-} from '#/tool/path-access';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
+import { tryNativeGrepStructured } from '#/_base/native-tools';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import {
   ensureRgPath,
   rgUnavailableMessage,
@@ -72,9 +51,26 @@ import {
   shouldRetryRipgrepEagain,
   type RunRgResult,
 } from '#/os/backends/node-local/tools/runRg';
-import { t } from '@moonshot-ai/kimi-i18n';
-import GREP_DESCRIPTION from './grep.md?raw';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IHostProcessService } from '#/os/interface/hostProcess';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import {
+  extendWorkspaceWithSkillRoots,
+  resolvePathAccessPath,
+  type PathClass,
+  isSensitiveFile,
+  SENSITIVE_DOT_VARIANT_SUFFIXES,
+  type WorkspaceConfig,
+} from '#/tool/path-access';
+import { ToolResultBuilder } from '#/tool/result-builder';
+import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
+import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+
 import { type GrepInput, GrepInputSchema, IGrepTool } from './grep';
+import GREP_DESCRIPTION from './grep.md?raw';
 
 const RG_MAX_COLUMNS = 500;
 const DEFAULT_HEAD_LIMIT = 250;
@@ -307,7 +303,9 @@ export class GrepTool implements IGrepTool {
         ? t('toolsV2.noNonSensitiveMatches')
         : contentBody;
     const emptyResultMessage =
-      SENSITIVE_GLOBS_TO_EXCLUDE.length > 0 ? t('toolsV2.noNonSensitiveMatches') : t('toolsV2.noMatches');
+      SENSITIVE_GLOBS_TO_EXCLUDE.length > 0
+        ? t('toolsV2.noNonSensitiveMatches')
+        : t('toolsV2.noMatches');
     const body =
       visibleBody === '' && headerLines.length === 0 && messages.length === 0
         ? emptyResultMessage
@@ -327,15 +325,13 @@ export class GrepTool implements IGrepTool {
         const proc = await this.processService.spawn(command, rest);
         try {
           proc.stdin.end();
-        } catch {
-        }
+        } catch {}
         proc.stdout.resume();
         proc.stderr.resume();
         const exitCode = await proc.wait();
         try {
           proc.dispose();
-        } catch {
-        }
+        } catch {}
         return { exitCode };
       },
     };
@@ -357,8 +353,7 @@ export class GrepTool implements IGrepTool {
           try {
             const mtimeMs = (await this.fs.stat(path)).mtimeMs ?? 0;
             mtime = Math.trunc(mtimeMs / 1000);
-          } catch {
-          }
+          } catch {}
         }
         return { line, mtime, index };
       },

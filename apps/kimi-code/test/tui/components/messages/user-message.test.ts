@@ -5,9 +5,7 @@ import { UserMessageComponent } from '#/tui/components/messages/user-message';
 import type { ImageAttachment } from '#/tui/utils/image-attachment-store';
 
 function stripAnsi(text: string): string {
-  return text
-    .replaceAll(/\u001B\[[0-9;]*m/g, '')
-    .replaceAll(/\u001B\]133;[ABC]\u0007/g, '');
+  return text.replaceAll(/\u001B\[[0-9;]*m/g, '').replaceAll(/\u001B\]133;[ABC]\u0007/g, '');
 }
 
 describe('UserMessageComponent', () => {
@@ -18,10 +16,7 @@ describe('UserMessageComponent', () => {
   it('renders video placeholders as plain text, not inline image escapes', () => {
     setCapabilities({ images: null, trueColor: true, hyperlinks: true });
 
-    const component = new UserMessageComponent(
-      'please inspect [video #1 sample.mov]',
-      [],
-    );
+    const component = new UserMessageComponent('please inspect [video #1 sample.mov]', []);
 
     const out = stripAnsi(component.render(80).join('\n'));
 

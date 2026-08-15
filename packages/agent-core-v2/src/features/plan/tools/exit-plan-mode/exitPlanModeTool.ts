@@ -17,23 +17,23 @@
  * the user-approved output and the `approved` outcome. Bound at Agent scope.
  */
 
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import { toInputJsonSchema } from '#/tool/input-schema';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentPlanService } from '#/features/plan/plan';
 import type { PlanData } from '#/features/plan/plan';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
-import DESCRIPTION from './exit-plan-mode.md?raw';
+import type { IExitPlanModeTool } from './exit-plan-mode';
 import {
   ExitPlanModeInputSchema,
-  IExitPlanModeTool,
   type ExitPlanModeInput,
   type ExitPlanModePlanSource,
 } from './exit-plan-mode';
+import DESCRIPTION from './exit-plan-mode.md?raw';
 
 type ResolvePlanResult =
   | { readonly ok: true; readonly plan: string; readonly path?: string | undefined }
@@ -72,8 +72,7 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     if (data === null || data.content.trim().length === 0) return undefined;
     try {
       await this.planMode.recordRevision();
-    } catch {
-    }
+    } catch {}
     const display: ToolInputDisplay = {
       kind: 'plan_review',
       plan: data.content,
@@ -90,8 +89,7 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     if (status === null) {
       return {
         isError: true,
-        output:
-          t('toolsV2.planMode.exitOnlyInPlanMode'),
+        output: t('toolsV2.planMode.exitOnlyInPlanMode'),
       };
     }
 

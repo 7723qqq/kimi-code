@@ -63,10 +63,7 @@ export interface ExportSessionOptions {
 export interface ISessionExportService {
   readonly _serviceBrand: undefined;
 
-  export(
-    input: ExportSessionPayload,
-    options?: ExportSessionOptions,
-  ): Promise<ExportSessionResult>;
+  export(input: ExportSessionPayload, options?: ExportSessionOptions): Promise<ExportSessionResult>;
 }
 
 export const ISessionExportService: ServiceIdentifier<ISessionExportService> =

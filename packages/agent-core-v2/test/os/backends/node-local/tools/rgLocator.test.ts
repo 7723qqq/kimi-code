@@ -12,10 +12,10 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
-import { extract as extractTar } from 'tar';
-import { ZipFile } from 'yazl';
 import { join } from 'pathe';
+import { extract as extractTar } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ZipFile } from 'yazl';
 
 import {
   detectTarget,

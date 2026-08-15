@@ -11,12 +11,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  Error2,
-  ErrorCodes,
-  ISessionIndex,
-  type SessionSummary,
-} from '@moonshot-ai/agent-core-v2';
+import { Error2, ErrorCodes, ISessionIndex, type SessionSummary } from '@moonshot-ai/agent-core-v2';
 import {
   type FsGitStatusResponse,
   type FsPullRequest,
@@ -24,8 +19,8 @@ import {
 } from '@moonshot-ai/agent-core-v2/app/git/git';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { type RunningServer, startServer } from '../src/start';
 import { mapActivityStatus } from '../src/routes/v2/sessions';
+import { type RunningServer, startServer } from '../src/start';
 import { authHeaders, authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
@@ -320,15 +315,10 @@ describe('server /api/v2/sessions', () => {
     for (const sort of ['meta.updated_at_asc', 'meta.created_at_desc']) {
       const page1 = await getData(`?sort=${sort}&page_size=2`);
       expect(page1.has_more).toBe(true);
-      const page2 = await getData(
-        `?sort=${sort}&page_size=2&page_token=${page1.next_page_token}`,
-      );
+      const page2 = await getData(`?sort=${sort}&page_size=2&page_token=${page1.next_page_token}`);
       expect(page2.items).toHaveLength(1);
       expect(page2.has_more).toBe(false);
-      const ids = [
-        ...page1.items.map((item) => item.id),
-        ...page2.items.map((item) => item.id),
-      ];
+      const ids = [...page1.items.map((item) => item.id), ...page2.items.map((item) => item.id)];
       expect(new Set(ids).size).toBe(3);
     }
   });
@@ -346,9 +336,7 @@ describe('server /api/v2/sessions', () => {
     expect(filtered.code).toBe(40922);
 
     // sort changed
-    const resorted = await getError(
-      `?page_size=2&sort=meta.updated_at_asc&page_token=${token}`,
-    );
+    const resorted = await getError(`?page_size=2&sort=meta.updated_at_asc&page_token=${token}`);
     expect(resorted.code).toBe(40922);
   });
 
@@ -416,7 +404,12 @@ describe('server /api/v2/sessions', () => {
 
 describe('mapActivityStatus', () => {
   it('maps a cold persisted failure to failed, live outcomes still win', () => {
-    const coldIdle = { busy: false, mainTurnActive: false, pendingInteraction: 'none' as const, live: false as const };
+    const coldIdle = {
+      busy: false,
+      mainTurnActive: false,
+      pendingInteraction: 'none' as const,
+      live: false as const,
+    };
     expect(mapActivityStatus(coldIdle, 'failed')).toBe('failed');
     expect(mapActivityStatus(coldIdle, 'completed')).toBe('idle');
     expect(mapActivityStatus(coldIdle, 'cancelled')).toBe('idle');
@@ -424,7 +417,10 @@ describe('mapActivityStatus', () => {
     // A live session never reads the persisted value.
     expect(mapActivityStatus({ ...coldIdle, live: true }, 'failed')).toBe('idle');
     expect(
-      mapActivityStatus({ busy: true, mainTurnActive: true, pendingInteraction: 'none', live: true }, 'failed'),
+      mapActivityStatus(
+        { busy: true, mainTurnActive: true, pendingInteraction: 'none', live: true },
+        'failed',
+      ),
     ).toBe('running');
   });
 
@@ -466,9 +462,9 @@ describe('mapActivityStatus', () => {
   });
 
   it('maps cold-session defaults (and completed / cancelled) to idle', () => {
-    expect(mapActivityStatus({ busy: false, mainTurnActive: false, pendingInteraction: 'none' })).toBe(
-      'idle',
-    );
+    expect(
+      mapActivityStatus({ busy: false, mainTurnActive: false, pendingInteraction: 'none' }),
+    ).toBe('idle');
     for (const lastTurnReason of ['completed', 'cancelled'] as const) {
       expect(
         mapActivityStatus({

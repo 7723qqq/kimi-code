@@ -31,8 +31,7 @@ export interface IAuthTokenService {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const IAuthTokenService =
-  createDecorator<IAuthTokenService>('authTokenService');
+export const IAuthTokenService = createDecorator<IAuthTokenService>('authTokenService');
 
 /**
  * Default `IAuthTokenService` over a `TokenStore` + optional password hash.
@@ -50,7 +49,6 @@ export function createAuthTokenService(deps: {
     _serviceBrand: undefined,
     getToken: () => deps.tokenStore.getToken(),
     isValid: async (candidate) =>
-      deps.tokenStore.isValid(candidate) ||
-      (await verifyPassword(candidate, deps.passwordHash)),
+      deps.tokenStore.isValid(candidate) || (await verifyPassword(candidate, deps.passwordHash)),
   };
 }

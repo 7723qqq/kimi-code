@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
 import type { ContentPart, ToolCall } from '@moonshot-ai/kimi-code-sdk';
 import type { ContextMessage, PromptOrigin } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it } from 'vitest';
 
 import {
   buildExportMarkdown,
@@ -116,21 +116,21 @@ describe('formatContentPartMd', () => {
   });
 
   it('renders image placeholder', () => {
-    expect(
-      formatContentPartMd({ type: 'image_url', imageUrl: { url: 'http://x' } }),
-    ).toBe('[image]');
+    expect(formatContentPartMd({ type: 'image_url', imageUrl: { url: 'http://x' } })).toBe(
+      '[image]',
+    );
   });
 
   it('renders audio placeholder', () => {
-    expect(
-      formatContentPartMd({ type: 'audio_url', audioUrl: { url: 'http://x' } }),
-    ).toBe('[audio]');
+    expect(formatContentPartMd({ type: 'audio_url', audioUrl: { url: 'http://x' } })).toBe(
+      '[audio]',
+    );
   });
 
   it('renders video placeholder', () => {
-    expect(
-      formatContentPartMd({ type: 'video_url', videoUrl: { url: 'http://x' } }),
-    ).toBe('[video]');
+    expect(formatContentPartMd({ type: 'video_url', videoUrl: { url: 'http://x' } })).toBe(
+      '[video]',
+    );
   });
 });
 
@@ -166,9 +166,7 @@ describe('isInternalMessage', () => {
   });
 
   it('marks system_trigger origin as internal', () => {
-    expect(
-      isInternalMessage(userMsg('x', { kind: 'system_trigger', name: 'test' })),
-    ).toBe(true);
+    expect(isInternalMessage(userMsg('x', { kind: 'system_trigger', name: 'test' }))).toBe(true);
   });
 
   it('marks compaction_summary origin as internal', () => {
@@ -176,9 +174,7 @@ describe('isInternalMessage', () => {
   });
 
   it('marks hook_result origin as internal', () => {
-    expect(
-      isInternalMessage(userMsg('x', { kind: 'hook_result', event: 'test' })),
-    ).toBe(true);
+    expect(isInternalMessage(userMsg('x', { kind: 'hook_result', event: 'test' }))).toBe(true);
   });
 
   it('marks cron_job origin as internal', () => {
@@ -197,9 +193,7 @@ describe('isInternalMessage', () => {
   });
 
   it('marks cron_missed origin as internal', () => {
-    expect(
-      isInternalMessage(userMsg('x', { kind: 'cron_missed', count: 2 })),
-    ).toBe(true);
+    expect(isInternalMessage(userMsg('x', { kind: 'cron_missed', count: 2 }))).toBe(true);
   });
 
   it('keeps real user messages', () => {

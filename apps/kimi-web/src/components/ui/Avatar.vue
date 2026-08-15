@@ -22,8 +22,23 @@ withDefaults(defineProps<{ size?: 'sm' | 'md' }>(), { size: 'md' });
   font-weight: var(--weight-medium);
   overflow: hidden;
 }
-.ui-avatar--md { width: 32px; height: 32px; font-size: var(--text-sm); }
-.ui-avatar--sm { width: 24px; height: 24px; font-size: var(--text-xs); border-radius: var(--radius-sm); }
-.ui-avatar :deep(svg) { width: var(--p-ic-md); height: var(--p-ic-md); }
-.ui-avatar--sm :deep(svg) { width: 13px; height: 13px; }
+.ui-avatar--md {
+  width: 32px;
+  height: 32px;
+  font-size: var(--text-sm);
+}
+.ui-avatar--sm {
+  width: 24px;
+  height: 24px;
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+}
+.ui-avatar :deep(svg) {
+  width: var(--p-ic-md);
+  height: var(--p-ic-md);
+}
+.ui-avatar--sm :deep(svg) {
+  width: 13px;
+  height: 13px;
+}
 </style>

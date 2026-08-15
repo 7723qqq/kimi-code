@@ -72,7 +72,9 @@ describe('questionItemSchema (SCHEMAS §6.2)', () => {
   });
 
   it('rejects fewer than 2 options', () => {
-    expect(() => questionItemSchema.parse({ ...baseItem, options: [baseItem.options[0]] })).toThrow();
+    expect(() =>
+      questionItemSchema.parse({ ...baseItem, options: [baseItem.options[0]] }),
+    ).toThrow();
   });
 
   it('rejects more than 4 options', () => {
@@ -132,10 +134,7 @@ describe('questionAnswerSchema 5-kind discriminated union (SCHEMAS §6.2)', () =
     ['single', { kind: 'single', option_id: 'opt_1' }],
     ['multi', { kind: 'multi', option_ids: ['opt_1', 'opt_2'] }],
     ['other', { kind: 'other', text: 'free form' }],
-    [
-      'multi_with_other',
-      { kind: 'multi_with_other', option_ids: ['opt_1'], other_text: 'tail' },
-    ],
+    ['multi_with_other', { kind: 'multi_with_other', option_ids: ['opt_1'], other_text: 'tail' }],
     ['skipped', { kind: 'skipped' }],
   ] as const)('accepts %s kind', (_, val) => {
     expect(questionAnswerSchema.parse(val)).toEqual(val);
@@ -270,9 +269,7 @@ describe('listPendingQuestionsResponseSchema (REST pending recovery)', () => {
   });
 
   it('rejects unsupported status query', () => {
-    expect(() =>
-      listPendingQuestionsQuerySchema.parse({ status: 'answered' }),
-    ).toThrow();
+    expect(() => listPendingQuestionsQuerySchema.parse({ status: 'answered' })).toThrow();
   });
 
   it('returns question request items', () => {

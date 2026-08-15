@@ -11,13 +11,13 @@
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
-import { Emitter, type Event } from '#/_base/event';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { TimeoutTimer } from '#/_base/utils/timer';
+import { Emitter, type Event } from '#/_base/event';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
-import { IConfigService } from '#/app/config/config';
+import { TimeoutTimer } from '#/_base/utils/timer';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
 import {
   MERGE_ALL_AVAILABLE_SKILLS_SECTION,
   type MergeAllAvailableSkillsConfig,
@@ -82,9 +82,7 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     const mergeAllAvailableSkills =
       this.config.get<MergeAllAvailableSkillsConfig>(MERGE_ALL_AVAILABLE_SKILLS_SECTION) ?? true;
     const discover = async () =>
-      this.discovery.discover(
-        await projectRoots(this.workspace.cwd, { mergeAllAvailableSkills }),
-      );
+      this.discovery.discover(await projectRoots(this.workspace.cwd, { mergeAllAvailableSkills }));
     let contribution = await discover();
     while (await this.updateProjectSkillRootWatch(contribution.scannedDirectories)) {
       contribution = await discover();

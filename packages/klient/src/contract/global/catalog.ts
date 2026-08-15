@@ -45,17 +45,21 @@ const generateInputSchema = z.object({
   responseFormat: z.unknown().optional(),
 });
 
-const generateParamsSchema = z.object({
-  cacheKey: z.string().optional(),
-  temperature: z.number().optional(),
-  topP: z.number().optional(),
-  thinkingEffort: z.string().optional(),
-  maxCompletionTokens: z.number().optional(),
-}).optional();
+const generateParamsSchema = z
+  .object({
+    cacheKey: z.string().optional(),
+    temperature: z.number().optional(),
+    topP: z.number().optional(),
+    thinkingEffort: z.string().optional(),
+    maxCompletionTokens: z.number().optional(),
+  })
+  .optional();
 
-const generateEventSchema = z.object({
-  type: z.string(),
-}).passthrough();
+const generateEventSchema = z
+  .object({
+    type: z.string(),
+  })
+  .passthrough();
 
 export const catalogContract = {
   listModels: { input: z.tuple([]), output: z.array(modelCatalogItemSchema) },

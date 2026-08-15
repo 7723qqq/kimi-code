@@ -1,4 +1,3 @@
-import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import type {
   BackgroundTaskInfo,
   Event,
@@ -8,6 +7,7 @@ import type {
   TokenUsage,
 } from '@moonshot-ai/kimi-code-sdk';
 import { log } from '@moonshot-ai/kimi-code-sdk';
+import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 
 /** Narrowed event shapes consumed by the private handlers below. */
 type StatusUpdatedEvent = Extract<Event, { type: 'agent.status.updated' }>;
@@ -35,6 +35,13 @@ type CompactionCompletedEvent = Extract<Event, { type: 'compaction.completed' }>
 type CompactionCancelledEvent = Extract<Event, { type: 'compaction.cancelled' }>;
 type BackgroundTaskEvent = Extract<Event, { type: 'task.started' | 'task.terminated' }>;
 
+import { t } from '#/i18n';
+import { currentTheme } from '#/tui/theme';
+import type { ColorToken } from '#/tui/theme';
+import { openUrl } from '#/utils/open-url';
+import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
+
+import { createGoal as startGoalCommand } from '../commands/goal';
 import { MoonLoader } from '../components/chrome/moon-loader';
 import { buildGoalMarker } from '../components/messages/goal-markers';
 import { StatusMessageComponent } from '../components/messages/status-message';
@@ -42,46 +49,18 @@ import {
   SwarmModeMarkerComponent,
   type SwarmModeMarkerState,
 } from '../components/messages/swarm-markers';
+import { errorReportHintLine } from '../constant/feedback';
 import {
   getOauthLoginRequiredStartupNotice,
   OAUTH_LOGIN_REQUIRED_CODE,
 } from '../constant/kimi-tui';
-import { buildGoalCompletionMessage } from '../utils/goal-completion';
-import {
-  argsRecord,
-  formatErrorPayload,
-  formatErrorMessage,
-  isTodoItemShape,
-  serializeToolResultOutput,
-  stringValue,
-} from '../utils/event-payload';
 import {
   readGoalQueue,
   removeGoalQueueItem,
   restoreGoalQueueItem,
   type UpcomingGoal,
 } from '../goal-queue-store';
-import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
-import { formatHookResultMarkdown } from '../utils/hook-result-format';
-import { McpOAuthAuthorizationUrlOpener } from '../utils/mcp-oauth';
-import {
-  formatMcpStartupStatusSummary,
-  mcpServerStatusKey,
-  type McpServerStatusSnapshot,
-  selectMcpStartupStatusRows,
-} from '../utils/mcp-server-status';
-import { openUrl } from '#/utils/open-url';
-import { currentTheme } from '#/tui/theme';
-import type { ColorToken } from '#/tui/theme';
-import { errorReportHintLine } from '../constant/feedback';
-import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
-import { t } from '#/i18n';
-import { nextTranscriptId } from '../utils/transcript-id';
-import type { BtwPanelController } from './btw-panel';
-import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
-import type { StreamingUIController } from './streaming-ui';
-import type { TasksBrowserController } from './tasks-browser';
-import { SubAgentEventHandler } from './subagent-event-handler';
+import type { TUIState } from '../tui-state';
 import type {
   AppState,
   LivePaneState,
@@ -91,8 +70,30 @@ import type {
   ToolResultBlockData,
   TranscriptEntry,
 } from '../types';
-import type { TUIState } from '../tui-state';
-import { createGoal as startGoalCommand } from '../commands/goal';
+import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
+import {
+  argsRecord,
+  formatErrorPayload,
+  formatErrorMessage,
+  isTodoItemShape,
+  serializeToolResultOutput,
+  stringValue,
+} from '../utils/event-payload';
+import { buildGoalCompletionMessage } from '../utils/goal-completion';
+import { formatHookResultMarkdown } from '../utils/hook-result-format';
+import { McpOAuthAuthorizationUrlOpener } from '../utils/mcp-oauth';
+import {
+  formatMcpStartupStatusSummary,
+  mcpServerStatusKey,
+  type McpServerStatusSnapshot,
+  selectMcpStartupStatusRows,
+} from '../utils/mcp-server-status';
+import { nextTranscriptId } from '../utils/transcript-id';
+import type { BtwPanelController } from './btw-panel';
+import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
+import type { StreamingUIController } from './streaming-ui';
+import { SubAgentEventHandler } from './subagent-event-handler';
+import type { TasksBrowserController } from './tasks-browser';
 
 export interface SessionEventHost {
   state: TUIState;
@@ -297,45 +298,104 @@ export class SessionEventHandler {
     }
 
     switch (event.type) {
-      case 'turn.started': this.handleTurnBegin(event); break;
-      case 'turn.ended': this.handleTurnEnd(event, sendQueued); break;
-      case 'turn.step.started': this.handleStepBegin(event); break;
-      case 'turn.step.interrupted': this.handleStepInterrupted(event); break;
-      case 'turn.step.completed': this.handleStepCompleted(event); break;
-      case 'turn.step.retrying': this.handleStepRetrying(event); break;
-      case 'tool.progress': this.handleToolProgress(event); break;
-      case 'shell.output': this.host.handleShellOutput(event); break;
-      case 'shell.started': this.host.handleShellStarted(event); break;
-      case 'assistant.delta': this.handleAssistantDelta(event); break;
-      case 'hook.result': this.handleHookResult(event); break;
-      case 'thinking.delta': this.handleThinkingDelta(event); break;
-      case 'tool.call.started': this.handleToolCall(event); break;
-      case 'tool.call.delta': this.handleToolCallDelta(event); break;
-      case 'tool.result': this.handleToolResult(event); break;
-      case 'agent.status.updated': this.handleStatusUpdate(event); break;
-      case 'session.meta.updated': this.handleSessionMetaChanged(event); break;
-      case 'goal.updated': this.handleGoalUpdated(event); break;
-      case 'skill.activated': this.handleSkillActivated(event); break;
-      case 'plugin_command.activated': this.handlePluginCommandActivated(event); break;
-      case 'error': this.handleSessionError(event); break;
-      case 'warning': this.handleSessionWarning(event); break;
-      case 'compaction.started': this.handleCompactionBegin(event); break;
-      case 'compaction.completed': this.handleCompactionEnd(event, sendQueued); break;
-      case 'compaction.blocked': break;
-      case 'compaction.cancelled': this.handleCompactionCancel(event, sendQueued); break;
+      case 'turn.started':
+        this.handleTurnBegin(event);
+        break;
+      case 'turn.ended':
+        this.handleTurnEnd(event, sendQueued);
+        break;
+      case 'turn.step.started':
+        this.handleStepBegin(event);
+        break;
+      case 'turn.step.interrupted':
+        this.handleStepInterrupted(event);
+        break;
+      case 'turn.step.completed':
+        this.handleStepCompleted(event);
+        break;
+      case 'turn.step.retrying':
+        this.handleStepRetrying(event);
+        break;
+      case 'tool.progress':
+        this.handleToolProgress(event);
+        break;
+      case 'shell.output':
+        this.host.handleShellOutput(event);
+        break;
+      case 'shell.started':
+        this.host.handleShellStarted(event);
+        break;
+      case 'assistant.delta':
+        this.handleAssistantDelta(event);
+        break;
+      case 'hook.result':
+        this.handleHookResult(event);
+        break;
+      case 'thinking.delta':
+        this.handleThinkingDelta(event);
+        break;
+      case 'tool.call.started':
+        this.handleToolCall(event);
+        break;
+      case 'tool.call.delta':
+        this.handleToolCallDelta(event);
+        break;
+      case 'tool.result':
+        this.handleToolResult(event);
+        break;
+      case 'agent.status.updated':
+        this.handleStatusUpdate(event);
+        break;
+      case 'session.meta.updated':
+        this.handleSessionMetaChanged(event);
+        break;
+      case 'goal.updated':
+        this.handleGoalUpdated(event);
+        break;
+      case 'skill.activated':
+        this.handleSkillActivated(event);
+        break;
+      case 'plugin_command.activated':
+        this.handlePluginCommandActivated(event);
+        break;
+      case 'error':
+        this.handleSessionError(event);
+        break;
+      case 'warning':
+        this.handleSessionWarning(event);
+        break;
+      case 'compaction.started':
+        this.handleCompactionBegin(event);
+        break;
+      case 'compaction.completed':
+        this.handleCompactionEnd(event, sendQueued);
+        break;
+      case 'compaction.blocked':
+        break;
+      case 'compaction.cancelled':
+        this.handleCompactionCancel(event, sendQueued);
+        break;
       case 'subagent.spawned':
       case 'subagent.started':
       case 'subagent.suspended':
       case 'subagent.completed':
       case 'subagent.failed':
-        this.subAgentEventHandler.handleLifecycleEvent(event); break;
+        this.subAgentEventHandler.handleLifecycleEvent(event);
+        break;
       case 'task.started':
       case 'task.terminated':
-        this.handleBackgroundTaskEvent(event); break;
-      case 'cron.fired': this.handleCronFired(event); break;
-      case 'mcp.server.status': this.renderMcpServerStatus(event.server); break;
-      case 'tool.list.updated': break;
-      default: break;
+        this.handleBackgroundTaskEvent(event);
+        break;
+      case 'cron.fired':
+        this.handleCronFired(event);
+        break;
+      case 'mcp.server.status':
+        this.renderMcpServerStatus(event.server);
+        break;
+      case 'tool.list.updated':
+        break;
+      default:
+        break;
     }
   }
 
@@ -469,7 +529,9 @@ export class SessionEventHandler {
     if (event.providerFinishReason === 'filtered') {
       this.host.showNotice(
         t('tui.statusMessages.policyBlocked'),
-        t('tui.statusMessages.outputFiltered', { reason: event.rawFinishReason ?? 'content_filter' }),
+        t('tui.statusMessages.outputFiltered', {
+          reason: event.rawFinishReason ?? 'content_filter',
+        }),
       );
       return;
     }
@@ -595,9 +657,15 @@ export class SessionEventHandler {
     streamingUI.appendThinkingDelta(event.delta);
     this.host.patchLivePane({ mode: 'idle' });
     if (state.appState.streamingPhase !== 'thinking') {
-      this.host.setAppState({ streamingPhase: 'thinking', streamingStartTime: Date.now(), outputTokens: 0 });
+      this.host.setAppState({
+        streamingPhase: 'thinking',
+        streamingStartTime: Date.now(),
+        outputTokens: 0,
+      });
     }
-    this.host.setAppState({ outputTokens: state.appState.outputTokens + estimateTokensFromText(event.delta) });
+    this.host.setAppState({
+      outputTokens: state.appState.outputTokens + estimateTokensFromText(event.delta),
+    });
     streamingUI.scheduleFlush();
   }
 
@@ -619,9 +687,15 @@ export class SessionEventHandler {
       pendingQuestion: null,
     });
     if (state.appState.streamingPhase !== 'composing') {
-      this.host.setAppState({ streamingPhase: 'composing', streamingStartTime: Date.now(), outputTokens: 0 });
+      this.host.setAppState({
+        streamingPhase: 'composing',
+        streamingStartTime: Date.now(),
+        outputTokens: 0,
+      });
     }
-    this.host.setAppState({ outputTokens: state.appState.outputTokens + estimateTokensFromText(event.delta) });
+    this.host.setAppState({
+      outputTokens: state.appState.outputTokens + estimateTokensFromText(event.delta),
+    });
     streamingUI.scheduleFlush();
   }
 
@@ -681,7 +755,9 @@ export class SessionEventHandler {
     const preview = streamingUI.getStreamingToolCallPreview(event.toolCallId);
     if (
       preview !== undefined &&
-      (preview.name === 'AgentSwarm' || preview.name === 'SwarmDiscussion' || this.subAgentEventHandler.hasAgentSwarmProgress(event.toolCallId))
+      (preview.name === 'AgentSwarm' ||
+        preview.name === 'SwarmDiscussion' ||
+        this.subAgentEventHandler.hasAgentSwarmProgress(event.toolCallId))
     ) {
       this.subAgentEventHandler.handleAgentSwarmToolCallDelta(event.toolCallId, preview.args, {
         streamingArguments: preview.argumentsText,
@@ -782,9 +858,7 @@ export class SessionEventHandler {
   }
 
   private renderSwarmModeMarker(state: SwarmModeMarkerState): void {
-    this.host.state.transcriptContainer.addChild(
-      new SwarmModeMarkerComponent(state),
-    );
+    this.host.state.transcriptContainer.addChild(new SwarmModeMarkerComponent(state));
     this.host.state.ui.requestRender();
   }
 
@@ -826,9 +900,7 @@ export class SessionEventHandler {
     if (change.kind === 'lifecycle' && change.status === 'blocked') {
       void this.notifyQueuedGoalWaitingOnBlocked();
       if (change.actor === 'model' || change.reason === undefined) {
-        this.pendingModelBlockedFallback = this.currentTurnHasAssistantText
-          ? undefined
-          : change;
+        this.pendingModelBlockedFallback = this.currentTurnHasAssistantText ? undefined : change;
         return;
       }
       this.pendingModelBlockedFallback = undefined;
@@ -926,7 +998,9 @@ export class SessionEventHandler {
     try {
       queue = await readGoalQueue(session);
     } catch (error) {
-      host.showError(t('tui.statusMessages.failedToReadUpcomingGoals', { error: formatErrorMessage(error) }));
+      host.showError(
+        t('tui.statusMessages.failedToReadUpcomingGoals', { error: formatErrorMessage(error) }),
+      );
       return false;
     }
     if (host.session !== session || host.aborted) return true;
@@ -976,7 +1050,9 @@ export class SessionEventHandler {
     try {
       await restoreGoalQueueItem(session, goal);
     } catch (error) {
-      this.host.showError(t('tui.statusMessages.queuedGoalRestoreFailed', { error: formatErrorMessage(error) }));
+      this.host.showError(
+        t('tui.statusMessages.queuedGoalRestoreFailed', { error: formatErrorMessage(error) }),
+      );
     }
     await this.cancelStartedQueuedGoal(session);
   }
@@ -985,7 +1061,9 @@ export class SessionEventHandler {
     try {
       await session.cancelGoal();
     } catch (error) {
-      this.host.showError(t('tui.statusMessages.queuedGoalCancelFailed', { error: formatErrorMessage(error) }));
+      this.host.showError(
+        t('tui.statusMessages.queuedGoalCancelFailed', { error: formatErrorMessage(error) }),
+      );
     }
   }
 
@@ -1003,10 +1081,7 @@ export class SessionEventHandler {
     }
     if (!hasQueuedGoal || host.session !== session || host.aborted) return;
 
-    host.showNotice(
-      t('tui.statusMessages.goalBlocked'),
-      t('tui.statusMessages.goalBlockedDetail'),
-    );
+    host.showNotice(t('tui.statusMessages.goalBlocked'), t('tui.statusMessages.goalBlockedDetail'));
   }
 
   private handleSessionMetaChanged(event: SessionMetaUpdatedEvent): void {
@@ -1033,7 +1108,10 @@ export class SessionEventHandler {
   }
 
   private handleSessionWarning(event: WarningEvent): void {
-    this.host.showStatus(t('tui.statusMessages.warningPrefix', { message: event.message }), 'warning');
+    this.host.showStatus(
+      t('tui.statusMessages.warningPrefix', { message: event.message }),
+      'warning',
+    );
   }
 
   private renderMcpServerStatus(server: McpServerStatusSnapshot): void {
@@ -1046,14 +1124,22 @@ export class SessionEventHandler {
 
     switch (server.status) {
       case 'connected': {
-        const message = t('tui.statusMessages.mcpServerConnected', { name: server.name, count: server.toolCount, transport: server.transport });
+        const message = t('tui.statusMessages.mcpServerConnected', {
+          name: server.name,
+          count: server.toolCount,
+          transport: server.transport,
+        });
         this.finalizeMcpServerStatusRow(server.name, message, 'success');
         return;
       }
       case 'failed': {
-        const message = server.error !== undefined
-          ? t('tui.statusMessages.mcpServerFailedWithError', { name: server.name, error: server.error })
-          : t('tui.statusMessages.mcpServerFailed', { name: server.name });
+        const message =
+          server.error !== undefined
+            ? t('tui.statusMessages.mcpServerFailedWithError', {
+                name: server.name,
+                error: server.error,
+              })
+            : t('tui.statusMessages.mcpServerFailed', { name: server.name });
         this.finalizeMcpServerStatusRow(server.name, message, 'error');
         return;
       }

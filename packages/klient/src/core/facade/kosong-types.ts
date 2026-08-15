@@ -5,19 +5,20 @@
  * `providerService`/`modelService` wire formats.
  */
 
-import type { Message, StreamedMessagePart } from '@moonshot-ai/agent-core-v2/kosong/contract/message';
+import type {
+  Message,
+  StreamedMessagePart,
+} from '@moonshot-ai/agent-core-v2/kosong/contract/message';
+import type { ResponseFormat } from '@moonshot-ai/agent-core-v2/kosong/contract/provider';
 import type { Tool } from '@moonshot-ai/agent-core-v2/kosong/contract/tool';
 import type { TokenUsage } from '@moonshot-ai/agent-core-v2/kosong/contract/usage';
-import type { ResponseFormat } from '@moonshot-ai/agent-core-v2/kosong/contract/provider';
 
 // ---------------------------------------------------------------------------
 // Provider auth
 // ---------------------------------------------------------------------------
 
 /** How the provider authenticates — API key or managed OAuth. */
-export type ProviderAuth =
-  | { method: 'api-key'; apiKey: string }
-  | { method: 'oauth' };
+export type ProviderAuth = { method: 'api-key'; apiKey: string } | { method: 'oauth' };
 
 // ---------------------------------------------------------------------------
 // Provider / model inputs
@@ -71,5 +72,15 @@ export interface GenerateParams {
 export type GenerateEvent =
   | { readonly type: 'part'; readonly part: StreamedMessagePart }
   | { readonly type: 'usage'; readonly usage: TokenUsage; readonly model?: string }
-  | { readonly type: 'finish'; readonly message: Message; readonly finishReason?: string; readonly id?: string }
-  | { readonly type: 'timing'; readonly firstTokenLatencyMs: number; readonly streamDurationMs: number; readonly [key: string]: unknown };
+  | {
+      readonly type: 'finish';
+      readonly message: Message;
+      readonly finishReason?: string;
+      readonly id?: string;
+    }
+  | {
+      readonly type: 'timing';
+      readonly firstTokenLatencyMs: number;
+      readonly streamDurationMs: number;
+      readonly [key: string]: unknown;
+    };

@@ -1,5 +1,6 @@
 import { arch, platform, release } from 'node:os';
 
+import { cleanTelemetryProperties } from './privacy';
 import type {
   EnrichedTelemetryEvent,
   TelemetryContext,
@@ -7,7 +8,6 @@ import type {
   TelemetryPrimitive,
   TelemetryTransport,
 } from './types';
-import { cleanTelemetryProperties } from './privacy';
 
 export interface EventSinkContextOptions {
   readonly appName: string;

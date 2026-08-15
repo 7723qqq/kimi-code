@@ -2,7 +2,8 @@ import { type SpawnOptionsWithoutStdio } from 'node:child_process';
 
 import { z } from 'zod';
 
-import { type IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import type { IHostProcessService } from '#/os/interface/hostProcess';
+import { type IHostProcess } from '#/os/interface/hostProcess';
 
 import type { HookResult } from './types';
 
@@ -36,17 +37,14 @@ export function buildHookSpawnOptions(options: {
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
 const KILL_GRACE_MS = 100;
-const OptionalStringSchema = z.preprocess(
-  (value) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === 'string') return value;
-    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-      return String(value);
-    }
-    return undefined;
-  },
-  z.string().optional(),
-);
+const OptionalStringSchema = z.preprocess((value) => {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  return undefined;
+}, z.string().optional());
 const HookSpecificOutputSchema = z.preprocess(
   (value) => (isRecord(value) ? value : undefined),
   z
@@ -78,7 +76,11 @@ export async function runHook(
   } catch (error) {
     // A permission hook that cannot even spawn must not silently allow.
     return options.failClosed === true
-      ? blockResult(`Permission hook failed to spawn: ${errorMessage(error)}`, undefined, errorMessage(error))
+      ? blockResult(
+          `Permission hook failed to spawn: ${errorMessage(error)}`,
+          undefined,
+          errorMessage(error),
+        )
       : allowResult({ stderr: errorMessage(error) });
   }
 
@@ -121,7 +123,13 @@ export async function runHook(
         // Permission hooks fail closed: an errored hook must not silently
         // weaken the gate.
         if (options.failClosed === true) {
-          settle(blockResult('Permission hook errored while running', undefined, stderr + errorMessage(error)));
+          settle(
+            blockResult(
+              'Permission hook errored while running',
+              undefined,
+              stderr + errorMessage(error),
+            ),
+          );
           return;
         }
         settle(allowResult({ stdout, stderr: stderr + errorMessage(error) }));

@@ -1,10 +1,10 @@
-import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
 import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
-
-import type { ColorToken, ThemeName } from '#/tui/theme';
+import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import type { ColorToken, ThemeName } from '#/tui/theme';
+
 import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
 import type { AuthFlowController } from '../controllers/auth-flow';
 import type { BtwPanelController } from '../controllers/btw-panel';
@@ -20,9 +20,9 @@ import type {
   TranscriptEntry,
 } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
+import { handleAddDirCommand } from './add-dir';
 import { handleLoginCommand, handleLogoutCommand } from './auth';
 import { handleBtwCommand } from './btw';
-import { handleCopyCommand } from './copy';
 import {
   handleAutoCommand,
   handleCompactCommand,
@@ -38,9 +38,10 @@ import {
   showPermissionPicker,
   showSettingsSelector,
 } from './config';
+import { handleCopyCommand } from './copy';
+import { handleDiscussCommand } from './discuss';
 import { handleGoalCommand } from './goal';
 import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
-import { handleAddDirCommand } from './add-dir';
 import { parseSlashInput } from './parse';
 import { handlePluginsCommand } from './plugins';
 import { handleProviderCommand } from './provider';
@@ -50,12 +51,7 @@ import {
   type BuiltinSlashCommandName,
 } from './registry';
 import { handleReloadCommand, handleReloadTuiCommand } from './reload';
-import type { SkillListSession } from './skills';
-import {
-  resolveSlashCommandInput,
-  slashBusyMessage,
-  slashCommandBusyReason,
-} from './resolve';
+import { resolveSlashCommandInput, slashBusyMessage, slashCommandBusyReason } from './resolve';
 import {
   handleExportDebugZipCommand,
   handleExportMdCommand,
@@ -63,11 +59,11 @@ import {
   handleInitCommand,
   handleTitleCommand,
 } from './session';
+import type { SkillListSession } from './skills';
 import { handleSwarmCommand } from './swarm';
-import { handleWorkflowCommand } from './workflow';
-import { handleDiscussCommand } from './discuss';
 import { handleUndoCommand } from './undo';
 import { handleWebCommand } from './web';
+import { handleWorkflowCommand } from './workflow';
 
 // ---------------------------------------------------------------------------
 // Re-exports — keep existing consumers working
@@ -385,7 +381,9 @@ async function handleBuiltInSlashCommand(
       host.showHelpPanel();
       return;
     case 'version':
-      host.showStatus(t('tui.messages.configVersionDisplay', { version: host.state.appState.version }));
+      host.showStatus(
+        t('tui.messages.configVersionDisplay', { version: host.state.appState.version }),
+      );
       return;
     case 'new': {
       // A first-use lazy creation may still be in flight: wait it out so /new

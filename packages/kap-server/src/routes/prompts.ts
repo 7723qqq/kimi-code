@@ -35,8 +35,18 @@ import {
   type ISessionScopeHandle,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { ErrorCode } from '../protocol/error-codes';
+import { z } from 'zod';
+
+import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../envelope';
 import { t } from '../i18n';
+import {
+  assertPromptFileRefs,
+  contentToCoreParts,
+  resolvePromptMediaFiles,
+} from '../lib/promptMedia';
+import { requestLog } from '../lib/requestLog';
+import { defineRoute } from '../middleware/defineRoute';
+import { ErrorCode } from '../protocol/error-codes';
 import {
   promptAbortResponseSchema,
   promptListResponseSchema,
@@ -46,16 +56,6 @@ import {
   promptSubmitResultSchema,
   type PromptSubmission,
 } from '../protocol/rest-prompt';
-import { z } from 'zod';
-
-import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../envelope';
-import {
-  assertPromptFileRefs,
-  contentToCoreParts,
-  resolvePromptMediaFiles,
-} from '../lib/promptMedia';
-import { requestLog } from '../lib/requestLog';
-import { defineRoute } from '../middleware/defineRoute';
 import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 
@@ -84,7 +84,9 @@ const sessionIdParamSchema = z.object({
 
 const validationDetailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 const authProviderDetailsSchema = z.object({ provider_id: z.string() });
-const authModelDetailsSchema = z.object({ model_id: z.string(), provider_id: z.string() }).partial();
+const authModelDetailsSchema = z
+  .object({ model_id: z.string(), provider_id: z.string() })
+  .partial();
 
 async function resolveSession(core: Scope, sessionId: string): Promise<ISessionScopeHandle> {
   // `resume` (not `get`) so a persisted-but-cold session — created by a previous
@@ -162,7 +164,6 @@ async function applyProfileSelection(
   return true;
 }
 
-
 export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
   const listRoute = defineRoute(
     {
@@ -185,7 +186,11 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
       }
     },
   );
-  app.get(listRoute.path, listRoute.options, listRoute.handler as Parameters<PromptRouteHost['get']>[2]);
+  app.get(
+    listRoute.path,
+    listRoute.options,
+    listRoute.handler as Parameters<PromptRouteHost['get']>[2],
+  );
 
   const submitRoute = defineRoute(
     {
@@ -201,7 +206,9 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         [ErrorCode.AUTH_TOKEN_UNAUTHORIZED]: { detailsSchema: authProviderDetailsSchema },
         [ErrorCode.AUTH_MODEL_NOT_RESOLVED]: { detailsSchema: authModelDetailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
-        [ErrorCode.PROMPT_ALREADY_COMPLETED]: { dataSchema: z.object({ aborted: z.literal(false) }) },
+        [ErrorCode.PROMPT_ALREADY_COMPLETED]: {
+          dataSchema: z.object({ aborted: z.literal(false) }),
+        },
       },
       description: 'Submit a prompt to a session',
       tags: ['prompts'],
@@ -223,7 +230,9 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         // internal `kimi-file://` reference; the engine resolves them to a
         // provider form (upload / inline / `<video path>` tag) at request
         // time, so the edge no longer uploads.
-        const telemetry = core.accessor.get(ITelemetryService).withContext({ sessionId: session_id });
+        const telemetry = core.accessor
+          .get(ITelemetryService)
+          .withContext({ sessionId: session_id });
         const resolvedContent = await resolvePromptMediaFiles(
           req.body.content,
           core.accessor.get(IFileService),
@@ -257,7 +266,8 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         if (req.body.model !== undefined) await resolved.profile.setModel(req.body.model);
         if (req.body.thinking !== undefined && !thinkingConsumed)
           resolved.profile.setThinking(req.body.thinking);
-        if (req.body.permission_mode !== undefined) resolved.permissionMode.setMode(req.body.permission_mode);
+        if (req.body.permission_mode !== undefined)
+          resolved.permissionMode.setMode(req.body.permission_mode);
         if (req.body.disabled_tools !== undefined) {
           // A session denylist before bind throws `profile.not_bound` — map it
           // onto 40001 like the profile-selection errors above.
@@ -272,24 +282,33 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         }
         const parts = contentToCoreParts(resolvedContent);
         const session = await resolveSession(core, session_id);
-        await applyPromptMetadataUpdate({
-          metadata: session.accessor.get(ISessionMetadata),
-          eventService: core.accessor.get(IEventService),
-          sessionId: session_id,
-        }, promptMetadataTextFromContentParts(parts));
-        const handle = await resolved.prompt.enqueue({ message: {
-          role: 'user',
-          content: parts,
-          toolCalls: [],
-          origin: { kind: 'user' },
-        } });
+        await applyPromptMetadataUpdate(
+          {
+            metadata: session.accessor.get(ISessionMetadata),
+            eventService: core.accessor.get(IEventService),
+            sessionId: session_id,
+          },
+          promptMetadataTextFromContentParts(parts),
+        );
+        const handle = await resolved.prompt.enqueue({
+          message: {
+            role: 'user',
+            content: parts,
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+        });
         reply.send(okEnvelope(projectPromptHandle(handle), req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
       }
     },
   );
-  app.post(submitRoute.path, submitRoute.options, submitRoute.handler as Parameters<PromptRouteHost['post']>[2]);
+  app.post(
+    submitRoute.path,
+    submitRoute.options,
+    submitRoute.handler as Parameters<PromptRouteHost['post']>[2],
+  );
 
   const steerManyRoute = defineRoute(
     {
@@ -318,7 +337,11 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
       }
     },
   );
-  app.post(steerManyRoute.path, steerManyRoute.options, steerManyRoute.handler as Parameters<PromptRouteHost['post']>[2]);
+  app.post(
+    steerManyRoute.path,
+    steerManyRoute.options,
+    steerManyRoute.handler as Parameters<PromptRouteHost['post']>[2],
+  );
 
   const actionRoute = defineRoute(
     {
@@ -329,7 +352,9 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         [ErrorCode.VALIDATION_FAILED]: {},
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.PROMPT_NOT_FOUND]: {},
-        [ErrorCode.PROMPT_ALREADY_COMPLETED]: { dataSchema: z.object({ aborted: z.literal(false) }) },
+        [ErrorCode.PROMPT_ALREADY_COMPLETED]: {
+          dataSchema: z.object({ aborted: z.literal(false) }),
+        },
       },
       description: 'Abort a running prompt or steer a queued prompt',
       tags: ['prompts'],
@@ -362,7 +387,11 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
       }
     },
   );
-  app.post(actionRoute.path, actionRoute.options, actionRoute.handler as Parameters<PromptRouteHost['post']>[2]);
+  app.post(
+    actionRoute.path,
+    actionRoute.options,
+    actionRoute.handler as Parameters<PromptRouteHost['post']>[2],
+  );
 }
 
 function projectPromptList(snapshot: PromptQueueSnapshot) {
@@ -377,9 +406,12 @@ function projectPromptHandle(handle: PromptHandle) {
 }
 
 function projectPromptSnapshot(prompt: PromptQueueSnapshot['pending'][number]) {
-  const status = prompt.state === 'running' || prompt.state === 'steered'
-    ? 'running'
-    : prompt.state === 'blocked' ? 'blocked' : 'queued';
+  const status =
+    prompt.state === 'running' || prompt.state === 'steered'
+      ? 'running'
+      : prompt.state === 'blocked'
+        ? 'blocked'
+        : 'queued';
   return {
     prompt_id: prompt.id,
     user_message_id: prompt.userMessageId,
@@ -395,9 +427,11 @@ function corePartsToProtocol(content: readonly ContentPart[]): PromptSubmission[
     if (part.type === 'text') parts.push({ type: 'text', text: part.text });
     else if (part.type === 'image_url') {
       const match = /^data:([^;]+);base64,(.*)$/.exec(part.imageUrl.url);
-      parts.push(match === null
-        ? { type: 'image', source: { kind: 'url', url: part.imageUrl.url, id: part.imageUrl.id } }
-        : { type: 'image', source: { kind: 'base64', media_type: match[1]!, data: match[2]! } });
+      parts.push(
+        match === null
+          ? { type: 'image', source: { kind: 'url', url: part.imageUrl.url, id: part.imageUrl.id } }
+          : { type: 'image', source: { kind: 'base64', media_type: match[1]!, data: match[2]! } },
+      );
     } else if (part.type === 'video_url') {
       // An internal `kimi-file://<id>?path=…` reference projects back to the
       // daemon upload it came from — the materialization path never leaks to
@@ -408,14 +442,15 @@ function corePartsToProtocol(content: readonly ContentPart[]): PromptSubmission[
         continue;
       }
       const match = /^data:([^;]+);base64,(.*)$/.exec(part.videoUrl.url);
-      parts.push(match === null
-        ? { type: 'video', source: { kind: 'url', url: part.videoUrl.url, id: part.videoUrl.id } }
-        : { type: 'video', source: { kind: 'base64', media_type: match[1]!, data: match[2]! } });
+      parts.push(
+        match === null
+          ? { type: 'video', source: { kind: 'url', url: part.videoUrl.url, id: part.videoUrl.id } }
+          : { type: 'video', source: { kind: 'base64', media_type: match[1]!, data: match[2]! } },
+      );
     }
   }
   return parts;
 }
-
 
 function sendMappedError(
   reply: { send(payload: unknown): unknown },

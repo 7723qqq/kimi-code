@@ -49,5 +49,7 @@ export const WINDOWS_PATH_HINT =
   'returned in Windows backslash form; convert them to forward slashes before ' +
   'using them in a Bash command.';
 
-export interface IGlobTool extends AgentTool<GlobInput> { readonly _serviceBrand: undefined }
+export interface IGlobTool extends AgentTool<GlobInput> {
+  readonly _serviceBrand: undefined;
+}
 export const IGlobTool = createDecorator<IGlobTool>('globTool');

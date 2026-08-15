@@ -13,12 +13,12 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { LifecycleScope } from '#/app/scopes';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 
 import {
   IAgentKnowledgeService,
@@ -142,7 +142,10 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
       this.initialized = true;
       this.currentDbPath = projectDbPath;
     } catch (error) {
-      this.log.warn('open(projectDbPath) failed, trying userDbPath', { error: error, projectDbPath });
+      this.log.warn('open(projectDbPath) failed, trying userDbPath', {
+        error: error,
+        projectDbPath,
+      });
       try {
         nativeKnowledge.knowledgeOpen(userDbPath);
         this.initialized = true;
@@ -187,7 +190,10 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     } catch (error) {
       // Duplicate inserts return an error from Rust; log at debug since this
       // is an expected control-flow signal, not a true failure.
-      this.log.warn('knowledge.add failed (may be a duplicate)', { error: error, title: input.title });
+      this.log.warn('knowledge.add failed (may be a duplicate)', {
+        error: error,
+        title: input.title,
+      });
       return null;
     }
   }

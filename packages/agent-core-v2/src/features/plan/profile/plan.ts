@@ -14,14 +14,7 @@ import {
   TASK_AGENT_ROLE_PREFIX,
 } from '#/app/agentProfileCatalog/profile-shared';
 
-const PLAN_TOOLS = [
-  'Read',
-  'ReadMediaFile',
-  'Glob',
-  'Grep',
-  'WebSearch',
-  'FetchURL',
-] as const;
+const PLAN_TOOLS = ['Read', 'ReadMediaFile', 'Glob', 'Grep', 'WebSearch', 'FetchURL'] as const;
 
 const PLAN_ROLE =
   `${TASK_AGENT_ROLE_PREFIX}\n\n` +

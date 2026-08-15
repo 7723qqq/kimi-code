@@ -15,7 +15,8 @@ import { t } from '#/i18n';
 
 import { type InstallSource, type UpdateTarget } from './types';
 
-export const CHANGELOG_URL = 'https://moonshotai.github.io/kimi-code/en/release-notes/changelog.html';
+export const CHANGELOG_URL =
+  'https://moonshotai.github.io/kimi-code/en/release-notes/changelog.html';
 
 export type InstallPromptChoiceValue = 'install' | 'skip';
 
@@ -73,10 +74,14 @@ function renderInstallPrompt(
   const targetVersion = chalk.hex(UPDATE_PROMPT_SUCCESS).bold(options.target.version);
   const sourceLabel = chalk.hex(UPDATE_PROMPT_PRIMARY).bold(options.installSource);
   const command = chalk.hex(UPDATE_PROMPT_PRIMARY)(options.installCommand);
-  const changelogText = chalk.hex(UPDATE_PROMPT_PRIMARY).underline(t('tui.statusMessages.updatePromptChangelog', { url: CHANGELOG_URL }));
+  const changelogText = chalk
+    .hex(UPDATE_PROMPT_PRIMARY)
+    .underline(t('tui.statusMessages.updatePromptChangelog', { url: CHANGELOG_URL }));
   const lines = [
     chalk.hex(UPDATE_PROMPT_PRIMARY).bold(t('tui.statusMessages.updatePromptTitle')),
-    chalk.hex(UPDATE_PROMPT_MUTED)(t('tui.statusMessages.updatePromptNewer', { name: PRODUCT_NAME })),
+    chalk.hex(UPDATE_PROMPT_MUTED)(
+      t('tui.statusMessages.updatePromptNewer', { name: PRODUCT_NAME }),
+    ),
     `]8;;${CHANGELOG_URL}\\${changelogText}]8;;\\`,
     '',
     `${label(t('tui.statusMessages.updatePromptCurrent'))}  ${currentVersion}`,

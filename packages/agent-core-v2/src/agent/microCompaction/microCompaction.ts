@@ -11,7 +11,6 @@
  */
 
 import { createDecorator } from '#/_base/di/instantiation';
-
 import type { ContextMessage } from '#/agent/contextMemory/types';
 
 export interface MicroCompactionConfig {
@@ -53,5 +52,6 @@ export interface IAgentMicroCompactionService {
   reset(maxCutoff?: number): void;
 }
 
-export const IAgentMicroCompactionService =
-  createDecorator<IAgentMicroCompactionService>('agentMicroCompactionService');
+export const IAgentMicroCompactionService = createDecorator<IAgentMicroCompactionService>(
+  'agentMicroCompactionService',
+);

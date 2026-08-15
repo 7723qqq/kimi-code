@@ -8,8 +8,8 @@
  */
 
 import { useConnection } from '../connection';
-import { useServerDiscovery } from '../servers';
 import { t } from '../i18n';
+import { useServerDiscovery } from '../servers';
 
 export function ServerSwitcher() {
   const { baseUrl, connect } = useConnection();

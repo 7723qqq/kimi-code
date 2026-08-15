@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { AppGoal } from '../../api/types';
 import { useConfirmDialog } from '../../composables/useConfirmDialog';
 import { formatTokens } from '../../lib/formatTokens';
-import Card from '../ui/Card.vue';
 import Badge from '../ui/Badge.vue';
 import Button from '../ui/Button.vue';
+import Card from '../ui/Card.vue';
 import Icon from '../ui/Icon.vue';
 
 const props = defineProps<{ goal: AppGoal; forceExpanded?: number }>();
@@ -32,10 +33,14 @@ const tokenPct = computed(() => {
 
 function goalStatusLabel(status: AppGoal['status']): string {
   switch (status) {
-    case 'active': return t('status.goalStatusActive');
-    case 'paused': return t('status.goalStatusPaused');
-    case 'blocked': return t('status.goalStatusBlocked');
-    case 'complete': return t('status.goalStatusComplete');
+    case 'active':
+      return t('status.goalStatusActive');
+    case 'paused':
+      return t('status.goalStatusPaused');
+    case 'blocked':
+      return t('status.goalStatusBlocked');
+    case 'complete':
+      return t('status.goalStatusComplete');
   }
 }
 
@@ -67,12 +72,23 @@ async function onCancel(): Promise<void> {
       <button class="goal-row" type="button" @click="expanded = !expanded">
         <Icon class="goal-icon" name="target" size="md" />
         <span class="goal-kicker">{{ t('status.goalLabel') }}</span>
-        <span class="goal-objective" :class="{ 'expanded-hidden': expanded }">{{ goal.objective }}</span>
+        <span class="goal-objective" :class="{ 'expanded-hidden': expanded }">{{
+          goal.objective
+        }}</span>
         <Badge
-          :variant="goal.status === 'active' ? 'success' : goal.status === 'blocked' ? 'danger' : goal.status === 'paused' ? 'warning' : 'neutral'"
+          :variant="
+            goal.status === 'active'
+              ? 'success'
+              : goal.status === 'blocked'
+                ? 'danger'
+                : goal.status === 'paused'
+                  ? 'warning'
+                  : 'neutral'
+          "
           size="sm"
           class="goal-status"
-        >{{ goalStatusLabel(goal.status) }}</Badge>
+          >{{ goalStatusLabel(goal.status) }}</Badge
+        >
         <span v-if="goal.budget.tokenBudget !== null" class="goal-progress" aria-hidden="true">
           <span class="goal-progress-fill" :style="{ width: `${tokenPct}%` }"></span>
         </span>
@@ -89,11 +105,7 @@ async function onCancel(): Promise<void> {
     </template>
 
     <template #foot>
-      <div
-        class="goal-footer"
-        :inert="!expanded"
-        :aria-hidden="!expanded"
-      >
+      <div class="goal-footer" :inert="!expanded" :aria-hidden="!expanded">
         <div class="goal-meta">
           <span>{{ goal.turnsUsed }} turns</span>
           <span>{{ formatTokens(goal.tokensUsed) }} tokens</span>
@@ -121,12 +133,7 @@ async function onCancel(): Promise<void> {
             <Icon name="play" size="md" />
             <span>{{ t('status.goalResume') }}</span>
           </Button>
-          <Button
-            size="sm"
-            variant="danger-soft"
-            class="goal-action"
-            @click.stop="onCancel"
-          >
+          <Button size="sm" variant="danger-soft" class="goal-action" @click.stop="onCancel">
             <Icon name="close" size="md" />
             <span>{{ t('status.goalCancel') }}</span>
           </Button>
@@ -140,7 +147,9 @@ async function onCancel(): Promise<void> {
 .goal-strip {
   --composer-send-size: 32px;
   --composer-send-inset: var(--space-2);
-  --goal-corner-radius: calc((var(--composer-send-size) / 2) + var(--composer-send-inset) + var(--space-3));
+  --goal-corner-radius: calc(
+    (var(--composer-send-size) / 2) + var(--composer-send-inset) + var(--space-3)
+  );
   margin: var(--space-2) var(--space-4) 0;
   box-shadow: var(--shadow-md);
 }
@@ -165,7 +174,8 @@ async function onCancel(): Promise<void> {
   max-height: 480px;
   overflow: hidden;
   opacity: 1;
-  transition: max-height var(--duration-slow) var(--ease-out),
+  transition:
+    max-height var(--duration-slow) var(--ease-out),
     padding-top var(--duration-slow) var(--ease-out),
     padding-bottom var(--duration-slow) var(--ease-out),
     opacity var(--duration-base) var(--ease-out);
@@ -282,7 +292,8 @@ async function onCancel(): Promise<void> {
   max-height: 100px;
   overflow: hidden;
   opacity: 1;
-  transition: max-height var(--duration-slow) var(--ease-out),
+  transition:
+    max-height var(--duration-slow) var(--ease-out),
     padding-top var(--duration-slow) var(--ease-out),
     padding-bottom var(--duration-slow) var(--ease-out),
     opacity var(--duration-base) var(--ease-out),

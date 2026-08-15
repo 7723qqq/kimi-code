@@ -26,10 +26,7 @@ import {
   type LiveTranscriptSource,
   type SearchBackend,
 } from '../../src/search/searchService';
-import {
-  SearchWorkerError,
-  SearchWorkerHost,
-} from '../../src/search/worker/host';
+import { SearchWorkerError, SearchWorkerHost } from '../../src/search/worker/host';
 import type { SearchWorkerRequest } from '../../src/search/worker/protocol';
 
 // ---------------------------------------------------------------------------
@@ -1456,9 +1453,10 @@ describe('GlobalSearchService', () => {
       await service.reindex();
 
       const page1 = await service.search({ query: '苹果', sort: 'time_asc', pageSize: 10 });
-      const v2 = JSON.parse(
-        Buffer.from(page1.pageToken!, 'base64url').toString('utf8'),
-      ) as { v: number; f: string };
+      const v2 = JSON.parse(Buffer.from(page1.pageToken!, 'base64url').toString('utf8')) as {
+        v: number;
+        f: string;
+      };
       expect(v2.v).toBe(2);
 
       // Fabricate a pre-versioning offset token with the same fingerprint:
@@ -1474,9 +1472,9 @@ describe('GlobalSearchService', () => {
         Array.from({ length: 10 }, (_, i) => T1 + 10 + i),
       );
       expect(page2.hasMore).toBe(true);
-      const upgraded = JSON.parse(
-        Buffer.from(page2.pageToken!, 'base64url').toString('utf8'),
-      ) as { v: number };
+      const upgraded = JSON.parse(Buffer.from(page2.pageToken!, 'base64url').toString('utf8')) as {
+        v: number;
+      };
       expect(upgraded.v).toBe(2);
 
       const page3 = await service.search({
@@ -2159,7 +2157,9 @@ describe('GlobalSearchService', () => {
         startedAt: T1,
         state: 'running',
         prompt: '苹果 running prompt',
-        steps: [{ stepId: 't0.1', startedAt: T2, state: 'running', texts: ['苹果 partial answer'] }],
+        steps: [
+          { stepId: 't0.1', startedAt: T2, state: 'running', texts: ['苹果 partial answer'] },
+        ],
       });
       const service = track(makeService(home!, gettableIndex([s1])));
       service.setLiveTranscriptSource(fakeLiveSource(new Map([['s1', store]])));
@@ -2168,9 +2168,9 @@ describe('GlobalSearchService', () => {
       expect(page.source).toBe('live');
       expect(page.items.length).toBe(2);
       expect(page.items.some((h) => h.role === 'user' && h.snippet.includes('running'))).toBe(true);
-      expect(
-        page.items.some((h) => h.role === 'assistant' && h.snippet.includes('partial')),
-      ).toBe(true);
+      expect(page.items.some((h) => h.role === 'assistant' && h.snippet.includes('partial'))).toBe(
+        true,
+      );
     });
 
     it('matches nothing for a query that tokenizes to zero terms', async () => {
@@ -2352,7 +2352,12 @@ describe('GlobalSearchService', () => {
       // A second instance on the same home opens read-only (the writer holds
       // the lock) and catches up by refreshing from the writer's commits.
       const { log, warnings } = recordingLog();
-      const reader = new GlobalSearchService(staticIndex([s1]), makeBootstrap(home!), log, makeFlags(false));
+      const reader = new GlobalSearchService(
+        staticIndex([s1]),
+        makeBootstrap(home!),
+        log,
+        makeFlags(false),
+      );
       reader.syncDebounceMs = 0;
       track(reader);
       await syncNow(reader); // join the constructor-kicked pass: opens the read-only handle
@@ -2494,227 +2499,252 @@ describe('search worker host (stage 4)', () => {
     });
   }
 
-  it('restarts a killed worker, reaps its lock, and keeps serving', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', 'crash', T1);
-    await writeWire(home!, 's1', 'main', [userLine('苹果 crash', T1)]);
-    const service = track(makeService(home!, staticIndex([s1])));
-    await service.reindex();
-    expect((await service.search({ query: '苹果' })).items.length).toBe(1);
+  it(
+    'restarts a killed worker, reaps its lock, and keeps serving',
+    { timeout: 30_000 },
+    async () => {
+      const s1 = summary('s1', 'crash', T1);
+      await writeWire(home!, 's1', 'main', [userLine('苹果 crash', T1)]);
+      const service = track(makeService(home!, staticIndex([s1])));
+      await service.reindex();
+      expect((await service.search({ query: '苹果' })).items.length).toBe(1);
 
-    // The worker holds the write lock with THIS process's pid (worker threads
-    // share it) — the stale-by-pid rule alone could never reclaim it here.
-    const lockRaw = JSON.parse(await readFile(lockPath(), 'utf8')) as { pid: number };
-    expect(lockRaw.pid).toBe(process.pid);
+      // The worker holds the write lock with THIS process's pid (worker threads
+      // share it) — the stale-by-pid rule alone could never reclaim it here.
+      const lockRaw = JSON.parse(await readFile(lockPath(), 'utf8')) as { pid: number };
+      expect(lockRaw.pid).toBe(process.pid);
 
-    await hostOf(service).killWorkerForTest();
-    // The dead worker's lock line is reaped (guarded by its token).
-    await waitForGone(lockPath());
+      await hostOf(service).killWorkerForTest();
+      // The dead worker's lock line is reaped (guarded by its token).
+      await waitForGone(lockPath());
 
-    // Inside the backoff window the search reports a recognizable degraded
-    // page instead of hanging or silently serving nothing.
-    const degraded = await service.search({ query: '苹果' });
-    expect(degraded.items).toEqual([]);
-    expect(degraded.indexState.state).toBe('building');
-    expect(degraded.indexState.degraded).toContain('worker');
+      // Inside the backoff window the search reports a recognizable degraded
+      // page instead of hanging or silently serving nothing.
+      const degraded = await service.search({ query: '苹果' });
+      expect(degraded.items).toEqual([]);
+      expect(degraded.indexState.state).toBe('building');
+      expect(degraded.indexState.degraded).toContain('worker');
 
-    // After the backoff the coordinator's retry respawns the worker, reopens
-    // the index and serves real hits again.
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    await settleSync(service);
-    const page = await service.search({ query: '苹果' });
-    expect(page.items.length).toBe(1);
-    expect(page.indexState.state).toBe('ready');
-  });
+      // After the backoff the coordinator's retry respawns the worker, reopens
+      // the index and serves real hits again.
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      await settleSync(service);
+      const page = await service.search({ query: '苹果' });
+      expect(page.items.length).toBe(1);
+      expect(page.indexState.state).toBe('ready');
+    },
+  );
 
-  it('reports the lock token at acquire time; a mid-open kill leaves a reapable lock', { timeout: 30_000 }, async () => {
-    // Seed a corpus with an inline writer so the worker's first open has a
-    // real WAL/generation to chew — the kill lands while the open RPC is
-    // still in flight, so the token could only have arrived via the early
-    // `lockToken` event (no response had a chance to carry it).
-    const summaries: SessionSummary[] = [];
-    for (let i = 0; i < 300; i++) {
-      const s = summary(`midopen-${i}`, `midopen 会话 ${i}`, T1 + i);
-      summaries.push(s);
-      const lines: string[] = [];
-      for (let j = 0; j < 30; j++) lines.push(userLine(`中途退出 ${i}-${j} 检索`, T1 + i * 100 + j));
-      await writeWire(home!, s.id, 'main', lines);
-    }
-    const inline = track(makeInlineService(home!, staticIndex(summaries)));
-    await inline.reindex();
-    inline.dispose();
-    await drainGlobalSearchDisposals();
+  it(
+    'reports the lock token at acquire time; a mid-open kill leaves a reapable lock',
+    { timeout: 30_000 },
+    async () => {
+      // Seed a corpus with an inline writer so the worker's first open has a
+      // real WAL/generation to chew — the kill lands while the open RPC is
+      // still in flight, so the token could only have arrived via the early
+      // `lockToken` event (no response had a chance to carry it).
+      const summaries: SessionSummary[] = [];
+      for (let i = 0; i < 300; i++) {
+        const s = summary(`midopen-${i}`, `midopen 会话 ${i}`, T1 + i);
+        summaries.push(s);
+        const lines: string[] = [];
+        for (let j = 0; j < 30; j++)
+          lines.push(userLine(`中途退出 ${i}-${j} 检索`, T1 + i * 100 + j));
+        await writeWire(home!, s.id, 'main', lines);
+      }
+      const inline = track(makeInlineService(home!, staticIndex(summaries)));
+      await inline.reindex();
+      inline.dispose();
+      await drainGlobalSearchDisposals();
 
-    const dir = join(home!, 'search-index');
-    const host = new SearchWorkerHost({ dir, log: noopLog });
-    hosts.push(host);
-    let openSettled = false;
-    const opening = host.ensureOpen().then(
-      () => {
-        openSettled = true;
-      },
-      () => {
-        openSettled = true;
-      },
-    );
-    await vi.waitFor(
-      () => {
-        expect(host.reportedLockToken).toBeDefined();
-      },
-      { interval: 5, timeout: 10_000 },
-    );
-    // The token event fired at lock-acquire time, long before the replay
-    // finishes — this is the property the mid-open reap depends on.
-    expect(openSettled).toBe(false);
+      const dir = join(home!, 'search-index');
+      const host = new SearchWorkerHost({ dir, log: noopLog });
+      hosts.push(host);
+      let openSettled = false;
+      const opening = host.ensureOpen().then(
+        () => {
+          openSettled = true;
+        },
+        () => {
+          openSettled = true;
+        },
+      );
+      await vi.waitFor(
+        () => {
+          expect(host.reportedLockToken).toBeDefined();
+        },
+        { interval: 5, timeout: 10_000 },
+      );
+      // The token event fired at lock-acquire time, long before the replay
+      // finishes — this is the property the mid-open reap depends on.
+      expect(openSettled).toBe(false);
 
-    await host.killWorkerForTest();
-    await opening; // settled (rejected as crashed) — captured above
-    await waitForGone(lockPath());
+      await host.killWorkerForTest();
+      await opening; // settled (rejected as crashed) — captured above
+      await waitForGone(lockPath());
 
-    // After the backoff the replacement worker reopens as the WRITER — never
-    // a silent permanent read-only.
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    const reopened = await host.ensureOpen();
-    expect(reopened.readOnly).toBe(false);
-  });
+      // After the backoff the replacement worker reopens as the WRITER — never
+      // a silent permanent read-only.
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      const reopened = await host.ensureOpen();
+      expect(reopened.readOnly).toBe(false);
+    },
+  );
 
-  it('recovers a read-only open caused by an orphaned same-pid lock', { timeout: 30_000 }, async () => {
-    const dir = join(home!, 'search-index');
-    await mkdir(dir, { recursive: true });
-    // An orphan lock line as a crashed worker would leave it: this process's
-    // (alive) pid, but a token no live worker can claim.
-    await writeFile(
-      join(dir, 'db.lock'),
-      JSON.stringify({ pid: process.pid, ts: Date.now(), token: 'orphan-token' }),
-      'utf8',
-    );
-    const host = new SearchWorkerHost({ dir, log: noopLog });
-    hosts.push(host);
-    const first = await host.ensureOpen();
-    expect(first.readOnly).toBe(true); // the planted lock looks alive (same pid)
+  it(
+    'recovers a read-only open caused by an orphaned same-pid lock',
+    { timeout: 30_000 },
+    async () => {
+      const dir = join(home!, 'search-index');
+      await mkdir(dir, { recursive: true });
+      // An orphan lock line as a crashed worker would leave it: this process's
+      // (alive) pid, but a token no live worker can claim.
+      await writeFile(
+        join(dir, 'db.lock'),
+        JSON.stringify({ pid: process.pid, ts: Date.now(), token: 'orphan-token' }),
+        'utf8',
+      );
+      const host = new SearchWorkerHost({ dir, log: noopLog });
+      hosts.push(host);
+      const first = await host.ensureOpen();
+      expect(first.readOnly).toBe(true); // the planted lock looks alive (same pid)
 
-    // The orphan detector reaps it (the token belongs to no live worker) and
-    // restarts the worker, which reopens as the writer.
-    await vi.waitFor(
-      async () => {
-        const status = await host.status();
-        expect(status.readOnly).toBe(false);
-      },
-      { timeout: 10_000, interval: 200 },
-    );
-  });
+      // The orphan detector reaps it (the token belongs to no live worker) and
+      // restarts the worker, which reopens as the writer.
+      await vi.waitFor(
+        async () => {
+          const status = await host.status();
+          expect(status.readOnly).toBe(false);
+        },
+        { timeout: 10_000, interval: 200 },
+      );
+    },
+  );
 
-  it('beginClose abandons an in-flight worker sync and dispose stays bounded', { timeout: 30_000 }, async () => {
-    // 200 sessions × 30 lines: the first full pass takes hundreds of ms in
-    // the worker — long enough that beginClose lands before the pass can
-    // complete, with orders of magnitude of margin.
-    const summaries: SessionSummary[] = [];
-    for (let i = 0; i < 200; i++) {
-      const s = summary(`drain-${i}`, `drain 会话 ${i}`, T1 + i);
-      summaries.push(s);
-      const lines: string[] = [];
-      for (let j = 0; j < 30; j++) lines.push(userLine(`排空 ${i}-${j} 检索`, T1 + i * 100 + j));
-      await writeWire(home!, s.id, 'main', lines);
-    }
-    const inputs = summaries.map((s) => syncInput(home!, s));
-    const host = new SearchWorkerHost({ dir: join(home!, 'search-index'), log: noopLog });
-    hosts.push(host);
+  it(
+    'beginClose abandons an in-flight worker sync and dispose stays bounded',
+    { timeout: 30_000 },
+    async () => {
+      // 200 sessions × 30 lines: the first full pass takes hundreds of ms in
+      // the worker — long enough that beginClose lands before the pass can
+      // complete, with orders of magnitude of margin.
+      const summaries: SessionSummary[] = [];
+      for (let i = 0; i < 200; i++) {
+        const s = summary(`drain-${i}`, `drain 会话 ${i}`, T1 + i);
+        summaries.push(s);
+        const lines: string[] = [];
+        for (let j = 0; j < 30; j++) lines.push(userLine(`排空 ${i}-${j} 检索`, T1 + i * 100 + j));
+        await writeWire(home!, s.id, 'main', lines);
+      }
+      const inputs = summaries.map((s) => syncInput(home!, s));
+      const host = new SearchWorkerHost({ dir: join(home!, 'search-index'), log: noopLog });
+      hosts.push(host);
 
-    await host.ensureOpen(); // worker up first, so the sync posts before beginClose
-    const sync = host.sync(inputs); // first full pass (open + index)
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    host.beginClose();
-    // The pass saw the closing gate and returned early as a no-op instead of
-    // running to completion.
-    const outcome = await sync;
-    expect(outcome.noop).toBe(true);
+      await host.ensureOpen(); // worker up first, so the sync posts before beginClose
+      const sync = host.sync(inputs); // first full pass (open + index)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      host.beginClose();
+      // The pass saw the closing gate and returned early as a no-op instead of
+      // running to completion.
+      const outcome = await sync;
+      expect(outcome.noop).toBe(true);
 
-    const startedAt = performance.now();
-    await host.dispose();
-    expect(performance.now() - startedAt).toBeLessThan(5_000);
-    expect((host as unknown as { worker: unknown }).worker).toBeNull();
-  });
+      const startedAt = performance.now();
+      await host.dispose();
+      expect(performance.now() - startedAt).toBeLessThan(5_000);
+      expect((host as unknown as { worker: unknown }).worker).toBeNull();
+    },
+  );
 
-  it('times out a wedged request and terminates the worker (watchdog)', { timeout: 30_000 }, async () => {
-    const dir = join(home!, 'search-index');
-    // Swallow `search` while the gate is up: the request is never delivered,
-    // so only the watchdog can settle it. The respawned worker is ungated.
-    // A query is the only RPC that still rides the short request leash —
-    // `status`/`refresh` share the long sync leash (a refresh over a large
-    // WAL delta legitimately runs for minutes; the watchdog catches a WEDGED
-    // worker, not slow work).
-    let gate = true;
-    const host = new SearchWorkerHost({
-      dir,
-      log: noopLog,
-      requestTimeoutMs: 300,
-      workerFactory: ({ url, data, execArgv }) => {
-        const worker = new Worker(url, { workerData: data, execArgv });
-        const original = worker.postMessage.bind(worker);
-        worker.postMessage = ((message: unknown, ...rest: unknown[]) => {
-          if (gate && (message as { type?: string } | null)?.type === 'search') return true;
-          return original(message as Parameters<Worker['postMessage']>[0], ...(rest as never[]));
-        }) as Worker['postMessage'];
-        return worker;
-      },
-    });
-    hosts.push(host);
-    await host.ensureOpen();
+  it(
+    'times out a wedged request and terminates the worker (watchdog)',
+    { timeout: 30_000 },
+    async () => {
+      const dir = join(home!, 'search-index');
+      // Swallow `search` while the gate is up: the request is never delivered,
+      // so only the watchdog can settle it. The respawned worker is ungated.
+      // A query is the only RPC that still rides the short request leash —
+      // `status`/`refresh` share the long sync leash (a refresh over a large
+      // WAL delta legitimately runs for minutes; the watchdog catches a WEDGED
+      // worker, not slow work).
+      let gate = true;
+      const host = new SearchWorkerHost({
+        dir,
+        log: noopLog,
+        requestTimeoutMs: 300,
+        workerFactory: ({ url, data, execArgv }) => {
+          const worker = new Worker(url, { workerData: data, execArgv });
+          const original = worker.postMessage.bind(worker);
+          worker.postMessage = ((message: unknown, ...rest: unknown[]) => {
+            if (gate && (message as { type?: string } | null)?.type === 'search') return true;
+            return original(message as Parameters<Worker['postMessage']>[0], ...(rest as never[]));
+          }) as Worker['postMessage'];
+          return worker;
+        },
+      });
+      hosts.push(host);
+      await host.ensureOpen();
 
-    const wedged = host.search({
-      q: {
-        query: 'wedged',
-        mode: 'terms',
-        termsQuery: ['wedged'],
-        op: 'AND',
-        sort: 'time_desc',
-        pageSize: 10,
-      },
-      budgets: {
-        literalCandidateCap: 100,
-        maxTextHits: 100,
-        postingsVisitBudget: 100_000,
-        queryDeadlineMs: 5_000,
-        queryTextBudgetChars: 100_000,
-      },
-    });
-    wedged.catch(() => {});
-    await expect(wedged).rejects.toMatchObject({ code: 'crashed' });
-    await expect(wedged).rejects.toThrow(/timed out/);
+      const wedged = host.search({
+        q: {
+          query: 'wedged',
+          mode: 'terms',
+          termsQuery: ['wedged'],
+          op: 'AND',
+          sort: 'time_desc',
+          pageSize: 10,
+        },
+        budgets: {
+          literalCandidateCap: 100,
+          maxTextHits: 100,
+          postingsVisitBudget: 100_000,
+          queryDeadlineMs: 5_000,
+          queryTextBudgetChars: 100_000,
+        },
+      });
+      wedged.catch(() => {});
+      await expect(wedged).rejects.toMatchObject({ code: 'crashed' });
+      await expect(wedged).rejects.toThrow(/timed out/);
 
-    // The wedged worker was terminated; after the backoff the next call
-    // respawns a healthy (ungated) one.
-    gate = false;
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    const status = await host.status();
-    expect(status.readOnly).toBe(false);
-  });
+      // The wedged worker was terminated; after the backoff the next call
+      // respawns a healthy (ungated) one.
+      gate = false;
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      const status = await host.status();
+      expect(status.readOnly).toBe(false);
+    },
+  );
 
-  it('rejects in-flight requests as disposed during a clean close', { timeout: 30_000 }, async () => {
-    const dir = join(home!, 'search-index');
-    const host = new SearchWorkerHost({
-      dir,
-      log: noopLog,
-      workerFactory: ({ url, data, execArgv }) => {
-        const worker = new Worker(url, { workerData: data, execArgv });
-        const original = worker.postMessage.bind(worker);
-        // Park `sync` in the channel; `close` flows through normally, so the
-        // worker drains and exits while the sync is still host-side pending.
-        worker.postMessage = ((message: unknown, ...rest: unknown[]) => {
-          if ((message as { type?: string } | null)?.type === 'sync') return true;
-          return original(message as Parameters<Worker['postMessage']>[0], ...(rest as never[]));
-        }) as Worker['postMessage'];
-        return worker;
-      },
-    });
-    hosts.push(host);
-    await host.ensureOpen();
+  it(
+    'rejects in-flight requests as disposed during a clean close',
+    { timeout: 30_000 },
+    async () => {
+      const dir = join(home!, 'search-index');
+      const host = new SearchWorkerHost({
+        dir,
+        log: noopLog,
+        workerFactory: ({ url, data, execArgv }) => {
+          const worker = new Worker(url, { workerData: data, execArgv });
+          const original = worker.postMessage.bind(worker);
+          // Park `sync` in the channel; `close` flows through normally, so the
+          // worker drains and exits while the sync is still host-side pending.
+          worker.postMessage = ((message: unknown, ...rest: unknown[]) => {
+            if ((message as { type?: string } | null)?.type === 'sync') return true;
+            return original(message as Parameters<Worker['postMessage']>[0], ...(rest as never[]));
+          }) as Worker['postMessage'];
+          return worker;
+        },
+      });
+      hosts.push(host);
+      await host.ensureOpen();
 
-    const sync = host.sync([]);
-    sync.catch(() => {});
-    await host.dispose();
-    // A clean close rejects the racing request as 'disposed', not 'crashed'.
-    await expect(sync).rejects.toMatchObject({ code: 'disposed' });
-  });
+      const sync = host.sync([]);
+      sync.catch(() => {});
+      await host.dispose();
+      // A clean close rejects the racing request as 'disposed', not 'crashed'.
+      await expect(sync).rejects.toMatchObject({ code: 'disposed' });
+    },
+  );
 
   it('reports index_unavailable for searches after dispose', { timeout: 30_000 }, async () => {
     const s1 = summary('s1', 'disposed', T1);
@@ -2732,29 +2762,38 @@ describe('search worker host (stage 4)', () => {
     await drainGlobalSearchDisposals();
   });
 
-  it('invalidates page tokens across a worker restart (boot salt)', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', 'boot', T1);
-    const lines: string[] = [];
-    for (let i = 0; i < 30; i++) lines.push(userLine(`苹果 boot ${i}`, T1 + i));
-    await writeWire(home!, 's1', 'main', lines);
-    const service = track(makeService(home!, staticIndex([s1])));
-    await service.reindex();
-    const page1 = await service.search({ query: '苹果', sort: 'time_asc', pageSize: 10 });
-    expect(page1.pageToken).toBeDefined();
+  it(
+    'invalidates page tokens across a worker restart (boot salt)',
+    { timeout: 30_000 },
+    async () => {
+      const s1 = summary('s1', 'boot', T1);
+      const lines: string[] = [];
+      for (let i = 0; i < 30; i++) lines.push(userLine(`苹果 boot ${i}`, T1 + i));
+      await writeWire(home!, 's1', 'main', lines);
+      const service = track(makeService(home!, staticIndex([s1])));
+      await service.reindex();
+      const page1 = await service.search({ query: '苹果', sort: 'time_asc', pageSize: 10 });
+      expect(page1.pageToken).toBeDefined();
 
-    await hostOf(service).killWorkerForTest();
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    await settleSync(service); // respawn + reopen + resync
+      await hostOf(service).killWorkerForTest();
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      await settleSync(service); // respawn + reopen + resync
 
-    // The respawned worker's local generation counter restarted from 0; the
-    // boot salt makes the dead worker's token fail validation instead of
-    // colliding with the fresh counter.
-    await expect(
-      service.search({ query: '苹果', sort: 'time_asc', pageSize: 10, pageToken: page1.pageToken }),
-    ).rejects.toMatchObject({ reason: 'invalid_page_token' });
-    const restarted = await service.search({ query: '苹果', sort: 'time_asc', pageSize: 10 });
-    expect(restarted.items.length).toBe(10);
-  });
+      // The respawned worker's local generation counter restarted from 0; the
+      // boot salt makes the dead worker's token fail validation instead of
+      // colliding with the fresh counter.
+      await expect(
+        service.search({
+          query: '苹果',
+          sort: 'time_asc',
+          pageSize: 10,
+          pageToken: page1.pageToken,
+        }),
+      ).rejects.toMatchObject({ reason: 'invalid_page_token' });
+      const restarted = await service.search({ query: '苹果', sort: 'time_asc', pageSize: 10 });
+      expect(restarted.items.length).toBe(10);
+    },
+  );
 
   it('rebuilds a corrupt database inside the worker', { timeout: 30_000 }, async () => {
     const s1 = summary('s1', 'corrupt', T1);
@@ -2776,62 +2815,70 @@ describe('search worker host (stage 4)', () => {
     expect(page.indexState.state).toBe('ready');
   });
 
-  it('runs a second worker read-only and a fresh worker becomes the writer after the writer dies', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', 'election', T1);
-    const file = await writeWire(home!, 's1', 'main', [userLine('苹果 election', T1)]);
-    const index = staticIndex([s1]);
+  it(
+    'runs a second worker read-only and a fresh worker becomes the writer after the writer dies',
+    { timeout: 30_000 },
+    async () => {
+      const s1 = summary('s1', 'election', T1);
+      const file = await writeWire(home!, 's1', 'main', [userLine('苹果 election', T1)]);
+      const index = staticIndex([s1]);
 
-    const writer = track(makeService(home!, index));
-    await writer.reindex();
-    const reader = track(makeService(home!, index));
-    await reader.status();
-    const ro = await reader.search({ query: '苹果' });
-    expect(ro.indexState.state).toBe('readonly');
-    expect(ro.items.length).toBe(1);
+      const writer = track(makeService(home!, index));
+      await writer.reindex();
+      const reader = track(makeService(home!, index));
+      await reader.status();
+      const ro = await reader.search({ query: '苹果' });
+      expect(ro.indexState.state).toBe('readonly');
+      expect(ro.items.length).toBe(1);
 
-    // WAL catch-up across two workers of one process.
-    await appendFile(file, `${userLine('苹果 delta', T2)}\n`, 'utf8');
-    await settleSync(writer);
-    await refreshNow(reader);
-    expect((await reader.search({ query: '苹果' })).items.length).toBe(2);
+      // WAL catch-up across two workers of one process.
+      await appendFile(file, `${userLine('苹果 delta', T2)}\n`, 'utf8');
+      await settleSync(writer);
+      await refreshNow(reader);
+      expect((await reader.search({ query: '苹果' })).items.length).toBe(2);
 
-    // The writer's worker dies; its lock is reaped. A fresh instance's worker
-    // then acquires the write lock (the election) and can reindex.
-    await hostOf(writer).killWorkerForTest();
-    await waitForGone(lockPath());
-    writer.dispose();
-    await drainGlobalSearchDisposals();
+      // The writer's worker dies; its lock is reaped. A fresh instance's worker
+      // then acquires the write lock (the election) and can reindex.
+      await hostOf(writer).killWorkerForTest();
+      await waitForGone(lockPath());
+      writer.dispose();
+      await drainGlobalSearchDisposals();
 
-    const third = track(makeService(home!, index));
-    await settleSync(third);
-    const ready = await third.search({ query: '苹果' });
-    expect(ready.indexState.state).toBe('ready');
-    expect(ready.items.length).toBe(2);
-    await third.reindex(); // would throw readonly_index without the write lock
-    expect((await third.search({ query: '苹果' })).items.length).toBe(2);
-  });
+      const third = track(makeService(home!, index));
+      await settleSync(third);
+      const ready = await third.search({ query: '苹果' });
+      expect(ready.indexState.state).toBe('ready');
+      expect(ready.items.length).toBe(2);
+      await third.reindex(); // would throw readonly_index without the write lock
+      expect((await third.search({ query: '苹果' })).items.length).toBe(2);
+    },
+  );
 
-  it('reader worker reopens when the writer replaces the WAL/snapshot (reindex)', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', 'rotate', T1);
-    const file = await writeWire(home!, 's1', 'main', [userLine('苹果 rotate', T1)]);
-    const index = staticIndex([s1]);
+  it(
+    'reader worker reopens when the writer replaces the WAL/snapshot (reindex)',
+    { timeout: 30_000 },
+    async () => {
+      const s1 = summary('s1', 'rotate', T1);
+      const file = await writeWire(home!, 's1', 'main', [userLine('苹果 rotate', T1)]);
+      const index = staticIndex([s1]);
 
-    const writer = track(makeService(home!, index));
-    await writer.reindex();
-    const reader = track(makeService(home!, index));
-    await reader.status();
-    expect((await reader.search({ query: '苹果' })).items.length).toBe(1);
+      const writer = track(makeService(home!, index));
+      await writer.reindex();
+      const reader = track(makeService(home!, index));
+      await reader.status();
+      expect((await reader.search({ query: '苹果' })).items.length).toBe(1);
 
-    // Reindex wipes and rebuilds the whole directory: the reader's watermark
-    // no longer aligns, so its refresh takes the reopen-and-swap path.
-    await appendFile(file, `${userLine('苹果 rotated', T2)}\n`, 'utf8');
-    await writer.reindex();
-    await refreshNow(reader);
-    const page = await reader.search({ query: '苹果' });
-    expect(page.indexState.state).toBe('readonly');
-    expect(page.items.length).toBe(2);
-    expect(page.items.some((h) => h.snippet.includes('rotated'))).toBe(true);
-  });
+      // Reindex wipes and rebuilds the whole directory: the reader's watermark
+      // no longer aligns, so its refresh takes the reopen-and-swap path.
+      await appendFile(file, `${userLine('苹果 rotated', T2)}\n`, 'utf8');
+      await writer.reindex();
+      await refreshNow(reader);
+      const page = await reader.search({ query: '苹果' });
+      expect(page.indexState.state).toBe('readonly');
+      expect(page.items.length).toBe(2);
+      expect(page.items.some((h) => h.snippet.includes('rotated'))).toBe(true);
+    },
+  );
 
   it('rejects in-flight requests when the worker dies', { timeout: 30_000 }, async () => {
     const dir = join(home!, 'search-index');
@@ -2871,134 +2918,146 @@ describe('search worker host (stage 4)', () => {
     await waitForGone(join(dir, 'db.lock'));
   });
 
-  it('dispose terminates a wedged worker after the close timeout', { timeout: 30_000 }, async () => {
-    const dir = join(home!, 'search-index');
-    const host = new SearchWorkerHost({
-      dir,
-      log: noopLog,
-      closeTimeoutMs: 300,
-      workerFactory: ({ url, data, execArgv }) => {
-        const worker = new Worker(url, { workerData: data, execArgv });
-        const original = worker.postMessage.bind(worker);
-        // Swallow `close`: the drain can never complete, so the host's
-        // terminate() backstop must end the worker within the timeout.
-        worker.postMessage = ((message: unknown, ...rest: unknown[]) => {
-          if ((message as { type?: string } | null)?.type === 'close') return true;
-          return original(message as Parameters<Worker['postMessage']>[0], ...(rest as never[]));
-        }) as Worker['postMessage'];
-        return worker;
-      },
-    });
-    hosts.push(host);
-    await host.ensureOpen();
+  it(
+    'dispose terminates a wedged worker after the close timeout',
+    { timeout: 30_000 },
+    async () => {
+      const dir = join(home!, 'search-index');
+      const host = new SearchWorkerHost({
+        dir,
+        log: noopLog,
+        closeTimeoutMs: 300,
+        workerFactory: ({ url, data, execArgv }) => {
+          const worker = new Worker(url, { workerData: data, execArgv });
+          const original = worker.postMessage.bind(worker);
+          // Swallow `close`: the drain can never complete, so the host's
+          // terminate() backstop must end the worker within the timeout.
+          worker.postMessage = ((message: unknown, ...rest: unknown[]) => {
+            if ((message as { type?: string } | null)?.type === 'close') return true;
+            return original(message as Parameters<Worker['postMessage']>[0], ...(rest as never[]));
+          }) as Worker['postMessage'];
+          return worker;
+        },
+      });
+      hosts.push(host);
+      await host.ensureOpen();
 
-    const startedAt = performance.now();
-    await host.dispose();
-    const elapsed = performance.now() - startedAt;
-    expect(elapsed).toBeGreaterThan(250);
-    expect(elapsed).toBeLessThan(10_000);
-    expect((host as unknown as { worker: unknown }).worker).toBeNull();
-  });
+      const startedAt = performance.now();
+      await host.dispose();
+      const elapsed = performance.now() - startedAt;
+      expect(elapsed).toBeGreaterThan(250);
+      expect(elapsed).toBeLessThan(10_000);
+      expect((host as unknown as { worker: unknown }).worker).toBeNull();
+    },
+  );
 
-  it('keeps the main thread responsive while the worker opens and syncs a corpus', { timeout: 30_000 }, async () => {
-    // 120 sessions × 30 lines — enough for the worker's open + first full
-    // sync to take measurable time, small enough for CI.
-    const summaries: SessionSummary[] = [];
-    for (let i = 0; i < 120; i++) {
-      const s = summary(`probe-${i}`, `probe 会话 ${i}`, T1 + i);
-      summaries.push(s);
-      const lines: string[] = [];
-      for (let j = 0; j < 30; j++) {
-        lines.push(userLine(`检索词 probe ${i}-${j} 持久化`, T1 + i * 100 + j));
+  it(
+    'keeps the main thread responsive while the worker opens and syncs a corpus',
+    { timeout: 30_000 },
+    async () => {
+      // 120 sessions × 30 lines — enough for the worker's open + first full
+      // sync to take measurable time, small enough for CI.
+      const summaries: SessionSummary[] = [];
+      for (let i = 0; i < 120; i++) {
+        const s = summary(`probe-${i}`, `probe 会话 ${i}`, T1 + i);
+        summaries.push(s);
+        const lines: string[] = [];
+        for (let j = 0; j < 30; j++) {
+          lines.push(userLine(`检索词 probe ${i}-${j} 持久化`, T1 + i * 100 + j));
+        }
+        await writeWire(home!, s.id, 'main', lines);
       }
-      await writeWire(home!, s.id, 'main', lines);
-    }
 
-    const eld = monitorEventLoopDelay({ resolution: 5 });
-    let probing = true;
-    let ticks = 0;
-    const probe = (async () => {
-      while (probing) {
-        await new Promise((resolve) => setImmediate(resolve));
-        ticks++;
+      const eld = monitorEventLoopDelay({ resolution: 5 });
+      let probing = true;
+      let ticks = 0;
+      const probe = (async () => {
+        while (probing) {
+          await new Promise((resolve) => setImmediate(resolve));
+          ticks++;
+        }
+      })();
+      eld.enable();
+
+      const service = track(makeService(home!, staticIndex(summaries)));
+      // A search issued while the worker boots/opens/syncs answers with
+      // building semantics instead of waiting for the heavy work.
+      const early = await service.search({ query: '检索词' });
+      expect(early.indexState.state).toBe('building');
+      await settleSync(service);
+
+      probing = false;
+      await probe;
+      eld.disable();
+      const p99Ms = eld.percentile(99) / 1e6;
+      const maxMs = eld.max / 1e6;
+      // Logged for phase-to-phase comparison; asserted against CI-safe
+      // ceilings that still catch a main-thread stall regression — the point
+      // is "no main-thread stall", not speed.
+      console.log('[stage-4 worker probe]', JSON.stringify({ p99Ms, maxMs, ticks }));
+      expect(ticks).toBeGreaterThan(0);
+      expect(p99Ms).toBeLessThan(20);
+      expect(maxMs).toBeLessThan(100);
+
+      const page = await service.search({ query: '检索词' });
+      expect(page.items.length).toBeGreaterThan(0);
+      expect(page.indexState.state).toBe('ready');
+    },
+  );
+
+  it(
+    'keeps the main thread responsive while the worker rebuilds and swaps the generation (reindex)',
+    { timeout: 30_000 },
+    async () => {
+      // Same corpus scale as the open/sync probe. The measured reindex reruns
+      // the full build inside the worker and atomically swaps the published
+      // generation (the reader-reopen path); the main thread only passes RPC
+      // messages, so its event loop must stay live throughout.
+      const summaries: SessionSummary[] = [];
+      for (let i = 0; i < 120; i++) {
+        const s = summary(`reindex-${i}`, `reindex 会话 ${i}`, T1 + i);
+        summaries.push(s);
+        const lines: string[] = [];
+        for (let j = 0; j < 30; j++) {
+          lines.push(userLine(`检索词 reindex ${i}-${j} 持久化`, T1 + i * 100 + j));
+        }
+        await writeWire(home!, s.id, 'main', lines);
       }
-    })();
-    eld.enable();
 
-    const service = track(makeService(home!, staticIndex(summaries)));
-    // A search issued while the worker boots/opens/syncs answers with
-    // building semantics instead of waiting for the heavy work.
-    const early = await service.search({ query: '检索词' });
-    expect(early.indexState.state).toBe('building');
-    await settleSync(service);
+      const service = track(makeService(home!, staticIndex(summaries)));
+      await service.reindex();
+      expect((await service.search({ query: '检索词' })).indexState.state).toBe('ready');
 
-    probing = false;
-    await probe;
-    eld.disable();
-    const p99Ms = eld.percentile(99) / 1e6;
-    const maxMs = eld.max / 1e6;
-    // Logged for phase-to-phase comparison; asserted against CI-safe
-    // ceilings that still catch a main-thread stall regression — the point
-    // is "no main-thread stall", not speed.
-    console.log('[stage-4 worker probe]', JSON.stringify({ p99Ms, maxMs, ticks }));
-    expect(ticks).toBeGreaterThan(0);
-    expect(p99Ms).toBeLessThan(20);
-    expect(maxMs).toBeLessThan(100);
+      const eld = monitorEventLoopDelay({ resolution: 5 });
+      const stop = { done: false };
+      let ticks = 0;
+      const probe = (async () => {
+        while (!stop.done) {
+          await new Promise((resolve) => setImmediate(resolve));
+          ticks++;
+        }
+      })();
+      eld.enable();
 
-    const page = await service.search({ query: '检索词' });
-    expect(page.items.length).toBeGreaterThan(0);
-    expect(page.indexState.state).toBe('ready');
-  });
+      await service.reindex();
 
-  it('keeps the main thread responsive while the worker rebuilds and swaps the generation (reindex)', { timeout: 30_000 }, async () => {
-    // Same corpus scale as the open/sync probe. The measured reindex reruns
-    // the full build inside the worker and atomically swaps the published
-    // generation (the reader-reopen path); the main thread only passes RPC
-    // messages, so its event loop must stay live throughout.
-    const summaries: SessionSummary[] = [];
-    for (let i = 0; i < 120; i++) {
-      const s = summary(`reindex-${i}`, `reindex 会话 ${i}`, T1 + i);
-      summaries.push(s);
-      const lines: string[] = [];
-      for (let j = 0; j < 30; j++) {
-        lines.push(userLine(`检索词 reindex ${i}-${j} 持久化`, T1 + i * 100 + j));
-      }
-      await writeWire(home!, s.id, 'main', lines);
-    }
+      stop.done = true;
+      await probe;
+      eld.disable();
+      const p99Ms = eld.percentile(99) / 1e6;
+      const maxMs = eld.max / 1e6;
+      // Same CI-safe ceilings as the open/sync probe: the point is "no
+      // main-thread stall", not speed.
+      console.log('[stage-4 reindex probe]', JSON.stringify({ p99Ms, maxMs, ticks }));
+      expect(ticks).toBeGreaterThan(0);
+      expect(p99Ms).toBeLessThan(20);
+      expect(maxMs).toBeLessThan(100);
 
-    const service = track(makeService(home!, staticIndex(summaries)));
-    await service.reindex();
-    expect((await service.search({ query: '检索词' })).indexState.state).toBe('ready');
-
-    const eld = monitorEventLoopDelay({ resolution: 5 });
-    const stop = { done: false };
-    let ticks = 0;
-    const probe = (async () => {
-      while (!stop.done) {
-        await new Promise((resolve) => setImmediate(resolve));
-        ticks++;
-      }
-    })();
-    eld.enable();
-
-    await service.reindex();
-
-    stop.done = true;
-    await probe;
-    eld.disable();
-    const p99Ms = eld.percentile(99) / 1e6;
-    const maxMs = eld.max / 1e6;
-    // Same CI-safe ceilings as the open/sync probe: the point is "no
-    // main-thread stall", not speed.
-    console.log('[stage-4 reindex probe]', JSON.stringify({ p99Ms, maxMs, ticks }));
-    expect(ticks).toBeGreaterThan(0);
-    expect(p99Ms).toBeLessThan(20);
-    expect(maxMs).toBeLessThan(100);
-
-    const page = await service.search({ query: '检索词' });
-    expect(page.items.length).toBeGreaterThan(0);
-    expect(page.indexState.state).toBe('ready');
-  });
+      const page = await service.search({ query: '检索词' });
+      expect(page.items.length).toBeGreaterThan(0);
+      expect(page.indexState.state).toBe('ready');
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -3096,32 +3155,41 @@ describe('search lifecycle diagnostics (stage 5)', () => {
     expect(status.degraded).toContain('disk gone');
   });
 
-  it('logs the corruption rebuild as its own diagnostic outcome (inline)', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', 'corrupt 日志', T1);
-    await writeWire(home!, 's1', 'main', [userLine('苹果 corrupt-log', T1)]);
-    const first = track(makeInlineService(home!, staticIndex([s1])));
-    await first.reindex();
-    first.dispose();
-    await drainGlobalSearchDisposals();
+  it(
+    'logs the corruption rebuild as its own diagnostic outcome (inline)',
+    { timeout: 30_000 },
+    async () => {
+      const s1 = summary('s1', 'corrupt 日志', T1);
+      await writeWire(home!, 's1', 'main', [userLine('苹果 corrupt-log', T1)]);
+      const first = track(makeInlineService(home!, staticIndex([s1])));
+      await first.reindex();
+      first.dispose();
+      await drainGlobalSearchDisposals();
 
-    // Corrupt the text-index definitions sidecar: its JSON.parse failure is a
-    // rebuildable corruption (SyntaxError), so the open throws, the probe
-    // confirms the lock is free, and the derived index is rebuilt from
-    // scratch — with the warn line this test asserts. (A corrupt db.snapshot
-    // would NOT exercise this path: resync-mode recovery skips bad frames and
-    // the intact WAL heals the open.)
-    await writeFile(join(home!, 'search-index', 'db.textindexes.json'), 'not json {{{', 'utf8');
+      // Corrupt the text-index definitions sidecar: its JSON.parse failure is a
+      // rebuildable corruption (SyntaxError), so the open throws, the probe
+      // confirms the lock is free, and the derived index is rebuilt from
+      // scratch — with the warn line this test asserts. (A corrupt db.snapshot
+      // would NOT exercise this path: resync-mode recovery skips bad frames and
+      // the intact WAL heals the open.)
+      await writeFile(join(home!, 'search-index', 'db.textindexes.json'), 'not json {{{', 'utf8');
 
-    const { log, warnings } = recordingLog();
-    const second = new GlobalSearchService(staticIndex([s1]), makeBootstrap(home!), log, makeFlags(false));
-    track(second);
-    second.syncDebounceMs = 0;
-    await settleSync(second);
-    expect(warnings.some((line) => line.includes('corruption detected'))).toBe(true);
-    const page = await second.search({ query: '苹果' });
-    expect(page.items.length).toBe(1);
-    expect(page.indexState.state).toBe('ready');
-  });
+      const { log, warnings } = recordingLog();
+      const second = new GlobalSearchService(
+        staticIndex([s1]),
+        makeBootstrap(home!),
+        log,
+        makeFlags(false),
+      );
+      track(second);
+      second.syncDebounceMs = 0;
+      await settleSync(second);
+      expect(warnings.some((line) => line.includes('corruption detected'))).toBe(true);
+      const page = await second.search({ query: '苹果' });
+      expect(page.items.length).toBe(1);
+      expect(page.indexState.state).toBe('ready');
+    },
+  );
 
   it('a failing session index degrades search only — construction, search and status keep answering', async () => {
     // The dependency direction pin (stage 5 work item 2): global search READS
@@ -3211,122 +3279,137 @@ describe('search lifecycle diagnostics (stage 5)', () => {
     expect(host.lifecycleSnapshot().state).toBe('ready');
   });
 
-  it('reports opening while the worker boots, ready after the sync, degraded after a crash', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', '生命周期', T1);
-    await writeWire(home!, 's1', 'main', [userLine('苹果 lifecycle', T1)]);
-    const service = track(makeService(home!, staticIndex([s1])));
-    // Let the constructor-kicked sync reach the worker spawn (a worker boot
-    // takes ~200ms, far longer than these flush rounds), then the local
-    // report must show the transitional state WITHOUT any RPC.
-    await flush();
-    expect(service.lifecycleReport().state).toBe('opening');
-    await settleSync(service);
-    expect(service.lifecycleReport().state).toBe('ready');
-    const status = await service.status();
-    expect(status.lifecycle.state).toBe('ready');
-    expect(status.sessions).toBe(1);
+  it(
+    'reports opening while the worker boots, ready after the sync, degraded after a crash',
+    { timeout: 30_000 },
+    async () => {
+      const s1 = summary('s1', '生命周期', T1);
+      await writeWire(home!, 's1', 'main', [userLine('苹果 lifecycle', T1)]);
+      const service = track(makeService(home!, staticIndex([s1])));
+      // Let the constructor-kicked sync reach the worker spawn (a worker boot
+      // takes ~200ms, far longer than these flush rounds), then the local
+      // report must show the transitional state WITHOUT any RPC.
+      await flush();
+      expect(service.lifecycleReport().state).toBe('opening');
+      await settleSync(service);
+      expect(service.lifecycleReport().state).toBe('ready');
+      const status = await service.status();
+      expect(status.lifecycle.state).toBe('ready');
+      expect(status.sessions).toBe(1);
 
-    await hostOf(service).killWorkerForTest();
-    // Inside the backoff window the local report names the crash — no RPC
-    // needed, so the state is observable while the worker is down.
-    const down = service.lifecycleReport();
-    expect(down.state).toBe('degraded');
-    expect(down.detail).toContain('worker');
+      await hostOf(service).killWorkerForTest();
+      // Inside the backoff window the local report names the crash — no RPC
+      // needed, so the state is observable while the worker is down.
+      const down = service.lifecycleReport();
+      expect(down.state).toBe('degraded');
+      expect(down.detail).toContain('worker');
 
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    await settleSync(service); // respawn after the backoff
-    expect(service.lifecycleReport().state).toBe('ready');
-    expect((await service.search({ query: '苹果' })).items.length).toBe(1);
-  });
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      await settleSync(service); // respawn after the backoff
+      expect(service.lifecycleReport().state).toBe('ready');
+      expect((await service.search({ query: '苹果' })).items.length).toBe(1);
+    },
+  );
 
-  it('does not serve a dead worker generation’s cached lifecycle after a respawn', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', '缓存失效', T1);
-    await writeWire(home!, 's1', 'main', [userLine('苹果 stale-cache', T1)]);
-    const service = track(makeService(home!, staticIndex([s1])));
-    await settleSync(service);
-    expect(service.lifecycleReport().state).toBe('ready');
+  it(
+    'does not serve a dead worker generation’s cached lifecycle after a respawn',
+    { timeout: 30_000 },
+    async () => {
+      const s1 = summary('s1', '缓存失效', T1);
+      await writeWire(home!, 's1', 'main', [userLine('苹果 stale-cache', T1)]);
+      const service = track(makeService(home!, staticIndex([s1])));
+      await settleSync(service);
+      expect(service.lifecycleReport().state).toBe('ready');
 
-    await hostOf(service).killWorkerForTest();
-    await new Promise((resolve) => setTimeout(resolve, 700)); // out of backoff
+      await hostOf(service).killWorkerForTest();
+      await new Promise((resolve) => setTimeout(resolve, 700)); // out of backoff
 
-    // Drive a respawn, then pin the window between the handshake completing
-    // and the first RPC response landing: the new worker's core has not even
-    // opened the db yet, so the snapshot must report 'opening' — never the
-    // dead worker's cached 'ready'. The assertion runs synchronously right
-    // after the poll, so the response message cannot have been processed yet.
-    const host = hostOf(service);
-    const respawn = syncNow(service);
-    respawn.catch(() => {});
-    await vi.waitFor(
-      () => {
-        expect((host as unknown as { worker: unknown }).worker).not.toBeNull();
-      },
-      { interval: 5, timeout: 10_000 },
-    );
-    expect(service.lifecycleReport().state).toBe('opening');
+      // Drive a respawn, then pin the window between the handshake completing
+      // and the first RPC response landing: the new worker's core has not even
+      // opened the db yet, so the snapshot must report 'opening' — never the
+      // dead worker's cached 'ready'. The assertion runs synchronously right
+      // after the poll, so the response message cannot have been processed yet.
+      const host = hostOf(service);
+      const respawn = syncNow(service);
+      respawn.catch(() => {});
+      await vi.waitFor(
+        () => {
+          expect((host as unknown as { worker: unknown }).worker).not.toBeNull();
+        },
+        { interval: 5, timeout: 10_000 },
+      );
+      expect(service.lifecycleReport().state).toBe('opening');
 
-    await respawn;
-    await settleSync(service);
-    expect(service.lifecycleReport().state).toBe('ready');
-    expect((await service.search({ query: '苹果' })).items.length).toBe(1);
-  });
+      await respawn;
+      await settleSync(service);
+      expect(service.lifecycleReport().state).toBe('ready');
+      expect((await service.search({ query: '苹果' })).items.length).toBe(1);
+    },
+  );
 
-  it('a clean dispose releases the search-index lock and the lifecycle settles at stopped', { timeout: 30_000 }, async () => {
-    const s1 = summary('s1', '退出顺序', T1);
-    await writeWire(home!, 's1', 'main', [userLine('苹果 shutdown', T1)]);
-    const service = track(makeService(home!, staticIndex([s1])));
-    await service.reindex();
-    await expect(stat(lockPath())).resolves.toBeDefined();
+  it(
+    'a clean dispose releases the search-index lock and the lifecycle settles at stopped',
+    { timeout: 30_000 },
+    async () => {
+      const s1 = summary('s1', '退出顺序', T1);
+      await writeWire(home!, 's1', 'main', [userLine('苹果 shutdown', T1)]);
+      const service = track(makeService(home!, staticIndex([s1])));
+      await service.reindex();
+      await expect(stat(lockPath())).resolves.toBeDefined();
 
-    const host = hostOf(service);
-    host.beginClose();
-    expect(host.lifecycleSnapshot().state).toBe('closing');
-    service.dispose();
-    await drainGlobalSearchDisposals();
-    // The worker drained, closed the db (releasing the lock) and exited
-    // before the disposal promise resolved.
-    await waitForGone(lockPath());
-    expect(service.lifecycleReport()).toEqual({ state: 'stopped' });
+      const host = hostOf(service);
+      host.beginClose();
+      expect(host.lifecycleSnapshot().state).toBe('closing');
+      service.dispose();
+      await drainGlobalSearchDisposals();
+      // The worker drained, closed the db (releasing the lock) and exited
+      // before the disposal promise resolved.
+      await waitForGone(lockPath());
+      expect(service.lifecycleReport()).toEqual({ state: 'stopped' });
 
-    // A fresh instance can take the write lock immediately — no stale-lock
-    // window after a clean shutdown.
-    const next = track(makeService(home!, staticIndex([s1])));
-    await next.reindex();
-    expect((await next.search({ query: '苹果' })).items.length).toBe(1);
-  });
+      // A fresh instance can take the write lock immediately — no stale-lock
+      // window after a clean shutdown.
+      const next = track(makeService(home!, staticIndex([s1])));
+      await next.reindex();
+      expect((await next.search({ query: '苹果' })).items.length).toBe(1);
+    },
+  );
 
-  it('a spawn failure never falls back to the inline host and reports degraded', { timeout: 30_000 }, async () => {
-    const service = track(makeService(home!, staticIndex([])));
-    // Swap in a host whose worker cannot spawn (no worker runtime in this
-    // environment): the search must degrade recognizably, never restore the
-    // index work onto the main thread.
-    const failingHost = new SearchWorkerHost({
-      dir: join(home!, 'search-index'),
-      log: noopLog,
-      workerFactory: () => {
-        throw new Error('threads unavailable');
-      },
-    });
-    hosts.push(failingHost);
-    (service as unknown as { backend: SearchBackend }).backend = failingHost;
+  it(
+    'a spawn failure never falls back to the inline host and reports degraded',
+    { timeout: 30_000 },
+    async () => {
+      const service = track(makeService(home!, staticIndex([])));
+      // Swap in a host whose worker cannot spawn (no worker runtime in this
+      // environment): the search must degrade recognizably, never restore the
+      // index work onto the main thread.
+      const failingHost = new SearchWorkerHost({
+        dir: join(home!, 'search-index'),
+        log: noopLog,
+        workerFactory: () => {
+          throw new Error('threads unavailable');
+        },
+      });
+      hosts.push(failingHost);
+      (service as unknown as { backend: SearchBackend }).backend = failingHost;
 
-    const page = await service.search({ query: 'anything' });
-    expect(page.items).toEqual([]);
-    expect(page.source).toBe('index');
-    expect(page.indexState.state).toBe('building');
-    expect(page.indexState.degraded).toContain('threads unavailable');
-    // No inline db materialized: the index directory was never created.
-    await expect(stat(join(home!, 'search-index'))).rejects.toThrow();
+      const page = await service.search({ query: 'anything' });
+      expect(page.items).toEqual([]);
+      expect(page.source).toBe('index');
+      expect(page.indexState.state).toBe('building');
+      expect(page.indexState.degraded).toContain('threads unavailable');
+      // No inline db materialized: the index directory was never created.
+      await expect(stat(join(home!, 'search-index'))).rejects.toThrow();
 
-    expect(service.lifecycleReport().state).toBe('degraded');
-    // A second call inside the backoff window fails fast; status() still
-    // answers (never throws) with the degraded lifecycle.
-    const status = await service.status();
-    expect(status.lifecycle.state).toBe('degraded');
-    expect(status.degraded).toContain('worker');
-  });
+      expect(service.lifecycleReport().state).toBe('degraded');
+      // A second call inside the backoff window fails fast; status() still
+      // answers (never throws) with the degraded lifecycle.
+      const status = await service.status();
+      expect(status.lifecycle.state).toBe('degraded');
+      expect(status.degraded).toContain('worker');
+    },
+  );
 });
-
 
 // Numbers are logged as JSON for phase-to-phase comparison; only a loose
 // complexity budget is asserted (no tight absolute millisecond thresholds in
@@ -3358,8 +3441,18 @@ describe('baseline: synthetic corpus', () => {
       summaries.push(summary(id, `session ${i} 索引讨论`, T1 + i));
       const lines: string[] = [];
       for (let j = 0; j < 8; j++) {
-        lines.push(userLine(`session ${i} message ${j} about ${TOPICS[(i + j) % TOPICS.length]!}`, T1 + i * 100 + j));
-        lines.push(assistantLine(`reply ${j} covering ${TOPICS[(i + 2 * j) % TOPICS.length]!}`, T1 + i * 100 + j + 1));
+        lines.push(
+          userLine(
+            `session ${i} message ${j} about ${TOPICS[(i + j) % TOPICS.length]!}`,
+            T1 + i * 100 + j,
+          ),
+        );
+        lines.push(
+          assistantLine(
+            `reply ${j} covering ${TOPICS[(i + 2 * j) % TOPICS.length]!}`,
+            T1 + i * 100 + j + 1,
+          ),
+        );
       }
       await writeWire(home!, id, 'main', lines);
     }
@@ -3389,19 +3482,25 @@ describe('baseline: synthetic corpus', () => {
     await service.reindex();
     const index100 = performance.now() - t0;
     const terms100 = await medianMs(() => service.search({ query: 'compaction' }));
-    const literal100 = await medianMs(() => service.search({ query: 'message 3 about', mode: 'literal' }));
+    const literal100 = await medianMs(() =>
+      service.search({ query: 'message 3 about', mode: 'literal' }),
+    );
 
     all.push(...(await writeCorpus(100, 400)));
     const t1 = performance.now();
     await service.reindex();
     const index400 = performance.now() - t1;
     const terms400 = await medianMs(() => service.search({ query: 'compaction' }));
-    const literal400 = await medianMs(() => service.search({ query: 'message 3 about', mode: 'literal' }));
+    const literal400 = await medianMs(() =>
+      service.search({ query: 'message 3 about', mode: 'literal' }),
+    );
 
     // Sanity: the corpus really grew and both modes still hit.
     const hits = await service.search({ query: 'compaction' });
     expect(hits.items.length).toBeGreaterThan(0);
-    expect((await service.search({ query: 'message 3 about', mode: 'literal' })).items.length).toBeGreaterThan(0);
+    expect(
+      (await service.search({ query: 'message 3 about', mode: 'literal' })).items.length,
+    ).toBeGreaterThan(0);
 
     console.log(
       `[baseline] searchService ${JSON.stringify({

@@ -3,6 +3,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { AppSubagentPhase, AppTask } from '../../api/types';
 import Badge from '../ui/Badge.vue';
 import StatusDot from '../ui/StatusDot.vue';
@@ -47,13 +48,12 @@ const label = computed(() => {
     <button type="button" class="sc-row" @click="emit('openAgent', node.task.id)">
       <StatusDot :status="phase" />
       <span class="sc-name" :title="node.task.id">{{ label }}</span>
-      <Badge
-        v-if="node.task.swarmIndex !== undefined"
-        variant="info"
-        size="sm"
-        class="sc-swarm"
-      >{{ t('subagents.swarm') }} {{ node.task.swarmIndex }}</Badge>
-      <Badge variant="neutral" size="sm" class="sc-phase">{{ t(`subagents.phase.${phase}`) }}</Badge>
+      <Badge v-if="node.task.swarmIndex !== undefined" variant="info" size="sm" class="sc-swarm"
+        >{{ t('subagents.swarm') }} {{ node.task.swarmIndex }}</Badge
+      >
+      <Badge variant="neutral" size="sm" class="sc-phase">{{
+        t(`subagents.phase.${phase}`)
+      }}</Badge>
       <span v-if="duration" class="sc-duration">{{ duration }}</span>
     </button>
     <ul v-if="node.children.length > 0" class="sc-tree sc-children">

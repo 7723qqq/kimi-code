@@ -38,12 +38,9 @@
  *   KIMI_BOUNDARY_SKIP_LIVE — set to `1` to skip part 1 (no real API calls)
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-
-import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
-
-import type { AddressInfo } from 'node:net';
 
 import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
 import { isError2 } from '@moonshot-ai/agent-core-v2/_base/errors/errors';
@@ -66,6 +63,8 @@ import type {
 } from '@moonshot-ai/agent-core-v2/kosong/model/modelRequester';
 import { ModelRequesterImpl } from '@moonshot-ai/agent-core-v2/kosong/model/modelRequesterImpl';
 import { ProtocolAdapterRegistry } from '@moonshot-ai/agent-core-v2/kosong/provider/protocolAdapterRegistry';
+
+import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
 
 function assert(cond: boolean, message: string): asserts cond {
   if (!cond) throw new Error(`assertion failed: ${message}`);
@@ -108,7 +107,11 @@ async function probeRealConfig(): Promise<void> {
       const startedAt = Date.now();
       const result = await Promise.race([
         catalog.ping(m.model),
-        tick(45_000).then(() => ({ ok: false as const, durationMs: 45_000, error: 'ping timed out after 45s' })),
+        tick(45_000).then(() => ({
+          ok: false as const,
+          durationMs: 45_000,
+          error: 'ping timed out after 45s',
+        })),
       ]);
       if (result.ok) {
         console.log(
@@ -389,8 +392,14 @@ async function probeBoundaries(): Promise<void> {
       throw new Error('expected a failure');
     } catch (error) {
       const { outcome, wrappedBy } = describeCaught(error);
-      assert(isError2(error) && error.code === 'provider.auth_error', 'static 401 -> provider.auth_error');
-      assert(chatProviderCause(error.cause) instanceof APIStatusError, 'static 401 wrapped as APIStatusError');
+      assert(
+        isError2(error) && error.code === 'provider.auth_error',
+        'static 401 -> provider.auth_error',
+      );
+      assert(
+        chatProviderCause(error.cause) instanceof APIStatusError,
+        'static 401 wrapped as APIStatusError',
+      );
       assert(requests() === 1, 'static 401 is NOT replayed');
       report('auth-401-static-key', outcome, wrappedBy);
     }
@@ -414,7 +423,11 @@ async function probeBoundaries(): Promise<void> {
     assert(replayed.text === 'pong', 'refresh+replay succeeds');
     assert(getAuthCalls === 2, 'getAuth called twice (normal + forced)');
     assert(requests() === 2, 'exactly one replay after the 401');
-    report('auth-401-refresh-replay', `success after ${String(requestCount)} attempts`, 'ModelRequester ONLY (ChatProvider just throws the 401)');
+    report(
+      'auth-401-refresh-replay',
+      `success after ${String(requestCount)} attempts`,
+      'ModelRequester ONLY (ChatProvider just throws the 401)',
+    );
 
     // 4) 401 that survives a forced refresh: the provider rejected the account
     // — surfaced as provider.auth_error, not a re-login prompt.
@@ -425,7 +438,10 @@ async function probeBoundaries(): Promise<void> {
       throw new Error('expected a failure');
     } catch (error) {
       const { outcome, wrappedBy } = describeCaught(error);
-      assert(isError2(error) && error.code === 'provider.auth_error', 'post-refresh 401 -> provider.auth_error');
+      assert(
+        isError2(error) && error.code === 'provider.auth_error',
+        'post-refresh 401 -> provider.auth_error',
+      );
       assert(requests() === 2, 'exactly one replay before surfacing');
       report('auth-401-refresh-rejected', outcome, wrappedBy);
     }
@@ -440,21 +456,30 @@ async function probeBoundaries(): Promise<void> {
       const { outcome, wrappedBy } = describeCaught(error);
       assert(isError2(error) && error.code === 'provider.rate_limit', '429 -> provider.rate_limit');
       const cause = chatProviderCause(error.cause);
-      assert(cause instanceof APIStatusError && cause.retryAfterMs === 2000, 'retry-after parsed to ms');
+      assert(
+        cause instanceof APIStatusError && cause.retryAfterMs === 2000,
+        'retry-after parsed to ms',
+      );
       report('rate-limit-429', outcome, wrappedBy);
     }
 
     // 6) 400 context overflow: routed to its own recovery-owned code.
     resetCounts();
     handler = (_req, res) =>
-      writeJsonError(res, 400, 'This model\'s maximum context length is 8192 tokens.');
+      writeJsonError(res, 400, "This model's maximum context length is 8192 tokens.");
     try {
       await collect(makeRequester(staticKey('sk-probe')));
       throw new Error('expected a failure');
     } catch (error) {
       const { outcome, wrappedBy } = describeCaught(error);
-      assert(isError2(error) && error.code === 'context.overflow', '400 overflow -> context.overflow');
-      assert(chatProviderCause(error.cause) instanceof APIContextOverflowError, 'overflow typed at the ChatProvider layer');
+      assert(
+        isError2(error) && error.code === 'context.overflow',
+        '400 overflow -> context.overflow',
+      );
+      assert(
+        chatProviderCause(error.cause) instanceof APIContextOverflowError,
+        'overflow typed at the ChatProvider layer',
+      );
       report('context-overflow-400', outcome, wrappedBy);
     }
 
@@ -462,7 +487,9 @@ async function probeBoundaries(): Promise<void> {
     resetCounts();
     handler = (_req, res) => {
       res.writeHead(500, { 'content-type': 'text/html' });
-      res.end('<html><head><title>500 Internal Server Error</title></head><body>oops</body></html>');
+      res.end(
+        '<html><head><title>500 Internal Server Error</title></head><body>oops</body></html>',
+      );
     };
     try {
       await collect(makeRequester(staticKey('sk-probe')));
@@ -478,19 +505,22 @@ async function probeBoundaries(): Promise<void> {
     resetCounts();
     const dead = createServer();
     await new Promise<void>((resolve) => {
-    dead.listen(0, '127.0.0.1', () => resolve());
-  });
+      dead.listen(0, '127.0.0.1', () => resolve());
+    });
     const deadPort = (dead.address() as AddressInfo).port;
     await new Promise<void>((resolve) => {
-    dead.close(() => resolve());
-  });
+      dead.close(() => resolve());
+    });
     handler = (_req, res) => writePong(res); // unused — nothing listens there
     try {
       await collect(makeRequester(staticKey('sk-probe'), `http://127.0.0.1:${String(deadPort)}`));
       throw new Error('expected a failure');
     } catch (error) {
       const { outcome, wrappedBy } = describeCaught(error);
-      assert(isError2(error) && error.code === 'provider.connection_error', 'refused -> provider.connection_error');
+      assert(
+        isError2(error) && error.code === 'provider.connection_error',
+        'refused -> provider.connection_error',
+      );
       report('connection-refused', outcome, wrappedBy);
     }
 
@@ -502,7 +532,10 @@ async function probeBoundaries(): Promise<void> {
       throw new Error('expected a failure');
     } catch (error) {
       const { outcome, wrappedBy } = describeCaught(error);
-      assert(isError2(error) && error.code === 'provider.api_error', 'empty stream -> provider.api_error');
+      assert(
+        isError2(error) && error.code === 'provider.api_error',
+        'empty stream -> provider.api_error',
+      );
       report('empty-stream-done', outcome, wrappedBy);
     }
 
@@ -637,7 +670,11 @@ async function probeBoundaries(): Promise<void> {
         sseToolDelta([], 'tool_calls'),
         SSE_USAGE,
       ]);
-    const malformedArgs = await collect(makeRequester(staticKey('sk-probe')), undefined, TOOL_INPUT);
+    const malformedArgs = await collect(
+      makeRequester(staticKey('sk-probe')),
+      undefined,
+      TOOL_INPUT,
+    );
     assert(
       malformedArgs.toolCalls[0]?.arguments === '{not json',
       'malformed arguments pass through untouched',
@@ -677,14 +714,16 @@ async function probeBoundaries(): Promise<void> {
     // recognizable as `isToolExchangeAdjacencyError` THROUGH the ChatProvider
     // wrap — the agent loop's strict-resend recovery keys on that predicate.
     resetCounts();
-    handler = (_req, res) =>
-      writeJsonError(res, 400, 'tool_call_id "call_1" is not found');
+    handler = (_req, res) => writeJsonError(res, 400, 'tool_call_id "call_1" is not found');
     try {
       await collect(makeRequester(staticKey('sk-probe')), undefined, TOOL_HISTORY_INPUT);
       throw new Error('expected a failure');
     } catch (error) {
       const { outcome, wrappedBy } = describeCaught(error);
-      assert(isError2(error) && error.code === 'provider.api_error', 'adjacency 400 -> provider.api_error');
+      assert(
+        isError2(error) && error.code === 'provider.api_error',
+        'adjacency 400 -> provider.api_error',
+      );
       assert(
         isToolExchangeAdjacencyError(chatProviderCause(error.cause)),
         'adjacency classification survives the ChatProvider wrap',
@@ -699,9 +738,8 @@ async function probeBoundaries(): Promise<void> {
     await collect(makeRequester(staticKey('sk-probe')), undefined, TOOL_HISTORY_INPUT);
     const wireMessages = (lastRequestBody as { messages?: Record<string, unknown>[] }).messages;
     assert(
-      wireMessages?.some(
-        (m) => m['role'] === 'assistant' && Array.isArray(m['tool_calls']),
-      ) === true,
+      wireMessages?.some((m) => m['role'] === 'assistant' && Array.isArray(m['tool_calls'])) ===
+        true,
       'assistant message carries wire tool_calls',
     );
     assert(
@@ -726,7 +764,10 @@ async function probeBoundaries(): Promise<void> {
     };
     const ac = new AbortController();
     try {
-      for await (const event of makeRequester(staticKey('sk-probe')).request(PING_INPUT, ac.signal)) {
+      for await (const event of makeRequester(staticKey('sk-probe')).request(
+        PING_INPUT,
+        ac.signal,
+      )) {
         if (event.type === 'part') ac.abort();
       }
       throw new Error('expected an abort');
@@ -740,8 +781,8 @@ async function probeBoundaries(): Promise<void> {
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => {
-    server.close(() => resolve());
-  });
+      server.close(() => resolve());
+    });
   }
 
   console.log('\n=== boundary matrix ===');

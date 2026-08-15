@@ -11,8 +11,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { permissionModeServices, type TestAgentContext } from '../../harness';
 
+import { permissionModeServices, type TestAgentContext } from '../../harness';
 import { createLoopTestAgent, nextTurnMessage } from './helpers';
 
 function rpcEvents(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {
@@ -50,8 +50,7 @@ describe('Agent loop — error paths', () => {
   });
 
   it('emits turn.step.interrupted exactly once per failure', async () => {
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('Hello')).assigned)
-      .turn;
+    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('Hello')).assigned).turn;
     await expect(turn.result).resolves.toMatchObject({ type: 'failed' });
 
     expect(interruptedReasons(ctx)).toEqual(['error']);
@@ -59,8 +58,7 @@ describe('Agent loop — error paths', () => {
 
   it('does not emit turn.step.interrupted for a normal end_turn', async () => {
     ctx.mockNextResponse({ type: 'text', text: 'ok' });
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('Hello')).assigned)
-      .turn;
+    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('Hello')).assigned).turn;
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     expect(interruptedReasons(ctx)).toEqual([]);

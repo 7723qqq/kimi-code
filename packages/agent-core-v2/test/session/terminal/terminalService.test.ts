@@ -6,7 +6,7 @@ import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { ErrorCodes } from '#/errors';
-import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import { HostTerminalService } from '#/os/backends/node-local/hostTerminalService';
 import {
   type TerminalAttachSink,
   type TerminalFrame,
@@ -14,7 +14,7 @@ import {
   type TerminalSpawnOptions,
   IHostTerminalService,
 } from '#/os/interface/terminal';
-import { HostTerminalService } from '#/os/backends/node-local/hostTerminalService';
+import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import {
   ISessionTerminalService,
   SessionTerminalService,
@@ -173,7 +173,11 @@ describe('SessionTerminalService', () => {
 
     proc.emitData('world');
     expect(frames).toHaveLength(2);
-    expect(frames[1]).toMatchObject({ type: 'terminal_output', seq: 2, payload: { data: 'world' } });
+    expect(frames[1]).toMatchObject({
+      type: 'terminal_output',
+      seq: 2,
+      payload: { data: 'world' },
+    });
   });
 
   it('replays only frames after sinceSeq', async () => {

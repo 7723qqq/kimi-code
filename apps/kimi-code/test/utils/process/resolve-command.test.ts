@@ -31,16 +31,19 @@ function mockPlatform(platform: NodeJS.Platform): void {
 
 describe('resolveCommandPath (posix)', () => {
   // Executable-bit checks only work on a posix host.
-  it.skipIf(process.platform === 'win32')('resolves an executable from PATH to an absolute path', () => {
-    const bin = makeTempDir('kimi-resolve-bin-');
-    const cwd = makeTempDir('kimi-resolve-cwd-');
-    const tool = join(bin, 'mytool');
-    writeFileSync(tool, '#!/bin/sh\nexit 0\n');
-    chmodSync(tool, 0o755);
-    process.env['PATH'] = bin;
+  it.skipIf(process.platform === 'win32')(
+    'resolves an executable from PATH to an absolute path',
+    () => {
+      const bin = makeTempDir('kimi-resolve-bin-');
+      const cwd = makeTempDir('kimi-resolve-cwd-');
+      const tool = join(bin, 'mytool');
+      writeFileSync(tool, '#!/bin/sh\nexit 0\n');
+      chmodSync(tool, 0o755);
+      process.env['PATH'] = bin;
 
-    expect(resolveCommandPath('mytool', cwd)).toBe(tool);
-  });
+      expect(resolveCommandPath('mytool', cwd)).toBe(tool);
+    },
+  );
 
   it.skipIf(process.platform === 'win32')('ignores PATH files without the executable bit', () => {
     const bin = makeTempDir('kimi-resolve-bin-');
@@ -52,27 +55,33 @@ describe('resolveCommandPath (posix)', () => {
     expect(resolveCommandPath('mytool', cwd)).toBeUndefined();
   });
 
-  it.skipIf(process.platform === 'win32')('refuses a hit inside the current working directory', () => {
-    const cwd = makeTempDir('kimi-resolve-cwd-');
-    const tool = join(cwd, 'mytool');
-    writeFileSync(tool, '#!/bin/sh\nexit 0\n');
-    chmodSync(tool, 0o755);
-    // The cwd itself sits on PATH (e.g. a `.` entry) — the planted binary
-    // must be rejected, not executed.
-    process.env['PATH'] = cwd;
+  it.skipIf(process.platform === 'win32')(
+    'refuses a hit inside the current working directory',
+    () => {
+      const cwd = makeTempDir('kimi-resolve-cwd-');
+      const tool = join(cwd, 'mytool');
+      writeFileSync(tool, '#!/bin/sh\nexit 0\n');
+      chmodSync(tool, 0o755);
+      // The cwd itself sits on PATH (e.g. a `.` entry) — the planted binary
+      // must be rejected, not executed.
+      process.env['PATH'] = cwd;
 
-    expect(resolveCommandPath('mytool', cwd)).toBeUndefined();
-  });
+      expect(resolveCommandPath('mytool', cwd)).toBeUndefined();
+    },
+  );
 
-  it.skipIf(process.platform === 'win32')('refuses a hit from a relative PATH entry landing in the cwd', () => {
-    const cwd = makeTempDir('kimi-resolve-cwd-');
-    const tool = join(cwd, 'mytool');
-    writeFileSync(tool, '#!/bin/sh\nexit 0\n');
-    chmodSync(tool, 0o755);
-    process.env['PATH'] = '.';
+  it.skipIf(process.platform === 'win32')(
+    'refuses a hit from a relative PATH entry landing in the cwd',
+    () => {
+      const cwd = makeTempDir('kimi-resolve-cwd-');
+      const tool = join(cwd, 'mytool');
+      writeFileSync(tool, '#!/bin/sh\nexit 0\n');
+      chmodSync(tool, 0o755);
+      process.env['PATH'] = '.';
 
-    expect(resolveCommandPath('mytool', cwd)).toBeUndefined();
-  });
+      expect(resolveCommandPath('mytool', cwd)).toBeUndefined();
+    },
+  );
 
   it.skipIf(process.platform === 'win32')('refuses a hit in a subdirectory of the cwd', () => {
     const cwd = makeTempDir('kimi-resolve-cwd-');

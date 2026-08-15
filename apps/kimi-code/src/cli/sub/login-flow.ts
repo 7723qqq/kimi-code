@@ -50,7 +50,9 @@ export async function runLoginFlow(): Promise<never> {
         }
       },
     });
-    process.stderr.write(t('tui.statusMessages.loginSuccess', { provider: result.providerName }) + '\n');
+    process.stderr.write(
+      t('tui.statusMessages.loginSuccess', { provider: result.providerName }) + '\n',
+    );
     process.exit(0);
   } catch (error) {
     if (controller.signal.aborted) {

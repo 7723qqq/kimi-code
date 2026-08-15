@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
-import { bridge } from "@/services";
+import { useState, useEffect, useMemo } from 'react';
+
+import { bridge } from '@/services';
 
 export interface WelcomeHint {
   title: string;
@@ -49,48 +50,48 @@ function ShortcutGuide() {
 }
 
 const HINT_FIRST_TIME: WelcomeHint = {
-  title: "Quick Start Guide",
-  description: "",
+  title: 'Quick Start Guide',
+  description: '',
   component: <ShortcutGuide />,
 };
 
 const HINT_AGENT_MD: WelcomeHint = {
-  title: "Let me map your codebase",
-  description: "Run /init to scan the project and generate docs",
-  slashCommand: "/init",
+  title: 'Let me map your codebase',
+  description: 'Run /init to scan the project and generate docs',
+  slashCommand: '/init',
 };
 
 const HINTS_POOL: WelcomeHint[] = [
   HINT_FIRST_TIME,
   HINT_AGENT_MD,
   {
-    title: "Reference specific code",
-    description: "Type @ to select files, or press Alt+K with code highlighted",
+    title: 'Reference specific code',
+    description: 'Type @ to select files, or press Alt+K with code highlighted',
   },
   {
-    title: "See what I can do",
-    description: "Type / for all commands—like /compact to trim context",
+    title: 'See what I can do',
+    description: 'Type / for all commands—like /compact to trim context',
   },
   {
-    title: "Need deeper analysis?",
-    description: "Enable thinking mode for complex architecture or debugging",
+    title: 'Need deeper analysis?',
+    description: 'Enable thinking mode for complex architecture or debugging',
   },
   {
-    title: "More than code",
+    title: 'More than code',
     description: "Paste a screenshot or design and I'll help implement it",
   },
   {
-    title: "Add more tools",
-    description: "Connect external services via MCP servers in settings",
+    title: 'Add more tools',
+    description: 'Connect external services via MCP servers in settings',
   },
   {
-    title: "Prefer fewer interruptions?",
-    description: "Enable YOLO mode to auto-approve",
+    title: 'Prefer fewer interruptions?',
+    description: 'Enable YOLO mode to auto-approve',
   },
   {
-    title: "Context getting long?",
-    description: "Type /compact to keep only the essentials",
-    slashCommand: "/compact",
+    title: 'Context getting long?',
+    description: 'Type /compact to keep only the essentials',
+    slashCommand: '/compact',
   },
 ];
 
@@ -108,7 +109,7 @@ export function useWelcomeHint(): WelcomeHint {
 
   useEffect(() => {
     bridge
-      .checkFileExists("AGENT.md")
+      .checkFileExists('AGENT.md')
       .then(setHasAgentMd)
       .catch(() => setHasAgentMd(false));
     bridge

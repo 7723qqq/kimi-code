@@ -1,19 +1,17 @@
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
-import { AgentGroupComponent } from '../components/messages/agent-group';
-import { AssistantMessageComponent } from '../components/messages/assistant-message';
+
+import type { TodoItem } from '../components/chrome/todo-panel';
 import { currentWorkingTip } from '../components/chrome/working-tips';
 import { CompactionComponent } from '../components/dialogs/compaction';
+import { AgentGroupComponent } from '../components/messages/agent-group';
+import { AssistantMessageComponent } from '../components/messages/assistant-message';
 import { ReadGroupComponent } from '../components/messages/read-group';
 import { ThinkingComponent } from '../components/messages/thinking';
 import { ToolCallComponent } from '../components/messages/tool-call';
 import { STREAMING_UI_FLUSH_MS } from '../constant/streaming';
-import { hasDispose } from '../utils/component-capabilities';
-import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-payload';
-import { notifyTerminalOnce } from '../utils/terminal-notification';
-import { nextTranscriptId } from '../utils/transcript-id';
-import type { TodoItem } from '../components/chrome/todo-panel';
+import type { TUIState } from '../tui-state';
 import type {
   AppState,
   LivePaneState,
@@ -22,7 +20,10 @@ import type {
   ToolResultBlockData,
   TranscriptEntry,
 } from '../types';
-import type { TUIState } from '../tui-state';
+import { hasDispose } from '../utils/component-capabilities';
+import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-payload';
+import { notifyTerminalOnce } from '../utils/terminal-notification';
+import { nextTranscriptId } from '../utils/transcript-id';
 
 export interface StreamingUIHost {
   state: TUIState;
@@ -55,7 +56,8 @@ export class StreamingUIController {
   private _currentStep = 0;
   private _assistantDraft = '';
   private _thinkingDraft = '';
-  private _streamingBlock: { component: AssistantMessageComponent; entry: TranscriptEntry } | null = null;
+  private _streamingBlock: { component: AssistantMessageComponent; entry: TranscriptEntry } | null =
+    null;
   private _activeThinkingComponent: ThinkingComponent | undefined = undefined;
   private _activeCompactionBlock: CompactionComponent | undefined = undefined;
   private _activeToolCalls = new Map<string, ToolCallBlockData>();
@@ -259,11 +261,7 @@ export class StreamingUIController {
         if (agentIdMatch !== undefined) break;
       }
     }
-    const target = useAgentIdOnly
-      ? agentIdMatch
-      : descAmbiguous
-        ? undefined
-        : descMatch;
+    const target = useAgentIdOnly ? agentIdMatch : descAmbiguous ? undefined : descMatch;
     if (target === undefined) return false;
     target.setBackgroundTaskTerminalStatus(args.status, { errorText: args.errorText });
     return true;
@@ -340,7 +338,9 @@ export class StreamingUIController {
 
   getStreamingToolCallPreview(
     id: string,
-  ): { name: string; args: Record<string, unknown>; argumentsText: string; startedAtMs: number } | undefined {
+  ):
+    | { name: string; args: Record<string, unknown>; argumentsText: string; startedAtMs: number }
+    | undefined {
     const streaming = this._streamingToolCallArguments.get(id);
     if (streaming === undefined) return undefined;
     return {
@@ -353,7 +353,10 @@ export class StreamingUIController {
 
   /** Completes a tool call: delivers the result and removes tracking state.
    *  Returns the matched ToolCallBlockData, or undefined if no call was tracked. */
-  completeToolResult(toolCallId: string, result: ToolResultBlockData): ToolCallBlockData | undefined {
+  completeToolResult(
+    toolCallId: string,
+    result: ToolResultBlockData,
+  ): ToolCallBlockData | undefined {
     const matchedCall = this._activeToolCalls.get(toolCallId);
     if (matchedCall !== undefined) {
       this.onToolCallEnd(toolCallId, result);
@@ -637,12 +640,7 @@ export class StreamingUIController {
     if (this._activeThinkingComponent === undefined) {
       this._pendingAgentGroup = null;
       this._pendingReadGroup = null;
-      this._activeThinkingComponent = new ThinkingComponent(
-        fullText,
-        true,
-        'live',
-        state.ui,
-      );
+      this._activeThinkingComponent = new ThinkingComponent(fullText, true, 'live', state.ui);
       if (state.toolOutputExpanded) this._activeThinkingComponent.setExpanded(true);
       state.transcriptContainer.addChild(this._activeThinkingComponent);
     } else {
@@ -663,12 +661,7 @@ export class StreamingUIController {
     if (toolCall.name === 'AskUserQuestion') return;
 
     const { state } = this.host;
-    const tc = new ToolCallComponent(
-      toolCall,
-      undefined,
-      state.ui,
-      state.appState.workDir,
-    );
+    const tc = new ToolCallComponent(toolCall, undefined, state.ui, state.appState.workDir);
     if (state.toolOutputExpanded) tc.setExpanded(true);
     this._pendingToolComponents.set(toolCall.id, tc);
 

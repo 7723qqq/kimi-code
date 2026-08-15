@@ -61,13 +61,7 @@ interface V2SessionsRouteHost {
 // Query contract
 // ---------------------------------------------------------------------------
 
-export const v2ActivityStatusSchema = z.enum([
-  'running',
-  'approval',
-  'question',
-  'failed',
-  'idle',
-]);
+export const v2ActivityStatusSchema = z.enum(['running', 'approval', 'question', 'failed', 'idle']);
 export type V2ActivityStatus = z.infer<typeof v2ActivityStatusSchema>;
 
 const v2SortSchema = z.enum([

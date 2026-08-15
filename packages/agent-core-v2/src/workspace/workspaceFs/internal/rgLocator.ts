@@ -19,8 +19,9 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { ErrorCodes, Error2 } from '#/errors';
 import { t } from '@moonshot-ai/kimi-i18n';
+
+import { ErrorCodes, Error2 } from '#/errors';
 
 export type RgResolutionSource = 'system-path' | 'share-bin-cached';
 

@@ -10,11 +10,7 @@ export class SessionInitFeature extends Feature {
 
   constructor() {
     super();
-    this.contributeService(
-      LifecycleScope.Session,
-      ISessionInitService,
-      SessionInitService,
-    );
+    this.contributeService(LifecycleScope.Session, ISessionInitService, SessionInitService);
   }
 }
 

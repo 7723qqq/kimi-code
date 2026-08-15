@@ -45,5 +45,7 @@ export const WriteOutputSchema = z.object({
 export type WriteInput = z.infer<typeof WriteInputSchema>;
 export type WriteOutput = z.infer<typeof WriteOutputSchema>;
 
-export interface IWriteTool extends AgentTool<WriteInput> { readonly _serviceBrand: undefined }
+export interface IWriteTool extends AgentTool<WriteInput> {
+  readonly _serviceBrand: undefined;
+}
 export const IWriteTool = createDecorator<IWriteTool>('writeTool');

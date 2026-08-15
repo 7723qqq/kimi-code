@@ -66,8 +66,7 @@ export function serverEndpointLabel(): string {
   const direct = import.meta.env.VITE_KIMI_SERVER_HTTP_URL;
   if (direct && direct.trim()) return shortOrigin(normalizeServerOrigin(direct));
 
-  const proxy =
-    typeof __KIMI_DEV_PROXY_TARGET__ !== 'undefined' ? __KIMI_DEV_PROXY_TARGET__ : '';
+  const proxy = typeof __KIMI_DEV_PROXY_TARGET__ !== 'undefined' ? __KIMI_DEV_PROXY_TARGET__ : '';
   if (import.meta.env.DEV && proxy) return shortOrigin(proxy);
 
   const origin =

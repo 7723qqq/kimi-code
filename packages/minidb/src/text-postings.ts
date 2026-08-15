@@ -24,6 +24,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+
 import { crc32 } from './crc32.ts';
 import { readAtAsync } from './value-reader.ts';
 
@@ -63,8 +64,12 @@ function decodeVarint(buf: Buffer, cur: { i: number }): number {
  *  sized iterable (an array or a Map's entries view) so a large build never
  *  materializes a per-term copy — a hot term's list can have millions of
  *  entries and spreading it was an OOM vector. */
-export function encodePostingList(entries: ReadonlyMap<number, number> | readonly (readonly [number, number])[]): Buffer {
-  const count = Array.isArray(entries) ? (entries as readonly unknown[]).length : (entries as ReadonlyMap<number, number>).size;
+export function encodePostingList(
+  entries: ReadonlyMap<number, number> | readonly (readonly [number, number])[],
+): Buffer {
+  const count = Array.isArray(entries)
+    ? (entries as readonly unknown[]).length
+    : (entries as ReadonlyMap<number, number>).size;
   const bytes: number[] = [];
   encodeVarintInto(count, bytes);
   let prev = 0;
@@ -137,14 +142,16 @@ export function decodeRecord(buf: Buffer): DecodedRecord {
   let o = 0;
   const termLen = buf.readUInt16LE(o);
   o += 2;
-  if (o + termLen + 4 + 4 > buf.length - CRC_LEN) throw new Error('postings: record term length out of bounds');
+  if (o + termLen + 4 + 4 > buf.length - CRC_LEN)
+    throw new Error('postings: record term length out of bounds');
   const term = buf.toString('utf8', o, o + termLen);
   o += termLen;
   const df = buf.readUInt32LE(o);
   o += 4;
   const payloadLen = buf.readUInt32LE(o);
   o += 4;
-  if (o + payloadLen > buf.length - CRC_LEN) throw new Error('postings: record payload length out of bounds');
+  if (o + payloadLen > buf.length - CRC_LEN)
+    throw new Error('postings: record payload length out of bounds');
   const payload = buf.subarray(o, o + payloadLen);
   return { term, df, payload };
 }
@@ -250,7 +257,10 @@ export class PostingsFile {
    */
   static async rebuild(
     filePath: string,
-    iter: Iterable<{ term: string; entries: ReadonlyMap<number, number> | readonly (readonly [number, number])[] }>,
+    iter: Iterable<{
+      term: string;
+      entries: ReadonlyMap<number, number> | readonly (readonly [number, number])[];
+    }>,
     hooks: { beforeRename?: () => void } = {},
   ): Promise<{ dict: Map<string, PostingEntry>; bytes: number; crc32: number }> {
     const tmp = filePath + '.tmp';
@@ -275,7 +285,9 @@ export class PostingsFile {
     };
     try {
       for (const { term, entries } of iter) {
-        const count = Array.isArray(entries) ? (entries as readonly unknown[]).length : (entries as ReadonlyMap<number, number>).size;
+        const count = Array.isArray(entries)
+          ? (entries as readonly unknown[]).length
+          : (entries as ReadonlyMap<number, number>).size;
         if (count === 0) continue;
         const payload = encodePostingList(entries);
         const rec = encodeRecord(term, count, payload);

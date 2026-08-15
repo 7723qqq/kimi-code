@@ -25,19 +25,13 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  IAgentLifecycleService,
-  getLiveSessionById,
-} from '@moonshot-ai/agent-core-v2';
-import {
-  activateSkillResultSchema,
-  listSkillsResponseSchema,
-} from '../src/protocol/rest-skill';
+import { IAgentLifecycleService, getLiveSessionById } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { activateSkillResultSchema, listSkillsResponseSchema } from '../src/protocol/rest-skill';
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -62,7 +56,13 @@ describe('server-v2 /api/v1 skills', () => {
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-skills-'));
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     base = `http://127.0.0.1:${server.port}`;
   });
 
@@ -172,9 +172,7 @@ describe('server-v2 /api/v1 skills', () => {
 
     it('lists builtin skills projected to the wire shape', async () => {
       const id = await createSession();
-      const { body } = await getJson<{ skills: SkillWire[] }>(
-        `/api/v1/sessions/${id}/skills`,
-      );
+      const { body } = await getJson<{ skills: SkillWire[] }>(`/api/v1/sessions/${id}/skills`);
       expect(body.code).toBe(0);
       const skills = listSkillsResponseSchema.parse(body.data).skills;
 
@@ -188,9 +186,7 @@ describe('server-v2 /api/v1 skills', () => {
 
     it('lists the check-kimi-code-docs builtin skill', async () => {
       const id = await createSession();
-      const { body } = await getJson<{ skills: SkillWire[] }>(
-        `/api/v1/sessions/${id}/skills`,
-      );
+      const { body } = await getJson<{ skills: SkillWire[] }>(`/api/v1/sessions/${id}/skills`);
       expect(body.code).toBe(0);
       const skills = listSkillsResponseSchema.parse(body.data).skills;
 
@@ -257,9 +253,7 @@ describe('server-v2 /api/v1 skills', () => {
 
     it('rejects an unsupported action with 40001', async () => {
       const id = await createSession();
-      const { body } = await postJson<null>(
-        `/api/v1/sessions/${id}/skills/update-config:bogus`,
-      );
+      const { body } = await postJson<null>(`/api/v1/sessions/${id}/skills/update-config:bogus`);
       expect(body.code).toBe(40001);
       expect(body.msg).toMatch(/unsupported action/);
     });
@@ -331,7 +325,13 @@ describe('server-v2 /api/v1 skills', () => {
         `/api/v1/sessions/${id}/skills/update-config:activate`,
         {
           attachments: [
-            { type: 'file', file_id: 'f_does_not_exist', name: 'x.txt', media_type: 'text/plain', size: 1 },
+            {
+              type: 'file',
+              file_id: 'f_does_not_exist',
+              name: 'x.txt',
+              media_type: 'text/plain',
+              size: 1,
+            },
           ],
         },
       );
@@ -359,7 +359,13 @@ describe('server-v2 /api/v1 skills', () => {
         `/api/v1/sessions/${id}/skills/does-not-exist:activate`,
         {
           attachments: [
-            { type: 'file', file_id: uploaded.data.id, name: 'note.txt', media_type: 'text/plain', size: noteBytes.length },
+            {
+              type: 'file',
+              file_id: uploaded.data.id,
+              name: 'note.txt',
+              media_type: 'text/plain',
+              size: noteBytes.length,
+            },
           ],
         },
       );
@@ -377,9 +383,7 @@ describe('server-v2 /api/v1 skills', () => {
       await seedProjectSkill(workspaceDir, 'e2e-greeting');
       const wid = await registerWorkspace(workspaceDir);
 
-      const { body } = await getJson<{ skills: SkillWire[] }>(
-        `/api/v1/workspaces/${wid}/skills`,
-      );
+      const { body } = await getJson<{ skills: SkillWire[] }>(`/api/v1/workspaces/${wid}/skills`);
       expect(body.code).toBe(0);
       const skills = listSkillsResponseSchema.parse(body.data).skills;
       const seeded = skills.find((s) => s.name === 'e2e-greeting');
@@ -423,9 +427,7 @@ describe('server-v2 /api/v1 skills', () => {
       base = `http://127.0.0.1:${server.port}`;
 
       const wid = await registerWorkspace(workspaceDir);
-      const { body } = await getJson<{ skills: SkillWire[] }>(
-        `/api/v1/workspaces/${wid}/skills`,
-      );
+      const { body } = await getJson<{ skills: SkillWire[] }>(`/api/v1/workspaces/${wid}/skills`);
       expect(body.code).toBe(0);
       const skills = listSkillsResponseSchema.parse(body.data).skills;
       const seeded = skills.find((s) => s.name === 'e2e-explicit');

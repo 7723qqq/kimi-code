@@ -17,20 +17,21 @@
 
 import { createHash } from 'node:crypto';
 
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { defineState } from '#/_base/state/stateRegistry';
 import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
-import type { ToolCallDedupDetectedEvent, ToolCallRepeatEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
-import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { wrapSystemReminder } from '#/agent/systemReminder/systemReminder';
 import { IAgentToolExecutorService, type ToolCallDupType } from '#/agent/toolExecutor/toolExecutor';
+import { LifecycleScope } from '#/app/scopes';
+import type { ToolCallDedupDetectedEvent, ToolCallRepeatEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ContentPart } from '#/kosong/contract/message';
+import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import { parseToolCallArguments } from '#/tool/tool-args-parse';
+
 import { IAgentToolDedupeService, type ToolDedupeResult } from './toolDedupe';
 
 const REMINDER_TEXT_1 =

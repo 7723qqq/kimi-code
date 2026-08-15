@@ -168,11 +168,13 @@ export function rewriteMediaPlaceholders(
     out += text.slice(cursor, match.index);
     if (attachment.kind === 'video') {
       const path = materializeVideoToCache(attachment, style === 'plain');
-      out += style === 'plain' ? formatMediaReference('video', path) : formatMediaTag('video', path);
+      out +=
+        style === 'plain' ? formatMediaReference('video', path) : formatMediaTag('video', path);
       videoAttachmentIds.push(id);
     } else {
       const path = materializeImageToCache(attachment);
-      out += style === 'plain' ? formatMediaReference('image', path) : formatMediaTag('image', path);
+      out +=
+        style === 'plain' ? formatMediaReference('image', path) : formatMediaTag('image', path);
       imageAttachmentIds.push(id);
     }
     cursor = match.index + literal.length;

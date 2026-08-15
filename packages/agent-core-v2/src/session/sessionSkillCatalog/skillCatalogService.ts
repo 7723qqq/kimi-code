@@ -14,11 +14,11 @@
  * Bound at Session scope.
  */
 
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/_base/state/stateRegistry';
+import { LifecycleScope } from '#/app/scopes';
 import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
 import type { SkillContribution } from '#/app/skillCatalog/skillSource';
 import { summarizeSkill, type SkillCatalog, type SkillSummary } from '#/app/skillCatalog/types';

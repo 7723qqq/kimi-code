@@ -41,7 +41,10 @@ function parseDiscussArgs(args: string): ParsedDiscussArgs | string {
   }
 
   const topic = match[1]!.trim();
-  const rolesRaw = match[2]!.split(',').map((r) => r.trim()).filter(Boolean);
+  const rolesRaw = match[2]!
+    .split(',')
+    .map((r) => r.trim())
+    .filter(Boolean);
 
   // Extract stances from roles: e.g. "engineer:argue for migration"
   const roles: string[] = [];
@@ -65,10 +68,7 @@ function parseDiscussArgs(args: string): ParsedDiscussArgs | string {
   return { topic, roles, mode, stances };
 }
 
-export async function handleDiscussCommand(
-  host: SlashCommandHost,
-  args: string,
-): Promise<void> {
+export async function handleDiscussCommand(host: SlashCommandHost, args: string): Promise<void> {
   if (host.session === undefined) {
     host.showError(getNoActiveSessionMessage());
     return;
@@ -97,16 +97,18 @@ export async function handleDiscussCommand(
   host.setAppState({ swarmMode: true });
 
   // Build participant configs
-  const participants = roles.map((role) => {
-    // Escape quotes/backslashes so user-supplied roles can't break the
-    // quoted string structure of the generated prompt.
-    const safeRole = role.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    const assignedStance = stances[role];
-    const stanceField = assignedStance
-      ? `, assignedStance: "${assignedStance.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
-      : '';
-    return `{ profileName: "coder", roleDescription: "You are a ${safeRole} participating in a roundtable ${mode}.",${stanceField} }`;
-  }).join(',\n      ');
+  const participants = roles
+    .map((role) => {
+      // Escape quotes/backslashes so user-supplied roles can't break the
+      // quoted string structure of the generated prompt.
+      const safeRole = role.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+      const assignedStance = stances[role];
+      const stanceField = assignedStance
+        ? `, assignedStance: "${assignedStance.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
+        : '';
+      return `{ profileName: "coder", roleDescription: "You are a ${safeRole} participating in a roundtable ${mode}.",${stanceField} }`;
+    })
+    .join(',\n      ');
 
   const prompt = [
     `Start a ${mode} on the following topic:`,

@@ -3,16 +3,21 @@
 // Wiring: the composable is real; daemon requests and unrelated facade collaborators are stubbed.
 // Run: pnpm --filter @moonshot-ai/kimi-web exec vitest run test/workspace-state.test.ts
 
-import { computed, ref, type Ref } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppApprovalRequest, AppQuestionRequest, AppSession, AppTask } from '../src/api/types';
-import { DaemonApiError } from '../src/api/errors';
+import { computed, ref, type Ref } from 'vue';
+
 import { createInitialState } from '../src/api/daemon/eventReducer';
-import { mergeWorkspaces } from '../src/lib/mergeWorkspaces';
-import { loadWorkspaceNameOverrides, saveWorkspaceNameOverrides } from '../src/lib/storage';
-import { useWorkspaceState, forgetLocalTurnState, type UseWorkspaceStateDeps } from '../src/composables/client/useWorkspaceState';
+import { DaemonApiError } from '../src/api/errors';
+import type { AppApprovalRequest, AppQuestionRequest, AppSession, AppTask } from '../src/api/types';
+import {
+  useWorkspaceState,
+  forgetLocalTurnState,
+  type UseWorkspaceStateDeps,
+} from '../src/composables/client/useWorkspaceState';
 import type { ExtendedState } from '../src/composables/useKimiWebClient';
 import { clearTrace, traceKeyEvent } from '../src/debug/trace';
+import { mergeWorkspaces } from '../src/lib/mergeWorkspaces';
+import { loadWorkspaceNameOverrides, saveWorkspaceNameOverrides } from '../src/lib/storage';
 
 const apiMock = vi.hoisted(() => ({
   abortPrompt: vi.fn(),
@@ -387,11 +392,9 @@ describe('useWorkspaceState — exportSession', () => {
       expect(revokeObjectURL).toHaveBeenCalledOnce();
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:session-export');
     });
-    expect(deps.pushOperationFailure).toHaveBeenCalledWith(
-      'exportSession',
-      expect.any(Error),
-      { sessionId: 'sess_1' },
-    );
+    expect(deps.pushOperationFailure).toHaveBeenCalledWith('exportSession', expect.any(Error), {
+      sessionId: 'sess_1',
+    });
   });
 
   it('surfaces an error instead of silently exporting without an active session', async () => {
@@ -436,9 +439,7 @@ describe('mergeWorkspaces', () => {
 
   it('keeps distinct roots separate and appends derived cwds after real ones', () => {
     const result = mergeWorkspaces({
-      workspaces: [
-        { id: 'wd_a', root: '/agent/A', name: 'A', sessionCount: 1 },
-      ],
+      workspaces: [{ id: 'wd_a', root: '/agent/A', name: 'A', sessionCount: 1 }],
       sessions: [
         { id: 's1', cwd: '/agent/A', workspaceId: 'wd_a' },
         { id: 's2', cwd: '/agent/B', workspaceId: 'wd_b' },
@@ -453,9 +454,7 @@ describe('mergeWorkspaces', () => {
 
   it('hides workspaces whose root the user removed', () => {
     const result = mergeWorkspaces({
-      workspaces: [
-        { id: 'wd_a', root: '/agent/A', name: 'A', sessionCount: 1 },
-      ],
+      workspaces: [{ id: 'wd_a', root: '/agent/A', name: 'A', sessionCount: 1 }],
       sessions: [{ id: 's1', cwd: '/agent/A', workspaceId: 'wd_a' }],
       hiddenWorkspaceRoots: ['/agent/A'],
       sessionsHasMoreByWorkspace: {},
@@ -738,7 +737,9 @@ describe('useWorkspaceState — startSessionAndActivateSkill', () => {
   function skillDeps(activateSkill: ReturnType<typeof vi.fn>): UseWorkspaceStateDeps {
     return {
       ...createDeps(),
-      taskPoller: { loadTasksForSession: vi.fn() } as unknown as UseWorkspaceStateDeps['taskPoller'],
+      taskPoller: {
+        loadTasksForSession: vi.fn(),
+      } as unknown as UseWorkspaceStateDeps['taskPoller'],
       modelProvider: {
         draftModel: ref(null),
         skillsBySession: ref({}),
@@ -924,7 +925,9 @@ describe('useWorkspaceState — createGoal from an empty composer', () => {
   function goalDeps(): UseWorkspaceStateDeps {
     return {
       ...createDeps(),
-      taskPoller: { loadTasksForSession: vi.fn() } as unknown as UseWorkspaceStateDeps['taskPoller'],
+      taskPoller: {
+        loadTasksForSession: vi.fn(),
+      } as unknown as UseWorkspaceStateDeps['taskPoller'],
       modelProvider: {
         draftModel: ref(null),
         skillsBySession: ref({}),
@@ -946,7 +949,9 @@ describe('useWorkspaceState — createGoal from an empty composer', () => {
 
     expect(apiMock.createSession).toHaveBeenCalledOnce();
     // Profile is updated on the new session: that's what marks the prompt as a goal.
-    expect(apiMock.updateSession).toHaveBeenCalledWith('sess_new', { goalObjective: 'improve test coverage' });
+    expect(apiMock.updateSession).toHaveBeenCalledWith('sess_new', {
+      goalObjective: 'improve test coverage',
+    });
     // And the objective is sent as the first user prompt on the new session.
     expect(apiMock.submitPrompt).toHaveBeenCalledWith(
       'sess_new',
@@ -969,7 +974,9 @@ describe('useWorkspaceState — createGoal from an empty composer', () => {
     await ws.createGoal('improve test coverage');
 
     expect(apiMock.createSession).toHaveBeenCalledOnce();
-    expect(apiMock.updateSession).toHaveBeenCalledWith('sess_new', { goalObjective: 'improve test coverage' });
+    expect(apiMock.updateSession).toHaveBeenCalledWith('sess_new', {
+      goalObjective: 'improve test coverage',
+    });
     expect(apiMock.submitPrompt).toHaveBeenCalledOnce();
   });
 
@@ -987,7 +994,9 @@ describe('useWorkspaceState — createGoal from an empty composer', () => {
 
     // Didn't create a session: we targeted the existing one.
     expect(apiMock.createSession).not.toHaveBeenCalled();
-    expect(apiMock.updateSession).toHaveBeenCalledWith('sess_1', { goalObjective: 'improve test coverage' });
+    expect(apiMock.updateSession).toHaveBeenCalledWith('sess_1', {
+      goalObjective: 'improve test coverage',
+    });
     // And because the session is running (createDeps' default activity is
     // 'running'), sendPrompt queues rather than posting immediately.
     expect(apiMock.submitPrompt).not.toHaveBeenCalled();
@@ -1040,7 +1049,9 @@ describe('useWorkspaceState — createGoal from an empty composer', () => {
     await ws.createGoal('improve test coverage');
 
     // The explicit goal objective went through...
-    expect(apiMock.updateSession).toHaveBeenCalledWith('sess_new', { goalObjective: 'improve test coverage' });
+    expect(apiMock.updateSession).toHaveBeenCalledWith('sess_new', {
+      goalObjective: 'improve test coverage',
+    });
     // ...and the objective prompt itself was submitted exactly once as a user prompt.
     expect(apiMock.submitPrompt).toHaveBeenCalledTimes(1);
     expect(apiMock.submitPrompt).toHaveBeenCalledWith(
@@ -1086,7 +1097,9 @@ describe('useWorkspaceState — startSessionAndOpenSideChat', () => {
   function sideChatDeps(openSideChatOn: ReturnType<typeof vi.fn>): UseWorkspaceStateDeps {
     return {
       ...createDeps(),
-      taskPoller: { loadTasksForSession: vi.fn() } as unknown as UseWorkspaceStateDeps['taskPoller'],
+      taskPoller: {
+        loadTasksForSession: vi.fn(),
+      } as unknown as UseWorkspaceStateDeps['taskPoller'],
       sideChat: { openSideChatOn } as unknown as UseWorkspaceStateDeps['sideChat'],
       modelProvider: {
         draftModel: ref(null),
@@ -1327,12 +1340,10 @@ describe('useWorkspaceState — session list loading', () => {
       workspace('wd_current', '/workspace', 'Workspace'),
       workspace('wd_legacy', '/workspace', 'Workspace'),
     ]);
-    apiMock.listSessions.mockImplementation(
-      async ({ workspaceId }: { workspaceId?: string }) => {
-        if (workspaceId === 'wd_current') return { items: [fresh], hasMore: false };
-        throw error;
-      },
-    );
+    apiMock.listSessions.mockImplementation(async ({ workspaceId }: { workspaceId?: string }) => {
+      if (workspaceId === 'wd_current') return { items: [fresh], hasMore: false };
+      throw error;
+    });
     const { state, deps, workspaceState } = createSessionLoadRig([cached, staleCurrent]);
 
     await workspaceState.load();
@@ -1363,12 +1374,10 @@ describe('useWorkspaceState — session list loading', () => {
       workspace('wd_current', '/workspace', 'Workspace'),
       workspace('wd_other', '/other-workspace', 'Other'),
     ]);
-    apiMock.listSessions.mockImplementation(
-      async ({ workspaceId }: { workspaceId?: string }) => {
-        if (workspaceId === 'wd_current') throw error;
-        return { items: [fresh], hasMore: false };
-      },
-    );
+    apiMock.listSessions.mockImplementation(async ({ workspaceId }: { workspaceId?: string }) => {
+      if (workspaceId === 'wd_current') throw error;
+      return { items: [fresh], hasMore: false };
+    });
     const { state, deps, workspaceState } = createSessionLoadRig([cached]);
 
     await workspaceState.load();
@@ -1463,12 +1472,10 @@ describe('useWorkspaceState — session list loading', () => {
       workspace('wd_a', '/workspace-a', 'A'),
       workspace('wd_b', '/workspace-b', 'B'),
     ]);
-    apiMock.listSessions.mockImplementation(
-      async ({ workspaceId }: { workspaceId?: string }) => {
-        if (workspaceId === 'wd_a') throw firstError;
-        throw new Error('workspace B unavailable');
-      },
-    );
+    apiMock.listSessions.mockImplementation(async ({ workspaceId }: { workspaceId?: string }) => {
+      if (workspaceId === 'wd_a') throw firstError;
+      throw new Error('workspace B unavailable');
+    });
     const { state, deps, workspaceState } = createSessionLoadRig([cachedA, cachedB]);
 
     await workspaceState.load();
@@ -1583,10 +1590,7 @@ describe('useWorkspaceState — snapshot prompt recovery', () => {
   it('clears a finished prompt from a terminal snapshot so the next send is immediate', async () => {
     const state = createState();
     state.inFlightBySession = { sess_1: true };
-    const ws = useWorkspaceState(
-      state,
-      promptDeps({ activity: computed(() => 'idle') }),
-    );
+    const ws = useWorkspaceState(state, promptDeps({ activity: computed(() => 'idle') }));
 
     ws.handleSessionSnapshot('sess_1', { inFlightTurn: null, busy: false });
 
@@ -1649,8 +1653,8 @@ describe('useWorkspaceState — snapshot prompt recovery', () => {
 
     expect(apiMock.submitPrompt).not.toHaveBeenCalled();
     expect(state.queuedBySession.sess_1).toEqual([
-      { text: 'stuck queued', attachments: [{ fileId: 'f_old', kind: 'image' }] }],
-    );
+      { text: 'stuck queued', attachments: [{ fileId: 'f_old', kind: 'image' }] },
+    ]);
   });
 
   it('drains one queued prompt when the finished turn was locally witnessed', async () => {
@@ -1703,7 +1707,9 @@ describe('useWorkspaceState — snapshot prompt recovery', () => {
       state.inFlightBySession = { sess_1: true };
       ws.handleSessionSnapshot('sess_1', { inFlightTurn: null, busy: false });
       await settle();
-      expect(state.queuedBySession.sess_1).toEqual([{ text: 'first queued', attachments: undefined }]);
+      expect(state.queuedBySession.sess_1).toEqual([
+        { text: 'first queued', attachments: undefined },
+      ]);
     }
 
     // Failure 3: a permanently rejected head is dropped rather than blocking
@@ -1729,8 +1735,8 @@ describe('useWorkspaceState — snapshot prompt recovery', () => {
     await ws.steerPrompt('live text', [{ fileId: 'f_live', kind: 'image' }]);
 
     expect(state.queuedBySession.sess_1).toEqual([
-      { text: 'queued', attachments: [{ fileId: 'f_q', kind: 'image' }] }],
-    );
+      { text: 'queued', attachments: [{ fileId: 'f_q', kind: 'image' }] },
+    ]);
   });
 
   it('does NOT restore merged queue entries when a steer failure is network-ambiguous', async () => {
@@ -1905,7 +1911,13 @@ describe('useWorkspaceState — snapshot prompt recovery', () => {
       expect.objectContaining({
         content: [
           { type: 'text', text: 'look at this' },
-          { type: 'file', fileId: 'f_mk', name: 'Makefile', mediaType: 'application/octet-stream', size: 10 },
+          {
+            type: 'file',
+            fileId: 'f_mk',
+            name: 'Makefile',
+            mediaType: 'application/octet-stream',
+            size: 10,
+          },
         ],
       }),
     );
@@ -1945,7 +1957,9 @@ describe('useWorkspaceState — snapshot prompt recovery', () => {
 
   it('drops (never duplicates) a flush whose failure was network-ambiguous', async () => {
     const state = createState();
-    state.queuedBySession = { sess_1: [{ text: 'maybe sent', attachments: undefined, id: 'id-x' }] };
+    state.queuedBySession = {
+      sess_1: [{ text: 'maybe sent', attachments: undefined, id: 'id-x' }],
+    };
     apiMock.submitPrompt.mockRejectedValue(new TypeError('fetch failed'));
     const ws = useWorkspaceState(state, promptDeps());
 

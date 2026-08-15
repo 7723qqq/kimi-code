@@ -11,9 +11,10 @@
 import type { Readable, Writable } from 'node:stream';
 
 import { t } from '@moonshot-ai/kimi-i18n';
+
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 import { Error2, type Error2Options } from '#/_base/errors/errors';
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 export interface HostProcessOptions {
   readonly cwd?: string;

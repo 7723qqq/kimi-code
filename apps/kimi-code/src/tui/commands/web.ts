@@ -3,13 +3,13 @@ import chalk from 'chalk';
 import { splitTokenFragment } from '#/cli/sub/web/access-urls';
 import { formatReadyBanner, startServerForeground } from '#/cli/sub/web/run';
 import { parseServerOptions, tryResolveServerToken } from '#/cli/sub/web/shared';
+import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
 
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { darkColors } from '../theme/colors';
 import { formatErrorMessage } from '../utils/event-payload';
-import { t } from '#/i18n';
 import type { SlashCommandHost } from './dispatch';
 
 /**
@@ -56,7 +56,9 @@ function startNewServerAfterExit(host: SlashCommandHost, sessionId: string): voi
         },
       });
     } catch (error) {
-      process.stderr.write(t('tui.statusMessages.failedToStartServer', { error: formatErrorMessage(error) }) + '\n');
+      process.stderr.write(
+        t('tui.statusMessages.failedToStartServer', { error: formatErrorMessage(error) }) + '\n',
+      );
       process.exit(1);
     }
   });

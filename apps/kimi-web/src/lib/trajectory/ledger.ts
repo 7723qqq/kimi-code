@@ -53,9 +53,10 @@ function isMainAgent(payload: Record<string, unknown> | null): boolean {
 export function feedLedger(state: EventLedgerState, frame: LedgerFrame): EventLedgerState {
   if (!LEDGER_FRAME_TYPES.has(frame.type)) return state;
   if (!isMainAgent(frame.payload)) return state;
-  const frames = state.frames.length >= LEDGER_MAX_FRAMES
-    ? [...state.frames.slice(state.frames.length - LEDGER_MAX_FRAMES + 1), frame]
-    : [...state.frames, frame];
+  const frames =
+    state.frames.length >= LEDGER_MAX_FRAMES
+      ? [...state.frames.slice(state.frames.length - LEDGER_MAX_FRAMES + 1), frame]
+      : [...state.frames, frame];
   return { frames };
 }
 

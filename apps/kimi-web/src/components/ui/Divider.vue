@@ -10,6 +10,17 @@ defineProps<{ vertical?: boolean }>();
 </template>
 
 <style scoped>
-.ui-divider { border: none; border-top: 1px solid var(--color-line); margin: 0; }
-.ui-divider-v { display: inline-block; width: 1px; min-height: 1em; align-self: stretch; background: var(--color-line); vertical-align: middle; }
+.ui-divider {
+  border: none;
+  border-top: 1px solid var(--color-line);
+  margin: 0;
+}
+.ui-divider-v {
+  display: inline-block;
+  width: 1px;
+  min-height: 1em;
+  align-self: stretch;
+  background: var(--color-line);
+  vertical-align: middle;
+}
 </style>

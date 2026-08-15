@@ -1,10 +1,14 @@
-import { describe, it, expect } from 'vitest';
 import chalk from 'chalk';
+import { describe, it, expect } from 'vitest';
 
-import { FooterComponent, formatFooterGitBadge, buildWeightedTips } from '#/tui/components/chrome/footer';
+import {
+  FooterComponent,
+  formatFooterGitBadge,
+  buildWeightedTips,
+} from '#/tui/components/chrome/footer';
 import { darkColors } from '#/tui/theme/colors';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import type { AppState } from '#/tui/types';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 
 const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 function strip(text: string): string {
@@ -54,9 +58,7 @@ describe('FooterComponent — context NaN resilience', () => {
   });
 
   it('undefined-ish (coerced) usage → renders 0%', () => {
-    const fc = new FooterComponent(
-      baseState({ contextUsage: undefined as unknown as number }),
-    );
+    const fc = new FooterComponent(baseState({ contextUsage: undefined as unknown as number }));
     const out = strip(fc.render(120).join(''));
     expect(out).not.toMatch(/NaN/);
     expect(out).toMatch(/context: 0%/);
@@ -176,9 +178,7 @@ describe('FooterComponent · live cache hit rate and token speed', () => {
 
   it('renders the live cache hit rate next to the context readout', () => {
     // hit rate = 1792 / (1792 + 99) = 95%; cacheMissTokens counts cache writes.
-    const fc = new FooterComponent(
-      baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99 }),
-    );
+    const fc = new FooterComponent(baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99 }));
     const out = strip(fc.render(200).join(''));
     expect(out).toMatch(/cache hit 95%/);
     expect(out).toMatch(/context: 0%/);

@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import {
   DANCE_FLOW_MS,
   DANCE_FRAME_MS,
@@ -11,7 +12,6 @@ import {
   setRainbowDance,
   tryHandleDanceCommand,
 } from '#/tui/easter-eggs/dance';
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import { darkColors } from '#/tui/theme/colors';
 
 const TRUECOLOR_PATTERN = /\[38;2;(\d+);(\d+);(\d+)m/g;
@@ -135,12 +135,7 @@ describe('rainbowText', () => {
   it('assigns each visible character the next palette color', () => {
     const out = rainbowText('abcd', ['#111111', '#226622', '#aa33cc', '#44ddee'], 0);
 
-    expect(truecolorCodes(out)).toEqual([
-      '17,17,17',
-      '34,102,34',
-      '170,51,204',
-      '68,221,238',
-    ]);
+    expect(truecolorCodes(out)).toEqual(['17,17,17', '34,102,34', '170,51,204', '68,221,238']);
   });
 
   it('does not consume a palette slot for spaces', () => {

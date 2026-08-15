@@ -1,8 +1,10 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+
 import { migrateOneSession } from '../../src/sessions/migrate-one.js';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures', import.meta.url));

@@ -9,10 +9,7 @@ const V1 = ['@moonshot-ai', 'agent-core'].join('/');
 
 describe('check-import-boundaries', () => {
   it('flags a direct import of v1 (@moonshot-ai/agent-core)', () => {
-    const violations = checkSource(
-      `import { KimiCore } from '${V1}';`,
-      at('loop', 'loop.ts'),
-    );
+    const violations = checkSource(`import { KimiCore } from '${V1}';`, at('loop', 'loop.ts'));
     expect(violations).toHaveLength(1);
     expect(violations[0]?.message).toMatch(/v2 must not import v1/);
   });
@@ -60,10 +57,7 @@ describe('check-import-boundaries', () => {
   });
 
   it('flags any external package import from kosong/contract', () => {
-    const violations = checkSource(
-      `import { z } from 'zod';`,
-      atKosong('contract', 'message.ts'),
-    );
+    const violations = checkSource(`import { z } from 'zod';`, atKosong('contract', 'message.ts'));
     expect(violations).toHaveLength(1);
     expect(violations[0]?.message).toMatch(/kosong\/contract must not import external package/);
   });

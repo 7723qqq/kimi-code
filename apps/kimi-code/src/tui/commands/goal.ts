@@ -1,16 +1,17 @@
 import { ErrorCodes, isKimiError, type PermissionMode } from '@moonshot-ai/kimi-code-sdk';
+
 import { t } from '#/i18n';
 
-import {
-  GoalStartPermissionPromptComponent,
-  type GoalStartPermissionChoice,
-} from '../components/dialogs/goal-start-permission-prompt';
 import {
   GoalQueueEditDialogComponent,
   GoalQueueManagerComponent,
   type GoalQueueEditResult,
   type GoalQueueManagerAction,
 } from '../components/dialogs/goal-queue-manager';
+import {
+  GoalStartPermissionPromptComponent,
+  type GoalStartPermissionChoice,
+} from '../components/dialogs/goal-start-permission-prompt';
 import {
   GoalSetMessageComponent,
   GoalStatusMessageComponent,
@@ -181,7 +182,9 @@ async function queueNextGoal(
     const { goal } = await session.getGoal();
     hasCurrentGoal = goal !== null;
   } catch (error) {
-    host.showError(t('tui.statusMessages.failedToInspectGoal', { error: formatErrorMessage(error) }));
+    host.showError(
+      t('tui.statusMessages.failedToInspectGoal', { error: formatErrorMessage(error) }),
+    );
     return;
   }
 
@@ -203,9 +206,7 @@ async function queueNextGoal(
   }
   host.track('goal_queue_append');
   if (!hasCurrentGoal) host.requestQueuedGoalPromotion?.();
-  host.state.transcriptContainer.addChild(
-    new UpcomingGoalAddedMessageComponent(),
-  );
+  host.state.transcriptContainer.addChild(new UpcomingGoalAddedMessageComponent());
   host.state.ui.requestRender();
 }
 
@@ -217,7 +218,9 @@ async function showGoalQueueManager(
   try {
     snapshot = await readGoalQueue(host.requireSession());
   } catch (error) {
-    host.showError(t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }));
+    host.showError(
+      t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }),
+    );
     return;
   }
 
@@ -230,7 +233,11 @@ async function showGoalQueueManager(
         try {
           return await handleGoalQueueManagerAction(host, action);
         } catch (error) {
-          host.showError(t('tui.statusMessages.failedToUpdateUpcomingGoals', { error: formatErrorMessage(error) }));
+          host.showError(
+            t('tui.statusMessages.failedToUpdateUpcomingGoals', {
+              error: formatErrorMessage(error),
+            }),
+          );
           return undefined;
         }
       },
@@ -266,15 +273,14 @@ async function handleGoalQueueManagerAction(
   }
 }
 
-async function showGoalQueueEditDialog(
-  host: SlashCommandHost,
-  goalId: string,
-): Promise<void> {
+async function showGoalQueueEditDialog(host: SlashCommandHost, goalId: string): Promise<void> {
   let snapshot: GoalQueueSnapshot;
   try {
     snapshot = await readGoalQueue(host.requireSession());
   } catch (error) {
-    host.showError(t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }));
+    host.showError(
+      t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }),
+    );
     return;
   }
 
@@ -290,7 +296,11 @@ async function showGoalQueueEditDialog(
       goal,
       onDone: (result) => {
         void handleGoalQueueEditResult(host, result).catch((error: unknown) => {
-          host.showError(t('tui.statusMessages.failedToUpdateUpcomingGoal', { error: formatErrorMessage(error) }));
+          host.showError(
+            t('tui.statusMessages.failedToUpdateUpcomingGoal', {
+              error: formatErrorMessage(error),
+            }),
+          );
         });
       },
     }),
@@ -371,8 +381,7 @@ async function startGoalWithPermission(
   options: GoalStartOptions,
 ): Promise<void> {
   const previousMode = host.state.appState.permissionMode;
-  const switched =
-    choice !== previousMode && (choice === 'auto' || choice === 'yolo');
+  const switched = choice !== previousMode && (choice === 'auto' || choice === 'yolo');
   if (switched) {
     if (!(await setPermissionForGoal(host, choice))) return;
   }
@@ -389,7 +398,9 @@ async function setPermissionForGoal(host: GoalCommandHost, mode: PermissionMode)
   try {
     await host.requireSession().setPermission(mode);
   } catch (error) {
-    host.showError(t('tui.statusMessages.failedToSetPermission', { error: formatErrorMessage(error) }));
+    host.showError(
+      t('tui.statusMessages.failedToSetPermission', { error: formatErrorMessage(error) }),
+    );
     return false;
   }
   host.setAppState({ permissionMode: mode });
@@ -408,9 +419,7 @@ async function startGoal(
     });
   } catch (error) {
     if (isKimiError(error) && error.code === ErrorCodes.GOAL_ALREADY_EXISTS) {
-      host.showError(
-        t('tui.statusMessages.goalAlreadyActive'),
-      );
+      host.showError(t('tui.statusMessages.goalAlreadyActive'));
       return false;
     }
     host.showError(formatErrorMessage(error));
@@ -490,9 +499,7 @@ async function showGoalStatus(host: SlashCommandHost): Promise<void> {
     host.showStatus(t('tui.statusMessages.noGoalSet'));
     return;
   }
-  host.state.transcriptContainer.addChild(
-    new GoalStatusMessageComponent(goal),
-  );
+  host.state.transcriptContainer.addChild(new GoalStatusMessageComponent(goal));
   host.state.ui.requestRender();
 }
 

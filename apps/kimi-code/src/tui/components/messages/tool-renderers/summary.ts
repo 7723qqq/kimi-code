@@ -15,6 +15,7 @@ import { Text } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
+
 import { renderTruncated } from './truncated';
 import type { ResultRenderer } from './types';
 

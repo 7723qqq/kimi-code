@@ -18,17 +18,17 @@
 
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { BugIndicatingError, Error2, PluginErrors } from '#/errors';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IProviderService } from '#/kosong/provider/provider';
-import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
 import type { HookDef } from '#/agent/externalHooks/types';
-import type { McpServerConfig } from '#/mcpCore/config-schema';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
+import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
 import type { SkillRoot } from '#/app/skillCatalog/types';
+import { BugIndicatingError, Error2, PluginErrors } from '#/errors';
+import { IProviderService } from '#/kosong/provider/provider';
+import type { McpServerConfig } from '#/mcpCore/config-schema';
 
 import { PluginManager } from './manager';
 import {
@@ -219,7 +219,10 @@ export class PluginService extends Service implements IPluginService {
       if (Object.keys(managedEnv).length === 0) return pluginServers;
       return pluginServers.map((server) =>
         server.config.transport === 'stdio'
-          ? { ...server, config: { ...server.config, env: { ...server.config.env, ...managedEnv } } }
+          ? {
+              ...server,
+              config: { ...server.config, env: { ...server.config.env, ...managedEnv } },
+            }
           : server,
       );
     });
@@ -300,8 +303,7 @@ export class PluginService extends Service implements IPluginService {
     const envBaseUrl = this.envBaseUrl;
     const envOAuthHost = this.envOAuthHost;
     const hasEnvOverride = envBaseUrl !== undefined || envOAuthHost !== undefined;
-    const baseUrl =
-      envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, '') : provider?.baseUrl;
+    const baseUrl = envBaseUrl !== undefined ? envBaseUrl.replace(/\/+$/, '') : provider?.baseUrl;
     const oauthHost = hasEnvOverride ? envOAuthHost : provider?.oauth?.oauthHost;
     const env: Record<string, string> = {};
     if (baseUrl !== undefined) env[KIMI_CODE_BASE_URL_ENV] = baseUrl;
@@ -318,9 +320,7 @@ function withManagedKimiPluginEnv(
   const out: Record<string, McpServerConfig> = {};
   for (const [name, server] of Object.entries(pluginServers)) {
     out[name] =
-      server.transport === 'stdio'
-        ? { ...server, env: { ...server.env, ...managedEnv } }
-        : server;
+      server.transport === 'stdio' ? { ...server, env: { ...server.env, ...managedEnv } } : server;
   }
   return out;
 }

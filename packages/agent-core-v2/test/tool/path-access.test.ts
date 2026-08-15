@@ -144,9 +144,9 @@ describe('extendWorkspaceWithSkillRoots', () => {
   });
 
   it('dedupes roots that repeat or nest inside a just-added root', () => {
-    expect(
-      extendWorkspaceWithSkillRoots(workspace, ['/skills', '/skills', '/skills/sub']),
-    ).toEqual({ workspaceDir: '/repo', additionalDirs: ['/extra', '/skills'] });
+    expect(extendWorkspaceWithSkillRoots(workspace, ['/skills', '/skills', '/skills/sub'])).toEqual(
+      { workspaceDir: '/repo', additionalDirs: ['/extra', '/skills'] },
+    );
   });
 
   it('compares case-insensitively on win32 path class', () => {
@@ -167,10 +167,9 @@ describe('extendWorkspaceWithSkillRoots', () => {
   });
 
   it('dedupes a root that is an exact match of the workspace dir', () => {
-    const result = extendWorkspaceWithSkillRoots(
-      { workspaceDir: '/repo', additionalDirs: [] },
-      ['/repo'],
-    );
+    const result = extendWorkspaceWithSkillRoots({ workspaceDir: '/repo', additionalDirs: [] }, [
+      '/repo',
+    ]);
     expect(result.additionalDirs).toEqual([]);
   });
 
@@ -184,10 +183,7 @@ describe('extendWorkspaceWithSkillRoots', () => {
   });
 
   it('handles empty additionalDirs and empty skill roots', () => {
-    const result = extendWorkspaceWithSkillRoots(
-      { workspaceDir: '/repo', additionalDirs: [] },
-      [],
-    );
+    const result = extendWorkspaceWithSkillRoots({ workspaceDir: '/repo', additionalDirs: [] }, []);
     expect(result.additionalDirs).toEqual([]);
   });
 });

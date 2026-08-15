@@ -26,7 +26,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
@@ -34,13 +34,12 @@ import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
 import type { ContentPart, Message } from '#/kosong/contract/message';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import {
-  IAgentContextProjectorService,
-  type MediaStripSnapshot,
-} from './contextProjector';
+
+import { IAgentContextProjectorService, type MediaStripSnapshot } from './contextProjector';
 
 export const contextProjectorLastRepairSignatureKey = defineState<string | null>(
   'contextProjector.lastRepairSignature',
@@ -90,15 +89,15 @@ export class AgentContextProjectorService implements IAgentContextProjectorServi
     snapshot?: MediaStripSnapshot,
   ): readonly Message[] {
     const projected = this.projectWithTrace(messages, project);
-    return stripMediaPartsBySnapshot(
-      projected,
-      snapshot ?? captureMediaStripSnapshot(projected),
-    );
+    return stripMediaPartsBySnapshot(projected, snapshot ?? captureMediaStripSnapshot(projected));
   }
 
   private projectWithTrace(
     messages: readonly ContextMessage[],
-    fn: (history: readonly ContextMessage[], onAnomaly?: (anomaly: ProjectionAnomaly) => void) => Message[],
+    fn: (
+      history: readonly ContextMessage[],
+      onAnomaly?: (anomaly: ProjectionAnomaly) => void,
+    ) => Message[],
   ): readonly Message[] {
     const anomalies: ProjectionAnomaly[] = [];
     const result = fn(messages, (anomaly) => anomalies.push(anomaly));
@@ -115,7 +114,9 @@ export class AgentContextProjectorService implements IAgentContextProjectorServi
       return;
     }
     const signature = notable
-      .map((anomaly) => ('toolCallId' in anomaly ? `${anomaly.kind}:${anomaly.toolCallId}` : anomaly.kind))
+      .map((anomaly) =>
+        'toolCallId' in anomaly ? `${anomaly.kind}:${anomaly.toolCallId}` : anomaly.kind,
+      )
       .toSorted()
       .join('|');
     if (signature === this.lastRepairSignature) return;
@@ -174,7 +175,11 @@ export class AgentContextProjectorService implements IAgentContextProjectorServi
 
 type ProjectionAnomaly =
   | { readonly kind: 'tool_result_reordered'; readonly toolCallId: string }
-  | { readonly kind: 'tool_result_synthesized'; readonly toolCallId: string; readonly trailing: boolean }
+  | {
+      readonly kind: 'tool_result_synthesized';
+      readonly toolCallId: string;
+      readonly trailing: boolean;
+    }
   | { readonly kind: 'orphan_tool_result_dropped'; readonly toolCallId: string }
   | { readonly kind: 'duplicate_tool_call_dropped'; readonly toolCallId: string }
   | { readonly kind: 'duplicate_tool_result_dropped'; readonly toolCallId: string }
@@ -199,18 +204,13 @@ const MEDIA_DEGRADED_PLACEHOLDERS = {
 export const MEDIA_STRIPPED_PLACEHOLDERS = {
   image_url:
     '[image omitted for provider compatibility; re-read the file to view it or get conversion guidance]',
-  audio_url:
-    '[audio omitted for provider compatibility; re-read the file to hear it]',
-  video_url:
-    '[video omitted for provider compatibility; re-read the file to view it]',
+  audio_url: '[audio omitted for provider compatibility; re-read the file to hear it]',
+  video_url: '[video omitted for provider compatibility; re-read the file to view it]',
 } as const;
 
 type MediaPlaceholderSet = typeof MEDIA_DEGRADED_PLACEHOLDERS | typeof MEDIA_STRIPPED_PLACEHOLDERS;
 
-type DegradableMediaPart = Extract<
-  ContentPart,
-  { readonly type: keyof MediaPlaceholderSet }
->;
+type DegradableMediaPart = Extract<ContentPart, { readonly type: keyof MediaPlaceholderSet }>;
 
 interface MediaContainer {
   readonly url: string;
@@ -225,9 +225,7 @@ type MediaContainerKeyCache = Partial<Record<DegradableMediaPart['type'], string
 
 const MEDIA_CONTAINER_KEY_CACHE = new WeakMap<MediaContainer, MediaContainerKeyCache>();
 
-function isDegradableMediaPart(
-  part: ContentPart,
-): part is DegradableMediaPart {
+function isDegradableMediaPart(part: ContentPart): part is DegradableMediaPart {
   return part.type in MEDIA_DEGRADED_PLACEHOLDERS;
 }
 
@@ -262,9 +260,7 @@ function mediaStripSnapshotKeys(snapshot: MediaStripSnapshot): ReadonlySet<strin
   return (snapshot as unknown as MediaStripSnapshotData).keys;
 }
 
-export function captureMediaStripSnapshot(
-  messages: readonly Message[],
-): MediaStripSnapshot {
+export function captureMediaStripSnapshot(messages: readonly Message[]): MediaStripSnapshot {
   const keys = new Set<string>();
   for (const message of messages) {
     for (const part of message.content) {
@@ -385,7 +381,10 @@ function mergeConsecutiveAssistantMessages(
   return out;
 }
 
-function dropLeadingNonUserMessages(messages: readonly Message[], onAnomaly?: OnAnomaly): Message[] {
+function dropLeadingNonUserMessages(
+  messages: readonly Message[],
+  onAnomaly?: OnAnomaly,
+): Message[] {
   let start = 0;
   while (start < messages.length && messages[start]?.role !== 'user') {
     onAnomaly?.({ kind: 'leading_non_user_dropped', role: messages[start]!.role });
@@ -414,9 +413,8 @@ function project(history: readonly ContextMessage[], onAnomaly?: OnAnomaly): Mes
   const flushMerge = (): void => {
     if (merge === undefined) return;
     if (merge.singleContent === undefined) {
-      const content = merge.content.length === 0
-        ? [{ type: 'text' as const, text: '' }]
-        : merge.content;
+      const content =
+        merge.content.length === 0 ? [{ type: 'text' as const, text: '' }] : merge.content;
       out[merge.index] = {
         role: 'user',
         name: undefined,

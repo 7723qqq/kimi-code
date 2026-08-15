@@ -1,9 +1,9 @@
+import { useCron } from '../../hooks/useTasks';
+import { t } from '../../i18n';
 import type { CronTask } from '../../types';
 import { formatAbsoluteTime, formatRelativeTime } from '../../util/time';
-import { useCron } from '../../hooks/useTasks';
 import { CopyButton } from '../shared/CopyButton';
 import { Pill } from '../shared/Pill';
-import { t } from '../../i18n';
 
 interface CronTabProps {
   sessionId: string;
@@ -20,16 +20,15 @@ export function CronTab({ sessionId }: CronTabProps) {
   }
   if (error) {
     return (
-      <div className="p-6 font-mono text-[12px] text-[var(--color-sev-error)]">
-        {error.message}
-      </div>
+      <div className="p-6 font-mono text-[12px] text-[var(--color-sev-error)]">{error.message}</div>
     );
   }
   const cron = data?.cron ?? [];
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4">
       <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-fg-3">
-        {t('cron.cronJobs')}{cron.length > 0 ? ` · ${cron.length}` : ''}
+        {t('cron.cronJobs')}
+        {cron.length > 0 ? ` · ${cron.length}` : ''}
       </div>
       {cron.length === 0 ? (
         <div className="mt-3 border border-border bg-surface-0 px-3 py-6 text-center font-mono text-[12px] text-fg-3">
@@ -90,7 +89,9 @@ function CronCard({ job }: { job: CronTask }) {
 function Field({ label, children }: { label: string; children: import('react').ReactNode }) {
   return (
     <div className="flex items-baseline gap-2 font-mono text-[12px]">
-      <span className="w-28 shrink-0 text-[10px] uppercase tracking-[0.1em] text-fg-3">{label}</span>
+      <span className="w-28 shrink-0 text-[10px] uppercase tracking-[0.1em] text-fg-3">
+        {label}
+      </span>
       <span className="min-w-0 break-words text-fg-1">{children}</span>
     </div>
   );

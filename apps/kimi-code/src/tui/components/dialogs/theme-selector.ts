@@ -1,8 +1,8 @@
-import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
-
+import { t } from '#/i18n';
 import { listCustomThemesSync } from '#/tui/theme/custom-theme-loader';
 import type { ThemeName } from '#/tui/theme/index';
-import { t } from '#/i18n';
+
+import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
 function getThemeOptions(): readonly ChoiceOption[] {
   return [
@@ -23,7 +23,10 @@ export class ThemeSelectorComponent extends ChoicePickerComponent {
     const customThemes = listCustomThemesSync();
     const options: ChoiceOption[] = [
       ...getThemeOptions(),
-      ...customThemes.map((name) => ({ value: name, label: t('tui.dialogs.themeSelector.custom', { name }) })),
+      ...customThemes.map((name) => ({
+        value: name,
+        label: t('tui.dialogs.themeSelector.custom', { name }),
+      })),
     ];
     super({
       title: t('tui.dialogs.themeSelector.title'),

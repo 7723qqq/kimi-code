@@ -1,14 +1,15 @@
-// Runs the real bench script in --quick mode and pins the machine-readable
-// JSON report's shape: later phases diff before/after numbers, so the field
-// names below are a stable contract.
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+
+// Runs the real bench script in --quick mode and pins the machine-readable
+// JSON report's shape: later phases diff before/after numbers, so the field
+// names below are a stable contract.
+import { test } from 'vitest';
 
 const pkgDir = fileURLToPath(new URL('..', import.meta.url));
 
@@ -42,7 +43,8 @@ test('bench --quick emits a JSON report with a stable schema', async () => {
       assert.equal(typeof s.durationMs, 'number', `${s.name}.durationMs`);
       assert.ok(s.durationMs >= 0);
       if (s.ops !== undefined) assert.equal(typeof s.ops, 'number', `${s.name}.ops`);
-      if (s.opsPerSec !== undefined) assert.equal(typeof s.opsPerSec, 'number', `${s.name}.opsPerSec`);
+      if (s.opsPerSec !== undefined)
+        assert.equal(typeof s.opsPerSec, 'number', `${s.name}.opsPerSec`);
       for (const k of ['mean', 'p50', 'p95', 'p99', 'max']) {
         assert.equal(typeof s.eventLoopDelayMs[k], 'number', `${s.name}.eventLoopDelayMs.${k}`);
       }
@@ -60,7 +62,15 @@ test('bench --quick emits a JSON report with a stable schema', async () => {
     // Cold open rows expose the recovery/rebuild breakdown.
     const cold = byName(/cold open/);
     assert.ok(cold, 'a cold-open scenario exists');
-    for (const k of ['keys', 'recoveryBytes', 'recoveryFrames', 'recoveryDurationMs', 'indexRebuildDurationMs', 'textRebuildDurationMs', 'walFsyncs']) {
+    for (const k of [
+      'keys',
+      'recoveryBytes',
+      'recoveryFrames',
+      'recoveryDurationMs',
+      'indexRebuildDurationMs',
+      'textRebuildDurationMs',
+      'walFsyncs',
+    ]) {
       assert.equal(typeof cold.extra[k], 'number', `cold open extra.${k}`);
     }
 
@@ -90,7 +100,14 @@ test('bench --quick emits a JSON report with a stable schema', async () => {
     // The compaction row exposes the phase breakdown.
     const compact = byName(/compact \d/);
     assert.ok(compact, 'a compaction scenario exists');
-    for (const k of ['keys', 'compactionDurationMs', 'compactionSnapshotDurationMs', 'compactionRotationDurationMs', 'compactionPostingsDurationMs', 'snapshotBytesWritten']) {
+    for (const k of [
+      'keys',
+      'compactionDurationMs',
+      'compactionSnapshotDurationMs',
+      'compactionRotationDurationMs',
+      'compactionPostingsDurationMs',
+      'snapshotBytesWritten',
+    ]) {
       assert.equal(typeof compact.extra[k], 'number', `compact extra.${k}`);
     }
   } finally {
@@ -104,7 +121,14 @@ test('open-lifecycle bench --quick emits the phase-1 baseline report', async () 
     const reportPath = path.join(dir, 'report.json');
     await promisify(execFile)(
       process.execPath,
-      ['--import', 'tsx', path.join(pkgDir, 'bench', 'open-lifecycle.ts'), '--quick', '--json', reportPath],
+      [
+        '--import',
+        'tsx',
+        path.join(pkgDir, 'bench', 'open-lifecycle.ts'),
+        '--quick',
+        '--json',
+        reportPath,
+      ],
       { cwd: pkgDir, timeout: 240_000, maxBuffer: 16 * 1024 * 1024 },
     );
     const report = JSON.parse(await fs.readFile(reportPath, 'utf8'));
@@ -148,13 +172,18 @@ test('open-lifecycle bench --quick emits the phase-1 baseline report', async () 
     const deferred = byName(/deferred text rebuild \(degraded -> ready\)/);
     for (const [name, s] of Object.entries({ small, wal, large, corrupt, deferred })) {
       assert.ok(s, `${name} scenario exists`);
-      for (const k of PHASES) assert.equal(typeof s.extra.phases[k], 'number', `${name}.extra.phases.${k}`);
+      for (const k of PHASES)
+        assert.equal(typeof s.extra.phases[k], 'number', `${name}.extra.phases.${k}`);
     }
 
     // Healthy generation opens: no full recovery, no corpus tokenization.
     for (const [name, s] of Object.entries({ small, wal, large })) {
       assert.equal(s.extra.state, 'ready', name);
-      assert.deepEqual(s.extra.path, ['no-generation', 'generation-load', 'wal-catch-up', 'ready'], name);
+      assert.deepEqual(
+        s.extra.path,
+        ['no-generation', 'generation-load', 'wal-catch-up', 'ready'],
+        name,
+      );
       assert.equal(s.extra.phases.fullRecoveryMs, 0, name);
       assert.equal(s.extra.phases.textRebuildMs, 0, name);
       assert.equal(s.extra.generationLoads, 1, name);
@@ -169,7 +198,12 @@ test('open-lifecycle bench --quick emits the phase-1 baseline report', async () 
     // The corrupt generation fell back to a full recovery and returned
     // degraded; the background deferred build then brought it to ready.
     assert.equal(corrupt.extra.state, 'degraded');
-    assert.deepEqual(corrupt.extra.path, ['no-generation', 'generation-load', 'full-rebuild', 'degraded']);
+    assert.deepEqual(corrupt.extra.path, [
+      'no-generation',
+      'generation-load',
+      'full-rebuild',
+      'degraded',
+    ]);
     assert.ok(corrupt.extra.phases.fullRecoveryMs > 0, 'full recovery measured');
     assert.equal(corrupt.extra.generationLoadFallbacks, 1);
     assert.equal(deferred.extra.state, 'ready');

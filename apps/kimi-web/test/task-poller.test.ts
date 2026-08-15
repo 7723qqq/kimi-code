@@ -5,10 +5,11 @@
 // Wiring: the composable is real; daemon requests are stubbed.
 // Run: pnpm --filter @moonshot-ai/kimi-web exec vitest run test/task-poller.test.ts
 
-import { computed } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppTask } from '../src/api/types';
+import { computed } from 'vue';
+
 import { createInitialState } from '../src/api/daemon/eventReducer';
+import type { AppTask } from '../src/api/types';
 import { useTaskPoller } from '../src/composables/client/useTaskPoller';
 import type { ExtendedState } from '../src/composables/useKimiWebClient';
 
@@ -74,7 +75,10 @@ describe('useTaskPoller terminal-output backfill', () => {
       restRow({ outputPreview: 'final result', outputBytes: 2048 }),
     );
 
-    const poller = useTaskPoller(state, computed(() => []));
+    const poller = useTaskPoller(
+      state,
+      computed(() => []),
+    );
     await poller.loadTasksForSession('sess_1');
 
     expect(apiMock.getTask).toHaveBeenCalledWith(
@@ -96,7 +100,10 @@ describe('useTaskPoller terminal-output backfill', () => {
       restRow({ outputPreview: 'final result', outputBytes: 2048 }),
     );
 
-    const poller = useTaskPoller(state, computed(() => []));
+    const poller = useTaskPoller(
+      state,
+      computed(() => []),
+    );
     await poller.loadTasksForSession('sess_1');
     await poller.loadTasksForSession('sess_1');
 
@@ -110,7 +117,10 @@ describe('useTaskPoller terminal-output backfill', () => {
       .mockRejectedValueOnce(new Error('network blip'))
       .mockResolvedValue(restRow({ outputPreview: 'final result', outputBytes: 2048 }));
 
-    const poller = useTaskPoller(state, computed(() => []));
+    const poller = useTaskPoller(
+      state,
+      computed(() => []),
+    );
     await poller.loadTasksForSession('sess_1');
     expect(state.tasksBySession['sess_1']?.[0]?.outputPreview).toBeUndefined();
 

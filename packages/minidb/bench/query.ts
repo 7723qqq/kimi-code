@@ -6,6 +6,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
 import { MiniDb } from '../src/index.js';
 
 const fmt = (n) => n.toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -31,7 +32,7 @@ async function bench(label, fn, iters = 1) {
 // ---------------------------------------------------------------------------
 
 function percentile(sorted, p) {
-  if (!sorted.length) return NaN;
+  if (sorted.length === 0) return NaN;
   const idx = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
   return sorted[Math.max(0, idx)];
 }
@@ -45,10 +46,21 @@ async function coldOpenScenario() {
   const dir = await tmpDir();
   try {
     {
-      const db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
+      const db = await MiniDb.open({
+        dir,
+        valueCodec: 'json',
+        fsyncPolicy: 'no',
+        autoCompact: false,
+      });
       const bulk = [];
       for (let i = 0; i < OPEN_N; i++) {
-        bulk.push(db.set(`doc:${String(i).padStart(7, '0')}`, { title: `title ${i}`, body: `hello world doc ${i}` }, { dt: { created: i } }));
+        bulk.push(
+          db.set(
+            `doc:${String(i).padStart(7, '0')}`,
+            { title: `title ${i}`, body: `hello world doc ${i}` },
+            { dt: { created: i } },
+          ),
+        );
         if (bulk.length >= 10_000) {
           await Promise.all(bulk);
           bulk.length = 0;
@@ -67,7 +79,12 @@ async function coldOpenScenario() {
       let decoded;
       for (let r = 0; r < 3; r++) {
         const t0 = performance.now();
-        const db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
+        const db = await MiniDb.open({
+          dir,
+          valueCodec: 'json',
+          fsyncPolicy: 'no',
+          autoCompact: false,
+        });
         opens.push(performance.now() - t0);
         decoded = db.stats.indexRebuildDecoded ?? 'n/a';
         await db.close();
@@ -91,11 +108,17 @@ async function topKScenario() {
   console.log(`\n  -- full-text top-K, ${fmt(TOPK_N)} candidates --`);
   const dir = await tmpDir();
   try {
-    const db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     await db.createTextIndex('body', { fields: ['body'] });
     for (let base = 0; base < TOPK_N; base += 10_000) {
       const bulk = [];
-      for (let i = base; i < Math.min(base + 10_000, TOPK_N); i++) bulk.push(db.set(`doc:${i}`, { body: `common word ${i}` }));
+      for (let i = base; i < Math.min(base + 10_000, TOPK_N); i++)
+        bulk.push(db.set(`doc:${i}`, { body: `common word ${i}` }));
       await Promise.all(bulk);
     }
     db.search('body', 'common', { limit: 10 });
@@ -110,7 +133,10 @@ async function topKScenario() {
         best = Math.min(best, performance.now() - t0);
       }
       const rssDelta = Math.max(0, process.memoryUsage().rss - rss0) / 1024 / 1024;
-      console.log(`    limit=${String(limit).padEnd(6)}`.padEnd(24), `${best.toFixed(1).padStart(8)} ms/search (min-of-5, hits=${hits}, rssΔ~${rssDelta.toFixed(0)} MiB)`);
+      console.log(
+        `    limit=${String(limit).padEnd(6)}`.padEnd(24),
+        `${best.toFixed(1).padStart(8)} ms/search (min-of-5, hits=${hits}, rssΔ~${rssDelta.toFixed(0)} MiB)`,
+      );
     }
     await db.close();
   } finally {
@@ -123,10 +149,17 @@ async function deltaOverwriteScenario() {
   const DELTA_TERMS = Number(process.env.DELTA_TERMS || 1_000_000);
   const DOCS = 1000;
   const perDoc = Math.ceil(DELTA_TERMS / DOCS);
-  console.log(`\n  -- text delta overwrite, ~${fmt(DELTA_TERMS)} distinct delta terms (${DOCS} docs x ${fmt(perDoc)} words) --`);
+  console.log(
+    `\n  -- text delta overwrite, ~${fmt(DELTA_TERMS)} distinct delta terms (${DOCS} docs x ${fmt(perDoc)} words) --`,
+  );
   const dir = await tmpDir();
   try {
-    const db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     await db.createTextIndex('body', { fields: ['body'] });
     const bulk = [];
     let w = 0;
@@ -151,7 +184,7 @@ async function deltaOverwriteScenario() {
     lat.sort((a, b) => a - b);
     console.log(
       `    overwrite 1 doc x100`.padEnd(24),
-      `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat[lat.length - 1].toFixed(2)} ms`,
+      `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat.at(-1).toFixed(2)} ms`,
     );
     await db.close();
   } finally {
@@ -165,11 +198,17 @@ async function uniqueBatchScenario() {
   console.log(`\n  -- unique batch validation, ${fmt(OWNERS)} owners --`);
   const dir = await tmpDir();
   try {
-    const db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
+    const db = await MiniDb.open({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
     await db.createIndex('byN', { field: 'n', unique: true });
     for (let base = 0; base < OWNERS; base += 10_000) {
       const bulk = [];
-      for (let i = base; i < Math.min(base + 10_000, OWNERS); i++) bulk.push(db.set(`u:${i}`, { n: i }));
+      for (let i = base; i < Math.min(base + 10_000, OWNERS); i++)
+        bulk.push(db.set(`u:${i}`, { n: i }));
       await Promise.all(bulk);
     }
     let next = OWNERS;
@@ -179,7 +218,8 @@ async function uniqueBatchScenario() {
         // Update existing keys with fresh unique values (no conflicts), so the
         // check must logically vacate the touched keys' old owners.
         const ops = [];
-        for (let i = 0; i < size; i++) ops.push({ op: 'set', key: `u:${r % OWNERS}`, value: { n: next++ } });
+        for (let i = 0; i < size; i++)
+          ops.push({ op: 'set', key: `u:${r % OWNERS}`, value: { n: next++ } });
         const t0 = performance.now();
         await db.batch(ops);
         lat.push(performance.now() - t0);
@@ -187,7 +227,7 @@ async function uniqueBatchScenario() {
       lat.sort((a, b) => a - b);
       console.log(
         `    batch size=${String(size).padEnd(5)}`.padEnd(24),
-        `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat[lat.length - 1].toFixed(2)} ms`,
+        `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat.at(-1).toFixed(2)} ms`,
       );
     }
     await db.close();
@@ -228,7 +268,7 @@ async function ttlWritePauseScenario() {
     lat.sort((a, b) => a - b);
     console.log(
       `    plain writes`.padEnd(24),
-      `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat[lat.length - 1].toFixed(2)} ms`,
+      `p50 ${percentile(lat, 50).toFixed(2)} ms   p95 ${percentile(lat, 95).toFixed(2)} ms   max ${lat.at(-1).toFixed(2)} ms`,
     );
     await db.close();
   } finally {
@@ -239,7 +279,9 @@ async function ttlWritePauseScenario() {
 async function main() {
   const N = Number(process.env.N || 50_000);
   const ITERS = Number(process.env.ITERS || 200);
-  console.log(`\nminidb query benchmark  (N=${fmt(N)} docs, ${ITERS} iters each, node ${process.version})\n`);
+  console.log(
+    `\nminidb query benchmark  (N=${fmt(N)} docs, ${ITERS} iters each, node ${process.version})\n`,
+  );
 
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
@@ -254,7 +296,10 @@ async function main() {
         {
           age: 18 + (i % 60),
           city: ['Paris', 'London', 'Tokyo', 'Beijing'][i % 4],
-          bio: i % 3 === 0 ? '我住在北京，喜欢编程和数据库' : 'hello world from nodejs database engine',
+          bio:
+            i % 3 === 0
+              ? '我住在北京，喜欢编程和数据库'
+              : 'hello world from nodejs database engine',
         },
         { dt: { created: base + i * 1000 } },
       ),
@@ -264,26 +309,63 @@ async function main() {
 
   // key prefix scan
   let r = await bench('key prefix scan "user:0001.."', () => db.prefix('user:0001'), ITERS);
-  console.log(`  key prefix scan (user:0001*)`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`, `(~${r.r.length} rows)`);
+  console.log(
+    `  key prefix scan (user:0001*)`.padEnd(42),
+    `${r.ms.toFixed(1)} ms total`,
+    `-> ${ops(ITERS, r.ms)}`,
+    `(~${r.r.length} rows)`,
+  );
 
   // key range
   r = await bench('key range', () => db.scan({ gte: 'user:001', lte: 'user:002' }), ITERS);
-  console.log(`  key range [user:001, user:002]`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`, `(~${r.r.length} rows)`);
+  console.log(
+    `  key range [user:001, user:002]`.padEnd(42),
+    `${r.ms.toFixed(1)} ms total`,
+    `-> ${ops(ITERS, r.ms)}`,
+    `(~${r.r.length} rows)`,
+  );
 
   // dt range
-  r = await bench('dt range', () => db.dtRange('created', { gte: base + 10000, lte: base + 20000 }), ITERS);
-  console.log(`  dt range (10 docs)`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`);
+  r = await bench(
+    'dt range',
+    () => db.dtRange('created', { gte: base + 10000, lte: base + 20000 }),
+    ITERS,
+  );
+  console.log(
+    `  dt range (10 docs)`.padEnd(42),
+    `${r.ms.toFixed(1)} ms total`,
+    `-> ${ops(ITERS, r.ms)}`,
+  );
 
   // value filter (full scan + match)
-  r = await bench('value filter', () => db.query({ filter: { city: 'Paris', age: { $gte: 30 } } }), ITERS);
-  console.log(`  value filter (city=Paris & age>=30)`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`, `(~${r.r.length} rows)`);
+  r = await bench(
+    'value filter',
+    () => db.query({ filter: { city: 'Paris', age: { $gte: 30 } } }),
+    ITERS,
+  );
+  console.log(
+    `  value filter (city=Paris & age>=30)`.padEnd(42),
+    `${r.ms.toFixed(1)} ms total`,
+    `-> ${ops(ITERS, r.ms)}`,
+    `(~${r.r.length} rows)`,
+  );
 
   // full-text search
   r = await bench('text search latin', () => db.search('body', 'hello'), ITERS);
-  console.log(`  text search "hello"`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`, `(~${r.r.length} rows)`);
+  console.log(
+    `  text search "hello"`.padEnd(42),
+    `${r.ms.toFixed(1)} ms total`,
+    `-> ${ops(ITERS, r.ms)}`,
+    `(~${r.r.length} rows)`,
+  );
 
   r = await bench('text search cjk', () => db.search('body', '北京'), ITERS);
-  console.log(`  text search "北京"`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`, `(~${r.r.length} rows)`);
+  console.log(
+    `  text search "北京"`.padEnd(42),
+    `${r.ms.toFixed(1)} ms total`,
+    `-> ${ops(ITERS, r.ms)}`,
+    `(~${r.r.length} rows)`,
+  );
 
   // composed query
   r = await bench(
@@ -297,7 +379,11 @@ async function main() {
       }),
     ITERS,
   );
-  console.log(`  composed (dt + filter + sort + limit)`.padEnd(42), `${r.ms.toFixed(1)} ms total`, `-> ${ops(ITERS, r.ms)}`);
+  console.log(
+    `  composed (dt + filter + sort + limit)`.padEnd(42),
+    `${r.ms.toFixed(1)} ms total`,
+    `-> ${ops(ITERS, r.ms)}`,
+  );
 
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -313,7 +399,7 @@ async function main() {
   console.log('\ndone.\n');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

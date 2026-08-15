@@ -61,7 +61,8 @@ export async function githubRequest(
     return { status: 0, ok: false, body: '', error: GITHUB_NO_TOKEN_ERROR };
   }
 
-  const baseUrl = firstNonEmpty(getEnv('GITHUB_API_URL'), GITHUB_DEFAULT_BASE_URL) ?? GITHUB_DEFAULT_BASE_URL;
+  const baseUrl =
+    firstNonEmpty(getEnv('GITHUB_API_URL'), GITHUB_DEFAULT_BASE_URL) ?? GITHUB_DEFAULT_BASE_URL;
   const url = `${buildGitHubUrl(baseUrl, path)}${buildGitHubQuery(options.query)}`;
 
   const headers: Record<string, string> = {
@@ -153,7 +154,9 @@ function buildGitHubQuery(query: Record<string, unknown> | undefined): string {
   const pairs: string[] = [];
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value === undefined || value === null) continue;
-    pairs.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value as string | number | boolean))}`);
+    pairs.push(
+      `${encodeURIComponent(key)}=${encodeURIComponent(String(value as string | number | boolean))}`,
+    );
   }
   return pairs.length > 0 ? `?${pairs.join('&')}` : '';
 }

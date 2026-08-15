@@ -1,25 +1,3 @@
-import {
-  APIConnectionError,
-  APITimeoutError,
-  ChatProviderError,
-  classifyBaseApiError,
-  normalizeAPIStatusError,
-  parseRetryAfterMs,
-  throwIfAbortError,
-} from '#/errors';
-import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
-import { isToolDeclarationOnlyMessage } from '#/message';
-import type {
-  ChatProvider,
-  FinishReason,
-  GenerateOptions,
-  ProviderRequestAuth,
-  ResponseFormat,
-  StreamedMessage,
-  ThinkingEffort,
-} from '#/provider';
-import type { Tool } from '#/tool';
-import type { TokenUsage } from '#/usage';
 import Anthropic, {
   APIError as AnthropicAPIError,
   APIConnectionError as AnthropicConnectionError,
@@ -43,6 +21,30 @@ import type {
 } from '@anthropic-ai/sdk/resources/messages/messages.js';
 
 import {
+  APIConnectionError,
+  APITimeoutError,
+  ChatProviderError,
+  classifyBaseApiError,
+  normalizeAPIStatusError,
+  parseRetryAfterMs,
+  throwIfAbortError,
+} from '#/errors';
+import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
+import { isToolDeclarationOnlyMessage } from '#/message';
+import type {
+  ChatProvider,
+  FinishReason,
+  GenerateOptions,
+  ProviderRequestAuth,
+  ResponseFormat,
+  StreamedMessage,
+  ThinkingEffort,
+} from '#/provider';
+import type { Tool } from '#/tool';
+import type { TokenUsage } from '#/usage';
+
+import { CACHE_CONTROL, injectCacheControlOnLastBlock } from './anthropic-cache-breakpoints';
+import {
   BUDGET_THINKING_EFFORTS,
   inferAnthropicModelProfile,
   matchKnownAnthropicModelProfile,
@@ -51,14 +53,13 @@ import {
   type AnthropicModelVersion,
 } from './anthropic-profile';
 import { mergeConsecutiveUserMessages } from './merge-user-messages';
+import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 import { AuthClientLRU, mergeRequestHeaders, resolveAuthBackedClient } from './request-auth';
 import {
   normalizeToolCallIdsForProvider,
   sanitizeToolCallId,
   type ToolCallIdPolicy,
 } from './tool-call-id';
-import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
-import { CACHE_CONTROL, injectCacheControlOnLastBlock } from './anthropic-cache-breakpoints';
 
 /**
  * Normalize an Anthropic `stop_reason` string to the unified
@@ -275,9 +276,7 @@ export function resolveDefaultMaxTokens(model: string, override?: number): numbe
 }
 
 function requiresAdaptiveThinking(efforts: readonly string[]): boolean {
-  return efforts.some(
-    (effort) => effort !== 'low' && effort !== 'medium' && effort !== 'high',
-  );
+  return efforts.some((effort) => effort !== 'low' && effort !== 'medium' && effort !== 'high');
 }
 
 function resolveThinkingProfile(
@@ -314,8 +313,7 @@ function resolveThinkingProfile(
     ...inferred,
     mode: requiresAdaptiveThinking(supportEfforts) ? 'adaptive' : inferred.mode,
     efforts: supportEfforts,
-    supportsEffortParam:
-      requiresAdaptiveThinking(supportEfforts) || inferred.supportsEffortParam,
+    supportsEffortParam: requiresAdaptiveThinking(supportEfforts) || inferred.supportsEffortParam,
   };
 }
 
@@ -353,9 +351,7 @@ interface AnthropicImageBlock {
 
 interface AnthropicVideoBlock {
   type: 'video';
-  source:
-    | { type: 'base64'; media_type: string; data: string }
-    | { type: 'url'; url: string };
+  source: { type: 'base64'; media_type: string; data: string } | { type: 'url'; url: string };
 }
 
 // The Messages API has no representation for audio input. Instead of
@@ -412,7 +408,9 @@ function videoUrlPartToAnthropic(url: string): AnthropicVideoBlock | TextBlockPa
       // Non-base64 data URLs (e.g. URL-encoded) are not supported by the
       // Anthropic video API. Degrade to a text placeholder instead of
       // crashing the entire request.
-      console.warn(`[kosong] Non-base64 data URL for video is not supported by Anthropic, replacing with placeholder`);
+      console.warn(
+        `[kosong] Non-base64 data URL for video is not supported by Anthropic, replacing with placeholder`,
+      );
       return {
         type: 'text',
         text: '[video omitted: unsupported data URL format]',
@@ -421,7 +419,9 @@ function videoUrlPartToAnthropic(url: string): AnthropicVideoBlock | TextBlockPa
     const mediaType = parts[0];
     const data = parts[1];
     if (!SUPPORTED_B64_VIDEO_TYPES.has(mediaType)) {
-      console.warn(`[kosong] Unsupported media type for base64 video: ${mediaType}, replacing with placeholder`);
+      console.warn(
+        `[kosong] Unsupported media type for base64 video: ${mediaType}, replacing with placeholder`,
+      );
       return {
         type: 'text',
         text: `[video omitted: unsupported media type "${mediaType}"]`,
@@ -923,7 +923,9 @@ export class AnthropicChatProvider implements ChatProvider {
   private _adaptiveThinking: boolean | undefined;
   private readonly _supportEfforts: readonly string[] | undefined;
   private readonly _kimiThinking: boolean;
-  private readonly _convertErrorHook: ((error: unknown) => ChatProviderError | undefined) | undefined;
+  private readonly _convertErrorHook:
+    | ((error: unknown) => ChatProviderError | undefined)
+    | undefined;
   private _betaApi: boolean;
   private _explicitMaxTokens: boolean;
 
@@ -1287,9 +1289,7 @@ export class AnthropicChatProvider implements ChatProvider {
     } else if (profile.mode === 'adaptive') {
       thinking = { type: 'adaptive', display: 'summarized' };
       outputConfig =
-        effort === 'on'
-          ? undefined
-          : ({ effort } as MessageCreateParams['output_config']);
+        effort === 'on' ? undefined : ({ effort } as MessageCreateParams['output_config']);
     } else {
       const budgetTokens = budgetTokensForEffort(effort);
       thinking =
@@ -1357,7 +1357,7 @@ export class AnthropicChatProvider implements ChatProvider {
     const clone = this._withGenerationKwargs({
       max_tokens:
         existingCap === undefined || this._explicitMaxTokens
-          ? existingCap ?? requestedCap
+          ? (existingCap ?? requestedCap)
           : Math.min(existingCap, requestedCap),
     });
     clone._explicitMaxTokens = this._explicitMaxTokens;

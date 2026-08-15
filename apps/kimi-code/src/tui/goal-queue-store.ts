@@ -1,10 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import {
-  ErrorCodes,
-  KimiError,
-} from '@moonshot-ai/kimi-code-sdk';
+
+import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 

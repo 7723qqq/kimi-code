@@ -2,8 +2,6 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import {
   IAgentGoalService,
   IAgentLifecycleService,
@@ -25,6 +23,7 @@ import {
   type BootstrapInput,
   type DomainEvent,
 } from '@moonshot-ai/agent-core-v2';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runV2Print } from '../../src/cli/v2/run-v2-print';
 
@@ -222,7 +221,10 @@ function makeFakeHarness() {
         })),
       },
     ],
-    [ISessionIndex, { get: vi.fn(async () => undefined), listRecent: vi.fn(async () => ({ items: [] })) }],
+    [
+      ISessionIndex,
+      { get: vi.fn(async () => undefined), listRecent: vi.fn(async () => ({ items: [] })) },
+    ],
     [
       IBootstrapService,
       {
@@ -279,7 +281,9 @@ describe('runV2Print', () => {
 
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
-    const promptService = agentServices.get(IAgentPromptService) as { enqueue: ReturnType<typeof vi.fn> };
+    const promptService = agentServices.get(IAgentPromptService) as {
+      enqueue: ReturnType<typeof vi.fn>;
+    };
     expect(promptService.enqueue).toHaveBeenCalledWith({
       message: {
         role: 'user',

@@ -9,17 +9,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
+import { IAgentActivityView, type AgentActivityState } from '#/agent/activityView/activityView';
+import { AgentActivityView } from '#/agent/activityView/activityViewService';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import type { FullCompactionTask } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { TurnModel, type TurnModelState } from '#/agent/loop/turnOps';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentTaskService } from '#/agent/task/task';
 import type { AgentTaskInfo } from '#/agent/task/types';
-import { AgentActivityView } from '#/agent/activityView/activityViewService';
-import { IAgentActivityView, type AgentActivityState } from '#/agent/activityView/activityView';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import type { FullCompactionTask } from '#/agent/fullCompaction/fullCompaction';
-import { TurnModel, type TurnModelState } from '#/agent/loop/turnOps';
+import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
 import { IWireService } from '#/wire/wire';
 
 class FakeBus {
@@ -80,7 +80,10 @@ function harness(
         : undefined,
     hooks: {
       onDidRestore: {
-        register: (_id: string, fn: (ctx: undefined, next: () => Promise<void>) => Promise<void>) => {
+        register: (
+          _id: string,
+          fn: (ctx: undefined, next: () => Promise<void>) => Promise<void>,
+        ) => {
           restoreHooks.push(async () => fn(undefined, async () => {}));
           return { dispose: () => {} };
         },

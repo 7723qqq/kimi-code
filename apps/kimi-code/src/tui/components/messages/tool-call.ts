@@ -12,6 +12,8 @@
  */
 
 import { Container, Spacer, Text, type Component, type TUI } from '@moonshot-ai/pi-tui';
+
+import { t } from '#/i18n';
 import {
   BRAILLE_SPINNER_FRAMES,
   RESULT_PREVIEW_LINES,
@@ -23,13 +25,8 @@ import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
-import { t } from '#/i18n';
 
 import { ShellExecutionComponent } from './shell-execution';
-import { pickChip } from './tool-renderers/chip';
-import { buildGoalToolHeader } from './tool-renderers/goal';
-import { isGenericToolResult } from './tool-renderers/registry';
-
 // Extracted modules
 import { buildCallPreview } from './tool-call/call-preview';
 import {
@@ -45,6 +42,9 @@ import { interpretExitPlanModeOutcome } from './tool-call/plan-mode';
 import { PrefixedWrappedLine } from './tool-call/prefixed-wrapped-line';
 import { buildResultContent } from './tool-call/result-content';
 import { SubagentStateManager } from './tool-call/subagent-state';
+import { pickChip } from './tool-renderers/chip';
+import { buildGoalToolHeader } from './tool-renderers/goal';
+import { isGenericToolResult } from './tool-renderers/registry';
 export { extractKeyArgument } from './tool-call/formatters';
 import type {
   SubagentCompletedPayload,
@@ -71,7 +71,6 @@ function getDetachHintText(): string {
 }
 
 const MAX_PROGRESS_LINES = 24;
-
 
 export class ToolCallComponent extends Container {
   private expanded = false;
@@ -497,7 +496,7 @@ export class ToolCallComponent extends Container {
           ? t('tui.messages.toolCall.couldNotCollectInput')
           : isBackgroundAsk
             ? t('tui.messages.toolCall.startedBackgroundQuestion')
-          : t('tui.messages.toolCall.collectedAnswers')
+            : t('tui.messages.toolCall.collectedAnswers')
         : isBackgroundAsk
           ? t('tui.messages.toolCall.startingBackgroundQuestion')
           : t('tui.messages.toolCall.waitingForInput');
@@ -536,9 +535,7 @@ export class ToolCallComponent extends Container {
         : t('tui.messages.toolCall.using');
     const keyArg = extractKeyArgument(toolCall.name, toolCall.args, this.workspaceDir);
     const decoded = decodeMcpToolName(toolCall.name);
-    const verbStyled = isTruncated
-      ? currentTheme.fg('error', verb)
-      : verb;
+    const verbStyled = isTruncated ? currentTheme.fg('error', verb) : verb;
     const toolLabel =
       decoded !== null
         ? `${currentTheme.boldFg('primary', decoded.toolName)}${currentTheme.dim(` · MCP/${decoded.serverName}`)}`
@@ -595,9 +592,9 @@ export class ToolCallComponent extends Container {
       PROGRESS_URL_RE.lastIndex = 0;
       const styled = PROGRESS_URL_RE.test(raw)
         ? raw.replace(PROGRESS_URL_RE, (url) => {
-          const visible = currentTheme.underlineFg('warning', url);
-          return `\u001B]8;;${url}\u001B\\${visible}\u001B]8;;\u001B\\`;
-        })
+            const visible = currentTheme.underlineFg('warning', url);
+            return `\u001B]8;;${url}\u001B\\${visible}\u001B]8;;\u001B\\`;
+          })
         : currentTheme.dim(raw);
       PROGRESS_URL_RE.lastIndex = 0;
       this.addChild(new Text(styled, 2, 0));
@@ -655,19 +652,20 @@ export class ToolCallComponent extends Container {
               )} ...`,
             ),
           ),
-          0, 0,
+          0,
+          0,
         ),
       );
     }
 
     for (const sub of this.subagent.finishedSubCallsList) {
-      const mark = sub.isError
-        ? currentTheme.fg('error', '✗')
-        : currentTheme.fg('success', '•');
+      const mark = sub.isError ? currentTheme.fg('error', '✗') : currentTheme.fg('success', '•');
       const keyArg = extractKeyArgument(sub.name, sub.args, this.workspaceDir);
       const nameCol = currentTheme.fg('primary', sub.name);
       const argCol = keyArg ? currentTheme.dim(` (${keyArg})`) : '';
-      this.addChild(new Text(`    ${mark} ${t('tui.messages.toolCall.used')} ${nameCol}${argCol}`, 0, 0));
+      this.addChild(
+        new Text(`    ${mark} ${t('tui.messages.toolCall.used')} ${nameCol}${argCol}`, 0, 0),
+      );
     }
 
     for (const [, call] of this.subagent.ongoingSubCallsMap) {
@@ -675,7 +673,11 @@ export class ToolCallComponent extends Container {
       const nameCol = currentTheme.fg('primary', call.name);
       const argCol = keyArg ? currentTheme.dim(` (${keyArg})`) : '';
       this.addChild(
-        new Text(`    ${currentTheme.dim('…')} ${t('tui.messages.toolCall.using')} ${nameCol}${argCol}`, 0, 0),
+        new Text(
+          `    ${currentTheme.dim('…')} ${t('tui.messages.toolCall.using')} ${nameCol}${argCol}`,
+          0,
+          0,
+        ),
       );
     }
 
@@ -717,7 +719,8 @@ export class ToolCallComponent extends Container {
         break;
       case 'done': {
         parts.push(currentTheme.fg('success', `✓ ${t('tui.messages.toolCall.phaseDone')}`));
-        const toolCount = this.subagent.finishedSubCallsList.length + this.subagent.hiddenSubCallCountValue;
+        const toolCount =
+          this.subagent.finishedSubCallsList.length + this.subagent.hiddenSubCallCountValue;
         if (toolCount > 0) {
           parts.push(
             t(
@@ -728,9 +731,7 @@ export class ToolCallComponent extends Container {
             ),
           );
         }
-        const tokens =
-          this.subagent.formatContextTokens() ??
-          this.subagent.formatTokensDisplay();
+        const tokens = this.subagent.formatContextTokens() ?? this.subagent.formatTokensDisplay();
         if (tokens !== undefined) parts.push(tokens);
         break;
       }
@@ -817,7 +818,8 @@ export class ToolCallComponent extends Container {
     if (phase === 'failed') return currentTheme.fg('error', '✗ ');
     if (phase === 'done') return currentTheme.fg('success', STATUS_BULLET);
     if (phase === 'backgrounded') return currentTheme.dim('◐ ');
-    const frame = BRAILLE_SPINNER_FRAMES[this.subagent.spinnerFrameValue] ?? BRAILLE_SPINNER_FRAMES[0];
+    const frame =
+      BRAILLE_SPINNER_FRAMES[this.subagent.spinnerFrameValue] ?? BRAILLE_SPINNER_FRAMES[0];
     return currentTheme.fg('primary', `${frame} `);
   }
 
@@ -864,7 +866,10 @@ export class ToolCallComponent extends Container {
     ) {
       return { text: current.output, tone: 'text' };
     }
-    if (this.subagent.lastStreamKindValue === 'thinking' && this.subagent.thinkingTextValue.trim().length > 0) {
+    if (
+      this.subagent.lastStreamKindValue === 'thinking' &&
+      this.subagent.thinkingTextValue.trim().length > 0
+    ) {
       return { text: this.subagent.thinkingTextValue.trimEnd(), tone: 'thinking' };
     }
     if (this.subagent.textValue.trim().length > 0) {

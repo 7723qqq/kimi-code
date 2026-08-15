@@ -62,10 +62,7 @@ export function DiEventsPanel({ data }: { data: DebugEventSubscriptions }) {
                   {sub.uid !== undefined ? (
                     <span className="shrink-0 text-[10px] text-neutral-600">#{sub.uid}</span>
                   ) : null}
-                  <span
-                    className="shrink-0 font-mono text-[10px] text-sky-400"
-                    title={sub.label}
-                  >
+                  <span className="shrink-0 font-mono text-[10px] text-sky-400" title={sub.label}>
                     {sub.label}
                   </span>
                   <span className="ml-auto shrink-0">
@@ -123,15 +120,7 @@ function busRows(bus: DebugEventBusSnapshot) {
   return rows;
 }
 
-function BusRow({
-  scopePath,
-  type,
-  count,
-}: {
-  scopePath: string;
-  type: string;
-  count: number;
-}) {
+function BusRow({ scopePath, type, count }: { scopePath: string; type: string; count: number }) {
   return (
     <div className="flex items-center gap-2 py-0.5">
       <span className="min-w-0 truncate font-mono text-[10px] text-neutral-500" title={scopePath}>

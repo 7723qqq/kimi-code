@@ -13,14 +13,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  drainQueryStoreDisposals,
+  drainSessionIndexMirror,
+  HostProcessError,
+  IHostRequestHeaders,
+  ISessionLifecycleService,
+  IWorkspaceLifecycleService,
+  OsProcessErrors,
+} from '@moonshot-ai/agent-core-v2';
+import {
   FileTokenStorage,
   resolveKimiCodeOAuthRef,
   resolveKimiTokenStorageName,
 } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type {
-  KimiHarness} from '#/index';
+import type { KimiHarness } from '#/index';
 import {
   createKimiHarnessV2,
   ErrorCodes,
@@ -30,26 +38,18 @@ import {
   type KimiConfig,
 } from '#/index';
 import { foldAgentWireReplay } from '#/v2/resume-replay';
-import {
-  drainQueryStoreDisposals,
-  drainSessionIndexMirror,
-  HostProcessError,
-  IHostRequestHeaders,
-  ISessionLifecycleService,
-  IWorkspaceLifecycleService,
-  OsProcessErrors,
-} from '@moonshot-ai/agent-core-v2';
 
-import { TEST_IDENTITY } from './test-identity';
 import { startMcpAuthStatusServer } from './mcp-auth-status-server';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
+import { TEST_IDENTITY } from './test-identity';
 
 const hostEnvProbe = vi.hoisted(() => ({ failWithMissingShell: false }));
 
 vi.mock('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe', async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe')
-  >();
+  const actual =
+    await importOriginal<
+      typeof import('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe')
+    >();
   return {
     ...actual,
     probeHostEnvironmentFromNode: () =>
@@ -547,7 +547,10 @@ key = "${titleOAuthRef.key}"
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     tempDirs.push(workDir);
     await writeSkill(join(homeDir, 'skills', 'demo-user-skill'), 'demo-user-skill');
-    await writeSkill(join(workDir, '.kimi-code', 'skills', 'demo-project-skill'), 'demo-project-skill');
+    await writeSkill(
+      join(workDir, '.kimi-code', 'skills', 'demo-project-skill'),
+      'demo-project-skill',
+    );
     try {
       const skills = await harness.listWorkspaceSkills(workDir);
       const byName = new Map(skills.map((skill) => [skill.name, skill]));
@@ -573,7 +576,10 @@ key = "${titleOAuthRef.key}"
     tempDirs.push(explicitBase);
     const explicitDir = join(explicitBase, 'skills');
     await writeSkill(join(homeDir, 'skills', 'demo-user-skill'), 'demo-user-skill');
-    await writeSkill(join(workDir, '.kimi-code', 'skills', 'demo-project-skill'), 'demo-project-skill');
+    await writeSkill(
+      join(workDir, '.kimi-code', 'skills', 'demo-project-skill'),
+      'demo-project-skill',
+    );
     await writeSkill(join(explicitDir, 'demo-explicit-skill'), 'demo-explicit-skill');
     const harness = createKimiHarnessV2({
       homeDir,
@@ -794,7 +800,13 @@ describe('SDKRpcClientV2 workspace trust', () => {
       expect(info.gatedMcpServers).toEqual([
         { name: 'http-server', transport: 'http', url: 'https://example.test/mcp' },
         { name: 'nested-server', transport: 'stdio', command: 'nested-cmd' },
-        { name: 'root-server', transport: 'stdio', command: 'root-cmd', args: ['--safe'], cwd: '/tmp/root' },
+        {
+          name: 'root-server',
+          transport: 'stdio',
+          command: 'root-cmd',
+          args: ['--safe'],
+          cwd: '/tmp/root',
+        },
       ]);
       const serialized = JSON.stringify(info);
       expect(serialized).not.toContain('hidden');
@@ -864,9 +876,20 @@ describe('foldAgentWireReplay', () => {
         time: 1004,
       },
       // A v2-only op the v1 restore switch does not know: ignored.
-      { type: 'profile.bind', profileName: 'agent', systemPrompt: 'x', thinkingEffort: 'off', disallowedTools: [], time: 1005 },
+      {
+        type: 'profile.bind',
+        profileName: 'agent',
+        systemPrompt: 'x',
+        thinkingEffort: 'off',
+        disallowedTools: [],
+        time: 1005,
+      },
     ];
-    await writeFile(wirePath, records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf-8');
+    await writeFile(
+      wirePath,
+      records.map((record) => JSON.stringify(record)).join('\n') + '\n',
+      'utf-8',
+    );
     const folded = await foldAgentWireReplay(wirePath);
     expect(folded.replay).toEqual([
       {
@@ -1063,7 +1086,8 @@ describe('removeProviderFromConfig', () => {
   });
 });
 
-async function writeSkill(dir: string, name: string): Promise<void> {  await mkdir(dir, { recursive: true });
+async function writeSkill(dir: string, name: string): Promise<void> {
+  await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, 'SKILL.md'),
     `---\nname: ${name}\ndescription: Skill ${name} for the escape-hatch test\n---\n\nBody of ${name}.\n`,

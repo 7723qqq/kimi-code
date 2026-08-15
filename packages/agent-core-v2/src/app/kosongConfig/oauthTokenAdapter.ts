@@ -6,13 +6,11 @@
  * the port.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
-
 import { IOAuthService } from '#/app/auth/auth';
 import { AuthErrors } from '#/app/auth/errors';
+import { LifecycleScope } from '#/app/scopes';
 import { nonEmpty } from '#/kosong/model/modelAuth';
 import { IModelOAuthTokens } from '#/kosong/model/modelOAuth';
 import type { OAuthRef } from '#/kosong/provider/provider';
@@ -54,7 +52,7 @@ function loginRequired(providerKey: string): Error2 {
 }
 
 registerScopedService(
-LifecycleScope.App,
+  LifecycleScope.App,
   IModelOAuthTokens,
   ModelOAuthTokenAdapter,
   ScopeActivation.OnScopeCreated,

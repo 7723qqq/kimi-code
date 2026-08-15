@@ -24,25 +24,18 @@
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import {
-  ToolAccesses,
-  type ExecutableToolContext,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { Error2, ErrorCodes } from '#/errors';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
-import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import {
   subagentAllowlistFor,
   subagentTypeNotAllowedMessage,
 } from '#/app/agentProfileCatalog/profile-shared';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IConfigService } from '#/app/config/config';
+import { IFlagService } from '#/app/flag/flag';
+import { Error2, ErrorCodes } from '#/errors';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import {
   buildSubagentModelDescriptions,
   exposesSubagentModelChoice,
@@ -50,8 +43,15 @@ import {
   resolveSubagentTimeoutMs,
   stripSubagentModelParameter,
 } from '#/session/subagent/configSection';
-import type {
-  IAgentSwarmTool} from './agent-swarm';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import {
+  ToolAccesses,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+
+import type { IAgentSwarmTool } from './agent-swarm';
 import {
   AgentSwarmToolInputSchema,
   MAX_AGENT_SWARM_SUBAGENTS,
@@ -179,9 +179,13 @@ export class AgentSwarmTool implements IAgentSwarmTool {
       }
       const targetProfile = this.catalog.get(profileName);
       if (targetProfile === undefined) {
-        throw new Error2(ErrorCodes.PROFILE_UNKNOWN, t('v2Errors.unknownAgentType', { type: profileName }), {
-          details: { profileName },
-        });
+        throw new Error2(
+          ErrorCodes.PROFILE_UNKNOWN,
+          t('v2Errors.unknownAgentType', { type: profileName }),
+          {
+            details: { profileName },
+          },
+        );
       }
       if (own.modelAlias !== undefined) {
         const resolved = resolveSubagentBinding(
@@ -260,7 +264,9 @@ async function createAgentSwarmSpecs(
     throw new Error(t('v2Errors.swarmPromptRequired'));
   }
   if (promptTemplate !== undefined && !promptTemplate.includes(PROMPT_TEMPLATE_PLACEHOLDER)) {
-    throw new Error(t('v2Errors.swarmPromptPlaceholder', { placeholder: PROMPT_TEMPLATE_PLACEHOLDER }));
+    throw new Error(
+      t('v2Errors.swarmPromptPlaceholder', { placeholder: PROMPT_TEMPLATE_PLACEHOLDER }),
+    );
   }
 
   const seenPrompts = new Map<string, number>();
@@ -280,7 +286,9 @@ async function createAgentSwarmSpecs(
       const prompt = itemPromptTemplate.split(PROMPT_TEMPLATE_PLACEHOLDER).join(item);
       const previousIndex = seenPrompts.get(prompt);
       if (previousIndex !== undefined) {
-        throw new Error(t('v2Errors.swarmDuplicatePrompts', { indexA: previousIndex, indexB: index + 1 }));
+        throw new Error(
+          t('v2Errors.swarmDuplicatePrompts', { indexA: previousIndex, indexB: index + 1 }),
+        );
       }
       seenPrompts.set(prompt, index + 1);
       specs.push({
@@ -327,9 +335,11 @@ function renderSwarmResults(results: readonly SwarmRunResult[]): string {
   for (const result of results) {
     const agentId = result.agentId === undefined ? '' : ` agent_id="${result.agentId}"`;
     const mode = result.spec.kind === 'resume' ? ' mode="resume"' : '';
-    const item = result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
+    const item =
+      result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
     const state = result.state === undefined ? '' : ` state="${result.state}"`;
-    const body = result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
+    const body =
+      result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
     lines.push(
       `<subagent${mode}${agentId}${item}${state} outcome="${result.status}">${body}</subagent>`,
     );

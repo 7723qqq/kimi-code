@@ -1,12 +1,12 @@
-import { describe, expect, it } from 'vitest';
-
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { describe, expect, it } from 'vitest';
+
+import type { LspProviderQuery } from '#/features/lsp/lsp';
+import { LspTransportClosedError } from '#/features/lsp/lspConnection';
 import { LspInstance } from '#/features/lsp/lspInstance';
 import { LspStdioProvider } from '#/features/lsp/lspStdioProvider';
-import { LspTransportClosedError } from '#/features/lsp/lspConnection';
-import type { LspProviderQuery } from '#/features/lsp/lsp';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 
@@ -65,7 +65,10 @@ describe('LspInstance', () => {
     expect(result).toEqual({
       kind: 'locations',
       locations: [
-        { uri: 'file:///def.ts', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } },
+        {
+          uri: 'file:///def.ts',
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+        },
       ],
     });
     await instance.dispose();
@@ -77,18 +80,27 @@ describe('LspInstance', () => {
     expect(references).toEqual({
       kind: 'locations',
       locations: [
-        { uri: 'file:///ref1.ts', range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } } },
+        {
+          uri: 'file:///ref1.ts',
+          range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } },
+        },
       ],
     });
     const implementation = await instance.query({ ...QUERY, operation: 'goToImplementation' });
     expect(implementation).toEqual({
       kind: 'locations',
       locations: [
-        { uri: 'file:///impl.ts', range: { start: { line: 2, character: 0 }, end: { line: 2, character: 1 } } },
+        {
+          uri: 'file:///impl.ts',
+          range: { start: { line: 2, character: 0 }, end: { line: 2, character: 1 } },
+        },
       ],
     });
     const hover = await instance.query({ ...QUERY, operation: 'hover' });
-    expect(hover).toEqual({ kind: 'hover', hover: { contents: { kind: 'plaintext', value: 'hover text' } } });
+    expect(hover).toEqual({
+      kind: 'hover',
+      hover: { contents: { kind: 'plaintext', value: 'hover text' } },
+    });
     await instance.dispose();
   });
 
@@ -98,7 +110,10 @@ describe('LspInstance', () => {
       instance.query({ ...QUERY, operation: 'hover' }),
       instance.query({ ...QUERY, operation: 'hover' }),
     ]);
-    expect(a).toEqual({ kind: 'hover', hover: { contents: { kind: 'plaintext', value: 'hover text' } } });
+    expect(a).toEqual({
+      kind: 'hover',
+      hover: { contents: { kind: 'plaintext', value: 'hover text' } },
+    });
     expect(b).toEqual(a);
     await instance.dispose();
   });
@@ -140,7 +155,10 @@ describe('LspStdioProvider', () => {
     expect(result).toEqual({
       kind: 'locations',
       locations: [
-        { uri: 'file:///def.ts', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } },
+        {
+          uri: 'file:///def.ts',
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+        },
       ],
     });
     expect(spawnCount).toBe(2);

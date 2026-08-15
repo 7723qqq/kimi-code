@@ -18,31 +18,48 @@
  * runs.
  */
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import type { IDisposable } from '#/_base/di/lifecycle';
-import { Service } from "#/_base/di/service";
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
+import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
-import { renderPrompt } from "#/_base/utils/render-prompt";
-import { estimateTokensForMessage } from "#/kosong/contract/tokens";
-import { buildCompactionSummaryText, isRealUserInput } from '#/agent/contextMemory/compactionHandoff';
-import { snipLargeToolResults } from '#/agent/fullCompaction/compactionUtils';
+import { isAbortError } from '#/_base/utils/abort';
+import { renderPrompt } from '#/_base/utils/render-prompt';
+import { retryBackoffDelays, sleepForRetry } from '#/_base/utils/retry';
+import {
+  buildCompactionSummaryText,
+  isRealUserInput,
+} from '#/agent/contextMemory/compactionHandoff';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
-import { IAgentLLMRequesterService, type AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
-import { retryBackoffDelays, sleepForRetry } from '#/_base/utils/retry';
+import { snipLargeToolResults } from '#/agent/fullCompaction/compactionUtils';
+import {
+  IAgentLLMRequesterService,
+  type AgentLLMRequestFinish,
+} from '#/agent/llmRequester/llmRequester';
 import { IAgentLoopService, type LoopErrorContext } from '#/agent/loop/loop';
-import { isAbortError } from '#/_base/utils/abort';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { stripDynamicToolContext } from '#/agent/toolSelect/dynamicTools';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
-import { ISessionTodoService } from '#/session/todo/sessionTodo';
-import { renderTodoList, type TodoItem } from '#/session/todo/todoItem';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
+import type { CompactionFailedEvent, CompactionFinishedEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import {
+  ErrorCodes,
+  Error2,
+  isCodedError,
+  isError2,
+  toKimiErrorPayload,
+  unwrapErrorCause,
+} from '#/errors';
+import { OrderedHookSlot } from '#/hooks';
 import {
   APIContextOverflowError,
   APIEmptyResponseError,
@@ -50,24 +67,15 @@ import {
   isRetryableGenerateError,
 } from '#/kosong/contract/errors';
 import { createUserMessage, type Message } from '#/kosong/contract/message';
+import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import { estimateTokensForMessage } from '#/kosong/contract/tokens';
 import type { Tool } from '#/kosong/contract/tool';
 import { inputTotal, type TokenUsage } from '#/kosong/contract/usage';
-import { IEventBus } from '#/app/event/eventBus';
-import type { CompactionFailedEvent, CompactionFinishedEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ErrorCodes, Error2, isCodedError, isError2, toKimiErrorPayload, unwrapErrorCause } from "#/errors";
-import { t } from '@moonshot-ai/kimi-i18n';
+import { ISessionTodoService } from '#/session/todo/sessionTodo';
+import { renderTodoList, type TodoItem } from '#/session/todo/todoItem';
 import { IWireService } from '#/wire/wire';
+
 import compactionInstructionTemplate from './compaction-instruction.md?raw';
-import {
-  IAgentFullCompactionService,
-  type FullCompactionInput,
-  type FullCompactionTask,
-} from './fullCompaction';
-import {
-  RuntimeCompactionStrategy,
-  type CompactionStrategy,
-} from './strategy';
 import {
   CompactionModel,
   fullCompactionBegin,
@@ -75,11 +83,12 @@ import {
   fullCompactionComplete,
 } from './compactionOps';
 import {
-  type CompactionBeginData,
-  type CompactionResult,
-} from './types';
-import { Emitter, type Event } from '#/_base/event';
-import { OrderedHookSlot } from '#/hooks';
+  IAgentFullCompactionService,
+  type FullCompactionInput,
+  type FullCompactionTask,
+} from './fullCompaction';
+import { RuntimeCompactionStrategy, type CompactionStrategy } from './strategy';
+import { type CompactionBeginData, type CompactionResult } from './types';
 
 export const MAX_COMPACTION_RETRY_ATTEMPTS = 5;
 const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS = 128 * 1024;
@@ -188,9 +197,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
         await next();
       }),
     );
-    this._register(
-      this.eventBus.subscribe('turn.started', () => this.resetForTurn()),
-    );
+    this._register(this.eventBus.subscribe('turn.started', () => this.resetForTurn()));
     this._register(
       this.eventBus.subscribe('turn.ended', () => {
         this.activeTurnId = undefined;
@@ -305,14 +312,12 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   }
 
   private defaultTools(): readonly Tool[] {
-    return this.toolSelect
-      .shapeTools(this.toolRegistry.list())
-      .map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
-        deferred: tool.deferred,
-      }));
+    return this.toolSelect.shapeTools(this.toolRegistry.list()).map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters ?? EMPTY_TOOL_PARAMETERS,
+      deferred: tool.deferred,
+    }));
   }
 
   private shouldRecoverFromContextOverflow(
@@ -325,8 +330,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     if (statusError === undefined || statusError.statusCode !== 413) return false;
     const effectiveMax = this.getEffectiveMaxContextTokens();
     return (
-      effectiveMax > 0 &&
-      estimatedRequestTokens >= effectiveMax * OVERFLOW_STATUS_RECOVERY_RATIO
+      effectiveMax > 0 && estimatedRequestTokens >= effectiveMax * OVERFLOW_STATUS_RECOVERY_RATIO
     );
   }
 
@@ -354,9 +358,8 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     if (!this.reserveCompactionSlot(data.source)) return false;
 
     const tokenCount = this.validateCompactionStart(data.source);
-    const quiescence = data.source === 'manual'
-      ? this.loopService.tryAcquireQuiescence()
-      : undefined;
+    const quiescence =
+      data.source === 'manual' ? this.loopService.tryAcquireQuiescence() : undefined;
     if (data.source === 'manual' && quiescence === undefined) {
       throw new Error2(
         ErrorCodes.COMPACTION_UNABLE,
@@ -481,9 +484,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     this.consecutiveOverflowCompactions = 0;
   }
 
-  private async recoverFromContextOverflow(
-    context: LoopErrorContext,
-  ): Promise<boolean> {
+  private async recoverFromContextOverflow(context: LoopErrorContext): Promise<boolean> {
     this.recordOverflowRecovery(context.error);
     const didStartCompaction = this.beginAutoCompaction();
     if (!didStartCompaction && !this._compacting) return false;
@@ -547,9 +548,13 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     const maxCompactions = this.strategy.maxCompactionPerTurn;
     if (this.compactionCountInTurn >= maxCompactions) {
       if (throwOnLimit) {
-        throw new Error2(ErrorCodes.CONTEXT_OVERFLOW, `Compaction limit exceeded (${String(maxCompactions)})`, {
-          details: { maxCompactions },
-        });
+        throw new Error2(
+          ErrorCodes.CONTEXT_OVERFLOW,
+          `Compaction limit exceeded (${String(maxCompactions)})`,
+          {
+            details: { maxCompactions },
+          },
+        );
       }
       return false;
     }
@@ -586,8 +591,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     error: unknown,
   ): boolean {
     return (
-      signal?.aborted === true &&
-      (active.abortController.signal.aborted || isAbortError(error))
+      signal?.aborted === true && (active.abortController.signal.aborted || isAbortError(error))
     );
   }
 
@@ -691,7 +695,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       const customInstruction = data.instruction?.trim() ?? '';
       const instruction = renderPrompt(compactionInstructionTemplate, {
         custom_instruction_block:
-          customInstruction.length > 0 ? `\nOptional user instruction:\n${customInstruction}\n` : '',
+          customInstruction.length > 0
+            ? `\nOptional user instruction:\n${customInstruction}\n`
+            : '',
       }).trimEnd();
 
       const delays = retryBackoffDelays(MAX_COMPACTION_RETRY_ATTEMPTS);
@@ -750,7 +756,8 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
             continue;
           }
           if (
-            (error instanceof CompactionTruncatedError || unwrapErrorCause(error) instanceof APIEmptyResponseError) &&
+            (error instanceof CompactionTruncatedError ||
+              unwrapErrorCause(error) instanceof APIEmptyResponseError) &&
             messagesToCompact.length > 1
           ) {
             emptyOrTruncatedShrinkCount += 1;
@@ -879,9 +886,7 @@ function collectSummary(finish: AgentLLMRequestFinish): CompactionAttemptResult 
     .join('')
     .trim();
   if (summary.length === 0) {
-    throw new APIEmptyResponseError(
-      'The compaction response did not contain a non-empty summary.',
-    );
+    throw new APIEmptyResponseError('The compaction response did not contain a non-empty summary.');
   }
 
   return { summary, usage: finish.usage, traceId: finish.traceId };
@@ -902,9 +907,10 @@ function shrinkCompactionHistoryAfterOverflow<T extends Message>(
   estimateMessage: (message: T) => number = estimateTokensForMessage,
 ): T[] {
   if (messages.length <= 1) return messages.slice();
-  const ratio = COMPACTION_OVERFLOW_SHRINK_RATIOS[
-    Math.min(attempt - 1, COMPACTION_OVERFLOW_SHRINK_RATIOS.length - 1)
-  ]!;
+  const ratio =
+    COMPACTION_OVERFLOW_SHRINK_RATIOS[
+      Math.min(attempt - 1, COMPACTION_OVERFLOW_SHRINK_RATIOS.length - 1)
+    ]!;
   let totalTokens = 0;
   for (const message of messages) totalTokens += estimateMessage(message);
   const tokenBudget = Math.floor(totalTokens * ratio);

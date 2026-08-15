@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { ChatTurn } from '../../types';
 
 export interface ConversationTocItem {
@@ -56,9 +57,7 @@ function measure(): void {
 // shows on mobile or while the session is still loading. `fits` is kept out of
 // this computed so the nav stays mounted (and measurable) even when hidden;
 // clipping is applied via the `toc-clipped` class instead.
-const visible = computed(
-  () => !props.mobile && !props.sessionLoading && props.items.length > 1,
-);
+const visible = computed(() => !props.mobile && !props.sessionLoading && props.items.length > 1);
 
 // The nav is rendered only while `visible` (v-if), so a mount while navRef is
 // still null (during sessionLoading, on mobile, or before a second user turn)
@@ -129,10 +128,7 @@ onBeforeUnmount(() => {
      that grow past it (up to --p-table-max) temporarily hide the rail via the
      occlusion hit-test in ConversationPane, so proximity is safe again.
      The cqi cap keeps the rail inside narrow containers. */
-  --toc-content-max: min(
-    var(--p-content-max),
-    calc(100cqi - var(--space-5) - var(--space-5))
-  );
+  --toc-content-max: min(var(--p-content-max), calc(100cqi - var(--space-5) - var(--space-5)));
   left: calc(50% + (var(--toc-content-max) / 2) + 14px);
   display: flex;
   flex-direction: column;
@@ -149,7 +145,7 @@ onBeforeUnmount(() => {
    raised to z-index 1) — otherwise the bridge, as a positioned pseudo-element,
    paints above the in-flow rows and swallows their clicks. */
 .conversation-toc::before {
-  content: "";
+  content: '';
   position: absolute;
   top: 0;
   bottom: 0;
@@ -158,7 +154,9 @@ onBeforeUnmount(() => {
   z-index: 0;
 }
 .conversation-toc:hover,
-.conversation-toc:focus-within { opacity: 1; }
+.conversation-toc:focus-within {
+  opacity: 1;
+}
 
 .toc-scroll {
   position: relative;
@@ -171,7 +169,9 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   scrollbar-width: none;
 }
-.toc-scroll::-webkit-scrollbar { display: none; }
+.toc-scroll::-webkit-scrollbar {
+  display: none;
+}
 
 .toc-row {
   display: flex;
@@ -188,7 +188,10 @@ onBeforeUnmount(() => {
   cursor: pointer;
   white-space: nowrap;
 }
-.toc-row:focus-visible { outline: none; box-shadow: var(--p-focus-ring); }
+.toc-row:focus-visible {
+  outline: none;
+  box-shadow: var(--p-focus-ring);
+}
 
 .toc-bar {
   flex: none;
@@ -215,14 +218,30 @@ onBeforeUnmount(() => {
 
 /* Hover / focus: enlarge bars and reveal labels to the right. */
 .conversation-toc:hover .toc-bar,
-.conversation-toc:focus-within .toc-bar { height: 18px; opacity: 0.5; }
+.conversation-toc:focus-within .toc-bar {
+  height: 18px;
+  opacity: 0.5;
+}
 .conversation-toc:hover .toc-label,
-.conversation-toc:focus-within .toc-label { max-width: 220px; opacity: 1; }
+.conversation-toc:focus-within .toc-label {
+  max-width: 220px;
+  opacity: 1;
+}
 
-.toc-row.active .toc-bar { opacity: 1; height: 18px; }
-.toc-row.active .toc-label { color: var(--color-accent); font-weight: var(--weight-medium); }
-.toc-row:hover .toc-bar { opacity: 1; }
-.toc-row:hover .toc-label { color: var(--color-text); }
+.toc-row.active .toc-bar {
+  opacity: 1;
+  height: 18px;
+}
+.toc-row.active .toc-label {
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+.toc-row:hover .toc-bar {
+  opacity: 1;
+}
+.toc-row:hover .toc-label {
+  color: var(--color-text);
+}
 
 /* When there is not enough room to the right of the reading column to reveal
    the labels, the rail is kept mounted (so its position can keep being

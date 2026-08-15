@@ -61,10 +61,7 @@ interface RouteHost {
   ): unknown;
 }
 
-const oauthFlowSnapshotOrNullSchema = z.union([
-  oauthFlowSnapshotSchema,
-  z.null(),
-]);
+const oauthFlowSnapshotOrNullSchema = z.union([oauthFlowSnapshotSchema, z.null()]);
 
 export function registerOAuthRoutes(app: RouteHost, core: Scope): void {
   // POST /oauth/login — start device flow ----------------------------------
@@ -79,7 +76,10 @@ export function registerOAuthRoutes(app: RouteHost, core: Scope): void {
     },
     async (req, reply) => {
       const result = await core.accessor.get(IOAuthService).startLogin(req.body.provider);
-      requestLog(req)?.info({ provider: req.body.provider, action: 'login' }, 'oauth login started');
+      requestLog(req)?.info(
+        { provider: req.body.provider, action: 'login' },
+        'oauth login started',
+      );
       reply.send(okEnvelope(result, req.id));
     },
   );

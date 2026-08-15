@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
 import { darkColors } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 
 const TRUECOLOR_PATTERN = /\u001B\[38;2;(\d+);(\d+);(\d+)m/g;
 
@@ -22,7 +22,7 @@ const appState: AppState = {
   contextUsage: 0,
   cacheReadTokens: 0,
   cacheMissTokens: 0,
-    cacheOtherTokens: 0,
+  cacheOtherTokens: 0,
   tokenSpeed: 0,
   sessionStats: createEmptySessionStats(),
   contextTokens: 0,

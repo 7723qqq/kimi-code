@@ -67,10 +67,7 @@ describe('server telemetry', () => {
           platform: 'test_platform',
         },
       },
-      [
-        ...logSeed(resolveLoggingConfig({ homeDir: home as string, env: resolvedEnv })),
-        ...seeds,
-      ],
+      [...logSeed(resolveLoggingConfig({ homeDir: home as string, env: resolvedEnv })), ...seeds],
     );
     core = app;
     return app;

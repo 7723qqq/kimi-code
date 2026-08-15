@@ -6,9 +6,8 @@
  * cancellation can reach every run. Bound at Session scope.
  */
 
-import type { TokenUsage } from '#/kosong/contract/usage';
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { TokenUsage } from '#/kosong/contract/usage';
 
 type SessionSwarmTaskBase<T> = {
   readonly data: T;

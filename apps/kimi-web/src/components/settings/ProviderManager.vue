@@ -3,16 +3,17 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+
 import type { AppProvider } from '../../api/types';
 import { useDialogFocus } from '../../composables/useDialogFocus';
-import Dialog from '../ui/Dialog.vue';
-import Button from '../ui/Button.vue';
 import Badge from '../ui/Badge.vue';
-import Spinner from '../ui/Spinner.vue';
+import Button from '../ui/Button.vue';
+import Dialog from '../ui/Dialog.vue';
 import Field from '../ui/Field.vue';
+import Icon from '../ui/Icon.vue';
 import Input from '../ui/Input.vue';
 import Select from '../ui/Select.vue';
-import Icon from '../ui/Icon.vue';
+import Spinner from '../ui/Spinner.vue';
 import Tooltip from '../ui/Tooltip.vue';
 
 const { t } = useI18n();
@@ -94,7 +95,10 @@ function submitAdd(): void {
 
 function handleKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
-    if (showAddForm.value) { cancelAdd(); return; }
+    if (showAddForm.value) {
+      cancelAdd();
+      return;
+    }
     emit('close');
   }
 }
@@ -119,7 +123,14 @@ function statusLabel(status: AppProvider['status']): string {
 </script>
 
 <template>
-  <Dialog :open="true" :close-on-esc="false" :title="t('providers.title')" size="xl" height="fixed" @close="emit('close')">
+  <Dialog
+    :open="true"
+    :close-on-esc="false"
+    :title="t('providers.title')"
+    size="xl"
+    height="fixed"
+    @close="emit('close')"
+  >
     <div ref="dialogRef" class="pm">
       <!-- Provider list -->
       <div class="prov-list">
@@ -143,7 +154,11 @@ function statusLabel(status: AppProvider['status']): string {
               <span
                 class="status-dot"
                 :class="{ 'status-dot--empty': p.status !== 'connected' && p.status !== 'error' }"
-                :style="p.status === 'connected' || p.status === 'error' ? { background: statusColor(p.status) } : undefined"
+                :style="
+                  p.status === 'connected' || p.status === 'error'
+                    ? { background: statusColor(p.status) }
+                    : undefined
+                "
               />
             </Tooltip>
             <div class="prov-info">
@@ -153,16 +168,22 @@ function statusLabel(status: AppProvider['status']): string {
                 <Badge :variant="p.hasApiKey ? 'success' : 'neutral'" size="sm">
                   {{ p.hasApiKey ? t('providers.keySet') : t('providers.keyNotSet') }}
                 </Badge>
-                <span v-if="p.models && p.models.length > 0"> · {{ t('providers.modelCount', { count: p.models.length }) }}</span>
+                <span v-if="p.models && p.models.length > 0">
+                  · {{ t('providers.modelCount', { count: p.models.length }) }}</span
+                >
               </span>
             </div>
             <!-- Actions -->
             <div class="prov-actions">
               <Tooltip :text="t('providers.refreshTitle', { type: p.type })">
-                <Button variant="secondary" size="sm" @click="emit('refresh', p.id)">{{ t('providers.refresh') }}</Button>
+                <Button variant="secondary" size="sm" @click="emit('refresh', p.id)">{{
+                  t('providers.refresh')
+                }}</Button>
               </Tooltip>
               <Tooltip :text="t('providers.deleteTitle', { type: p.type })">
-                <Button variant="danger-soft" size="sm" @click="onDeleteProvider(p.id)">{{ t('providers.delete') }}</Button>
+                <Button variant="danger-soft" size="sm" @click="onDeleteProvider(p.id)">{{
+                  t('providers.delete')
+                }}</Button>
               </Tooltip>
             </div>
           </div>
@@ -222,8 +243,12 @@ function statusLabel(status: AppProvider['status']): string {
             </Field>
             <div v-if="addError" class="add-error">{{ addError }}</div>
             <div class="form-btns">
-              <Button variant="primary" size="sm" @click="submitAdd">{{ t('providers.add') }}</Button>
-              <Button variant="secondary" size="sm" @click="cancelAdd">{{ t('common.cancel') }}</Button>
+              <Button variant="primary" size="sm" @click="submitAdd">{{
+                t('providers.add')
+              }}</Button>
+              <Button variant="secondary" size="sm" @click="cancelAdd">{{
+                t('common.cancel')
+              }}</Button>
             </div>
           </div>
         </template>
@@ -236,7 +261,11 @@ function statusLabel(status: AppProvider['status']): string {
 </template>
 
 <style scoped>
-.pm { display: flex; flex-direction: column; gap: var(--space-4); }
+.pm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
 
 /* Provider list */
 .prov-list {
@@ -253,7 +282,9 @@ function statusLabel(status: AppProvider['status']): string {
   font-family: var(--font-ui);
   font-size: var(--text-base);
 }
-.state-row.unavail { color: var(--color-warning); }
+.state-row.unavail {
+  color: var(--color-warning);
+}
 .empty {
   padding: var(--space-4) 0;
   color: var(--color-text-muted);
@@ -268,7 +299,9 @@ function statusLabel(status: AppProvider['status']): string {
   border-bottom: 1px solid var(--color-line);
   transition: background var(--duration-fast) var(--ease-out);
 }
-.prov-row:last-child { border-bottom: none; }
+.prov-row:last-child {
+  border-bottom: none;
+}
 
 .status-dot {
   width: 8px;
@@ -330,7 +363,11 @@ function statusLabel(status: AppProvider['status']): string {
 }
 
 /* Form */
-.add-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.add-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
 .add-error {
   font-family: var(--font-ui);
   font-size: var(--text-sm);

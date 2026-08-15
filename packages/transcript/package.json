@@ -3,15 +3,15 @@
   "version": "0.0.1",
   "private": true,
   "description": "Isomorphic transcript rendering data layer: agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions, framework-free L4 view registry.",
+  "bugs": {
+    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+  },
   "license": "MIT",
   "author": "Moonshot AI",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MoonshotAI/kimi-code.git",
     "directory": "packages/transcript"
-  },
-  "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
   },
   "type": "module",
   "imports": {

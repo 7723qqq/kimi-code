@@ -23,5 +23,7 @@ export const SelectToolsInputSchema = z
 
 export type SelectToolsInput = z.infer<typeof SelectToolsInputSchema>;
 
-export interface ISelectToolsTool extends AgentTool<SelectToolsInput> { readonly _serviceBrand: undefined }
+export interface ISelectToolsTool extends AgentTool<SelectToolsInput> {
+  readonly _serviceBrand: undefined;
+}
 export const ISelectToolsTool = createDecorator<ISelectToolsTool>('selectToolsTool');

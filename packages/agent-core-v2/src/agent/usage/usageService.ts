@@ -13,17 +13,17 @@
  * live record. Bound at Agent scope.
  */
 
-import { addUsage, type TokenUsage } from '#/kosong/contract/usage';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
 import { defineState } from '#/_base/state/stateRegistry';
-
 import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
+import { addUsage, type TokenUsage } from '#/kosong/contract/usage';
 import { IWireService } from '#/wire/wire';
+
 import type { UsageRecordedContext, UsageStatus } from './usage';
 import { IAgentUsageService } from './usage';
 import {

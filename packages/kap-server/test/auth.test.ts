@@ -2,12 +2,15 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { authSummarySchema, type AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
+import {
+  authSummarySchema,
+  type AuthSummary,
+} from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authedFetch } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;

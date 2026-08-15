@@ -2,7 +2,8 @@ import { t } from '#/i18n';
 
 export function formatGoalElapsed(ms: number): string {
   const totalSeconds = Math.round(ms / 1000);
-  if (totalSeconds < 60) return t('tui.messages.goalFormat.elapsedSeconds', { count: totalSeconds });
+  if (totalSeconds < 60)
+    return t('tui.messages.goalFormat.elapsedSeconds', { count: totalSeconds });
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   if (minutes < 60) {

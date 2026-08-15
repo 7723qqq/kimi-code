@@ -26,10 +26,7 @@ interface RouteHost {
   get(
     path: string,
     options: { schema?: Record<string, unknown> },
-    handler: (
-      req: { id: string },
-      reply: { send(payload: unknown): void },
-    ) => Promise<void> | void,
+    handler: (req: { id: string }, reply: { send(payload: unknown): void }) => Promise<void> | void,
   ): unknown;
 }
 

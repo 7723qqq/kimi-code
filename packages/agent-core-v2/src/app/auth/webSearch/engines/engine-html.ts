@@ -50,7 +50,9 @@ function toResult(elements: readonly EngineElement[]): EngineQueryResult {
       return toResult(elements.slice(0, 1));
     },
     each(fn: (index: number, element: EngineElement) => void): void {
-      elements.forEach((el, index) =>{  fn(index, el); });
+      elements.forEach((el, index) => {
+        fn(index, el);
+      });
     },
     map<T>(fn: (index: number, element: EngineElement) => T): T[] {
       return elements.map((el, index) => fn(index, el));

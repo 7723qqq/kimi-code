@@ -42,7 +42,9 @@ interface RepoInfo {
 }
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 function extractOwnerAndRepo(url: string): RepoInfo | null {
@@ -67,7 +69,10 @@ function extractOwnerAndRepo(url: string): RepoInfo | null {
   return null;
 }
 
-async function fetchRawReadme(rawUrl: string, options: SearchEngineOptions): Promise<string | undefined> {
+async function fetchRawReadme(
+  rawUrl: string,
+  options: SearchEngineOptions,
+): Promise<string | undefined> {
   let response: EngineHttpResponse;
   try {
     if (options.fetchImpl !== undefined) {
@@ -106,11 +111,15 @@ async function fetchRawReadme(rawUrl: string, options: SearchEngineOptions): Pro
     return undefined;
   }
   if (!response.ok) {
-    throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `GitHub README request failed: HTTP ${String(response.status)}.`, {
-      details: { status: response.status },
-    });
+    throw new Error2(
+      ErrorCodes.WEB_FETCH_FAILED,
+      `GitHub README request failed: HTTP ${String(response.status)}.`,
+      {
+        details: { status: response.status },
+      },
+    );
   }
-  return  response.text();
+  return response.text();
 }
 
 async function fetchReadme(
@@ -155,4 +164,5 @@ async function getReadmeFromUrl(
   return undefined;
 }
 
-export const fetchGithubReadme: ArticleFetchFn = (githubUrl, options = {}) => getReadmeFromUrl(githubUrl, options);
+export const fetchGithubReadme: ArticleFetchFn = (githubUrl, options = {}) =>
+  getReadmeFromUrl(githubUrl, options);

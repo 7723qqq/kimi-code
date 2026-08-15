@@ -29,7 +29,9 @@ const COMMON_HEADERS: Record<string, string> = {
 };
 
 function isAbortError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 function isAllowedSogouRedirectUrl(url: URL): boolean {
@@ -98,11 +100,15 @@ async function fetchSogouHtml(initialUrl: string, options: SearchEngineOptions):
       );
     }
     if (!response.ok) {
-      throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Sogou search request failed: HTTP ${String(response.status)}.`, {
-        details: { status: response.status },
-      });
+      throw new Error2(
+        ErrorCodes.WEB_FETCH_FAILED,
+        `Sogou search request failed: HTTP ${String(response.status)}.`,
+        {
+          details: { status: response.status },
+        },
+      );
     }
-    return  response.text();
+    return response.text();
   }
 
   let currentUrl = initialUrl;
@@ -144,17 +150,24 @@ async function fetchSogouHtml(initialUrl: string, options: SearchEngineOptions):
       }
       const redirectUrl = new URL(location, currentUrl);
       if (!isAllowedSogouRedirectUrl(redirectUrl)) {
-        throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Sogou redirected to an unexpected host: ${redirectUrl.hostname}`);
+        throw new Error2(
+          ErrorCodes.WEB_FETCH_FAILED,
+          `Sogou redirected to an unexpected host: ${redirectUrl.hostname}`,
+        );
       }
       currentUrl = redirectUrl.toString();
       continue;
     }
     if (!response.ok) {
-      throw new Error2(ErrorCodes.WEB_FETCH_FAILED, `Sogou search request failed: HTTP ${String(response.status)}.`, {
-        details: { status: response.status },
-      });
+      throw new Error2(
+        ErrorCodes.WEB_FETCH_FAILED,
+        `Sogou search request failed: HTTP ${String(response.status)}.`,
+        {
+          details: { status: response.status },
+        },
+      );
     }
-    return  response.text();
+    return response.text();
   }
   throw new Error2(ErrorCodes.WEB_FETCH_FAILED, 'Sogou returned too many redirects');
 }

@@ -44,19 +44,17 @@
  * for expression parsing and timestamp formatting. Bound at Agent scope.
  */
 
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import type { ToolExecution } from '#/tool/toolContract';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { ISessionCronService } from '#/session/cron/sessionCronService';
 import { cronToHuman, parseCronExpression } from '#/app/cron/cron-expr';
 import { type CronTask } from '#/app/cron/cronTask';
 import { formatLocalIsoWithOffset } from '#/app/cron/format';
+import { LifecycleScope } from '#/app/scopes';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type { ToolExecution } from '#/tool/toolContract';
 
 import { ICronListTool, CronListInputSchema, type CronListInput } from './cron-list';
 import CRON_LIST_DESCRIPTION from './cron-list.md?raw';
-
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -75,9 +73,7 @@ export class CronListTool implements ICronListTool {
 
   readonly name = 'CronList' as const;
   readonly description = CRON_LIST_DESCRIPTION;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(
-    CronListInputSchema,
-  );
+  readonly parameters: Record<string, unknown> = toInputJsonSchema(CronListInputSchema);
 
   constructor(@ISessionCronService private readonly cron: ISessionCronService) {}
 
@@ -121,8 +117,7 @@ export class CronListTool implements ICronListTool {
       if (nextFireMs !== null) {
         nextFireAtIso = formatLocalIsoWithOffset(nextFireMs);
       }
-    } catch {
-    }
+    } catch {}
 
     return [
       `id: ${task.id}`,

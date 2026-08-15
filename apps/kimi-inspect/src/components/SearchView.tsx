@@ -8,8 +8,8 @@
 import { useState } from 'react';
 
 import { useConnection } from '../connection';
-import { fetchSearchPage, type SearchHit, type SearchIndexState } from '../search/api';
 import { t } from '../i18n';
+import { fetchSearchPage, type SearchHit, type SearchIndexState } from '../search/api';
 import { ActionButton, Badge, ErrorLine, relTime } from '../ui';
 
 type RoleFilter = 'all' | 'user' | 'assistant' | 'title';
@@ -192,9 +192,7 @@ export function SearchView({ onOpenResult }: { onOpenResult: (hit: SearchHit) =>
           </div>
         ) : null}
         {result === null ? (
-          <div className="text-[12px] text-neutral-600 italic">
-            {t('chat.searchHint')}
-          </div>
+          <div className="text-[12px] text-neutral-600 italic">{t('chat.searchHint')}</div>
         ) : result.items.length === 0 && !searching ? (
           <div className="text-[12px] text-neutral-600 italic">
             {t('chat.noHitsForQuery', { query: result.query })}

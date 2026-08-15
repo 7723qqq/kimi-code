@@ -18,8 +18,8 @@
  * describe a different stream and would corrupt the accumulation.
  */
 
-import type { Event } from './events';
 import type { InFlightToolCall, InFlightTurn } from '../../../protocol/rest-snapshot';
+import type { Event } from './events';
 
 const MAIN_AGENT_ID = 'main';
 

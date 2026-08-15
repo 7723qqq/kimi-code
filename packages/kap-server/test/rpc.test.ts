@@ -23,8 +23,8 @@ import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -85,7 +85,14 @@ describe('server-v2 /api/v1/debug RPC', () => {
     // Pin the shell to bash so shell-command tests use POSIX syntax on every
     // host (the default Windows shell is PowerShell).
     await writeFile(join(home, 'config.toml'), '[shell]\npreference = "bash"\n', 'utf-8');
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent', debugEndpoints: true });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+      debugEndpoints: true,
+    });
     base = `http://127.0.0.1:${server.port}`;
   });
 
@@ -196,10 +203,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     // IDebugEventsService comes from DebugEventsFeature's contributeService,
     // which bypasses the static scoped registry: /channels omits it, but the
     // dispatcher still resolves it through the global decorator registry.
-    const channels = await call<readonly { name: string }[]>(
-      'GET',
-      '/api/v1/debug/channels',
-    );
+    const channels = await call<readonly { name: string }[]>('GET', '/api/v1/debug/channels');
     expect(channels.body.data.some((c) => c.name === String(IDebugEventsService))).toBe(false);
 
     const { status, body } = await call<{
@@ -288,13 +292,15 @@ describe('server-v2 /api/v1/debug RPC', () => {
 
   it('counts active sessions', async () => {
     const cwd = home as string;
-    const created = await call<{ id: string }>('POST', rpc('core', IWorkspaceService, 'createOrTouch'), cwd);
-    await createSession(cwd);
-    const { body } = await call<number>(
+    const created = await call<{ id: string }>(
       'POST',
-      rpc('core', ISessionIndex, 'count'),
-      [{ workspaceIds: [created.body.data.id] }],
+      rpc('core', IWorkspaceService, 'createOrTouch'),
+      cwd,
     );
+    await createSession(cwd);
+    const { body } = await call<number>('POST', rpc('core', ISessionIndex, 'count'), [
+      { workspaceIds: [created.body.data.id] },
+    ]);
     expect(body.code).toBe(0);
     expect(body.data).toBeGreaterThanOrEqual(1);
   });
@@ -304,14 +310,24 @@ describe('server-v2 /api/v1/debug RPC', () => {
   it('reads and updates session metadata', async () => {
     const id = await createSession(home as string);
 
-    const read = await call<SessionMetaWire>('POST', rpc('session', ISessionMetadata, 'read', { sid: id }));
+    const read = await call<SessionMetaWire>(
+      'POST',
+      rpc('session', ISessionMetadata, 'read', { sid: id }),
+    );
     expect(read.body.code).toBe(0);
     expect(read.body.data.id).toBe(id);
 
-    const set = await call<null>('POST', rpc('session', ISessionMetadata, 'setTitle', { sid: id }), 'renamed');
+    const set = await call<null>(
+      'POST',
+      rpc('session', ISessionMetadata, 'setTitle', { sid: id }),
+      'renamed',
+    );
     expect(set.body.code).toBe(0);
 
-    const read2 = await call<SessionMetaWire>('POST', rpc('session', ISessionMetadata, 'read', { sid: id }));
+    const read2 = await call<SessionMetaWire>(
+      'POST',
+      rpc('session', ISessionMetadata, 'read', { sid: id }),
+    );
     expect(read2.body.data.title).toBe('renamed');
   });
 
@@ -445,24 +461,39 @@ describe('server-v2 /api/v1/debug RPC', () => {
   it('lists and installs plugins through RPC', async () => {
     const pluginRoot = await mkdtemp(join(tmpdir(), 'server-v2-plugin-source-'));
     try {
-      await writeFile(join(pluginRoot, 'deploy.md'), '---\ndescription: Deploy\n---\n\nDeploy body', 'utf8');
+      await writeFile(
+        join(pluginRoot, 'deploy.md'),
+        '---\ndescription: Deploy\n---\n\nDeploy body',
+        'utf8',
+      );
       await writeFile(
         join(pluginRoot, 'kimi.plugin.json'),
         JSON.stringify({ name: 'rpc-plugin', commands: ['./deploy.md'] }),
         'utf8',
       );
 
-      const installed = await call<{ id: string }>('POST', rpc('core', IPluginService, 'installPlugin'), { source: pluginRoot });
+      const installed = await call<{ id: string }>(
+        'POST',
+        rpc('core', IPluginService, 'installPlugin'),
+        { source: pluginRoot },
+      );
       expect(installed.body.code).toBe(0);
       expect(installed.body.data.id).toBe('rpc-plugin');
 
-      const listed = await call<readonly { id: string; state: string }[]>('GET', rpc('core', IPluginService, 'listPlugins'));
+      const listed = await call<readonly { id: string; state: string }[]>(
+        'GET',
+        rpc('core', IPluginService, 'listPlugins'),
+      );
       expect(listed.body.code).toBe(0);
       expect(listed.body.data).toEqual([
         expect.objectContaining({ id: 'rpc-plugin', state: 'ok' }),
       ]);
 
-      const info = await call<{ id: string }>('POST', rpc('core', IPluginService, 'getPluginInfo'), { id: 'rpc-plugin' });
+      const info = await call<{ id: string }>(
+        'POST',
+        rpc('core', IPluginService, 'getPluginInfo'),
+        { id: 'rpc-plugin' },
+      );
       expect(info.body.code).toBe(0);
       expect(info.body.data.id).toBe('rpc-plugin');
 
@@ -507,12 +538,19 @@ describe('server-v2 /api/v1/debug RPC', () => {
     const cwd = home as string;
     await createSession(cwd);
 
-    const listed = await call<{ items: { id: string }[] }>('POST', rpc('core', ISessionIndex, 'listRecent'), {});
+    const listed = await call<{ items: { id: string }[] }>(
+      'POST',
+      rpc('core', ISessionIndex, 'listRecent'),
+      {},
+    );
     expect(listed.body.code).toBe(0);
     expect(listed.body.data.items.length).toBeGreaterThanOrEqual(1);
 
     const id = listed.body.data.items[0]!.id;
-    const read = await call<SessionMetaWire>('POST', rpc('session', ISessionMetadata, 'read', { sid: id }));
+    const read = await call<SessionMetaWire>(
+      'POST',
+      rpc('session', ISessionMetadata, 'read', { sid: id }),
+    );
     expect(read.body.code).toBe(0);
     expect(read.body.data.id).toBe(id);
   });
@@ -535,7 +573,10 @@ describe('server-v2 /api/v1/debug RPC', () => {
   });
 
   it('rejects unknown session (40401)', async () => {
-    const { body } = await call<null>('POST', rpc('session', ISessionMetadata, 'read', { sid: 'nope' }));
+    const { body } = await call<null>(
+      'POST',
+      rpc('session', ISessionMetadata, 'read', { sid: 'nope' }),
+    );
     expect(body.code).toBe(40401);
   });
 
@@ -612,7 +653,8 @@ describe('server-v2 /api/v1/debug RPC auth', () => {
       port: 0,
       homeDir: home,
       logLevel: 'silent',
-      rpcToken: token, debugEndpoints: true,
+      rpcToken: token,
+      debugEndpoints: true,
     });
     base = `http://127.0.0.1:${server.port}`;
   });
@@ -629,7 +671,9 @@ describe('server-v2 /api/v1/debug RPC auth', () => {
   });
 
   it('rejects calls without a token (40101)', async () => {
-    const res = await fetch(`${base}${rpc('core', ISessionIndex, 'listRecent')}`, { method: 'POST' });
+    const res = await fetch(`${base}${rpc('core', ISessionIndex, 'listRecent')}`, {
+      method: 'POST',
+    });
     expect(res.status).toBe(401);
     const body = (await res.json()) as Envelope<null>;
     expect(body.code).toBe(40101);

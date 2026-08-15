@@ -20,12 +20,7 @@ import {
 
 describe('ProtocolSchema', () => {
   it('accepts the four real wire protocols', () => {
-    for (const protocol of [
-      'anthropic',
-      'openai',
-      'openai_responses',
-      'google-genai',
-    ]) {
+    for (const protocol of ['anthropic', 'openai', 'openai_responses', 'google-genai']) {
       expect(ProtocolSchema.parse(protocol)).toBe(protocol);
     }
   });

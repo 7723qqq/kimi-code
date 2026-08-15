@@ -14,10 +14,11 @@
 // (acquire/renew/release) are serialized through a per-instance promise
 // chain, so no interleaving can re-publish the lock after it was released.
 
-import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import fsSync from 'node:fs';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
 import { renameReplace } from './rename-replace.js';
 import { createSerializer } from './serialize.js';
 
@@ -169,8 +170,7 @@ export class LockFile {
             break;
           } catch (error) {
             const code = (error as NodeJS.ErrnoException).code;
-            const epermRetryable =
-              code === 'EPERM' && process.platform === 'win32' && attempt < 50;
+            const epermRetryable = code === 'EPERM' && process.platform === 'win32' && attempt < 50;
             if (!epermRetryable) {
               await fs.unlink(bid).catch(() => {});
               // EEXIST races another creator; a persistent EPERM (Windows
@@ -191,7 +191,10 @@ export class LockFile {
       // Adaptive settle: scale with how long our own attempt took (a stalled
       // machine stalls every bidder), floored and capped (see the constants).
       const elapsedMs = Date.now() - attemptStart;
-      let settleMs = Math.min(TAKEOVER_SETTLE_MAX_MS, Math.max(TAKEOVER_SETTLE_BASE_MS, elapsedMs * 4));
+      let settleMs = Math.min(
+        TAKEOVER_SETTLE_MAX_MS,
+        Math.max(TAKEOVER_SETTLE_BASE_MS, elapsedMs * 4),
+      );
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, settleMs));
         const cur = await this.inspect();
@@ -250,7 +253,8 @@ export class LockFile {
       if (!Number.isInteger(pid)) continue;
       let token: string | undefined;
       try {
-        token = (JSON.parse(await fs.readFile(path.join(dir, f), 'utf8')) as { token?: string }).token;
+        token = (JSON.parse(await fs.readFile(path.join(dir, f), 'utf8')) as { token?: string })
+          .token;
       } catch {
         // Unreadable (transient handle contention) or vanished between
         // readdir and readFile (its owner just finished). Either way we

@@ -6,9 +6,9 @@
  * `vitest run --config packages/agent-core-v2/vitest.config.ts test/_base/utils/tokens.test.ts`.
  */
 
-import type { ContentPart } from '#/kosong/contract/message';
 import { describe, expect, it } from 'vitest';
 
+import type { ContentPart } from '#/kosong/contract/message';
 import {
   estimateTokensForContentPart,
   estimateTokensForMessage,

@@ -6,24 +6,24 @@
  * Exit code 0 if everything is in sync, 1 otherwise.
  */
 
-import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 
-const ROOT = resolve(import.meta.dirname, "..");
-const FLAKE_NIX = join(ROOT, "flake.nix");
-const START_PKG = "@moonshot-ai/kimi-code";
+const ROOT = resolve(import.meta.dirname, '..');
+const FLAKE_NIX = join(ROOT, 'flake.nix');
+const START_PKG = '@moonshot-ai/kimi-code';
 
 /**
  * Parse pnpm-workspace.yaml to get workspace directory globs.
  */
 function getWorkspaceGlobs() {
-  const yamlPath = join(ROOT, "pnpm-workspace.yaml");
-  const content = readFileSync(yamlPath, "utf8");
+  const yamlPath = join(ROOT, 'pnpm-workspace.yaml');
+  const content = readFileSync(yamlPath, 'utf8');
   const lines = content.split(/\r?\n/);
   const globs = [];
   let inPackages = false;
   for (const line of lines) {
-    if (line.startsWith("packages:")) {
+    if (line.startsWith('packages:')) {
       inPackages = true;
       continue;
     }
@@ -31,7 +31,7 @@ function getWorkspaceGlobs() {
       const match = line.match(/^\s+-\s+(.+)$/);
       if (match) {
         globs.push(match[1]);
-      } else if (line.trim() !== "" && !line.startsWith(" ")) {
+      } else if (line.trim() !== '' && !line.startsWith(' ')) {
         break;
       }
     }
@@ -45,13 +45,13 @@ function getWorkspaceGlobs() {
 function expandGlobsSafe(globs) {
   const dirs = [];
   for (const g of globs) {
-    if (g.endsWith("/*")) {
+    if (g.endsWith('/*')) {
       const base = g.slice(0, -2);
       const basePath = join(ROOT, base);
       if (!existsSync(basePath)) continue;
       for (const entry of readdirSync(basePath, { withFileTypes: true })) {
         if (entry.isDirectory()) {
-          dirs.push(join(base, entry.name).replace(/\\/g, "/"));
+          dirs.push(join(base, entry.name).replaceAll('\\', '/'));
         }
       }
     } else {
@@ -70,9 +70,9 @@ function expandGlobsSafe(globs) {
 function buildWorkspaceMap(dirs) {
   const map = new Map();
   for (const dir of dirs) {
-    const pkgPath = join(ROOT, dir, "package.json");
+    const pkgPath = join(ROOT, dir, 'package.json');
     if (!existsSync(pkgPath)) continue;
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
     if (pkg.name) {
       map.set(pkg.name, dir);
     }
@@ -94,20 +94,16 @@ function resolveWorkspaceDeps(workspaceMap, startName) {
     const dir = workspaceMap.get(name);
     if (!dir) return;
 
-    const pkgPath = join(ROOT, dir, "package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-    const depSections = [
-      pkg.dependencies,
-      pkg.devDependencies,
-      pkg.peerDependencies,
-    ];
+    const pkgPath = join(ROOT, dir, 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    const depSections = [pkg.dependencies, pkg.devDependencies, pkg.peerDependencies];
 
     for (const section of depSections) {
       if (!section) continue;
       for (const [depName, specifier] of Object.entries(section)) {
         if (
-          typeof specifier === "string" &&
-          (specifier.includes("workspace") || specifier.startsWith("link:"))
+          typeof specifier === 'string' &&
+          (specifier.includes('workspace') || specifier.startsWith('link:'))
         ) {
           closure.add(depName);
           visit(depName);
@@ -124,22 +120,19 @@ function resolveWorkspaceDeps(workspaceMap, startName) {
  * Parse workspaceNames and workspacePaths from flake.nix.
  */
 function parseFlakeNix() {
-  const content = readFileSync(FLAKE_NIX, "utf8");
+  const content = readFileSync(FLAKE_NIX, 'utf8');
 
   function extractArray(label) {
-    const regex = new RegExp(
-      `${label}\\s*=\\s*\\[(.*?)\\]`,
-      "s"
-    );
+    const regex = new RegExp(`${label}\\s*=\\s*\\[(.*?)\\]`, 's');
     const match = content.match(regex);
     if (!match) {
       throw new Error(`Could not find ${label} in flake.nix`);
     }
     const items = [];
     // workspaceNames uses quoted strings, workspacePaths uses bare Nix paths
-    const itemRegex = label === "workspacePaths" ? /\.\/[^\s\]]+/g : /"([^"]+)"/g;
+    const itemRegex = label === 'workspacePaths' ? /\.\/[^\s\]]+/g : /"([^"]+)"/g;
     let m;
-    if (label === "workspacePaths") {
+    if (label === 'workspacePaths') {
       while ((m = itemRegex.exec(match[1])) !== null) {
         items.push(m[0]);
       }
@@ -152,8 +145,8 @@ function parseFlakeNix() {
   }
 
   return {
-    names: extractArray("workspaceNames"),
-    paths: extractArray("workspacePaths"),
+    names: extractArray('workspaceNames'),
+    paths: extractArray('workspacePaths'),
   };
 }
 
@@ -169,7 +162,7 @@ function main() {
 
   const closure = resolveWorkspaceDeps(workspaceMap, START_PKG);
   /** @type {string[]} */
-  const closureNames = [...closure].sort((a, b) => a.localeCompare(b));
+  const closureNames = [...closure].toSorted((a, b) => a.localeCompare(b));
 
   const flake = parseFlakeNix();
   const flakeNameSet = new Set(flake.names);
@@ -197,36 +190,30 @@ function main() {
   const ok = missingNames.length === 0 && missingPaths.length === 0;
 
   if (!ok) {
-    console.error("❌ flake.nix workspace lists are out of sync.\n");
+    console.error('❌ flake.nix workspace lists are out of sync.\n');
 
     if (missingNames.length > 0) {
-      console.error(
-        "The following workspace packages are missing from flake.nix workspaceNames:"
-      );
+      console.error('The following workspace packages are missing from flake.nix workspaceNames:');
       for (const n of missingNames) {
         console.error(`  - ${n}`);
       }
-      console.error("");
+      console.error('');
     }
 
     if (missingPaths.length > 0) {
-      console.error(
-        "The following workspace paths are missing from flake.nix workspacePaths:"
-      );
+      console.error('The following workspace paths are missing from flake.nix workspacePaths:');
       for (const { name, path } of missingPaths) {
         console.error(`  - ${path}  (${name})`);
       }
-      console.error("");
+      console.error('');
     }
 
     console.error(
-      "Please add the missing entries to both workspaceNames and workspacePaths in flake.nix."
+      'Please add the missing entries to both workspaceNames and workspacePaths in flake.nix.',
     );
-    console.error(
-      `\nExpected workspaceNames (${flake.names.length + missingNames.length} total):`
-    );
+    console.error(`\nExpected workspaceNames (${flake.names.length + missingNames.length} total):`);
     const expectedNames = new Set([...flake.names, ...missingNames.map((m) => m)]);
-    for (const n of [...expectedNames].sort((a, b) => a.localeCompare(b))) {
+    for (const n of [...expectedNames].toSorted((a, b) => a.localeCompare(b))) {
       console.error(`  ${n}`);
     }
 
@@ -234,7 +221,7 @@ function main() {
   }
 
   console.log(
-    `✅ All ${closureNames.length} recursive workspace dependencies are present in flake.nix.`
+    `✅ All ${closureNames.length} recursive workspace dependencies are present in flake.nix.`,
   );
 }
 

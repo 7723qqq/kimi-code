@@ -28,8 +28,17 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { BatchInputOp, IndexDef, IndexInfo, MiniDb, QueryOptions, ScanEntry, SetOptions } from '../index.js';
+
 import type { CompoundIndexDef, CompoundIndexInfo } from '../compound-index.js';
+import type {
+  BatchInputOp,
+  IndexDef,
+  IndexInfo,
+  MiniDb,
+  QueryOptions,
+  ScanEntry,
+  SetOptions,
+} from '../index.js';
 import { LockError } from '../lockfile.js';
 import { getPath } from '../query.js';
 import { Coordinator } from './coordinator.js';
@@ -81,7 +90,9 @@ export class ClusterDb<V = unknown> {
   static async open<V = unknown>(opts: ClusterOpenOptions): Promise<ClusterDb<V>> {
     if (!opts || !opts.dir) throw new TypeError('ClusterDb.open: opts.dir is required');
     if ((opts.crossShard ?? 'best-effort') === '2pc') {
-      throw new Error("crossShard: '2pc' is reserved for a future release and is not implemented yet");
+      throw new Error(
+        "crossShard: '2pc' is reserved for a future release and is not implemented yet",
+      );
     }
     const topology = await Topology.open(opts.dir, opts);
     await topology.ensureShardDirs();
@@ -118,21 +129,23 @@ export class ClusterDb<V = unknown> {
           if (!db.listIndexes().some((i) => i.name === name)) await db.createIndex(name, def);
         }
         for (const { name, def } of reg.compoundIndexes) {
-          if (!db.listCompoundIndexes().some((i) => i.name === name)) await db.createCompoundIndex(name, def);
+          if (!db.listCompoundIndexes().some((i) => i.name === name))
+            await db.createCompoundIndex(name, def);
         }
         for (const { name, fields } of reg.textIndexes) {
           try {
             await db.createTextIndex(name, { fields: fields ?? undefined });
-          } catch (e) {
+          } catch (error) {
             // Idempotent apply: the def may already exist on this shard.
-            if (!(e instanceof Error) || !e.message.includes('already exists')) throw e;
+            if (!(error instanceof Error) || !error.message.includes('already exists')) throw error;
           }
         }
       },
     });
     const coordinator = new Coordinator<V>(
       router,
-      (shardId, fn) => pool.withWriter(shardId, router.shardDir(shardId), (db) => fn(db as MiniDb<V>)),
+      (shardId, fn) =>
+        pool.withWriter(shardId, router.shardDir(shardId), (db) => fn(db as MiniDb<V>)),
       opts.crossShard ?? 'best-effort',
     );
     return new ClusterDb<V>(topology, router, pool, coordinator, indexPath, readOnly);
@@ -156,11 +169,15 @@ export class ClusterDb<V = unknown> {
   }
 
   private writer<T>(shardId: number, fn: (db: MiniDb<V>) => T | Promise<T>): Promise<T> {
-    return this.pool.withWriter(shardId, this.router.shardDir(shardId), (db) => fn(db as MiniDb<V>));
+    return this.pool.withWriter(shardId, this.router.shardDir(shardId), (db) =>
+      fn(db as MiniDb<V>),
+    );
   }
 
   private reader<T>(shardId: number, fn: (db: MiniDb<V>) => T | Promise<T>): Promise<T> {
-    return this.pool.withReader(shardId, this.router.shardDir(shardId), (db) => fn(db as MiniDb<V>));
+    return this.pool.withReader(shardId, this.router.shardDir(shardId), (db) =>
+      fn(db as MiniDb<V>),
+    );
   }
 
   // ---- single-key ops -------------------------------------------------------
@@ -304,10 +321,15 @@ export class ClusterDb<V = unknown> {
   private static async loadRegistry(file: string): Promise<ClusterIndexRegistry> {
     try {
       const raw = JSON.parse(await fs.readFile(file, 'utf8')) as Partial<ClusterIndexRegistry>;
-      return { indexes: raw.indexes ?? [], compoundIndexes: raw.compoundIndexes ?? [], textIndexes: raw.textIndexes ?? [] };
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { indexes: [], compoundIndexes: [], textIndexes: [] };
-      throw e;
+      return {
+        indexes: raw.indexes ?? [],
+        compoundIndexes: raw.compoundIndexes ?? [],
+        textIndexes: raw.textIndexes ?? [],
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        return { indexes: [], compoundIndexes: [], textIndexes: [] };
+      throw error;
     }
   }
 
@@ -371,7 +393,10 @@ export class ClusterDb<V = unknown> {
         return JSON.stringify(reread) === published;
       });
       if (done) return;
-      if (attempt >= 19) throw new Error('cluster index registry update keeps losing write races; retry the operation');
+      if (attempt >= 19)
+        throw new Error(
+          'cluster index registry update keeps losing write races; retry the operation',
+        );
       await sleep(10 + Math.floor(Math.random() * 41));
     }
   }
@@ -386,7 +411,9 @@ export class ClusterDb<V = unknown> {
    *  management needs this so definitions stay consistent cluster-wide; it
    *  waits (up to lockAcquireTimeoutMs per shard) for shards held by other
    *  processes and throws LockError when they cannot be acquired in time. */
-  private async forEachShardWriter(fn: (db: MiniDb<V>, shardId: number) => void | Promise<void>): Promise<void> {
+  private async forEachShardWriter(
+    fn: (db: MiniDb<V>, shardId: number) => void | Promise<void>,
+  ): Promise<void> {
     for (const id of this.router.shardIds()) {
       await this.writer(id, (db) => fn(db, id));
     }
@@ -395,7 +422,10 @@ export class ClusterDb<V = unknown> {
   /** Best-effort cleanup after a failed index fan-out: run fn on the shards
    *  the fan-out had completed on, swallowing errors (a shard that cannot be
    *  re-acquired is left as-is). */
-  private async rollbackShards(shardIds: number[], fn: (db: MiniDb<V>) => void | Promise<void>): Promise<void> {
+  private async rollbackShards(
+    shardIds: number[],
+    fn: (db: MiniDb<V>) => void | Promise<void>,
+  ): Promise<void> {
     for (const id of shardIds) {
       try {
         await this.writer(id, fn);
@@ -421,14 +451,14 @@ export class ClusterDb<V = unknown> {
           createdOn.push(shardId);
         }
       });
-    } catch (e) {
+    } catch (error) {
       // Roll back the partial fan-out: drop the index from exactly the shards
       // this call created it on, so no shard keeps enforcing an index the
       // registry never recorded.
       await this.rollbackShards(createdOn, async (db) => {
         await db.dropIndex(name);
       });
-      throw e;
+      throw error;
     }
     await this.mutateRegistry((current) => {
       const existing = current.indexes.find((i) => i.name === name);
@@ -481,7 +511,9 @@ export class ClusterDb<V = unknown> {
       );
       out.push(...rows);
     }
-    out.sort((a, b) => compareEntries({ key: a.key, value: a.value }, { key: b.key, value: b.value }));
+    out.sort((a, b) =>
+      compareEntries({ key: a.key, value: a.value }, { key: b.key, value: b.value }),
+    );
     return out;
   }
 
@@ -493,7 +525,12 @@ export class ClusterDb<V = unknown> {
     await this.requireIndex(name);
     // Only the numeric bounds go to the shards; offset/count/reverse must
     // apply to the globally merged result, not per shard.
-    const bounds = { min: opts?.min, max: opts?.max, minExclusive: opts?.minExclusive, maxExclusive: opts?.maxExclusive };
+    const bounds = {
+      min: opts?.min,
+      max: opts?.max,
+      minExclusive: opts?.minExclusive,
+      maxExclusive: opts?.maxExclusive,
+    };
     const out: { key: string; value: V | undefined; field: number }[] = [];
     for (const id of this.router.shardIds()) {
       const rows = await this.reader(id, (db) =>
@@ -501,7 +538,11 @@ export class ClusterDb<V = unknown> {
       );
       out.push(...rows);
     }
-    out.sort((a, b) => a.field - b.field || compareEntries({ key: a.key, value: a.value }, { key: b.key, value: b.value }));
+    out.sort(
+      (a, b) =>
+        a.field - b.field ||
+        compareEntries({ key: a.key, value: a.value }, { key: b.key, value: b.value }),
+    );
     if (opts?.reverse) out.reverse();
     const offset = opts?.offset ?? 0;
     const sliced = offset > 0 ? out.slice(offset) : out;
@@ -516,7 +557,11 @@ export class ClusterDb<V = unknown> {
   // ---- compound indexes (groupBy + orderBy) ------------------------------------
 
   private static sameCompoundIndexDef(a: CompoundIndexDef, b: CompoundIndexDef): boolean {
-    return a.groupBy === b.groupBy && a.orderBy === b.orderBy && (a.orderType ?? 'number') === (b.orderType ?? 'number');
+    return (
+      a.groupBy === b.groupBy &&
+      a.orderBy === b.orderBy &&
+      (a.orderType ?? 'number') === (b.orderType ?? 'number')
+    );
   }
 
   /** Create a compound index on every shard and record it in the cluster
@@ -527,7 +572,8 @@ export class ClusterDb<V = unknown> {
     this.ensureOpen();
     this.requireJsonCodec('compound indexes');
     const reg = await ClusterDb.loadRegistry(this.indexPath);
-    if (reg.compoundIndexes.some((i) => i.name === name)) throw new Error(`compound index "${name}" already exists`);
+    if (reg.compoundIndexes.some((i) => i.name === name))
+      throw new Error(`compound index "${name}" already exists`);
     const createdOn: number[] = [];
     try {
       await this.forEachShardWriter(async (db, shardId) => {
@@ -536,12 +582,12 @@ export class ClusterDb<V = unknown> {
           createdOn.push(shardId);
         }
       });
-    } catch (e) {
+    } catch (error) {
       // Roll back the partial fan-out (see createIndex).
       await this.rollbackShards(createdOn, async (db) => {
         await db.dropCompoundIndex(name);
       });
-      throw e;
+      throw error;
     }
     await this.mutateRegistry((current) => {
       const existing = current.compoundIndexes.find((i) => i.name === name);
@@ -589,24 +635,25 @@ export class ClusterDb<V = unknown> {
     this.ensureOpen();
     this.requireJsonCodec('text indexes');
     const reg = await ClusterDb.loadRegistry(this.indexPath);
-    if (reg.textIndexes.some((t) => t.name === name)) throw new Error(`text index "${name}" already exists`);
+    if (reg.textIndexes.some((t) => t.name === name))
+      throw new Error(`text index "${name}" already exists`);
     const createdOn: number[] = [];
     try {
       await this.forEachShardWriter(async (db, shardId) => {
         try {
           await db.createTextIndex(name, opts);
           createdOn.push(shardId);
-        } catch (e) {
-          if (!(e instanceof Error) || !e.message.includes('already exists')) throw e;
+        } catch (error) {
+          if (!(error instanceof Error) || !error.message.includes('already exists')) throw error;
         }
       });
-    } catch (e) {
+    } catch (error) {
       // Roll back the partial fan-out: drop the text index only from the
       // shards this call created it on (see createIndex).
       await this.rollbackShards(createdOn, async (db) => {
         await db.dropTextIndex(name);
       });
-      throw e;
+      throw error;
     }
     const fields = opts.fields ?? null;
     await this.mutateRegistry((current) => {
@@ -623,8 +670,8 @@ export class ClusterDb<V = unknown> {
     await this.forEachShardWriter(async (db) => {
       try {
         await db.dropTextIndex(name);
-      } catch (e) {
-        if (!(e instanceof Error) || !e.message.includes('no such text index')) throw e;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('no such text index')) throw error;
       }
     });
     if (!existed) return false;
@@ -638,23 +685,32 @@ export class ClusterDb<V = unknown> {
 
   /** Search every shard and merge by score (desc), key (asc). Scores are
    *  computed per shard (per-shard idf), so global ranking is approximate. */
-  async search(name: string, q: string, opts: { op?: 'AND' | 'OR'; limit?: number } = {}): Promise<{ key: string; value: V | undefined; score: number }[]> {
+  async search(
+    name: string,
+    q: string,
+    opts: { op?: 'AND' | 'OR'; limit?: number } = {},
+  ): Promise<{ key: string; value: V | undefined; score: number }[]> {
     this.ensureOpen();
     const reg = await ClusterDb.loadRegistry(this.indexPath);
-    if (!reg.textIndexes.some((t) => t.name === name)) throw new Error(`no such text index: ${name}`);
+    if (!reg.textIndexes.some((t) => t.name === name))
+      throw new Error(`no such text index: ${name}`);
     const out: { key: string; value: V | undefined; score: number }[] = [];
     for (const id of this.router.shardIds()) {
       const rows = await this.reader(id, (db) => {
         try {
           return db.search(name, q, opts);
-        } catch (e) {
-          if (e instanceof Error && e.message.includes('no such text index')) return [];
-          throw e;
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('no such text index')) return [];
+          throw error;
         }
       });
       out.push(...rows);
     }
-    out.sort((a, b) => b.score - a.score || compareEntries({ key: a.key, value: a.value }, { key: b.key, value: b.value }));
+    out.sort(
+      (a, b) =>
+        b.score - a.score ||
+        compareEntries({ key: a.key, value: a.value }, { key: b.key, value: b.value }),
+    );
     return opts.limit === undefined ? out : out.slice(0, opts.limit);
   }
 
@@ -670,9 +726,9 @@ export class ClusterDb<V = unknown> {
       try {
         await this.writer(id, (db) => db.compact());
         compacted.push(id);
-      } catch (e) {
-        if (e instanceof LockError) skipped.push(id);
-        else throw e;
+      } catch (error) {
+        if (error instanceof LockError) skipped.push(id);
+        else throw error;
       }
     }
     return { compacted, skipped };

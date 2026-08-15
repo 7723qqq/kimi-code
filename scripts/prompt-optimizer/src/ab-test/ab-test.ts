@@ -5,9 +5,16 @@
  * compares scores, and outputs a statistical report.
  */
 
-import type { ABComparison, ABExperiment, ABResult, BenchmarkCase, BenchmarkResult, BenchmarkScores } from '../types';
-import { runSuite, aggregateResults, type LLMCaller, type RunnerConfig } from '../benchmark/runner';
 import { BENCHMARK_CASES } from '../benchmark/cases';
+import { runSuite, aggregateResults, type LLMCaller, type RunnerConfig } from '../benchmark/runner';
+import type {
+  ABComparison,
+  ABExperiment,
+  ABResult,
+  BenchmarkCase,
+  BenchmarkResult,
+  BenchmarkScores,
+} from '../types';
 
 export interface ABConfig {
   runner: RunnerConfig;
@@ -78,7 +85,8 @@ function generateComparisons(
 
         let verdict: ABComparison['verdict'];
         if (!significant) verdict = 'tie';
-        else if (dim === 'tokenEfficiency') verdict = delta < 0 ? 'B wins' : 'A wins'; // lower is better
+        else if (dim === 'tokenEfficiency')
+          verdict = delta < 0 ? 'B wins' : 'A wins'; // lower is better
         else verdict = delta > 0 ? 'B wins' : 'A wins';
 
         comparisons.push({
@@ -103,11 +111,7 @@ function generateComparisons(
  * Format A/B test results as a readable report.
  */
 export function formatABReport(result: ABResult): string {
-  const lines: string[] = [
-    `A/B Test Report: ${result.experiment}`,
-    '═'.repeat(80),
-    '',
-  ];
+  const lines: string[] = [`A/B Test Report: ${result.experiment}`, '═'.repeat(80), ''];
 
   // Summary per variant
   for (const [name, results] of result.variantResults) {
@@ -126,22 +130,22 @@ export function formatABReport(result: ABResult): string {
   lines.push('─'.repeat(80));
   lines.push(
     padRight('Dimension', 20) +
-    padRight('A mean', 10) +
-    padRight('B mean', 10) +
-    padRight('Delta', 10) +
-    padRight('Sig?', 6) +
-    'Verdict',
+      padRight('A mean', 10) +
+      padRight('B mean', 10) +
+      padRight('Delta', 10) +
+      padRight('Sig?', 6) +
+      'Verdict',
   );
   lines.push('─'.repeat(80));
 
   for (const c of result.comparison) {
     lines.push(
       padRight(c.dimension, 20) +
-      padRight(formatNum(c.meanA), 10) +
-      padRight(formatNum(c.meanB), 10) +
-      padRight(`${c.deltaPercent >= 0 ? '+' : ''}${c.deltaPercent.toFixed(1)}%`, 10) +
-      padRight(c.significant ? 'YES' : 'no', 6) +
-      c.verdict,
+        padRight(formatNum(c.meanA), 10) +
+        padRight(formatNum(c.meanB), 10) +
+        padRight(`${c.deltaPercent >= 0 ? '+' : ''}${c.deltaPercent.toFixed(1)}%`, 10) +
+        padRight(c.significant ? 'YES' : 'no', 6) +
+        c.verdict,
     );
   }
 
@@ -182,7 +186,7 @@ function isSignificant(scoresA: number[], scoresB: number[], iterations = 1000):
 
   for (let i = 0; i < iterations; i++) {
     // Shuffle and split
-    const shuffled = [...combined].sort(() => Math.random() - 0.5);
+    const shuffled = [...combined].toSorted(() => Math.random() - 0.5);
     const permA = shuffled.slice(0, scoresA.length);
     const permB = shuffled.slice(scoresA.length);
     const permDiff = mean(permB) - mean(permA);

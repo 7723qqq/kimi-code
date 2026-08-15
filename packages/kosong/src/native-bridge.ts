@@ -7,6 +7,12 @@
  * provider implementations to reduce JS↔Rust serialization overhead.
  */
 
+import {
+  APIConnectionError,
+  APITimeoutError,
+  APIStatusError,
+  APIProviderRateLimitError,
+} from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import type {
   ChatProvider,
@@ -15,14 +21,8 @@ import type {
   StreamedMessage,
   ThinkingEffort,
 } from '#/provider';
-import type { TokenUsage } from '#/usage';
 import type { Tool } from '#/tool';
-import {
-  APIConnectionError,
-  APITimeoutError,
-  APIStatusError,
-  APIProviderRateLimitError,
-} from '#/errors';
+import type { TokenUsage } from '#/usage';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let native: any = undefined;
@@ -204,7 +204,12 @@ class NativeStreamedMessage implements StreamedMessage {
   constructor(nativeResult: {
     id?: string;
     content: Array<Record<string, unknown>>;
-    usage: { inputOther: number; output: number; inputCacheRead: number; inputCacheCreation: number };
+    usage: {
+      inputOther: number;
+      output: number;
+      inputCacheRead: number;
+      inputCacheCreation: number;
+    };
     finishReason?: string;
     rawFinishReason?: string;
     traceId?: string;
@@ -222,8 +227,8 @@ class NativeStreamedMessage implements StreamedMessage {
     this._finishReason = normalized.finishReason;
     this._rawFinishReason = normalized.rawFinishReason;
 
-    this._parts = nativeResult.content.map(
-      (p) => convertNativeContentPart(p as Parameters<typeof convertNativeContentPart>[0]),
+    this._parts = nativeResult.content.map((p) =>
+      convertNativeContentPart(p as Parameters<typeof convertNativeContentPart>[0]),
     );
   }
 
@@ -291,7 +296,8 @@ function convertNativeError(error: unknown): Error {
       }
 
       // 5xx / 408 / 409 are retryable
-      const retryAfterMs = statusCode >= 500 || statusCode === 408 || statusCode === 409 ? 1000 : null;
+      const retryAfterMs =
+        statusCode >= 500 || statusCode === 408 || statusCode === 409 ? 1000 : null;
       return new APIStatusError(statusCode, msg, null, retryAfterMs);
     }
 

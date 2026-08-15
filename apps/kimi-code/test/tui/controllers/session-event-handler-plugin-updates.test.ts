@@ -195,7 +195,10 @@ describe('SessionEventHandler plugin update notices', () => {
 
   it('drops tool start timestamps at the turn boundary', () => {
     const { host } = makeHost();
-    const handler = new SessionEventHandler(host, makeNotifier() as unknown as PluginUpdateNotifier);
+    const handler = new SessionEventHandler(
+      host,
+      makeNotifier() as unknown as PluginUpdateNotifier,
+    );
 
     // A tool starts but the turn ends before its result arrives (abort /
     // max_tokens) — the stale start time must not survive into the next turn.

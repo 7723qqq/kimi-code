@@ -7,8 +7,8 @@
 
 import { z } from 'zod';
 
-import { defineModel } from '#/wire/model';
 import type { MCPToolDefinition } from '#/mcpCore/types';
+import { defineModel } from '#/wire/model';
 
 export interface McpToolCollision {
   readonly qualified: string;

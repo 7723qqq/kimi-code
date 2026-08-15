@@ -1,9 +1,11 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { oldMd5BucketName } from '../src/sessions/workdir-bucket.js';
+
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+
 import { detectMigration } from '../src/detect.js';
+import { oldMd5BucketName } from '../src/sessions/workdir-bucket.js';
 
 let src: string;
 beforeEach(async () => {
@@ -58,5 +60,4 @@ describe('detectMigration', () => {
       },
     ]);
   });
-
 });

@@ -65,7 +65,11 @@ const SENSITIVE_FILE_SUFFIXES: readonly string[] = [
   '.keystore',
 ];
 
-const ENV_FILE_ALLOWED_SUFFIXES: ReadonlySet<string> = new Set(['.example', '.sample', '.template']);
+const ENV_FILE_ALLOWED_SUFFIXES: ReadonlySet<string> = new Set([
+  '.example',
+  '.sample',
+  '.template',
+]);
 
 export function isIgnoredDirName(name: string): boolean {
   return IGNORED_DIR_NAMES.has(name);

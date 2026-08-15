@@ -26,14 +26,14 @@ import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { KimiTUI } from '#/tui/index';
-import { startupTrace } from '#/utils/startup-trace';
 import { currentTheme, getColorPalette } from '#/tui/theme';
+import { resolveCommandPath } from '#/utils/process/resolve-command';
+import { startupTrace } from '#/utils/startup-trace';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
-import { resolveCommandPath } from '#/utils/process/resolve-command';
 
-import type { CLIOptions } from './options';
 import { resolveAgentProfileSelection } from './agent-selection';
+import type { CLIOptions } from './options';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
 
@@ -242,7 +242,9 @@ export async function runShell(
       hints.push(`${gutter}${t('tui.statusMessages.shellResumeHint', { sessionId })}`);
     }
     if (tui.exitOpenUrl !== undefined) {
-      hints.push(`${gutter}${t("tui.statusMessages.webOpenUrl", { url: toTerminalHyperlink(tui.exitOpenUrl, tui.exitOpenUrl) })}`);
+      hints.push(
+        `${gutter}${t('tui.statusMessages.webOpenUrl', { url: toTerminalHyperlink(tui.exitOpenUrl, tui.exitOpenUrl) })}`,
+      );
     }
     if (hints.length > 0) {
       process.stderr.write(`\n${hints.join('\n')}\n`);

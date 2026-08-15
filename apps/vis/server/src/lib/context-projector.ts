@@ -1,3 +1,11 @@
+import type {
+  ContentPart,
+  ContextMessage,
+  PermissionMode,
+  AgentConfigUpdateData,
+  TokenUsage,
+  WireEntry,
+} from './agent-record-types';
 import {
   COMPACT_USER_MESSAGE_MAX_TOKENS,
   COMPACTION_ELISION_VARIANT,
@@ -9,15 +17,6 @@ import {
   selectCompactionUserMessages,
   selectRecentUserMessages,
 } from './v1-compat';
-
-import type {
-  ContentPart,
-  ContextMessage,
-  PermissionMode,
-  AgentConfigUpdateData,
-  TokenUsage,
-  WireEntry,
-} from './agent-record-types';
 
 export interface ProjectedMessage {
   lineNo: number;
@@ -160,7 +159,7 @@ export function projectContext(
         } else if (ev.type === 'content.part') {
           const projected = openSteps.get(ev.stepUuid);
           if (projected !== undefined) {
-            (projected.message.content).push(ev.part);
+            projected.message.content.push(ev.part);
           }
         } else if (ev.type === 'tool.call') {
           const projected = openSteps.get(ev.stepUuid);
@@ -171,7 +170,7 @@ export function projectContext(
                 : ev.args === undefined
                   ? null
                   : JSON.stringify(ev.args);
-            (projected.message.toolCalls).push({
+            projected.message.toolCalls.push({
               type: 'function',
               id: ev.toolCallId,
               name: ev.name,

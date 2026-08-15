@@ -5,9 +5,10 @@
 // one store without prop drilling.
 
 import { inject, provide, ref, type InjectionKey, type Ref } from 'vue';
+
 import { getKimiWebApi } from '../api';
-import type { FsEntry } from '../api/types';
 import { isDaemonApiError } from '../api/errors';
+import type { FsEntry } from '../api/types';
 
 export interface FileTreeBrowserStore {
   /** Loaded listings by directory relative path ('' = cwd). */
@@ -40,7 +41,9 @@ export function useFileTreeBrowser(): FileTreeBrowserStore {
 }
 
 /** Create a fresh store bound to a session id ('' root = the session cwd). */
-export function createFileTreeBrowserStore(sessionId: Ref<string | undefined>): FileTreeBrowserStore {
+export function createFileTreeBrowserStore(
+  sessionId: Ref<string | undefined>,
+): FileTreeBrowserStore {
   const dirCache = ref<Map<string, FsEntry[]>>(new Map());
   const expanded = ref<Set<string>>(new Set());
   const loadingDirs = ref<Set<string>>(new Set());

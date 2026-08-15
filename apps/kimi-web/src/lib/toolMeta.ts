@@ -71,7 +71,10 @@ const NAME_ALIASES: Record<string, string> = {
 };
 
 export function normalizeToolName(name: string): string {
-  const lower = (name ?? '').trim().toLowerCase().replaceAll(/[\s-]+/g, '_');
+  const lower = (name ?? '')
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[\s-]+/g, '_');
   return NAME_ALIASES[lower] ?? lower;
 }
 
@@ -254,7 +257,10 @@ export function toolSummary(name: string, arg: string, full = false): string {
         if (!path) return fallback();
         const start = num(d.offset) ?? num(d.line_start) ?? num(d.start_line);
         const len = num(d.limit) ?? num(d.length);
-        const end = num(d.line_end) ?? num(d.end_line) ?? (start !== undefined && len !== undefined ? start + len : undefined);
+        const end =
+          num(d.line_end) ??
+          num(d.end_line) ??
+          (start !== undefined && len !== undefined ? start + len : undefined);
         if (start !== undefined && end !== undefined) return c(`${path}:${start}-${end}`);
         if (start !== undefined) return c(`${path}:${start}`);
         return c(path);
@@ -283,7 +289,7 @@ export function toolSummary(name: string, arg: string, full = false): string {
         const pattern = str(d.pattern) ?? str(d.glob) ?? str(d.query);
         const path = str(d.path) ?? str(d.cwd);
         if (pattern && path) return c(`${pattern}  in ${path}`);
-        return pattern ? c(pattern) : (str(d.path) ? c(str(d.path)!) : fallback());
+        return pattern ? c(pattern) : str(d.path) ? c(str(d.path)!) : fallback();
       }
       case 'ls': {
         const dir = str(d.path) ?? str(d.dir) ?? str(d.directory) ?? str(d.cwd);
@@ -296,9 +302,17 @@ export function toolSummary(name: string, arg: string, full = false): string {
       case 'todo':
       case 'task': {
         const label =
-          str(d.description) ?? str(d.title) ?? str(d.prompt) ?? str(d.name) ?? str(d.subagent_type);
+          str(d.description) ??
+          str(d.title) ??
+          str(d.prompt) ??
+          str(d.name) ??
+          str(d.subagent_type);
         if (label) return c(label);
-        const items = Array.isArray(d.todos) ? d.todos : Array.isArray(d.items) ? d.items : undefined;
+        const items = Array.isArray(d.todos)
+          ? d.todos
+          : Array.isArray(d.items)
+            ? d.items
+            : undefined;
         if (items) return c(t('tools.chip.todos', { count: items.length }));
         return fallback();
       }
@@ -306,7 +320,8 @@ export function toolSummary(name: string, arg: string, full = false): string {
         if (full) return fallback();
         const objective = str(d.objective);
         const criterion = str(d.completionCriterion);
-        if (objective && criterion) return c(t('tools.goal.objectiveWithCriterion', { objective, criterion }));
+        if (objective && criterion)
+          return c(t('tools.goal.objectiveWithCriterion', { objective, criterion }));
         return objective ? c(objective) : fallback();
       }
       case 'getgoal': {
@@ -357,7 +372,7 @@ export function toolChip(tool: ToolChipInput): string {
             if (m) return `+${m[1]} −${m[2]}`;
           }
           // Also check for simple "N lines" style
-          const summary = tool.output.find(l => /\d+/.test(l));
+          const summary = tool.output.find((l) => /\d+/.test(l));
           if (summary) {
             const addMatch = summary.match(/\+(\d+)/);
             const remMatch = summary.match(/[-−](\d+)/);

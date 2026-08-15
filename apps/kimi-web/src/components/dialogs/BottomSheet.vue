@@ -116,7 +116,7 @@ onUnmounted(() => {
   margin-top: 4px;
 }
 .sheet-grab::after {
-  content: "";
+  content: '';
   position: absolute;
   left: 50%;
   top: 7px;

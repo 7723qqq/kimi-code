@@ -14,12 +14,12 @@
  * read/written through it. Bound at Workspace scope.
  */
 
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
+import { LifecycleScope } from '#/app/scopes';
 import { IBuiltinSkillSource } from '#/app/skillCatalog/builtinSkillSource';
 import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
 import type { ISkillSource, SkillContribution } from '#/app/skillCatalog/skillSource';
@@ -135,14 +135,16 @@ export class WorkspaceSkillCatalogService extends Service implements IWorkspaceS
 
   private loadSource(source: ISkillSource, fireChange = false): Promise<void> {
     const previous = this.sourceLoadTails.get(source) ?? Promise.resolve();
-    const current = previous.catch(() => {}).then(async () => {
-      const contribution = await source.load();
-      this.contributions.set(source.id, { c: contribution, priority: source.priority });
-      if (fireChange) {
-        this.remerge();
-        this.onDidChangeEmitter.fire(source.id);
-      }
-    });
+    const current = previous
+      .catch(() => {})
+      .then(async () => {
+        const contribution = await source.load();
+        this.contributions.set(source.id, { c: contribution, priority: source.priority });
+        if (fireChange) {
+          this.remerge();
+          this.onDidChangeEmitter.fire(source.id);
+        }
+      });
     this.sourceLoadTails.set(source, current);
     const clear = () => {
       if (this.sourceLoadTails.get(source) === current) {

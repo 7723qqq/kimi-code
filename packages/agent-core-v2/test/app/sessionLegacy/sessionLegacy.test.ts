@@ -12,25 +12,25 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { IAgentActivityView } from '#/agent/activityView/activityView';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { LifecycleScope } from '#/app/scopes';
+import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
+import { ISessionLegacyService } from '#/app/sessionLegacy/sessionLegacy';
+import { SessionLegacyService } from '#/app/sessionLegacy/sessionLegacyService';
+import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
+import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { UNKNOWN_CAPABILITY } from '#/kosong/contract/capability';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IModelService } from '#/kosong/model/model';
-import { ISessionLegacyService } from '#/app/sessionLegacy/sessionLegacy';
-import { SessionLegacyService } from '#/app/sessionLegacy/sessionLegacyService';
-import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { IAgentActivityView } from '#/agent/activityView/activityView';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
+import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 
 function accessor(
   entries: ReadonlyArray<readonly [ServiceIdentifier<unknown>, unknown]>,
@@ -123,14 +123,14 @@ describe('Session legacy status (best-effort runtime state)', () => {
       kind: LifecycleScope.Agent,
       accessor: accessor([
         [IAgentProfileService, profile],
-        [IAgentTokenCountingService, { get: () => ({ size: 25, measured: 20, estimated: 5 }), statusSize: () => 25 }],
+        [
+          IAgentTokenCountingService,
+          { get: () => ({ size: 25, measured: 20, estimated: 5 }), statusSize: () => 25 },
+        ],
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentSwarmService, { isActive: false }],
-        [
-          IAgentActivityView,
-          { state: () => ({ lifecycle: 'ready', background: [] }) },
-        ],
+        [IAgentActivityView, { state: () => ({ lifecycle: 'ready', background: [] }) }],
       ]),
       dispose: () => {},
     };
@@ -182,17 +182,17 @@ describe('Session legacy status (best-effort runtime state)', () => {
       kind: LifecycleScope.Agent,
       accessor: accessor([
         [IAgentProfileService, profile],
-        [IAgentTokenCountingService, { get: () => ({ size: 0, measured: 0, estimated: 0 }), statusSize: () => 0 }],
+        [
+          IAgentTokenCountingService,
+          { get: () => ({ size: 0, measured: 0, estimated: 0 }), statusSize: () => 0 },
+        ],
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentSwarmService, { isActive: false }],
         // Unbound: assembleStatus resolves the default model's context cap,
         // which asks the model service first — no default model here.
         [IModelService, { getDefaultModel: () => {} }],
-        [
-          IAgentActivityView,
-          { state: () => ({ lifecycle: 'ready', background: [] }) },
-        ],
+        [IAgentActivityView, { state: () => ({ lifecycle: 'ready', background: [] }) }],
       ]),
       dispose: () => {},
     };
@@ -245,7 +245,10 @@ describe('Session legacy status (best-effort runtime state)', () => {
       kind: LifecycleScope.Agent,
       accessor: accessor([
         [IAgentProfileService, profile],
-        [IAgentTokenCountingService, { get: () => ({ size: 0, measured: 0, estimated: 0 }), statusSize: () => 0 }],
+        [
+          IAgentTokenCountingService,
+          { get: () => ({ size: 0, measured: 0, estimated: 0 }), statusSize: () => 0 },
+        ],
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentSwarmService, { isActive: false }],
@@ -259,10 +262,7 @@ describe('Session legacy status (best-effort runtime state)', () => {
             },
           },
         ],
-        [
-          IAgentActivityView,
-          { state: () => ({ lifecycle: 'ready', background: [] }) },
-        ],
+        [IAgentActivityView, { state: () => ({ lifecycle: 'ready', background: [] }) }],
       ]),
       dispose: () => {},
     };
@@ -328,14 +328,17 @@ describe('Session legacy status (best-effort runtime state)', () => {
       kind: LifecycleScope.Agent,
       accessor: accessor([
         [IAgentProfileService, profile],
-        [IAgentTokenCountingService, { get: () => ({ size: 120_000, measured: 110_000, estimated: 10_000 }), statusSize: () => 120_000 }],
+        [
+          IAgentTokenCountingService,
+          {
+            get: () => ({ size: 120_000, measured: 110_000, estimated: 10_000 }),
+            statusSize: () => 120_000,
+          },
+        ],
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentSwarmService, { isActive: false }],
-        [
-          IAgentActivityView,
-          { state: () => ({ lifecycle: 'ready', background: [] }) },
-        ],
+        [IAgentActivityView, { state: () => ({ lifecycle: 'ready', background: [] }) }],
       ]),
       dispose: () => {},
     };

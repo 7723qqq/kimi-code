@@ -6,8 +6,8 @@ import { ISessionApprovalService, getLiveSessionById } from '@moonshot-ai/agent-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -172,7 +172,9 @@ describe('server-v2 /api/v1/sessions/{sid}/approvals', () => {
     expect(first).not.toBe(second);
 
     const { body } = await getJson<ListWire>(`/api/v1/sessions/${sid}/approvals?status=pending`);
-    expect(body.data.items.map((i) => i.approval_id).toSorted()).toEqual([first, second].toSorted());
+    expect(body.data.items.map((i) => i.approval_id).toSorted()).toEqual(
+      [first, second].toSorted(),
+    );
     expect(body.data.items.every((i) => i.tool_call_id === 'Bash_0')).toBe(true);
 
     for (const aid of [first, second]) {

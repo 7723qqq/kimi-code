@@ -65,7 +65,6 @@ import {
   CLI_USER_AGENT_PRODUCT,
   PROMPT_CLEANUP_TIMEOUT_MS,
 } from '#/constant/app';
-
 import { t } from '#/i18n';
 
 import {
@@ -75,15 +74,6 @@ import {
   parseHeadlessGoalCreate,
   type HeadlessGoalCreate,
 } from '../goal-prompt';
-import {
-  type PromptRunIO,
-  configuredModel,
-  installPromptTerminationCleanup,
-  raceWithTimeout,
-  requireConfiguredModel,
-} from '../run-prompt';
-import { createKimiCodeHostIdentity } from '../version';
-
 import { resolveOutputFormat } from '../options';
 import type { CLIOptions, PromptOutputFormat } from '../options';
 import {
@@ -94,6 +84,14 @@ import {
   writeExperimentalVersion,
   writeResumeHint,
 } from '../prompt-render';
+import {
+  type PromptRunIO,
+  configuredModel,
+  installPromptTerminationCleanup,
+  raceWithTimeout,
+  requireConfiguredModel,
+} from '../run-prompt';
+import { createKimiCodeHostIdentity } from '../version';
 
 const PROMPT_UI_MODE = 'print';
 /** Re-check `goalActive` at least this often while waiting for goal turns. */
@@ -342,7 +340,9 @@ async function resolveNativeSession(
         `Session "${opts.session}" was created under a different directory.\n` +
           `  cd "${target.cwd}" && kimi -r ${opts.session}\n\n`,
       );
-      throw new Error(t('tui.statusMessages.sessionDifferentDirectory', { sessionId: opts.session }));
+      throw new Error(
+        t('tui.statusMessages.sessionDifferentDirectory', { sessionId: opts.session }),
+      );
     }
     const session = await resumeById(opts.session);
     const agent = await ensureMainAgent(session);
@@ -466,7 +466,8 @@ async function runNativeTurn(
           drain: () => drainBackgroundTasks(session, taskConfig?.printWaitCeilingS),
           turnEndings,
           skipTurnId: turn.id,
-          warn: (message) => stderr.write(t('tui.statusMessages.warningLabel', { warning: message }) + '\n'),
+          warn: (message) =>
+            stderr.write(t('tui.statusMessages.warningLabel', { warning: message }) + '\n'),
           now: () => Date.now(),
           goalActive: () => goalService.getGoal().goal?.status === 'active',
           cronNextFireAt: () => cronService.getNextFireTime(),
@@ -574,7 +575,9 @@ function dispatchNativeEvent(
       return;
     case 'tool.progress':
       if (event.update.text !== undefined && event.update.text.length > 0) {
-        stderr.write(event.update.text.endsWith('\n') ? event.update.text : `${event.update.text}\n`);
+        stderr.write(
+          event.update.text.endsWith('\n') ? event.update.text : `${event.update.text}\n`,
+        );
       }
       return;
   }
@@ -711,9 +714,7 @@ export interface PrintBackgroundPolicyInput {
  * The steer ceiling deadline is set once on entry, so goal/cron waiting
  * consumes the same budget.
  */
-export async function applyPrintBackgroundPolicy(
-  input: PrintBackgroundPolicyInput,
-): Promise<void> {
+export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInput): Promise<void> {
   const deadline = input.now() + input.ceilingS * 1000;
   let turns = 0;
   // Cron anti-spin guard: the last fire time seen already in the past. Two

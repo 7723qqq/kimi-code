@@ -100,7 +100,10 @@ export async function resolveGithubSource(
   };
 }
 
-async function tryResolveLatestReleaseTag(owner: string, repo: string): Promise<string | undefined> {
+async function tryResolveLatestReleaseTag(
+  owner: string,
+  repo: string,
+): Promise<string | undefined> {
   const url = `https://github.com/${owner}/${repo}/releases/latest`;
   const resp = await fetch(url, {
     redirect: 'manual',

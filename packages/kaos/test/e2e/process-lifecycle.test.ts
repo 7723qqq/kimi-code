@@ -2,8 +2,9 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { LocalKaos } from '#/local';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { LocalKaos } from '#/local';
 
 // ── Helper ────────────────────────────────────────────────────────────
 
@@ -95,23 +96,26 @@ describe('e2e: process lifecycle', () => {
   });
 
   describe('long-running process → kill', () => {
-    it.skipIf(process.platform === 'win32')('start → verify running → kill → confirm exit', async () => {
-      // Process that runs indefinitely
-      const code = `
+    it.skipIf(process.platform === 'win32')(
+      'start → verify running → kill → confirm exit',
+      async () => {
+        // Process that runs indefinitely
+        const code = `
         process.stdout.write('started\\n');
         setInterval(() => {}, 1000);
       `;
-      const proc = await kaos.exec('node', '-e', code);
+        const proc = await kaos.exec('node', '-e', code);
 
-      expect(proc.pid).toBeGreaterThan(0);
+        expect(proc.pid).toBeGreaterThan(0);
 
-      // Kill it
-      await proc.kill('SIGTERM');
+        // Kill it
+        await proc.kill('SIGTERM');
 
-      const exitCode = await proc.wait();
-      // On SIGTERM, node typically exits with non-zero
-      expect(typeof exitCode).toBe('number');
-    });
+        const exitCode = await proc.wait();
+        // On SIGTERM, node typically exits with non-zero
+        expect(typeof exitCode).toBe('number');
+      },
+    );
 
     it('kill with SIGKILL → immediate termination', async () => {
       const code = `

@@ -10,9 +10,9 @@
  */
 
 import { addUsage, type TokenUsage } from '#/kosong/contract/usage';
+import type { PersistentSubagentHost } from '#/session/subagent/persistentSubagent';
 
 import { DiscussionContext, type DiscussionEntry } from './context';
-import type { PersistentSubagentHost } from '#/session/subagent/persistentSubagent';
 
 /**
  * Configuration for a single discussion participant.
@@ -91,10 +91,7 @@ export class SwarmDiscussionCoordinator {
   /**
    * Run a roundtable discussion and return the result.
    */
-  async discuss(
-    options: DiscussionOptions,
-    signal: AbortSignal,
-  ): Promise<DiscussionResult> {
+  async discuss(options: DiscussionOptions, signal: AbortSignal): Promise<DiscussionResult> {
     const maxRounds = options.maxRounds ?? 3;
     const context = new DiscussionContext();
     let endedBy: DiscussionResult['endedBy'] = 'max_rounds';
@@ -135,19 +132,10 @@ export class SwarmDiscussionCoordinator {
             );
 
             // Run the turn
-            const content = await this.subagentHost.runDiscussionTurn(
-              agentId,
-              prompt,
-              signal,
-            );
+            const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
 
             // Record the speech
-            context.addEntry(
-              participant.profileName,
-              agentId,
-              content,
-              round,
-            );
+            context.addEntry(participant.profileName, agentId, content, round);
 
             // Notify observer (e.g. TUI)
             this.observer?.({
@@ -165,11 +153,7 @@ export class SwarmDiscussionCoordinator {
       // 3. Generate summary if requested
       let summary = '';
       if (options.summaryPrompt !== undefined && !context.isEmpty()) {
-        summary = await this.generateSummary(
-          options.summaryPrompt,
-          context,
-          signal,
-        );
+        summary = await this.generateSummary(options.summaryPrompt, context, signal);
       }
 
       // 4. Collect aggregate usage
@@ -232,10 +216,7 @@ export class SwarmDiscussionCoordinator {
           'Respond naturally, as if you are in a roundtable conversation.',
       );
     } else {
-      parts.push(
-        'You are the first to speak. Present your initial thoughts ' +
-          'on the topic.',
-      );
+      parts.push('You are the first to speak. Present your initial thoughts ' + 'on the topic.');
     }
 
     return parts.join('\n');
@@ -262,11 +243,7 @@ export class SwarmDiscussionCoordinator {
         'Please provide a concise summary of the discussion.',
       ].join('\n');
 
-      return await this.subagentHost.runDiscussionTurn(
-        firstAgentId,
-        prompt,
-        signal,
-      );
+      return await this.subagentHost.runDiscussionTurn(firstAgentId, prompt, signal);
     } catch {
       // Summary generation is best-effort
       return '';

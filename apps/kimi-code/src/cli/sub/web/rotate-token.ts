@@ -19,19 +19,17 @@ import { accessUrlLines, splitTokenFragment } from './access-urls';
 export function registerRotateTokenCommand(server: Command): void {
   server
     .command('rotate-token')
-    .description(
-      t('cli.commandDescriptions.serverRotateToken'),
-    )
+    .description(t('cli.commandDescriptions.serverRotateToken'))
     .action(async () => {
       try {
         const token = await rotateServerToken(getDataDir());
-        process.stdout.write(
-          t('tui.statusMessages.serverTokenRotated') + '\n',
-        );
+        process.stdout.write(t('tui.statusMessages.serverTokenRotated') + '\n');
 
         // Token in the middle: indented and set off by blank lines (no color
         // highlight), so it is easy to spot without dominating the output.
-        process.stdout.write('\n  ' + chalk.bold(t('tui.statusMessages.serverNewToken', { token })) + '\n\n');
+        process.stdout.write(
+          '\n  ' + chalk.bold(t('tui.statusMessages.serverNewToken', { token })) + '\n\n',
+        );
 
         // Re-print the access links with the new token so the user can
         // reconnect immediately. When a server is running its bind host/port

@@ -1,3 +1,5 @@
+import OpenAI from 'openai';
+
 import {
   APIContextOverflowError,
   APIProviderQuotaExhaustedError,
@@ -18,9 +20,9 @@ import type {
 } from '#/provider';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
-import OpenAI from 'openai';
 
 import { usesOpenAIResponsesDeveloperRole } from './capability-registry';
+import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 import {
   convertOpenAIError,
   isMediaPart,
@@ -40,7 +42,6 @@ import {
   sanitizeOpenAIResponsesCallId,
   type ToolCallIdPolicy,
 } from './tool-call-id';
-import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 
 /**
  * Normalize the Responses API status / incomplete_details into the unified
@@ -166,10 +167,7 @@ function requireObjectField(object: RawObject, key: string, context: string): Ra
   return value;
 }
 
-function readResponseOutputItem(
-  value: unknown,
-  context: string,
-): ResponseOutputItemView {
+function readResponseOutputItem(value: unknown, context: string): ResponseOutputItemView {
   const item = asRawObject(value);
   if (item === null) {
     failResponsesDecode(context, 'must be an object.');
@@ -653,10 +651,7 @@ function convertHistoryMessages(
     input.push({
       type: 'message',
       role: 'user',
-      content: [
-        { type: 'input_text', text: TOOL_RESULT_MEDIA_PROMPT },
-        ...pendingToolResultMedia,
-      ],
+      content: [{ type: 'input_text', text: TOOL_RESULT_MEDIA_PROMPT }, ...pendingToolResultMedia],
     });
     pendingToolResultMedia.length = 0;
   };
@@ -745,7 +740,11 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
     // remainder of the input) is the closest proxy — without it the hit rate
     // reads/(reads+writes) would always be 100% whenever any token was read.
     const hasMissField = miss !== undefined;
-    const cacheCreation = hasMissField ? (miss ?? 0) : cached > 0 ? Math.max(inputTokens - cached, 0) : 0;
+    const cacheCreation = hasMissField
+      ? (miss ?? 0)
+      : cached > 0
+        ? Math.max(inputTokens - cached, 0)
+        : 0;
     this._usage = {
       inputOther: hasMissField ? 0 : cached > 0 ? 0 : Math.max(inputTokens - cached, 0),
       output: outputTokens,
@@ -850,10 +849,7 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
           `received function-call arguments for unknown stream index ${formatResponseStreamIndex(streamIndex)}.`,
         );
       }
-      setFunctionCallArguments(
-        streamIndex,
-        getFunctionCallArguments(streamIndex) + argumentsPart,
-      );
+      setFunctionCallArguments(streamIndex, getFunctionCallArguments(streamIndex) + argumentsPart);
     };
 
     const yieldFinalArgumentsSuffix = function* (

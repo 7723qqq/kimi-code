@@ -1,4 +1,9 @@
-import { t } from '#/i18n';
+import type {
+  CapabilityStatus,
+  PluginInfo,
+  PluginMcpServerInfo,
+  PluginSummary,
+} from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Input,
@@ -8,14 +13,9 @@ import {
   visibleWidth,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
-import type {
-  CapabilityStatus,
-  PluginInfo,
-  PluginMcpServerInfo,
-  PluginSummary,
-} from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
 
+import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
@@ -76,7 +76,12 @@ interface PluginsOverviewItem {
 }
 
 export type PluginMcpSelection =
-  | { readonly kind: 'toggle'; readonly pluginId: string; readonly server: string; readonly enabled: boolean }
+  | {
+      readonly kind: 'toggle';
+      readonly pluginId: string;
+      readonly server: string;
+      readonly enabled: boolean;
+    }
   | { readonly kind: 'back'; readonly pluginId: string };
 
 export interface PluginMcpSelectorOptions {
@@ -147,9 +152,9 @@ export class PluginMcpSelectorComponent extends Container implements Focusable {
     const actionItems = this.items.filter((item) => item.kind === 'action');
     const lines: string[] = [
       chalk.hex(colors.primary)('─'.repeat(width)),
-      chalk.hex(colors.primary).bold(
-        ` ${t('tui.dialogs.pluginsSelector.mcpServersTitle', { name: info.displayName })}`,
-      ),
+      chalk
+        .hex(colors.primary)
+        .bold(` ${t('tui.dialogs.pluginsSelector.mcpServersTitle', { name: info.displayName })}`),
       mutedHintLine(t('tui.dialogs.pluginsSelector.mcpNavHint'), colors),
       '',
       sectionLabel(
@@ -203,9 +208,7 @@ export class PluginMcpSelectorComponent extends Container implements Focusable {
   }
 }
 
-export type PluginRemoveConfirmResult =
-  | { readonly kind: 'confirm' }
-  | { readonly kind: 'cancel' };
+export type PluginRemoveConfirmResult = { readonly kind: 'confirm' } | { readonly kind: 'cancel' };
 
 export interface PluginRemoveConfirmOptions {
   readonly id: string;
@@ -216,7 +219,10 @@ export interface PluginRemoveConfirmOptions {
 export class PluginRemoveConfirmComponent extends ChoicePickerComponent {
   constructor(opts: PluginRemoveConfirmOptions) {
     super({
-      title: t('tui.dialogs.pluginsSelector.removeConfirmTitle', { name: opts.displayName, id: opts.id }),
+      title: t('tui.dialogs.pluginsSelector.removeConfirmTitle', {
+        name: opts.displayName,
+        id: opts.id,
+      }),
       hint: t('tui.dialogs.pluginsSelector.removeConfirmHint'),
       formatHint: mutedHintLine,
       options: [
@@ -401,7 +407,11 @@ type MarketState =
   | { readonly status: 'idle' }
   | { readonly status: 'loading' }
   | { readonly status: 'error'; readonly message: string }
-  | { readonly status: 'loaded'; readonly entries: readonly PluginMarketplaceEntry[]; readonly source: string };
+  | {
+      readonly status: 'loaded';
+      readonly entries: readonly PluginMarketplaceEntry[];
+      readonly source: string;
+    };
 
 function getPluginsPanelTabs(): readonly { id: PluginsPanelTabId; label: string }[] {
   return [
@@ -417,7 +427,8 @@ export class PluginsPanelComponent extends Container implements Focusable {
 
   private readonly opts: PluginsPanelOptions;
   private readonly customInput = new Input();
-  private readonly tabs: readonly { id: PluginsPanelTabId; label: string }[] = getPluginsPanelTabs();
+  private readonly tabs: readonly { id: PluginsPanelTabId; label: string }[] =
+    getPluginsPanelTabs();
   private activeTabIndex: number;
   private selectedIndex = 0;
   private market: MarketState = { status: 'idle' };
@@ -474,8 +485,7 @@ export class PluginsPanelComponent extends Container implements Focusable {
     if (this.market.status !== 'loaded') return [];
     return this.market.entries.toSorted(
       (a, b) =>
-        Number(this.isMarketplaceEntryInstalled(b)) -
-        Number(this.isMarketplaceEntryInstalled(a)),
+        Number(this.isMarketplaceEntryInstalled(b)) - Number(this.isMarketplaceEntryInstalled(a)),
     );
   }
 
@@ -565,8 +575,7 @@ export class PluginsPanelComponent extends Container implements Focusable {
       return;
     }
     if (matchesKey(data, Key.shift('tab'))) {
-      this.activeTabIndex =
-        (this.activeTabIndex - 1 + this.tabs.length) % this.tabs.length;
+      this.activeTabIndex = (this.activeTabIndex - 1 + this.tabs.length) % this.tabs.length;
       this.selectedIndex = 0;
       this.requestMarketplaceIfNeeded();
       return;
@@ -634,7 +643,8 @@ export class PluginsPanelComponent extends Container implements Focusable {
   }
 
   private handleMarketplaceInput(data: string): void {
-    const entries = this.activeTab.id === 'official' ? this.officialEntries : this.thirdPartyEntries;
+    const entries =
+      this.activeTab.id === 'official' ? this.officialEntries : this.thirdPartyEntries;
     if (matchesKey(data, Key.up)) {
       this.selectedIndex = Math.max(0, this.selectedIndex - 1);
       return;
@@ -642,7 +652,8 @@ export class PluginsPanelComponent extends Container implements Focusable {
     if (matchesKey(data, Key.down)) {
       // Clamp to 0 while the catalog is still loading (entries empty); otherwise
       // `entries.length - 1` is -1 and a later Enter reads `entries[-1]`.
-      this.selectedIndex = entries.length === 0 ? 0 : Math.min(entries.length - 1, this.selectedIndex + 1);
+      this.selectedIndex =
+        entries.length === 0 ? 0 : Math.min(entries.length - 1, this.selectedIndex + 1);
       return;
     }
     if (matchesKey(data, Key.enter)) {
@@ -700,7 +711,9 @@ export class PluginsPanelComponent extends Container implements Focusable {
     const { installed } = this.opts;
     const colors = currentTheme.palette;
     if (installed.length === 0) {
-      lines.push(chalk.hex(colors.textMuted)(`  ${t('tui.dialogs.pluginsSelector.noPluginsInstalled')}`));
+      lines.push(
+        chalk.hex(colors.textMuted)(`  ${t('tui.dialogs.pluginsSelector.noPluginsInstalled')}`),
+      );
     } else {
       for (let i = 0; i < installed.length; i++) {
         lines.push(...this.renderInstalledRow(installed[i]!, i, width));
@@ -731,12 +744,13 @@ export class PluginsPanelComponent extends Container implements Focusable {
     const entry = this.market.entries.find(
       (candidate) =>
         candidate.id === plugin.id ||
-        (candidate.builtIn === true &&
-          this.capabilityForEntry(candidate)?.pluginId === plugin.id),
+        (candidate.builtIn === true && this.capabilityForEntry(candidate)?.pluginId === plugin.id),
     );
     if (entry === undefined) return undefined;
     const status = computeUpdateStatus(entry.version, plugin.version, true);
-    return status.kind === 'update' ? { entry, local: status.local, latest: status.latest } : undefined;
+    return status.kind === 'update'
+      ? { entry, local: status.local, latest: status.latest }
+      : undefined;
   }
 
   private renderInstalledRow(plugin: PluginSummary, index: number, width: number): string[] {
@@ -750,7 +764,12 @@ export class PluginsPanelComponent extends Container implements Focusable {
     const update = this.installedUpdateStatus(plugin);
     let line = prefix + labelStyle(plugin.displayName);
     if (status !== undefined && statusLabel !== undefined) {
-      line += '  ' + statusStyle({ kind: 'plugin', value: '', label: '', description: '', status }, colors)(statusLabel);
+      line +=
+        '  ' +
+        statusStyle(
+          { kind: 'plugin', value: '', label: '', description: '', status },
+          colors,
+        )(statusLabel);
     }
     if (update !== undefined) {
       const badge = t('tui.dialogs.pluginsSelector.updateStatus', {
@@ -782,7 +801,9 @@ export class PluginsPanelComponent extends Container implements Focusable {
   ): void {
     const colors = currentTheme.palette;
     if (this.market.status === 'loading' || this.market.status === 'idle') {
-      lines.push(chalk.hex(colors.textMuted)(`  ${t('tui.dialogs.pluginsSelector.loadingMarketplace')}`));
+      lines.push(
+        chalk.hex(colors.textMuted)(`  ${t('tui.dialogs.pluginsSelector.loadingMarketplace')}`),
+      );
       return;
     }
     if (this.market.status === 'error') {
@@ -791,13 +812,13 @@ export class PluginsPanelComponent extends Container implements Focusable {
           `  ${t('tui.dialogs.pluginsSelector.marketplaceUnavailable', { message: this.market.message })}`,
         ),
       );
-      lines.push(
-        mutedHintLine(`  ${t('tui.dialogs.pluginsSelector.useCustomTabHint')}`, colors),
-      );
+      lines.push(mutedHintLine(`  ${t('tui.dialogs.pluginsSelector.useCustomTabHint')}`, colors));
       return;
     }
     if (entries.length === 0) {
-      lines.push(chalk.hex(colors.textMuted)(`  ${t('tui.dialogs.pluginsSelector.noPluginsFound')}`));
+      lines.push(
+        chalk.hex(colors.textMuted)(`  ${t('tui.dialogs.pluginsSelector.noPluginsFound')}`),
+      );
     } else {
       for (let i = 0; i < entries.length; i++) {
         lines.push(...this.renderMarketplaceRow(entries[i]!, i + indexOffset, width));
@@ -849,7 +870,11 @@ export class PluginsPanelComponent extends Container implements Focusable {
     this.renderMarketplaceTab(lines, width, this.thirdPartyEntries);
   }
 
-  private renderMarketplaceRow(entry: PluginMarketplaceEntry, index: number, width: number): string[] {
+  private renderMarketplaceRow(
+    entry: PluginMarketplaceEntry,
+    index: number,
+    width: number,
+  ): string[] {
     const colors = currentTheme.palette;
     const selected = index === this.selectedIndex;
     const pointer = selected ? SELECT_POINTER : ' ';
@@ -860,14 +885,13 @@ export class PluginsPanelComponent extends Container implements Focusable {
       ? 'open-in-browser'
       : capability?.install.running === true
         ? 'installing…'
-        : marketplaceEntryStatus(
-            entry,
-            this.installedVersions,
-            this.installedPluginId(entry),
-          );
+        : marketplaceEntryStatus(entry, this.installedVersions, this.installedPluginId(entry));
     const statusLabel = marketplaceStatusLabel(status);
     const line =
-      prefix + labelStyle(entry.displayName) + '  ' + marketplaceStatusStyle(status, colors)(statusLabel);
+      prefix +
+      labelStyle(entry.displayName) +
+      '  ' +
+      marketplaceStatusStyle(status, colors)(statusLabel);
     const descWidth = Math.max(1, width - 4);
     const out = [line];
     const description =
@@ -911,7 +935,9 @@ function buildMcpItems(info: PluginInfo): PluginsOverviewItem[] {
       kind: 'plugin',
       label: server.name,
       status,
-      statusLabel: t(`tui.dialogs.pluginsSelector.status${status.charAt(0).toUpperCase() + status.slice(1)}`),
+      statusLabel: t(
+        `tui.dialogs.pluginsSelector.status${status.charAt(0).toUpperCase() + status.slice(1)}`,
+      ),
       description: mcpServerDescription(server),
     };
   });
@@ -925,7 +951,9 @@ function buildMcpItems(info: PluginInfo): PluginsOverviewItem[] {
 }
 
 function mcpServerDescription(server: PluginMcpServerInfo): string {
-  const action = server.enabled ? t('tui.dialogs.pluginsSelector.mcpDisable') : t('tui.dialogs.pluginsSelector.mcpEnable');
+  const action = server.enabled
+    ? t('tui.dialogs.pluginsSelector.mcpDisable')
+    : t('tui.dialogs.pluginsSelector.mcpEnable');
   if (server.transport === 'http' || server.transport === 'sse') {
     return t('tui.dialogs.pluginsSelector.mcpServerTransportHint', {
       action,
@@ -933,7 +961,8 @@ function mcpServerDescription(server: PluginMcpServerInfo): string {
       target: server.url ?? server.runtimeName,
     });
   }
-  const args = server.args !== undefined && server.args.length > 0 ? ` ${server.args.join(' ')}` : '';
+  const args =
+    server.args !== undefined && server.args.length > 0 ? ` ${server.args.join(' ')}` : '';
   const command = `${server.command ?? ''}${args}`.trim();
   const base = t('tui.dialogs.pluginsSelector.mcpServerStdioHint', {
     action,
@@ -1043,10 +1072,7 @@ function sectionLabel(label: string, colors: ColorPalette): string {
   return chalk.hex(colors.textDim).bold(` ${label}`);
 }
 
-function statusStyle(
-  item: PluginsOverviewItem,
-  colors: ColorPalette,
-): (text: string) => string {
+function statusStyle(item: PluginsOverviewItem, colors: ColorPalette): (text: string) => string {
   if (item.kind === 'action') return chalk.hex(colors.textDim);
   if (item.status === 'enabled' || item.status === 'installed') return chalk.hex(colors.success);
   if (item.status?.startsWith('install')) return chalk.hex(colors.primary);

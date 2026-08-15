@@ -265,4 +265,3 @@ describe.skipIf(!skipOnWindows)('OAuthManager cross-process refresh lock (Window
     expect(skipOnWindows).toBe(true);
   });
 });
-

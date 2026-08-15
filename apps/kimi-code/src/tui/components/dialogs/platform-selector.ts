@@ -1,15 +1,16 @@
 import { OPEN_PLATFORMS } from '@moonshot-ai/kimi-code-oauth';
 
 import { t } from '#/i18n';
-import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
+
 import { isExperimentalFlagEnabled } from '../../commands/experimental-flags';
+import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
 function getPlatformOptions(): readonly ChoiceOption[] {
   return [
     { value: 'kimi-code', label: t('tui.dialogs.platformSelector.kimiCode') },
-    ...OPEN_PLATFORMS
-      .filter((p) => p.id !== 'astron' || isExperimentalFlagEnabled('xunfei_coding_plan'))
-      .map((platform) => ({ value: platform.id, label: platform.name })),
+    ...OPEN_PLATFORMS.filter(
+      (p) => p.id !== 'astron' || isExperimentalFlagEnabled('xunfei_coding_plan'),
+    ).map((platform) => ({ value: platform.id, label: platform.name })),
   ];
 }
 

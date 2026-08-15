@@ -28,9 +28,23 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>();
 </template>
 
 <style scoped>
-.ui-check { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; }
-.ui-check.is-disabled { opacity: 0.5; cursor: not-allowed; }
-.ui-check__input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.ui-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+.ui-check.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ui-check__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
 .ui-check__box {
   display: inline-flex;
   align-items: center;
@@ -42,11 +56,24 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>();
   border-radius: var(--radius-sm);
   background: var(--color-surface-raised);
   color: var(--color-text-on-accent);
-  transition: background var(--duration-base) var(--ease-out),
+  transition:
+    background var(--duration-base) var(--ease-out),
     border-color var(--duration-base) var(--ease-out);
 }
-.ui-check.is-on .ui-check__box { background: var(--color-accent); border-color: var(--color-accent); }
-.ui-check__input:focus-visible + .ui-check__box { box-shadow: var(--p-focus-ring); }
-.ui-check__box svg { width: 12px; height: 12px; }
-.ui-check__label { font-family: var(--font-ui); font-size: var(--text-base); color: var(--color-text); }
+.ui-check.is-on .ui-check__box {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.ui-check__input:focus-visible + .ui-check__box {
+  box-shadow: var(--p-focus-ring);
+}
+.ui-check__box svg {
+  width: 12px;
+  height: 12px;
+}
+.ui-check__label {
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  color: var(--color-text);
+}
 </style>

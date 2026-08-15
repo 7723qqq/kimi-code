@@ -35,28 +35,26 @@ import { createControlledPromise } from '@antfu/utils';
 import { t } from '@moonshot-ai/kimi-i18n';
 
 import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/_base/state/stateRegistry';
 import { toErrorMessage } from '#/_base/errors/errorMessage';
+import { defineState } from '#/_base/state/stateRegistry';
 import {
   abortError,
   isAbortError,
   isUserCancellation,
   userCancellationReason,
 } from '#/_base/utils/abort';
-import { IConfigService } from '#/app/config/config';
-import { IEventBus } from '#/app/event/eventBus';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import {
   IAgentLLMRequesterService,
   type AgentLLMRequestFinish,
 } from '#/agent/llmRequester/llmRequester';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IConfigService } from '#/app/config/config';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import type {
   TurnEndedEvent as TurnEndedTelemetryEvent,
@@ -73,10 +71,15 @@ import {
   toKimiErrorPayload,
 } from '#/errors';
 import { OrderedHookSlot } from '#/hooks';
-import { mergeInPlace, type ContentPart, type StreamedMessagePart } from '#/kosong/contract/message';
+import {
+  mergeInPlace,
+  type ContentPart,
+  type StreamedMessagePart,
+} from '#/kosong/contract/message';
 import { type FinishReason } from '#/kosong/contract/provider';
 import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
 import { type TokenUsage } from '#/kosong/contract/usage';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import { IWireService } from '#/wire/wire';
 
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
@@ -288,11 +291,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   tryAcquireQuiescence(): IDisposable | undefined {
     if (this.disposing) throw abortError('Agent loop disposed');
-    if (
-      this.quiescenceDepth > 0 ||
-      this.activeTurnJob !== undefined ||
-      this.hasPendingRequests()
-    ) {
+    if (this.quiescenceDepth > 0 || this.activeTurnJob !== undefined || this.hasPendingRequests()) {
       return undefined;
     }
     this.quiescenceDepth += 1;
@@ -333,7 +332,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const job = this.pendingTurns[index];
     if (job === undefined || job.turn.state !== 'queued') return false;
     this.pendingTurns.splice(index, 1);
-    this.wire.dispatch(cancelTurn({ turnId, target: 'queued', reason: cancelReasonFor(cancellation) }));
+    this.wire.dispatch(
+      cancelTurn({ turnId, target: 'queued', reason: cancelReasonFor(cancellation) }),
+    );
     for (const step of job.steps.values()) step.cancel(cancellation);
     job.controller.abort(cancellation);
     job.turn.state = 'cancelled';
@@ -370,7 +371,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       this.activeTurnJob !== undefined ||
       this.pendingTurns.length > 0 ||
       this.heldAdmissions.length > 0
-    ) return;
+    )
+      return;
     this.nextReservedTurnId = undefined;
     if (this.settleWaiters.length === 0) return;
     const waiters = this.settleWaiters.splice(0);
@@ -541,7 +543,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       result = await this.run({
         turnId: turn.id,
         signal: turn.signal,
-        onStarted: () =>{  ready.resolve(); },
+        onStarted: () => {
+          ready.resolve();
+        },
       });
     } catch (error) {
       result = this.resultFromTurnError(turn, error);
@@ -671,7 +675,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     options: LoopErrorHandlerRegistrationOptions = {},
   ): IDisposable {
     if (options.before !== undefined && options.after !== undefined) {
-      throw new BugIndicatingError('Loop error handler registration cannot specify both before and after');
+      throw new BugIndicatingError(
+        'Loop error handler registration cannot specify both before and after',
+      );
     }
     this.deleteErrorHandler(handler.id);
     const target = options.before ?? options.after;

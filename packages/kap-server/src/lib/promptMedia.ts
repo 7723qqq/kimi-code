@@ -67,7 +67,10 @@ const VIDEO_EXT_BY_MIME: Record<string, string> = {
  * request without creating the prompt agent and without touching the
  * session's model/thinking/permission.
  */
-export async function assertPromptFileRefs(content: WireContent, store: IFileService): Promise<void> {
+export async function assertPromptFileRefs(
+  content: WireContent,
+  store: IFileService,
+): Promise<void> {
   for (const part of content) {
     if (part.type === 'file') {
       await store.get(part.file_id);
@@ -82,10 +85,20 @@ export function contentToCoreParts(content: WireContent): ContentPart[] {
   const parts: ContentPart[] = [];
   for (const part of content) {
     if (part.type === 'text') parts.push({ type: 'text', text: part.text });
-    else if (part.type === 'image' && part.source.kind === 'url') parts.push({ type: 'image_url', imageUrl: { url: part.source.url, id: part.source.id } });
-    else if (part.type === 'image' && part.source.kind === 'base64') parts.push({ type: 'image_url', imageUrl: { url: `data:${part.source.media_type};base64,${part.source.data}` } });
-    else if (part.type === 'video' && part.source.kind === 'url') parts.push({ type: 'video_url', videoUrl: { url: part.source.url, id: part.source.id } });
-    else if (part.type === 'video' && part.source.kind === 'base64') parts.push({ type: 'video_url', videoUrl: { url: `data:${part.source.media_type};base64,${part.source.data}` } });
+    else if (part.type === 'image' && part.source.kind === 'url')
+      parts.push({ type: 'image_url', imageUrl: { url: part.source.url, id: part.source.id } });
+    else if (part.type === 'image' && part.source.kind === 'base64')
+      parts.push({
+        type: 'image_url',
+        imageUrl: { url: `data:${part.source.media_type};base64,${part.source.data}` },
+      });
+    else if (part.type === 'video' && part.source.kind === 'url')
+      parts.push({ type: 'video_url', videoUrl: { url: part.source.url, id: part.source.id } });
+    else if (part.type === 'video' && part.source.kind === 'base64')
+      parts.push({
+        type: 'video_url',
+        videoUrl: { url: `data:${part.source.media_type};base64,${part.source.data}` },
+      });
   }
   return parts;
 }
@@ -170,9 +183,10 @@ export async function resolvePromptMediaFiles(
         );
         content.push({
           type: 'text',
-          text: persisted === null
-            ? buildUnsupportedImageNotice(effectiveMime)
-            : buildAttachedFileNotice(name, effectiveMime, bytes.length, persisted),
+          text:
+            persisted === null
+              ? buildUnsupportedImageNotice(effectiveMime)
+              : buildAttachedFileNotice(name, effectiveMime, bytes.length, persisted),
         });
         changed = true;
         continue;
@@ -241,7 +255,12 @@ export async function resolvePromptMediaFiles(
       const attachedPath = await materializeAttachmentToDir(file, await resolveAttachmentsDir());
       content.push({
         type: 'text',
-        text: buildAttachedFileNotice(file.meta.name, file.meta.media_type, file.meta.size, attachedPath),
+        text: buildAttachedFileNotice(
+          file.meta.name,
+          file.meta.media_type,
+          file.meta.size,
+          attachedPath,
+        ),
       });
       changed = true;
       continue;
@@ -273,9 +292,10 @@ export async function resolvePromptMediaFiles(
         );
         content.push({
           type: 'text',
-          text: persisted === null
-            ? buildUnsupportedImageNotice(mediaType, file.meta.name)
-            : buildAttachedFileNotice(file.meta.name, mediaType, file.meta.size, persisted),
+          text:
+            persisted === null
+              ? buildUnsupportedImageNotice(mediaType, file.meta.name)
+              : buildAttachedFileNotice(file.meta.name, mediaType, file.meta.size, persisted),
         });
         changed = true;
         continue;
@@ -339,7 +359,8 @@ export async function resolvePromptMediaFiles(
 
 async function materializeVideoToCache(file: GetResult, cacheDir: string): Promise<string> {
   await mkdir(cacheDir, { recursive: true });
-  const ext = extname(file.meta.name) || (VIDEO_EXT_BY_MIME[file.meta.media_type.toLowerCase()] ?? '.bin');
+  const ext =
+    extname(file.meta.name) || (VIDEO_EXT_BY_MIME[file.meta.media_type.toLowerCase()] ?? '.bin');
   const target = join(cacheDir, `${file.meta.id}${ext}`);
   const info = await stat(target).catch(() => undefined);
   if (info?.size === file.meta.size) return target;
@@ -408,7 +429,12 @@ function imageExtensionForMime(mediaType: string): string {
 // This notice's exact shape is a client contract: kimi-web's messagesToTurns
 // parses it (ATTACHED_FILE_NOTICE_RE) to rebuild the attachment chip after a
 // resync — change the wording there too.
-function buildAttachedFileNotice(name: string, mediaType: string, size: number, path: string): string {
+function buildAttachedFileNotice(
+  name: string,
+  mediaType: string,
+  size: number,
+  path: string,
+): string {
   return `Attached file "${name}" (${mediaType}, ${size} bytes): ${path} — open it with the Read tool`;
 }
 

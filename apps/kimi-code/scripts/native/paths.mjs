@@ -2,7 +2,11 @@ import { resolve } from 'node:path';
 
 export const appRoot = resolve(import.meta.dirname, '..', '..');
 
-export function targetTriple({ platform = process.platform, arch = process.arch, env = process.env } = {}) {
+export function targetTriple({
+  platform = process.platform,
+  arch = process.arch,
+  env = process.env,
+} = {}) {
   return env.KIMI_CODE_BUILD_TARGET ?? `${platform}-${arch}`;
 }
 
@@ -53,5 +57,3 @@ export function nativeSmokeHome() {
 export function nativeManifestKey(target = targetTriple()) {
   return `native/${target}/manifest.json`;
 }
-
-

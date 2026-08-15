@@ -10,26 +10,21 @@
  */
 
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  type IAgentScopeHandle,
-  ScopeActivation,
-  registerScopedService,
-} from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
-
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IWireService } from '#/wire/wire';
 
 import { ISessionTodoService } from './sessionTodo';
-import { TodoModel, todoSet } from './todoOps';
 import { TODO_LIST_TOOL_NAME, type TodoItem } from './todoItem';
 import { TODO_LIST_REMINDER_VARIANT, todoListStaleReminder } from './todoListReminder';
+import { TodoModel, todoSet } from './todoOps';
 
 const MAIN_AGENT_ID = 'main';
 
@@ -42,9 +37,7 @@ export class SessionTodoService extends Service implements ISessionTodoService {
   private readonly agentBindings = new Map<string, IDisposable[]>();
   private lastKnownTodos: readonly TodoItem[] = [];
 
-  constructor(
-    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
-  ) {
+  constructor(@IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService) {
     super();
 
     this._register(

@@ -39,47 +39,41 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { join } from 'pathe';
+
 import { t } from '@moonshot-ai/kimi-i18n';
-
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-
-import type { ContentPart } from '#/kosong/contract/message';
+import { join } from 'pathe';
 
 import { Disposable } from '#/_base/di/lifecycle';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { defineState } from '#/_base/state/stateRegistry';
-import {
-  abortable,
-  userCancellationReason,
-} from '#/_base/utils/abort';
+import { abortable, userCancellationReason } from '#/_base/utils/abort';
 import { setClampedTimeout } from '#/_base/utils/timer';
 import { escapeXml, escapeXmlAttr } from '#/_base/utils/xml-escape';
-import { IEventBus } from '#/app/event/eventBus';
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { defineCheckpointedModel } from '#/agent/contextMemory/conversationTime';
 import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import type { ContextMessage, TaskOrigin } from '#/agent/contextMemory/types';
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { MessageStepRequest } from '#/agent/loop/stepRequest';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
-import {
-  TERMINAL_STATUSES,
-  type AgentTaskInfoBase,
-  type AgentTaskSettlement,
-} from './types';
-import { renderNotificationXml } from './notificationXml';
-
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
 import { IConfigService } from '#/app/config/config';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
+import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { ContentPart } from '#/kosong/contract/message';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IWireService } from '#/wire/wire';
+
+import { resolveAgentTaskConfig } from './configSection';
+import { renderNotificationXml } from './notificationXml';
+import { AgentTaskPersistence } from './persist';
 import {
   IAgentTaskService,
   type AgentTaskNotificationContext,
@@ -93,10 +87,8 @@ import {
   type IAgentTaskEntry,
   type RegisterAgentTaskOptions,
 } from './task';
-import { resolveAgentTaskConfig } from './configSection';
-import { AgentTaskPersistence } from './persist';
 import { TaskModel, taskStarted, taskTerminated } from './taskOps';
-import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
+import { TERMINAL_STATUSES, type AgentTaskInfoBase, type AgentTaskSettlement } from './types';
 import '#/agent/tools/task/task-output/taskOutputTool';
 import '#/agent/tools/task/task-stop/taskStopTool';
 
@@ -465,7 +457,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       retainedOutputBytes: 0,
       outputLimitTripped: false,
       status: 'running',
-      options: { detached, timeoutMs, detachTimeoutMs: options.detachTimeoutMs, signal: detached ? undefined : options.signal, description: options.description },
+      options: {
+        detached,
+        timeoutMs,
+        detachTimeoutMs: options.detachTimeoutMs,
+        signal: detached ? undefined : options.signal,
+        description: options.description,
+      },
       startedAt: Date.now(),
       endedAt: null,
       foregroundRelease: detached ? undefined : createForegroundRelease(),
@@ -493,10 +491,13 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
     const stateSub = handle.onDidChangeState((state) => {
       if (!TERMINAL_TASK_STATES.has(state)) return;
-      const status = entry.timedOut ? 'timed_out' as const
-        : state === 'cancelled' ? 'killed' as const
-          : state === 'failed' ? 'failed' as const
-            : 'completed' as const;
+      const status = entry.timedOut
+        ? ('timed_out' as const)
+        : state === 'cancelled'
+          ? ('killed' as const)
+          : state === 'failed'
+            ? ('failed' as const)
+            : ('completed' as const);
       void this.settleTask(entry, { status, stopReason: entry.stopReason });
     });
 
@@ -507,7 +508,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       },
     };
 
-    entry.lifecyclePromise = handle.result.then(() => { }, () => { });
+    entry.lifecyclePromise = handle.result.then(
+      () => {},
+      () => {},
+    );
 
     this.installForegroundSignal(entry);
 
@@ -665,8 +669,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
         entry.onDetachFn ??
         (entry.task === undefined ? undefined : entry.task.onDetach?.bind(entry.task));
       onDetach?.();
-    } catch {
-    }
+    } catch {}
     this.startOutputPersist(entry);
     void this.persistLive(entry);
     this.recordTaskStarted(this.toInfo(entry));
@@ -782,8 +785,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
           entry.forceStopFn ??
           (entry.task === undefined ? undefined : entry.task.forceStop?.bind(entry.task));
         await forceStop?.();
-      } catch {
-      }
+      } catch {}
     }
 
     if (TERMINAL_STATUSES.has(entry.status)) {
@@ -899,9 +901,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     return this.toInfo(entry);
   }
 
-  async waitForForegroundRelease(
-    taskId: string,
-  ): Promise<ForegroundTaskReleaseReason | undefined> {
+  async waitForForegroundRelease(taskId: string): Promise<ForegroundTaskReleaseReason | undefined> {
     const entry = this.tasks.get(taskId);
     if (entry === undefined) return undefined;
     if (TERMINAL_STATUSES.has(entry.status)) {
@@ -969,7 +969,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const info = this.toInfo(entry);
     entry.persistWriteQueue = entry.persistWriteQueue
       .then(() => persistence.writeTask(info))
-      .catch(() => { });
+      .catch(() => {});
     return entry.persistWriteQueue;
   }
 
@@ -1004,7 +1004,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const persistence = this.persistence;
     entry.outputWriteQueue = entry.outputWriteQueue
       .then(() => persistence.appendTaskOutput(entry.taskId, chunk))
-      .catch(() => { });
+      .catch(() => {});
   }
 
   private startOutputPersist(entry: ManagedTask): void {
@@ -1037,10 +1037,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     }
   }
 
-  private async settleTask(
-    entry: ManagedTask,
-    settlement: AgentTaskSettlement,
-  ): Promise<boolean> {
+  private async settleTask(entry: ManagedTask, settlement: AgentTaskSettlement): Promise<boolean> {
     if (TERMINAL_STATUSES.has(entry.status)) return false;
     entry.status = settlement.status;
     entry.endedAt = Date.now();
@@ -1359,10 +1356,7 @@ function isCompactionSplice(splice: {
   );
 }
 
-function newerRestoredTask(
-  existing: AgentTaskInfo,
-  loaded: AgentTaskInfo,
-): AgentTaskInfo {
+function newerRestoredTask(existing: AgentTaskInfo, loaded: AgentTaskInfo): AgentTaskInfo {
   const existingTerminal = isAgentTaskTerminal(existing.status);
   const loadedTerminal = isAgentTaskTerminal(loaded.status);
   if (existingTerminal && !loadedTerminal) return existing;

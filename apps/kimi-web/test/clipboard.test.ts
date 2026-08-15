@@ -3,13 +3,19 @@
 // code-block fallback. The test stubs only navigator/document browser APIs.
 // Run: pnpm --filter @moonshot-ai/kimi-web test -- clipboard.test.ts
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { copyCodeBlockFallback, copyTextToClipboard } from '../src/lib/clipboard';
 
 interface FakeDocument {
   execCommand: ReturnType<typeof vi.fn>;
   createElement: ReturnType<typeof vi.fn>;
   body: { appendChild: ReturnType<typeof vi.fn>; removeChild: ReturnType<typeof vi.fn> };
-  textarea: { value: string; setAttribute: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn>; select: ReturnType<typeof vi.fn> };
+  textarea: {
+    value: string;
+    setAttribute: ReturnType<typeof vi.fn>;
+    focus: ReturnType<typeof vi.fn>;
+    select: ReturnType<typeof vi.fn>;
+  };
 }
 
 function installDocument(execResult: boolean | Error): FakeDocument {

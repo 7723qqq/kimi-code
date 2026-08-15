@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { TestInstantiationService } from '#/_base/di/test';
 import {
   WIRE_PROTOCOL_VERSION,
   CHECKPOINTED_MODELS,
@@ -9,24 +12,22 @@ import {
   type ContextMessage,
   type WireRecord,
 } from '#/index';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { todoSet, TodoModel } from '#/session/todo/todoOps';
+import { MODEL_CROSS_REDUCERS } from '#/wire/model';
+import { OP_REGISTRY } from '#/wire/op';
+import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
+import type { IWireService } from '#/wire/wire';
+
 import {
   InMemoryWireRecordPersistence,
   createTestAgent,
   testAgent,
   type TestAgentContext,
 } from './harness';
-import { SyncDescriptor } from '#/_base/di/descriptors';
-import { DisposableStore } from '#/_base/di/lifecycle';
-import { TestInstantiationService } from '#/_base/di/test';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { todoSet, TodoModel } from '#/session/todo/todoOps';
-import { OP_REGISTRY } from '#/wire/op';
-import { MODEL_CROSS_REDUCERS } from '#/wire/model';
-import type { IWireService } from '#/wire/wire';
-import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
 import { registerTestAgentWire, restoreTestAgentWire } from './wire/stubs';
 
 const V1_RECORD_TYPES: ReadonlySet<string> = new Set([
@@ -112,9 +113,7 @@ describe('v1 wire vocabulary', () => {
     for (const [type, descriptor] of OP_REGISTRY) {
       if (descriptor.persist === false) continue;
       expect(
-        V1_RECORD_TYPES.has(type) ||
-          V2_ONLY_RECORD_TYPES.has(type) ||
-          V2_RECORD_TYPES.has(type),
+        V1_RECORD_TYPES.has(type) || V2_ONLY_RECORD_TYPES.has(type) || V2_RECORD_TYPES.has(type),
         `op "${type}" persists an unregistered record type`,
       ).toBe(true);
     }
@@ -216,17 +215,15 @@ describe('AgentRecords persistence metadata', () => {
   });
 
   it('heals an envelope-less stream on restore instead of rejecting it', async () => {
-    persistence.records.push(
-      {
-        type: 'context.append_message',
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: 'orphaned prompt' }],
-          toolCalls: [],
-          origin: { kind: 'user' },
-        },
+    persistence.records.push({
+      type: 'context.append_message',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: 'orphaned prompt' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
       },
-    );
+    });
 
     expectResumeMatches = false;
     await ctx.restorePersisted();
@@ -313,13 +310,11 @@ describe('AgentRecords persistence metadata', () => {
   });
 
   it('replays a newer wire version without rewriting its metadata', async () => {
-    persistence.records.push(
-      {
-        type: 'metadata',
-        protocol_version: '9.9',
-        created_at: 1,
-      },
-    );
+    persistence.records.push({
+      type: 'metadata',
+      protocol_version: '9.9',
+      created_at: 1,
+    });
 
     await expect(ctx.restorePersisted()).resolves.toBeUndefined();
     expect(persistence.records[0]).toMatchObject({
@@ -329,13 +324,11 @@ describe('AgentRecords persistence metadata', () => {
   });
 
   it('rejects replaying records without a registered migration path', async () => {
-    persistence.records.push(
-      {
-        type: 'metadata',
-        protocol_version: '0.9',
-        created_at: 1,
-      },
-    );
+    persistence.records.push({
+      type: 'metadata',
+      protocol_version: '0.9',
+      created_at: 1,
+    });
 
     expectResumeMatches = false;
     await expect(ctx.restorePersisted()).rejects.toThrow('Missing wire migration for version 0.9');
@@ -537,7 +530,6 @@ class RecordingInMemoryWireRecordPersistence extends InMemoryWireRecordPersisten
     super.rewrite(records);
   }
 }
-
 
 function userMessage(text: string): ContextMessage {
   return {

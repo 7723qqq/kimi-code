@@ -11,8 +11,8 @@
  * document is materialized when the session is created.
  */
 
-import type { Event } from '#/_base/event';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { Event } from '#/_base/event';
 
 export interface AgentMeta {
   readonly homedir?: string;
@@ -65,10 +65,7 @@ export interface ISessionMetadata {
    * `force` skips the kind check entirely (explicit user-requested
    * regeneration — last writer wins).
    */
-  setGeneratedTitleIfUncustomized(
-    title: string,
-    opts?: { force?: boolean },
-  ): Promise<boolean>;
+  setGeneratedTitleIfUncustomized(title: string, opts?: { force?: boolean }): Promise<boolean>;
   setArchived(archived: boolean): Promise<void>;
   registerAgent(agentId: string, meta: AgentMeta): Promise<void>;
 }

@@ -1,8 +1,8 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { Turn, TurnResult } from '#/agent/loop/loop';
-import type { ContentPart } from '#/kosong/contract/message';
 import type { Hooks } from '#/hooks';
+import type { ContentPart } from '#/kosong/contract/message';
 
 export interface PromptSubmitContext {
   readonly promptMessage: ContextMessage;

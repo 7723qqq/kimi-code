@@ -19,8 +19,8 @@
  */
 
 import { MAX_TIMER_DELAY_MS } from '#/_base/utils/timer';
-import { ConfigTarget, type ConfigInspectValue, type IConfigService } from '#/app/config/config';
 import { LOOP_CONTROL_SECTION } from '#/agent/loop/configSection';
+import { ConfigTarget, type ConfigInspectValue, type IConfigService } from '#/app/config/config';
 import { SUBAGENT_SECTION } from '#/session/subagent/configSection';
 
 import { LEGACY_BACKGROUND_SECTION, TASK_SECTION } from './configSection';

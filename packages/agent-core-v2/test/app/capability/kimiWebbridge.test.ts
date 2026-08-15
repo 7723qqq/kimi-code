@@ -5,21 +5,30 @@
  * (temp dirs, scripted fetch, scripted host processes, fake plugins).
  */
 
-import { mkdtemp, readFile, readdir, rm, mkdir, writeFile, access, chmod, stat } from 'node:fs/promises';
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  mkdir,
+  writeFile,
+  access,
+  chmod,
+  stat,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-
 import { Readable, Writable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { IPluginService } from '#/app/plugin/plugin';
-import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import type { CapabilityEntryContext } from '#/app/capability/entries/context';
 import {
   __kimiWebbridgeInternals,
   createKimiWebbridgeEntry,
 } from '#/app/capability/entries/kimiWebbridge';
-import type { CapabilityEntryContext } from '#/app/capability/entries/context';
+import type { IPluginService } from '#/app/plugin/plugin';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 
 const DAEMON_BASE = 'http://127.0.0.1:10086';
 
@@ -46,7 +55,9 @@ interface SpawnCall {
   args: readonly string[];
 }
 
-function fakeHostProcess(script?: Array<{ match: string; code: number; stdout?: string; stderr?: string }>): {
+function fakeHostProcess(
+  script?: Array<{ match: string; code: number; stdout?: string; stderr?: string }>,
+): {
   service: IHostProcessService;
   calls: SpawnCall[];
 } {
@@ -63,7 +74,9 @@ function fakeHostProcess(script?: Array<{ match: string; code: number; stdout?: 
   return { service, calls };
 }
 
-function fakePlugins(installed: Array<{ id: string; enabled: boolean; state: string; version?: string }>): {
+function fakePlugins(
+  installed: Array<{ id: string; enabled: boolean; state: string; version?: string }>,
+): {
   service: IPluginService;
   installs: string[];
   enabledCalls: Array<{ id: string; enabled: boolean }>;
@@ -112,15 +125,15 @@ function fakePlugins(installed: Array<{ id: string; enabled: boolean; state: str
 }
 
 /** Scripted fetch: answers daemon /status and CDN binary downloads. */
-function fakeFetch(opts: {
-  statusSequence?: Array<object | 'error'>;
-  binary?: Uint8Array;
-}): { fetchImpl: typeof fetch } {
+function fakeFetch(opts: { statusSequence?: Array<object | 'error'>; binary?: Uint8Array }): {
+  fetchImpl: typeof fetch;
+} {
   let statusCalls = 0;
   const fetchImpl = (async (url: string | URL): Promise<Response> => {
     const u = String(url);
     if (u === `${DAEMON_BASE}/status`) {
-      const step = opts.statusSequence?.[Math.min(statusCalls, (opts.statusSequence?.length ?? 1) - 1)];
+      const step =
+        opts.statusSequence?.[Math.min(statusCalls, (opts.statusSequence?.length ?? 1) - 1)];
       statusCalls += 1;
       if (step === 'error' || step === undefined) throw new Error('connection refused');
       return new Response(JSON.stringify(step), { status: 200 });
@@ -201,7 +214,9 @@ describe('kimi-webbridge entry', () => {
     const binPath = path.join(userHome, '.kimi-webbridge', 'bin', 'kimi-webbridge');
     await writeFile(binPath, 'bin');
     await chmod(binPath, 0o755);
-    const plugins = fakePlugins([{ id: 'kimi-webbridge', enabled: true, state: 'ok', version: '1.11.3' }]);
+    const plugins = fakePlugins([
+      { id: 'kimi-webbridge', enabled: true, state: 'ok', version: '1.11.3' },
+    ]);
     const { fetchImpl } = fakeFetch({
       statusSequence: [{ running: true, version: 'v1.11.3', extension_connected: false }],
     });
@@ -247,7 +262,9 @@ describe('kimi-webbridge entry', () => {
     expect(note).toBe('user-skill-migrated');
     expect(reports).toContain('standalone-skill-migration');
     await expect(access(path.join(kimiHome, 'skills', 'kimi-webbridge'))).rejects.toThrow();
-    await expect(access(path.join(userHome, '.agents', 'skills', 'kimi-webbridge'))).rejects.toThrow();
+    await expect(
+      access(path.join(userHome, '.agents', 'skills', 'kimi-webbridge')),
+    ).rejects.toThrow();
 
     const backupDir = path.join(kimiHome, 'backups', 'kimi-webbridge-skills');
     const backups = await readdir(backupDir);
@@ -314,7 +331,9 @@ describe('kimi-webbridge entry', () => {
     const binPath = path.join(userHome, '.kimi-webbridge', 'bin', 'kimi-webbridge');
     await writeFile(binPath, 'old-bin');
     await chmod(binPath, 0o755);
-    const plugins = fakePlugins([{ id: 'kimi-webbridge', enabled: true, state: 'ok', version: '1.11.3' }]);
+    const plugins = fakePlugins([
+      { id: 'kimi-webbridge', enabled: true, state: 'ok', version: '1.11.3' },
+    ]);
     const host = fakeHostProcess();
     const { fetchImpl } = fakeFetch({
       statusSequence: [{ running: true, version: 'v1.11.3', extension_connected: true }],
@@ -432,7 +451,9 @@ describe('kimi-webbridge entry', () => {
   });
 
   it('re-enables a previously disabled wiring plugin during setup', async () => {
-    const plugins = fakePlugins([{ id: 'kimi-webbridge', enabled: false, state: 'ok', version: '1.11.3' }]);
+    const plugins = fakePlugins([
+      { id: 'kimi-webbridge', enabled: false, state: 'ok', version: '1.11.3' },
+    ]);
     const { fetchImpl } = fakeFetch({
       statusSequence: [{ running: true, version: 'v1.11.3', extension_connected: true }],
     });

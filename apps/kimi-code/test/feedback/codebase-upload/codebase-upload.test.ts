@@ -118,21 +118,22 @@ describe('uploadArchive', () => {
     const archivePath = join(workRoot, 'repo.zip');
     await writeFile(archivePath, 'hello');
 
-    const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
-      new Promise<Response>((_resolve, reject) => {
-        const signal = init?.signal;
-        if (signal?.aborted) {
-          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-          return;
-        }
-        signal?.addEventListener(
-          'abort',
-          () => {
+    const fetchMock = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal?.aborted) {
             reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-          },
-          { once: true },
-        );
-      }),
+            return;
+          }
+          signal?.addEventListener(
+            'abort',
+            () => {
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+            },
+            { once: true },
+          );
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
     const api = {
@@ -236,7 +237,6 @@ describe('packageCodebase', () => {
     }
   });
 });
-
 
 describe('scanCodebase filtering', () => {
   it('rejects when the scan signal is already aborted', async () => {

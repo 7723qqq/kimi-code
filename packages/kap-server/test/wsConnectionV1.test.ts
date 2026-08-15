@@ -279,7 +279,9 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         transcript_since: { main: 7, '*': 3 },
       }),
     );
-    await vi.waitFor(() =>{  expect(calls).toHaveLength(1); });
+    await vi.waitFor(() => {
+      expect(calls).toHaveLength(1);
+    });
 
     expect(calls[0]).toMatchObject({
       sessionId: 's1',
@@ -290,9 +292,9 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       agentFilter: undefined,
       transcriptGrades: { '*': 'delta' },
     });
-    await vi.waitFor(() =>{ 
-      expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true); },
-    );
+    await vi.waitFor(() => {
+      expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true);
+    });
     const ack = socket.sent.map((f) => JSON.parse(f)).find((f) => f.type === 'ack');
     expect(ack).toMatchObject({ code: 0, payload: { accepted: ['s1'], not_found: [] } });
     conn.close();
@@ -312,7 +314,9 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         transcript_since: { s1: { main: 7 } },
       }),
     );
-    await vi.waitFor(() =>{  expect(calls).toHaveLength(1); });
+    await vi.waitFor(() => {
+      expect(calls).toHaveLength(1);
+    });
     expect(calls[0]).toMatchObject({ sessionId: 's1', grades: undefined });
     expect(calls[0]!.opts?.transcriptSince).toBeUndefined();
     expect(conn.subscriptions.get('s1')).toEqual({
@@ -327,7 +331,9 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         transcript: { s2: { '*': 'delta' } },
       }),
     );
-    await vi.waitFor(() =>{  expect(calls).toHaveLength(2); });
+    await vi.waitFor(() => {
+      expect(calls).toHaveLength(2);
+    });
     expect(calls[1]).toMatchObject({ sessionId: 's2', grades: undefined });
     expect(conn.subscriptions.get('s2')).toEqual({
       agentFilter: undefined,
@@ -348,9 +354,9 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         transcript: { main: 'everything' },
       }),
     );
-    await vi.waitFor(() =>{ 
-      expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true); },
-    );
+    await vi.waitFor(() => {
+      expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true);
+    });
 
     expect(calls).toHaveLength(0);
     expect(conn.subscriptions.size).toBe(0);
@@ -369,13 +375,17 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('subscribe', { session_ids: ['s1'], agent_filter: { s1: ['main'] } }),
     );
-    await vi.waitFor(() =>{  expect(calls).toHaveLength(1); });
+    await vi.waitFor(() => {
+      expect(calls).toHaveLength(1);
+    });
 
     socket.emit(
       'message',
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { main: 'block' } }),
     );
-    await vi.waitFor(() =>{  expect(calls).toHaveLength(2); });
+    await vi.waitFor(() => {
+      expect(calls).toHaveLength(2);
+    });
 
     expect(calls[1]).toMatchObject({ sessionId: 's1', grades: { main: 'block' } });
     expect(calls[1]!.filter).toEqual(new Set(['main']));
@@ -459,7 +469,9 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         cursors: { s1: { seq: 2, epoch: 'e1' } },
       }),
     );
-    await vi.waitFor(() =>{  expect(seenGrades).toEqual({ '*': 'delta' }); });
+    await vi.waitFor(() => {
+      expect(seenGrades).toEqual({ '*': 'delta' });
+    });
     expect(conn.subscriptions.get('s1')?.transcriptGrades).toEqual({ '*': 'delta' });
 
     const types = socket.frames().map((f) => (f as { type: string }).type);
@@ -487,9 +499,9 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('subscribe_v2', { session_id: 'gone', transcript: { '*': 'delta' } }),
     );
-    await vi.waitFor(() =>{ 
-      expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true); },
-    );
+    await vi.waitFor(() => {
+      expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true);
+    });
 
     const ack = socket.sent.map((f) => JSON.parse(f)).find((f) => f.type === 'ack');
     expect(ack).toMatchObject({ code: 0, payload: { accepted: [], not_found: ['gone'] } });
@@ -507,20 +519,24 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('subscribe', { session_ids: ['s1'], agent_filter: { s1: ['main'] } }),
     );
-    await vi.waitFor(() =>{  expect(calls).toHaveLength(1); });
+    await vi.waitFor(() => {
+      expect(calls).toHaveLength(1);
+    });
     socket.emit(
       'message',
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { '*': 'delta' } }),
     );
-    await vi.waitFor(() =>{ 
-      expect(conn.subscriptions.get('s1')?.transcriptGrades).toEqual({ '*': 'delta' }); },
-    );
+    await vi.waitFor(() => {
+      expect(conn.subscriptions.get('s1')?.transcriptGrades).toEqual({ '*': 'delta' });
+    });
 
     socket.emit(
       'message',
       controlFrame('unsubscribe_v2', { session_id: 's1', agent_ids: ['main'] }),
     );
-    await vi.waitFor(() =>{  expect(detaches).toHaveLength(1); });
+    await vi.waitFor(() => {
+      expect(detaches).toHaveLength(1);
+    });
 
     expect(detaches[0]).toEqual({ sessionId: 's1', agentIds: ['main'] });
     // An explicit 'off' — deleting the key would fall back to the '*' default.
@@ -542,12 +558,14 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { '*': 'delta' } }),
     );
-    await vi.waitFor(() =>{ 
-      expect(conn.subscriptions.get('s1')?.transcriptGrades).toEqual({ '*': 'delta' }); },
-    );
+    await vi.waitFor(() => {
+      expect(conn.subscriptions.get('s1')?.transcriptGrades).toEqual({ '*': 'delta' });
+    });
 
     socket.emit('message', controlFrame('unsubscribe_v2', { session_id: 's1' }));
-    await vi.waitFor(() =>{  expect(detaches).toHaveLength(1); });
+    await vi.waitFor(() => {
+      expect(detaches).toHaveLength(1);
+    });
 
     expect(detaches[0]).toEqual({ sessionId: 's1', agentIds: undefined });
     expect(conn.subscriptions.get('s1')).toEqual({
@@ -563,9 +581,9 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
     const conn = makeConn(socket, { broadcaster });
 
     socket.emit('message', controlFrame('unsubscribe_v2', { session_id: 's1' }));
-    await vi.waitFor(() =>{ 
-      expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true); },
-    );
+    await vi.waitFor(() => {
+      expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true);
+    });
 
     expect(calls).toHaveLength(0);
     expect(detaches).toHaveLength(0);
@@ -581,9 +599,9 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
 
     socket.emit('message', controlFrame('unsubscribe_v2', { agent_ids: ['main'] }));
     socket.emit('message', controlFrame('unsubscribe_v2', { session_id: 's1', agent_ids: [] }));
-    await vi.waitFor(() =>{ 
-      expect(socket.sent.filter((f) => JSON.parse(f).type === 'ack')).toHaveLength(2); },
-    );
+    await vi.waitFor(() => {
+      expect(socket.sent.filter((f) => JSON.parse(f).type === 'ack')).toHaveLength(2);
+    });
 
     expect(detaches).toHaveLength(0);
     const acks = socket.sent.map((f) => JSON.parse(f)).filter((f) => f.type === 'ack');
@@ -607,7 +625,9 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { '*': 'delta' } }),
     );
-    await vi.waitFor(() =>{  expect(calls).toHaveLength(2); });
+    await vi.waitFor(() => {
+      expect(calls).toHaveLength(2);
+    });
 
     expect(conn.subscriptions.get('s1')).toEqual({
       agentFilter: new Set(['main']),
@@ -626,13 +646,17 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { '*': 'delta' } }),
     );
     socket.emit('message', controlFrame('unsubscribe_v2', { session_id: 's1' }));
-    await vi.waitFor(() =>{  expect(conn.subscriptions.get('s1')?.transcriptGrades).toBeUndefined(); });
+    await vi.waitFor(() => {
+      expect(conn.subscriptions.get('s1')?.transcriptGrades).toBeUndefined();
+    });
 
     socket.emit(
       'message',
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { main: 'turn' } }),
     );
-    await vi.waitFor(() =>{  expect(calls).toHaveLength(2); });
+    await vi.waitFor(() => {
+      expect(calls).toHaveLength(2);
+    });
 
     expect(calls[1]).toMatchObject({ sessionId: 's1', grades: { main: 'turn' } });
     expect(conn.subscriptions.get('s1')?.transcriptGrades).toEqual({ main: 'turn' });

@@ -1,17 +1,17 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, normalize } from 'pathe';
 
+import { join, normalize } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   extractAgentsMdPathsFromSystemPrompt,
   loadAgentsMd,
   loadAgentsMdDetailed,
   prepareSystemPromptContext,
 } from '#/agent/profile/context';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 
 // These suites count fs.readdir calls to assert the preload/freeze behavior
 // of the TS list-directory path. Stub the native addon so a locally-built
@@ -185,8 +185,12 @@ describe('loadAgentsMd nested project hierarchy', () => {
     expect(result).toContain('root instructions');
     expect(result).toContain('packages instructions');
     expect(result).toContain('leaf instructions');
-    expect(result.indexOf('root instructions')).toBeLessThan(result.indexOf('packages instructions'));
-    expect(result.indexOf('packages instructions')).toBeLessThan(result.indexOf('leaf instructions'));
+    expect(result.indexOf('root instructions')).toBeLessThan(
+      result.indexOf('packages instructions'),
+    );
+    expect(result.indexOf('packages instructions')).toBeLessThan(
+      result.indexOf('leaf instructions'),
+    );
   });
 });
 
@@ -324,12 +328,9 @@ describe('prepareSystemPromptContext freeze preloads', () => {
       },
     }) as unknown as IHostFileSystem;
 
-    const base = await prepareSystemPromptContext(
-      { fs: countingFs, homeDir },
-      workDir,
-      brandHome,
-      { additionalDirs: [extraDir] },
-    );
+    const base = await prepareSystemPromptContext({ fs: countingFs, homeDir }, workDir, brandHome, {
+      additionalDirs: [extraDir],
+    });
     const dirReaddirCount = readdirCalls.get(extraDir) ?? 0;
     expect(dirReaddirCount).toBeGreaterThan(0);
 

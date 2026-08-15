@@ -3,6 +3,7 @@
 // still missing, show a full-page login entry instead of an in-app banner.
 
 import { computed, onUnmounted, ref, watch, type Ref } from 'vue';
+
 import type { useKimiWebClient } from './useKimiWebClient';
 
 type KimiWebClient = ReturnType<typeof useKimiWebClient>;
@@ -31,20 +32,24 @@ export function useAuthGate({ client, authLogoRef }: UseAuthGateOptions) {
     window.history.replaceState(window.history.state, '', path);
   }
 
-  watch(showAuthGate, (show) => {
-    if (typeof window === 'undefined') return;
-    if (show) {
-      if (window.location.pathname !== LOGIN_PATH) {
-        authReturnPath.value = currentPathWithSuffix();
-        replaceBrowserPath(LOGIN_PATH);
+  watch(
+    showAuthGate,
+    (show) => {
+      if (typeof window === 'undefined') return;
+      if (show) {
+        if (window.location.pathname !== LOGIN_PATH) {
+          authReturnPath.value = currentPathWithSuffix();
+          replaceBrowserPath(LOGIN_PATH);
+        }
+        return;
       }
-      return;
-    }
-    if (window.location.pathname === LOGIN_PATH) {
-      replaceBrowserPath(authReturnPath.value ?? '/');
-      authReturnPath.value = null;
-    }
-  }, { immediate: true });
+      if (window.location.pathname === LOGIN_PATH) {
+        replaceBrowserPath(authReturnPath.value ?? '/');
+        authReturnPath.value = null;
+      }
+    },
+    { immediate: true },
+  );
 
   function blinkAuthLogo(): void {
     const el = authLogoRef.value;

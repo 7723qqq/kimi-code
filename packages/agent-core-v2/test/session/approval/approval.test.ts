@@ -1,4 +1,3 @@
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -11,6 +10,7 @@ import { ISessionInteractionService } from '#/session/interaction/interaction';
 import { SessionInteractionService } from '#/session/interaction/interactionService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 const display: ToolInputDisplay = { kind: 'command', command: 'bash' };
 

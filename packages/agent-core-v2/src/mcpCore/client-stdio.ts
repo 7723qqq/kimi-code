@@ -4,11 +4,11 @@
 
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { t } from '@moonshot-ai/kimi-i18n';
 import { isAbsolute, resolve } from 'pathe';
 
 import { proxyEnvForChild, reconcileChildNoProxy } from '#/_base/utils/proxy';
 import { ErrorCodes, Error2 } from '#/errors';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 import {
   buildRequestOptions,
@@ -92,7 +92,10 @@ export class StdioMcpClient implements MCPClient {
     }
     if (this.closed) {
       await this.closeStartedClient();
-      throw new Error2(ErrorCodes.MCP_STARTUP_FAILED, t('v2Errors.mcpStdioClientClosedDuringStartup'));
+      throw new Error2(
+        ErrorCodes.MCP_STARTUP_FAILED,
+        t('v2Errors.mcpStdioClientClosedDuringStartup'),
+      );
     }
     this.ready = true;
   }

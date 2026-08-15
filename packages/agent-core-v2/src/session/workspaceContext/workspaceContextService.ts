@@ -12,10 +12,10 @@
 
 import { isAbsolute, relative, resolve } from 'node:path';
 
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { defineState } from '#/_base/state/stateRegistry';
+import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2 } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';

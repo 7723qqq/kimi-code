@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   appendGoalQueueItem,
@@ -132,14 +133,20 @@ describe('goal queue store', () => {
     await expect(appendGoalQueueItem(session(), { objective: '  ' })).rejects.toMatchObject({
       code: ErrorCodes.GOAL_OBJECTIVE_EMPTY,
     });
-    await expect(appendGoalQueueItem(session(), { objective: 'x'.repeat(4001) })).rejects.toMatchObject({
+    await expect(
+      appendGoalQueueItem(session(), { objective: 'x'.repeat(4001) }),
+    ).rejects.toMatchObject({
       code: ErrorCodes.GOAL_OBJECTIVE_TOO_LONG,
     });
   });
 
   it('normalizes malformed queue files to an empty queue', async () => {
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, QUEUE_FILE), JSON.stringify({ version: 1, goals: [{ bad: true }] }), 'utf-8');
+    await writeFile(
+      join(dir, QUEUE_FILE),
+      JSON.stringify({ version: 1, goals: [{ bad: true }] }),
+      'utf-8',
+    );
 
     await expect(readGoalQueue(session())).resolves.toEqual({ goals: [] });
     await expect(readQueueFile()).resolves.toEqual({ version: 1, goals: [] });

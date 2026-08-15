@@ -54,10 +54,7 @@ export function WorkspaceServicesView() {
           <div className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
             Workspace
           </div>
-          <div
-            title={selected?.root}
-            className="truncate font-mono text-[11px] text-neutral-300"
-          >
+          <div title={selected?.root} className="truncate font-mono text-[11px] text-neutral-300">
             {selected === undefined ? (
               <span className="text-neutral-600 italic">none selected</span>
             ) : (

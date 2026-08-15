@@ -35,10 +35,14 @@ export function usePageTitle({ running, showAuthGate }: UsePageTitleOptions): vo
     spinnerFrame.value = 0;
   }
 
-  watch(running, (isRunning) => {
-    if (isRunning) startSpinner();
-    else stopSpinner();
-  }, { immediate: true });
+  watch(
+    running,
+    (isRunning) => {
+      if (isRunning) startSpinner();
+      else stopSpinner();
+    },
+    { immediate: true },
+  );
 
   const pageTitle = computed<string>(() => {
     const prefix = running.value ? `${SPINNER_FRAMES[spinnerFrame.value]} ` : '';

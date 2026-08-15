@@ -6,33 +6,22 @@
  *   Line 2: context: N% (tokens/max)
  */
 
+import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 
-import { getAllTips, type ToolbarTip } from '#/tui/constant/tips';
-import { isRainbowDancing, renderDanceFooterModel, rainbowText, getDanceRainbowPalette } from '#/tui/easter-eggs/dance';
-import { currentTheme } from '#/tui/theme';
 import { getLocale, t } from '#/i18n';
+import { getAllTips, type ToolbarTip } from '#/tui/constant/tips';
+import {
+  isRainbowDancing,
+  renderDanceFooterModel,
+  rainbowText,
+  getDanceRainbowPalette,
+} from '#/tui/easter-eggs/dance';
+import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
-import {
-  StatusLineCommandRunner,
-  type StatusLinePayload,
-} from '#/tui/utils/status-line-command';
-import {
-  createGitStatusCache,
-  formatGitBadgeBase,
-  formatPullRequestBadge,
-  type GitStatus,
-  type GitStatusCache,
-} from '#/utils/git/git-status';
-import {
-  formatTokenCount,
-  usagePercent,
-  usagePercentFromRatio,
-} from '#/utils/usage/usage-format';
 import {
   firstTokenAverageMs,
   fitSessionStatsText,
@@ -41,6 +30,15 @@ import {
   type SessionStatsGroup,
   type SessionStatsSegment,
 } from '#/tui/utils/session-stats';
+import { StatusLineCommandRunner, type StatusLinePayload } from '#/tui/utils/status-line-command';
+import {
+  createGitStatusCache,
+  formatGitBadgeBase,
+  formatPullRequestBadge,
+  type GitStatus,
+  type GitStatusCache,
+} from '#/utils/git/git-status';
+import { formatTokenCount, usagePercent, usagePercentFromRatio } from '#/utils/usage/usage-format';
 
 const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
 
@@ -210,7 +208,11 @@ function renderSwarmPlanBadge(text: string): string {
 function formatContextStatus(usage: number, tokens?: number, maxTokens?: number): string {
   if (maxTokens !== undefined && maxTokens > 0 && tokens !== undefined) {
     const pct = String(usagePercent(tokens, maxTokens));
-    return t('tui.chrome.footer.contextWithTokens', { pct, tokens: formatTokenCount(tokens), maxTokens: formatTokenCount(maxTokens) });
+    return t('tui.chrome.footer.contextWithTokens', {
+      pct,
+      tokens: formatTokenCount(tokens),
+      maxTokens: formatTokenCount(maxTokens),
+    });
   }
   return t('tui.chrome.footer.context', { pct: String(usagePercentFromRatio(usage)) });
 }
@@ -491,7 +493,12 @@ export class FooterComponent implements Component {
       state.contextTokens,
       state.maxContextTokens,
     );
-    const segments = buildSessionStatSegments(state.sessionStats, hitRateText, speedText, contextText);
+    const segments = buildSessionStatSegments(
+      state.sessionStats,
+      hitRateText,
+      speedText,
+      contextText,
+    );
     // The context group is always present; when nothing else exists there is
     // no session traffic yet — keep the old plain context readout instead of
     // a stats bar with a single group.
@@ -542,8 +549,10 @@ export class FooterComponent implements Component {
     }
 
     const modes: string[] = [];
-    if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold(t('tui.chrome.footer.auto')));
-    if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold(t('tui.chrome.footer.yolo')));
+    if (state.permissionMode === 'auto')
+      modes.push(chalk.hex(colors.warning).bold(t('tui.chrome.footer.auto')));
+    if (state.permissionMode === 'yolo')
+      modes.push(chalk.hex(colors.warning).bold(t('tui.chrome.footer.yolo')));
     if (state.planMode && state.swarmMode) {
       modes.push(renderSwarmPlanBadge(t('tui.chrome.footer.swarmPlan')));
     } else {
@@ -570,9 +579,10 @@ export class FooterComponent implements Component {
             ? t('tui.chrome.footer.thinkingEffort', { effort })
             : t('tui.chrome.footer.thinking')
           : '';
-      const thinkingColor = this.pulsePhase > 0
-        ? pulseHexColor(colors.textDim, colors.text, Math.sin(this.pulsePhase * Math.PI))
-        : colors.text;
+      const thinkingColor =
+        this.pulsePhase > 0
+          ? pulseHexColor(colors.textDim, colors.text, Math.sin(this.pulsePhase * Math.PI))
+          : colors.text;
       const modelLabel = `${model}${thinkingLabel}`;
       let renderedModelLabel =
         chalk.hex(colors.text)(model) +

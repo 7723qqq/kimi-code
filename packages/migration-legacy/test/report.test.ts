@@ -1,7 +1,9 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+
 import { writeReport } from '../src/report.js';
 import type { MigrationReport } from '../src/types.js';
 
@@ -35,7 +37,12 @@ describe('writeReport', () => {
           droppedHooks: 0,
           siblingContents: { providers: [], models: [], hooks: 0 },
         },
-        mcp: { mergedServers: [], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: false },
+        mcp: {
+          mergedServers: [],
+          keptNewForConflicts: [],
+          droppedServers: [],
+          wroteSiblingDueToConflict: false,
+        },
         userHistory: { copied: 0, skippedExisting: 0 },
         skills: { copied: 0, skippedExisting: 0 },
         sessions: {

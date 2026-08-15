@@ -17,10 +17,11 @@
 //
 // Run:  node --import tsx bench/message-range.ts
 
-import fs from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
+import fs from 'node:fs/promises';
 import os from 'node:os';
+import path from 'node:path';
+
 import { MiniDb } from '../src/index.js';
 
 const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -143,7 +144,10 @@ async function runCase(label: string, msgs: Msg[]) {
   // ---- naive baseline ----
   let naiveHits = 0;
   const naiveMs = med(() => {
-    const res = msgs.filter((m) => m.ts >= since).sort((a, b) => b.ts - a.ts).slice(0, LIMIT);
+    const res = msgs
+      .filter((m) => m.ts >= since)
+      .toSorted((a, b) => b.ts - a.ts)
+      .slice(0, LIMIT);
     naiveHits = res.length;
   });
   let naiveAllHits = 0;
@@ -153,7 +157,9 @@ async function runCase(label: string, msgs: Msg[]) {
   });
 
   console.log(`\n--- ${label}: N=${fmt(msgs.length)} messages ---`);
-  console.log(`  build: minidb ${(buildMs / 1000).toFixed(2)}s  |  heap ${(heap / 1024 / 1024).toFixed(0)} MiB`);
+  console.log(
+    `  build: minidb ${(buildMs / 1000).toFixed(2)}s  |  heap ${(heap / 1024 / 1024).toFixed(0)} MiB`,
+  );
   console.log(
     `  top-${LIMIT} recent:  minidb dtRange ${indexMs.toFixed(3)} ms (${indexHits})  vs  naive filter+sort ${naiveMs.toFixed(3)} ms (${naiveHits})  ->  ${(naiveMs / indexMs).toFixed(1)}x`,
   );
@@ -173,7 +179,7 @@ async function main() {
   console.log('\ndone.');
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

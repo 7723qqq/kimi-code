@@ -1,6 +1,7 @@
-import { create } from "zustand";
-import type { DisplayBlock, ApprovalResponse } from "shared/legacy-sdk";
-import { bridge } from "@/services";
+import type { DisplayBlock, ApprovalResponse } from 'shared/legacy-sdk';
+import { create } from 'zustand';
+
+import { bridge } from '@/services';
 
 export interface ApprovalRequest {
   id: string;

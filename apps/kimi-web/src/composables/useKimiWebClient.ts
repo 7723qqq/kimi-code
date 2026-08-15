@@ -3,20 +3,14 @@
 // Components consume computed view props and call actions; they never touch the API or reducer.
 
 import { computed, reactive, ref, watch } from 'vue';
-import { i18n } from '../i18n';
-import { traceClientEvent, traceKeyEvent } from '../debug/trace';
+
 import { getKimiWebApi } from '../api';
 import { isDaemonApiError, isDaemonNetworkError } from '../api/errors';
-import {
-  reconcileWorkspaceOrder,
-  sortByWorkspaceOrder,
-  sortWorkspacesByRecent,
-  type WorkspaceSortMode,
-} from '../lib/workspaceOrder';
+import { traceClientEvent, traceKeyEvent } from '../debug/trace';
+import { i18n } from '../i18n';
 import { mergeWorkspaces } from '../lib/mergeWorkspaces';
 import { workspaceRootKey } from '../lib/rootKey';
 import { mergeSnapshotMessages } from '../lib/snapshotMessages';
-import { mergeSnapshotSubagents } from '../lib/taskMerge';
 import { createCoalescedAsyncRunner } from '../lib/snapshotSync';
 import {
   loadUnread,
@@ -30,6 +24,13 @@ import {
   saveWorkspaceSort,
   STORAGE_KEYS,
 } from '../lib/storage';
+import { mergeSnapshotSubagents } from '../lib/taskMerge';
+import {
+  reconcileWorkspaceOrder,
+  sortByWorkspaceOrder,
+  sortWorkspacesByRecent,
+  type WorkspaceSortMode,
+} from '../lib/workspaceOrder';
 import {
   coalesceAppRenderEvents,
   createEventBatcher,
@@ -38,11 +39,11 @@ import {
   type PendingAppEvent,
 } from './client/eventBatcher';
 import { useAppearance } from './client/useAppearance';
+import { useModelProviderState } from './client/useModelProviderState';
 import { useNotification, shouldNotifyCompletion } from './client/useNotification';
+import { useSideChat } from './client/useSideChat';
 import { useSoundNotification } from './client/useSoundNotification';
 import { useTaskPoller } from './client/useTaskPoller';
-import { useModelProviderState } from './client/useModelProviderState';
-import { useSideChat } from './client/useSideChat';
 import {
   forgetLocalTurnState,
   SESSIONS_INITIAL_PAGE_SIZE,
@@ -52,6 +53,14 @@ import {
 const appearance = useAppearance();
 const notification = useNotification();
 const sound = useSoundNotification();
+import {
+  createInitialState,
+  reduceAppEvent,
+  type CompactionStatus,
+  type KimiClientState,
+} from '../api/daemon/eventReducer';
+import type { toAppEvent } from '../api/daemon/mappers';
+import { isPlaceholderSessionUsage } from '../api/daemon/mappers';
 import type {
   AppEvent,
   AppApprovalRequest,
@@ -75,10 +84,6 @@ import type {
   KimiEventMeta,
   ThinkingLevel,
 } from '../api/types';
-import { createInitialState, reduceAppEvent, type CompactionStatus, type KimiClientState } from '../api/daemon/eventReducer';
-import type { toAppEvent } from '../api/daemon/mappers';
-import { isPlaceholderSessionUsage } from '../api/daemon/mappers';
-
 import type { SessionStats } from '../lib/sessionStats';
 import {
   clearLedger as resetLedger,
@@ -87,10 +92,6 @@ import {
   type EventLedgerState,
   type LedgerFrame,
 } from '../lib/trajectory/ledger';
-import { messagesToTurns } from './messagesToTurns';
-import { latestTodos } from './latestTodos';
-import { buildSwarmGroups, countSwarmMembers, swarmMembersByToolCall } from './swarmGroups';
-import type { SwarmGroup, SwarmMember } from './swarmGroups';
 import type {
   ActivityState,
   ActivationBadges,
@@ -111,6 +112,10 @@ import type {
   WorkspaceGroup,
   WorkspaceView,
 } from '../types';
+import { latestTodos } from './latestTodos';
+import { messagesToTurns } from './messagesToTurns';
+import { buildSwarmGroups, countSwarmMembers, swarmMembersByToolCall } from './swarmGroups';
+import type { SwarmGroup, SwarmMember } from './swarmGroups';
 
 // ---------------------------------------------------------------------------
 // Internal reactive state (plain object wrapped in reactive())
@@ -749,15 +754,18 @@ async function refreshSessionGoal(sessionId: string): Promise<void> {
  *  after the profile (e.g. a skill activation that can't carry its own modes)
  *  await it and must NOT proceed on false — awaiting alone enforces nothing,
  *  since the promise never rejects. */
-function persistSessionProfile(patch: {
-  model?: string;
-  permissionMode?: string;
-  planMode?: boolean;
-  swarmMode?: boolean;
-  goalObjective?: string;
-  goalControl?: 'pause' | 'resume' | 'cancel';
-  thinking?: string;
-}, sessionId?: string): Promise<boolean> {
+function persistSessionProfile(
+  patch: {
+    model?: string;
+    permissionMode?: string;
+    planMode?: boolean;
+    swarmMode?: boolean;
+    goalObjective?: string;
+    goalControl?: 'pause' | 'resume' | 'cancel';
+    thinking?: string;
+  },
+  sessionId?: string,
+): Promise<boolean> {
   const sid = sessionId ?? rawState.activeSessionId;
   if (!sid) return Promise.resolve(false);
   // Promise.resolve wrap: tolerate a sync/undefined return (e.g. test mocks).
@@ -888,10 +896,16 @@ function applyEvent(event: ReturnType<typeof toAppEvent>, sessionId: string, seq
   // session — so a background session keeps its own independent toggle state.
   if (event.type === 'sessionUsageUpdated') {
     if (event.swarmMode !== undefined) {
-      rawState.swarmModeBySession = { ...rawState.swarmModeBySession, [event.sessionId]: event.swarmMode };
+      rawState.swarmModeBySession = {
+        ...rawState.swarmModeBySession,
+        [event.sessionId]: event.swarmMode,
+      };
     }
     if (event.planMode !== undefined) {
-      rawState.planModeBySession = { ...rawState.planModeBySession, [event.sessionId]: event.planMode };
+      rawState.planModeBySession = {
+        ...rawState.planModeBySession,
+        [event.sessionId]: event.planMode,
+      };
     }
     if (event.thinking !== undefined) {
       rawState.thinkingBySession = {
@@ -965,7 +979,9 @@ function processEvent(appEvent: AppEvent, meta: KimiEventMeta): void {
   }
 
   if (appEvent.type === 'assistantDelta' && meta.sessionId === rawState.activeSessionId) {
-    appearance.recordMoonDelta((appEvent.delta.text?.length ?? 0) + (appEvent.delta.thinking?.length ?? 0));
+    appearance.recordMoonDelta(
+      (appEvent.delta.text?.length ?? 0) + (appEvent.delta.thinking?.length ?? 0),
+    );
   }
 
   // Prompt-end cleanup. The MAIN agent's turn boundary is the authoritative
@@ -977,11 +993,7 @@ function processEvent(appEvent: AppEvent, meta: KimiEventMeta): void {
   // boolean liveness flags, but drain/notify stay single-owned by the
   // turn-boundary path. Both are gated on the durable cursor advancing so a
   // late duplicate cannot fire twice.
-  if (
-    appEvent.type === 'turnActiveChanged' &&
-    !appEvent.active &&
-    meta.seq > prevSeq
-  ) {
+  if (appEvent.type === 'turnActiveChanged' && !appEvent.active && meta.seq > prevSeq) {
     const reason = appEvent.reason;
     // wasMainTurnActive was captured BEFORE the reducer consumed this event
     // (the reducer clears turnActiveBySession on turn end), so it is the only
@@ -1204,7 +1216,9 @@ function formatDetailValue(value: unknown): string {
 function errorName(err: unknown): string | undefined {
   return err instanceof Error
     ? err.name
-    : typeof err === 'object' && err !== null && typeof (err as { name?: unknown }).name === 'string'
+    : typeof err === 'object' &&
+        err !== null &&
+        typeof (err as { name?: unknown }).name === 'string'
       ? (err as { name: string }).name
       : undefined;
 }
@@ -1212,7 +1226,9 @@ function errorName(err: unknown): string | undefined {
 function errorMessage(err: unknown): string | undefined {
   return err instanceof Error
     ? err.message
-    : typeof err === 'object' && err !== null && typeof (err as { message?: unknown }).message === 'string'
+    : typeof err === 'object' &&
+        err !== null &&
+        typeof (err as { message?: unknown }).message === 'string'
       ? (err as { message: string }).message
       : undefined;
 }
@@ -1256,7 +1272,10 @@ function errorDetails(operation: string, err: unknown, sessionId?: string): AppN
       warningDetail('requestId', err.requestId),
       warningDetail('phase', err.phase),
       warningDetail('timeout', `${err.timeoutMs}ms`),
-      warningDetail('status', err.status === undefined ? undefined : `${err.status} ${err.statusText ?? ''}`.trim()),
+      warningDetail(
+        'status',
+        err.status === undefined ? undefined : `${err.status} ${err.statusText ?? ''}`.trim(),
+      ),
       warningDetail('contentType', err.contentType),
       warningDetail('responsePreview', err.bodyPreview),
       warningDetail('cause', err.cause),
@@ -1441,10 +1460,7 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
     const snapUsagePlaceholder = isPlaceholderSessionUsage(snap.session.usage);
     updateSession(sessionId, (s) => ({
       ...snap.session,
-      model:
-        snap.session.model && snap.session.model.length > 0
-          ? snap.session.model
-          : s.model,
+      model: snap.session.model && snap.session.model.length > 0 ? snap.session.model : s.model,
       // The wire session's usage is a placeholder (both engines return zeros
       // for the heavy fields); keep the live usage folded in from /status and
       // the WS status stream instead of zeroing it on every snapshot sync.
@@ -1462,10 +1478,7 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
     // reloads; the roster stays authoritative until then.
     rawState.tasksBySession = {
       ...rawState.tasksBySession,
-      [sessionId]: mergeSnapshotSubagents(
-        snap.subagents,
-        rawState.tasksBySession[sessionId] ?? [],
-      ),
+      [sessionId]: mergeSnapshotSubagents(snap.subagents, rawState.tasksBySession[sessionId] ?? []),
     };
     rawState.messagesHasMoreBySession = {
       ...rawState.messagesHasMoreBySession,
@@ -1478,8 +1491,15 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
     // Preserve plan_review paths from the snapshot so the ExitPlanMode tool
     // card can link to the plan file even after a reload.
     for (const a of snap.pendingApprovals) {
-      const display = a.display as { kind?: unknown; plan?: unknown; path?: unknown } | null | undefined;
-      if (display?.kind === 'plan_review' && typeof display.plan === 'string' && display.plan.length > 0) {
+      const display = a.display as
+        | { kind?: unknown; plan?: unknown; path?: unknown }
+        | null
+        | undefined;
+      if (
+        display?.kind === 'plan_review' &&
+        typeof display.plan === 'string' &&
+        display.plan.length > 0
+      ) {
         rawState.planReviewByToolCallId = {
           ...rawState.planReviewByToolCallId,
           [a.toolCallId]: {
@@ -1503,10 +1523,10 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
 
     // Resync replaces the missed event stream, so a terminal snapshot must
     // also clear the local in-flight flag that normally ends with the turn.
-    workspaceState.handleSessionSnapshot(
-      sessionId,
-      { inFlightTurn: snap.inFlightTurn, busy: snap.session.busy },
-    );
+    workspaceState.handleSessionSnapshot(sessionId, {
+      inFlightTurn: snap.inFlightTurn,
+      busy: snap.session.busy,
+    });
 
     // The snapshot's inFlightTurn is main-agent-only — seed the moon's
     // liveness flag from it (the projector was reset by the resync, so no
@@ -1750,7 +1770,8 @@ function buildApprovalBlock(a: AppApprovalRequest): ApprovalBlock {
 
   // file_op / fileop
   if (kind === 'file_op' || kind === 'fileop') {
-    const op = typeof d.operation === 'string' ? d.operation : (typeof d.op === 'string' ? d.op : kind);
+    const op =
+      typeof d.operation === 'string' ? d.operation : typeof d.op === 'string' ? d.op : kind;
     const path = typeof d.path === 'string' ? d.path : '';
     const detail = typeof d.detail === 'string' ? d.detail : undefined;
     return { kind: 'fileop', op, path, detail };
@@ -1901,7 +1922,9 @@ function toUiTask(task: AppTask): TaskItem {
     const s = elapsed % 60;
     timing = i18n.global.t('tasks.timingRunning', { time: `${m}:${String(s).padStart(2, '0')}` });
   } else if (task.completedAt && task.startedAt) {
-    const elapsed = Math.round((new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime()) / 1000);
+    const elapsed = Math.round(
+      (new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime()) / 1000,
+    );
     timing = i18n.global.t('tasks.timingDone', { sec: elapsed });
   } else {
     timing = task.status;
@@ -1939,7 +1962,7 @@ function toUiTask(task: AppTask): TaskItem {
 
 const workspace = computed<Workspace>(() => {
   const activeSession = rawState.sessions.find((s) => s.id === rawState.activeSessionId);
-  const branch = activeSession ? activeSession.cwd.split('/').pop() ?? activeSession.cwd : 'main';
+  const branch = activeSession ? (activeSession.cwd.split('/').pop() ?? activeSession.cwd) : 'main';
   return {
     name: rawState.workspaceName,
     branch,
@@ -2004,20 +2027,22 @@ const taskPoller = useTaskPoller(rawState, activeAppTasks);
 // Subagent activity per session for the sidebar lineage aggregation: counts of
 // live (running) and suspended subagents per session, derived from the full
 // task store (not just the active session's tasks).
-const subagentActivityBySession = computed<Map<string, { running: number; suspended: number }>>(() => {
-  const out = new Map<string, { running: number; suspended: number }>();
-  for (const [sid, tasks] of Object.entries(rawState.tasksBySession)) {
-    let running = 0;
-    let suspended = 0;
-    for (const task of tasks) {
-      if (task.kind !== 'subagent') continue;
-      if (task.status === 'running' || task.subagentPhase === 'working') running++;
-      else if (task.subagentPhase === 'suspended') suspended++;
+const subagentActivityBySession = computed<Map<string, { running: number; suspended: number }>>(
+  () => {
+    const out = new Map<string, { running: number; suspended: number }>();
+    for (const [sid, tasks] of Object.entries(rawState.tasksBySession)) {
+      let running = 0;
+      let suspended = 0;
+      for (const task of tasks) {
+        if (task.kind !== 'subagent') continue;
+        if (task.status === 'running' || task.subagentPhase === 'working') running++;
+        else if (task.subagentPhase === 'suspended') suspended++;
+      }
+      if (running > 0 || suspended > 0) out.set(sid, { running, suspended });
     }
-    if (running > 0 || suspended > 0) out.set(sid, { running, suspended });
-  }
-  return out;
-});
+    return out;
+  },
+);
 
 const turns = computed<ChatTurn[]>(() => {
   const sid = rawState.activeSessionId;
@@ -2091,15 +2116,15 @@ const loading = computed<boolean>(() => rawState.loading);
 const sessionLoading = computed<boolean>(() => rawState.sessionLoading);
 const loadingMoreMessages = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
-  return sid ? rawState.messagesLoadingMoreBySession[sid] ?? false : false;
+  return sid ? (rawState.messagesLoadingMoreBySession[sid] ?? false) : false;
 });
 const hasMoreMessages = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
-  return sid ? rawState.messagesHasMoreBySession[sid] ?? false : false;
+  return sid ? (rawState.messagesHasMoreBySession[sid] ?? false) : false;
 });
 const loadMoreMessagesError = computed<boolean>(() => {
   const sid = rawState.activeSessionId;
-  return sid ? rawState.messagesLoadMoreErrorBySession[sid] ?? false : false;
+  return sid ? (rawState.messagesLoadMoreErrorBySession[sid] ?? false) : false;
 });
 const serverVersion = computed<string>(() => rawState.serverVersion);
 const backend = computed<'v1' | 'v2'>(() => rawState.backend);
@@ -2136,13 +2161,14 @@ const activationBadges = computed<ActivationBadges>(() => {
   const swarmCounts = countSwarmMembers(swarms.value);
   return {
     plan: planMode.value,
-    goal: goal.value && goal.value.status !== 'complete'
-      ? {
-          status: goal.value.status,
-          turnsUsed: goal.value.turnsUsed,
-          elapsedMs: goal.value.wallClockMs,
-        }
-      : null,
+    goal:
+      goal.value && goal.value.status !== 'complete'
+        ? {
+            status: goal.value.status,
+            turnsUsed: goal.value.turnsUsed,
+            elapsedMs: goal.value.wallClockMs,
+          }
+        : null,
     swarm: swarmCounts.total > 0 ? swarmCounts : null,
   };
 });
@@ -2273,7 +2299,7 @@ const status = computed<ConversationStatus>(() => {
   // Prefer real git branch from daemon; fall back to cwd basename
   const branch =
     gitInfo.value?.branch ??
-    (activeSession ? activeSession.cwd.split('/').pop() ?? activeSession.cwd : 'main');
+    (activeSession ? (activeSession.cwd.split('/').pop() ?? activeSession.cwd) : 'main');
   // session.model is kept live by GET /status (on select/idle) and the WS
   // agent.status.updated event during a turn; fall back to the daemon default.
   // In the draft state (no active session) the user's draft pick wins, so the
@@ -2282,7 +2308,7 @@ const status = computed<ConversationStatus>(() => {
   const rawModel =
     (activeSession?.model && activeSession.model.length > 0
       ? activeSession.model
-      : draftPick ?? rawState.defaultModel) ?? '—';
+      : (draftPick ?? rawState.defaultModel)) ?? '—';
 
   // Use the friendly displayName from the models list; fall back to stripping
   // the provider prefix (e.g. "moonshot/moonshot-v1-128k" → "moonshot-v1-128k").
@@ -2812,8 +2838,7 @@ function onQuestionRequested(sid: string, question: AppQuestionRequest): void {
   // being asked (e.g. "Storage: Which database?").
   const header = first?.header?.trim() ?? '';
   const questionText = first?.question?.trim() ?? '';
-  const preview =
-    header && questionText ? `${header}: ${questionText}` : questionText || header;
+  const preview = header && questionText ? `${header}: ${questionText}` : questionText || header;
 
   // Browser notification when the user isn't watching this session.
   notification.maybeNotifyQuestion({
