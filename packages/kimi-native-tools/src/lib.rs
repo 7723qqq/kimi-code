@@ -18,7 +18,6 @@ mod knowledge;
 mod line_endings;
 mod list_directory;
 mod llm_stream;
-mod mcp;
 mod napi_bindings;
 mod output_truncate;
 mod path_access;

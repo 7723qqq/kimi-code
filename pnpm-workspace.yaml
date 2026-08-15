@@ -3,8 +3,9 @@ packages:
   # kimi-build is a Rust-only package (Cargo-managed deps, no package.json).
   - '!packages/kimi-build'
   - apps/*
-  # kimi-web source lives outside this repo (prebuilt dist-web is committed
-  # under apps/kimi-code/dist-web); only a stale node_modules dir remains.
+  # kimi-web is a fork-added Vue 3 web UI whose source lives and is tracked in
+  # this repo (apps/kimi-web); it is deliberately excluded from the pnpm
+  # workspace because it manages its own lockfile and is not built by the CLI.
   - '!apps/kimi-web'
   - apps/vis/server
   - apps/vis/web
