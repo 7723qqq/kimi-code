@@ -52,7 +52,7 @@
     "gen:wire-manifest": "tsx --import ../../build/register-raw-text-loader.mjs scripts/gen-wire-manifest.mts",
     "gen:state-manifest": "tsx scripts/gen-state-manifest.mts",
     "lint:imports": "node scripts/check-import-boundaries.mjs",
-    "clean": "rm -rf dist"
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.3.0",

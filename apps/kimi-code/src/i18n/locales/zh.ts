@@ -123,6 +123,7 @@ export default {
       providerCatalogJson: '以 JSON 格式输出匹配的目录片段。',
       providerCatalogApiKey: '提供商的 API 密钥。回退到 KIMI_REGISTRY_API_KEY。',
       providerCatalogDefaultModel: '将导入的模型标记为默认模型。',
+      providerCatalogBaseUrl: '覆盖目录端点。当目录未声明端点（或包含环境变量占位符）时必须提供。',
     },
     errors: {
       unknownCommand: "未知命令 '{{command}}'。参见 '{{cliName}} --help'。",
@@ -1136,6 +1137,11 @@ export default {
       pluginsMigratedDesc: '已迁移 {{displayName}}：{{prevSource}} → {{source}}{{version}}',
       pluginsFromSource: '来自 {{source}}',
       pluginsViaSource: '通过 {{source}}',
+      pluginInstallIncomplete: '{{label}} 安装未完成。请查看日志，然后从 /plugins 重新安装。',
+      pluginInstalled: '{{label}} 已安装。',
+      pluginsRuntimeLeftUntouched:
+        '注意：运行时二进制文件未被移除，但新会话的 Kimi Code 插件接线已禁用。重新安装前请先重启 Kimi Code，并从"官方"标签页安装。',
+      pluginsQuotaNote: '注意：此插件会消耗你的配额。',
       // commands/add-dir.ts
       addDirNoAdditionalDirs: '未配置额外目录。',
       addDirTitle: '添加目录到工作区：{{path}}',
@@ -1321,6 +1327,16 @@ export default {
       defaultModelSet: '默认模型已设置为 {{alias}}（思考 {{effort}}）。',
       failedToImportRegistry: '导入注册表失败：{{error}}',
       failedToApplyRegistry: '应用注册表失败：{{error}}',
+      providerCatalogUnsupportedProtocol:
+        '提供商"{{providerId}}"在目录中声明了协议"{{type}}"，此客户端版本不支持该协议。',
+      providerCatalogProprietarySdk:
+        '提供商"{{providerId}}"使用了此客户端无法通信的专有 SDK（例如 Amazon Bedrock 或 Cohere），无法从目录导入。',
+      providerCatalogEmptyBaseUrl: '--base-url 不能为空。',
+      providerCatalogPlaceholderBaseUrl: 'Base URL 包含环境变量占位符或为空。请输入解析后的 URL。',
+      providerCatalogPlaceholderBaseUrlWithValue:
+        'Base URL "{{baseUrl}}" 包含环境变量占位符。请通过 --base-url 传入解析后的值。',
+      providerCatalogBaseUrlRequired:
+        '目录未为"{{providerId}}"声明端点。请通过 --base-url <url> 传入地址（例如厂商的 OpenAI 兼容 Base URL）。',
       // tui/commands/prompts.ts
       selectProviderToLogout: '选择要登出的提供商',
       feedbackNoAttachment: '不附加额外数据',

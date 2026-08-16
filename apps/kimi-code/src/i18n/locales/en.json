@@ -108,7 +108,8 @@
       "providerCatalogUrl": "Override catalog URL. Defaults to {{url}}.",
       "providerCatalogJson": "Emit the matching catalog slice as JSON.",
       "providerCatalogApiKey": "API key for the provider. Falls back to KIMI_REGISTRY_API_KEY.",
-      "providerCatalogDefaultModel": "Mark the imported model as default_model after import."
+      "providerCatalogDefaultModel": "Mark the imported model as default_model after import.",
+      "providerCatalogBaseUrl": "Override the catalog endpoint. Required when the catalog declares none (or an env placeholder)."
     },
     "errors": {
       "unknownCommand": "unknown command '{{command}}'. See '{{cliName}} --help'.",
@@ -1109,6 +1110,10 @@
       "pluginsMigratedDesc": "Migrated {{displayName}}: {{prevSource}} → {{source}}{{version}}",
       "pluginsFromSource": "from {{source}}",
       "pluginsViaSource": "via {{source}}",
+      "pluginInstallIncomplete": "{{label}} installation did not complete. Check the logs and install again from /plugins.",
+      "pluginInstalled": "{{label}} is installed.",
+      "pluginsRuntimeLeftUntouched": "Note: the runtime binaries were left untouched, but Kimi Code plugin wiring is disabled for new sessions. Restart Kimi Code before reinstalling from the Official tab.",
+      "pluginsQuotaNote": "Note: This plugin consumes your quota.",
       "addDirNoAdditionalDirs": "No additional directories configured.",
       "addDirTitle": "Add directory to workspace: {{path}}",
       "addDirHint": "↑↓ navigate · Enter confirm · Esc cancel",
@@ -1266,6 +1271,12 @@
       "defaultModelSet": "Default model set to {{alias}} (thinking {{effort}}).",
       "failedToImportRegistry": "Failed to import registry: {{error}}",
       "failedToApplyRegistry": "Failed to apply registry: {{error}}",
+      "providerCatalogUnsupportedProtocol": "Provider \"{{providerId}}\" declares protocol \"{{type}}\" in the catalog, which this client version does not support.",
+      "providerCatalogProprietarySdk": "Provider \"{{providerId}}\" uses a proprietary SDK this client cannot speak (e.g. Amazon Bedrock or Cohere); it cannot be imported from the catalog.",
+      "providerCatalogEmptyBaseUrl": "--base-url cannot be empty.",
+      "providerCatalogPlaceholderBaseUrl": "Base URL contains an env placeholder or is empty. Enter the resolved URL instead.",
+      "providerCatalogPlaceholderBaseUrlWithValue": "Base URL \"{{baseUrl}}\" contains an env placeholder. Pass --base-url with the resolved value.",
+      "providerCatalogBaseUrlRequired": "The catalog does not declare an endpoint for \"{{providerId}}\". Pass --base-url <url> (e.g. the vendor's OpenAI-compatible base URL).",
       "selectProviderToLogout": "Select a provider to log out",
       "feedbackNoAttachment": "No extra data",
       "feedbackNoAttachmentDesc": "Send only this chat message and feedback.",

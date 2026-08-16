@@ -52,7 +52,7 @@
     "build": "tsdown && pnpm run build:dts",
     "build:dts": "node scripts/build-dts.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf dist .tmp-api-extractor"
+    "clean": "node -e \"const fs = require('node:fs'); for (const p of ['dist', '.tmp-api-extractor']) fs.rmSync(p, { recursive: true, force: true })\""
   },
   "dependencies": {
     "@antfu/utils": "^9.3.0",

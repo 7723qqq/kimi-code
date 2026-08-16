@@ -24,6 +24,6 @@ if not exist "%NODE_FILE%" (
 
 REM Launch kimi-code CLI via pnpm.
 cd /d "%~dp0"
-pnpm dev:cli %*
+call pnpm dev:cli %*
 
 endlocal

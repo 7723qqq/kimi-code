@@ -140,8 +140,13 @@ export async function handleProviderAdd(
   });
 
   deps.stdout.write(
-    `Imported ${String(addedProviderIds.length)} provider${addedProviderIds.length === 1 ? '' : 's'} ` +
-      `(${String(modelCount)} model${modelCount === 1 ? '' : 's'}) from ${trimmedUrl}:\n`,
+    t('tui.statusMessages.providerMultipleImported', {
+      count: addedProviderIds.length,
+      plural: addedProviderIds.length === 1 ? '' : 's',
+      modelCount,
+      modelPlural: modelCount === 1 ? '' : 's',
+      url: trimmedUrl,
+    }) + '\n',
   );
   for (const id of addedProviderIds) {
     deps.stdout.write(`  - ${id}\n`);
@@ -201,7 +206,9 @@ export async function handleProviderList(deps: ProviderDeps, opts: ListOptions):
     );
   }
   if (config.defaultModel !== undefined) {
-    deps.stdout.write(`\nDefault model: ${config.defaultModel}\n`);
+    deps.stdout.write(
+      '\n' + t('tui.statusMessages.providerDefaultModel', { model: config.defaultModel }) + '\n',
+    );
   }
 }
 
@@ -321,20 +328,25 @@ export async function handleCatalogAdd(
     switch (resolution.reason) {
       case 'unknown-explicit-type':
         deps.stderr.write(
-          `Provider "${providerId}" declares protocol "${entry.type}" in the catalog, which this client version does not support.\n`,
+          t('tui.statusMessages.providerCatalogUnsupportedProtocol', {
+            providerId,
+            type: entry.type,
+          }) + '\n',
         );
         break;
       case 'proprietary-sdk':
         deps.stderr.write(
-          `Provider "${providerId}" uses a proprietary SDK this client cannot speak (e.g. Amazon Bedrock or Cohere); it cannot be imported from the catalog.\n`,
+          t('tui.statusMessages.providerCatalogProprietarySdk', { providerId }) + '\n',
         );
         break;
       case 'empty-base-url':
-        deps.stderr.write('--base-url cannot be empty.\n');
+        deps.stderr.write(t('tui.statusMessages.providerCatalogEmptyBaseUrl') + '\n');
         break;
       case 'placeholder-base-url':
         deps.stderr.write(
-          `Base URL "${opts.baseUrl}" contains an env placeholder. Pass --base-url with the resolved value.\n`,
+          t('tui.statusMessages.providerCatalogPlaceholderBaseUrlWithValue', {
+            baseUrl: opts.baseUrl,
+          }) + '\n',
         );
         break;
     }
@@ -342,7 +354,7 @@ export async function handleCatalogAdd(
   }
   if (resolution.kind === 'needs-base-url') {
     deps.stderr.write(
-      `The catalog does not declare an endpoint for "${providerId}". Pass --base-url <url> (e.g. the vendor's OpenAI-compatible base URL).\n`,
+      t('tui.statusMessages.providerCatalogBaseUrlRequired', { providerId }) + '\n',
     );
     deps.exit(1);
   }
@@ -356,7 +368,10 @@ export async function handleCatalogAdd(
 
   if (opts.defaultModel !== undefined && !models.some((m) => m.id === opts.defaultModel)) {
     deps.stderr.write(
-      `Model "${opts.defaultModel}" is not in provider "${providerId}". Run "kimi provider catalog list ${providerId}" to see available ids.\n`,
+      t('tui.statusMessages.providerCatalogModelNotInProvider', {
+        model: opts.defaultModel,
+        id: providerId,
+      }) + '\n',
     );
     deps.exit(1);
   }
@@ -538,10 +553,7 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .description(t('cli.commandDescriptions.providerCatalogAdd'))
     .option('--api-key <key>', t('cli.optionDescriptions.providerCatalogApiKey'))
     .option('--default-model <modelId>', t('cli.optionDescriptions.providerCatalogDefaultModel'))
-    .option(
-      '--base-url <url>',
-      'Override the catalog endpoint. Required when the catalog declares none (or an env placeholder).',
-    )
+    .option('--base-url <url>', t('cli.optionDescriptions.providerCatalogBaseUrl'))
     .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
     .action(
       async (

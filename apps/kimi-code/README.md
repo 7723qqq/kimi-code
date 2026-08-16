@@ -26,7 +26,7 @@ curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
 irm https://code.kimi.com/kimi-code/install.ps1 | iex
 ```
 
-> On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch because Kimi Code CLI uses the bundled Git Bash as its shell environment. If Git Bash is installed in a custom location, set `KIMI_SHELL_PATH` to the absolute path of `bash.exe`.
+> On Windows, the CLI has built-in shell detection: it prefers PowerShell 7, then Windows PowerShell, then Git Bash (if installed). To pin a specific shell (for example `bash.exe`, `pwsh.exe`, or `cmd.exe`), set `KIMI_SHELL_PATH` to its absolute path.
 
 Then run it with a new Terminal session:
 

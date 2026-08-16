@@ -20,7 +20,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **Swarm Discussion** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
-- **Windows one-click launchers** — `start-native.bat` and `start-desktop.bat` for quick launch on Windows.
+- **Windows launchers** — `start-native.bat` launches the native CLI; `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): MCP auto-reconnect with bounded exponential backoff (`mcpCore/connection-manager.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 
 ---
@@ -220,7 +220,7 @@ scripts/
 - **Node.js**: `>=24.15.0` (`.nvmrc` is `24.15.0`). `engine-strict=false` in `.npmrc`, so `pnpm install` does **not** fail on a Node version mismatch — verify with `.nvmrc` instead.
 - **pnpm**: `10.33.0` (specified in root `package.json` `packageManager`).
 - **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
-- **Git for Windows** (Windows only): Required for runtime shell environment.
+- **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
 
 ---
 
@@ -233,7 +233,7 @@ pnpm install                  # Install all dependencies
 pnpm build                    # Build all workspace packages
 pnpm build:packages           # Build only packages/*
 pnpm dev:cli                  # Run CLI in dev mode
-pnpm dev:web                  # Run web UI in dev mode
+pnpm -C apps/kimi-web run dev # Run web UI in dev mode (excluded from the workspace)
 pnpm dev:server               # Run server in dev mode
 pnpm test                     # Run all tests (vitest)
 pnpm test:watch               # Watch mode

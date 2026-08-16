@@ -540,7 +540,9 @@ async function installCapabilityFromPanel(
     log.warn('capability install failed to start', { capabilityId: entry.id, error });
     panel.clearInstalling();
     host.state.ui.requestRender();
-    host.showError(`Failed to install ${label}: ${formatErrorMessage(error)}`);
+    host.showError(
+      t('tui.statusMessages.pluginsFailedToInstall', { label, error: formatErrorMessage(error) }),
+    );
     host.restoreEditor();
     return;
   }
@@ -574,15 +576,13 @@ async function installCapabilityFromPanel(
     if (permissionsRequired) {
       host.showStatus(t('tui.statusMessages.pluginPermissionHint'), 'warning');
     } else {
-      host.showError(
-        `${label} installation did not complete. Check the logs and install again from /plugins.`,
-      );
+      host.showError(t('tui.statusMessages.pluginInstallIncomplete', { label }));
     }
     host.showStatus(pluginReloadHint(), 'warning');
     return;
   }
   if (entry.id === 'kimi-webbridge') {
-    host.showNotice(`${label} is installed.`);
+    host.showNotice(t('tui.statusMessages.pluginInstalled', { label }));
     host.state.transcriptContainer.addChild(new Spacer(1));
     host.state.transcriptContainer.addChild(
       new Markdown(
@@ -597,7 +597,7 @@ async function installCapabilityFromPanel(
     host.state.ui.requestRender();
     return;
   }
-  host.showStatus(`${label} is installed.`);
+  host.showStatus(t('tui.statusMessages.pluginInstalled', { label }));
   host.showStatus(pluginReloadHint(), 'warning');
 }
 
@@ -765,9 +765,7 @@ async function removePlugin(host: SlashCommandHost, id: string): Promise<void> {
   await (await resolvePluginApi(host)).removePlugin(id);
   host.showStatus(t('tui.statusMessages.pluginsRemoved', { id }));
   if (isCapabilityPluginId(host, id)) {
-    host.showStatus(
-      'Note: the runtime binaries were left untouched, but Kimi Code plugin wiring is disabled for new sessions. Restart Kimi Code before reinstalling from the Official tab.',
-    );
+    host.showStatus(t('tui.statusMessages.pluginsRuntimeLeftUntouched'));
     return;
   }
   host.showStatus(pluginReloadHint(), 'warning');
@@ -815,6 +813,7 @@ function pluginReloadHint(): string {
 const WEBBRIDGE_POST_INSTALL_MARKDOWN = [
   '*Two steps left to use Kimi WebBridge:*',
   '1. Install the browser extension',
+
   '',
   '   - [Chrome Web Store](https://chromewebstore.google.com/detail/kimi-webbridge/fldmhceldgbpfpkbgopacenieobmligc)',
   '   - [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/kimi-webbridge/bnlffdbcfnanfbknnlaflhlhkocccckg)',
@@ -822,8 +821,6 @@ const WEBBRIDGE_POST_INSTALL_MARKDOWN = [
   '',
   '2. Run `/reload` or `/new` to apply it.',
 ].join('\n');
-
-const PLUGIN_QUOTA_NOTE = 'Note: This plugin consumes your quota.';
 
 function showPluginInstallResult(
   host: SlashCommandHost,
@@ -847,7 +844,7 @@ function showPluginInstallResult(
   // Gate on provenance, not just the id: a local/GitHub fork whose manifest
   // reuses a billed plugin's id is not the official quota-consuming build.
   if (QUOTA_CONSUMING_PLUGIN_IDS.includes(summary.id) && isOfficialPluginInstall(summary)) {
-    host.showStatus(PLUGIN_QUOTA_NOTE, 'warning');
+    host.showStatus(t('tui.statusMessages.pluginsQuotaNote'), 'warning');
   }
 }
 

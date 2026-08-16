@@ -1,9 +1,10 @@
 /// Bash tool — execute shell commands.
 ///
-/// Runs commands via the system shell (bash on Unix, Git Bash on Windows).
+/// Runs commands via the system shell (bash, PowerShell, pwsh, or cmd
+/// depending on host detection/configuration).
 /// Supports timeouts, working directory, and output capture.
 ///
-/// Mirrors `packages/agent-core/src/tools/builtin/shell/bash.ts`.
+/// Mirrors `packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts`.
 use napi_derive::napi;
 use std::process::Command;
 use std::time::{Duration, Instant};

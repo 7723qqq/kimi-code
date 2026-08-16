@@ -39,6 +39,7 @@ export function installNativeModuleHook(): void {
   ): unknown {
     if (
       typeof request === 'string' &&
+      request.endsWith('.node') &&
       PI_TUI_NATIVE_PATTERN.test(request) &&
       !existsSync(request)
     ) {

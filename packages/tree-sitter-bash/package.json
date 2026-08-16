@@ -38,7 +38,7 @@
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "clean": "rm -rf dist"
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\""
   },
   "devDependencies": {
     "tree-sitter-bash": "0.25.0",

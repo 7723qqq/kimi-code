@@ -1,7 +1,7 @@
 //! Tool resource access conflict detection.
 //!
-//! Mirrors `packages/agent-core/src/loop/tool-access.ts` so the TS and Rust
-//! layers cannot drift on conflict semantics. The TS side passes
+//! Mirrors `packages/agent-core-v2/src/tool/toolContract.ts` so the TS and
+//! Rust layers cannot drift on conflict semantics. The TS side passes
 //! `ToolAccessMeta[]` across the napi boundary; Rust does the pairwise
 //! conflict check at native speed.
 //!

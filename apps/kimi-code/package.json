@@ -71,7 +71,7 @@
     "dev:plugin-marketplace": "node scripts/dev-plugin-marketplace-server.mjs",
     "build:plugin-marketplace": "node scripts/build-plugin-marketplace-cdn.mjs",
     "dev:prod": "node dist/main.mjs",
-    "clean": "rm -rf dist",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "pnpm -w run build:packages && vitest run",
     "e2e": "pnpm -w run build:packages && KIMI_E2E=1 vitest run test/e2e",

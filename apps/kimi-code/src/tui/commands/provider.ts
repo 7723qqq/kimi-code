@@ -54,12 +54,16 @@ function buildProviderManagerOptions(host: SlashCommandHost): ProviderManagerOpt
     activeProviderId,
     onAdd: () => {
       void handleProviderAdd(host).catch((error: unknown) => {
-        host.showError(`Add provider failed: ${formatErrorMessage(error)}`);
+        host.showError(
+          t('tui.statusMessages.addProviderFailed', { error: formatErrorMessage(error) }),
+        );
       });
     },
     onDeleteSource: (providerIds) => {
       void handleProviderManagerDeleteSource(host, providerIds).catch((error: unknown) => {
-        host.showError(`Remove provider failed: ${formatErrorMessage(error)}`);
+        host.showError(
+          t('tui.statusMessages.removeProviderFailedGeneric', { error: formatErrorMessage(error) }),
+        );
       });
     },
     onClose: () => {
@@ -77,7 +81,7 @@ async function handleProviderManagerDeleteSource(
       await handleProviderDelete(host, providerId);
     } catch (error) {
       const msg = formatErrorMessage(error);
-      host.showError(`Failed to delete provider ${providerId}: ${msg}`);
+      host.showError(t('tui.statusMessages.removeProviderFailed', { providerId, error: msg }));
     }
   }
   reopenProviderManager(host);
@@ -197,7 +201,7 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
 
   const models = catalogProviderModels(entry);
   if (models.length === 0) {
-    host.showError(`Provider "${providerId}" has no usable models in this catalog.`);
+    host.showError(t('tui.statusMessages.providerNoUsableModels', { providerId }));
     return;
   }
 
@@ -211,16 +215,15 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
     if (resolution.kind === 'invalid') {
       if (resolution.reason === 'unknown-explicit-type') {
         host.showError(
-          `Provider "${providerId}" declares protocol "${entry.type}" in the catalog, which this client version does not support.`,
+          t('tui.statusMessages.providerCatalogUnsupportedProtocol', {
+            providerId,
+            type: entry.type,
+          }),
         );
       } else if (resolution.reason === 'proprietary-sdk') {
-        host.showError(
-          `Provider "${providerId}" uses a proprietary SDK this client cannot speak (e.g. Amazon Bedrock or Cohere); it cannot be imported from the catalog.`,
-        );
+        host.showError(t('tui.statusMessages.providerCatalogProprietarySdk', { providerId }));
       } else {
-        host.showError(
-          `Base URL contains an env placeholder or is empty. Enter the resolved URL instead.`,
-        );
+        host.showError(t('tui.statusMessages.providerCatalogPlaceholderBaseUrl'));
       }
     }
     return;
@@ -322,7 +325,7 @@ async function setDefaultModel(
   });
   await host.authFlow.refreshConfigAfterLogin();
   host.track('model_switch', { model: alias });
-  host.showStatus(`Default model set to ${alias} with thinking ${effort}.`);
+  host.showStatus(t('tui.statusMessages.defaultModelSet', { alias, effort }));
 }
 
 async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise<boolean> {
@@ -339,7 +342,9 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
   try {
     entries = await fetchCustomRegistry(source, { userAgent: createKimiCodeUserAgent() });
   } catch (error) {
-    host.showError(`Failed to import registry: ${formatErrorMessage(error)}`);
+    host.showError(
+      t('tui.statusMessages.failedToImportRegistry', { error: formatErrorMessage(error) }),
+    );
     return false;
   }
 
@@ -353,19 +358,21 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
     });
     await host.authFlow.refreshConfigAfterLogin();
   } catch (error) {
-    host.showError(`Failed to apply registry: ${formatErrorMessage(error)}`);
+    host.showError(
+      t('tui.statusMessages.failedToApplyRegistry', { error: formatErrorMessage(error) }),
+    );
     return false;
   }
 
   const count = addedProviderIds.length;
   if (count === 0) {
-    host.showStatus('Registry contained no providers.');
+    host.showStatus(t('tui.statusMessages.registryNoProviders'));
     return false;
   }
   host.showStatus(
     count === 1
-      ? 'Imported 1 provider from registry.'
-      : `Imported ${String(count)} providers from registry.`,
+      ? t('tui.statusMessages.importedOneProvider')
+      : t('tui.statusMessages.importedProviders', { count }),
     'success',
   );
 

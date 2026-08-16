@@ -14,7 +14,7 @@ Compared to upstream, this fork adds:
 - **🌐 i18n / Multi-language support.** Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/config` dialog (locale selector).
 - **🤖 Swarm Discussion.** Multi-agent discussion and collaboration tool — agents can debate, cross-review, and reach consensus before output.
 - **⚡ Rust Native Tools.** Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as native Node addon, significantly faster than JS.
-- **🪟 Windows one-click launchers.** `start-native.bat` and `start-desktop.bat` for quick launch on Windows.
+- **🪟 Windows launchers.** `start-native.bat` launches the native CLI; `start-desktop.bat` builds/launches a locally vendored desktop shell when present.
 - Various other fixes and QoL improvements.
 
 ## What is Kimi Code CLI
@@ -37,7 +37,7 @@ curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
 irm https://code.kimi.com/kimi-code/install.ps1 | iex
 ```
 
-> On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch because Kimi Code CLI uses the bundled Git Bash as its shell environment. If Git Bash is installed in a custom location, set `KIMI_SHELL_PATH` to the absolute path of `bash.exe`.
+> On Windows, the CLI has built-in shell detection: it prefers PowerShell 7, then Windows PowerShell, then Git Bash (if installed). To pin a specific shell (for example `bash.exe`, `pwsh.exe`, or `cmd.exe`), set `KIMI_SHELL_PATH` to its absolute path.
 
 Then, run it with a new shell session:
 

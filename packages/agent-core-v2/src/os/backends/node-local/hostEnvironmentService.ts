@@ -5,8 +5,8 @@
  * login-shell PATH enrichment (`applyLoginShellPathFromNode`) at construction
  * time; the sync fields become populated once `ready` resolves. Reads before
  * `ready` throws with a clear message so misuse fails loudly instead of
- * returning stale zeros. A failed probe is translated at this boundary — a
- * missing Git Bash on Windows becomes `HostProcessError`
+ * returning stale zeros. A failed probe is translated at this boundary — when
+ * no supported Windows shell can be located it becomes `HostProcessError`
  * (`shell.git_bash_not_found`) — and surfaces identically from `ready` and
  * from sync field reads, while an internal no-op handler keeps the rejection
  * from ever becoming an unhandledRejection during App-scope construction.

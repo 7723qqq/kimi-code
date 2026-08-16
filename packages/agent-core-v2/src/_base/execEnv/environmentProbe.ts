@@ -2,17 +2,17 @@
  * `_base/execEnv` — OS / shell probe.
  *
  * Detects the host operating system, architecture, kernel release, and a
- * usable POSIX shell path. The result is a pure function of injected probes
+ * usable shell path. The result is a pure function of injected probes
  * (`platform` / `arch` / `release` / `env` / `isFile` / `execFileText`) so the
  * same suite runs identically on any host OS. `probeHostEnvironmentFromNode()`
  * bundles the Node defaults for production callers and memoises the promise.
  *
- * On Windows the probe expects bash from Git for Windows or MSYS2. If no
- * shell can be located the function throws `ProbeShellNotFoundError`, a
- * distinct type carrying the checked paths (`checked`) with an install hint
- * in its message, so the DI boundary can tell a missing shell apart from
- * other probe errors and translate it into a coded error. Set
- * `KIMI_SHELL_PATH` to override.
+ * On Windows the probe prefers PowerShell 7, then Windows PowerShell, then
+ * Git Bash (or MSYS2 bash). If no shell can be located the function throws
+ * `ProbeShellNotFoundError`, a distinct type carrying the checked paths
+ * (`checked`) with an install hint in its message, so the DI boundary can
+ * tell a missing shell apart from other probe errors and translate it into a
+ * coded error. Set `KIMI_SHELL_PATH` to override.
  *
  * Kept as a pure helper with no DI dependencies.
  */
@@ -152,10 +152,11 @@ interface LocatedShell {
  *   1. `KIMI_SHELL_PATH` — explicit override, honored verbatim (its basename
  *      decides the shell semantics: pwsh/powershell → PowerShell, cmd → cmd,
  *      anything else → bash).
- *   2. PowerShell 7 (`pwsh.exe`) — the modern, cross-platform shell.
- *   3. Windows PowerShell (`powershell.exe`) — always present on Windows.
- *   4. Git Bash — POSIX compatibility layer (previous default).
- *   5. `cmd.exe` — last resort, always present.
+ *   2. `[shell] preference` — explicit config pin (`pwsh`, `powershell`,
+ *      `bash`, or `cmd`); `auto` keeps the default priority below.
+ *   3. PowerShell 7 (`pwsh.exe`) — the modern, cross-platform shell.
+ *   4. Windows PowerShell (`powershell.exe`) — always present on Windows.
+ *   5. Git Bash — POSIX compatibility layer (previous default).
  *
  * PowerShell is preferred over Git Bash so Windows users get native shell
  * semantics (PowerShell syntax, `Get-ChildItem`, `$env:`, …) instead of a

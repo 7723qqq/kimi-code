@@ -2,9 +2,10 @@
  * `tools` domain — `BashTool` implementation, the model's shell command
  * runner.
  *
- * Invokes the execution-environment shell (POSIX bash; Git Bash on Windows)
- * through the injected `ISessionProcessRunner`. The command runs as
- * `cd <cwd> && <command>` inside the environment's working directory.
+ * Invokes the execution-environment shell (bash, PowerShell, pwsh, or cmd
+ * depending on host detection/configuration) through the injected `ISessionProcessRunner`.
+ * The command runs with a shell-specific cwd wrapper (`cd`, `Set-Location`,
+ * or `cd /d`) inside the environment's working directory.
  *
  * Collaborators injected via constructor:
  *   - `runner`     — `ISessionProcessRunner`, spawns the shell process

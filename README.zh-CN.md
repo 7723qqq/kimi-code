@@ -16,7 +16,7 @@
 - **🌐 i18n 国际化多语言支持**：TUI / CLI / Web UI 完整中英双语。所有硬编码英文替换为 `t()` 调用，通过 `/config` 对话框（语言选择器）切换语言。
 - **🤖 Swarm Discussion 多 Agent 讨论**：多 Agent 讨论协作工具，Agent 之间可辩论、交叉审查并达成共识后输出。
 - **⚡ Rust 原生工具加速**：性能关键工具（grep、glob、edit、read、write、bash、token 统计、输出截断）用 Rust 重写为原生 Node addon，显著快于 JS 实现。
-- **🪟 Windows 一键启动脚本**：`start-native.bat` 和 `start-desktop.bat`，双击即可启动。
+- **🪟 Windows 启动脚本**：`start-native.bat` 一键启动原生 CLI；`start-desktop.bat` 用于构建并启动本地 vendored 桌面壳（仅当 `apps/kimi-desktop` 存在时可用）。
 - 其他多项修复和体验优化。
 
 ## 什么是 Kimi Code CLI
@@ -39,7 +39,7 @@ curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
 irm https://code.kimi.com/kimi-code/install.ps1 | iex
 ```
 
-> Windows 用户首次启动前还需要安装 [Git for Windows](https://gitforwindows.org/)，Kimi Code CLI 会使用其中的 Git Bash 作为 Shell 环境。如果 Git Bash 安装在非标准路径，请把 `KIMI_SHELL_PATH` 设为 `bash.exe` 的绝对路径。
+> Windows 上 CLI 已内置 Shell 探测：优先使用 PowerShell 7，其次 Windows PowerShell，然后 Git Bash（如已安装）。如需固定使用某个 Shell（例如 `bash.exe`、`pwsh.exe` 或 `cmd.exe`），请把 `KIMI_SHELL_PATH` 设为其绝对路径。
 
 随后在新的终端会话中运行：
 
