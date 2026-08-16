@@ -35,8 +35,20 @@ export function loadNativePackage<T>(
  * `'rust'` — the addon loads (built / bundled / SEA-injected); `'js'` — the
  * TypeScript fallback is in effect. Shown in the `/status` report so users
  * can see which implementation they are actually running.
+ *
+ * The probe result is cached for the process lifetime: the addon cannot
+ * become loadable/unloadable after startup, and re-probing would re-verify
+ * every cached native asset (full read + sha256 per file) on each call.
  */
+let cachedNativeToolsStatus: 'rust' | 'js' | undefined;
+
 export function nativeToolsStatus(): 'rust' | 'js' {
+  if (cachedNativeToolsStatus !== undefined) return cachedNativeToolsStatus;
+  cachedNativeToolsStatus = probeNativeToolsStatus();
+  return cachedNativeToolsStatus;
+}
+
+function probeNativeToolsStatus(): 'rust' | 'js' {
   try {
     const nativeRequire = createNativePackageRequire('@moonshot-ai/kimi-native-tools');
     if (nativeRequire === null) return 'js';

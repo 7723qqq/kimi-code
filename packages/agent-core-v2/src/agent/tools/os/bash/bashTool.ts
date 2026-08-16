@@ -239,7 +239,7 @@ export class BashTool implements IBashTool {
     };
   }
 
-  private spawn(effectiveCwd: string, command: string): Promise<IProcess> {
+  private async spawn(effectiveCwd: string, command: string): Promise<IProcess> {
     const shellArgs = this.windowsShellArgs(effectiveCwd, command);
 
     const noninteractiveEnv: Record<string, string> = {
@@ -261,7 +261,7 @@ export class BashTool implements IBashTool {
     );
     if (spawnResult !== undefined) {
       nativeProc = new NativeBashProcess(spawnResult.id, spawnResult.pid);
-      return Promise.resolve(nativeProc);
+      return nativeProc;
     }
 
     return this.runner.exec(shellArgs, { env: noninteractiveEnv });

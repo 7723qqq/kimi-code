@@ -1,4 +1,4 @@
-Search file contents using regular expressions (powered by ripgrep).
+Search file contents using regular expressions (powered by the native Rust engine with a ripgrep-compatible feature set).
 
 Use Grep when the task is to find unknown content or unknown file locations. Do not use shell `grep` or `rg` directly; this tool applies workspace path policy, output limits, and sensitive-file filtering.
 ALWAYS use Grep tool instead of running `grep` or `rg` from a shell — direct shell calls bypass workspace policy, output limits, and sensitive-file filtering.
