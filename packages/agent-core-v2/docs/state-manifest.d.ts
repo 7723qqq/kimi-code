@@ -733,6 +733,14 @@ export interface AgentStateSnapshot {
       readonly turnId: number;
       readonly origin: /* PromptOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ /* UserPromptOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'user';
+        readonly skillActivations?: readonly /* BundledSkillActivation — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly activationId: string;
+          readonly skillName: string;
+          readonly skillArgs?: string;
+          readonly skillType?: string;
+          readonly skillPath?: string;
+          readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+        }[];
       } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'skill_activation';
         readonly activationId: string;
@@ -858,6 +866,14 @@ export interface AgentStateSnapshot {
     turnId: number;
     origin: /* PromptOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ /* UserPromptOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'user';
+      readonly skillActivations?: readonly /* BundledSkillActivation — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+        readonly activationId: string;
+        readonly skillName: string;
+        readonly skillArgs?: string;
+        readonly skillType?: string;
+        readonly skillPath?: string;
+        readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+      }[];
     } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'skill_activation';
       readonly activationId: string;
@@ -915,6 +931,14 @@ export interface AgentStateSnapshot {
       readonly turnId: number;
       readonly origin: /* PromptOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ /* UserPromptOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'user';
+        readonly skillActivations?: readonly /* BundledSkillActivation — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
+          readonly activationId: string;
+          readonly skillName: string;
+          readonly skillArgs?: string;
+          readonly skillType?: string;
+          readonly skillPath?: string;
+          readonly skillSource?: 'project' | 'user' | 'extra' | 'builtin';
+        }[];
       } | /* SkillActivationOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
         readonly kind: 'skill_activation';
         readonly activationId: string;

@@ -17,6 +17,7 @@ import type { IAgentTokenCountingService } from '@moonshot-ai/agent-core-v2/agen
 import type { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
 import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
 import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommand';
+import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2/agent/skill/skill';
 import type { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
 import type { IAgentUsageService } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
 import type { ContentPart } from '@moonshot-ai/agent-core-v2/kosong/contract/message';
@@ -28,6 +29,7 @@ import type { ScopedCaller } from './session.js';
 // Wire-type aliases derived through the engine service interfaces (keeps
 // klient free of protocol-package imports).
 export type PromptLaunchResult = Awaited<ReturnType<IAgentPromptService['submit']>>;
+export type PromptWithSkillsInput = Parameters<IAgentSkillService['promptWithSkills']>[0];
 export type ShellCommandResult = Awaited<ReturnType<IAgentShellCommandService['run']>>;
 export type SetModelResult = Awaited<ReturnType<IAgentProfileService['setModel']>>;
 export type ThinkingLevel = ReturnType<IAgentProfileService['getEffectiveThinkingLevel']>;
@@ -44,6 +46,15 @@ export type McpServerEntry = ReturnType<IAgentMcpService['list']>[number];
 
 export interface AgentFacade {
   prompt(input: { input: readonly ContentPart[] }): Promise<PromptLaunchResult>;
+  /**
+   * Submit one prompt with one or more skill activations bundled into the
+   * same user message: the skills are validated up front (an unknown name or
+   * an empty list rejects the whole submission), rendered ahead of the
+   * caller's parts in the same turn, and the bundle undoes as a single
+   * anchor. Resolves with the launched turn id, or `undefined` when the
+   * submission queued behind a running turn.
+   */
+  promptWithSkills(input: PromptWithSkillsInput): Promise<PromptLaunchResult>;
   steer(input: { input: readonly ContentPart[] }): Promise<PromptLaunchResult>;
   /**
    * Activate a skill as a user-slash activation: the engine renders the skill
@@ -91,6 +102,8 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
   return {
     prompt: (input) =>
       call(scope, 'agentPromptService', 'submit', [input]) as Promise<PromptLaunchResult>,
+    promptWithSkills: (input) =>
+      call(scope, 'agentSkillService', 'promptWithSkills', [input]) as Promise<PromptLaunchResult>,
     steer: (input) =>
       call(scope, 'agentPromptService', 'submitSteer', [input]) as Promise<PromptLaunchResult>,
     activateSkill: (input) =>

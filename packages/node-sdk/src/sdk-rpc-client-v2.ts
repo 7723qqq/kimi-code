@@ -241,6 +241,7 @@ import {
   type SessionIdRpcInput,
   type SwitchSessionRuntimeRpcInput,
   type SessionPromptRpcInput,
+  type SessionPromptWithSkillsRpcInput,
   type SetSessionModelRpcInput,
   type SetSessionModelRpcResult,
   type SetSessionPermissionRpcInput,
@@ -1817,6 +1818,21 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async prompt(input: SessionPromptRpcInput): Promise<void> {
     const agent = await this.agentFacade(input.sessionId);
     await agent.prompt({ input: input.input });
+  }
+
+  /**
+   * Facade (`agentSkillService.promptWithSkills`) — bundled skill submission:
+   * the engine renders every skill activation into the prompt's own user
+   * message, so the bundle launches as one turn and undoes as a single
+   * anchor. v2-only: the base class rejects this method on the v1 engine.
+   * The launch result is dropped like `prompt` (v1's RPC shape returns void).
+   */
+  override async promptWithSkills(input: SessionPromptWithSkillsRpcInput): Promise<void> {
+    const agent = await this.agentFacade(input.sessionId);
+    await agent.promptWithSkills({
+      input: input.input,
+      skills: input.skills,
+    });
   }
 
   /**
