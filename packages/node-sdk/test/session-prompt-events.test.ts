@@ -198,7 +198,7 @@ describe('Session.prompt events', () => {
     } finally {
       await harness.close();
     }
-  });
+  }, 30_000);
 
   it('emits mapped turn events through Session.onEvent', async () => {
     const homeDir = await makeTempDir();

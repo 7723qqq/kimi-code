@@ -217,7 +217,7 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
         host.showError(
           t('tui.statusMessages.providerCatalogUnsupportedProtocol', {
             providerId,
-            type: entry.type,
+            type: entry.type ?? '',
           }),
         );
       } else if (resolution.reason === 'proprietary-sdk') {

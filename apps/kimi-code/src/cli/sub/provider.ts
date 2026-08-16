@@ -330,7 +330,7 @@ export async function handleCatalogAdd(
         deps.stderr.write(
           t('tui.statusMessages.providerCatalogUnsupportedProtocol', {
             providerId,
-            type: entry.type,
+            type: entry.type ?? '',
           }) + '\n',
         );
         break;
@@ -345,7 +345,7 @@ export async function handleCatalogAdd(
       case 'placeholder-base-url':
         deps.stderr.write(
           t('tui.statusMessages.providerCatalogPlaceholderBaseUrlWithValue', {
-            baseUrl: opts.baseUrl,
+            baseUrl: opts.baseUrl ?? '',
           }) + '\n',
         );
         break;
