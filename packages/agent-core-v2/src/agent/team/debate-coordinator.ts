@@ -1,5 +1,5 @@
 /**
- * `discussion` domain — structured-debate coordinator for persistent
+ * `team` domain — structured-debate coordinator for persistent
  * subagents.
  *
  * Orchestrates a multi-phase debate (Opening Statements → Free Debate →

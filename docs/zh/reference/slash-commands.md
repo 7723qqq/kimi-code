@@ -55,7 +55,7 @@
 | `/effort` | `/thinking` | 切换思考模式 | 是 |
 | `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。 | 否 |
 | `/swarm <task>` | — | 先开启 swarm mode，再把 `<task>` 作为普通提示词发送。如果该轮次正常完成，swarm mode 会自动关闭。若当前是 `manual` 权限模式，启动前会提示是否切换到 `auto` 或 `yolo`。 | 否 |
-| `/discuss <topic>` | — | 启动多 Agent 圆桌讨论 | 否 |
+| `/team <topic>` | — | 启动多 Agent 团队讨论 | 否 |
 | `/workflow <name> [<args>...]` | — | 运行或管理工作流（列表、状态、取消或按名称运行） | 是 |
 | `/goal [...]` | — | 开始或管理目标模式 | 见下文 |
 

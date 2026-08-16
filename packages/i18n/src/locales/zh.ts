@@ -604,16 +604,16 @@ export const zh: DeepPartial<typeof import('./en').default> = {
       agentDeniedInSwarmMode:
         'Agent 工具在 swarm 模式下不可用。请改用 AgentSwarm 并行分发子智能体。如果只需要单个子智能体，请使用包含一个 item 或一个 resume_agent_ids 条目的 AgentSwarm。',
       solitaryMultipleDenied:
-        'AgentSwarm/SwarmDiscussion 必须逐个调用。多次调用并非禁止，但需要顺序执行：调用一个，等待其结果，然后再调用下一个；或者当单次调用可以覆盖时，将工作合并。',
+        'AgentSwarm/Team 必须逐个调用。多次调用并非禁止，但需要顺序执行：调用一个，等待其结果，然后再调用下一个；或者当单次调用可以覆盖时，将工作合并。',
       solitaryMultipleDeniedMixed:
-        'AgentSwarm/SwarmDiscussion 必须逐个调用。多次调用并非禁止，但需要顺序执行：调用一个，等待其结果，然后再调用下一个；或者当单次调用可以覆盖时，将工作合并。这些工具也不得与同一响应中的其他工具组合使用。',
+        'AgentSwarm/Team 必须逐个调用。多次调用并非禁止，但需要顺序执行：调用一个，等待其结果，然后再调用下一个；或者当单次调用可以覆盖时，将工作合并。这些工具也不得与同一响应中的其他工具组合使用。',
       solitaryMixedDenied:
-        'AgentSwarm/SwarmDiscussion 必须是模型响应中唯一的工具调用。请单独重试一次调用，然后在它返回后再调用其他工具。',
+        'AgentSwarm/Team 必须是模型响应中唯一的工具调用。请单独重试一次调用，然后在它返回后再调用其他工具。',
     },
-    discussion: {
-      launching: '圆桌讨论：{{topic}}',
-      launchingDebate: '结构化辩论：{{topic}}',
-      agentName: '{{mode}}（{{count}} 名参与者）',
+    team: {
+      launching: '团队讨论：{{topic}}',
+      launchingDebate: '团队辩论：{{topic}}',
+      agentName: '团队 {{mode}}（{{count}} 名参与者）',
     },
     plugin: {
       cannotInstallLocal: '无法安装 {{path}} 处的插件: {{message}}',

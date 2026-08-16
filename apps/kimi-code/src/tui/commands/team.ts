@@ -3,7 +3,7 @@ import { t } from '#/i18n';
 import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
 import type { SlashCommandHost } from './dispatch';
 
-interface ParsedDiscussArgs {
+interface ParsedTeamArgs {
   topic: string;
   roles: string[];
   mode: 'discussion' | 'debate';
@@ -11,15 +11,15 @@ interface ParsedDiscussArgs {
 }
 
 /**
- * Parse `/discuss <topic> with <role1>,<role2>,...`
- * or `/discuss --debate <topic> with <role1>,<role2>,...`
+ * Parse `/team <topic> with <role1>,<role2>,...`
+ * or `/team --debate <topic> with <role1>,<role2>,...`
  *
- * Returns `ParsedDiscussArgs` or an error string.
+ * Returns `ParsedTeamArgs` or an error string.
  */
-function parseDiscussArgs(args: string): ParsedDiscussArgs | string {
+function parseTeamArgs(args: string): ParsedTeamArgs | string {
   const trimmed = args.trim();
   if (trimmed.length === 0) {
-    return t('tui.messages.discussUsage');
+    return t('tui.messages.teamUsage');
   }
 
   // Check for --debate flag
@@ -59,16 +59,16 @@ function parseDiscussArgs(args: string): ParsedDiscussArgs | string {
   }
 
   if (topic.length === 0) {
-    return t('tui.messages.discussNeedTopic');
+    return t('tui.messages.teamNeedTopic');
   }
   if (roles.length < 2) {
-    return t('tui.messages.discussNeedRoles');
+    return t('tui.messages.teamNeedRoles');
   }
 
   return { topic, roles, mode, stances };
 }
 
-export async function handleDiscussCommand(host: SlashCommandHost, args: string): Promise<void> {
+export async function handleTeamCommand(host: SlashCommandHost, args: string): Promise<void> {
   if (host.session === undefined) {
     host.showError(getNoActiveSessionMessage());
     return;
@@ -79,7 +79,7 @@ export async function handleDiscussCommand(host: SlashCommandHost, args: string)
     return;
   }
 
-  const parsed = parseDiscussArgs(args);
+  const parsed = parseTeamArgs(args);
   if (typeof parsed === 'string') {
     host.showError(parsed);
     return;
@@ -87,11 +87,11 @@ export async function handleDiscussCommand(host: SlashCommandHost, args: string)
 
   const { topic, roles, mode, stances } = parsed;
 
-  // Enable swarm mode so SwarmDiscussion can auto-approve
+  // Enable swarm mode so Team can auto-approve
   try {
     await host.requireSession().setSwarmMode(true, 'task');
   } catch (error) {
-    host.showError(t('tui.messages.discussSwarmEnableFailed', { error: String(error) }));
+    host.showError(t('tui.messages.teamSwarmEnableFailed', { error: String(error) }));
     return;
   }
   host.setAppState({ swarmMode: true });
@@ -122,13 +122,13 @@ export async function handleDiscussCommand(host: SlashCommandHost, args: string)
     ``,
     mode === 'debate'
       ? [
-          `Use the SwarmDiscussion tool with mode="debate" to start this structured debate.`,
+          `Use the Team tool with mode="debate" to start this structured debate.`,
           `Pass the topic, participants with their role descriptions and assigned stances,`,
           `and set maxRounds to ${Math.max(2, Math.ceil(roles.length / 2))}.`,
           `Set summaryPrompt to: "List points of consensus, remaining disagreements, and recommend a decision."`,
         ].join('\n')
       : [
-          `Use the SwarmDiscussion tool to start this roundtable discussion.`,
+          `Use the Team tool to start this roundtable discussion.`,
           `Pass the topic, participants with their role descriptions,`,
           `and set maxRounds to ${Math.max(3, roles.length)}.`,
         ].join('\n'),

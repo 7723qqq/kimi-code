@@ -39,7 +39,7 @@ import {
   showSettingsSelector,
 } from './config';
 import { handleCopyCommand } from './copy';
-import { handleDiscussCommand } from './discuss';
+import { handleTeamCommand } from './team';
 import { handleGoalCommand } from './goal';
 import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 import { parseSlashInput } from './parse';
@@ -90,7 +90,7 @@ export {
 } from './config';
 export { handleSwarmCommand } from './swarm';
 export { handleWorkflowCommand } from './workflow';
-export { handleDiscussCommand } from './discuss';
+export { handleTeamCommand } from './team';
 export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
 export { handleReloadCommand, handleReloadTuiCommand } from './reload';
@@ -488,8 +488,8 @@ async function handleBuiltInSlashCommand(
     case 'workflow':
       await handleWorkflowCommand(host, args);
       return;
-    case 'discuss':
-      await handleDiscussCommand(host, args);
+    case 'team':
+      await handleTeamCommand(host, args);
       return;
     case 'compact':
       await handleCompactCommand(host, args);

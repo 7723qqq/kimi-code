@@ -1,4 +1,4 @@
-Run a roundtable discussion OR a structured debate among multiple AI agents.
+Assemble a team of AI agents for a roundtable discussion or a structured debate.
 
 **Discussion mode** (default): Each agent takes turns speaking, sees the full transcript, and responds naturally — like humans in a roundtable conversation.
 

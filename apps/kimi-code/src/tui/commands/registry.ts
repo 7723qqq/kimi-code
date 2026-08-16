@@ -201,9 +201,9 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'idle-only',
   },
   {
-    name: 'discuss',
+    name: 'team',
     aliases: [],
-    description: t('tui.slashCommands.discuss'),
+    description: t('tui.slashCommands.team'),
     priority: 95,
     argumentHint: '<topic>',
     availability: 'idle-only',

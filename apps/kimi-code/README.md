@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@moonshot-ai/kimi-code)](https://www.npmjs.com/package/@moonshot-ai/kimi-code) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/en/)
 
-> **Note**: This repository is a personal experimental fork of [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code). Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream. Fork additions (i18n, Swarm Discussion, Rust native tools) are documented in the repository root [README](../README.md).
+> **Note**: This repository is a personal experimental fork of [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code). Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream. Fork additions (i18n, Team, Rust native tools) are documented in the repository root [README](../README.md).
 
 ## What is Kimi Code CLI
 

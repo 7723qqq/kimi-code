@@ -15,7 +15,7 @@
  * reason. A second veto listener denies the `Agent` tool while swarm mode is
  * active — the enter-reminder is a soft constraint; this veto is the hard
  * enforcement that prevents a single-shot Agent call from slipping through.
- * Solitary-tool exclusivity (an `AgentSwarm` or `SwarmDiscussion` call must be
+ * Solitary-tool exclusivity (an `AgentSwarm` or `Team` call must be
  * the only tool call in its batch, mirroring v1's
  * `agent-swarm-exclusive-deny` policy) is enforced by the first veto listener.
  */
@@ -62,7 +62,7 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
     );
     this._register(
       toolExecutor.onBeforeExecuteTool((event) => {
-        const solitaryTools = new Set(['AgentSwarm', 'SwarmDiscussion']);
+        const solitaryTools = new Set(['AgentSwarm', 'Team']);
         const solitaryCount = event.toolCalls.filter((toolCall) =>
           solitaryTools.has(toolCall.name),
         ).length;

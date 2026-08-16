@@ -1,5 +1,5 @@
 /**
- * `discussion` domain — shared transcript value object for multi-agent
+ * `team` domain — shared transcript value object for multi-agent
  * roundtables and debates.
  *
  * Pure data: stores the ordered discussion entries (speaker, agentId, content,

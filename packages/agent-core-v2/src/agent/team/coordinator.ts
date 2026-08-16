@@ -1,5 +1,5 @@
 /**
- * `discussion` domain — roundtable coordinator for persistent subagents.
+ * `team` domain — roundtable coordinator for persistent subagents.
  *
  * Orchestrates a roundtable discussion: spawns one persistent subagent per
  * participant, runs round-robin turns where each participant receives the full
@@ -70,14 +70,14 @@ export interface DiscussionTurnEvent {
 export type DiscussionObserver = (event: DiscussionTurnEvent) => void;
 
 /**
- * SwarmDiscussionCoordinator — orchestrates a roundtable discussion among
+ * TeamCoordinator — orchestrates a roundtable discussion among
  * multiple persistent subagents.
  *
  * Each participant is a persistent subagent that receives the full discussion
  * transcript before their turn. They speak naturally, like a human in a
  * roundtable, with no special tools or communication primitives.
  */
-export class SwarmDiscussionCoordinator {
+export class TeamCoordinator {
   private readonly agentIds: string[] = [];
   private readonly observer: DiscussionObserver | undefined;
 

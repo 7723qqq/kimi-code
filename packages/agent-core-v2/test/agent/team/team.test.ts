@@ -1,9 +1,9 @@
 import { setLocale } from '@moonshot-ai/kimi-i18n';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
-import { DiscussionContext } from '#/agent/discussion/context';
-import { SwarmDiscussionCoordinator } from '#/agent/discussion/coordinator';
-import { StructuredDebateCoordinator } from '#/agent/discussion/debate-coordinator';
+import { DiscussionContext } from '#/agent/team/context';
+import { TeamCoordinator } from '#/agent/team/coordinator';
+import { StructuredDebateCoordinator } from '#/agent/team/debate-coordinator';
 import type { TokenUsage } from '#/kosong/contract/usage';
 import type {
   PersistentSubagentHost,
@@ -140,7 +140,7 @@ describe('DiscussionContext', () => {
   });
 });
 
-describe('SwarmDiscussionCoordinator', () => {
+describe('TeamCoordinator', () => {
   let controller: AbortController;
 
   beforeEach(() => {
@@ -165,7 +165,7 @@ describe('SwarmDiscussionCoordinator', () => {
       inputCacheCreation: 0,
     };
     const stub = createStubHost({ usages: { 'agent-0': usageA, 'agent-1': usageB } });
-    const coordinator = new SwarmDiscussionCoordinator(stub.host);
+    const coordinator = new TeamCoordinator(stub.host);
 
     const result = await coordinator.discuss(
       {
@@ -217,7 +217,7 @@ describe('SwarmDiscussionCoordinator', () => {
 
   it('generates a summary on the first participant when summaryPrompt is provided', async () => {
     const stub = createStubHost();
-    const coordinator = new SwarmDiscussionCoordinator(stub.host);
+    const coordinator = new TeamCoordinator(stub.host);
 
     const result = await coordinator.discuss(
       {
@@ -241,7 +241,7 @@ describe('SwarmDiscussionCoordinator', () => {
 
   it('returns a zero usage when no participant reports usage', async () => {
     const stub = createStubHost();
-    const coordinator = new SwarmDiscussionCoordinator(stub.host);
+    const coordinator = new TeamCoordinator(stub.host);
 
     const result = await coordinator.discuss(
       {
@@ -264,7 +264,7 @@ describe('SwarmDiscussionCoordinator', () => {
         if (index === 0) controller.abort();
       },
     });
-    const coordinator = new SwarmDiscussionCoordinator(stub.host);
+    const coordinator = new TeamCoordinator(stub.host);
 
     const result = await coordinator.discuss(
       {
@@ -289,7 +289,7 @@ describe('SwarmDiscussionCoordinator', () => {
     const stub = createStubHost({
       throwOnTurn: (index) => (index === 1 ? new Error('boom') : undefined),
     });
-    const coordinator = new SwarmDiscussionCoordinator(stub.host);
+    const coordinator = new TeamCoordinator(stub.host);
 
     const result = await coordinator.discuss(
       {
@@ -311,7 +311,7 @@ describe('SwarmDiscussionCoordinator', () => {
   it('notifies the observer for each turn', async () => {
     const stub = createStubHost();
     const events: Array<{ readonly roleName: string; readonly round: number }> = [];
-    const coordinator = new SwarmDiscussionCoordinator(stub.host, {
+    const coordinator = new TeamCoordinator(stub.host, {
       observer: (event) => events.push({ roleName: event.roleName, round: event.round }),
     });
 

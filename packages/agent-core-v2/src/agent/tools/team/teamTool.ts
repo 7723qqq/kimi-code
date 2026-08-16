@@ -1,26 +1,25 @@
 /**
- * `tools` domain — `SwarmDiscussionTool` implementation (the `SwarmDiscussion`
- * tool).
+ * `tools` domain — `TeamTool` implementation (the `Team` tool).
  *
  * Runs a roundtable discussion or a structured debate among persistent
  * subagents: binds a per-caller `PersistentSubagentHost` from
- * `IPersistentSubagentService` (Session scope) and delegates to the
- * `discussion` coordinators, rendering their results as XML. Enters swarm mode
- * through `IAgentSwarmService` around the run. The caller's agent id comes from
+ * `IPersistentSubagentService` (Session scope) and delegates to the `team`
+ * coordinators, rendering their results as XML. Enters swarm mode through
+ * `IAgentSwarmService` around the run. The caller's agent id comes from
  * `IAgentScopeContext`. Pure tool — owns no scoped state.
  *
- * Registered via the module-level `registerAgentToolService(IAgentSwarmDiscussionTool,
- * SwarmDiscussionTool)` at the bottom of this file — the same "import =
- * register" pattern used by every agent tool. Bound at Agent scope.
+ * Registered via the module-level `registerAgentToolService(IAgentTeamTool,
+ * TeamTool)` at the bottom of this file — the same "import = register" pattern
+ * used by every agent tool. Bound at Agent scope.
  */
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import { SwarmDiscussionCoordinator, type DiscussionResult } from '#/agent/discussion/coordinator';
+import { TeamCoordinator, type DiscussionResult } from '#/agent/team/coordinator';
 import {
   StructuredDebateCoordinator,
   type DebateResult,
-} from '#/agent/discussion/debate-coordinator';
+} from '#/agent/team/debate-coordinator';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
@@ -33,18 +32,14 @@ import {
   type ToolExecution,
 } from '#/tool/toolContract';
 
-import {
-  IAgentSwarmDiscussionTool,
-  SwarmDiscussionToolInputSchema,
-  type SwarmDiscussionToolInput,
-} from './swarm-discussion';
-import SWARM_DISCUSSION_DESCRIPTION from './swarm-discussion.md?raw';
+import { IAgentTeamTool, TeamToolInputSchema, type TeamToolInput } from './team';
+import TEAM_DESCRIPTION from './team.md?raw';
 
-export class SwarmDiscussionTool implements IAgentSwarmDiscussionTool {
+export class TeamTool implements IAgentTeamTool {
   declare readonly _serviceBrand: undefined;
-  readonly name = 'SwarmDiscussion' as const;
-  readonly description = SWARM_DISCUSSION_DESCRIPTION;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(SwarmDiscussionToolInputSchema);
+  readonly name = 'Team' as const;
+  readonly description = TEAM_DESCRIPTION;
+  readonly parameters: Record<string, unknown> = toInputJsonSchema(TeamToolInputSchema);
 
   private readonly callerAgentId: string;
 
@@ -56,7 +51,7 @@ export class SwarmDiscussionTool implements IAgentSwarmDiscussionTool {
     this.callerAgentId = scopeContext.agentId;
   }
 
-  resolveExecution(args: SwarmDiscussionToolInput): ToolExecution {
+  resolveExecution(args: TeamToolInput): ToolExecution {
     const participantCount = args.participants.length;
     const mode = args.mode ?? 'discussion';
     return {
@@ -64,7 +59,7 @@ export class SwarmDiscussionTool implements IAgentSwarmDiscussionTool {
       description: discussionDescription(mode, args.topic),
       display: {
         kind: 'agent_call',
-        agent_name: t('toolsV2.discussion.agentName', {
+        agent_name: t('toolsV2.team.agentName', {
           mode,
           count: String(participantCount),
         }),
@@ -76,7 +71,7 @@ export class SwarmDiscussionTool implements IAgentSwarmDiscussionTool {
   }
 
   private async execution(
-    args: SwarmDiscussionToolInput,
+    args: TeamToolInput,
     context: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
     try {
@@ -95,11 +90,11 @@ export class SwarmDiscussionTool implements IAgentSwarmDiscussionTool {
   }
 
   private async runDiscussion(
-    args: SwarmDiscussionToolInput,
+    args: TeamToolInput,
     context: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
     const host = this.persistentSubagents.bind(this.callerAgentId);
-    const coordinator = new SwarmDiscussionCoordinator(host);
+    const coordinator = new TeamCoordinator(host);
     const result = await coordinator.discuss(
       {
         topic: args.topic,
@@ -120,7 +115,7 @@ export class SwarmDiscussionTool implements IAgentSwarmDiscussionTool {
   }
 
   private async runDebate(
-    args: SwarmDiscussionToolInput,
+    args: TeamToolInput,
     context: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
     const host = this.persistentSubagents.bind(this.callerAgentId);
@@ -146,15 +141,15 @@ export class SwarmDiscussionTool implements IAgentSwarmDiscussionTool {
   }
 }
 
-registerAgentToolService(IAgentSwarmDiscussionTool, SwarmDiscussionTool, {
-  name: 'SwarmDiscussion',
+registerAgentToolService(IAgentTeamTool, TeamTool, {
+  name: 'Team',
   domain: 'swarm',
 });
 
 function discussionDescription(mode: 'discussion' | 'debate', topic: string): string {
   return mode === 'debate'
-    ? t('toolsV2.discussion.launchingDebate', { topic })
-    : t('toolsV2.discussion.launching', { topic });
+    ? t('toolsV2.team.launchingDebate', { topic })
+    : t('toolsV2.team.launching', { topic });
 }
 
 function formatDiscussionResult(result: DiscussionResult): string {

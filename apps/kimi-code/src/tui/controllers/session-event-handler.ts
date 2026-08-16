@@ -738,7 +738,7 @@ export class SessionEventHandler {
       turnId,
     };
     streamingUI.registerToolCall(toolCall);
-    if (event.name === 'AgentSwarm' || event.name === 'SwarmDiscussion') {
+    if (event.name === 'AgentSwarm' || event.name === 'Team') {
       this.subAgentEventHandler.handleAgentSwarmToolCallStarted(event.toolCallId, toolCall.args);
     }
     this.host.patchLivePane({
@@ -756,7 +756,7 @@ export class SessionEventHandler {
     if (
       preview !== undefined &&
       (preview.name === 'AgentSwarm' ||
-        preview.name === 'SwarmDiscussion' ||
+        preview.name === 'Team' ||
         this.subAgentEventHandler.hasAgentSwarmProgress(event.toolCallId))
     ) {
       this.subAgentEventHandler.handleAgentSwarmToolCallDelta(event.toolCallId, preview.args, {

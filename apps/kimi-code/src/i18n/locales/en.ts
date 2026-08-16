@@ -238,7 +238,7 @@ export default {
       },
       workflowStatusUsage: 'Usage: /workflow status <runId>',
       workflowCancelUsage: 'Usage: /workflow cancel <runId>',
-      discuss: 'Start a roundtable discussion among multiple agents',
+      team: 'Start a team discussion among multiple agents',
       secondaryModel: 'Configure the secondary model for subagents',
       multiLlm: 'Configure MultiLLM concurrent providers (Rust engine)',
       model: 'Switch LLM model',
@@ -1475,8 +1475,8 @@ export default {
         preparingChangesTarget: ' for {{filePath}}',
         truncatedMarker: '[...truncated]',
         agentSwarmLabel: 'Agent swarm: ',
-        discussionLabel: 'Discussion: ',
-        discussionSummary: 'Summary:',
+        teamLabel: 'Team: ',
+        teamSummary: 'Summary:',
         completedStatus: '{{count}} completed',
         failedStatus: '{{count}} failed',
         abortedStatus: '{{count}} aborted',
@@ -1677,8 +1677,8 @@ export default {
         'Cannot /{{name}} while compacting — wait for compaction to finish first.',
       // tui/commands/btw.ts
       btwStartFailed: 'Failed to start /btw: {{error}}',
-      // tui/commands/discuss.ts
-      discussSwarmEnableFailed: 'Failed to enable swarm mode: {{error}}',
+      // tui/commands/team.ts
+      teamSwarmEnableFailed: 'Failed to enable swarm mode: {{error}}',
       // tui/commands/info.ts
       infoMcpLoadFailed: 'Failed to load MCP servers: {{error}}',
       // tui/commands/session.ts
@@ -1792,10 +1792,10 @@ export default {
       registrySwarmOn: 'Turn swarm mode on',
       registrySwarmOff: 'Turn swarm mode off',
       registryAddDirShow: 'Show configured additional workspace directories',
-      // tui/commands/discuss.ts
-      discussUsage: 'Usage: /discuss [--debate] <topic> with <role1>[:stance],<role2>[:stance],...',
-      discussNeedTopic: 'Please provide a discussion topic.',
-      discussNeedRoles: 'Please specify at least 2 roles for the discussion.',
+      // tui/commands/team.ts
+      teamUsage: 'Usage: /team [--debate] <topic> with <role1>[:stance],<role2>[:stance],...',
+      teamNeedTopic: 'Please provide a discussion topic.',
+      teamNeedRoles: 'Please specify at least 2 roles for the discussion.',
       // tui/commands/workflow.ts
       workflowSearchExample: '/workflow deep-research "latest advances in RAG"',
       workflowListHint:

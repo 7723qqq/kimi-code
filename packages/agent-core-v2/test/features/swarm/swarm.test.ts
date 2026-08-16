@@ -456,12 +456,12 @@ describe('AgentSwarmService', () => {
     expect(formatDenyMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('blocks a batch mixing AgentSwarm and SwarmDiscussion', async () => {
+  it('blocks a batch mixing AgentSwarm and Team', async () => {
     ix.get(IAgentSwarmService);
     const decision = await fire(
       hookContext([
         toolCall('AgentSwarm', 'call_swarm'),
-        toolCall('SwarmDiscussion', 'call_discuss'),
+        toolCall('Team', 'call_discuss'),
       ]),
     );
 
@@ -491,10 +491,10 @@ describe('AgentSwarmService', () => {
     expect(formatDenyMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('blocks a SwarmDiscussion call mixed with other tools in one batch', async () => {
+  it('blocks a Team call mixed with other tools in one batch', async () => {
     ix.get(IAgentSwarmService);
     const decision = await fire(
-      hookContext([toolCall('SwarmDiscussion', 'call_discuss'), toolCall('Read', 'call_read')]),
+      hookContext([toolCall('Team', 'call_discuss'), toolCall('Read', 'call_read')]),
     );
 
     expect(decision).toEqual({
@@ -507,9 +507,9 @@ describe('AgentSwarmService', () => {
     expect(formatDenyMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('abstains on a single SwarmDiscussion call', async () => {
+  it('abstains on a single Team call', async () => {
     ix.get(IAgentSwarmService);
-    const decision = await fire(hookContext([toolCall('SwarmDiscussion', 'call_discuss')]));
+    const decision = await fire(hookContext([toolCall('Team', 'call_discuss')]));
 
     expect(decision).toBeUndefined();
     expect(permissionGateRan).toBe(true);

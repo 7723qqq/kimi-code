@@ -55,7 +55,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/effort` | `/thinking` | Switch thinking effort | Yes |
 | `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | No |
 | `/swarm <task>` | — | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to `auto` or `yolo` before starting. | No |
-| `/discuss <topic>` | — | Start a roundtable discussion among multiple agents | No |
+| `/team <topic>` | — | Start a Team discussion among multiple agents | No |
 | `/workflow <name> [<args>...]` | — | Run or manage workflows (list, status, cancel, or run by name) | Yes |
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
 

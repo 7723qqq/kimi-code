@@ -3,7 +3,7 @@
  * completed tool call.
  *
  * Extracted from ToolCallComponent to isolate the dispatcher and the
- * specialised per-tool summary renderers (AgentSwarm, SwarmDiscussion,
+ * specialised per-tool summary renderers (AgentSwarm, Team,
  * AskUserQuestion). Generic tools fall through to the shared
  * `pickResultRenderer` registry in `tool-renderers/registry.ts`.
  *
@@ -40,7 +40,7 @@ export interface ResultContentContext {
  *
  * Order of checks mirrors the original ToolCallComponent.buildContent:
  *   1. AgentSwarm  -> specialised summary header
- *   2. SwarmDiscussion -> specialised summary header
+ *   2. Team -> specialised summary header
  *   3. empty output / system-reminder -> nothing
  *   4. single-subagent view -> nothing (subagent block handles it)
  *   5. ExitPlanMode rejected -> feedback suggestion block
@@ -55,8 +55,8 @@ export function buildResultContent(ctx: ResultContentContext): Component[] {
     return buildAgentSwarmResultSummary(result);
   }
 
-  if (toolCall.name === 'SwarmDiscussion') {
-    return buildDiscussionResultSummary(result);
+  if (toolCall.name === 'Team') {
+    return buildTeamResultSummary(result);
   }
 
   if (!result.output) return [];
@@ -142,9 +142,9 @@ function renderAskUserQuestionResult(output: string): Component[] {
   return components;
 }
 
-// ── SwarmDiscussion ──
+// ── Team ──
 
-function buildDiscussionResultSummary(result: ToolResultBlockData): Component[] {
+function buildTeamResultSummary(result: ToolResultBlockData): Component[] {
   const dim = (s: string): string => currentTheme.fg('textDim', s);
   const accent = (s: string): string => currentTheme.fg('primary', s);
 
@@ -169,7 +169,7 @@ function buildDiscussionResultSummary(result: ToolResultBlockData): Component[] 
 
   const components: Component[] = [
     new Text(
-      `${dim(t('tui.messages.toolCall.discussionLabel'))}${segments.join(dim(' · '))}`,
+      `${dim(t('tui.messages.toolCall.teamLabel'))}${segments.join(dim(' · '))}`,
       2,
       0,
     ),
@@ -178,7 +178,7 @@ function buildDiscussionResultSummary(result: ToolResultBlockData): Component[] 
   const summaryText = summaryTextMatch?.[1];
   if (summaryText !== null && summaryText !== undefined && summaryText.trim().length > 0) {
     components.push(new Text('', 2, 0));
-    components.push(new Text(accent(t('tui.messages.toolCall.discussionSummary')), 2, 0));
+    components.push(new Text(accent(t('tui.messages.toolCall.teamSummary')), 2, 0));
     for (const line of summaryText.trim().split('\n')) {
       components.push(new Text(line, 4, 0));
     }
@@ -246,7 +246,7 @@ function buildAgentSwarmResultSummary(result: ToolResultBlockData): Component[] 
   ];
 }
 
-// Re-exported for callers that need to inspect the discussion/aggregator marks.
+// Re-exported for callers that need to inspect the team/aggregator marks.
 export { ABORTED_MARK };
 
 // Helper used by callers that need to know whether the output looks like an

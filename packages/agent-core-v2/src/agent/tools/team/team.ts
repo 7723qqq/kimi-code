@@ -1,11 +1,10 @@
 /**
- * `tools` domain — `IAgentSwarmDiscussionTool` contract (the
- * `SwarmDiscussion` tool).
+ * `tools` domain — `IAgentTeamTool` contract (the `Team` tool).
  *
- * Public contract of the `SwarmDiscussion` collaboration tool: the input zod
- * schema the model-facing parameters are derived from, plus the
- * `IAgentSwarmDiscussionTool` DI decorator the implementation registers
- * against via `registerAgentToolService`. Bound at Agent scope.
+ * Public contract of the `Team` collaboration tool: the input zod schema the
+ * model-facing parameters are derived from, plus the `IAgentTeamTool` DI
+ * decorator the implementation registers against via
+ * `registerAgentToolService`. Bound at Agent scope.
  */
 
 import { z } from 'zod';
@@ -31,7 +30,7 @@ export const DebateParticipantSchema = z.object({
     ),
 });
 
-export const SwarmDiscussionToolInputSchema = z.object({
+export const TeamToolInputSchema = z.object({
   mode: z
     .enum(['discussion', 'debate'])
     .optional()
@@ -66,11 +65,10 @@ export const SwarmDiscussionToolInputSchema = z.object({
     .describe('For debate only: whether to include a voting phase on key points.'),
 });
 
-export type SwarmDiscussionToolInput = z.infer<typeof SwarmDiscussionToolInputSchema>;
+export type TeamToolInput = z.infer<typeof TeamToolInputSchema>;
 
-export interface IAgentSwarmDiscussionTool extends AgentTool<SwarmDiscussionToolInput> {
+export interface IAgentTeamTool extends AgentTool<TeamToolInput> {
   readonly _serviceBrand: undefined;
 }
 
-export const IAgentSwarmDiscussionTool =
-  createDecorator<IAgentSwarmDiscussionTool>('swarmDiscussionTool');
+export const IAgentTeamTool = createDecorator<IAgentTeamTool>('teamTool');

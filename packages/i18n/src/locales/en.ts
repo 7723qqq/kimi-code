@@ -670,16 +670,16 @@ export const en = {
       agentDeniedInSwarmMode:
         'The Agent tool is not available in swarm mode. Use AgentSwarm to dispatch subagents in parallel instead. If you need a single subagent, use AgentSwarm with one item or one resume_agent_ids entry.',
       solitaryMultipleDenied:
-        'AgentSwarm/SwarmDiscussion must be called one at a time. Multiple calls are not forbidden, but issue them sequentially: call one, wait for its result, then call the next; or merge the work into a single call when one can cover it.',
+        'AgentSwarm/Team must be called one at a time. Multiple calls are not forbidden, but issue them sequentially: call one, wait for its result, then call the next; or merge the work into a single call when one can cover it.',
       solitaryMultipleDeniedMixed:
-        'AgentSwarm/SwarmDiscussion must be called one at a time. Multiple calls are not forbidden, but issue them sequentially: call one, wait for its result, then call the next; or merge the work into a single call when one can cover it. These tools also must not be combined with other tools in the same response.',
+        'AgentSwarm/Team must be called one at a time. Multiple calls are not forbidden, but issue them sequentially: call one, wait for its result, then call the next; or merge the work into a single call when one can cover it. These tools also must not be combined with other tools in the same response.',
       solitaryMixedDenied:
-        'AgentSwarm/SwarmDiscussion must be the only tool call in a model response. Retry with a single call by itself, then call any other tools after it returns.',
+        'AgentSwarm/Team must be the only tool call in a model response. Retry with a single call by itself, then call any other tools after it returns.',
     },
-    discussion: {
-      launching: 'Roundtable discussion: {{topic}}',
-      launchingDebate: 'Structured debate: {{topic}}',
-      agentName: '{{mode}} ({{count}} participants)',
+    team: {
+      launching: 'Team discussion: {{topic}}',
+      launchingDebate: 'Team debate: {{topic}}',
+      agentName: 'Team {{mode}} ({{count}} participants)',
     },
     plugin: {
       cannotInstallLocal: 'Cannot install plugin at {{path}}: {{message}}',

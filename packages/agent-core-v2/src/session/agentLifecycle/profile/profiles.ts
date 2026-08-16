@@ -37,7 +37,7 @@ const AGENT_TOOLS = [
   'WebSearch',
   'Agent',
   'AgentSwarm',
-  'SwarmDiscussion',
+  'Team',
   'FetchURL',
   'AskUserQuestion',
   'EnterPlanMode',

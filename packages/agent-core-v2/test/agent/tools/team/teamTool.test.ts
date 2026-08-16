@@ -3,11 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 
 import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
-import {
-  IAgentSwarmDiscussionTool,
-  SwarmDiscussionToolInputSchema,
-} from '#/agent/tools/swarm-discussion/swarm-discussion';
-import { SwarmDiscussionTool } from '#/agent/tools/swarm-discussion/swarmDiscussionTool';
+import { IAgentTeamTool, TeamToolInputSchema } from '#/agent/tools/team/team';
+import { TeamTool } from '#/agent/tools/team/teamTool';
 import type { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import type {
   IPersistentSubagentService,
@@ -69,8 +66,8 @@ function createToolStubs(replies: readonly string[] = []): ToolStubs {
   };
 }
 
-function createTool(stubs: ToolStubs): SwarmDiscussionTool {
-  return new SwarmDiscussionTool(
+function createTool(stubs: ToolStubs): TeamTool {
+  return new TeamTool(
     stubs.service,
     stubs.swarmMode,
     makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
@@ -118,7 +115,7 @@ const DEBATE_ARGS = {
   enableVoting: true,
 };
 
-describe('SwarmDiscussionTool', () => {
+describe('TeamTool', () => {
   beforeEach(() => {
     setLocale('en');
   });
@@ -126,22 +123,20 @@ describe('SwarmDiscussionTool', () => {
     vi.restoreAllMocks();
   });
 
-  it('exposes the SwarmDiscussion name and validates its input schema', () => {
+  it('exposes the Team name and validates its input schema', () => {
     const stubs = createToolStubs();
     const tool = createTool(stubs);
 
-    expect(tool.name).toBe('SwarmDiscussion');
-    expect(tool.description).toContain('Run a roundtable discussion OR a structured debate');
-    expect(SwarmDiscussionToolInputSchema.safeParse(DISCUSSION_ARGS).success).toBe(true);
-    expect(
-      SwarmDiscussionToolInputSchema.safeParse({ ...DISCUSSION_ARGS, participants: [] }).success,
-    ).toBe(false);
-    expect(
-      SwarmDiscussionToolInputSchema.safeParse({ ...DISCUSSION_ARGS, mode: 'nope' }).success,
-    ).toBe(false);
-    expect(
-      SwarmDiscussionToolInputSchema.safeParse({ ...DISCUSSION_ARGS, maxRounds: -1 }).success,
-    ).toBe(false);
+    expect(tool.name).toBe('Team');
+    expect(tool.description).toContain('Assemble a team of AI agents for a roundtable discussion');
+    expect(TeamToolInputSchema.safeParse(DISCUSSION_ARGS).success).toBe(true);
+    expect(TeamToolInputSchema.safeParse({ ...DISCUSSION_ARGS, participants: [] }).success).toBe(
+      false,
+    );
+    expect(TeamToolInputSchema.safeParse({ ...DISCUSSION_ARGS, mode: 'nope' }).success).toBe(false);
+    expect(TeamToolInputSchema.safeParse({ ...DISCUSSION_ARGS, maxRounds: -1 }).success).toBe(
+      false,
+    );
     expect(tool.parameters).toMatchObject({
       type: 'object',
       properties: {
@@ -152,20 +147,20 @@ describe('SwarmDiscussionTool', () => {
     });
   });
 
-  it('resolves execution with agent_call display and SwarmDiscussion approval rule', () => {
+  it('resolves execution with agent_call display and Team approval rule', () => {
     const stubs = createToolStubs();
     const tool = createTool(stubs);
     const execution = tool.resolveExecution(DISCUSSION_ARGS);
 
     expect(execution).toMatchObject({
       accesses: [{ kind: 'all' }],
-      description: 'Roundtable discussion: How should we optimize the database?',
+      description: 'Team discussion: How should we optimize the database?',
       display: {
         kind: 'agent_call',
-        agent_name: 'discussion (2 participants)',
+        agent_name: 'Team discussion (2 participants)',
         prompt: DISCUSSION_ARGS.topic,
       },
-      approvalRule: 'SwarmDiscussion',
+      approvalRule: 'Team',
     });
     expect(typeof (execution as { execute?: unknown }).execute).toBe('function');
   });
@@ -273,12 +268,12 @@ describe('SwarmDiscussionTool', () => {
     expect(stubs.bind).not.toHaveBeenCalled();
   });
 
-  it('is registered as an agent tool service named SwarmDiscussion', () => {
-    expect(IAgentSwarmDiscussionTool).toBeDefined();
-    expect(typeof IAgentSwarmDiscussionTool).toBe('function');
+  it('is registered as an agent tool service named Team', () => {
+    expect(IAgentTeamTool).toBeDefined();
+    expect(typeof IAgentTeamTool).toBe('function');
     expect(
       getAgentToolContributions().some(
-        (contribution) => contribution.options.name === 'SwarmDiscussion',
+        (contribution) => contribution.options.name === 'Team',
       ),
     ).toBe(true);
   });

@@ -234,7 +234,7 @@ export default {
       },
       workflowStatusUsage: '用法：/workflow status <运行ID>',
       workflowCancelUsage: '用法：/workflow cancel <运行ID>',
-      discuss: '启动多 Agent 圆桌讨论',
+      team: '启动多 Agent 团队讨论',
       secondaryModel: '为子代理配置辅助模型',
       multiLlm: '配置 MultiLLM 并发提供方（Rust 引擎）',
       model: '切换 LLM 模型',
@@ -1439,8 +1439,8 @@ export default {
         preparingChangesTarget: '：{{filePath}}',
         truncatedMarker: '[...已截断]',
         agentSwarmLabel: '智能体集群： ',
-        discussionLabel: '讨论： ',
-        discussionSummary: '总结：',
+        teamLabel: '团队： ',
+        teamSummary: '总结：',
         completedStatus: '{{count}} 已完成',
         failedStatus: '{{count}} 失败',
         abortedStatus: '{{count}} 已中止',
@@ -1637,8 +1637,8 @@ export default {
       resolveCannotWhileCompacting: '压缩时无法使用 /{{name}}——请等待压缩完成。',
       // tui/commands/btw.ts
       btwStartFailed: '启动 /btw 失败：{{error}}',
-      // tui/commands/discuss.ts
-      discussSwarmEnableFailed: '启用集群模式失败：{{error}}',
+      // tui/commands/team.ts
+      teamSwarmEnableFailed: '启用集群模式失败：{{error}}',
       // tui/commands/info.ts
       infoMcpLoadFailed: '加载 MCP 服务器失败：{{error}}',
       // tui/commands/session.ts
@@ -1750,10 +1750,10 @@ export default {
       registrySwarmOn: '开启集群模式',
       registrySwarmOff: '关闭集群模式',
       registryAddDirShow: '显示已配置的额外工作目录',
-      // tui/commands/discuss.ts
-      discussUsage: '用法：/discuss [--debate] <话题> with <角色1>[:立场],<角色2>[:立场],...',
-      discussNeedTopic: '请提供讨论话题。',
-      discussNeedRoles: '请至少指定 2 个讨论角色。',
+      // tui/commands/team.ts
+      teamUsage: '用法：/team [--debate] <话题> with <角色1>[:立场],<角色2>[:立场],...',
+      teamNeedTopic: '请提供讨论话题。',
+      teamNeedRoles: '请至少指定 2 个讨论角色。',
       // tui/commands/workflow.ts
       workflowSearchExample: '/workflow deep-research "RAG 最新进展"',
       workflowListHint:

@@ -306,7 +306,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 4_691,
+        tokens_before: 4_688,
         tokens_after: expect.any(Number),
         duration_ms: expect.any(Number),
         compacted_count: 6,
@@ -586,7 +586,7 @@ describe('FullCompaction', () => {
       session_id: 'test-session',
       cwd: dir,
       trigger: 'auto',
-      token_count: 4_691,
+      token_count: 4_688,
     });
     expect(post).toMatchObject({
       hook_event_name: 'PostCompact',
@@ -1662,12 +1662,12 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'auto',
-        tokens_before: 4_698,
+        tokens_before: 4_695,
         // 3255 estimated request-overhead tokens (system prompt + tools) +
         // 9 measured summary output tokens (scripted compaction exchange) +
         // 21 estimated tokens for the kept user messages — the summary
         // component is the REAL provider count, not a text estimate.
-        tokens_after: 4_682,
+        tokens_after: 4_679,
         compacted_count: 7,
         retry_count: 0,
       }),
