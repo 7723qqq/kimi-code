@@ -1,4 +1,4 @@
-// test/e2e/index-consistency.test.js
+// test/e2e/index-consistency.test.ts
 //
 // Verify that all derived indexes (key order, dt, value secondary, full-text)
 // stay consistent with the primary store under random operations, including

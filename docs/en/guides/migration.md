@@ -29,7 +29,7 @@ You can choose whether to migrate chat sessions as well. If you don't need the h
 
 ## What happens during migration
 
-**What gets migrated**: configuration (`config.toml`), MCP server configuration, input history, and whichever chat sessions you chose to migrate.
+**What gets migrated**: configuration (`config.toml`), MCP server configuration, Skills, input history, and whichever chat sessions you chose to migrate.
 
 **What does not get migrated**: OAuth login credentials and MCP service authorizations are not copied, so you will need to run `/login` again and re-authorize MCP servers after migrating. kimi-cli plugins are also out of scope.
 

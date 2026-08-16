@@ -164,7 +164,7 @@ fn is_video_magic(header: &[u8]) -> bool {
 
 /// Sensitive-file basenames that grep / read should refuse to surface.
 ///
-/// Mirrors `packages/agent-core/src/tools/policies/sensitive.ts` —
+/// Mirrors `isSensitiveFile` in `packages/agent-core-v2/src/tool/path-access.ts` —
 /// keep the two lists in sync. The list is intentionally short to
 /// avoid false positives; exemptions like `.env.example` are handled
 /// explicitly in `is_sensitive_file`.

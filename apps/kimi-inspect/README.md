@@ -7,9 +7,8 @@ scoped DI registry).
 ## Run
 
 1. Start a kap-server with the debug surface mounted (repo dev scripts do this
-   for you): `pnpm dev:v1` / `pnpm dev:v2` from the repo root pass
-   `--debug-endpoints` on a loopback bind; the surface inherits the global
-   bearer auth.
+   for you): `pnpm dev:v2` from the repo root passes `--debug-endpoints` on a
+   loopback bind; the surface inherits the global bearer auth.
 2. `pnpm --filter @moonshot-ai/kimi-inspect dev` — the Vite dev server proxies
    `/api` to the server (`KIMI_SERVER_URL`, default `http://127.0.0.1:58627`)
    and auto-discovers running instances
@@ -34,13 +33,17 @@ there is no fallback data source.
 - **App / Workspace Services** — the full Service reflection over the App
   scope, and over each Workspace scope (picked via the directory browser;
   workspace handlers materialize on demand).
-- **DI** — the engine's Service × Effect × DI debug surface, four panels fed
+- **Bash parser** — a playground for the App-scope `IBashParserService`
+  (`BashParserView`): paste bash source or load a curated fixture example,
+  parse it through the budgeted parser, and inspect the syntax tree with
+  status badges.
+- **DI** — the engine's Service × Effect × DI debug surface, five panels fed
   by the App-scope debug Services (`IDebugLedgerService` / `IDebugGraphService`
-  / `IDebugCascadeService`) and refreshed eagerly off the `event.di.unit_changed`
-  WS frame:
+  / `IDebugEventsService` / `IDebugCascadeService`) and refreshed eagerly off
+  the `event.di.unit_changed` WS frame:
   - **Unit tree** — scope → unit → ledger entries (label, five-state
-    `Pending / Activating / Active / Unloading / Failed`, uid, `pinned` flag,
-    unit error object), with **unprovide / update / dispose** triggers.
+    `Pending / Activating / Active / Unloading / Failed`, uid, unit error
+    object), with **unprovide / update / dispose** triggers.
   - **Graph** — the dependency DAG (instance edges across scopes + collection
     edges).
   - **Cascade** — the cascade transaction history ring (changes, contagion set,

@@ -271,7 +271,8 @@ export function renderTuiConfig(config: TuiConfig): string {
 # Pick and order the built-in footer slots: ${STATUS_LINE_ITEMS.join(', ')}
 # items = ${JSON.stringify([...STATUS_LINE_ITEMS])}
 # Or render your own: a command whose first stdout line replaces footer line 1.
-# It receives a JSON snapshot (model, cwd, git, usage, mode) on stdin.
+# It receives a JSON snapshot (model, cwd, git branch, permission mode, plan mode,
+# context usage, context tokens, max context tokens, session id, version) on stdin.
 # command = "~/.kimi-code/statusline.sh"
 `;
   return `# ~/.kimi-code/tui.toml

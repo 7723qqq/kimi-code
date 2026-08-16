@@ -3,10 +3,12 @@
  *
  * Mirrors the v1 server's prefixing and per-module delegation, but resolves
  * services from the `agent-core-v2` Core `Scope` instead of the v1 flat
- * `IInstantiationService`. v0.1 mounts the subset of routes that v2 can serve
- * end-to-end today (health, meta, auth readiness, OAuth device flow, config,
- * model/provider catalog, sessions, messages, approvals, workspaces, the fs
- * folder picker, the session filesystem, terminals, connections, shutdown).
+ * `IInstantiationService`. Mounts the full v1 route surface: health, meta,
+ * auth readiness, OAuth device flow, config, model/provider catalog, sessions,
+ * skills, capabilities, plugins, messages, search, tasks, approvals,
+ * questions, prompts, workspaces, the session filesystem, files, fs, gui
+ * store, tools, terminals, connections, cron, mcp, snapshot, transcript, and
+ * shutdown.
  */
 
 import { IConfigService, type Scope } from '@moonshot-ai/agent-core-v2';

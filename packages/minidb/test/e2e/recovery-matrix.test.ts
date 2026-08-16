@@ -1,4 +1,4 @@
-// test/e2e/recovery-matrix.test.js
+// test/e2e/recovery-matrix.test.ts
 //
 // Matrix of recovery scenarios: WAL corruption at head/mid/tail under
 // 'resync' vs 'strict', and snapshot + WAL combinations.

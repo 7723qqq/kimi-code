@@ -1,7 +1,7 @@
 /**
  * WriteTool tests for the v2 fileTools domain.
  *
- * Ported from v1 (`packages/agent-core/test/tools/write.test.ts`) and adapted
+ * Ported from v1 (`packages/agent-core/test/tools/write.test.ts`, removed with the v1 engine) and adapted
  * to the v2 constructor `(fs, env, workspace)`. Self-contained: builds a
  * minimal fake `IHostFileSystem` inline so the tool can be exercised without
  * the composition root.

@@ -1,9 +1,9 @@
-// test/e2e/soak.test.js
+// test/e2e/soak.test.ts
 //
 // Long-running soak: sustained random set/del/compact/reopen to catch memory
 // leaks and slow degradation. Opt-in via SOAK=<seconds> because it is slow.
 //
-//   SOAK=30 node --test --expose-gc test/e2e/soak.test.js
+//   SOAK=30 npm run test
 
 import assert from 'node:assert/strict';
 

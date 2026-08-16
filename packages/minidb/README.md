@@ -80,7 +80,7 @@ npm run typecheck  # tsc --noEmit (strict)
 ## Quick start (embedded)
 
 ```ts
-import { MiniDb } from 'minidb';
+import { MiniDb } from '@moonshot-ai/minidb';
 
 const db = await MiniDb.open({
   dir: './data',
@@ -99,7 +99,7 @@ await db.close();           // flush + fsync + close
 ```
 
 > Within this repo, import from `./src/index.ts` (run with `tsx`). As an installed
-> package, import from `'minidb'` (the built `dist/` output).
+> package, import from `'@moonshot-ai/minidb'` (the built `dist/` output).
 
 Re-open the same `dir` and your data is recovered from the snapshot + WAL.
 
@@ -359,7 +359,7 @@ disk-bound; **group commit** makes concurrent writes very fast, while
 `synchronous` (`always`) writes pay the fsync cost one would expect from any
 database. Numbers vary by machine/disk.
 
-Query benchmarks (N=50k docs, 200 iters each, `node bench/query.js`):
+Query benchmarks (N=50k docs, 200 iters each, `node bench/query.ts`):
 
 | Query | Throughput |
 |---|---|
@@ -394,23 +394,23 @@ Three layers of tests (unit under `test/`, stability suite under `test/e2e/`, sh
 npm test    # runs every suite
 ```
 
-The **unit tests** (`test/*.test.js`) cover each module: frame codec/CRC, WAL
+The **unit tests** (`test/*.test.ts`) cover each module: frame codec/CRC, WAL
 group commit, store TTL, snapshot/compaction, recovery truncation, skip list,
 secondary/full-text indexes, and the RESP server.
 
-The **E2E stability suite** (`test/e2e/*.test.js`) covers crash-safety and
+The **E2E stability suite** (`test/e2e/*.test.ts`) covers crash-safety and
 long-run behavior:
 
 | File | What it verifies |
 |---|---|
-| `fuzz-model.test.js` | thousands of random ops match a reference model (seeded, reproducible) |
-| `crash-recovery.test.js` | `kill -9` mid-write and mid-compaction → recovery is always consistent |
-| `index-consistency.test.js` | key/dt/secondary/full-text indexes never drift from the store |
-| `compaction-race.test.js` | heavy concurrent writes during compaction lose nothing |
-| `recovery-matrix.test.js` | WAL corruption at head/mid/tail under `resync` vs `strict` |
-| `durability.test.js` | `always`/`everysec`/`no` close-durability + many open/close cycles |
-| `boundary.test.js` | key-length limits, large values, many keys, empty db |
-| `soak.test.js` | sustained ops + heap stability (opt-in: `SOAK=30 npm run test`) |
+| `fuzz-model.test.ts` | thousands of random ops match a reference model (seeded, reproducible) |
+| `crash-recovery.test.ts` | `kill -9` mid-write and mid-compaction → recovery is always consistent |
+| `index-consistency.test.ts` | key/dt/secondary/full-text indexes never drift from the store |
+| `compaction-race.test.ts` | heavy concurrent writes during compaction lose nothing |
+| `recovery-matrix.test.ts` | WAL corruption at head/mid/tail under `resync` vs `strict` |
+| `durability.test.ts` | `always`/`everysec`/`no` close-durability + many open/close cycles |
+| `boundary.test.ts` | key-length limits, large values, many keys, empty db |
+| `soak.test.ts` | sustained ops + heap stability (opt-in: `SOAK=30 npm run test`) |
 
 The **cluster suite** (`test/cluster/*.test.ts`) covers the `ClusterDb`
 sharding layer: topology/routing, merged scans, lock contention and lease
@@ -514,9 +514,12 @@ const db = await MiniDb.openOrRebuild(
   Use `valueMode: 'disk'` for larger-than-RAM value bulk; cold reads then perform
   synchronous positioned reads against the snapshot/WAL.
 - Full-text index postings are stored on disk (larger-than-RAM); only the term
-  dictionary and per-doc metadata stay in memory. Postings are rebuilt from the
-  store on open and on compaction. Search reads postings synchronously, so a
-  cold, very large postings list can briefly block the event loop.
+  dictionary and per-doc metadata stay in memory. Postings are checkpointed in
+  the persistent index generation and attached on open; compaction publishes a
+  new generation. They are rebuilt from the store only on the fallback path
+  (missing/corrupt generation or `indexGenerations: false`). Search reads
+  postings synchronously, so a cold, very large postings list can briefly block
+  the event loop.
 - Compaction is **non-blocking for writes**: the WAL itself acts as a
   `BGREWRITEAOF`-style rewrite buffer, so the (slow) snapshot is written while
   writers keep appending. Writes pause only for the final rotation (a flush, a
@@ -536,6 +539,5 @@ const db = await MiniDb.openOrRebuild(
 
 ## Credits
 
-Design distilled from reading: Redis (`references/redis`), the SQLite WAL
-paper, NeDB (`references/nedb`), Bitcask (`references/bitcask`), and the
-cstack SQLite tutorial (`references/db_tutorial`).
+Design distilled from reading: Redis, the SQLite WAL paper, NeDB, Bitcask, and
+the cstack SQLite tutorial (external sources).

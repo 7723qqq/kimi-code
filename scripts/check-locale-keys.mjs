@@ -49,6 +49,11 @@ const LOCALE_SOURCES = [
     en: 'apps/vscode/webview-ui/src/i18n/locales/en.ts',
     zh: 'apps/vscode/webview-ui/src/i18n/locales/zh.ts',
   },
+  {
+    name: 'kimi-web',
+    src: 'apps/kimi-web/src/i18n/locales/index.ts',
+    extract: true,
+  },
 ];
 
 // ── Key collection ───────────────────────────────────────────────────────────

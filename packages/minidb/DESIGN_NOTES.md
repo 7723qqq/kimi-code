@@ -11,11 +11,11 @@ records the concrete decisions for our implementation.
 
 | Source | Why we read it | Key takeaways |
 |---|---|---|
-| **Redis** (`references/redis`) | Gold standard for in-memory KV + AOF/RDB + data structures | dict incremental rehashing, skiplist with `span`, lazy+sampled expiration, RDB framing, AOF rewrite, RESP |
+| **Redis** | Gold standard for in-memory KV + AOF/RDB + data structures | dict incremental rehashing, skiplist with `span`, lazy+sampled expiration, RDB framing, AOF rewrite, RESP |
 | **SQLite** WAL doc (`sqlite.org/wal.html`) | WAL semantics done right | append-only changes + commit record, checkpoint, single writer / multi reader, read-degradation vs WAL size, `synchronous` FULL/NORMAL |
-| **NeDB** (`references/nedb`) | Pure-JS embedded DB — closest to our stack | append-only log + tombstones + last-writer-wins replay, in-memory AVL secondary indexes, temp+rename compaction, single-concurrency executor, torn-tail tolerance |
-| **Bitcask** (`references/bitcask`) | Log-structured hash KV — our storage model | entry format, in-memory keydir (key→offset), append+rotate, merge/compaction, hint-file recovery |
-| **cstack/db_tutorial** (`references/db_tutorial`) | Tiny SQLite clone (paged B-tree) | page cache, B-tree node split/merge, cursor; also clarifies what a paged engine costs vs a log |
+| **NeDB** | Pure-JS embedded DB — closest to our stack | append-only log + tombstones + last-writer-wins replay, in-memory AVL secondary indexes, temp+rename compaction, single-concurrency executor, torn-tail tolerance |
+| **Bitcask** | Log-structured hash KV — our storage model | entry format, in-memory keydir (key→offset), append+rotate, merge/compaction, hint-file recovery |
+| **cstack/db_tutorial** | Tiny SQLite clone (paged B-tree) | page cache, B-tree node split/merge, cursor; also clarifies what a paged engine costs vs a log |
 
 ---
 
@@ -244,12 +244,13 @@ range, dt range, and text search, then applies the value filter, sort, skip,
 limit, and projection. Indexed dimensions are fast; an unindexed value filter
 degrades to a full scan (same as Mongo without an index).
 
-Indexes are pure derived state, rebuilt from the store on startup (definitions
-persisted in `db.indexes.json` / `db.textindexes.json`). The equality/range/dt/
-compound indexes are in-memory; the full-text index keeps only its small
-dictionary + metadata in memory and stores its postings on disk (rewritten from
-the store on open and on compaction), so a crash never loses it — it is simply
-rebuilt.
+Indexes are pure derived state, checkpointed as persistent index generations
+(definitions persisted in `db.indexes.json` / `db.textindexes.json`). The
+equality/range/dt/compound indexes are in-memory; the full-text index keeps
+only its small dictionary + metadata in memory and stores its postings on
+disk, checkpointed in the generation and attached on open (rewritten from the
+store only on the fallback path — missing/corrupt generation or
+`indexGenerations: false`), so a crash never loses it.
 
 ## 10. Concurrency model
 
@@ -295,7 +296,7 @@ src/
 ## 13. Roadmap
 
 1. **MVP**: Map index + get/set/del + WAL (`everysec`) + recovery replay.
-2. **Durability**: snapshot + WAL rewrite/compaction (Worker). (Done: worker compaction shipped; see `src/worker/`.)
+2. **Durability**: snapshot + WAL rewrite/compaction (Worker). (Not shipped: compaction still runs on the main thread; `src/worker/` hosts only the full-text build worker.)
 3. **Queries**: secondary indexes + skiplist range.
 4. **Server**: RESP-like protocol.
 5. **Extras**: eviction (LRU/LFU), compression, sharding.

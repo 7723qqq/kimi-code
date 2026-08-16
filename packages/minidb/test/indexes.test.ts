@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-// test/indexes.test.js
+// test/indexes.test.ts
 import { test } from 'vitest';
 
 import { UniqueViolationError } from '../src/index-manager.js';

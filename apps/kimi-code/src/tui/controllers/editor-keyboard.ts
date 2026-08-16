@@ -1,4 +1,10 @@
-import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
+import type {
+  KimiHarness,
+  Session,
+  StrictPropertyCheck,
+  TelemetryEventName,
+  TelemetryEventPayload,
+} from '@moonshot-ai/kimi-code-sdk';
 import {
   compressImageForModel,
   persistOriginalImage,
@@ -489,8 +495,12 @@ export class EditorKeyboardController {
       maxEdge: this.host.harness?.imageLimits?.maxEdgePx(),
       telemetry: {
         client: {
-          track: (event, properties) =>
-            this.host.track(event, properties === undefined ? undefined : { ...properties }),
+          track2: <K extends TelemetryEventName, E extends TelemetryEventPayload<K>>(
+            event: K,
+            properties?: StrictPropertyCheck<TelemetryEventPayload<K>, E>,
+          ) => {
+            this.host.track(event, properties as Record<string, unknown> | undefined);
+          },
         },
         source: 'tui_paste',
       },

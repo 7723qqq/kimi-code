@@ -3,7 +3,7 @@
  * per session so a reconnecting client can rebuild mid-turn UI from the session
  * snapshot instead of replaying deltas (which are not journaled).
  *
- * Ported from v1 (`packages/server/src/services/gateway/inFlightTurnTracker.ts`).
+ * Ported from v1 (`packages/server/src/services/gateway/inFlightTurnTracker.ts` — removed with the v1 engine).
  * Owned by the `SessionEventBroadcaster` and updated inside its per-session
  * dispatch queue — keeping accumulated text, the journal watermark, and fan-out
  * order mutually consistent.

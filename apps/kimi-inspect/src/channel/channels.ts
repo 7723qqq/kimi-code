@@ -6,10 +6,11 @@
  * the channel layer: same channel name, same scope route, methods invoked by
  * reflection.
  *
- * `/api/v1/debug` is the ONLY RPC surface this app talks to (mounted by
+ * `/api/v1/debug` is the primary RPC surface this app talks to (mounted by
  * kap-server with `--debug-endpoints` on a loopback bind); the v2 surface
- * (`/api/v2` + `/api/v2/ws`) was removed server-side, so there is no
- * fallback — `probeDebugSurface` fails the connection with a clear error.
+ * is only `GET /api/v2/sessions` for the session list (no `/api/v2/ws`
+ * socket exists). When the debug surface is missing, `probeDebugSurface`
+ * fails the connection with a clear error.
  */
 
 import { createDecorator } from '@moonshot-ai/agent-core-v2/_base/di/instantiation';

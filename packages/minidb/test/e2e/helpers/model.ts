@@ -1,4 +1,4 @@
-// test/e2e/helpers/model.js
+// test/e2e/helpers/model.ts
 // A minimal reference model of the KV semantics, used by the model-based fuzz
 // test. It mirrors what MiniDb should do with plain JS structures.
 

@@ -5,10 +5,11 @@
  * streaming implementations (openai, @anthropic-ai/sdk) with a Rust pipeline
  * that handles HTTP + SSE parsing + event decoding entirely off the JS event loop.
  *
- * The initial implementation collects all stream parts and yields them
- * synchronously (the HTTP streaming happens in Rust, but JS sees the parts
- * after the stream completes). A future iteration will add true streaming
- * via ThreadsafeFunction callbacks for real-time token delivery.
+ * Two delivery modes: the buffered path ({@link tryNativeLlmStream}) collects
+ * all stream parts in Rust and yields them after the stream completes, while
+ * the incremental path ({@link tryNativeLlmStreamIncremental}) delivers parts
+ * in real time through ThreadsafeFunction callbacks. Providers prefer the
+ * incremental path and fall back to the buffered one.
  */
 
 import type { StreamedMessagePart, ToolCall } from '#/message';

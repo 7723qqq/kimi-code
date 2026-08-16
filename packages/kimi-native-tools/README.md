@@ -2,7 +2,7 @@
 
 Rust-native implementations of the core Kimi Code tools: `Read`, `Write`, `Edit`, `Grep`, `Glob`, and `Bash`.
 
-This package is consumed by `apps/kimi-code` (through `@moonshot-ai/kimi-code-sdk`) and is bundled into the Kimi Code CLI. The native module is the primary implementation of the core tools when available, falling back to the TypeScript implementations when the addon cannot be loaded.
+This package is consumed directly by `apps/kimi-code` and `packages/i18n`, and is bundled into the Kimi Code CLI. The native module is the primary implementation of the core tools when available, falling back to the TypeScript implementations when the addon cannot be loaded.
 
 ## Building
 

@@ -427,8 +427,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       include_archive: input?.includeArchive,
       archived_only: input?.archivedOnly,
       exclude_empty: input?.excludeEmpty,
-      // PRESUMED — daemon supports ?workspace_id= once the registry ships; it
-      // ignores unknown query params until then, so this is safe to always send.
+      // ?workspace_id= filters by registry workspace (kap-server routes/sessions.ts).
       workspace_id: input?.workspaceId,
     };
     const data = await this.http.get<WirePage<WireSession>>('/sessions', query);
@@ -449,9 +448,9 @@ export class DaemonKimiWebApi implements KimiWebApi {
     const body: Record<string, unknown> = {
       metadata: input.cwd !== undefined ? { cwd: input.cwd } : {},
     };
-    // PRESUMED — daemon resolves cwd from workspace_id once the registry ships.
-    // We ALSO send metadata.cwd (above) as the fallback so today's daemon, which
-    // only understands cwd, still creates the session in the right folder.
+    // The server resolves the session's folder from workspace_id (kap-server
+    // routes/sessions.ts); metadata.cwd is kept as the hint for sessions created
+    // without one.
     if (input.workspaceId !== undefined) body['workspace_id'] = input.workspaceId;
     if (input.title !== undefined) body['title'] = input.title;
     if (input.model !== undefined) body['agent_config'] = { model: input.model };
@@ -1215,16 +1214,14 @@ export class DaemonKimiWebApi implements KimiWebApi {
   }
 
   // -------------------------------------------------------------------------
-  // Workspaces + daemon folder browser
-  // PRESUMED — falls back until the daemon ships /workspaces, /fs:browse, /fs:home.
+  // Workspaces + server folder browser
+  // Implemented in kap-server: routes/workspaces.ts + routes/workspaceFs.ts.
   // -------------------------------------------------------------------------
 
   /**
-   * List the registered workspaces.
-   * PRESUMED — GET /api/v1/workspaces. On 404/empty/error this returns [] and
-   * the composable DERIVES workspaces from the current sessions' cwds. So the
-   * switcher + grouping work immediately off existing sessions until the daemon
-   * ships the registry.
+   * List the registered workspaces (GET /api/v1/workspaces, see kap-server
+   * routes/workspaces.ts). On 404/empty/error this returns [] and the
+   * composable derives workspaces from the current sessions' cwds instead.
    */
   async listWorkspaces(): Promise<AppWorkspace[]> {
     try {
@@ -1236,9 +1233,9 @@ export class DaemonKimiWebApi implements KimiWebApi {
   }
 
   /**
-   * Register a workspace by folder path.
-   * PRESUMED — POST /api/v1/workspaces { root, name? }. Throws on error (e.g.
-   * path not found) so the caller can surface it to the user.
+   * Register a workspace by folder path (POST /api/v1/workspaces { root, name? },
+   * see kap-server routes/workspaces.ts). Throws on error (e.g. path not found)
+   * so the caller can surface it to the user.
    */
   async addWorkspace(input: { root: string; name?: string }): Promise<AppWorkspace> {
     const body: Record<string, unknown> = { root: input.root };
@@ -1248,8 +1245,8 @@ export class DaemonKimiWebApi implements KimiWebApi {
   }
 
   /**
-   * Remove a registered workspace.
-   * PRESUMED — DELETE /api/v1/workspaces/:id. On error this throws.
+   * Remove a registered workspace (DELETE /api/v1/workspaces/:id, see
+   * kap-server routes/workspaces.ts). On error this throws.
    */
   async deleteWorkspace(id: string): Promise<void> {
     await this.http.delete(`/workspaces/${encodeURIComponent(id)}`);
@@ -1267,9 +1264,10 @@ export class DaemonKimiWebApi implements KimiWebApi {
   }
 
   /**
-   * Browse directories under `path` (defaults to $HOME on the daemon).
-   * PRESUMED — GET /api/v1/fs:browse?path=. On error returns an empty path so
-   * the picker can distinguish "browse failed" from "directory has no children".
+   * Browse directories under `path` (defaults to $HOME on the server;
+   * GET /api/v1/fs:browse, see kap-server routes/workspaceFs.ts). On error
+   * returns an empty path so the picker can distinguish "browse failed" from
+   * "directory has no children".
    */
   async browseFs(path?: string): Promise<FsBrowseResult> {
     try {
@@ -1289,8 +1287,9 @@ export class DaemonKimiWebApi implements KimiWebApi {
   }
 
   /**
-   * Get the picker start directory + recently-used roots.
-   * PRESUMED — GET /api/v1/fs:home. On error returns empty defaults.
+   * Get the picker start directory + recently-used roots
+   * (GET /api/v1/fs:home, see kap-server routes/workspaceFs.ts).
+   * On error returns empty defaults.
    */
   async getFsHome(): Promise<{ home: string; recentRoots: string[] }> {
     try {
@@ -1303,17 +1302,17 @@ export class DaemonKimiWebApi implements KimiWebApi {
 
   // -------------------------------------------------------------------------
   // Models + Providers
-  // PRESUMED — not in current daemon docs; isolated here, swap when backend defines them.
+  // Implemented in kap-server: routes/modelCatalog.ts.
   // -------------------------------------------------------------------------
 
   async listModels(): Promise<AppModel[]> {
-    // PRESUMED endpoint: GET /v1/models → { items: WireModel[] }
+    // GET /api/v1/models → { items: WireModel[] } (kap-server routes/modelCatalog.ts)
     const data = await this.http.get<{ items: WireModel[] }>('/models');
     return data.items.map(toAppModel);
   }
 
   async listProviders(): Promise<AppProvider[]> {
-    // PRESUMED endpoint: GET /v1/providers → { items: WireProvider[] }
+    // GET /api/v1/providers → { items: WireProvider[] } (kap-server routes/modelCatalog.ts)
     const data = await this.http.get<{ items: WireProvider[] }>('/providers');
     return data.items.map(toAppProvider);
   }
@@ -1324,7 +1323,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
     baseUrl?: string;
     defaultModel?: string;
   }): Promise<AppProvider> {
-    // PRESUMED endpoint: POST /v1/providers → WireProvider
+    // POST /api/v1/providers → WireProvider (kap-server routes/modelCatalog.ts)
     const body: Record<string, unknown> = { type: input.type };
     if (input.apiKey !== undefined) body['api_key'] = input.apiKey;
     if (input.baseUrl !== undefined) body['base_url'] = input.baseUrl;
@@ -1334,7 +1333,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
   }
 
   async deleteProvider(id: string): Promise<{ deleted: true }> {
-    // PRESUMED endpoint: DELETE /v1/providers/{id} → { deleted: true }
+    // DELETE /api/v1/providers/{id} → { deleted: true } (kap-server routes/modelCatalog.ts)
     return this.http.delete<{ deleted: true }>(`/providers/${encodeURIComponent(id)}`);
   }
 

@@ -132,6 +132,9 @@ export type {
   CompressBase64Result,
   ImageCompressionCaptionInput,
   ImageCompressionTelemetry,
+  StrictPropertyCheck,
+  TelemetryEventName,
+  TelemetryEventPayload,
 } from '@moonshot-ai/agent-core-v2';
 
 // Experimental feature flags — types only. Resolved values come from

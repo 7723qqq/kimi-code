@@ -1,6 +1,6 @@
 //! MCP tool name sanitization and qualification.
 //!
-//! Mirrors `packages/agent-core/src/mcp/tool-naming.ts`:
+//! Mirrors `packages/agent-core-v2/src/mcpCore/tool-naming.ts`:
 //!   - `sanitize_mcp_name_part`: replace non-safe chars with `_`, collapse runs
 //!   - `qualify_mcp_tool_name`: build `mcp__<server>__<tool>` with length cap + hash
 //!   - `is_mcp_tool_name`: check if a name starts with the MCP prefix

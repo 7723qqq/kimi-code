@@ -28,11 +28,11 @@ kimi acp
 
 ## ACP 方法覆盖
 
-规范把方法分为**稳定**面和仍在演化的**不稳定**面（`@agentclientprotocol/sdk@0.23.0` 中以 `unstable_*` 前缀挂载的 handler）。两部分稳定性保证完全不同——稳定面是任何生产 ACP 客户端都会用到的方法，不稳定面覆盖实验性扩展（inline-edit 预测、document 缓冲区同步、provider 管理、elicitation 等），因此分开追踪。
+规范把方法分为**稳定**面和仍在演化的**不稳定**面（`@agentclientprotocol/sdk@1.3.0` 中以 `unstable_*` 前缀挂载的 handler）。两部分稳定性保证完全不同——稳定面是任何生产 ACP 客户端都会用到的方法，不稳定面覆盖实验性扩展（inline-edit 预测、document 缓冲区同步、provider 管理、elicitation 等），因此分开追踪。
 
-**概览：稳定面 agent-side 实现 10/12（83%）+ client reverse-RPC 实现 4/9（44%）；不稳定面只接入了 `session/set_model`（1/19）。** 任何正常 agent 流程所需的方法（initialize → auth → new/load/resume → prompt → cancel + 文件 I/O + 工具审批）都已实现。
+**概览：稳定面 agent-side 实现 12/12（100%）+ client reverse-RPC 实现 4/9（44%）；不稳定面接入了 `session/set_model`、`session/delete`、`session/fork`（3/19）。** 任何正常 agent 流程所需的方法（initialize → auth → new/load/resume → prompt → cancel + 文件 I/O + 工具审批）都已实现。
 
-### 稳定面 agent-side — IDE → agent（10 / 12）
+### 稳定面 agent-side — IDE → agent（12 / 12）
 
 | 方法 | 状态 | 说明 |
 | --- | --- | --- |
@@ -46,8 +46,8 @@ kimi acp
 | `session/list` | 是 | 枚举磁盘会话（通过 `sessionCapabilities.list = {}` 公告） |
 | `session/set_mode` | 是 | 兼容路径，与 `set_config_option({configId:'mode'})` 走同一 dispatcher |
 | `session/set_config_option` | 是 | 统一的 model / thinking / mode picker 分发 |
-| `session/close` | 否 | |
-| `logout` | 否 | |
+| `session/close` | 是 | 关闭当前会话：取消进行中的 turn 并拆除该会话的 ACP 资源（尽力而为的清理） |
+| `logout` | 是 | 登出当前账号并清除其凭据 |
 
 ### 稳定面 client-side reverse-RPC — agent → IDE（4 / 9）
 
@@ -59,12 +59,14 @@ kimi acp
 | `fs/write_text_file` | 是 | kaos 层文件写入路由到客户端 |
 | `terminal/create` · `output` · `release` · `kill` · `wait_for_exit` | 否 | 终端 reverse-RPC 未接，shell 命令走本地执行 |
 
-### 不稳定面（1 / 19）
+### 不稳定面（3 / 19）
 
 | 方法 | 状态 | 说明 |
 | --- | --- | --- |
 | `session/set_model` | 是 | 兼容路径，等价于 `set_config_option({configId:'model'})` |
-| 其余 18 个方法 | 否 | 包括 session 生命周期扩展、缓冲区同步、inline-edit 预测、provider 管理等 |
+| `session/delete` | 是 | 永久删除会话的持久化数据；未知 id 映射为 `invalidParams` (-32602) |
+| `session/fork` | 是 | 基于现有会话 fork 一份新会话，继承其工作区 |
+| 其余 16 个方法 | 否 | 包括缓冲区同步、inline-edit 预测、provider 管理等 |
 
 上述未列出的方法一律返回 `methodNotFound`。
 

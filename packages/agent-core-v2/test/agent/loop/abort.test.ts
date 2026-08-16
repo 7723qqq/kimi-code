@@ -1,7 +1,7 @@
 /**
  * `loop` domain — abort behaviour at each safe point.
  *
- * Ported from v1 `packages/agent-core/test/loop/abort.e2e.test.ts`. The v2
+ * Ported from v1 `packages/agent-core/test/loop/abort.e2e.test.ts`, removed with the v1 engine. The v2
  * contract is equivalent: an externally-aborted turn never fails the caller
  * with a throw, already-recorded usage is never lost, and every dispatched
  * `tool.call.started` still gets a matching `tool.result` so the next turn's

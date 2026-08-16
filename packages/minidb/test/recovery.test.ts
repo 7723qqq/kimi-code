@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-// test/recovery.test.js
+// test/recovery.test.ts
 import { afterEach, test, vi } from 'vitest';
 
 import { HEADER_SIZE, CRC_SIZE, encodeFrame, TYPE_SET } from '../src/codec.js';

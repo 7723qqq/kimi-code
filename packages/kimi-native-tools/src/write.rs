@@ -1,7 +1,7 @@
 /// Write tool — overwrite or append to a file.
 ///
 /// Creates parent directories automatically.
-/// Mirrors `packages/agent-core/src/tools/builtin/file/write.ts`.
+/// Mirrors `packages/agent-core-v2/src/agent/tools/os/write/write.ts`.
 use napi_derive::napi;
 use std::fs;
 use std::io::Write;

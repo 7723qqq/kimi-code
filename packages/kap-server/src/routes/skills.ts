@@ -2,7 +2,8 @@
  * `/skills` REST routes (session- and workspace-scoped) — server-v2 port.
  *
  * Mirrors the v1 server's wire contract
- * (`packages/server/src/routes/skills.ts`) path-for-path and schema-for-schema:
+ * (`packages/server/src/routes/skills.ts` — removed with the v1 engine),
+ * path-for-path and schema-for-schema:
  *
  *   GET  /sessions/{session_id}/skills                       data: {skills: SkillDescriptor[]}
  *   GET  /workspaces/{workspace_id}/skills                   data: {skills: SkillDescriptor[]}
@@ -53,7 +54,7 @@
  *
  * **Model projection**: `SkillDefinition` (v2) → protocol `SkillDescriptor`,
  * byte-for-byte with v1's `toProtocolSkill`
- * (`packages/agent-core/src/services/skill/skill.ts`): only
+ * (`packages/agent-core/src/services/skill/skill.ts`, removed with the v1 engine): only
  * `name`/`description`/`path`/`source` plus optional `type` and
  * `disable_model_invocation` are emitted; `isSubSkill` is intentionally
  * dropped.

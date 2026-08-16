@@ -10,7 +10,7 @@ to a local **server** over REST + WebSocket. Vue 3 + Vite + TypeScript.
 ```bash
 # Against a REAL server (the server must be running and reachable)
 WEB_PORT=5197 KIMI_SERVER_URL=http://192.168.97.91:58627 pnpm -C apps/kimi-web run dev
-#   …or from the repo root:  pnpm dev:web   (uses the defaults below)
+#   …or from the repo root:  pnpm -C apps/kimi-web run dev   (uses the defaults below)
 
 # checks
 pnpm -C apps/kimi-web run typecheck     # vue-tsc --noEmit
@@ -35,8 +35,11 @@ proxies** `/api/v1` (HTTP + WS) to the server (`vite.config.ts`):
 
 ## Architecture
 
-A strict one-direction data flow; components never touch the network or the
-reducer — they consume computed view props and call actions.
+Mostly one-direction data flow; components consume computed view props and call
+actions, but the boundary is not strict — several components and composables
+(`WorkspaceFileBrowser.vue`, `SessionToolsDialog.vue`, `chat/AuthMedia.vue`,
+`chat/ChatHeader.vue`, `composables/useTerminal.ts`, …) call `getKimiWebApi()`
+directly for one-off requests.
 
 ```
 server (REST + WS)
@@ -44,9 +47,10 @@ server (REST + WS)
   └─ src/api/daemon/ws.ts          WS frames → classify → projector/reducer
        └─ agentEventProjector.ts   RAW agent-core events → AppEvent[]
        └─ eventReducer.ts          AppEvent[] → state
-  └─ src/composables/useKimiWebClient.ts   the ONLY place that imports api + state;
+  └─ src/composables/useKimiWebClient.ts   main state hub: imports api + state;
                                            exposes computed view props + actions
-  └─ src/components/*.vue          render props, emit intents (no api access)
+  └─ src/components/*.vue          render props, emit intents (mostly through
+                                   useKimiWebClient; a few call the api directly)
 ```
 
 > The directory name `src/api/daemon/` is historical and kept to minimise
@@ -88,11 +92,14 @@ web UI of the `kimi` CLI (`apps/kimi-code`).
 
 ### Current release flow
 
-1. **Develop** — `pnpm dev:web` (or `pnpm -C apps/kimi-web run dev`).
+1. **Develop** — `pnpm -C apps/kimi-web run dev`.
 2. **Build** — `pnpm -C apps/kimi-web run build` produces `apps/kimi-web/dist`.
-3. **Bundle into CLI** — `pnpm -C apps/kimi-code run build` runs
-   `scripts/copy-web-assets.mjs`, which copies `apps/kimi-web/dist` into
-   `apps/kimi-code/dist-web`.
+3. **Ship the prebuilt bundle** — `apps/kimi-code/dist-web` is a committed,
+   prebuilt bundle **synced from the code-app repo**, not built from
+   `apps/kimi-web` here. `pnpm -C apps/kimi-code run build` does not copy
+   anything; it runs `scripts/check-web-assets.mjs`, which only verifies that
+   the committed bundle is present and that every asset referenced by
+   `index.html` exists.
 4. **Publish** — the root `.github/workflows/release.yml` publishes
    `@moonshot-ai/kimi-code` to npm; `dist-web` is listed in the package `files`
    array, so the built web assets travel with the CLI package.
@@ -116,6 +123,7 @@ release.
 - **Keep versioning owned by the CLI release.** `apps/kimi-web/package.json`
   remains internal workspace metadata; do not surface it as a separate user
   version unless the web app becomes an independently published product.
-- **Ensure the web build is exercised in CI.** The root `build` script already
-  builds every workspace, so `pnpm run build` in CI covers `apps/kimi-web`.
-  Keep it that way; do not bypass the web build in release pipelines.
+- **Exercise the web build explicitly.** `apps/kimi-web` is excluded from the
+  pnpm workspace (see `pnpm-workspace.yaml`), so the root `pnpm run build`
+  does **not** cover it. Build it explicitly (`pnpm -C apps/kimi-web run build`)
+  in CI; keep the release pipeline doing the same.

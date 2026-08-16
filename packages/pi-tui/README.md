@@ -16,13 +16,13 @@ Minimal terminal UI framework with differential rendering and synchronized outpu
 ## Quick Start
 
 ```typescript
-import { TUI, Text, Editor, ProcessTerminal, matchesKey } from "@moonshot-ai/pi-tui";
+import { TuiMainScreen, Text, Editor, ProcessTerminal, matchesKey } from "@moonshot-ai/pi-tui";
 
 // Create terminal
 const terminal = new ProcessTerminal();
 
 // Create TUI
-const tui = new TUI(terminal);
+const tui = new TuiMainScreen(terminal);
 
 // Add components
 tui.addChild(new Text("Welcome to my app!"));
@@ -57,7 +57,7 @@ tui.start();
 Main container that manages components and rendering.
 
 ```typescript
-const tui = new TUI(terminal);
+const tui = new TuiMainScreen(terminal);
 tui.addChild(component);
 tui.removeChild(component);
 tui.start();
@@ -160,7 +160,7 @@ interface Component {
 
 | Method | Description |
 |--------|-------------|
-| `render(width)` | Returns an array of strings, one per line. Each line **must not exceed `width`** or the TUI will error. Use `truncateToWidth()` or manual wrapping to ensure this. |
+| `render(width)` | Returns an array of strings, one per line. Lines wider than `width` are truncated by the TUI (`sliceByColumn`); use `truncateToWidth()` or manual wrapping for finer control over where lines are cut. |
 | `handleInput?(data)` | Called when the component has focus and receives keyboard input. The `data` string contains raw terminal input (may include ANSI escape sequences). |
 | `invalidate?()` | Called to clear any cached render state. Components should re-render from scratch on the next `render()` call. |
 
@@ -643,7 +643,7 @@ const lines = wrapTextWithAnsi("This is a long line that needs wrapping", 20);
 
 ## Creating Custom Components
 
-When creating custom components, **each line returned by `render()` must not exceed the `width` parameter**. The TUI will error if any line is wider than the terminal.
+When creating custom components, keep each line returned by `render()` within the `width` parameter. Lines wider than the terminal are truncated by the TUI instead of causing an error, so use `truncateToWidth()` or manual wrapping when you want control over where lines are cut.
 
 ### Handling Input
 
@@ -776,7 +776,7 @@ npx tsx test/chat-simple.ts
 npm install
 
 # Run type checking
-npm run check
+npm run typecheck
 
 # Run the demo
 npx tsx test/chat-simple.ts

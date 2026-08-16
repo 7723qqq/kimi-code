@@ -157,7 +157,7 @@ async function killLegacyServer(
   }
 
   throw new Error(
-    `Failed to stop legacy Kimi server (pid ${String(pid)}); insufficient permissions?`,
+    t('tui.statusMessages.serverKillFailedPermissions', { pid: String(pid) }),
   );
 }
 

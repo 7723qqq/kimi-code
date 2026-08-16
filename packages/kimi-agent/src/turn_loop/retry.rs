@@ -1,6 +1,6 @@
 //! Retry logic for LLM calls and tool executions.
 //!
-//! Corresponds to `packages/agent-core/src/loop/retry.ts`.
+//! Corresponds to `packages/agent-core-v2/src/_base/utils/retry.ts`.
 
 use std::time::Duration;
 

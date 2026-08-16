@@ -1,7 +1,7 @@
-// bench/query.js
+// bench/query.ts
 //
 // Query micro-benchmarks: key prefix scan, dt range, value filter, full-text.
-// Run: node bench/query.js
+// Run: node bench/query.ts
 
 import fs from 'node:fs/promises';
 import os from 'node:os';

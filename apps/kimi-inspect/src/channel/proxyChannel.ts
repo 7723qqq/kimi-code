@@ -6,9 +6,9 @@
  * `RPCError`, otherwise `data` is returned. Non-function members answer as
  * property reads through the same route (the dispatcher returns them as-is).
  *
- * `listen` cannot be served by HTTP: the v2 event socket (`/api/v2/ws`) that
- * used to back Service emitter events was removed, so `listen` throws and
- * the UI fetches Service state on demand instead.
+ * `listen` cannot be served by HTTP: no WS event socket (`/api/v2/ws`)
+ * exists, so `listen` throws and the UI fetches Service state on demand
+ * instead.
  */
 
 import type { Event, IChannel } from './channel';

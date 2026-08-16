@@ -1,6 +1,6 @@
 //! Path canonicalization and containment — pure lexical operations.
 //!
-//! Ported from `packages/agent-core/src/tools/policies/path-access.ts`.
+//! Ported from `packages/agent-core-v2/src/tool/path-access.ts`.
 //! Security-critical: runs on every Read/Write/Edit/Grep/Glob call.
 
 /// Path class: POSIX or Windows (Win32).

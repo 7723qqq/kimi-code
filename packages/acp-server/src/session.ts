@@ -14,9 +14,10 @@
  * behavior.
  *
  * KLIENT GAPS (all reported; each marked `KLIENT-GAP` inline):
- *  - no session MCP connection view / compaction service → the `/mcp` and
- *    `/compact` builtin slash commands answer with an explanatory notice
- *    instead of live data (see `./builtin-commands`).
+ *  - no MCP connection-change events or awaited compaction: `/mcp` answers
+ *    with a live snapshot from `agent.getMcpServers()` and `/compact` fires
+ *    `agent.compact()` but only confirms the trigger — the background
+ *    compaction result is never awaited (see `./builtin-commands`).
  *  - no `Turn.result` promise → settlement relies solely on `turn.ended`.
  */
 
@@ -1110,8 +1111,8 @@ export class AcpSession {
     } else {
       // KLIENT-GAP(plan): `exitPlan` (`planService.exit()`) is not on the
       // klient surface; `cancelPlan` (`planModeCancel`) has the identical
-      // state effect (see `agent/plan/planOps.ts`) — only the persisted op
-      // name differs.
+      // state effect (see `agent-core-v2/src/features/plan/planOps.ts`) —
+      // only the persisted op name differs.
       await this.agent.cancelPlan();
     }
     await this.agent.setPermission(permission);

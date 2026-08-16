@@ -5,8 +5,7 @@
  * keep the SDK's public error contract (`KimiError` / `ErrorCodes` /
  * `KimiErrorPayload`) intact without importing it. New code should prefer the
  * v2 primitives (`Error2` / `isError2` from `@moonshot-ai/agent-core-v2`);
- * these legacy shapes are kept for the SDK's public API and the remaining
- * v1-client path until that client is removed.
+ * these legacy shapes are kept for the SDK's public API compatibility.
  */
 export {
   ErrorCodes,

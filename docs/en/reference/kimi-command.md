@@ -133,7 +133,7 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
+`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), `provider` (manage providers), and `vis` (launch the session visualizer in your browser).
 
 ### `kimi login`
 
@@ -175,6 +175,9 @@ Multiple instances can share one home directory: each registers itself under `~/
 | `--log-level <level>` | Enable server logs at the selected level; omitted by default |
 | `--debug-endpoints` | Mount `/api/v1/debug/*` routes (off by default) |
 | `--dangerous-bypass-auth` | Disable bearer-token auth on all REST and WebSocket routes so the web UI connects without a token; only for trusted networks or behind an authenticating proxy |
+| `--insecure-no-tls` | Allow a non-loopback bind without a TLS-terminating reverse proxy. Defaults to `true`; only relevant for non-loopback binds |
+| `--allow-remote-shutdown` | On a non-loopback bind, keep `POST /api/v1/shutdown` enabled (default: disabled → `404`) |
+| `--allow-remote-terminals` | On a non-loopback bind, keep PTY `/api/v1/terminals/*` routes enabled (default: disabled → `404`). Remote shell is high risk |
 | `--no-open` | Do not open the browser once the server is ready |
 
 `kimi web` binds to local loopback only by default and prints the bearer token in the startup banner; the web UI authenticates automatically via the `#token=` URL fragment.

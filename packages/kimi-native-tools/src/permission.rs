@@ -1,6 +1,6 @@
 //! Permission rule DSL parser — pure computation.
 //!
-//! Ported from `packages/agent-core/src/agent/permission/matches-rule.ts`.
+//! Ported from `packages/agent-core-v2/src/agent/permissionRules/matchesRule.ts`.
 use napi_derive::napi;
 
 /// Parsed permission rule pattern.

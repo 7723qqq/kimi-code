@@ -8,7 +8,8 @@
  * OAuth orchestrator / connection manager live behind the session scope — so
  * the store, the `require*` guards, and the probe result shaping are ported
  * here byte-for-byte from v1 (`agent-core/src/mcp/global-config.ts` and the
- * helpers at the bottom of `agent-core/src/rpc/core-impl.ts`). Validation
+ * helpers at the bottom of `agent-core/src/rpc/core-impl.ts` — both removed
+ * with the v1 engine). Validation
  * uses the SDK's localized port of v1's `McpServerConfigSchema`
  * (`src/config-local/schema.ts`; the v2 schema dropped the
  * `auth: 'oauth'` marker field and would strip it on write). The moving
@@ -254,7 +255,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// ── effective authorization-state inspection (v1 rpc/core-impl port) ──
+// ── effective authorization-state inspection (v1 rpc/core-impl port; removed with the v1 engine) ──
 
 export type McpServerLocator =
   | { readonly source: 'global'; readonly name: string }

@@ -1,6 +1,7 @@
 /**
  * Minimal DOM-compatible WebSocket surface shared by the app's socket
- * clients (today only the transcript `/api/v1/ws` client). Coding against
+ * clients (the transcript `/api/v1/ws` client and the activity
+ * `GlobalEventsWs` client). Coding against
  * this structural type keeps the clients testable with an injected fake;
  * the default is the global `WebSocket` (browsers, Node ≥ 21).
  */

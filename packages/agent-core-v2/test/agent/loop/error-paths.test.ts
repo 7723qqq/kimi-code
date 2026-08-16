@@ -1,7 +1,7 @@
 /**
  * `loop` domain — error propagation contract.
  *
- * Ported from v1 `packages/agent-core/test/loop/error-paths.e2e.test.ts` and
+ * Ported from v1 `packages/agent-core/test/loop/error-paths.e2e.test.ts` (removed with the v1 engine) and
  * the hook-failure portions of `hooks.e2e.test.ts`. AbortError-shaped
  * failures converge to `cancelled` and never fail the caller; every other
  * step failure surfaces through `turn.ended{reason:'failed'}` with exactly

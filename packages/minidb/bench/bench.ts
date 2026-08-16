@@ -1,4 +1,4 @@
-// bench/bench.js
+// bench/bench.ts
 //
 // Throughput / latency / lifecycle benchmarks for MiniDb, on fixed-seed
 // synthetic data. Every scenario reports wall time, event-loop-delay and peak

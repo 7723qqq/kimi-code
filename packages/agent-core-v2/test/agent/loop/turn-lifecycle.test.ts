@@ -1,7 +1,7 @@
 /**
  * `loop` domain — turn-level lifecycle invariants.
  *
- * Ported from v1 `packages/agent-core/test/loop/turn-lifecycle.e2e.test.ts`
+ * Ported from v1 `packages/agent-core/test/loop/turn-lifecycle.e2e.test.ts` (removed with the v1 engine)
  * plus the lifecycle portions of `error-paths.e2e.test.ts` / `api-shape.e2e.test.ts`.
  * Drives the loop through its public contract (scripted LLM responses) and
  * asserts against public outputs (`turn.ended` / `turn.step.completed`

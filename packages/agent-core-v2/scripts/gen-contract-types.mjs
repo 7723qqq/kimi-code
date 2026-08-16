@@ -4,7 +4,7 @@
  * The output mirrors `src/` but with every registered service IMPLEMENTATION
  * class removed, leaving only the contract surface: interfaces, types, models,
  * error domains, factory functions, the `ServiceIdentifier` accessors, and the
- * DI primitives. Consumers (kimi-code-mini-bench) type-check against this tree
+ * DI primitives. Consumers (kimi-code-mini-bench, removed with the v1 engine) type-check against this tree
  * so tests cannot import an impl class, while at runtime the real linked
  * package still binds the real implementations.
  *
@@ -39,6 +39,9 @@ const TMP = join(PKG, '.contract-types-tmp');
 const TSCONFIG = join(PKG, 'tsconfig.contract.json');
 
 const repoRoot = join(PKG, '..', '..');
+// Default output historically targeted the standalone kimi-code-mini-bench
+// consumer package (removed with the v1 engine); pass an explicit path to
+// redirect.
 const defaultOut = join(repoRoot, '..', 'kimi-code-mini-bench', 'types', 'agent-core-v2');
 const OUT = process.argv[2] ? join(process.cwd(), process.argv[2]) : defaultOut;
 

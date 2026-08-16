@@ -2,8 +2,11 @@
  * Footer/status bar — multi-line status display at the bottom of the TUI.
  *
  * Layout:
- *   Line 1: [yolo] [plan] <model> <cwd>  <git-badge>  <shortcut hints>
- *   Line 2: context: N% (tokens/max)
+ *   Line 1: slots from status_line.items (mode, goal, model, tasks, cwd, git)
+ *           joined left, rotating tips right (unless 'tips' is a slot); a
+ *           status_line.command's first stdout line replaces it when set.
+ *   Line 2: transient hint left, session stats right (turns/steps, LLM · tool
+ *           time, first-token avg · tok/s, cache hit, in/out tokens, context).
  */
 
 import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';

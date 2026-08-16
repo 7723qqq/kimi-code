@@ -24,14 +24,14 @@ The four contribution seams (token → fold): config sections — `ConfigSection
 ## Ledger and cascade (L0/L2)
 
 - `src/_base/lifecycle/` — the Ledger (L0): ordered, dual-track (sync / async disposable) effect bookkeeping with strict reverse-order serial teardown and reason passthrough (`'scope-close' | 'cascade' | 'unload'`). Scopes, containers, and units all anchor side effects here; `Disposable` / `DisposableStore` (`_base/di/lifecycle.ts`) delegate to it.
-- `cascadeEngine.ts` — one engine per scope container with tree-wide orchestration (L2): `provide` / `unprovide` / `update` run as transactions (contagion set from the persistent dependency graph — instance edges may point child → parent across scopes → abort hook → global reverse-topo teardown → apply → waiting-area recheck to a fixpoint → history ring). Units are five-state (`Pending / Activating / Active / Unloading / Failed`): construction failure is sticky `Failed` (no auto-retry; `update()` reloads; resolving a Failed unit rethrows its error); units with unsatisfiable declared dependencies park in the waiting area and auto-activate when the deps arrive, across scopes. An `ondemand` unit counts as available — consumers pull it transitively at materialization.
+- `src/_base/di/cascadeEngine.ts` — one engine per scope container with tree-wide orchestration (L2): `provide` / `unprovide` / `update` run as transactions (contagion set from the persistent dependency graph — instance edges may point child → parent across scopes → abort hook → global reverse-topo teardown → apply → waiting-area recheck to a fixpoint → history ring). Units are five-state (`Pending / Activating / Active / Unloading / Failed`): construction failure is sticky `Failed` (no auto-retry; `update()` reloads; resolving a Failed unit rethrows its error); units with unsatisfiable declared dependencies park in the waiting area and auto-activate when the deps arrive, across scopes. An `ondemand` unit counts as available — consumers pull it transitively at materialization.
 - Static and dynamic share one provide path: scope creation (`createScopedChildHandle` / `Scope.createApp` / `Scope.createChild`) submits the kind's whole `registerScopedService` batch as ONE cascade transaction via `provideAll` — every token registers before the activation wave, so registration order never matters (untracked transitive `createInstance` resolutions succeed inside the batch); a seed occupying a token overrides the static registration. `activateScopeServices` is gone — eager activation failure is a sticky `Failed` unit, not a scope-creation error.
 
 ## Examples
 
-> The runnable examples have moved to the standalone `kimi-code-mini-bench` package at `../kimi-code-mini-bench`（目录已移除，示例见 `packages/kosong/test/e2e` 等测试）. They are wired to `agent-core-v2` through a pnpm `link:` dependency and run as a separate Vitest project.
+> The runnable examples previously lived in a standalone `kimi-code-mini-bench` package（目录已移除，示例见 `packages/kosong/test/e2e` 等测试）.
 
-Domain-slice scenarios that used to live in `examples/<name>.example.ts` are now maintained there. Each `*.example.ts` exercises one subset of domains end-to-end, builds its own container, runs its slice's services for real, and stubs collaborators outside the slice. See `../kimi-code-mini-bench/README.md` for how to run them.
+Domain-slice scenarios that used to live in `examples/<name>.example.ts` are now covered by the package test suites.
 
 ## Comment conventions
 
@@ -84,7 +84,7 @@ Business code must not `import 'node:fs'`, write SQL, hand-roll append-logs / at
 
 ## Conversation undo
 
-`context.undo` is the only persisted undo fact. `contextMemory/conversationTime.ts` owns the conversation clock (`isUndoAnchor` — the single tick predicate used by `computeUndoCut`, the checkpoint reducers, and the transcript reducer) and the checkpoint protocol. A wire Model whose state must follow conversation undo (todo, plan, task-notification delivery, …) **MUST** be defined with `defineCheckpointedModel` — never hand-roll the push/clear/restore reducers — which also registers it into `CHECKPOINTED_MODELS` for the undo pipeline's pre-cut depth check. World-time state (turn counters, task registries, revision counters) must stay outside checkpointed Models.
+`context.undo` is the only persisted undo fact. `src/agent/contextMemory/conversationTime.ts` owns the conversation clock (`isUndoAnchor` — the single tick predicate used by `computeUndoCut`, the checkpoint reducers, and the transcript reducer) and the checkpoint protocol. A wire Model whose state must follow conversation undo (todo, plan, task-notification delivery, …) **MUST** be defined with `defineCheckpointedModel` — never hand-roll the push/clear/restore reducers — which also registers it into `CHECKPOINTED_MODELS` for the undo pipeline's pre-cut depth check. World-time state (turn counters, task registries, revision counters) must stay outside checkpointed Models.
 
 ## Model-facing reminders
 

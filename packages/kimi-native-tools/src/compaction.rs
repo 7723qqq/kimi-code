@@ -1,23 +1,25 @@
 //! Context compaction strategy — decides when and how much to compact.
 //!
-//! Mirrors `packages/agent-core/src/agent/compaction/strategy.ts` so the
+//! Mirrors `packages/agent-core-v2/src/agent/fullCompaction/strategy.ts` so the
 //! TS and Rust layers cannot drift on the windowing algorithm. The TS side
 //! builds `CompactionMessageMeta[]` from `Message[]` (one pass, using the
 //! cached `estimateTokensForMessage`) and passes it across the napi
 //! boundary; Rust only sees the lightweight projection.
 //!
-//! Only `compute_compact_count` and `reduce_compact_on_overflow` are
-//! exposed as napi bindings; `fit_compact_count_to_window`,
-//! `can_split_after`, and `prefix_ends_with_open_tool_exchange` stay
-//! private to this module.
+//! `compute_compact_count`, `reduce_compact_on_overflow`, `can_split_after`,
+//! and `select_compaction_user_messages` are exposed as napi bindings;
+//! `fit_compact_count_to_window` and `prefix_ends_with_open_tool_exchange`
+//! stay private to this module.
 //!
 //! The 128k output cap and `resolve_compaction_max_completion_tokens`
-//! helper mirror `packages/agent-core/src/agent/compaction/full.ts`
+//! helper mirror `packages/agent-core-v2/src/agent/fullCompaction/fullCompactionService.ts`
 //! (introduced in upstream commits `d02b5c49` and `794db555`). They live
 //! here so the TS and Rust sides cannot drift on the default cap when the
 //! caller does not set `maxOutputSize` explicitly. Rust still does not
-//! drive the LLM call itself — `compaction/full.ts` applies this cap via
-//! `resolveCompletionBudget` — but the constant and the resolution
+//! drive the LLM call itself — the TS side applies this cap via
+//! `resolveCompletionBudget`
+//! (`packages/agent-core-v2/src/kosong/model/completionBudget.ts`) — but
+//! the constant and the resolution
 //! function are kept in sync so any future Rust-side compaction path can
 //! reuse them without re-deriving the magic number.
 
@@ -60,14 +62,14 @@ pub struct CompactionConfigMeta {
 /// ceiling applied by the OpenAI Legacy provider.
 ///
 /// Mirrors `DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS` in
-/// `packages/agent-core/src/agent/compaction/full.ts`.
+/// `packages/agent-core-v2/src/agent/fullCompaction/fullCompactionService.ts`.
 #[napi]
 pub const DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS: u32 = 128 * 1024;
 
 /// Resolve the effective `maxOutputSize` for a compaction call.
 ///
 /// Mirrors the `defaultCompactionCap` computation in
-/// `packages/agent-core/src/agent/compaction/full.ts`:
+/// `packages/agent-core-v2/src/agent/fullCompaction/fullCompactionService.ts`:
 ///
 /// 1. If `max_output_size` is set and positive, the caller wins.
 /// 2. Otherwise, when `max_context_tokens > 0`, use the lesser of

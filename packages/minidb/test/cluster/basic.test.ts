@@ -1,4 +1,4 @@
-// test/cluster/basic.test.js
+// test/cluster/basic.test.ts
 //
 // Single-process ClusterDb behavior: topology creation/validation, basic KV
 // across shards, multi-key ops, merged scans, hash distribution, stats.

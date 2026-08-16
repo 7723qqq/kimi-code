@@ -93,7 +93,7 @@ function badgeGlyph(s: string): string {
 
 /**
  * Truncate a long path from the left, showing the tail.
- * e.g. "packages/agent-core/src/services/session/sessionService.ts" → "…sion/sessionService.ts"
+ * e.g. "packages/agent-core-v2/src/session/sessionContext/sessionContext.ts" → "…t/sessionContext.ts"
  */
 function truncateLeft(path: string, maxLen = 60): string {
   if (path.length <= maxLen) return path;

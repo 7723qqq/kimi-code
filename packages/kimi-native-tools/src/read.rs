@@ -5,7 +5,7 @@
 /// the `encoding` module, so the whole capability set lives here — TypeScript
 /// is only a fallback for hosts without the native module.
 ///
-/// Mirrors `packages/agent-core/src/tools/builtin/file/read.ts` and
+/// Mirrors `packages/agent-core-v2/src/agent/tools/os/read/read.ts` and
 /// `packages/agent-core-v2/src/agent/tools/os/read/readTool.ts`.
 use crate::encoding::{
     decode_gbk, decode_utf8_lenient, decode_utf_text, detect_legacy_text_encoding,

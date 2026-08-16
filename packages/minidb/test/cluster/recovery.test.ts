@@ -1,4 +1,4 @@
-// test/cluster/recovery.test.js
+// test/cluster/recovery.test.ts
 //
 // Crash semantics for the cluster layer: SIGKILL mid-write must not corrupt
 // any shard, recovered data is a contiguous prefix of the write order, and a

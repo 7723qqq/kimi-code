@@ -25,7 +25,7 @@
  * qualified names like `mcp:lark:search` if ever used in path position). We
  * only treat the FINAL `:` as the action separator so internal colons survive.
  *
- * Ported verbatim from `packages/server/src/routes/action-suffix.ts`.
+ * Ported verbatim from `packages/server/src/routes/action-suffix.ts` (removed with the v1 engine).
  */
 
 export type ActionSuffixParse<TAction extends string> =

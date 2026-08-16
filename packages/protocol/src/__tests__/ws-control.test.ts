@@ -170,7 +170,7 @@ describe('ws-control — §3.1 server_hello', () => {
     expect(result.success).toBe(true);
   });
 
-  it('parses a server_hello without heartbeat_ms (no server heartbeat)', () => {
+  it('parses a server_hello without heartbeat_ms (older servers omit it)', () => {
     const result = serverHelloMessageSchema.safeParse({
       type: 'server_hello',
       timestamp: TS,

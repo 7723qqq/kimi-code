@@ -12,7 +12,7 @@
  * hung or broken profile) silently leave PATH untouched.
  *
  * launchd/daemon launches can leave `$SHELL` unset or blank (see
- * `defaultShell()` in agent-core's terminalService for the same case), so
+ * `defaultShell()` in agent-core-v2's terminalService for the same case), so
  * the probe falls back to the OS account's login shell from the user
  * database before giving up.
  *
@@ -126,12 +126,6 @@ export async function applyLoginShellPath(deps: LoginShellPathDeps): Promise<voi
 }
 
 /**
- * Production convenience — apply the probe to `process.env` once per
- * process. Memoised like `detectEnvironmentFromNode`: the login-shell PATH
- * does not change for the lifetime of the process, and repeated
- * `LocalKaos.create()` calls must not re-spawn the shell.
- */
-/**
  * Login shell from the OS user database (`/etc/passwd` via getpwuid on
  * Linux, Directory Services on macOS). `userInfo()` throws when the uid
  * has no database entry (e.g. containers running an arbitrary uid), and
@@ -150,6 +144,12 @@ function userShellFromNode(): string | undefined {
 
 let appliedLoginShellPath: Promise<void> | undefined;
 
+/**
+ * Production convenience — apply the probe to `process.env` once per
+ * process. Memoised like `detectEnvironmentFromNode`: the login-shell PATH
+ * does not change for the lifetime of the process, and repeated
+ * `LocalKaos.create()` calls must not re-spawn the shell.
+ */
 export function applyLoginShellPathFromNode(): Promise<void> {
   if (appliedLoginShellPath !== undefined) return appliedLoginShellPath;
   appliedLoginShellPath = applyLoginShellPath({

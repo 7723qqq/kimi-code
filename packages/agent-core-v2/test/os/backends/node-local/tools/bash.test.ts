@@ -1,7 +1,7 @@
 /**
  * BashTool tests for the v2 shellTools domain.
  *
- * Ported from v1 (`packages/agent-core/test/tools/bash.test.ts`) and adapted
+ * Ported from v1 (`packages/agent-core/test/tools/bash.test.ts`, removed with the v1 engine) and adapted
  * to the v2 constructor `(runner, kaos, background, options)`. Self-contained:
  * builds minimal fake `ISessionProcessRunner` / `IProcess`, `IKaos`, and
  * `IAgentTaskService` inline so the tool can be exercised without the

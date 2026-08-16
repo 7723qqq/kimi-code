@@ -389,8 +389,9 @@ export const KimiConfigSchema = z.object({
 // ---- Experimental flag definitions (only ids needed) ----
 
 /**
- * Experimental feature flags — the full v1 id list (copied from v1
- * `packages/agent-core/src/flags/registry.ts`). Only the `id` fields are used
+ * Experimental feature flags — the full v1 id list (copied from the v1
+ * engine's flag registry, `packages/agent-core/src/flags/registry.ts` —
+ * removed with the v1 engine). Only the `id` fields are used
  * (to build `REGISTERED_EXPERIMENTAL_FLAGS`).
  */
 export const FLAG_DEFINITIONS = [

@@ -16,8 +16,8 @@
  *
  * **Error mapping**:
  *   - unknown capability id        → envelope `code: 40418 capability.not_found`
- *   - install on wrong platform    → `40923 capability.unsupported`
- *   - install already running      → `40922 capability.install_in_progress`
+ *   - install on wrong platform    → `40925 capability.unsupported`
+ *   - install already running      → `40924 capability.install_in_progress`
  *   - malformed `{tail}`           → `40001 validation.failed`
  *   - other errors                 → `50001` via the global error handler
  */

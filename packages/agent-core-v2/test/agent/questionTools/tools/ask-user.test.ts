@@ -1,6 +1,7 @@
 /**
  * AskUserQuestionTool unit tests — ported from v1
- * `packages/agent-core/test/tools/ask-user.test.ts` and adapted to the v2 DI
+ * `packages/agent-core/test/tools/ask-user.test.ts` (removed with the v1
+ * engine) and adapted to the v2 DI
  * constructor (`ISessionQuestionService` / `ITelemetryService` stubs instead
  * of a fake `Agent`).
  */

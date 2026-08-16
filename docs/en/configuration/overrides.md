@@ -68,7 +68,6 @@ Mutual exclusion rules (startup fails if violated):
 - `--output-format` can only be used with `-p`
 - `--prompt` cannot be combined with `--yolo` or `--plan`
 - `--continue` and `--session` cannot be used together
-- In non-prompt mode, `--yolo` and `--plan` cannot be combined with `--continue` or `--session`
 
 ::: tip
 `--skills-dir` is a one-shot replacement that only affects the current startup. To persistently add search directories, write `extra_skill_dirs` in `config.toml` (see [Agent Skills](../customization/skills.md)).

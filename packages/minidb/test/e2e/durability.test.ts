@@ -1,4 +1,4 @@
-// test/e2e/durability.test.js
+// test/e2e/durability.test.ts
 //
 // Durability semantics for the three fsync policies and close().
 

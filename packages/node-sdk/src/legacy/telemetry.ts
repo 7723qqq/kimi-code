@@ -3,7 +3,7 @@
  * copied so the SDK keeps its public telemetry surface without importing
  * `agent-core`. New code should prefer the v2 `ITelemetryService`
  * (`@moonshot-ai/agent-core-v2`); these shapes are kept for the SDK's public
- * API and the remaining v1-client path until that client is removed.
+ * API compatibility.
  */
 export type TelemetryPropertyValue = boolean | number | string | undefined | null;
 

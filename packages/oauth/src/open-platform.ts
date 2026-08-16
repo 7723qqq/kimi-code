@@ -132,6 +132,8 @@ export class OpenPlatformApiError extends Error {
 }
 
 // ── System CA fetch for providers with non-Mozilla CAs (e.g. xfyun.cn) ──────
+//     Dead code: fetchOpenPlatformModels returns early for astron, so the
+//     systemCaFetch branch is never selected.
 
 const SYSTEM_CA_PATHS = ['/etc/ssl/certs/ca-certificates.crt', '/etc/pki/tls/certs/ca-bundle.crt'];
 
@@ -240,8 +242,10 @@ export async function fetchOpenPlatformModels(
     });
   }
 
-  // Astron's xfyun.cn uses a Chinese CA not in the Mozilla store; fall back
-  // to a system-CA fetch unless the caller explicitly provided one.
+  // Unreachable dead branch: astron returns early above, so the system-CA
+  // fetch (xfyun.cn's Chinese CA is not in the Mozilla store) can never be
+  // selected here. Kept for reference; loadSystemCAs/systemCaFetch are dead
+  // code.
   const effectiveFetch =
     fetchImpl ?? (platform.id === 'astron' ? (systemCaFetch as typeof fetch) : fetch);
   const res = await effectiveFetch(`${platform.baseUrl.replace(/\/+$/, '')}/models`, {

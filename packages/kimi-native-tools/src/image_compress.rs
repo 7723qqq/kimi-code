@@ -1,5 +1,5 @@
 //! Image compression and cropping — native Rust replacement for
-//! `packages/agent-core/src/tools/support/image-compress.ts`.
+//! `packages/agent-core-v2/src/agent/media/image-compress.ts`.
 //!
 //! The TS module uses `jimp` (pure JS) for PNG/JPEG decode, resize, and
 //! encode — 10–100× slower than native codecs. This module does the same

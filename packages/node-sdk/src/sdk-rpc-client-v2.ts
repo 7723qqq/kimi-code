@@ -95,10 +95,10 @@
  *   `McpServerEntry` is field-identical with v1's `McpServerInfo`.
  * - `onEvent` / `receiveEvent` → the base class registries, fed by a
  *   per-live-session wiring (`src/v2/session-wiring.ts`) that subscribes
- *   every live agent's `IEventBus` and translates each `DomainEvent` back
- *   into the v1 `Event` shape (`src/v2/event-mapper.ts`); the klient events
- *   hub is deliberately bypassed because its contract registry exposes only
- *   13 of the bus types (no `shell.*`, no `turn.step.*`, ...). The one
+ *   every live agent's `IEventBus` and pushes each `DomainEvent` through
+ *   verbatim (stamped with `sessionId` / `agentId`) — the SDK event channel
+ *   exposes the v2 `DomainEvent` union unchanged, with no type dropping or
+ *   renaming; the klient events hub is bypassed entirely. The one
  *   v1-visible fact on the process-global `IEventService`
  *   (`session.meta.updated`) is forwarded from a constructor subscription.
  * - `setApprovalHandler` / `setQuestionHandler` → the base class registries,

@@ -6,8 +6,8 @@
  *    reads the newest page, a full refresh re-reads from the tail backwards
  *    until the previously loaded window is re-covered, and "Load earlier
  *    turns" pages further with a `before_turn` cursor.
- *  - The WS channel (`/api/v1/ws`) is a DELTA channel only: `transcript.ops`
- *    at `delta` grade; `transcript.reset` snapshots are ignored. Ops are
+ *  - The WS channel (`/api/v1/ws`) is an op channel only: `transcript.ops`
+ *    at `block` grade; `transcript.reset` snapshots are ignored. Ops are
  *    buffered while a REST refresh is in flight and flushed onto the fresh
  *    pages — idempotent upserts and offset-placed appends make that converge.
  *  - Loss signals (`resync_required`, append gap, socket reconnect) trigger
@@ -106,7 +106,7 @@ interface TranscriptChannel {
 }
 
 /**
- * Owns the store, the REST load/refresh pipeline, and the WS delta
+ * Owns the store, the REST load/refresh pipeline, and the WS block-grade
  * subscription for one (sessionId, agentId) pair.
  */
 function useTranscriptChannel(

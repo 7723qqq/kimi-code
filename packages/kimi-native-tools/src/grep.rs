@@ -4,7 +4,7 @@
 /// search, context lines, output modes (content/files_with_matches/count),
 /// glob filtering, head_limit, and offset.
 ///
-/// Mirrors `packages/agent-core/src/tools/builtin/file/grep.ts`.
+/// Mirrors `packages/agent-core-v2/src/agent/tools/os/grep/grep.ts`.
 use ignore::WalkBuilder;
 use napi_derive::napi;
 use regex::RegexBuilder;

@@ -435,6 +435,7 @@ describe('kimi export', () => {
       exit: ((code: number) => {
         throw new ExitCalled(code);
       }) as ExportDeps['exit'],
+      getInstallSource: async () => 'test',
       getShellEnv: () => ({ term: 'xterm-256color', shell: '/bin/zsh' }),
     });
 
@@ -506,6 +507,8 @@ describe('kimi export', () => {
       exit: ((code: number) => {
         throw new ExitCalled(code);
       }) as ExportDeps['exit'],
+      getInstallSource: async () => 'test',
+      getShellEnv: () => ({ shell: 'test' }),
     });
 
     await program.parseAsync(['node', 'kimi', 'export', 'ses_disabled', '--output', output], {
@@ -546,6 +549,8 @@ describe('kimi export', () => {
       exit: ((code: number) => {
         throw new ExitCalled(code);
       }) as ExportDeps['exit'],
+      getInstallSource: async () => 'test',
+      getShellEnv: () => ({ shell: 'test' }),
     });
 
     await program.parseAsync(['node', 'kimi', 'export', 'ses_first_launch', '--output', output], {
@@ -585,6 +590,8 @@ describe('kimi export', () => {
       exit: ((code: number) => {
         throw new ExitCalled(code);
       }) as ExportDeps['exit'],
+      getInstallSource: async () => 'test',
+      getShellEnv: () => ({ shell: 'test' }),
     });
 
     await program.parseAsync(['node', 'kimi', 'export', 'ses_v2_engine', '--output', output], {

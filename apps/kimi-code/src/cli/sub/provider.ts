@@ -114,7 +114,7 @@ export async function handleProviderAdd(
   }
 
   // `harness.removeProvider` reloads the config from disk on each call (see
-  // `core-impl.ts removeKimiProvider`), so calling it inside the apply loop
+  // `sdk-rpc-client-v2.ts SdkRpcClientV2.removeProvider`), so calling it inside the apply loop
   // would discard providers we already applied in memory but have not yet
   // persisted. Drop every stale id up front in a single batch instead, then
   // apply against the resulting fresh config.
@@ -383,7 +383,7 @@ export async function handleCatalogAdd(
 
   // Capture defaults BEFORE `removeProvider`, because that call clears
   // `defaultModel` when it points at one of this provider's aliases (see
-  // `core-impl.ts removeKimiProvider`). Without this, re-importing an
+  // `config-mapper.ts planProviderRemoval`). Without this, re-importing an
   // already-configured provider would lose the user's previously-set default
   // even when `--default-model` is not supplied.
   const previousDefaultModel = config.defaultModel;
@@ -420,7 +420,7 @@ export async function handleCatalogAdd(
 
   // Always restore `[thinking]` from what was there before — including
   // `undefined`. Persisting `enabled: false` when the user never set it would
-  // make `resolveThinkingEffort` (agent-core/src/agent/config/thinking.ts) treat
+  // make `resolveThinkingEffortForModel` (agent-core-v2/src/kosong/model/thinking.ts) treat
   // it as an explicit "off" request and silently disable thinking, even for
   // thinking-capable models.
   config.thinking = previousThinking;

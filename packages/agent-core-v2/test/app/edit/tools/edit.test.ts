@@ -1,7 +1,7 @@
 /**
  * EditTool tests for the v2 edit domain.
  *
- * Ported from v1 (`packages/agent-core/test/tools/edit.test.ts`). The Agent
+ * Ported from v1 (`packages/agent-core/test/tools/edit.test.ts`, removed with the v1 engine). The Agent
  * `EditTool` adapter is built through the container (`createInstance`) so its
  * `@IService` deps resolve for real: a spied fake `IHostFileSystem`, the test
  * `IHostEnvironment` / `ISessionWorkspaceContext`, and the App-scope

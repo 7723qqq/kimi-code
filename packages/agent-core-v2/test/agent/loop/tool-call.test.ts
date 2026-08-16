@@ -1,7 +1,7 @@
 /**
  * `loop` domain — tool-call invariants observed end-to-end.
  *
- * Ported from v1 `packages/agent-core/test/loop/tool-call.e2e.test.ts` (plus
+ * Ported from v1 `packages/agent-core/test/loop/tool-call.e2e.test.ts`, removed with the v1 engine (plus
  * the abnormal-step-end block). The loop promises that every provider tool
  * call produces exactly one matching `tool.result`, even on the rejected /
  * error paths (tool not found, schema rejected, execute throws), and that

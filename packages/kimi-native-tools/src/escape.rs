@@ -1,6 +1,6 @@
 //! XML/HTML escaping — fast byte-level replacements for safe XML embedding.
 //!
-//! Mirrors `packages/agent-core/src/utils/xml-escape.ts`. Three variants:
+//! Mirrors `packages/agent-core-v2/src/_base/utils/xml-escape.ts`. Three variants:
 //!   - `escape_xml`: escapes all XML-significant characters (& < > ")
 //!   - `escape_xml_attr`: escapes only attribute boundary chars (& ")
 //!   - `escape_xml_tags`: escapes only tag delimiters (< >), preserving &
@@ -8,9 +8,9 @@
 //!
 //! These are called on every agent turn (skill prompt injection, bash I/O
 //! XML wrapping, plugin session start, background task notifications) across
-//! 28 call sites in `agent-core/src/`. Moving them to Rust eliminates the
-//! per-call JS string-replacement overhead and runs with SIMD-friendly
-//! byte scanning.
+//! the agent engine (`packages/agent-core-v2/src/`). Moving them to Rust
+//! eliminates the per-call JS string-replacement overhead and runs with
+//! SIMD-friendly byte scanning.
 
 /// Escape all XML-significant characters: & < > "
 pub fn escape_xml(input: &str) -> String {

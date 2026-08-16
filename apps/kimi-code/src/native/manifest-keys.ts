@@ -1,13 +1,15 @@
 /**
  * Shared manifest constants and key builders for native / web asset manifests.
  *
- * These values are stable and MUST stay in sync with scripts/native/manifest.mjs.
- * Build scripts (under scripts/native/) use manifest.mjs directly because they
- * run as plain .mjs without TypeScript compilation. Production code in src/native/
- * imports from here instead.
+ * The native manifest version is maintained by the build scripts
+ * (scripts/native/manifest.mjs); production code in src/native/ imports it
+ * directly from there, because those scripts run as plain .mjs without
+ * TypeScript compilation. The constants in this file are consumed by the web
+ * asset path (web-assets.ts) only — keep NATIVE_ASSET_MANIFEST_VERSION in sync
+ * with manifest.mjs.
  */
 
-export const NATIVE_ASSET_MANIFEST_VERSION = 1;
+export const NATIVE_ASSET_MANIFEST_VERSION = 2;
 export const WEB_ASSET_MANIFEST_VERSION = 1;
 
 export function buildManifestKey(target: string): string {

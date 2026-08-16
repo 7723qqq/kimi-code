@@ -1,8 +1,7 @@
 /**
  * App shell — selection state and session resume. There is no live event
- * push anymore: the v2 socket (`/api/v2/ws`) that fed the core/session/agent
- * event streams was removed server-side, so Service panels and the pending
- * interactions card fetch on demand and the sidebar polls.
+ * push: no `/api/v2/ws` event socket exists, so Service panels and the
+ * pending interactions card fetch on demand and the sidebar polls.
  * Layout: header / icon rail / view. The `chat` view is a strip of the
  * left sidebar (workspaces + sessions), the session pane (session Services
  * / State tabs), the chat column, and the right dock (`RightPanel`) merging

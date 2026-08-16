@@ -1,7 +1,7 @@
 /**
  * `loop` domain — live event sequence and wire-record ordering.
  *
- * Ported from v1 `packages/agent-core/test/loop/events.e2e.test.ts`. The
+ * Ported from v1 `packages/agent-core/test/loop/events.e2e.test.ts`, removed with the v1 engine. The
  * loop must emit the documented milestone sequence for a tool-bearing turn
  * and keep transcript (`context.append_loop_event`) records ordered:
  * `step.begin` → `tool.call` → `tool.result` → `step.end`.

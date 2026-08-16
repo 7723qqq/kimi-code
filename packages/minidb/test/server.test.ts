@@ -4,7 +4,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-// test/server.test.js
+// test/server.test.ts
 import { test } from 'vitest';
 
 import { startServer } from '../src/server.js';

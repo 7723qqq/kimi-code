@@ -12,9 +12,9 @@ import { z } from 'zod';
 import type { EventRegistration } from '../types.js';
 
 /**
- * Scope-stream registration (`kind: 'stream'`). Declared structurally here
- * until `EventRegistration` in `../types.js` gains the `stream` variant;
- * compatible with `src/core/events/hub.ts`, which already switches on it.
+ * Scope-stream registration (`kind: 'stream'`) — matches the `stream`
+ * variant of `EventRegistration` in `../types.js`; `src/core/events/hub.ts`
+ * switches on `kind`.
  */
 interface StreamEventRegistration {
   readonly kind: 'stream';

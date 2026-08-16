@@ -1,7 +1,7 @@
 /**
  * Pending interactions card (approvals / questions) of one session — fetched
- * on demand: the session `interactions` push stream went away with
- * `/api/v2/ws`, so the card refreshes only when Load is clicked.
+ * on demand: no `interactions` push stream exists (no `/api/v2/ws` socket),
+ * so the card refreshes only when Load is clicked.
  */
 
 import { ISessionApprovalService } from '@moonshot-ai/agent-core-v2/session/approval/approval';

@@ -28,11 +28,11 @@ The table below lists the capabilities declared by the current ACP adapter layer
 
 ## ACP Method Coverage
 
-The spec divides methods into a **stable** surface and an evolving **unstable** surface (handlers mounted with the `unstable_*` prefix in `@agentclientprotocol/sdk@0.23.0`). The two have entirely different stability guarantees — the stable surface covers methods every production ACP client uses, while the unstable surface covers experimental extensions (inline-edit prediction, document buffer sync, provider management, elicitation, etc.) — so they are tracked separately.
+The spec divides methods into a **stable** surface and an evolving **unstable** surface (handlers mounted with the `unstable_*` prefix in `@agentclientprotocol/sdk@1.3.0`). The two have entirely different stability guarantees — the stable surface covers methods every production ACP client uses, while the unstable surface covers experimental extensions (inline-edit prediction, document buffer sync, provider management, elicitation, etc.) — so they are tracked separately.
 
-**Summary: stable agent-side 10/12 (83%) + client reverse-RPC 4/9 (44%); unstable surface has only `session/set_model` (1/19).** All methods needed for a normal agent flow (initialize → auth → new/load/resume → prompt → cancel + file I/O + tool approval) are implemented.
+**Summary: stable agent-side 12/12 (100%) + client reverse-RPC 4/9 (44%); unstable surface covers `session/set_model`, `session/delete`, and `session/fork` (3/19).** All methods needed for a normal agent flow (initialize → auth → new/load/resume → prompt → cancel + file I/O + tool approval) are implemented.
 
-### Stable agent-side — IDE → agent (10 / 12)
+### Stable agent-side — IDE → agent (12 / 12)
 
 | Method | Implemented | Description |
 | --- | --- | --- |
@@ -46,8 +46,8 @@ The spec divides methods into a **stable** surface and an evolving **unstable** 
 | `session/list` | Yes | Enumerates sessions on disk (advertised via `sessionCapabilities.list = {}`) |
 | `session/set_mode` | Yes | Compatibility path; dispatches to the same handler as `set_config_option({configId:'mode'})` |
 | `session/set_config_option` | Yes | Unified model / thinking / mode picker dispatcher |
-| `session/close` | No | |
-| `logout` | No | |
+| `session/close` | Yes | Closes the current session: cancels in-flight turns and tears down the session's ACP resources (best-effort cleanup) |
+| `logout` | Yes | Signs the current account out and clears its credentials |
 
 ### Stable client-side reverse-RPC — agent → IDE (4 / 9)
 
@@ -59,12 +59,14 @@ The spec divides methods into a **stable** surface and an evolving **unstable** 
 | `fs/write_text_file` | Yes | File writes at the kaos layer are routed to the client |
 | `terminal/create` · `output` · `release` · `kill` · `wait_for_exit` | No | Terminal reverse-RPC not connected; shell commands use local execution |
 
-### Unstable surface (1 / 19)
+### Unstable surface (3 / 19)
 
 | Method | Implemented | Description |
 | --- | --- | --- |
 | `session/set_model` | Yes | Compatibility path; equivalent to `set_config_option({configId:'model'})` |
-| Remaining 18 methods | No | Includes session lifecycle extensions, buffer sync, inline-edit prediction, provider management, etc. |
+| `session/delete` | Yes | Permanently removes a session's persisted data; unknown ids map to `invalidParams` (-32602) |
+| `session/fork` | Yes | Forks a new session from an existing one, inheriting its workspace |
+| Remaining 16 methods | No | Includes buffer sync, inline-edit prediction, provider management, etc. |
 
 All methods not listed above return `methodNotFound`.
 

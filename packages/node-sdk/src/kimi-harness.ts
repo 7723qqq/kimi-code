@@ -281,7 +281,7 @@ export class KimiHarness {
       return;
     }
     // The session exists server-side but was never materialized through this
-    // harness 鈥?close it directly (the RPC materializes + closes by id) so the
+    // harness — close it directly (the RPC materializes + closes by id) so the
     // server-side session isn't leaked.
     await this.rpc.closeSession({ sessionId: normalizeSessionId(id) });
   }
@@ -539,8 +539,9 @@ export class KimiHarness {
       // Canonical fields are owned by the harness and must win over any
       // caller-supplied sessionStartedProperties that happen to share a key.
       // `client_id` is always null here: a single-process host has no
-      // per-connection client id (that concept only exists for daemon clients,
-      // see core-impl.ts). Kept as an explicit key so both producers share the
+      // per-connection client id (that concept only existed for the v1
+      // engine's daemon clients, see `core-impl.ts` — removed with the v1
+      // engine). Kept as an explicit key so both producers share the
       // same session_started schema.
       client_id: null,
       client_name: this.identity?.productName ?? null,

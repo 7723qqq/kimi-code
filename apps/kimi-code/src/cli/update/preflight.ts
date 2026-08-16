@@ -194,7 +194,7 @@ export function renderManualUpdateMessage(
       sourceDesc = 'homebrew';
       break;
     case 'native':
-      sourceDesc = 'native (windows). Auto-update is not supported on this platform.';
+      sourceDesc = 'native';
       break;
     case 'unsupported':
       sourceDesc = t('tui.statusMessages.updateUnsupportedManager');

@@ -8,7 +8,9 @@
  *  - `OAuthConnectionError`: transport-level OAuth request failure; callers
  *    may retry the operation.
  *  - `DeviceCodeExpiredError`: device_code TTL ran out before user approved;
- *    restart the device flow.
+ *    restart the device flow. Retained for API compatibility only — the
+ *    current device-flow loop silently reissues a fresh device code on
+ *    expiry instead of throwing (see oauth-manager.ts).
  *  - `DeviceCodeTimeoutError`: local 15 min wall-clock budget exhausted
  *    before the user completed approval.
  *  - `RetryableRefreshError`: 429 / 5xx from token endpoint; the refresh

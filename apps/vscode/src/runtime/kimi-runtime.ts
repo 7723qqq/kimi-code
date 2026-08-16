@@ -31,9 +31,9 @@ export interface KimiRuntimeOptions {
   readonly homeDir?: string;
   readonly harness?: KimiHarness;
   /**
-   * Engine rollback: create the legacy v1 harness instead of the default v2
-   * one. The decision is made once in `config/vscode-settings.ts`; a change
-   * applies on the next window reload, when the runtime is rebuilt.
+   * Deprecated: the legacy v1 harness was removed, and `createKimiHarness` is
+   * the same factory as `createKimiHarnessV2`, so this option no longer changes
+   * engine selection. Kept for compatibility.
    */
   readonly useAgentCoreV1?: boolean;
 }

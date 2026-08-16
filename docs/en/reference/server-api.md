@@ -169,9 +169,9 @@ Endpoints are grouped by resource below. A `:{action}` suffix in a path is the a
 
 | Method and path | Description |
 | --- | --- |
-| `GET /api/v1/sessions/{session_id}/approvals` | List approval requests (filter with `status=pending`) |
+| `GET /api/v1/sessions/{session_id}/approvals` | List approval requests (`status=pending` is required) |
 | `POST /api/v1/sessions/{session_id}/approvals/{approval_id}` | Resolve an approval |
-| `GET /api/v1/sessions/{session_id}/questions` | List questions |
+| `GET /api/v1/sessions/{session_id}/questions` | List questions (`status=pending` is required) |
 | `POST /api/v1/sessions/{session_id}/questions/{question_id}` | Answer a question |
 | `POST /api/v1/sessions/{session_id}/questions/{question_id}:dismiss` | Dismiss a question |
 
@@ -295,14 +295,14 @@ Clients send JSON frames `{ "type", "id"?, "payload" }`; every request frame get
 | `unsubscribe` | `{ session_ids }` | Drop session subscriptions |
 | `subscribe_v2` | `{ session_id, transcript, transcript_since? }` | Subscribe to transcript streams (the only transcript channel); `transcript` sets per-agent grades |
 | `unsubscribe_v2` | `{ session_id, agent_ids? }` | Detach transcript streams; omitting `agent_ids` means the whole session |
-| `watch_fs_add` / `watch_fs_remove` | `{ session_id, paths, recursive? }` | Subscribe to / unsubscribe from file-change notifications (`event.fs.changed`) |
+| `watch_fs_add` / `watch_fs_remove` | `{ session_id, paths }` | Subscribe to / unsubscribe from file-change notifications (`event.fs.changed`) |
 | `client_hello` | `{ client_id }` | Handshake frame; the remaining fields are legacy compatibility |
 
 ### Events
 
 Event frames look like `{ "type", "seq", "epoch"?, "volatile"?, "offset"?, "session_id"?, "timestamp", "payload" }`, where `type` is the event type itself. Two delivery scopes:
 
-- **Global events**: sent to every established connection, no subscription needed — `session.meta.updated`, `event.session.created`, `event.session.work_changed`, `event.session.status_changed`, `event.workspace.*`, `event.config.*`.
+- **Global events**: sent to every established connection, no subscription needed — `session.meta.updated`, `event.session.created`, `event.session.work_changed`, `event.workspace.*`, `event.config.*`.
 - **Session events**: sent only to connections subscribed to that session, subject to `agent_filter`. Main families:
 
 | Family | Main events |
@@ -315,7 +315,7 @@ Event frames look like `{ "type", "seq", "epoch"?, "volatile"?, "offset"?, "sess
 | Background | `task.started` / `terminated`, `shell.started` / `output` / `completed` |
 | Misc | `compaction.*`, `skill.activated`, `goal.updated`, `prompt.*`, `error`, `warning` |
 
-Events also split into durable and volatile: durable events carry a strictly increasing `seq`, are journaled, and can be replayed; volatile events (the `*.delta` family, `tool.progress`, `shell.*`, and similar) are marked `volatile: true` and never replayed. When consuming a volatile text stream, compare `offset` (the cumulative character offset within the turn) against your locally accumulated text: below the local length means a duplicate frame; above means a gap that needs snapshot recovery.
+Events also split into durable and volatile: durable events carry a strictly increasing `seq`, are journaled, and can be replayed; volatile events (the `*.delta` family, `tool.progress`, `shell.*`, and similar) are marked `volatile: true` and never replayed. When consuming a volatile text stream, compare `offset` (the character offset accumulated within the current step — reset at each `turn.step.started`) against your locally accumulated text: below the local length means a duplicate frame; above means a gap that needs snapshot recovery.
 
 ### Reconnect and recovery
 

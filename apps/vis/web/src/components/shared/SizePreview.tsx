@@ -6,7 +6,7 @@ interface SizePreviewProps {
   label?: string;
   /** Byte/char count for the dim label */
   sizeBytes: number;
-  /** Preview text shown when collapsed (first ~200 chars) */
+  /** Preview text shown when collapsed (first 120 chars) */
   preview?: string;
   /** Full content renderer */
   children: ReactNode;

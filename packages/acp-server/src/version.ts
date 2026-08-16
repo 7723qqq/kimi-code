@@ -3,8 +3,8 @@
  *
  * Tracks the (negotiation integer, spec tag, SDK version) tuple per supported
  * protocol revision and picks the highest mutually-supported one when the
- * client initializes. Mirrors `packages/acp-adapter/src/version.ts` (itself a
- * port of kimi-cli's `kimi_cli/acp/version.py`).
+ * client initializes. Port of kimi-cli's `kimi_cli/acp/version.py` (the
+ * former `acp-adapter` package was retired in this fork).
  */
 
 export interface AcpVersionSpec {

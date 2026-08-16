@@ -2,7 +2,7 @@
  * `SessionEventJournal` — per-session durable event log backing the `/api/v1/ws`
  * watermark (`{seq, epoch}`) and replay.
  *
- * Ported from v1 (`packages/server/src/services/gateway/sessionEventJournal.ts`).
+ * Ported from v1 (`packages/server/src/services/gateway/sessionEventJournal.ts` — removed with the v1 engine).
  * One JSONL file per session under `<eventsDir>/<sessionId>.jsonl`:
  *
  *   line 1   {"kind":"journal_header","version":1,"epoch":"ep_<ulid>","created_at":...}

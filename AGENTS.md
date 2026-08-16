@@ -20,7 +20,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **Swarm Discussion** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
-- **Windows launchers** — `start-native.bat` launches the native CLI; `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
+- **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (`pnpm dev:cli`, tsx running `src/main.ts`); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): MCP auto-reconnect with bounded exponential backoff (`mcpCore/connection-manager.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 
 ---
@@ -55,9 +55,9 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 |------|---------|
 | **oxlint** 1.59.0 | Linter — correctness (error), suspicious (warn), pedantic (warn), perf (warn) |
 | **oxfmt** | Formatter — 100 print width, single quotes, trailing commas, sorted imports |
-| **vitest** 4.1.4 | Test runner (v8 coverage provider) |
+| **vitest** 4.1.10 | Test runner (v8 coverage provider) |
 | **simple-git-hooks** | Pre-commit hooks (runs `lint-staged`) |
-| **lint-staged** | Lint staged files with `oxlint --fix --quiet` + `oxlint --type-aware --quiet` |
+| **lint-staged** | Lint staged files with `oxlint --quiet` + `oxlint --type-aware --quiet` |
 | **changesets** | Version management and changelog generation |
 | **sherif** 1.11.1 | Monorepo correctness checker |
 | **publint** + **attw** | Package publishing lint and type-checking |
@@ -97,7 +97,7 @@ src/
     kimi-tui.ts       — TUI initialization and main loop
     config.ts         — TUI configuration
     banner/           — Startup banner
-    commands/         — Slash command handlers (26+ commands)
+    commands/         — Slash command handlers (43 commands)
     components/       — UI components (panes, messages, dialogs, editor, media)
     controllers/      — UI controllers (auth-flow, session, streaming, keyboard, etc.)
     theme/            — Theme system
@@ -173,17 +173,17 @@ packages/
 
 #### Key Package Details
 
-**`agent-core-v2`** (v0.2.0) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server` and `klient`. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
+**`agent-core-v2`** (v0.4.0) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server` and `klient`. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
 
 **`kosong`** (v0.6.0) — The LLM / provider abstraction layer. Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
 
-**`klient`** (v0.1.0) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction (ipc or memory). Also hosts e2e suites.
+**`klient`** (v0.1.2) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction (ipc or memory). Also hosts e2e suites.
 
 **`kap-server`** — The Kimi Code local server. Backed by DI × Scope agent engine. Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`). Debug surface at `/api/v1/debug/*`. Bootstrapped from `src/start.ts`.
 
 **`transcript`** (v0.0.1) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
 
-**`kimi-native-tools`** — Rust native addon via napi-rs. Implements: bash execution, grep, glob, read, write, edit, token counting, output truncation, web fetching (HTML rendering via scraper), image processing, SSE/eventsource streaming, SQLite (rusqlite), ULID generation, and more. Cargo workspace, `cdylib` output.
+**`kimi-native-tools`** — Rust native addon via napi-rs. Implements: bash execution, grep, glob, read, write, edit, token counting, output truncation, web fetching (HTML rendering via scraper), image processing, SSE/eventsource streaming, SQLite (rusqlite), ULID generation, and more. Single `cdylib` crate (no Cargo workspace).
 
 **`kimi-build`** — Rust CLI tool for SEA (Single Executable Application) binary injection and asset management. Windows PE resource management via winapi.
 
@@ -218,6 +218,7 @@ scripts/
 ## Environment Requirements
 
 - **Node.js**: `>=24.15.0` (`.nvmrc` is `24.15.0`). `engine-strict=false` in `.npmrc`, so `pnpm install` does **not** fail on a Node version mismatch — verify with `.nvmrc` instead.
+- **Node engines**: 发布包的 engines 有意保持 >=22.19.0 的宽松下限（上游一致），仓库开发标准以 .nvmrc 24.15.0 为准
 - **pnpm**: `10.33.0` (specified in root `package.json` `packageManager`).
 - **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
@@ -280,9 +281,9 @@ pnpm --filter kimi-code run build
 pnpm --filter kimi-code run test
 pnpm --filter kimi-code run package:platform     # Produce .vsix
 
-# Web UI
-pnpm --filter @moonshot-ai/kimi-web run build
-pnpm --filter @moonshot-ai/kimi-web run dev
+# Web UI (excluded from the workspace; use `pnpm -C`)
+pnpm -C apps/kimi-web run build
+pnpm -C apps/kimi-web run dev
 ```
 
 ### CI pipeline
@@ -291,9 +292,9 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`:
 1. **build** — Install, build, smoke test CLI bundle
 2. **test** — `vitest run` split across 5 parallel shards on Ubuntu
 3. **test-pi-tui** — `pi-tui` suite (uses node:test, not vitest)
-4. **lint** — oxlint, sherif, locale JSON freshness check, locale placeholder validity, hardcoded string scan
+4. **lint** — `pnpm run lint` (oxlint --type-aware), `pnpm run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 5. **typecheck** — TypeScript check across all packages (uses `tsgo` from `@typescript/native-preview`)
-6. **native-tools** — Runs on Windows-latest: `cargo test` and `cargo build --release`
+6. **native bundle** — Not a ci.yml job. Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `pnpm --filter @moonshot-ai/kimi-native-tools run build` (napi-rs build; no cargo test), then SEA packaging and a native smoke test.
 
 Additional workflows: `_native-build.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
 
@@ -322,7 +323,7 @@ Additional workflows: `_native-build.yml`, `docs-deploy.yml`, `manual-native-bun
 - Test files get relaxed rules (no-explicit-any off, no-console off, vitest plugin rules)
 - `packages/kosong/src/providers/` gets relaxed unsafety rules
 - For full config with all overrides, see `.oxlintrc.json`
-- Ignored: `dist/`, `coverage/`, `node_modules/`, `apps/*/scripts/`, `packages/pi-tui/`, `*.generated.ts`, `参考目录/`
+- Ignored: `dist/`, `dist-web/`, `coverage/`, `node_modules/`, `apps/*/scripts/`, `docs/smoke-archive/`, `packages/pi-tui/`, `*.generated.ts`, `参考目录/`
 
 ### TypeScript Config (root `tsconfig.json`)
 
@@ -363,7 +364,7 @@ Additional workflows: `_native-build.yml`, `docs-deploy.yml`, `manual-native-bun
 
 ### Test Framework
 
-- **vitest 4.1.4** for all TypeScript/JavaScript tests (root-level)
+- **vitest 4.1.10** for all TypeScript/JavaScript tests (root-level)
 - **node:test** for `@moonshot-ai/pi-tui` (not part of vitest workspace)
 - **cargo test** for Rust packages (`kimi-native-tools`)
 - **Coverage**: v8 provider, reports in text + HTML
@@ -451,11 +452,11 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ## Experimental Features
 
-- Gate a not-yet-public feature behind an experimental flag. Add the flag to the registry at `packages/agent-core-v2/src/app/flag/flagRegistry.ts`, then check it with `flags.enabled('my-feature')`.
-- Flags are env-driven and default off:
+- Gate a not-yet-public feature behind an experimental flag. Register the flag from the owning domain's own module (definitions are contributed **decentrally** — each domain calls `registerFlagDefinition` at its module's top level, e.g. `packages/agent-core-v2/src/persistence/backends/minidb/flag.ts`; there is no central catalog to edit by hand), then check it with `flags.enabled('my-feature')`.
+- Flags are env-driven; the `default` is chosen per flag as needed (e.g. `persistence_minidb_readmodel` defaults to `true`):
   - `KIMI_CODE_EXPERIMENTAL_<NAME>` toggles one
   - `KIMI_CODE_EXPERIMENTAL_FLAG` enables all
-- Release by flipping the entry's `default` to `true`.
+- Release by flipping the flag's `default` to `true`.
 
 ---
 

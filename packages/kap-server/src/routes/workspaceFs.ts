@@ -2,7 +2,7 @@
  * `/api/v1/fs::browse` + `/api/v1/fs::home` + `/api/v1/fs::content` route
  * handlers — server-v2 port.
  *
- * The folder-picker pair mirrors `packages/server/src/routes/workspaceFs.ts`
+ * The folder-picker pair mirrors `packages/server/src/routes/workspaceFs.ts` (removed with the v1 engine)
  * path-for-path: two distinct `GET` routes backed by `agent-core-v2`'s native
  * `IHostFolderBrowser` (Core scope), translating its domain errors to wire
  * codes (server-align.md Case A):

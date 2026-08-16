@@ -1,12 +1,11 @@
 /**
- * Output rendering for `kimi -p` (print mode) — shared by the v1 driver
- * (`run-prompt.ts`) and the native v2 runner (`v2/run-v2-print.ts`).
+ * Output rendering for `kimi -p` (print mode), driven by the native v2 runner
+ * (`run-prompt.ts` delegates to `v2/run-v2-print.ts`).
  *
- * Both engines feed the same writer classes: v1 via the SDK `Event` stream, v2
- * via the main agent's native `IEventBus` (whose `DomainEvent` payloads are
- * already v1-protocol-shaped). Keeping the writers here lets v2 reuse them
- * without re-implementing rendering, while v1's `runPromptTurn` keeps its own
- * event-filtering / completion flow intact.
+ * The runner feeds the writer classes from the main agent's native `IEventBus`
+ * (whose `DomainEvent` payloads are already v1-protocol-shaped). Keeping the
+ * writers here lets the v2 runner reuse them without re-implementing
+ * rendering.
  */
 
 import { t } from '#/i18n';

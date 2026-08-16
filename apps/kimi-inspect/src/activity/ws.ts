@@ -14,8 +14,10 @@
  *     (a session appeared / retitled), forwarded for list invalidation;
  *   - `event.di.unit_changed` → one DI unit state transition of the engine's
  *     scope tree (the debug-surface feed), forwarded for `['di']`
- *     invalidation. Global like the rest: it carries the `__global__`
- *     session watermark and fans out to every connection.
+ *     invalidation. Unlike the other global events this one is NOT broadcast
+ *     to every connection: the server only delivers the `event.di.*` feed to
+ *     connections that opted in with `client_id: 'kimi-inspect'` in their
+ *     `client_hello` (this client sends exactly that).
  *
  * Session/agent-grained events never arrive here (they stay subscribe-gated
  * server-side); the transcript chat channel has its own socket. Global

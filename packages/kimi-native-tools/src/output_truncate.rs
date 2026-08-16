@@ -1,7 +1,7 @@
 //! Streaming tool-output truncation.
 //!
 //! Mirrors `ToolResultBuilder.write()` in
-//! `packages/agent-core/src/tools/support/result-builder.ts`.
+//! `packages/agent-core-v2/src/tool/result-builder.ts`.
 //!
 //! The TS class accumulates tool output chunk-by-chunk, splitting each chunk
 //! into lines, truncating lines that exceed `max_line_length`, and stopping

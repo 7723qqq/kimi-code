@@ -1,4 +1,4 @@
-// test/cluster/helpers.js
+// test/cluster/helpers.ts
 //
 // Shared helpers for the cluster tests: worker-process spawning and
 // deterministic key generation that lands on a chosen shard.

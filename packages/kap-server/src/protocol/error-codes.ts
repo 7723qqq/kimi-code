@@ -167,11 +167,14 @@ export const ErrorCode = {
 } as const;
 
 /**
+ * Allocated outside the enum — the auth hook and its failure limiter use them
+ * directly (not via `ErrorCode`):
+ *   - 40101 auth.invalid_token        (global HTTP auth hook, `middleware/auth.ts`)
+ *   - 42901 rate.limited              (auth failure limiter, `middleware/rateLimit.ts`)
+ *
  * Reserved (intentionally unallocated; do NOT reuse for new variants):
- *   - 40101 auth.invalid_token        (daemon's own token; future)
  *   - 40102 auth.missing_token        (daemon's own token; future)
  *   - 40103 auth.forbidden_origin     (daemon's own token; future)
- *   - 42901 rate.limited
  *   - 50002 protocol.version_mismatch
  *
  * (`ErrorCodeReason` 不随本表迁移：server 侧没有消费方；数字码到字符串

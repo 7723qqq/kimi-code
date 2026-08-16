@@ -1,5 +1,5 @@
 /**
- * `/api/v1` skills routes — server-v2 port of `packages/server/test/skills.e2e.test.ts`.
+ * `/api/v1` skills routes — server-v2 port of `packages/server/test/skills.e2e.test.ts` (removed with the v1 engine).
  *
  * Covers the wire contract of the three endpoints:
  *   - GET  /api/v1/sessions/{sid}/skills                  → envelope shape + skills[]

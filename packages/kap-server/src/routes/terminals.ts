@@ -1,7 +1,7 @@
 /**
  * `/sessions/{session_id}/terminals*` route handlers — server-v2 port.
  *
- * Mirrors `packages/server/src/routes/terminals.ts` path-for-path and
+ * Mirrors `packages/server/src/routes/terminals.ts` (removed with the v1 engine) path-for-path and
  * schema-for-schema so existing v1 clients keep working against server-v2.
  * Backed by the v2 Session-scoped `ISessionTerminalService`
  * (`agent-core-v2/src/session/terminal`): the route resolves the session from

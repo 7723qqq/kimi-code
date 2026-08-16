@@ -20,8 +20,11 @@ Requires Node.js 22.19.0 or later.
 
 ```ts
 import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
-const harness = createKimiHarness({ homeDir: '~/.kimi-code' });
+// `~` is not expanded — pass an absolute path (omit homeDir to default to ~/.kimi-code).
+const harness = createKimiHarness({ homeDir: join(homedir(), '.kimi-code') });
 const session = await harness.createSession({ prompt: 'Hello!' });
 ```
 

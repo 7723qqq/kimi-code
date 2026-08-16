@@ -1,4 +1,4 @@
-// test/e2e/fuzz-model.test.js
+// test/e2e/fuzz-model.test.ts
 //
 // Model-based fuzz: feed identical random op sequences to MiniDb and a tiny
 // reference model, and assert they always agree. Seeded so any failure is

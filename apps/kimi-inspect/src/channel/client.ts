@@ -13,10 +13,9 @@
  * The `agent-core-v2` service token is the whole key: its type parameter `T`
  * types the returned proxy, and its decorator id (`String(id)`) is the channel
  * name in the URL. Calls ride HTTP (`ProxyChannel`). There is no event
- * transport: the v2 socket (`/api/v2/ws`) that used to carry Service `onXxx`
- * emitters and scope event streams was removed server-side, so the UI reads
- * Service state on demand. (The transcript's own `/api/v1/ws` delta channel
- * lives in `src/transcript/` and is unrelated to this client.)
+ * transport: no WS event socket (`/api/v2/ws`) exists, so the UI reads
+ * Service state on demand. (The transcript's own `/api/v1/ws` block-grade
+ * channel lives in `src/transcript/` and is unrelated to this client.)
  */
 
 import type { ServiceProxy, ServiceRef } from './channel';

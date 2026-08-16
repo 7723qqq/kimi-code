@@ -3,7 +3,7 @@
 //! Tool scheduling — parallel and serial execution of tool calls with
 //! resource conflict detection.
 //!
-//! Corresponds to `packages/agent-core/src/loop/tool-scheduler.ts`.
+//! Corresponds to `packages/agent-core-v2/src/agent/toolExecutor/toolScheduler.ts`.
 //!
 //! The scheduler groups tool calls into non-conflicting batches:
 //!   - Tasks with non-conflicting resource accesses run in the same batch

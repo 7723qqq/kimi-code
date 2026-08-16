@@ -1,16 +1,16 @@
-// test/e2e/helpers/crash-writer.js
+// test/e2e/helpers/crash-writer.ts
 // Child process: writes keys k0,k1,k2,... sequentially with fsyncPolicy='always'
 // (so every *completed* set is durable), optionally compacting every N writes.
 // Runs until killed by the parent (crash injection).
 //
-//   node crash-writer.js <dir> [compactEvery]
+//   node crash-writer.ts <dir> [compactEvery]
 
 import { MiniDb } from '../../../src/index.js';
 
 const dir = process.argv[2];
 const compactEvery = Number(process.argv[3] || 0);
 if (!dir) {
-  console.error('usage: crash-writer.js <dir> [compactEvery]');
+  console.error('usage: crash-writer.ts <dir> [compactEvery]');
   process.exit(2);
 }
 

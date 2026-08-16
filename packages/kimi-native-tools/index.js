@@ -345,7 +345,7 @@ function nativeGlob(pattern, options = {}) {
  * Check if a path matches any of the given glob patterns.
  *
  * Uses `globset::GlobSet` to batch-compile all patterns and test the path
- * in a single `is_match` call. Case-insensitive matching.
+ * in a single `is_match` call. Case-sensitive matching.
  *
  * @param {string[]} globs - Array of glob patterns.
  * @param {string} path - Relative path to test.
@@ -510,6 +510,22 @@ function nativeComputeCompactCount(messages, config, isManual) {
  */
 function nativeReduceCompactOnOverflow(messages, config) {
   return binding.nativeReduceCompactOnOverflow(messages, config);
+}
+
+/**
+ * Resolve the effective max output tokens for a compaction call.
+ *
+ * Mirrors `defaultCompactionCap` in the TS compaction service: an explicit
+ * positive `maxOutputSize` wins; otherwise cap at `min(maxContextTokens,
+ * DEFAULT_COMPACTION_MAX_COMPLETION_TOKENS)`; `null` when the context
+ * window is unknown.
+ *
+ * @param {number} maxContextTokens - Context window size (0 = unknown).
+ * @param {number|null} maxOutputSize - Explicit max output size, or null.
+ * @returns {number|null} Resolved cap, or null when the context is unknown.
+ */
+function nativeResolveCompactionMaxCompletionTokens(maxContextTokens, maxOutputSize) {
+  return binding.resolveCompactionMaxCompletionTokens(maxContextTokens, maxOutputSize);
 }
 
 // ============================================================================
@@ -977,6 +993,7 @@ module.exports = {
   // Compaction
   nativeComputeCompactCount,
   nativeReduceCompactOnOverflow,
+  nativeResolveCompactionMaxCompletionTokens,
   nativeCanSplitAfter,
   nativeSelectCompactionUserMessages,
 

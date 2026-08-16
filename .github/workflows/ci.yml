@@ -124,6 +124,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm run sherif
+      # Locale consistency: en/zh key parity, placeholder validity, and JSON
+      # freshness (regenerate, then fail if tracked JSON drifted from the TS sources).
+      - run: node scripts/check-locale-keys.mjs
+      - run: node scripts/check-locale-placeholders.cjs
+      - run: node scripts/generate-locale-json.cjs && git diff --exit-code -- '**/locales/*.json'
 
   typecheck:
     runs-on: ubuntu-latest

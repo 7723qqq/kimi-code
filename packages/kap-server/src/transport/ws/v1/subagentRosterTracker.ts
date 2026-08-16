@@ -5,7 +5,7 @@
  * earlier `subagent.spawned` events — the only carriers of the swarm identity
  * metadata — are never replayed to it.
  *
- * Ported from v1 (`packages/server/src/services/gateway/subagentRosterTracker.ts`),
+ * Ported from v1 (`packages/server/src/services/gateway/subagentRosterTracker.ts` — removed with the v1 engine),
  * with two adaptations: a swarm member's own `turn.ended` never clears the
  * roster (every agent's events flow through the same per-session dispatch
  * queue here, unlike v1's firehose), and the main agent's `turn.ended` does

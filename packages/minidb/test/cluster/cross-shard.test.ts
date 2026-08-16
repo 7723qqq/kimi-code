@@ -1,4 +1,4 @@
-// test/cluster/cross-shard.test.js
+// test/cluster/cross-shard.test.ts
 //
 // Cross-shard semantics: best-effort mset, 'none' mode rejection, per-shard
 // secondary/text indexes with global merge, and cluster-wide compaction.

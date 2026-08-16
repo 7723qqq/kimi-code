@@ -201,10 +201,10 @@ describe('context-projector', () => {
   });
 
   // ---- Fix G: tool.result content must match what the model saw ---------------
-  // agent-core's `ContextMemory.appendLoopEvent` (`tool.result` case) stores
-  // `createToolMessage(toolCallId, toolResultOutputForModel(event.result))`, NOT
-  // the raw `event.result.output`. `toolResultOutputForModel`
-  // (`packages/agent-core/src/agent/context/index.ts` ~line 350) normalizes
+  // agent-core-v2's `ContextMemory.appendLoopEvent` (`tool.result` case) stores
+  // `createToolMessage(toolCallId, renderToolResultForModel(event.result))`, NOT
+  // the raw `event.result.output`. `renderToolResultForModel`
+  // (`packages/agent-core-v2/src/agent/contextMemory/toolResultRender.ts`) normalizes
   // error / empty outputs with sentinel strings. The projector must replicate
   // that normalization so the model-view shows the content the model actually
   // received for failed / empty tool calls.

@@ -9,6 +9,8 @@ export default defineConfig({
     './src/providers/anthropic-profile.ts',
     './src/providers/anthropic.ts',
     './src/providers/google-genai.ts',
+    './src/providers/astron-models.ts',
+    './src/providers/anthropic-cache-breakpoints.ts',
 
     './src/providers/openai-common.ts',
   ],

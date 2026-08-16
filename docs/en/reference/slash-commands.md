@@ -13,12 +13,13 @@ Some commands are only available in the idle state. Executing these commands whi
 | Command | Alias | Description | Always available |
 | --- | --- | --- | --- |
 | `/login` | — | Select an account or platform and log in: Kimi Code uses OAuth device-code flow; Kimi Platform uses API key login | No |
-| `/logout` | — | Clear credentials for the currently selected account | No |
-| `/provider` | — | Open the interactive provider manager to view, add, and remove configured providers. See [Platforms & Models — `/provider` and provider management](../configuration/providers.md#provider-—-interactive-provider-management) | Yes |
+| `/logout` | `/disconnect` | Clear credentials for the currently selected account | No |
+| `/provider` | `/providers` | Open the interactive provider manager to view, add, and remove configured providers. See [Platforms & Models — `/provider` and provider management](../configuration/providers.md#provider-—-interactive-provider-management) | Yes |
 | `/model` | — | Switch the LLM model used in the current session | Yes |
 | `/secondary-model` | `/subagent-model` | Pick the default model for subagents (writes `[secondary_model] default_model`; see the [subagent model pool](../configuration/config-files.md#subagent-model-pool)). Visible when the subagent model pool experiment is enabled | Yes |
+| `/multi-llm` | `/multillm` | Configure MultiLLM concurrent providers (Rust engine) | Yes |
 | `/settings` | `/config` | Open the settings panel inside the TUI | Yes |
-| `/experiments` | `/experimental` | Open the experimental feature panel | Yes |
+| `/experiments` | `/experimental` | Open the experimental feature panel | No |
 | `/permission` | — | Select a permission mode | Yes |
 | `/editor` | — | Configure the external editor launched by `Ctrl-G` | Yes |
 | `/theme` | — | Switch the terminal UI color theme | Yes |
@@ -51,8 +52,11 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/auto [on\|off]` | — | Toggle auto permission mode. When enabled, tool approvals are handled automatically and the Agent will not ask the user questions | Yes |
 | `/plan [on\|off]` | — | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file | Yes |
 | `/plan clear` | — | Clear the current plan | No |
-| `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | Yes |
+| `/effort` | `/thinking` | Switch thinking effort | Yes |
+| `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | No |
 | `/swarm <task>` | — | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to `auto` or `yolo` before starting. | No |
+| `/discuss <topic>` | — | Start a roundtable discussion among multiple agents | No |
+| `/workflow <name> [<args>...]` | — | Run or manage workflows (list, status, cancel, or run by name) | Yes |
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
 
 ::: warning

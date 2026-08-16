@@ -663,7 +663,7 @@ export abstract class SDKRpcClientBase {
     const maxContextTokens = capability?.max_input_tokens ?? capability?.max_context_tokens ?? 0;
     const contextTokens = context.tokenCount;
     // Deliberately unclamped: >100% is the documented overflow signal on this
-    // path (see acp-adapter's formatContextUsage), unlike the schema-bounded
+    // path (see the former acp-adapter's `formatContextUsage`, removed with the v1 engine), unlike the schema-bounded
     // REST status surfaces which clamp to 1.
     const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
     const hasUsage =

@@ -169,9 +169,9 @@ HTTP 状态码几乎总是 200，业务结果以 `code` 为准。例外情况：
 
 | 方法与路径 | 说明 |
 | --- | --- |
-| `GET /api/v1/sessions/{session_id}/approvals` | 列出审批请求（可按 `status=pending` 过滤） |
+| `GET /api/v1/sessions/{session_id}/approvals` | 列出审批请求（必填 `status=pending`） |
 | `POST /api/v1/sessions/{session_id}/approvals/{approval_id}` | 答复审批 |
-| `GET /api/v1/sessions/{session_id}/questions` | 列出提问 |
+| `GET /api/v1/sessions/{session_id}/questions` | 列出提问（必填 `status=pending`） |
 | `POST /api/v1/sessions/{session_id}/questions/{question_id}` | 回答提问 |
 | `POST /api/v1/sessions/{session_id}/questions/{question_id}:dismiss` | 忽略提问 |
 
@@ -295,14 +295,14 @@ PTY 终端接口，仅 loopback 绑定时挂载。
 | `unsubscribe` | `{ session_ids }` | 取消会话订阅 |
 | `subscribe_v2` | `{ session_id, transcript, transcript_since? }` | 订阅转录流（唯一的转录订阅通道），`transcript` 按 agent 指定粒度 |
 | `unsubscribe_v2` | `{ session_id, agent_ids? }` | 退订转录流；省略 `agent_ids` 表示整个会话 |
-| `watch_fs_add` / `watch_fs_remove` | `{ session_id, paths, recursive? }` | 订阅 / 取消文件变更通知（`event.fs.changed`） |
+| `watch_fs_add` / `watch_fs_remove` | `{ session_id, paths }` | 订阅 / 取消文件变更通知（`event.fs.changed`） |
 | `client_hello` | `{ client_id }` | 握手帧，其余字段为遗留兼容 |
 
 ### 事件
 
 事件帧形状为 `{ "type", "seq", "epoch"?, "volatile"?, "offset"?, "session_id"?, "timestamp", "payload" }`，`type` 即事件类型。按投递范围分两类：
 
-- **全局事件**：发送到每个已建立连接，无需订阅——`session.meta.updated`、`event.session.created`、`event.session.work_changed`、`event.session.status_changed`、`event.workspace.*`、`event.config.*`。
+- **全局事件**：发送到每个已建立连接，无需订阅——`session.meta.updated`、`event.session.created`、`event.session.work_changed`、`event.workspace.*`、`event.config.*`。
 - **会话事件**：只发给订阅了该会话的连接，受 `agent_filter` 过滤。主要事件族：
 
 | 事件族 | 主要事件 |
@@ -315,7 +315,7 @@ PTY 终端接口，仅 loopback 绑定时挂载。
 | 后台 | `task.started` / `terminated`、`shell.started` / `output` / `completed` |
 | 其他 | `compaction.*`、`skill.activated`、`goal.updated`、`prompt.*`、`error`、`warning` |
 
-事件另分持久与易失两种：持久事件带严格递增的 `seq`，落盘并可回放；易失事件（各 `*.delta`、`tool.progress`、`shell.*` 等）标 `volatile: true`，不回放。消费易失文本流时用 `offset`（该轮次内的累计字符偏移）与本地已累积文本比对：小于本地长度说明是重复帧，大于说明有缺漏、需走快照恢复。
+事件另分持久与易失两种：持久事件带严格递增的 `seq`，落盘并可回放；易失事件（各 `*.delta`、`tool.progress`、`shell.*` 等）标 `volatile: true`，不回放。消费易失文本流时用 `offset`（当前 step 内累计的字符偏移，每次 `turn.step.started` 归零）与本地已累积文本比对：小于本地长度说明是重复帧，大于说明有缺漏、需走快照恢复。
 
 ### 断线恢复
 

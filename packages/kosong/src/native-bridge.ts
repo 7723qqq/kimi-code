@@ -1,10 +1,10 @@
 /**
  * Native (Rust) LLM provider bindings.
  *
- * This module wraps the kosong-native Rust crate and exposes
- * ChatProvider-compatible interfaces for the agent-core-v2 engine.
- * When the native module is available, it replaces the TypeScript
- * provider implementations to reduce JS↔Rust serialization overhead.
+ * Legacy module, not wired into any engine: nothing imports it, and the
+ * `@moonshot-ai/kosong-native` crate it requires is not the native addon the
+ * provider pipeline actually uses (`@moonshot-ai/kimi-native-tools`, see
+ * native-stream.ts). Kept for reference only.
  */
 
 import {

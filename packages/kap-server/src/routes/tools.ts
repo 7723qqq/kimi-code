@@ -2,7 +2,7 @@
  * `/tools` + `/mcp/servers*` REST routes — server-v2 port.
  *
  * 3 endpoints (REST.md §3.8), mirroring the v1 server's wire contract
- * (`packages/server/src/routes/tools.ts`):
+ * (`packages/server/src/routes/tools.ts`, removed with the v1 engine):
  *
  *   GET  /tools                                  query: {session_id?}    data: {tools: ToolDescriptor[]}
  *   GET  /mcp/servers                            -                       data: {servers: McpServer[]}

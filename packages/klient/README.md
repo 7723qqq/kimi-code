@@ -8,7 +8,9 @@ that is byte-identical:
 import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
 import { createKlient } from '@moonshot-ai/klient/memory';   // or '/ipc'
 
-const { app } = bootstrap({ homeDir }, [
+// `clientIdentity` is required — the engine's frozen host identity snapshot.
+const clientIdentity = { productName: 'example', version: '0.0.0', platform: 'example' };
+const { app } = bootstrap({ homeDir, clientIdentity }, [
   ...logSeed(resolveLoggingConfig({ homeDir, env: process.env })),
 ]);
 const klient = createKlient({ scope: app });
@@ -41,14 +43,15 @@ ipc │ memory
   `onDid*`/`onWill*` event names. There is no escape hatch to raw services:
   the facade is the public contract.
   - `klient.global.*` — `sessions.*` (incl. `create`), `workspaces.*`,
-    `config.*`, `providers.*`, `models.*`, `catalog.*`, `auth.*`, `flags.*`,
-    `plugins.*`, `hostFs.*`, `env()`.
-  - `klient.session(id).*` — `get/setTitle/update/status/close/archive/
-    restore/fork/createChild`, `approvals.*`, `questions.*`,
-    `interactions.*`, `agents()`.
-  - `session.agent(id).*` — `prompt/steer/cancel/runShellCommand/
-    cancelShellCommand/getModel/setModel/setPermission/getUsage/getContext/
-    getPlan*/getTasks*/stopTask/getTaskOutput`.
+    `config.*`, `kosong.*` (providers/models/generate), `auth.*`, `flags.*`,
+    `plugins.*`, `capabilities.*`, `hostFs.*`, `env()`.
+  - `klient.session(id).*` — `get/setTitle/generateTitle/update/setArchived/
+    status/close/archive/restore/delete/fork/createChild`, `approvals.*`,
+    `questions.*`, `interactions.*`, `skills.*`, `agents()`.
+  - `session.agent(id).*` — `prompt/steer/activateSkill/cancel/runShellCommand/
+    cancelShellCommand/getModel/setModel/getThinking/setThinking/setPermission/
+    getUsage/getContext/listCommands/runCommand/getPlan*/getTasks*/stopTask/
+    getTaskOutput/getMcpServers/compact`.
 - **Contract** — every method has a zod input tuple + output schema, validated
   on the client before send / after receive (default on; `validate: false` to
   disable). Validation is sub-µs for typical payloads — cheaper than the JSON

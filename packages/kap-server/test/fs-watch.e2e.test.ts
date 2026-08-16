@@ -1,7 +1,7 @@
 /**
  * `event.fs.changed` end-to-end for kap-server (server-v2).
  *
- * Mirrors `packages/server/test/fs-watch.e2e.test.ts` (v1) so the wire contract
+ * Mirrors `packages/server/test/fs-watch.e2e.test.ts` (v1, removed with the v1 engine) so the wire contract
  * stays byte-compatible:
  *   1. subscribe `src` → create file → receive `event.fs.changed`
  *   2. burst > 500 changes / 200ms → `truncated` event

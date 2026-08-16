@@ -300,7 +300,8 @@ export function registerQuestionsRoutes(app: QuestionRouteHost, core: Scope): vo
 // ---------------------------------------------------------------------------
 // Protocol ↔ in-process adapter (ported from
 // `packages/agent-core/src/services/question/question.ts`, reimplemented here
-// so the edge never imports v1). Synthesizing stable ids (the SDK has no
+// so the edge never imports v1; the v1 source was removed with the v1 engine).
+// Synthesizing stable ids (the SDK has no
 // per-item / per-option id):
 //   - QuestionItem.id   ← `q_<index>`              (e.g. `q_0`, `q_1`)
 //   - QuestionOption.id ← `opt_<item>_<option>`    (e.g. `opt_0_0`)

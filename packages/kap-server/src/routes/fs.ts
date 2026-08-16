@@ -1,7 +1,8 @@
 /**
  * `/api/v1` session filesystem routes — server-v2 port.
  *
- * Mirrors `packages/server/src/routes/fs.ts` path-for-path and schema-for-schema
+ * Mirrors `packages/server/src/routes/fs.ts` — removed with the v1 engine —
+ * path-for-path and schema-for-schema
  * so existing v1 clients keep working against server-v2. Backed by the v2
  * Workspace-scoped `IWorkspaceFsService` (`agent-core-v2/src/workspace/workspaceFs`):
  * the route resolves the session from the URL, then dispatches `fs:<action>`

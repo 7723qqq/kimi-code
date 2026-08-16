@@ -746,7 +746,8 @@ pub fn native_select_compaction_user_messages(
 /// Estimate token count from text using a character-based heuristic.
 ///
 /// ASCII: ~4 chars per token. Non-ASCII (CJK, emoji): ~1 char per token.
-/// Matches the TS `estimateTokens` in `utils/tokens.ts`.
+/// Matches the TS `estimateTokens` in
+/// `packages/agent-core-v2/src/kosong/contract/tokens.ts`.
 ///
 /// Uses byte-level UTF-8 scanning — counts start bytes of multi-byte
 /// sequences instead of decoding code points, giving identical results
@@ -773,7 +774,7 @@ pub fn native_estimate_tokens_batch(texts: Vec<String>) -> u32 {
 /// Walks bytes forward using the same ASCII/non-ASCII heuristic as
 /// `native_estimate_tokens` and stops at the first code point that would
 /// push the running total over the budget. Mirrors `truncateTextToTokens`
-/// in `compaction/handoff.ts`.
+/// in `packages/agent-core-v2/src/agent/contextMemory/compactionHandoff.ts`.
 #[napi]
 pub fn native_truncate_text_to_tokens(text: String, max_tokens: u32) -> String {
     tokens::truncate_text_to_tokens(&text, max_tokens as usize)
@@ -783,7 +784,7 @@ pub fn native_truncate_text_to_tokens(text: String, max_tokens: u32) -> String {
 ///
 /// Walks bytes backward, skipping UTF-8 continuation bytes to consume
 /// multi-byte sequences whole. Mirrors `truncateTextToTokensFromEnd`
-/// in `compaction/handoff.ts`.
+/// in `packages/agent-core-v2/src/agent/contextMemory/compactionHandoff.ts`.
 #[napi]
 pub fn native_truncate_text_to_tokens_from_end(text: String, max_tokens: u32) -> String {
     tokens::truncate_text_to_tokens_from_end(&text, max_tokens as usize)

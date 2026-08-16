@@ -5,11 +5,9 @@
  * `server_id` (ULID minted at boot), and `started_at`.
  *
  * **Capabilities**: the wire schema (`metaCapabilitiesSchema`) only permits the
- * literal `true` for each capability, so this mirrors the v1 response exactly to
- * keep the interface unchanged. server-v2 v0.1 does not yet back every
- * capability (no WebSocket / file upload / fs query / mcp / terminal); clients
- * must treat unbacked capabilities as not-yet-available until the corresponding
- * routes are wired.
+ * literal `true` for each capability, and every declared capability is backed
+ * by a live route (WebSocket / file upload / fs query / mcp / tasks /
+ * terminal), so clients can treat the map as available.
  *
  * **No DI for the static fields**: pure server-self info; that part of the
  * payload is frozen at registration time. `experimental_flags` is the

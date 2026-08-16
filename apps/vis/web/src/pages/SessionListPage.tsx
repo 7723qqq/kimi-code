@@ -18,10 +18,6 @@ export function SessionListPage() {
         </div>
         <div className="mt-10 space-y-1 text-left font-mono text-[10.5px] text-fg-3">
           <div>
-            <kbd className="mr-2 border border-border px-1 text-fg-2">/</kbd>
-            {t('sessionList.focusSearch')}
-          </div>
-          <div>
             <kbd className="mr-2 border border-border px-1 text-fg-2">esc</kbd>
             {t('sessionList.closeDrawers')}
           </div>

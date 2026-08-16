@@ -2,14 +2,17 @@ import { readFile } from 'node:fs/promises';
 
 import { parse as parseToml } from 'smol-toml';
 
-// Verbatim from packages/kimi-core/src/harness/configs/toml.ts:42
+// Verbatim from the removed v1 kimi-core package (harness/configs/toml.ts)
 export const DEFAULT_CONFIG_FILE_TEXT =
   '# ~/.kimi-code/config.toml\n' +
   '# Runtime settings for Kimi Code.\n' +
   '# This file starts empty so built-in defaults can apply.\n' +
   '# Login will populate managed Kimi provider and model entries.\n';
 
-// Verbatim from apps/kimi-code/src/tui/config.ts:renderTuiConfig(DEFAULT_TUI_CONFIG)
+// Snapshot of the old v1 TUI stub output (apps/kimi-code/src/tui/config.ts:renderTuiConfig).
+// No longer verbatim: renderTuiConfig now emits extra sections (render_latex,
+// disable_paste_burst, locale, cache_expiry_hint, [upgrade], [astron], [status_line])
+// and a different header, so isTuiStubOrMissing falls back to a semantic comparison.
 export const DEFAULT_TUI_RENDER =
   '# ~/.kimi-code/tui.toml\n' +
   '# Terminal UI preferences for kimi-code.\n' +

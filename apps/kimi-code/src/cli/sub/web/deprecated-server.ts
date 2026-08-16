@@ -27,7 +27,7 @@ export const DEPRECATED_SERVER_NOTICE =
 export function registerDeprecatedServerCommand(program: Command): void {
   const server = program
     .command('server')
-    .description('Deprecated — use `kimi web` instead.')
+    .description(t('cli.commandDescriptions.server'))
     // Swallow every legacy subcommand/flag (`run`, `kill`, `--port`, …) so
     // they all land in the same notice instead of a commander parse error.
     .allowUnknownOption(true)

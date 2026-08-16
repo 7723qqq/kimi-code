@@ -1,8 +1,9 @@
 /**
  * IPC wire framing — newline-delimited JSON over a `node:net` stream. One
- * socket multiplexes RPC `call`s and event `listen`s: `hello`/`call`/
- * `listen`/`unlisten` go out, `ready`/`result`/`error`/`listen_result`/
- * `event` come back.
+ * socket multiplexes RPC `call`s, RPC `stream`s, and event `listen`s:
+ * `hello`/`call`/`stream`/`stream_cancel`/`listen`/`unlisten` go out,
+ * `ready`/`result`/`error`/`listen_result`/`event`/`stream_data`/
+ * `stream_end`/`stream_error` come back.
  */
 
 /** One NDJSON message. `type` discriminates; other fields depend on it. */

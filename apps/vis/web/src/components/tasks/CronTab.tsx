@@ -9,9 +9,9 @@ interface CronTabProps {
   sessionId: string;
 }
 
-/** Cron tab — scheduled prompts persisted under the session's `cron/`
- *  directory. Like background tasks, none of this is in the wire, so it is
- *  the only place to see what a session has scheduled. */
+/** Cron tab — scheduled prompts persisted under each agent's homedir
+ *  (`<homedir>/cron`). Like background tasks, none of this is in the wire,
+ *  so it is the only place to see what a session has scheduled. */
 export function CronTab({ sessionId }: CronTabProps) {
   const { data, isLoading, error } = useCron(sessionId);
 

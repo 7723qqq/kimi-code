@@ -7,10 +7,9 @@
  * session State); the app-scope (server-level) Services live in their own
  * rail view (`AppServicesView`), not here.
  *
- * Everything here is fetch-on-demand (Load / Refresh buttons): the v2 event
- * socket (`/api/v2/ws`) that used to push core/session/agent event streams
- * — live panel refetches, the pending-interaction push, the merged event
- * log — was removed server-side, so there is no live push to render.
+ * Everything here is fetch-on-demand (Load / Refresh buttons): no `/api/v2/ws`
+ * event socket exists — no live panel refetches, no pending-interaction push,
+ * no merged event log — so there is no live push to render.
  */
 
 import { ISessionMetadata } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';

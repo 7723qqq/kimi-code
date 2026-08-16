@@ -2,8 +2,9 @@
  * Submit user feedback to the managed Kimi Code platform.
  *
  * POSTs a JSON body to `{kimiCodeBaseUrl}/feedback` with a Bearer access
- * token. The client tags `version` with a `kimi-code-` prefix so the
- * backend can identify this client.
+ * token. The `version` field is passed through verbatim; the calling app
+ * (apps/kimi-code) applies the `kimi-code-` prefix via
+ * withFeedbackVersionPrefix so the backend can identify this client.
  */
 
 import { readApiErrorMessage } from './api-error';

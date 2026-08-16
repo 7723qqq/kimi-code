@@ -39,7 +39,7 @@
 
 - `command`（必填）：要执行的 Shell 命令
 - `cwd`：工作目录
-- `timeout`：超时时间（毫秒）；前台默认 60 秒、最长 5 分钟
+- `timeout`：超时时间（秒）；前台默认 60 秒、最长 5 分钟
 - `run_in_background`：是否以后台任务运行；后台默认 10 分钟超时（print 模式 `kimi -p` 下默认无超时）
 - `description`：后台任务描述，`run_in_background=true` 时必填
 - `disable_timeout`：后台任务是否取消超时限制

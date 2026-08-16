@@ -4,7 +4,7 @@
  * Exposes the persistent bearer token plus a single validity check that accepts
  * EITHER the persistent token (constant-time, via `TokenStore`) OR a verified
  * user password (bcrypt, async). The seam exists so tests can inject a
- * fixed-token impl via `startServer({ serviceOverrides })`, and so `start.ts`
+ * fixed-token impl via `startServer({ authTokenService })`, and so `start.ts`
  * (M5.1) can wire the real async-built instance at boot.
  *
  * `isValid` is async because password verification (`bcrypt.compare`) is
@@ -37,9 +37,10 @@ export const IAuthTokenService = createDecorator<IAuthTokenService>('authTokenSe
  * Default `IAuthTokenService` over a `TokenStore` + optional password hash.
  *
  * Constructed in `start.ts` (M5.1) where the async `TokenStore` /
- * `passwordHash` are available, then injected via `serviceOverrides`. NOT built
- * inside `createServerServiceCollection`: that path is synchronous and cannot
- * await the `TokenStore` file write or the bcrypt hash.
+ * `passwordHash` are available, then injected via the `ServerStartOptions`
+ * `authTokenService` override. NOT built inside the server's service
+ * collection: that path is synchronous and cannot await the `TokenStore` file
+ * write or the bcrypt hash.
  */
 export function createAuthTokenService(deps: {
   readonly tokenStore: TokenStore;

@@ -1,4 +1,4 @@
-// test/e2e/boundary.test.js
+// test/e2e/boundary.test.ts
 //
 // Boundary / resource edge cases.
 

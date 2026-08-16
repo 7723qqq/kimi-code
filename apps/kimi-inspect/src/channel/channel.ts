@@ -5,9 +5,9 @@
  * `command` is the method name, invoked by reflection on the server.
  *
  * `listen` is kept for contract completeness (Service `onXxx` emitters map to
- * it), but the `/api/v1/debug` surface is HTTP-only — the v2 event socket
- * (`/api/v2/ws`) that used to serve it was removed — so the HTTP channel's
- * `listen` throws and panels fetch on demand instead.
+ * it), but the `/api/v1/debug` surface is HTTP-only — no WS event socket
+ * (`/api/v2/ws`) exists — so the HTTP channel's `listen` throws and panels
+ * fetch on demand instead.
  */
 
 import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2/_base/di/instantiation';

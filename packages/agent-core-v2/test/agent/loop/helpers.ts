@@ -1,7 +1,7 @@
 /**
  * `loop` domain — shared test fixtures for the loop e2e suites.
  *
- * Ported from the v1 `packages/agent-core/test/loop/fixtures/*` helpers:
+ * Ported from the v1 `packages/agent-core/test/loop/fixtures/*` helpers (removed with the v1 engine):
  * a scripted `MessageStepRequest` factory, a deferred-promise utility, an
  * echo tool that records its invocations, and a tool-registration helper
  * that activates the tool through the profile.

@@ -398,7 +398,7 @@ export function formatReadyBanner(
     // easy to spot without being highlighted.
     lines.push('');
     lines.push(
-      `  ${label('Token:    ')}${opts.token.slice(0, 8)}...${opts.token.slice(-4)}  ${dim('(use --token to customize)')}`,
+      `  ${label('Token:    ')}${opts.token.slice(0, 8)}...${opts.token.slice(-4)}  ${dim("(use 'kimi web rotate-token' to customize)")}`,
     );
     lines.push('');
   }

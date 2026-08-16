@@ -1,7 +1,7 @@
 /**
  * `loop` domain — streaming delta routing.
  *
- * Ported from v1 `packages/agent-core/test/loop/streaming.e2e.test.ts`.
+ * Ported from v1 `packages/agent-core/test/loop/streaming.e2e.test.ts`, removed with the v1 engine.
  * Provider parts are translated into live delta events (`assistant.delta`,
  * `thinking.delta`, `tool.call.delta`) and the completed content is
  * persisted into the context history.

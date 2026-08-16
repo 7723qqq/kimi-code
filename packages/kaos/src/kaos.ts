@@ -10,13 +10,14 @@ import type { StatResult } from './types';
  * through a unified API.
  */
 export interface Kaos {
-  /** Human-readable name for this environment (e.g. `"local"`, `"ssh:host"`). */
+  /** Human-readable name for this environment (e.g. `"local"`, `"ssh"`). */
   readonly name: string;
 
   /**
    * OS / shell probe describing the target environment. Populated by the
-   * concrete Kaos implementation (e.g. `detectEnvironmentFromNode()` for
-   * `LocalKaos`, a remote probe for `SSHKaos`).
+   * concrete Kaos implementation (`detectEnvironmentFromNode()` for
+   * `LocalKaos`); `SSHKaos` does not implement it yet — its getter throws a
+   * `KaosError` ('not yet wired').
    */
   readonly osEnv: Environment;
 

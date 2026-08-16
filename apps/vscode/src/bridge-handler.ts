@@ -52,11 +52,11 @@ export class BridgeHandler {
         log: (message, error) => this.logRuntimeError(message, error),
       });
     } catch (error) {
-      // No silent fallback: report the failure with the rollback path, so the
-      // user can report it or switch engines and reload.
+      // No silent fallback: report the failure so the user can report it. The
+      // legacy v1 engine was removed, so no rollback hint is offered anymore.
       const rollbackHint = useAgentCoreV1
         ? ''
-        : " You can roll back to the legacy engine: enable the 'kimi.useAgentCoreV1' setting and reload the window.";
+        : " The legacy v1 engine was removed; the 'kimi.useAgentCoreV1' setting is deprecated and cannot work around this.";
       throw new Error(
         `Failed to start the Kimi engine: ${error instanceof Error ? error.message : String(error)}.${rollbackHint}`,
         { cause: error },

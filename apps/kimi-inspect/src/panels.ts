@@ -7,9 +7,8 @@
  * that trigger its methods. The generic `ServiceCard` renders them; adding a
  * curated panel is one entry here, no component code.
  *
- * Panels refresh manually (Load / Refresh buttons): the live event streams
- * that used to drive `refreshOn` refetches went away with the v2 socket
- * (`/api/v2/ws`).
+ * Panels refresh manually (Load / Refresh buttons): no `/api/v2/ws` event
+ * socket exists, so nothing pushes `refreshOn` refetches.
  *
  * The proxies are typed by the real `agent-core-v2` contracts at the call
  * site, but panels treat them as `AnyService` so one descriptor shape covers

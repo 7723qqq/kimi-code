@@ -49,22 +49,15 @@ const LOCALE_SOURCES = [
     zh: 'apps/vscode/webview-ui/src/i18n/locales/zh.ts',
     out: 'apps/vscode/webview-ui/src/i18n/locales',
   },
-  // kimi-web: index.ts exports { messages: { en: {...}, zh: {...} } }
+  // kimi-web: index.ts exports { messages: { en: {...}, zh: {...} } }.
+  // Its namespace imports are extensionless (Vite convention, see
+  // apps/kimi-web/AGENTS.md), which the Node ESM loader cannot resolve, so
+  // this entry is loaded via the kimiWeb directory loader below
+  // (namespace key == file basename, matching index.ts registrations).
   {
-    src: 'apps/kimi-web/src/i18n/locales/index.ts',
+    src: 'apps/kimi-web/src/i18n/locales',
     out: 'apps/kimi-web/src/i18n/locales',
-    extract: (mod) => {
-      const m = mod.default || mod;
-      // If the module has a `messages` property with `en` and `zh`, use that
-      if (m.messages && m.messages.en && m.messages.zh) {
-        return { en: m.messages.en, zh: m.messages.zh };
-      }
-      // If we got a combined object with top-level `en` and `zh` keys
-      if (m.en && m.zh) {
-        return { en: m.en, zh: m.zh };
-      }
-      throw new Error('Cannot extract en/zh from module');
-    },
+    kimiWeb: true,
   },
 ];
 
@@ -80,6 +73,11 @@ for (const source of LOCALE_SOURCES) {
     zhPath = enPath; // same file
     outDir = path.resolve(ROOT, source.out);
     extractFn = source.extract;
+  } else if (source.kimiWeb) {
+    // kimi-web entry: src is the locales directory; namespaces are loaded
+    // per file below (key == basename), so no module-level require happens.
+    outDir = path.resolve(ROOT, source.out);
+    extractFn = undefined;
   } else {
     enPath = path.resolve(ROOT, source.en);
     zhPath = path.resolve(ROOT, source.zh);
@@ -88,19 +86,35 @@ for (const source of LOCALE_SOURCES) {
   }
 
   try {
-    const enModule = require(enPath);
-
     let enData, zhData;
 
-    if (source.extract) {
-      // Use the extract function to get both en and zh from the same module
-      const extracted = extractFn(enModule);
-      enData = extracted.en;
-      zhData = extracted.zh;
+    if (source.kimiWeb) {
+      const loadDir = (locale) => {
+        const dir = path.join(outDir, locale);
+        const out = {};
+        // readdirSync order is filesystem-dependent — sort so generated JSON
+        // (and the CI freshness diff) is deterministic across machines.
+        for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.ts')).sort()) {
+          const name = file.slice(0, -'.ts'.length);
+          const mod = require(path.join(dir, file));
+          out[name] = mod.default ?? mod;
+        }
+        return out;
+      };
+      enData = loadDir('en');
+      zhData = loadDir('zh');
     } else {
-      const zhModule = require(zhPath);
-      enData = enModule.default || enModule;
-      zhData = zhModule.default || zhModule;
+      const enModule = require(enPath);
+      if (source.extract) {
+        // Use the extract function to get both en and zh from the same module
+        const extracted = extractFn(enModule);
+        enData = extracted.en;
+        zhData = extracted.zh;
+      } else {
+        const zhModule = require(zhPath);
+        enData = enModule.default || enModule;
+        zhData = zhModule.default || zhModule;
+      }
     }
 
     fs.mkdirSync(outDir, { recursive: true });

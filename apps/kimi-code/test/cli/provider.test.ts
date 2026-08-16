@@ -59,7 +59,7 @@ function makeHarness(initial: KimiConfig): {
 } {
   // `persisted` simulates the on-disk config; the real RPC's `removeProvider`
   // reads from / writes to disk on every call (see
-  // `packages/agent-core/src/rpc/core-impl.ts removeKimiProvider`). Tests must
+  // `packages/agent-core-v2/src/kosong/provider/providerService.ts` `ProviderService.delete`). Tests must
   // model this: anything the handler builds up in its in-memory `config`
   // object disappears unless it is flushed via `setConfig` BEFORE the next
   // `removeProvider`.
@@ -72,7 +72,7 @@ function makeHarness(initial: KimiConfig): {
     setConfig: async (patch) => {
       setConfigCalls.push(structuredClone(patch));
       // Mirror the real `setKimiConfig`: deep-merge with undefined keys
-      // skipped (see `agent-core/src/config/merge.ts deepMerge`). This is
+      // skipped (see `packages/agent-core-v2/src/app/config/configPure.ts deepMerge`). This is
       // load-bearing for tests that assert `setConfig({defaultModel:
       // undefined})` does NOT wipe a key from disk — only `removeProvider`
       // can.

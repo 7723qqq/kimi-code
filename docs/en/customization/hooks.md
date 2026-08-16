@@ -17,10 +17,10 @@ The script's response is determined by two things:
 - **Exit code**: `0` means allow, `2` means block, other non-zero values default to allow
 - **Standard output** (stdout): can include explanatory text
 
-Even if the script errors or times out, the CLI **will not interrupt your work** as a result — this "allow on failure" design is called fail-open, preventing hook errors from becoming blockers.
+For observation events, even if the script errors or times out, the CLI **will not interrupt your work** — this "allow on failure" design is called fail-open, preventing hook errors from becoming blockers. The exception is the permission-gating events `PreToolUse` and `Stop`: they fail closed, so a script error or timeout **blocks** the operation instead of silently allowing it.
 
 ::: warning Note
-Precisely because of fail-open, Hooks are suitable for alerts and lightweight interception, but **should not be used as the sole security barrier**. For truly high-risk operations, rely on permission approvals and manual confirmation.
+Precisely because most events are fail-open, Hooks are suitable for alerts and lightweight interception, but **should not be used as the sole security barrier**. Only the permission-gating events (`PreToolUse`, `Stop`) fail closed; everything else defaults to allow on failure. For truly high-risk operations, rely on permission approvals and manual confirmation.
 :::
 
 ## Quick Start: A Minimal Hook
@@ -80,6 +80,8 @@ After the script exits, the CLI determines the hook's intent based on the exit c
 | `2` | Intentional block | Stop the current operation; stderr content (printed via `console.error`) is used as the reason for blocking |
 | Other non-zero | Script error | Default allow (fail-open) |
 | Timeout or crash | Script exception | Default allow (fail-open) |
+
+The exception is the permission-gating events `PreToolUse` and `Stop`: they fail closed, so a script error or timeout **blocks** the operation instead of allowing it — a broken hook must never silently weaken the gate.
 
 You can also return a JSON object via stdout to block:
 

@@ -17,9 +17,8 @@
  *   recording proxies around every card. Card headers copy the Service
  *   name on click (`CopyableName`).
  *
- * Everything here is fetch-on-demand (Load / Refresh buttons): the v2 event
- * socket (`/api/v2/ws`) that used to push core/session/agent event streams
- * was removed server-side, so there is no live push to render.
+ * Everything here is fetch-on-demand (Load / Refresh buttons): no `/api/v2/ws`
+ * event socket exists, so there is no live push to render.
  */
 
 import { useQuery } from '@tanstack/react-query';

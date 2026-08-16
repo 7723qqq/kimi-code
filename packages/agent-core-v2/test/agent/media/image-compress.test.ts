@@ -1487,7 +1487,7 @@ interface CapturedEvent {
 function captureTelemetry(): { client: ImageCompressionTelemetryClient; events: CapturedEvent[] } {
   const events: CapturedEvent[] = [];
   return {
-    client: { track: (event, props) => events.push({ event, props: props ?? {} }) },
+    client: { track2: (event, props) => events.push({ event, props: props ?? {} }) },
     events,
   };
 }
@@ -1623,7 +1623,7 @@ describe('compressImageForModel — telemetry', () => {
 
   it('never lets a throwing telemetry client break compression', async () => {
     const throwing: ImageCompressionTelemetryClient = {
-      track: () => {
+      track2: () => {
         throw new Error('sink down');
       },
     };

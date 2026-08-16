@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-// test/db.test.js
+// test/db.test.ts
 import { test } from 'vitest';
 
 import { encodeFrame, TYPE_SET } from '../src/codec.js';

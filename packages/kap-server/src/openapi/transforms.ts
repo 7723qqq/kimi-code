@@ -4,9 +4,10 @@
  * binary download, and the `{tail}` dispatchers) are represented accurately.
  *
  * Tailored to the route subset `server-v2` actually registers. Notably, the
- * session-action dispatcher only serves `::archive` in v2, so this module
- * projects `/sessions/{tail}` into a single `/sessions/{session_id}:archive`
- * operation — unlike v1, which clones it into fork / compact / undo. Wire
+ * session-action dispatcher serves fork / compact / undo / abort / btw /
+ * archive / restore through `/sessions/{tail}`; this module projects that
+ * generic path into a single `/sessions/{session_id}:archive` operation (the
+ * only action whose response schema is distinct). Wire
  * schemas are re-used from the local `protocol/` tree and `@moonshot-ai/agent-core-v2`; none are re-declared here.
  */
 

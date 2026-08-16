@@ -1,4 +1,4 @@
-// test/e2e/crash-recovery.test.js
+// test/e2e/crash-recovery.test.ts
 //
 // Crash injection: spawn a child that writes keys sequentially with
 // fsyncPolicy='always', kill -9 it at a random time, then reopen and verify:

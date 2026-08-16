@@ -1,7 +1,9 @@
-/// Rust agent engine adapter.
+/// Rust agent engine adapter (experimental).
 ///
-/// When `agent.engine = "rust"` is configured, this module provides
-/// a drop-in replacement for the JS turn loop. Two transport modes are
+/// Not wired into the app in this build: the `agent.engine = "rust"`
+/// configuration key does not exist and `createRunTurnOverride` has no
+/// importers, so the JS turn loop always runs. Kept as the integration
+/// surface for the planned Rust engine. Two transport modes are
 /// supported, selected automatically at startup:
 ///
 /// 1. **napi-rs** (preferred): The native `kimi_agent.node` addon is
@@ -326,9 +328,9 @@ class NapiEngine {
    * Call the native runTurnRust function.
    *
    * Internally wraps the callbacks to use the **callback registry** pattern:
-   * Rust calls `(envelope: string) => void` where envelope is a JSON object
-   * `{ id: number, payload: string }`. The wrapper parses the envelope,
-   * calls the user's async callback with the payload, then resolves via
+   * Rust invokes each JS callback with a single `callbackId: number`. The
+   * handler fetches the request payload via `getCallbackPayload(id)`, calls
+   * the user's async callback with the payload, then resolves via
    * `resolveCallback(id, err?, result?)`.
    *
    * The two callbacks receive JSON-serialized request payloads and must
@@ -432,6 +434,11 @@ class NapiEngine {
 // ── Agent process manager (stdio JSON-RPC) ────────────────────────────────
 
 class AgentProcess {
+  // kimi-agent has no tsconfig of its own (it is a Rust package), so
+  // type-aware oxlint resolves `ChildProcess` as an error/any type here and
+  // flags the union as redundant. The file is a standalone JS companion that
+  // is type-checked by no project; disable the rule for this line only.
+  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
   private process: ChildProcess | null = null;
   private nextId = 1;
   private pending = new Map<
@@ -1344,10 +1351,9 @@ const PREDICTION_PREVIEW_LINES = 5;
  * The prediction includes the first few lines with line numbers and a
  * note that it's a prediction — the precise result will replace it shortly.
  *
- * When the Rust `WorkspaceIndex` has been preheated (via
- * `nativeBuildWorkspaceIndex`), predictions are served from it first —
- * the on-demand JS stat path is only a fallback for files the index
- * missed (e.g. created after the index was built).
+ * The Rust workspace index fast path is not wired in this build:
+ * `tryNativeWorkspaceIndexPredictRead` always returns null, so every
+ * prediction goes through the on-demand JS stat path.
  */
 export class WorkspacePredictor {
   private readonly root: string;
@@ -1359,9 +1365,8 @@ export class WorkspacePredictor {
   /**
    * Generate a Read prediction for the given path.
    *
-   * Tries the preheated Rust workspace index first (instant, no I/O on
-   * the JS side). On miss, falls back to an on-demand stat + read of the
-   * first N lines.
+   * Uses an on-demand stat + read of the first N lines. (The preheated
+   * Rust workspace index fast path is not wired in this build.)
    *
    * Returns null when:
    *   - The file doesn't exist or is not a regular file

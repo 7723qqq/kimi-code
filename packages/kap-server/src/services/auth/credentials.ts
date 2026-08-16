@@ -3,8 +3,9 @@
  *
  * One persistent bearer token (held by {@link IAuthTokenService}) protects every
  * route. An optional `rpcToken` may be accepted as an *additional* credential
- * for the `/api/v2` RPC surface (REST + WebSocket); it is never required and
- * never the only gate. The validator returns true when the presented candidate
+ * for the debug RPC surface (`/api/v1/debug/*` REST + WebSocket); it is never
+ * required and never the only gate. The validator returns true when the
+ * presented candidate
  * matches the persistent token / password (via {@link IAuthTokenService.isValid})
  * OR, when configured, the `rpcToken` (compared timing-safely).
  *

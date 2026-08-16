@@ -157,13 +157,18 @@ export interface GenerateOptions {
    */
   onRequestStart?: () => void;
   /**
-   * Host-side instrumentation hook fired by the provider adapter immediately
-   * before it dispatches the network request to the upstream API. The window
-   * between {@link onRequestStart} and this hook is in-process request-building
-   * time (message serialization, param assembly) spent by the client; the
-   * window between this hook and the first streamed part is network + server
-   * time. Splitting time-to-first-token across this boundary lets hosts
-   * attribute latency to the client vs. the API server.
+   * Host-side instrumentation hook fired around network dispatch — the exact
+   * timing varies by path. The SDK paths fire it immediately before issuing
+   * the upstream request; the native fast-path (openai-legacy, anthropic)
+   * fires it only after the native call returns (the request has completed
+   * by then); openai-responses fires it before the native attempt and again
+   * on the SDK fallback, so it can fire twice when the native path fails and
+   * the request is re-issued. The window between {@link onRequestStart} and
+   * this hook is in-process request-building time (message serialization,
+   * param assembly) spent by the client; the window between this hook and
+   * the first streamed part is network + server time (SDK paths). Splitting
+   * time-to-first-token across this boundary lets hosts attribute latency to
+   * the client vs. the API server.
    */
   onRequestSent?: () => void;
   /**

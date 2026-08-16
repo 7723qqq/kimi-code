@@ -3,7 +3,7 @@
 /// Finds files matching a glob pattern, sorted by modification time
 /// (most recent first). Supports brace expansion and directory filtering.
 ///
-/// Mirrors `packages/agent-core/src/tools/builtin/file/glob.ts`.
+/// Mirrors `packages/agent-core-v2/src/agent/tools/os/glob/glob.ts`.
 use ignore::WalkBuilder;
 use napi_derive::napi;
 use std::fs;

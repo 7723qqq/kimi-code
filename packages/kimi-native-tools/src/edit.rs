@@ -2,7 +2,7 @@
 ///
 /// Replaces the first occurrence of `old_string` with `new_string` by default.
 /// When `replace_all` is true, replaces all occurrences.
-/// Mirrors `packages/agent-core/src/tools/builtin/file/edit.ts`.
+/// Mirrors `packages/agent-core-v2/src/agent/tools/edit/edit.ts`.
 use crate::line_endings::{materialize_model_text, to_model_text_view};
 use napi_derive::napi;
 use std::fs;

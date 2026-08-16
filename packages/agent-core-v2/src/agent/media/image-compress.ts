@@ -37,6 +37,7 @@
  *    caller read a region of the original back at full fidelity.
  */
 
+import type { StrictPropertyCheck, TelemetryEventName, TelemetryEventPayload } from '#/app/telemetry/events';
 import type { ContentPart } from '#/kosong/contract/message';
 
 import { tryNativeCompressImage, tryNativeCropImage } from '../../_base/native-tools';
@@ -134,9 +135,9 @@ export interface CompressImageOptions {
 }
 
 export interface ImageCompressionTelemetryClient {
-  track(
-    event: string,
-    properties?: Readonly<Record<string, string | number | boolean | null | undefined>>,
+  track2<K extends TelemetryEventName, E extends TelemetryEventPayload<K> = never>(
+    event: K,
+    properties?: StrictPropertyCheck<TelemetryEventPayload<K>, E>,
   ): void;
 }
 
@@ -870,7 +871,7 @@ function reportCompressEvent(
 ): void {
   if (telemetry === undefined) return;
   try {
-    telemetry.client.track('image_compress', {
+    telemetry.client.track2('image_compress', {
       source: telemetry.source,
       outcome: input.outcome,
       input_mime: input.inputMime,
@@ -900,18 +901,21 @@ function reportCropEvent(
   try {
     const { result } = input;
     const originalPixels = result === undefined ? 0 : result.originalWidth * result.originalHeight;
-    telemetry.client.track('image_crop', {
+    telemetry.client.track2('image_crop', {
       source: telemetry.source,
       ok: input.ok,
-      error_kind: input.errorKind,
-      resized: result?.resized,
-      original_width: result?.originalWidth,
-      original_height: result?.originalHeight,
-      region_area_ratio:
-        result === undefined || originalPixels === 0
-          ? undefined
-          : (result.region.width * result.region.height) / originalPixels,
-      final_bytes: result?.finalByteLength,
+      ...(input.errorKind === undefined ? {} : { error_kind: input.errorKind }),
+      ...(result === undefined
+        ? {}
+        : {
+            resized: result.resized,
+            original_width: result.originalWidth,
+            original_height: result.originalHeight,
+            final_bytes: result.finalByteLength,
+          }),
+      ...(result !== undefined && originalPixels > 0
+        ? { region_area_ratio: (result.region.width * result.region.height) / originalPixels }
+        : {}),
       duration_ms: Date.now() - input.startedAt,
     });
   } catch {}

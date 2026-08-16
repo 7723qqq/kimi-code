@@ -40,7 +40,7 @@ For the full project map, see [AGENTS.md](AGENTS.md).
 Prerequisites: Node.js >= 24.15.0, pnpm 10.33.0, Git.
 
 ```sh
-git clone https://github.com/MoonshotAI/kimi-code.git
+git clone https://github.com/7723qqq/kimi-code.git
 cd kimi-code
 pnpm install
 ```
@@ -98,8 +98,6 @@ Copy-Item -Recurse -Force apps/kimi-code/dist-web "$env:USERPROFILE\.kimi-code\d
 
 ```powershell
 Copy-Item -Force packages/kimi-native-tools/kimi-native-tools.win32-x64-msvc.node `
-    "$env:USERPROFILE\.kimi-code\dist\chunks\"
-Copy-Item -Force packages/kimi-native-tools/kimi_native_tools.win32-x64-msvc.node `
     "$env:USERPROFILE\.kimi-code\dist\chunks\"
 ```
 

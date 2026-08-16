@@ -4,7 +4,7 @@ import { estimateTokensForMessages } from '@moonshot-ai/agent-core-v2/kosong/con
 /**
  * v2 import-context construction — pure functions that replicate, byte for
  * byte, the user message v1's `ContextMemory.importContext`
- * (`packages/agent-core/src/agent/context/index.ts`) appends for an
+ * (`packages/agent-core/src/agent/context/index.ts`, removed with the v1 engine) appends for an
  * `importContext` RPC, plus its validation and overflow rejection.
  *
  * Why a replica exists: the v2 engine has no import-context capability of its
@@ -12,8 +12,9 @@ import { estimateTokensForMessages } from '@moonshot-ai/agent-core-v2/kosong/con
  * primitives — the same wire `context.append_message` Op, the same token
  * estimator, the same model capabilities — are available, so the SDK composes
  * the v1 behavior on top of them. The wrapper format, the guidance text, and
- * the two XML escapers below are copied from v1 (`agent/core/src/agent/context`
- * and `agent-core/src/utils/xml-escape.ts`); keep them byte-identical with
+ * the two XML escapers below are copied from v1 (`packages/agent-core/src/agent/context`
+ * and `packages/agent-core/src/utils/xml-escape.ts`, both removed with the v1
+ * engine); keep them byte-identical with
  * those sources so a v1-written and a v2-written import reduce to the same
  * history.
  */

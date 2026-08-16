@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-// test/codec.test.js
+// test/codec.test.ts
 import { test } from 'vitest';
 
 import {

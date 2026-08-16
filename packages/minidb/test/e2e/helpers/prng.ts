@@ -1,4 +1,4 @@
-// test/e2e/helpers/prng.js
+// test/e2e/helpers/prng.ts
 // Deterministic seeded PRNG so a failing fuzz run can be reproduced exactly.
 
 export function mulberry32(seed) {

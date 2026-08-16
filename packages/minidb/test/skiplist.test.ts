@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-// test/skiplist.test.js
+// test/skiplist.test.ts
 import { test } from 'vitest';
 
 import { SkipList, cmpNumber, cmpString } from '../src/skiplist.js';

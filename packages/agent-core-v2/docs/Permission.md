@@ -26,7 +26,7 @@
 
 ## 二、现状（agent-core v1）
 
-代码位于 `packages/agent-core/src/agent/permission/`。
+代码位于 `packages/agent-core/src/agent/permission/`（removed with the v1 engine）。
 
 ### 2.1 架构：有序责任链 + 首个命中赢
 
@@ -72,7 +72,7 @@ type PermissionPolicyResult =
 
 ### 2.3 资源访问声明：`resolveExecution` + `accesses`
 
-工具通过 `resolveExecution(input)` 在执行前声明自己访问的资源（`packages/agent-core/src/loop/types.ts`、`tool-access.ts`）：
+工具通过 `resolveExecution(input)` 在执行前声明自己访问的资源（`packages/agent-core/src/loop/types.ts`、`tool-access.ts` — removed with the v1 engine）：
 
 ```ts
 interface RunnableToolExecution {
@@ -231,7 +231,7 @@ constructor(@IAgentToolExecutorService executor, ...) {
 工具在 `resolveExecution(input)` 里、执行前，用 `ToolAccesses.*` builder 声明访问的资源：
 
 ```ts
-// packages/agent-core/src/tools/builtin/file/write.ts
+// v1: packages/agent-core/src/tools/builtin/file/write.ts (removed with the v1 engine)
 resolveExecution(args: WriteInput): ToolExecution {
   const path = resolvePathAccessPath(args.path, { kaos, workspace, operation: 'write' });
   return {

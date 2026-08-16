@@ -31,9 +31,10 @@ function kindTone(kind: BackgroundTaskInfo['kind']): PillTone {
 }
 
 /** Tasks tab — background tasks (bash processes, subagents, pending
- *  questions) persisted under the session's `tasks/` directory, plus their
- *  `output.log`. None of this is reconstructable from the wire, so it is the
- *  only place to inspect what a session spawned in the background. */
+ *  questions) persisted under each spawning agent's homedir
+ *  (`<homedir>/tasks`), plus their `output.log`. None of this is
+ *  reconstructable from the wire, so it is the only place to inspect what a
+ *  session spawned in the background. */
 export function TasksTab({ sessionId }: TasksTabProps) {
   const { data, isLoading, error } = useTasks(sessionId);
 

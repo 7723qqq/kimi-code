@@ -176,6 +176,15 @@ export function nativeSniffImageDimensions(data: Uint8Array): ImageDimensions | 
 
 export function nativeIsSensitiveFile(path: string): boolean;
 
+export function nativeIsSensitiveFileBytes(pathBytes: Uint8Array): boolean;
+
+export interface FileTypeResult {
+  kind: string;
+  mimeType: string;
+}
+
+export function nativeDetectFileType(path: string, header: Uint8Array): FileTypeResult;
+
 // ============================================================================
 // Token estimation
 // ============================================================================
@@ -463,7 +472,7 @@ export const BASH_MAX_TIMEOUT: number;
 // ============================================================================
 
 export function nativeGoalValidateObjective(objective: string): string;
-export function nativeGoalValidateBudget(value: string): string;
+export function nativeGoalValidateBudget(value: number | null): string;
 export function nativeGoalApplyUpdate(goalJson: string, updateJson: string): string;
 export function nativeGoalComputeTokenDelta(
   prevInput: number,

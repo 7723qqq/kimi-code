@@ -2,8 +2,8 @@
  * `_base` retry helpers — exponential and server-directed backoff, abortable
  * sleeps, and error-field extraction shared by retry policies (the loop's
  * `stepRetry` plugin, full-compaction's self-managed resends). The default
- * budget is 10 attempts per step (kept in sync with v1
- * `agent-core/loop/retry.ts`): the 500ms ×2 ramp capped at 32s waits out
+ * budget is 10 attempts per step (kept in sync with the v1 engine's
+ * `loop/retry.ts`, removed with the v1 engine): the 500ms ×2 ramp capped at 32s waits out
  * multi-minute provider overload (sustained 429s) before a turn fails.
  *
  * Tiered backoff: rate-limit errors use 15–60s, overload/503 use 5–30s,
@@ -17,7 +17,7 @@ import { abortable } from '#/_base/utils/abort';
 
 export const DEFAULT_MAX_RETRY_ATTEMPTS = 10;
 
-// Kept in sync with agent-core/src/loop/retry.ts
+// Kept in sync with the v1 engine's loop/retry.ts (removed with the v1 engine)
 
 const BASE_DELAY_MS = 500;
 const MAX_DELAY_MS = 32_000;

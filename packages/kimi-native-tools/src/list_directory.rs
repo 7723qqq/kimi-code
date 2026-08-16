@@ -1,6 +1,7 @@
 /// List directory — compact 2-level directory tree for LLM context.
 ///
-/// Mirrors `packages/agent-core/src/tools/support/list-directory.ts`.
+/// Mirrors the TS `listDirectory` helper in
+/// `packages/agent-core-v2/src/agent/profile/context.ts`.
 ///
 /// Width caps keep the system-prompt token budget bounded:
 ///   - Depth 0 (root):  up to LIST_DIR_ROOT_WIDTH entries

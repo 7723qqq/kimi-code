@@ -1,4 +1,4 @@
-// test/cluster/concurrent.test.js
+// test/cluster/concurrent.test.ts
 //
 // True multi-process concurrent read/write tests. Each scenario spawns real
 // child processes (node --import tsx mp-worker.ts) that open the same cluster

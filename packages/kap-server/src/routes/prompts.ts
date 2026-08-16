@@ -2,7 +2,7 @@
  * `/api/v1` prompt routes — v1-compatible prompt surface backed directly by
  * the Agent-scoped `prompt` scheduler. This edge applies protocol conversion,
  * request overrides, and metadata updates while preserving the paths and wire
- * shapes from `packages/server/src/routes/prompts.ts`.
+ * shapes from `packages/server/src/routes/prompts.ts` (removed with the v1 engine).
  */
 
 import { join } from 'node:path';

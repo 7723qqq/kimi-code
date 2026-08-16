@@ -1,4 +1,4 @@
-// test/cluster/lock.test.js
+// test/cluster/lock.test.ts
 //
 // Lock semantics inside one process: same-shard writer contention with
 // acquire timeout, per-shard independence, read-only coexistence, lock lease

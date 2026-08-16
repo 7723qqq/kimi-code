@@ -267,15 +267,15 @@ export function projectContext(
         break;
       case 'context.apply_compaction': {
         openSteps = new Map();
-        // Mirror agent-core's `applyCompaction`
-        // (`packages/agent-core/src/agent/context/index.ts`): the live history
+        // Mirror agent-core-v2's `applyCompaction`
+        // (`packages/agent-core-v2/src/agent/contextMemory/compactionHandoff.ts`): the live history
         // becomes the kept real user messages (verbatim, within a token budget
         // — the oldest head plus the most recent tail, separated by an elision
         // marker when the pool overflowed) followed by a single user-role
         // summary tagged `origin.kind = 'compaction_summary'`. Assistant
         // messages, tool calls, and tool results are dropped. The selection
         // rules (`selectCompactionUserMessages` / `selectRecentUserMessages` /
-        // `collectCompactableUserMessages`) are the same helpers agent-core's
+        // `collectCompactableUserMessages`) are the same helpers agent-core-v2's
         // `ContextMemory` and the web transcript reducer apply, so all three
         // views stay in sync.
         const summaryBubble: ProjectedMessage = {
@@ -599,9 +599,9 @@ function addUsage(into: TokenUsage, src: TokenUsage): void {
 const MICRO_TRUNCATED_MARKER = '[Old tool result content cleared]';
 const MICRO_MIN_CONTENT_TOKENS = 100;
 
-/** Delegates to the local v1-compat copy of agent-core's `estimateTokens` to
+/** Delegates to the local v1-compat copy of agent-core-v2's `estimateTokens` to
  *  avoid logic duplication. The copy (`src/lib/v1-compat.ts`, mirrored from
- *  `packages/agent-core/src/utils/tokens.ts`) sums per-part estimates, each
+ *  `packages/agent-core-v2/src/kosong/contract/tokens.ts`) sums per-part estimates, each
  *  `estimateTokens(s) = Math.ceil(asciiCount / 4) + nonAsciiCount` (ASCII ~4
  *  chars/token, every non-ASCII/CJK code point a full token); other part types
  *  contribute 0. Matching it ensures Chinese-heavy tool results blank at the

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-// test/degrade.test.js
+// test/degrade.test.ts
 import { test } from 'vitest';
 
 import { MiniDb } from '../src/index.js';

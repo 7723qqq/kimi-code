@@ -3,14 +3,13 @@ import OpenAI from 'openai';
 /**
  * OpenAILegacyChatProvider — canonical implementation.
  *
- * The agent-core-v2 synchronised copy at
- *   packages/agent-core-v2/src/kosong/provider/bases/openai/openai-legacy.ts
- * is maintained in sync. Any non-provider-specific behaviour change to this
- * file MUST also land in the v2 copy and vice versa.
+ * agent-core-v2 carries its own hook-based variant of this provider; do not
+ * mirror changes between the two.
  *
  * Astron (iFlytek Coding Plan) options are injected at construction time by
- * the provider factory (providers/index.ts); the interface itself needs no
- * astron-specific fields.
+ * the provider factory (providers/index.ts); the interface itself carries
+ * the astron-specific fields directly (astronThinking,
+ * astronReasoningEffortModelIds, astronSettings).
  */
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
 import { isToolDeclarationOnlyMessage } from '#/message';

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // Force the pure-JS fallback path via environment variable.
-// This is checked by tryLoadNative() before attempting to load the native module.
+// This is checked by loadNativeImpl() before attempting to load the native module.
 beforeEach(() => {
   process.env['KIMI_I18N_FORCE_JS'] = '1';
 });

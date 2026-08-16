@@ -1,6 +1,7 @@
 //! Core type definitions for the stateless turn loop.
 //!
-//! These correspond to the types in `packages/agent-core/src/loop/types.ts`.
+//! These correspond to the types in
+//! `packages/agent-core-v2/src/agent/loop/loop.ts`.
 
 use serde::{Deserialize, Serialize};
 
@@ -150,7 +151,7 @@ pub struct ExecutableToolErrorResult {
 
 // ── ToolAccesses (resource conflict detection) ───────────────────────────────
 //
-// Matches `packages/agent-core/src/loop/tool-access.ts`.
+// Matches `ToolAccesses` in `packages/agent-core-v2/src/tool/toolContract.ts`.
 
 /// File access operation type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,6 +1,6 @@
 /// Token estimation via character-based heuristic.
 ///
-/// Mirrors `packages/agent-core/src/utils/tokens.ts`:
+/// Mirrors `packages/agent-core-v2/src/kosong/contract/tokens.ts`:
 ///   - ASCII: ~4 chars per token
 ///   - Non-ASCII (CJK, emoji, etc.): ~1 char per token
 ///

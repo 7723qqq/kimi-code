@@ -3,7 +3,7 @@
  *
  * Turns the core `IWorkspaceFsWatchService` feed into `event.fs.changed`
  * frames on the v1 WebSocket, byte-compatible with the v1 server
- * (`packages/server/.../fsWatcherService.ts`):
+ * (`packages/server/.../fsWatcherService.ts` — removed with the v1 engine):
  *
  *   client → `{type:'watch_fs_add',    id, payload:{session_id, paths}}`
  *   client → `{type:'watch_fs_remove', id, payload:{session_id, paths}}`

@@ -3,7 +3,7 @@
  * events (via the per-agent `IEventBus`) into a sequenced,
  * journaled, replayable `/api/v1/ws` event stream (the `{seq, epoch}` watermark).
  *
- * Port of v1's `WSBroadcastService` (`packages/server/.../wsBroadcastService.ts`),
+ * Port of v1's `WSBroadcastService` (`packages/server/.../wsBroadcastService.ts` — removed with the v1 engine),
  * adapted to v2 where agent events live on the per-agent `IEventBus`
  * (not a Core firehose). For each session it:
  *
@@ -1586,7 +1586,8 @@ function suppressedByTranscript(
 // ---------------------------------------------------------------------------
 // Interaction → v1 protocol event synthesis. Event names and payload shapes
 // mirror v1's question/approval services
-// (`packages/server/src/services/{question,approval}/*Service.ts`); the wire
+// (`packages/server/src/services/{question,approval}/*Service.ts` — removed
+// with the v1 engine); the wire
 // request bodies are the same projections the REST/snapshot routes use.
 // ---------------------------------------------------------------------------
 

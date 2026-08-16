@@ -5,16 +5,19 @@ import type { ExtensionConfig } from '../../shared/types';
 declare const __EXTENSION_VERSION__: string;
 const EXTENSION_VERSION = __EXTENSION_VERSION__ !== undefined ? __EXTENSION_VERSION__ : '0.0.0';
 
-/** Support backdoor with the highest priority: a truthy value forces the legacy v1 engine. */
+/**
+ * Deprecated backdoor: the legacy v1 engine was removed, so a truthy value no
+ * longer changes engine selection. Kept for compatibility with old setups.
+ */
 export const LEGACY_ENGINE_ENV = 'KIMI_CODE_LEGACY_FLAG';
 
 const TRUTHY_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
 
 /**
- * The single engine-selection decision for the whole extension. A truthy
- * `KIMI_CODE_LEGACY_FLAG` wins over the `kimi.useAgentCoreV1` setting, so
- * support and headless test runs can force the legacy engine without
- * touching user settings. Both default to the v2 engine.
+ * Engine-selection decision for the whole extension. Kept for compatibility:
+ * the legacy v1 engine was removed and `createKimiHarness` is the same factory
+ * as `createKimiHarnessV2`, so neither the flag nor the setting changes the
+ * engine. Both paths resolve to the v2 engine.
  */
 export function resolveUseAgentCoreV1(
   settingValue: boolean,
@@ -48,7 +51,7 @@ export const VSCodeSettings = {
   },
 
   get showThinkingContent(): boolean {
-    return getConfig().get<boolean>('showThinkingContent', false);
+    return getConfig().get<boolean>('showThinkingContent', true);
   },
 
   get showThinkingExpanded(): boolean {

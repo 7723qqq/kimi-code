@@ -1,7 +1,7 @@
 /**
  * `/api/v1/ws` wire frame builders — thin wrappers around the v1 wire message
  * shapes (see the local `protocol/ws-control` catalog), ported from v1
- * (`packages/server/src/ws/protocol.ts`).
+ * (`packages/server/src/ws/protocol.ts` — removed with the v1 engine).
  *
  * Outbound payloads go straight to `JSON.stringify` — no Zod re-validation.
  */

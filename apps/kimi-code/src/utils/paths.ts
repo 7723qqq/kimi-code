@@ -108,7 +108,7 @@ export function getBannerStateFile(): string {
 
 /**
  * Return the user input history file for a given working directory.
- * Layout: `<share_dir>/user-history/<md5(cwd)>.jsonl`.
+ * Layout: `<dataDir>/user-history/<md5(cwd)>.jsonl`.
  */
 export function getInputHistoryFile(workDir: string): string {
   const hash = createHash('md5').update(workDir, 'utf-8').digest('hex');

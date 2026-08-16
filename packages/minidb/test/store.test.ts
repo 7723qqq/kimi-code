@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-// test/store.test.js
+// test/store.test.ts
 import { test } from 'vitest';
 
 import { Store } from '../src/store.js';

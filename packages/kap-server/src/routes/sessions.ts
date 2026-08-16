@@ -48,7 +48,7 @@
  * yields an empty list, matching v1's "no warning" case.
  *
  * **Wire fidelity**: mirrors v1's `toProtocolSession`
- * (`packages/agent-core/src/services/session/session.ts`), which populates
+ * (`packages/agent-core/src/services/session/session.ts`, removed with the v1 engine), which populates
  * only the index/metadata fields and returns placeholders for the heavy ones
  * (`agent_config:{model:''}`, `usage:zeros`, `permission_rules:[]`,
  * `message_count:0`, `last_seq:0`). v2 produces the same placeholder shape
@@ -1272,7 +1272,8 @@ function normalizeOptional(value: string | undefined): string | undefined {
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
-/** v1 `:undo` message page-size clamp (`packages/agent-core/.../sessionService.ts`). */
+/** v1 `:undo` message page-size clamp
+ * (`packages/agent-core/.../sessionService.ts`, removed with the v1 engine). */
 const DEFAULT_UNDO_MESSAGE_PAGE_SIZE = 50;
 const MAX_UNDO_MESSAGE_PAGE_SIZE = 100;
 

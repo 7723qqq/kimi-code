@@ -56,7 +56,7 @@ function loadAstronRuntimeSettings(): AstronRuntimeSettings {
  *
  * Reuses OpenAILegacyChatProvider with Coding Plan defaults:
  * - Base URL defaults to the Coding Plan endpoint
- * - Thinking parameters encoded via extra_body.enable_thinking + extra_body.reasoning_effort
+ * - Thinking and search parameters encoded as top-level body fields (enable_thinking, reasoning_effort, search_disable)
  * - Runtime settings (stream, temperature, max_tokens, search) read from ~/.kimi-code/tui.toml
  */
 export class AstronChatProvider extends OpenAILegacyChatProvider {

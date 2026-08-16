@@ -1,4 +1,4 @@
-// test/e2e/compaction-race.test.js
+// test/e2e/compaction-race.test.ts
 //
 // Stress the stop-the-world compaction guard: heavy concurrent writes while
 // compaction is triggered frequently (both auto and manual) must not lose any

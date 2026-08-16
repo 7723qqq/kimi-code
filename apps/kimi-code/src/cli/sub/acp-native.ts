@@ -16,7 +16,8 @@
  *
  * `@moonshot-ai/acp-server` (and its `agent-core-v2` engine) is loaded via a
  * lazy dynamic import so parsing the CLI does not initialize the ACP engine —
- * mirroring the `kimi server run` v2 routing in `#/cli/sub/server/run.ts`.
+ * the same lazy-load pattern `kimi -p` uses to keep the v2 runner's module
+ * graph off the CLI startup path (`#/cli/run-prompt.ts`).
  */
 
 import type { Command } from 'commander';

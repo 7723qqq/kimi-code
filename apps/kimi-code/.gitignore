@@ -1,4 +1,4 @@
-# Copied from packages/kimi-core at build time
+# Was copied from packages/kimi-core at build time (removed with the v1 engine)
 agents/
 
 # Generated at build time by scripts/build-vis-asset.mjs.

@@ -387,9 +387,9 @@ export interface AgentRecordEvents {
   'turn.cancel': { turnId?: number };
   'config.update': AgentConfigUpdateData;
   /**
-   * v2-engine profile binding (wire protocol 1.5). v1 never writes this
-   * record; the type exists so replay can map a v2 session's profile binding
-   * onto the v1 equivalents (`config.update` + `tools.set_active_tools`).
+   * v2-engine profile binding (wire protocol 1.6). v1 never writes this
+   * record; the type exists only to tolerate v2 session records — replay
+   * ignores it (`profile.bind` does not affect the projected timeline).
    * Field shapes follow the v2 payload: live v2 records carry
    * `thinkingEffort`, legacy ones may carry `thinkingLevel` instead.
    */

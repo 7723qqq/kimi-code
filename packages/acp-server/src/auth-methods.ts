@@ -10,8 +10,9 @@
 //      and spawn `<command> <args>` directly.
 //
 // Most clients hit path 1; path 2 is required for Zed today because the
-// first-class handler is beta-gated. Mirrors `packages/acp-adapter` so the
-// v1 and v2 ACP hosts advertise identical login surfaces.
+// first-class handler is beta-gated. Mirrors the former `acp-adapter`
+// package (retired in this fork) — the v1 and v2 hosts advertised identical
+// login surfaces.
 
 import type { AuthMethod } from '@agentclientprotocol/sdk';
 

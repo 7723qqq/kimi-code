@@ -39,10 +39,10 @@ const PARSE_DEBOUNCE_MS = 300;
 /**
  * Quick-fill examples, adapted from the parser's own differential fixtures
  * (`packages/tree-sitter-bash/test/fixtures/differential/*.txt`) — each one
- * exercises a distinct area of the grammar. The last three probe the
- * non-happy paths: deep nesting (a left-associative arithmetic chain, the
- * case that once overflowed the DTO conversion) and the error-recovery
- * paths that set `hasError`.
+ * exercises a distinct area of the grammar. The first probes the deep
+ * nesting non-happy path (a left-associative arithmetic chain, the case
+ * that once overflowed the DTO conversion), and the last three cover loops
+ * and the error-recovery paths that set `hasError`.
  */
 const EXAMPLES: readonly { readonly name: string; readonly source: string }[] = [
   {
