@@ -35,6 +35,7 @@ export interface EditorKeyboardHost {
   handleUserInput(text: string): void;
   readonly btwPanelController: BtwPanelController;
   steerMessage(session: Session, input: readonly SteerInputItem[]): void;
+  steerSkillActivation(session: Session, skillName: string, skillArgs: string): void;
   validateMediaCapabilities(extraction: {
     hasMedia: boolean;
     imageAttachmentIds: readonly number[];
@@ -290,18 +291,35 @@ export class EditorKeyboardController {
       const text = editor.getText().trim();
       const editorIsBash = editor.inputMode === 'bash';
 
-      // Bash commands (`! …`) are not steerable: keep them queued so they run
-      // after the current task instead of being injected into the turn as text.
+      // Bash commands (`! …`) are not steerable: they stay queued so they run
+      // after the current task. Everything else steers in queue order —
+      // plain text as a steered message, slash-skill items as activations
+      // fired into the running turn (never as literal text).
       const queued = host.state.queuedMessages;
       const steerable = queued.filter((m) => m.mode !== 'bash');
 
-      const items: SteerInputItem[] = [];
+      type SteerRun =
+        | { readonly kind: 'text'; readonly items: SteerInputItem[] }
+        | { readonly kind: 'skill'; readonly skillName: string; readonly skillArgs: string };
+      const runs: SteerRun[] = [];
+      let textRun: SteerInputItem[] = [];
+      const flushTextRun = (): void => {
+        if (textRun.length > 0) {
+          runs.push({ kind: 'text', items: textRun });
+          textRun = [];
+        }
+      };
       for (const m of steerable) {
+        if (m.mode === 'skill' && m.skillName !== undefined) {
+          flushTextRun();
+          runs.push({ kind: 'skill', skillName: m.skillName, skillArgs: m.skillArgs ?? '' });
+          continue;
+        }
         const trimmed = m.text.trim();
         if (trimmed.length > 0) {
           // Queued items carry the parts extracted when they were submitted
           // (and were already capability-validated then).
-          items.push({ text: trimmed, parts: m.parts, imageAttachmentIds: m.imageAttachmentIds });
+          textRun.push({ text: trimmed, parts: m.parts, imageAttachmentIds: m.imageAttachmentIds });
         }
       }
       let editorExtraction: ReturnType<typeof extractMediaAttachments> | undefined;
@@ -314,7 +332,7 @@ export class EditorKeyboardController {
           host.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
           return;
         }
-        items.push({
+        textRun.push({
           text,
           parts: editorExtraction.hasMedia ? editorExtraction.parts : undefined,
           imageAttachmentIds:
@@ -323,8 +341,9 @@ export class EditorKeyboardController {
               : undefined,
         });
       }
+      flushTextRun();
 
-      if (items.length > 0) {
+      if (runs.length > 0) {
         // The editor draft is fresh input: gate it on the model's media
         // capabilities before splicing the queue, so a rejection leaves the
         // queue and the draft untouched.
@@ -340,7 +359,13 @@ export class EditorKeyboardController {
         if (host.state.appState.model.trim().length === 0 || session === undefined) {
           host.showError(LLM_NOT_SET_MESSAGE);
         } else {
-          host.steerMessage(session, items);
+          for (const run of runs) {
+            if (run.kind === 'text') {
+              host.steerMessage(session, run.items);
+            } else {
+              host.steerSkillActivation(session, run.skillName, run.skillArgs);
+            }
+          }
         }
       }
       host.updateQueueDisplay();
@@ -374,7 +399,9 @@ export class EditorKeyboardController {
         editor.setText(recalled.text);
         // Restore the queued item's mode so a recalled `!` command runs as a
         // shell command again instead of being submitted as a normal prompt.
-        const mode = recalled.mode ?? 'prompt';
+        // Skill activations recall as prompt mode: their text is the original
+        // `/name args` slash command, which re-parses on submit.
+        const mode = recalled.mode === 'bash' ? 'bash' : 'prompt';
         if (editor.inputMode !== mode) {
           editor.inputMode = mode;
           editor.onInputModeChange?.(mode);

@@ -2591,6 +2591,90 @@ command = "vim"
     expect(harness.track).toHaveBeenCalledWith('input_queue', undefined);
   });
 
+  it('queues a slash-skill activation while a turn is streaming (like any other input) and activates on drain', async () => {
+    const session = makeSession({
+      listSkills: vi.fn(async () => [
+        {
+          name: 'tower',
+          description: 'multi-agent tower mode',
+          path: 'builtin://tower',
+          source: 'builtin',
+          type: 'inline',
+        },
+      ]),
+    });
+    const { driver, harness } = await makeDriver(session);
+    await (
+      driver as unknown as { refreshSkillCommands(s: unknown): Promise<void> }
+    ).refreshSkillCommands(session);
+    driver.state.appState.streamingPhase = 'waiting';
+    harness.track.mockClear();
+
+    driver.handleUserInput('/tower refactor auth and ui');
+
+    expect(session.activateSkill).not.toHaveBeenCalled();
+    expect(driver.state.queuedMessages).toEqual([
+      {
+        text: '/tower refactor auth and ui',
+        agentId: 'main',
+        mode: 'skill',
+        skillName: 'tower',
+        skillArgs: 'refactor auth and ui',
+      },
+    ]);
+    expect(harness.track).toHaveBeenCalledWith('input_queue', undefined);
+
+    // Turn ends: the drain re-enters sendSkillActivation, which now fires.
+    driver.state.appState.streamingPhase = 'idle';
+    const queued = driver.state.queuedMessages[0]!;
+    driver.state.queuedMessages = [];
+    driver.sendQueuedMessage(session, queued);
+
+    expect(session.activateSkill).toHaveBeenCalledWith('tower', 'refactor auth and ui');
+  });
+
+  it('queues a slash-skill activation while compacting and activates it on drain', async () => {
+    const session = makeSession({
+      listSkills: vi.fn(async () => [
+        {
+          name: 'tower',
+          description: 'multi-agent tower mode',
+          path: 'builtin://tower',
+          source: 'builtin',
+          type: 'inline',
+        },
+      ]),
+    });
+    const { driver, harness } = await makeDriver(session);
+    await (
+      driver as unknown as { refreshSkillCommands(s: unknown): Promise<void> }
+    ).refreshSkillCommands(session);
+    driver.state.appState.isCompacting = true;
+    harness.track.mockClear();
+
+    driver.handleUserInput('/tower refactor auth and ui');
+
+    expect(session.activateSkill).not.toHaveBeenCalled();
+    expect(driver.state.queuedMessages).toEqual([
+      {
+        text: '/tower refactor auth and ui',
+        agentId: 'main',
+        mode: 'skill',
+        skillName: 'tower',
+        skillArgs: 'refactor auth and ui',
+      },
+    ]);
+    expect(driver.state.queueContainer.children.length).toBeGreaterThan(0);
+    expect(harness.track).toHaveBeenCalledWith('input_queue', undefined);
+
+    driver.state.appState.isCompacting = false;
+    const queued = driver.state.queuedMessages[0]!;
+    driver.state.queuedMessages = [];
+    driver.sendQueuedMessage(session, queued);
+
+    expect(session.activateSkill).toHaveBeenCalledWith('tower', 'refactor auth and ui');
+  });
+
   it('steers fresh input while a goal is active even when the streaming phase is idle', async () => {
     const { driver, session } = await makeDriver();
     driver.state.appState.goal = makeActiveGoalSnapshot();

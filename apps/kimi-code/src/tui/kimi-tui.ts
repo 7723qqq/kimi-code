@@ -1482,6 +1482,12 @@ export class KimiTUI {
       void this.runShellCommandFromInput(item.text);
       return;
     }
+    if (item.mode === 'skill' && item.skillName !== undefined) {
+      // sendSkillActivation re-checks the busy state, so a premature drain
+      // re-queues at the tail instead of racing the running turn.
+      this.sendSkillActivation(session, item.skillName, item.skillArgs ?? '');
+      return;
+    }
     this.harness.withInteractiveAgent(item.agentId ?? MAIN_AGENT_ID, () => {
       this.sendMessageInternal(session, item.text, {
         parts: item.parts,
@@ -1548,6 +1554,29 @@ export class KimiTUI {
       return;
     }
     if (!this.validateMediaCapabilities(rewrite)) return;
+    // Compacting (or deferred input): queue behind it — visible and recallable.
+    // Slash-skill items steer like any queued input on Ctrl-S (the activation
+    // fires into the running turn instead of the literal text) — see
+    // editor-keyboard.ts.
+    // A running turn queues the activation too: every skill behaves like
+    // plain input — queued by default, steered on demand — because the engine
+    // steers activations into a running turn exactly like a steered user
+    // message (v2 `prompt.inject`, v1 `SkillManager.recordActivation`).
+    const turnRunning = this.state.appState.streamingPhase !== 'idle';
+    if (this.deferUserMessages || this.state.appState.isCompacting || turnRunning) {
+      const args = rewrite.text.trim();
+      this.state.queuedMessages.push({
+        text: `/${skillName}${args.length > 0 ? ` ${args}` : ''}`,
+        agentId: this.harness.interactiveAgentId,
+        mode: 'skill',
+        skillName,
+        skillArgs: rewrite.text,
+      });
+      this.track('input_queue');
+      this.updateQueueDisplay();
+      this.state.ui.requestRender();
+      return;
+    }
     this.beginSessionRequest();
     void session.activateSkill(skillName, rewrite.text).catch((error: unknown) => {
       const message = formatErrorMessage(error);
@@ -1624,6 +1653,15 @@ export class KimiTUI {
     void session.steer(combineSteerInput(input)).catch((error: unknown) => {
       const message = formatErrorMessage(error);
       this.showError(`Failed to steer: ${message}`);
+    });
+  }
+
+  steerSkillActivation(session: Session, skillName: string, skillArgs: string): void {
+    // Ctrl-S on a queued slash-skill item: the activation fires into the
+    // running turn (the engine steers it there, never the literal text). No
+    // beginSessionRequest — the live pane belongs to the running turn.
+    void session.activateSkill(skillName, skillArgs).catch((error: unknown) => {
+      this.showError(`Skill "${skillName}" failed: ${formatErrorMessage(error)}`);
     });
   }
 
