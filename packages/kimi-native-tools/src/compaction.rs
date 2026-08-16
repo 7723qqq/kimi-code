@@ -790,4 +790,32 @@ mod tests {
         assert!(!result.elided);
         assert_eq!(result.tail_indices, vec![0]);
     }
+
+    #[test]
+    fn handoff_head_tail_overlap_at_boundary() {
+        // A single boundary message truncated in the tail (its END kept)
+        // whose dropped BEGINNING is also kept by the head pass. The same
+        // index then appears in BOTH head_indices and tail_indices — the
+        // kept-token accounting must not double-count it.
+        //
+        // msg0: 10 tokens, msg1: 100 tokens. max=60, head=20.
+        //   head_budget = 20, tail_budget = 40.
+        //   Tail: msg1 (100) > 40 -> truncate keeping END -> head_end=1.
+        //   boundary_begin = 1 (dropped BEGINNING of msg1 is a head candidate).
+        //   Head: msg0 (10) fits, then msg1 (100) > 10 -> truncate keeping
+        //         BEGINNING -> head_indices = [0, 1].
+        //   tail_indices = [1]. Overlap at index 1.
+        let messages = vec![
+            handoff_msg("user", &"y".repeat(40), 10),
+            handoff_msg("user", &"x".repeat(400), 100),
+        ];
+        let result = select_compaction_user_messages(&messages, 60, 20);
+        assert!(result.elided);
+        assert!(result.head_indices.contains(&1));
+        assert!(result.tail_indices.contains(&1));
+        assert!(result.head_truncate_chars.is_some());
+        assert!(result.tail_truncate_chars.is_some());
+        // The overlapping index is counted once in kept_tokens.
+        assert!(result.omitted_tokens <= 100);
+    }
 }

@@ -737,4 +737,56 @@ mod tests {
         g.status = GoalStatus::Paused;
         assert_eq!(g.live_wall_clock_ms(3000), 5000);
     }
+
+    #[test]
+    fn test_goal_status_round_trip() {
+        // Every variant serializes to a JSON-safe string and parses back to
+        // the same variant (as_str -> from_str is the identity).
+        for status in [
+            GoalStatus::Active,
+            GoalStatus::Paused,
+            GoalStatus::Blocked,
+            GoalStatus::Complete,
+            GoalStatus::BudgetLimited,
+            GoalStatus::UsageLimited,
+        ] {
+            assert_eq!(GoalStatus::from_str(status.as_str()), Some(status));
+        }
+    }
+
+    #[test]
+    fn test_goal_status_snake_case_aliases() {
+        // The camelCase strings are canonical; the snake_case forms are
+        // accepted as aliases for backward compatibility.
+        assert_eq!(
+            GoalStatus::from_str("budget_limited"),
+            Some(GoalStatus::BudgetLimited)
+        );
+        assert_eq!(
+            GoalStatus::from_str("usage_limited"),
+            Some(GoalStatus::UsageLimited)
+        );
+    }
+
+    #[test]
+    fn test_goal_status_invalid_string() {
+        assert_eq!(GoalStatus::from_str(""), None);
+        assert_eq!(GoalStatus::from_str("ACTIVE"), None);
+        assert_eq!(GoalStatus::from_str("active "), None);
+        assert_eq!(GoalStatus::from_str("unknown"), None);
+    }
+
+    #[test]
+    fn test_goal_status_display_matches_as_str() {
+        for status in [
+            GoalStatus::Active,
+            GoalStatus::Paused,
+            GoalStatus::Blocked,
+            GoalStatus::Complete,
+            GoalStatus::BudgetLimited,
+            GoalStatus::UsageLimited,
+        ] {
+            assert_eq!(status.to_string(), status.as_str());
+        }
+    }
 }
