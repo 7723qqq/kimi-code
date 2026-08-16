@@ -28,3 +28,21 @@ export function loadNativePackage<T>(
   if (nativeRequire === null) return null;
   return nativeRequire(packageName) as T;
 }
+
+/**
+ * Probe whether the Rust native tools addon is loadable in this process.
+ *
+ * `'rust'` — the addon loads (built / bundled / SEA-injected); `'js'` — the
+ * TypeScript fallback is in effect. Shown in the `/status` report so users
+ * can see which implementation they are actually running.
+ */
+export function nativeToolsStatus(): 'rust' | 'js' {
+  try {
+    const nativeRequire = createNativePackageRequire('@moonshot-ai/kimi-native-tools');
+    if (nativeRequire === null) return 'js';
+    const mod = nativeRequire('@moonshot-ai/kimi-native-tools') as unknown;
+    return mod !== null && mod !== undefined ? 'rust' : 'js';
+  } catch {
+    return 'js';
+  }
+}

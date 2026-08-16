@@ -217,6 +217,43 @@ export interface BashOptions {
 
 export function nativeBash(command: string, options?: BashOptions): Promise<BashResult>;
 
+export interface BashSpawnConfig {
+  argv: string[];
+  cwd?: string;
+  timeoutMs?: number;
+  env?: Array<[string, string]>;
+}
+
+export interface BashSpawnResult {
+  id: number;
+  pid: number;
+}
+
+export interface BashExitResult {
+  exitCode: number;
+  timedOut: boolean;
+  error?: string;
+}
+
+export interface BashSpawnEvent {
+  id: number;
+  kind: 'stdout' | 'stderr' | 'exit' | 'error';
+  data?: string;
+  exitCode?: number;
+  error?: string;
+}
+
+export function nativeBashSpawn(
+  config: BashSpawnConfig,
+  onEvent: (err: unknown, event?: BashSpawnEvent) => void,
+): BashSpawnResult;
+
+export function nativeBashWait(id: number): Promise<BashExitResult>;
+
+export function nativeBashKill(id: number): boolean;
+
+export function nativeBashDispose(id: number): boolean;
+
 // ============================================================================
 // Compaction
 // ============================================================================

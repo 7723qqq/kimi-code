@@ -53,6 +53,11 @@ export interface StatusReportOptions {
   readonly statusError?: string;
   readonly managedUsage?: ManagedUsageReport;
   readonly managedUsageError?: string;
+  /**
+   * Rust native tools availability, probed at report time
+   * (`'rust'` = addon loaded, `'js'` = TypeScript fallback).
+   */
+  readonly nativeTools?: 'rust' | 'js';
 }
 
 type Colorize = (text: string) => string;
@@ -120,6 +125,13 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
       value: planMode
         ? t('tui.messages.statusPanel.planModeOn')
         : t('tui.messages.statusPanel.planModeOff'),
+    },
+    {
+      label: t('tui.messages.statusPanel.nativeToolsLabel'),
+      value:
+        options.nativeTools === 'rust'
+          ? t('tui.messages.statusPanel.nativeToolsRust')
+          : t('tui.messages.statusPanel.nativeToolsJs'),
     },
     { label: t('tui.messages.statusPanel.sessionLabel'), value: sessionId },
   ];

@@ -359,6 +359,10 @@ export interface GrepToolRgFallbackEvent {
   outcome: 'resolved' | 'failed' | 'native_rust';
 }
 
+export interface GrepToolNativeEvent {
+  outcome: 'primary' | 'error';
+}
+
 export interface GlobToolRgFallbackEvent {
   source?: 'share-bin-cached' | 'vendor' | 'share-bin-downloaded';
   outcome: 'resolved' | 'failed';
@@ -870,6 +874,13 @@ export const telemetryEventDefinitions = {
     properties: {
       source: 'Where ripgrep was resolved from',
       outcome: 'Whether the fallback resolved or failed',
+    },
+  }),
+  grep_tool_native: defineAgentTelemetryEvent<GrepToolNativeEvent>({
+    owner: 'kimi-code',
+    comment: 'The grep tool ran through the Rust native engine (primary path).',
+    properties: {
+      outcome: 'Whether the native engine produced a result or an error verdict',
     },
   }),
   glob_tool_rg_fallback: defineAgentTelemetryEvent<GlobToolRgFallbackEvent>({

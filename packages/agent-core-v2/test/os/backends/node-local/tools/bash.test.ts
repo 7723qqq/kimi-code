@@ -16,9 +16,31 @@
 
 import { PassThrough, Readable, type Writable } from 'node:stream';
 
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Force the node-local spawn path: the native bash lifecycle is exercised by
+// the native-path describe blocks below with mocked handles.
+vi.mock('#/_base/native-tools', async () => {
+  const actual = await vi.importActual<typeof import('#/_base/native-tools')>(
+    '#/_base/native-tools',
+  );
+  return {
+    ...actual,
+    tryNativeBashSpawn: vi.fn(() => undefined),
+    tryNativeBashWait: vi.fn(async () => undefined),
+    tryNativeBashKill: vi.fn(() => true),
+    tryNativeBashDispose: vi.fn(() => true),
+  };
+});
 
 import { userCancellationReason } from '#/_base/utils/abort';
+import {
+  tryNativeBashDispose,
+  tryNativeBashKill,
+  tryNativeBashSpawn,
+  tryNativeBashWait,
+  type NativeBashEvent,
+} from '#/_base/native-tools';
 import type { IAgentTaskService } from '#/agent/task/task';
 import {
   type AgentTask,
@@ -32,6 +54,7 @@ import type { AgentTaskSettlement } from '#/agent/task/types';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { type BashInput, BashInputSchema } from '#/agent/tools/os/bash/bash';
 import { BashTool } from '#/agent/tools/os/bash/bashTool';
+import { NativeBashProcess } from '#/agent/tools/os/bash/native-bash-process';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import type { IConfigService } from '#/app/config/config';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
@@ -1991,5 +2014,113 @@ describe('BashTool prompt / runtime consistency', () => {
 
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('warning message');
+  });
+});
+
+describe('BashTool native path', () => {
+  const mockedSpawn = vi.mocked(tryNativeBashSpawn);
+
+  beforeEach(() => {
+    mockedSpawn.mockReset();
+    mockedSpawn.mockReturnValue(undefined);
+  });
+
+  it('prefers the native spawn and streams its events into the result', async () => {
+    let onEvent: ((event: NativeBashEvent) => void) | undefined;
+    mockedSpawn.mockImplementation((_config, callback) => {
+      onEvent = callback;
+      return { id: 1, pid: 42 };
+    });
+    const { runner, exec } = createTestRunner(processWithOutput());
+    const tool = bashTool(runner);
+
+    const resultPromise = executeTool(tool, context({ command: 'echo native', timeout: 60 }));
+    expect(onEvent).toBeDefined();
+    onEvent!({ id: 1, kind: 'stdout', data: 'from native\n' });
+    onEvent!({ id: 1, kind: 'exit', exitCode: 0 });
+    const result = await resultPromise;
+
+    expect(exec).not.toHaveBeenCalled();
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain('from native');
+  });
+
+  it('reports a native exit code failure', async () => {
+    let onEvent: ((event: NativeBashEvent) => void) | undefined;
+    mockedSpawn.mockImplementation((_config, callback) => {
+      onEvent = callback;
+      return { id: 2, pid: 43 };
+    });
+    const { runner, exec } = createTestRunner(processWithOutput());
+    const tool = bashTool(runner);
+
+    const resultPromise = executeTool(tool, context({ command: 'fail', timeout: 60 }));
+    onEvent!({ id: 2, kind: 'stderr', data: 'boom\n' });
+    onEvent!({ id: 2, kind: 'exit', exitCode: 3 });
+    const result = await resultPromise;
+
+    expect(exec).not.toHaveBeenCalled();
+    expect(result.isError).toBeTruthy();
+    expect(result.output).toContain('boom');
+  });
+
+  it('falls back to the node-local runner when the native module is unavailable', async () => {
+    const proc = processWithOutput({ stdout: 'fallback\n', exitCode: 0 });
+    const { runner, exec } = createTestRunner(proc);
+    const tool = bashTool(runner);
+
+    const result = await executeTool(tool, context({ command: 'echo fallback', timeout: 60 }));
+
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain('fallback');
+  });
+});
+
+describe('NativeBashProcess', () => {
+  const mockedWait = vi.mocked(tryNativeBashWait);
+  const mockedKill = vi.mocked(tryNativeBashKill);
+  const mockedDispose = vi.mocked(tryNativeBashDispose);
+
+  beforeEach(() => {
+    mockedWait.mockReset();
+    mockedWait.mockResolvedValue(undefined);
+    mockedKill.mockReset();
+    mockedKill.mockReturnValue(true);
+    mockedDispose.mockReset();
+    mockedDispose.mockReturnValue(true);
+  });
+
+  it('bridges stdout/stderr events onto readable streams and settles wait on exit', async () => {
+    const proc = new NativeBashProcess(1, 42);
+    const chunks: string[] = [];
+    proc.stdout.setEncoding('utf8');
+    proc.stdout.on('data', (chunk: string) => chunks.push(chunk));
+
+    const waitPromise = proc.wait();
+    proc.handleEvent({ id: 1, kind: 'stdout', data: 'line1\n' });
+    proc.handleEvent({ id: 1, kind: 'stderr', data: 'err\n' });
+    proc.handleEvent({ id: 1, kind: 'exit', exitCode: 0 });
+
+    await expect(waitPromise).resolves.toBe(0);
+    expect(proc.exitCode).toBe(0);
+    expect(chunks.join('')).toBe('line1\n');
+  });
+
+  it('forwards kill and dispose to the native handle', async () => {
+    const proc = new NativeBashProcess(2, 43);
+    await proc.kill('SIGTERM');
+    expect(mockedKill).toHaveBeenCalledWith(2);
+
+    await proc.dispose();
+    expect(mockedDispose).toHaveBeenCalledWith(2);
+  });
+
+  it('resolves wait from the native exit cache when the exit event is missed', async () => {
+    mockedWait.mockResolvedValue({ exitCode: 5, timedOut: false });
+    const proc = new NativeBashProcess(3, 44);
+
+    await expect(proc.wait()).resolves.toBe(5);
+    expect(proc.exitCode).toBe(5);
   });
 });

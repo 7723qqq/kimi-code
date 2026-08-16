@@ -215,7 +215,7 @@ fn truncate_output(s: &str, max_bytes: usize) -> String {
 /// - Unix: the child was spawned with `process_group(0)`, so signaling the
 ///   negative pid (the whole group) takes every descendant down.
 /// - Windows: `taskkill /T` walks the tree; fall back to `child.kill()`.
-fn kill_process_tree(child: &mut std::process::Child) {
+pub(crate) fn kill_process_tree(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
         let pid = child.id() as i32;
@@ -250,7 +250,7 @@ fn kill_process_tree(child: &mut std::process::Child) {
 /// Returns the shell executable and the argument prefix (before the command
 /// itself). PowerShell gets `-NoProfile -NonInteractive` so user profiles are
 /// skipped and nothing waits on interactive input.
-fn detect_shell_for(command: &str) -> (String, Vec<String>) {
+pub(crate) fn detect_shell_for(command: &str) -> (String, Vec<String>) {
     #[cfg(unix)]
     {
         let _ = command;

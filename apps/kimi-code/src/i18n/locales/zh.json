@@ -1469,6 +1469,9 @@
         "planModeOn": "开",
         "planModeOff": "关",
         "sessionNone": "无",
+        "nativeToolsLabel": "原生工具",
+        "nativeToolsRust": "rust",
+        "nativeToolsJs": "js（回退）",
         "contextWindow": "上下文窗口",
         "noContextData": "无上下文窗口数据。"
       },

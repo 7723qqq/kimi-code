@@ -1,8 +1,11 @@
 /**
- * `tools` domain — `GrepTool` implementation, content search via ripgrep.
+ * `tools` domain — `GrepTool` implementation, content search via the Rust
+ * native grep engine with ripgrep as the fallback.
  *
- * Shells out to `rg` through the host process service. The ripgrep binary
- * resolution and subprocess plumbing are shared with the Glob tool.
+ * The native path (`tryNativeGrep`) runs the full ripgrep-compatible engine
+ * in-process; when the native module is unavailable the tool shells out to
+ * `rg` through the host process service (binary resolution and subprocess
+ * plumbing shared with the Glob tool).
  *
  * Collaborators injected via constructor:
  *   - `processService` — `IHostProcessService`, spawns the rg subprocess
@@ -21,12 +24,10 @@
  * rejected.
  *
  * Output is bounded and post-processed before it reaches the model:
- *   - timeout and ambient abort both terminate the rg subprocess;
- *   - stdout/stderr are capped while streams continue draining;
+ *   - timeout and ambient abort both terminate the search;
  *   - hidden files are searched, but VCS metadata and common sensitive glob
- *     patterns are prefiltered where possible;
- *   - parsed path records are filtered again after rg returns, using the active
- *     backend path class.
+ *     patterns are prefiltered (natively, and again on the rg path);
+ *   - parsed path records are filtered against the active backend path class.
  *
  * Bound at Agent scope; self-registers via `registerAgentToolService(...)` at module
  * load.
@@ -36,7 +37,7 @@ import { t } from '@moonshot-ai/kimi-i18n';
 import { normalize } from 'pathe';
 
 import { unwrapErrorCause } from '#/_base/errors/errors';
-import { tryNativeGrepStructured } from '#/_base/native-tools';
+import { tryNativeGrep } from '#/_base/native-tools';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import {
@@ -150,6 +151,50 @@ export class GrepTool implements IGrepTool {
       return { isError: true, output: t('toolsV2.abort.beforeSearch') };
     }
 
+    // Native Rust grep is the primary path; ripgrep remains the fallback.
+    // Multiline searches stay on ripgrep: the native engine's `multiline`
+    // flag toggles regex line-anchor semantics, not ripgrep's cross-line
+    // `-U --multiline-dotall` mode, so semantics would not match.
+    if (!args.multiline) {
+      const nativeResult = await tryNativeGrep(args.pattern, searchPaths[0]!, {
+        glob: args.glob,
+        fileType: args.type,
+        outputMode: args.output_mode,
+        caseInsensitive: args['-i'],
+        lineNumbers: args['-n'],
+        afterContext: args['-A'],
+        beforeContext: args['-B'],
+        context: args['-C'],
+        includeIgnored: args.include_ignored,
+        timeoutMs: DEFAULT_TIMEOUT_MS,
+      });
+      if (nativeResult !== undefined) {
+        if (nativeResult.error) {
+          this.telemetry.track2('grep_tool_native', { outcome: 'error' });
+          return { isError: true, output: nativeResult.error };
+        }
+        if (nativeResult.timedOut && nativeResult.content.trim() === '') {
+          this.telemetry.track2('grep_tool_native', { outcome: 'error' });
+          return {
+            isError: true,
+            output: t('toolsV2.grepTimedOut', { seconds: String(DEFAULT_TIMEOUT_MS / 1000) }),
+          };
+        }
+        if (signal.aborted) {
+          return { isError: true, output: t('toolsV2.grepAborted') };
+        }
+        this.telemetry.track2('grep_tool_native', { outcome: 'primary' });
+        const nativeLines = parseRipgrepOutput(
+          nativeResult.content,
+          args.output_mode ?? 'files_with_matches',
+        );
+        return this.buildGrepOutput(args, nativeLines, new Set(nativeResult.filteredSensitive), {
+          timedOut: nativeResult.timedOut,
+          bufferTruncated: false,
+        });
+      }
+    }
+
     const pathClass = this.env.pathClass;
     let rgPath: string;
     try {
@@ -168,12 +213,8 @@ export class GrepTool implements IGrepTool {
       if (signal.aborted) {
         return { isError: true, output: t('toolsV2.grepAborted') };
       }
-      // rg unavailable — try Rust native grep as fallback before failing.
-      const nativeResult = await this.tryNativeGrepFallback(args, searchPaths, signal);
-      if (nativeResult !== undefined) {
-        this.telemetry.track2('grep_tool_rg_fallback', { outcome: 'native_rust' });
-        return nativeResult;
-      }
+      // Native grep already failed (or is unavailable) above; if ripgrep is
+      // also unusable, there is nothing left to fall back to.
       this.telemetry.track2('grep_tool_rg_fallback', { outcome: 'failed' });
       return { isError: true, output: rgUnavailableMessage(error) };
     }
@@ -246,6 +287,26 @@ export class GrepTool implements IGrepTool {
       throw error;
     }
 
+    return this.buildGrepOutput(args, orderedLines, filteredSensitive, {
+      timedOut,
+      bufferTruncated,
+    });
+  }
+
+  /**
+   * Shared result rendering for both the native and ripgrep paths: applies
+   * pagination (offset/head_limit), composes header lines and notices, and
+   * formats the display lines.
+   */
+  private buildGrepOutput(
+    args: GrepInput,
+    orderedLines: readonly ParsedGrepLine[],
+    filteredSensitive: ReadonlySet<string>,
+    extras: { timedOut: boolean; bufferTruncated: boolean },
+  ): ExecutableToolResult {
+    const mode = args.output_mode ?? 'files_with_matches';
+    const pathClass = this.env.pathClass;
+
     const offset = args.offset ?? 0;
     const headLimit = args.head_limit ?? DEFAULT_HEAD_LIMIT;
     const afterOffset = offset > 0 ? orderedLines.slice(offset) : orderedLines;
@@ -276,12 +337,12 @@ export class GrepTool implements IGrepTool {
         messages.push(paginationNotice);
       }
     }
-    if (bufferTruncated) {
+    if (extras.bufferTruncated) {
       messages.push(
         `[stdout truncated at ${String(MAX_OUTPUT_BYTES)} bytes; incomplete trailing line omitted]`,
       );
     }
-    if (timedOut) {
+    if (extras.timedOut) {
       messages.push(
         t('toolsV2.grepTimedOutPartial', { seconds: String(DEFAULT_TIMEOUT_MS / 1000) }),
       );
@@ -360,49 +421,6 @@ export class GrepTool implements IGrepTool {
     );
     entries.sort((a, b) => b.mtime - a.mtime || a.index - b.index);
     return entries.map((entry) => entry.line);
-  }
-
-  /**
-   * Native Rust grep fallback when ripgrep is not available on PATH.
-   * Uses `nativeGrepStructured` which walks the directory tree and regex-matches
-   * directly in Rust, without spawning a subprocess.
-   */
-  private async tryNativeGrepFallback(
-    args: GrepInput,
-    searchPaths: string[],
-    _signal: AbortSignal,
-  ): Promise<ExecutableToolResult | undefined> {
-    const searchPath = searchPaths[0];
-    if (searchPath === undefined) return undefined;
-
-    const result = await tryNativeGrepStructured(args.pattern, searchPath, {
-      literal: false,
-      caseInsensitive: args['-i'] ?? false,
-      includeGlobs: args.glob ? [args.glob] : [],
-      excludeGlobs: [],
-      contextLines: args['-C'] ?? Math.max(args['-A'] ?? 0, args['-B'] ?? 0),
-      maxFiles: 5000,
-      maxMatchesPerFile: 100,
-      maxTotalMatches: args.head_limit ?? 250,
-      timeoutMs: 20000,
-      followGitignore: true,
-    });
-
-    if (result === undefined) return undefined;
-    if (result.error) return { isError: true, output: result.error };
-
-    if (result.files.length === 0) {
-      return { output: t('toolsV2.grepNoResults') };
-    }
-
-    // Format output similar to rg
-    const builder = new ToolResultBuilder();
-    for (const file of result.files) {
-      for (const match of file.matches) {
-        builder.write(`${file.path}:${String(match.line)}:${match.text}\n`);
-      }
-    }
-    return builder.ok();
   }
 }
 

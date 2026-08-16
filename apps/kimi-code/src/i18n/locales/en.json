@@ -1469,6 +1469,9 @@
         "planModeOn": "on",
         "planModeOff": "off",
         "sessionNone": "none",
+        "nativeToolsLabel": "Native tools",
+        "nativeToolsRust": "rust",
+        "nativeToolsJs": "js (fallback)",
         "contextWindow": "Context window",
         "noContextData": "No context window data available."
       },

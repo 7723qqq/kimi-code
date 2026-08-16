@@ -5262,8 +5262,8 @@ command = "vim"
       expect(output).toContain('>_ Kimi Code');
       expect(output).toContain('Model');
       expect(output).toContain('thinking high');
-      expect(output).toContain('Permissions  auto');
-      expect(output).toContain('Plan mode    on');
+      expect(output).toContain('Permissions   auto');
+      expect(output).toContain('Plan mode     on');
       expect(output).toContain('Context window');
       expect(output).toContain('25%');
     });

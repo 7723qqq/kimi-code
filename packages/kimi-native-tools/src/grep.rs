@@ -313,7 +313,6 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
         let filtered_sensitive = &filtered_sensitive;
         let timed_out = &timed_out;
         let deadline = &deadline;
-        let search_path = &search_path;
 
         Box::new(move |entry| {
             if timed_out.load(Ordering::Relaxed) {
@@ -357,7 +356,10 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
 
             let path_str = path.to_string_lossy();
             if is_sensitive_file(&path_str) {
-                filtered_sensitive.lock().unwrap().push(relativize(path, search_path));
+                filtered_sensitive
+                    .lock()
+                    .unwrap()
+                    .push(path_str.to_string());
                 return ignore::WalkState::Continue;
             }
 
@@ -471,7 +473,7 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                         line_no,
                         line: line_content.to_string(),
                     };
-                    let entry_bytes = format_entry_bytes(&entry, config, &search_path);
+                    let entry_bytes = format_entry_bytes(&entry, config);
                     if output_bytes + entry_bytes > MAX_OUTPUT_BYTES {
                         break;
                     }
@@ -493,11 +495,11 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                 }
                 prev_file = Some(entry.file.clone());
             }
-            let rel_path = relativize(&entry.file, &search_path);
+            let display_path = entry.file.display().to_string();
             if config.line_numbers {
-                rendered.push(format!("{}:{}:{}", rel_path, entry.line_no, entry.line));
+                rendered.push(format!("{}:{}:{}", display_path, entry.line_no, entry.line));
             } else {
-                rendered.push(format!("{}:{}", rel_path, entry.line));
+                rendered.push(format!("{}:{}", display_path, entry.line));
             }
         }
         rendered.join("\n")
@@ -508,14 +510,14 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                     .iter()
                     .skip(config.offset)
                     .take(config.head_limit)
-                    .map(|(p, _, _)| relativize(p, &search_path))
+                    .map(|(p, _, _)| p.display().to_string())
                     .collect();
                 files.join("\n")
             }
             OutputMode::CountMatches => {
                 let mut lines = Vec::new();
                 for (path, count, _) in &file_matches {
-                    lines.push(format!("{}:{}", relativize(path, &search_path), count));
+                    lines.push(format!("{}:{}", path.display(), count));
                 }
                 lines.join("\n")
             }
@@ -871,19 +873,13 @@ fn search_single_file(path: &Path, regex: &regex::Regex, config: &GrepConfig) ->
     }
 }
 
-fn format_entry_bytes(entry: &MatchEntry, config: &GrepConfig, base: &Path) -> usize {
-    let rel = relativize(&entry.file, base);
+fn format_entry_bytes(entry: &MatchEntry, config: &GrepConfig) -> usize {
+    let path_len = entry.file.display().to_string().len();
     if config.line_numbers {
-        rel.len() + 1 + 10 + 1 + entry.line.len() + 1 // path:line_no:line\n
+        path_len + 1 + 10 + 1 + entry.line.len() + 1 // path:line_no:line\n
     } else {
-        rel.len() + 1 + entry.line.len() + 1 // path:line\n
+        path_len + 1 + entry.line.len() + 1 // path:line\n
     }
-}
-
-fn relativize(path: &Path, base: &Path) -> String {
-    path.strip_prefix(base)
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| path.display().to_string())
 }
 
 /// Map a ripgrep-style file type name to a list of glob patterns.

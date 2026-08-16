@@ -605,6 +605,168 @@ export function tryNativeWebSearch(
 }
 
 // ============================================================================
+// Bash — async process lifecycle (spawn / stream / wait / kill)
+// ============================================================================
+
+export interface NativeBashSpawnConfig {
+  /** Full command line: shell executable + flags + script. */
+  readonly argv: string[];
+  readonly cwd?: string;
+  readonly timeoutMs?: number;
+  readonly env?: Record<string, string>;
+}
+
+export interface NativeBashEvent {
+  /** Handle id of the emitting process (`0` for a spawn failure). */
+  readonly id: number;
+  readonly kind: 'stdout' | 'stderr' | 'exit' | 'error';
+  readonly data?: string;
+  readonly exitCode?: number;
+  readonly error?: string;
+}
+
+export interface NativeSpawnResult {
+  readonly id: number;
+  readonly pid: number;
+}
+
+export interface NativeBashExit {
+  readonly exitCode: number;
+  readonly timedOut: boolean;
+  readonly error?: string;
+}
+
+/**
+ * Spawn a shell command via Rust and stream its output to `onEvent`.
+ * Stdin is closed at spawn. Returns `undefined` when the native module is
+ * unavailable (the caller falls back to the node-local spawn).
+ */
+export function tryNativeBashSpawn(
+  config: NativeBashSpawnConfig,
+  onEvent: (event: NativeBashEvent) => void,
+): NativeSpawnResult | undefined {
+  return callNativeSync<NativeSpawnResult>(
+    'nativeBashSpawn',
+    [
+      {
+        argv: [...config.argv],
+        cwd: config.cwd,
+        timeoutMs: config.timeoutMs,
+        env: config.env === undefined ? undefined : Object.entries(config.env),
+      },
+      (err: unknown, event: NativeBashEvent | undefined) => {
+        if (err !== null && err !== undefined) {
+          const message =
+            err instanceof Error
+              ? err.message
+              : typeof err === 'string'
+                ? err
+                : JSON.stringify(err);
+          onEvent({ id: 0, kind: 'error', error: message });
+          return;
+        }
+        if (event !== undefined) onEvent(event);
+      },
+    ],
+    (message) => {
+      onEvent({ id: 0, kind: 'error', error: `native bash spawn failed: ${message}` });
+      return undefined;
+    },
+  );
+}
+
+/** Resolve with the cached exit result of a managed bash process. */
+export async function tryNativeBashWait(id: number): Promise<NativeBashExit | undefined> {
+  return callNativeAsync<NativeBashExit>('nativeBashWait', [id]);
+}
+
+/** Kill a managed bash process tree. Returns false when the handle is unknown. */
+export function tryNativeBashKill(id: number): boolean | undefined {
+  return callNativeSync<boolean>('nativeBashKill', [id]);
+}
+
+/** Drop a managed bash process handle. Returns false when the handle is unknown. */
+export function tryNativeBashDispose(id: number): boolean | undefined {
+  return callNativeSync<boolean>('nativeBashDispose', [id]);
+}
+
+// ============================================================================
+// Grep — native primary path (full ripgrep-compatible engine)
+// ============================================================================
+
+export interface NativeGrepResult {
+  readonly content: string;
+  readonly error?: string;
+  readonly matchCount: number;
+  readonly fileCount: number;
+  /** Absolute paths of sensitive files that matched but were redacted. */
+  readonly filteredSensitive: string[];
+  readonly timedOut: boolean;
+}
+
+export interface NativeGrepOptions {
+  readonly glob?: string;
+  readonly fileType?: string;
+  readonly outputMode?: 'content' | 'files_with_matches' | 'count_matches';
+  readonly caseInsensitive?: boolean;
+  readonly lineNumbers?: boolean;
+  readonly afterContext?: number;
+  readonly beforeContext?: number;
+  readonly context?: number;
+  readonly multiline?: boolean;
+  readonly includeIgnored?: boolean;
+  readonly timeoutMs?: number;
+}
+
+/**
+ * Run the Rust native grep engine (full ripgrep-compatible feature set).
+ *
+ * `head_limit` / `offset` are pinned to 0 (unlimited in native) — the caller
+ * applies its own pagination so truncation notices stay accurate. Native
+ * output uses absolute paths, so the caller's display relativization (which
+ * is workspace-relative, not search-path-relative) stays correct.
+ *
+ * Returns `undefined` when the native module is unavailable. A native call
+ * that throws is a final error verdict (never re-run in TS).
+ */
+export function tryNativeGrep(
+  pattern: string,
+  path: string,
+  options?: NativeGrepOptions,
+): Promise<NativeGrepResult | undefined> {
+  return callNativeAsync<NativeGrepResult>(
+    'nativeGrep',
+    [
+      pattern,
+      {
+        path,
+        glob: options?.glob,
+        fileType: options?.fileType,
+        outputMode: options?.outputMode,
+        caseInsensitive: options?.caseInsensitive,
+        lineNumbers: options?.lineNumbers,
+        afterContext: options?.afterContext,
+        beforeContext: options?.beforeContext,
+        context: options?.context,
+        headLimit: 0,
+        offset: 0,
+        multiline: options?.multiline,
+        includeIgnored: options?.includeIgnored,
+        timeoutMs: options?.timeoutMs,
+      },
+    ],
+    (message) => ({
+      content: '',
+      error: `native grep failed: ${message}`,
+      matchCount: 0,
+      fileCount: 0,
+      filteredSensitive: [],
+      timedOut: false,
+    }),
+  );
+}
+
+// ============================================================================
 // Structured Grep — native fallback when ripgrep is not on PATH
 // ============================================================================
 

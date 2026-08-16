@@ -3,6 +3,7 @@ import { release as osRelease, type as osType } from 'node:os';
 import type { McpServerInfo, SessionStatus, SessionUsage } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
+import { nativeToolsStatus } from '#/native/native-require';
 import { openUrl } from '#/utils/open-url';
 
 import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
@@ -186,6 +187,7 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     contextTokens: appState.contextTokens,
     maxContextTokens: appState.maxContextTokens,
     availableModels: appState.availableModels,
+    nativeTools: nativeToolsStatus(),
     status: runtimeStatus.status,
     statusError: runtimeStatus.error,
     managedUsage: managedUsage?.usage,

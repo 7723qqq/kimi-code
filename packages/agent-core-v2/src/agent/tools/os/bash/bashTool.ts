@@ -7,6 +7,11 @@
  * The command runs with a shell-specific cwd wrapper (`cd`, `Set-Location`,
  * or `cd /d`) inside the environment's working directory.
  *
+ * The Rust native bash lifecycle (`tryNativeBashSpawn`) is the primary spawn
+ * path — it streams stdout/stderr to an `IProcess` adapter and kills the
+ * process tree on demand; when the native module is unavailable the tool
+ * falls back to `ISessionProcessRunner` (node-local `child_process`).
+ *
  * Collaborators injected via constructor:
  *   - `runner`     — `ISessionProcessRunner`, spawns the shell process
  *   - `env`        — `IHostEnvironment`, host OS / shell probe (osKind / shellName / shellPath)
@@ -17,9 +22,6 @@
  *                    the Task* tools being active
  *   - `config`     — `IConfigService`, task config (auto-background on
  *                    timeout, detach timeout)
- *
- * Execution goes through `ISessionProcessRunner`, never directly via
- * `node:child_process`.
  *
  * Hardening:
  *   - `args.timeout` (seconds) arms the manager-owned deadline; a foreground
@@ -44,6 +46,7 @@
 import { t } from '@moonshot-ai/kimi-i18n';
 
 import { userCancellationReason } from '#/_base/utils/abort';
+import { tryNativeBashSpawn } from '#/_base/native-tools';
 import { renderPrompt } from '#/_base/utils/render-prompt';
 import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IAgentTaskService } from '#/agent/task/task';
@@ -70,6 +73,7 @@ import {
   MAX_TIMEOUT_S,
 } from './bash';
 import bashDescriptionTemplate from './bash.md?raw';
+import { NativeBashProcess } from './native-bash-process';
 import { ProcessTask } from './process-task';
 
 const MS_PER_SECOND = 1000;
@@ -244,6 +248,21 @@ export class BashTool implements IBashTool {
       GIT_TERMINAL_PROMPT: process.env['GIT_TERMINAL_PROMPT'] ?? '0',
       SHELL: this.env.shellPath,
     };
+
+    // Native Rust bash is the primary path; node-local spawn is the fallback.
+    // The callback may only fire once this call returns (TSFN dispatches on
+    // the event loop), so `nativeProc` is always assigned before it runs.
+    let nativeProc: NativeBashProcess | undefined;
+    const spawnResult = tryNativeBashSpawn(
+      { argv: shellArgs, env: noninteractiveEnv },
+      (event) => {
+        nativeProc?.handleEvent(event);
+      },
+    );
+    if (spawnResult !== undefined) {
+      nativeProc = new NativeBashProcess(spawnResult.id, spawnResult.pid);
+      return Promise.resolve(nativeProc);
+    }
 
     return this.runner.exec(shellArgs, { env: noninteractiveEnv });
   }

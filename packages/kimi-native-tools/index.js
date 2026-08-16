@@ -485,6 +485,59 @@ function nativeBash(command, options = {}) {
   return binding.nativeBash(command, options.cwd ?? null, options.timeout ?? null, envPairs);
 }
 
+/**
+ * Spawn a shell command and stream its output to `onEvent`.
+ *
+ * @param {object} config - Spawn config.
+ * @param {string[]} config.argv - Full command line (shell + flags + script).
+ * @param {string} [config.cwd] - Working directory.
+ * @param {number} [config.timeoutMs] - Wall-clock timeout in ms; null = none.
+ * @param {[string, string][]} [config.env] - Environment overrides.
+ * @param {function} onEvent - `(err, event)`; event = `{ id, kind: 'stdout'|'stderr'|'exit'|'error', data?, exitCode?, error? }`.
+ * @returns {{ id: number, pid: number }}
+ */
+function nativeBashSpawn(config, onEvent) {
+  return binding.nativeBashSpawn(
+    {
+      argv: config.argv,
+      cwd: config.cwd ?? undefined,
+      timeoutMs: config.timeoutMs ?? undefined,
+      env: config.env ?? undefined,
+    },
+    onEvent,
+  );
+}
+
+/**
+ * Resolve with the cached exit result of a managed bash process.
+ *
+ * @param {number} id - Handle id from nativeBashSpawn.
+ * @returns {Promise<{ exitCode: number, timedOut: boolean, error?: string }>}
+ */
+async function nativeBashWait(id) {
+  return binding.nativeBashWait(id);
+}
+
+/**
+ * Kill a managed bash process tree.
+ *
+ * @param {number} id - Handle id from nativeBashSpawn.
+ * @returns {boolean} False when the handle is unknown.
+ */
+function nativeBashKill(id) {
+  return binding.nativeBashKill(id);
+}
+
+/**
+ * Drop a managed bash process handle.
+ *
+ * @param {number} id - Handle id from nativeBashSpawn.
+ * @returns {boolean} False when the handle is unknown.
+ */
+function nativeBashDispose(id) {
+  return binding.nativeBashDispose(id);
+}
+
 // ============================================================================
 // Compaction strategy
 // ============================================================================
@@ -989,6 +1042,10 @@ module.exports = {
   nativeTruncateTextToTokens,
   nativeTruncateTextToTokensFromEnd,
   nativeBash,
+  nativeBashSpawn,
+  nativeBashWait,
+  nativeBashKill,
+  nativeBashDispose,
 
   // Compaction
   nativeComputeCompactCount,
