@@ -208,7 +208,10 @@
       },
       "workflowPanel": {
         "header": "Workflows",
-        "running": "running"
+        "running": "running",
+        "moreRuns": "+{{count}} more",
+        "agentCount_one": "{{count}} agent",
+        "agentCount_other": "{{count}} agents"
       },
       "activityPane": {
         "tipPrefix": " · Tip: {{tip}}"
@@ -792,6 +795,8 @@
         "marketplaceCount": "{{installed}} installed · {{available}} available",
         "marketplaceSource": "Source: {{source}}",
         "openInBrowser": "open in browser",
+        "installingStatus": "installing…",
+        "thirdPartySourceHint": "Third-party plugins from our partners.",
         "installFromUrlHint": " Install from a GitHub URL (or zip URL / local path):",
         "installingFromMarketplace": "Installing {{label}}…",
         "pluginId": "id {{id}}",
@@ -834,6 +839,8 @@
         "previewFrameTitle": "Preview Output",
         "commandLabel": "Command:",
         "agentIdLabel": "Agent ID:",
+        "modelLabel": "Model:",
+        "effortLabel": "Effort:",
         "questionsLabel": "Questions:",
         "timeLabel": "Time:",
         "pidLabel": "Pid:",
@@ -907,6 +914,7 @@
       "mcpServerFailedWithError": "MCP server \"{{name}}\" failed: {{error}}",
       "mcpServerNeedsAuth": "MCP server \"{{name}}\" needs OAuth — run /mcp-config login {{name}}",
       "mcpServerDisabled": "MCP server \"{{name}}\" disabled",
+      "mcpServerRemoved": "MCP server \"{{name}}\" removed",
       "mcpServerConnecting": "MCP server \"{{name}}\" connecting…",
       "activatedSkill": "Activated skill: {{skillName}}",
       "configSaved": "Settings saved.",
@@ -1767,6 +1775,7 @@
       "btwSendFailed": "Failed to send /btw prompt: {{error}}",
       "btwCancelFailed": "Failed to cancel /btw: {{error}}",
       "editorExternalFailed": "External editor failed: {{msg}}",
+      "shellModeLabel": "! shell mode",
       "tasksLoadFailed": "Failed to load tasks: {{error}}",
       "tasksOutputRefreshFailed": "Output refresh failed: {{message}}",
       "tasksRefreshFailed": "Refresh failed: {{error}}",
@@ -1774,6 +1783,7 @@
       "tasksStopping": "Stopping {{taskId}}…",
       "tasksStopFailed": "Stop failed: {{message}}",
       "tasksCannotOpenOutput": "Cannot open output: {{message}}",
+      "tasksAlreadyTerminal": "{{taskId}} is already terminal — nothing to stop.",
       "clipboardImageHint": "Image in clipboard · {{shortcut}} to paste",
       "cacheHintPreferenceSaveFailed": "Failed to save the tui.toml preference.",
       "cacheCompactFailed": "Compact failed: {{error}}",
@@ -1821,6 +1831,7 @@
       "mcpStatusConnecting": "{{count}} connecting",
       "mcpStatusConnected": "{{count}} connected",
       "mcpStatusDisabled": "{{count}} disabled",
+      "mcpStatusRemoved": "{{count}} removed",
       "goalToolNoGoal": "  No current goal.",
       "goalToolStatus": "Goal {{status}}: {{objective}}",
       "goalToolCouldNotStart": "Could not start goal",
@@ -1879,7 +1890,8 @@
       "shellPrompt": "$ ",
       "shellContinuation": "· ",
       "searchPrefix": "search",
-      "searchScope": "scope: {{scope}}"
+      "searchScope": "scope: {{scope}}",
+      "backgroundTask": "{{status}} {{kind}} task {{taskId}}: {{description}}"
     },
     "migration": {
       "failed": " Migration failed",

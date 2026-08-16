@@ -589,10 +589,12 @@ export class TasksBrowserApp extends Container implements Focusable {
       );
     }
     if (task.kind === 'agent' && task.model !== undefined) {
-      lines.push(`${label('Model:')}${value(task.model)}`);
+      lines.push(`${label(t('tui.dialogs.tasksBrowser.modelLabel'))}${value(task.model)}`);
     }
     if (task.kind === 'agent' && task.thinkingEffort !== undefined) {
-      lines.push(`${label('Effort:')}${value(task.thinkingEffort)}`);
+      lines.push(
+        `${label(t('tui.dialogs.tasksBrowser.effortLabel'))}${value(task.thinkingEffort)}`,
+      );
     }
     if (task.kind === 'question') {
       lines.push(

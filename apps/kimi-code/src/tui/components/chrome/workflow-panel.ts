@@ -89,7 +89,11 @@ export class WorkflowPanelComponent implements Component {
       const parts: string[] = [];
       if (running > 0) parts.push(`${running} ${t('tui.chrome.workflowPanel.running')}`);
       const suffix = parts.length > 0 ? ` (${parts.join(', ')})` : '';
-      lines.push(chalk.hex(c.textDim)(`  \u2026 +${hidden} more${suffix}`));
+      lines.push(
+        chalk.hex(c.textDim)(
+          `  \u2026 ${t('tui.chrome.workflowPanel.moreRuns', { count: hidden })}${suffix}`,
+        ),
+      );
     }
 
     return lines.map((line) => truncateToWidth(line, width));
@@ -104,7 +108,9 @@ function renderRunRow(run: WorkflowRunData, c: ColorPalette, _width: number): st
     : '';
   const agents =
     run.agentCount > 0
-      ? chalk.hex(c.textDim)(` \u00B7 ${run.agentCount} agent${run.agentCount > 1 ? 's' : ''}`)
+      ? chalk.hex(c.textDim)(
+          ` \u00B7 ${t('tui.chrome.workflowPanel.agentCount', { count: run.agentCount })}`,
+        )
       : '';
   const timeStr = chalk.hex(c.textDim)(` \u00B7 ${elapsed}`);
 

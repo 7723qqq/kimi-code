@@ -864,7 +864,9 @@ export class PluginsPanelComponent extends Container implements Focusable {
   private renderThirdParty(lines: string[], width: number): void {
     if (this.opts.catalogIsDefault !== false) {
       const colors = currentTheme.palette;
-      lines.push(mutedHintLine(' Third-party plugins from our partners.', colors));
+      lines.push(
+        mutedHintLine(` ${t('tui.dialogs.pluginsSelector.thirdPartySourceHint')}`, colors),
+      );
       lines.push('');
     }
     this.renderMarketplaceTab(lines, width, this.thirdPartyEntries);
@@ -1064,6 +1066,9 @@ function marketplaceStatusLabel(status: string): string {
       const latest = remainder.slice(arrowIndex + ' → '.length);
       return t('tui.dialogs.pluginsSelector.updateStatus', { local, latest });
     }
+  }
+  if (status === 'installing…') {
+    return t('tui.dialogs.pluginsSelector.installingStatus');
   }
   return status;
 }

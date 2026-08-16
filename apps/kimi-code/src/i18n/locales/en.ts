@@ -226,6 +226,9 @@ export default {
       workflowPanel: {
         header: 'Workflows',
         running: 'running',
+        moreRuns: '+{{count}} more',
+        agentCount_one: '{{count}} agent',
+        agentCount_other: '{{count}} agents',
       },
       activityPane: {
         tipPrefix: ' · Tip: {{tip}}',
@@ -830,6 +833,8 @@ export default {
         marketplaceCount: '{{installed}} installed · {{available}} available',
         marketplaceSource: 'Source: {{source}}',
         openInBrowser: 'open in browser',
+        installingStatus: 'installing…',
+        thirdPartySourceHint: 'Third-party plugins from our partners.',
         installFromUrlHint: ' Install from a GitHub URL (or zip URL / local path):',
         installingFromMarketplace: 'Installing {{label}}…',
         pluginId: 'id {{id}}',
@@ -872,6 +877,8 @@ export default {
         previewFrameTitle: 'Preview Output',
         commandLabel: 'Command:',
         agentIdLabel: 'Agent ID:',
+        modelLabel: 'Model:',
+        effortLabel: 'Effort:',
         questionsLabel: 'Questions:',
         timeLabel: 'Time:',
         pidLabel: 'Pid:',
@@ -946,6 +953,7 @@ export default {
       mcpServerFailedWithError: 'MCP server "{{name}}" failed: {{error}}',
       mcpServerNeedsAuth: 'MCP server "{{name}}" needs OAuth — run /mcp-config login {{name}}',
       mcpServerDisabled: 'MCP server "{{name}}" disabled',
+      mcpServerRemoved: 'MCP server "{{name}}" removed',
       mcpServerConnecting: 'MCP server "{{name}}" connecting…',
       activatedSkill: 'Activated skill: {{skillName}}',
       configSaved: 'Settings saved.',
@@ -1920,6 +1928,8 @@ export default {
       btwCancelFailed: 'Failed to cancel /btw: {{error}}',
       // tui/controllers/editor-keyboard.ts
       editorExternalFailed: 'External editor failed: {{msg}}',
+      // tui/components/editor/custom-editor.ts
+      shellModeLabel: '! shell mode',
       // tui/controllers/tasks-browser.ts
       tasksLoadFailed: 'Failed to load tasks: {{error}}',
       tasksOutputRefreshFailed: 'Output refresh failed: {{message}}',
@@ -1928,6 +1938,7 @@ export default {
       tasksStopping: 'Stopping {{taskId}}…',
       tasksStopFailed: 'Stop failed: {{message}}',
       tasksCannotOpenOutput: 'Cannot open output: {{message}}',
+      tasksAlreadyTerminal: '{{taskId}} is already terminal — nothing to stop.',
       // tui/controllers/clipboard-image-hint.ts
       clipboardImageHint: 'Image in clipboard · {{shortcut}} to paste',
       // tui/controllers/cache-hint-controller.ts
@@ -1989,6 +2000,7 @@ export default {
       mcpStatusConnecting: '{{count}} connecting',
       mcpStatusConnected: '{{count}} connected',
       mcpStatusDisabled: '{{count}} disabled',
+      mcpStatusRemoved: '{{count}} removed',
       // tui/components/messages/tool-renderers/goal.ts
       goalToolNoGoal: '  No current goal.',
       goalToolStatus: 'Goal {{status}}: {{objective}}',
@@ -2057,6 +2069,7 @@ export default {
       shellContinuation: '· ',
       searchPrefix: 'search',
       searchScope: 'scope: {{scope}}',
+      backgroundTask: '{{status}} {{kind}} task {{taskId}}: {{description}}',
     },
     migration: {
       failed: ' Migration failed',

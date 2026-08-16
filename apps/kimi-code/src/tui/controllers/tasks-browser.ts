@@ -304,7 +304,7 @@ export class TasksBrowserController {
       },
       onStopIgnored: (taskId, reason) => {
         if (reason === 'terminal') {
-          this.flash(`${taskId} is already terminal — nothing to stop.`);
+          this.flash(t('tui.messages.tasksAlreadyTerminal', { taskId }));
         }
       },
     };

@@ -13,6 +13,7 @@ import {
   type TUI,
 } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
 import { printableChar } from '#/tui/utils/printable-key';
@@ -154,8 +155,10 @@ export class CustomEditor extends Editor {
    * Alt-V on Windows — Ctrl-V is terminal-reserved there). Return
    * `true` to consume the key (image was read and handled); return
    * `false` to let the key fall through to the normal paste path.
-   * The callback may be async; pi-tui awaits it before dispatching
-   * the next keystroke.
+   * The callback may be async. Note: pi-tui dispatches keystrokes
+   * synchronously and does not await this callback, so `handleInput`
+   * can be re-entered while it is in flight — the caller below guards
+   * the text-paste fallback against stale insertion at a moved cursor.
    */
   public onPasteImage?: () => Promise<boolean>;
 
@@ -299,7 +302,9 @@ export class CustomEditor extends Editor {
     // side bars through the same hook to stay in sync.
     return wrapWithSideBorders(lines, (s) => this.borderColor(s), {
       connectedAbove: this.connectedAbove && !this.borderHighlighted,
-      label: isBash ? ` ${currentTheme.boldFg('shellMode', '! shell mode')} ` : undefined,
+      label: isBash
+        ? ` ${currentTheme.boldFg('shellMode', t('tui.messages.shellModeLabel'))} `
+        : undefined,
     });
   }
 
@@ -366,7 +371,22 @@ export class CustomEditor extends Editor {
       }
       if (this.onPasteImage !== undefined) {
         const handler = this.onPasteImage;
+        // pi-tui dispatches each keystroke synchronously and never awaits
+        // this async handler, so by the time it resolves the user may have
+        // typed ahead or the editor may have lost focus / been replaced.
+        // Only fall back to text paste if the editor is still focused and
+        // untouched — otherwise drop the stale fallback instead of inserting
+        // text at a cursor the user has already moved.
+        const snapshotText = this.getText();
+        const snapshotCursor = this.getCursor();
         const pasteAsText = (): void => {
+          // pi-tui dispatches keystrokes synchronously, so by the time this
+          // async handler settles the user may have typed ahead. Only insert
+          // the text fallback if the editor is still untouched — otherwise
+          // inserting at the already-moved cursor would scramble the text.
+          if (this.getText() !== snapshotText || this.getCursor().col !== snapshotCursor.col) {
+            return;
+          }
           this.onTextPaste?.();
           super.handleInput.call(this, normalized);
         };

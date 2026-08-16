@@ -170,7 +170,14 @@ function renderDisplayBlock(block: DisplayBlock, s: BlockStyles, contentWidth: n
         : [];
     case 'background_task':
       return [
-        s.strong(`${block.status} ${block.kind} task ${block.task_id}: ${block.description}`),
+        s.strong(
+          t('tui.approvalPanel.backgroundTask', {
+            status: block.status,
+            kind: block.kind,
+            taskId: block.task_id,
+            description: block.description,
+          }),
+        ),
       ];
     case 'todo':
       return block.items.map((item) => s.strong(`- [${item.status}] ${item.title}`));

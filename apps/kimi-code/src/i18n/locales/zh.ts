@@ -223,6 +223,9 @@ export default {
       workflowPanel: {
         header: '工作流',
         running: '运行中',
+        moreRuns: '+{{count}} 个',
+        agentCount_one: '{{count}} 个智能体',
+        agentCount_other: '{{count}} 个智能体',
       },
       activityPane: {
         tipPrefix: ' · 提示：{{tip}}',
@@ -813,6 +816,8 @@ export default {
         marketplaceCount: '已安装 {{installed}} · 可用 {{available}}',
         marketplaceSource: '来源：{{source}}',
         openInBrowser: '在浏览器中打开',
+        installingStatus: '正在安装…',
+        thirdPartySourceHint: '来自合作伙伴的第三方插件。',
         installFromUrlHint: ' 从 GitHub URL（或 zip URL / 本地路径）安装：',
         installingFromMarketplace: '正在安装 {{label}}…',
         pluginId: 'ID {{id}}',
@@ -855,6 +860,8 @@ export default {
         previewFrameTitle: '预览输出',
         commandLabel: '命令：',
         agentIdLabel: '智能体 ID：',
+        modelLabel: '模型：',
+        effortLabel: '思考强度：',
         questionsLabel: '问题：',
         timeLabel: '时间：',
         pidLabel: 'PID：',
@@ -929,6 +936,7 @@ export default {
       mcpServerFailedWithError: 'MCP 服务器 "{{name}}" 失败：{{error}}',
       mcpServerNeedsAuth: 'MCP 服务器 "{{name}}" 需要 OAuth — 运行 /mcp-config login {{name}}',
       mcpServerDisabled: 'MCP 服务器 "{{name}}" 已禁用',
+      mcpServerRemoved: 'MCP 服务器 "{{name}}" 已移除',
       mcpServerConnecting: 'MCP 服务器 "{{name}}" 正在连接…',
       activatedSkill: '已激活技能：{{skillName}}',
       configSaved: '设置已保存。',
@@ -1872,6 +1880,8 @@ export default {
       btwCancelFailed: '取消 /btw 失败：{{error}}',
       // tui/controllers/editor-keyboard.ts
       editorExternalFailed: '外部编辑器失败：{{msg}}',
+      // tui/components/editor/custom-editor.ts
+      shellModeLabel: '! Shell 模式',
       // tui/controllers/tasks-browser.ts
       tasksLoadFailed: '加载任务失败：{{error}}',
       tasksOutputRefreshFailed: '输出刷新失败：{{message}}',
@@ -1880,6 +1890,7 @@ export default {
       tasksStopping: '正在停止 {{taskId}}…',
       tasksStopFailed: '停止失败：{{message}}',
       tasksCannotOpenOutput: '无法打开输出：{{message}}',
+      tasksAlreadyTerminal: '{{taskId}} 已处于终止状态 — 无需停止。',
       // tui/controllers/clipboard-image-hint.ts
       clipboardImageHint: '剪贴板中有图片 · {{shortcut}} 粘贴',
       // tui/controllers/cache-hint-controller.ts
@@ -1939,6 +1950,7 @@ export default {
       mcpStatusConnecting: '{{count}} 个连接中',
       mcpStatusConnected: '{{count}} 个已连接',
       mcpStatusDisabled: '{{count}} 个已禁用',
+      mcpStatusRemoved: '{{count}} 个已移除',
       // tui/components/messages/tool-renderers/goal.ts
       goalToolNoGoal: '  无当前目标。',
       goalToolStatus: '目标 {{status}}：{{objective}}',
@@ -2006,6 +2018,7 @@ export default {
       shellContinuation: '· ',
       searchPrefix: '搜索',
       searchScope: '范围：{{scope}}',
+      backgroundTask: '{{status}} {{kind}} 任务 {{taskId}}：{{description}}',
     },
     migration: {
       failed: ' 迁移失败',

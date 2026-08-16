@@ -677,11 +677,17 @@ export class StreamingUIController {
 
     if (toolCall.name === 'ExitPlanMode' && typeof toolCall.args['plan'] !== 'string') {
       const session = this.host.requireSession();
+      const toolCallId = toolCall.id;
       void (async () => {
         try {
           const plan = await session.getPlan();
+          // Drop the write if the tool UI was reset (step boundary, error,
+          // /clear, session switch) while getPlan() was in flight — the
+          // component may have been disposed and detached from the tree.
+          if (this._pendingToolComponents.get(toolCallId) !== tc) return;
           tc.setPlanInfo(plan === null ? {} : { plan: plan.content, path: plan.path });
         } catch {
+          if (this._pendingToolComponents.get(toolCallId) !== tc) return;
           tc.setPlanInfo({});
         }
       })();

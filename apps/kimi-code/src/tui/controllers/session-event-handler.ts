@@ -1158,7 +1158,7 @@ export class SessionEventHandler {
       case 'removed':
         this.finalizeMcpServerStatusRow(
           server.name,
-          `MCP server "${server.name}" removed`,
+          t('tui.statusMessages.mcpServerRemoved', { name: server.name }),
           'textMuted',
         );
         return;

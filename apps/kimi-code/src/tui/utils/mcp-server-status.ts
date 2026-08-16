@@ -74,7 +74,7 @@ export function formatMcpStartupStatusSummary(servers: readonly McpServerStatusS
   if (connecting > 0) parts.push(t('tui.messages.mcpStatusConnecting', { count: connecting }));
   if (connected > 0) parts.push(t('tui.messages.mcpStatusConnected', { count: connected }));
   if (disabled > 0) parts.push(t('tui.messages.mcpStatusDisabled', { count: disabled }));
-  if (removed > 0) parts.push(`${removed} removed`);
+  if (removed > 0) parts.push(t('tui.messages.mcpStatusRemoved', { count: removed }));
   return parts.join(', ');
 }
 
