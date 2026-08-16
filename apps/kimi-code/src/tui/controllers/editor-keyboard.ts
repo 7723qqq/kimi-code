@@ -16,6 +16,7 @@ import {
 import { formatErrorMessage } from '../utils/event-payload';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
 import { extractMediaAttachments } from '../utils/image-placeholder';
+import { extractInlineSkillActivations } from '../utils/inline-skill-tokens';
 import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
 import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
@@ -34,6 +35,7 @@ export interface EditorKeyboardHost {
 
   handleUserInput(text: string): void;
   readonly btwPanelController: BtwPanelController;
+  readonly skillCommandMap: Map<string, string>;
   steerMessage(session: Session, input: readonly SteerInputItem[]): void;
   steerSkillActivation(session: Session, skillName: string, skillArgs: string): void;
   validateMediaCapabilities(extraction: {
@@ -292,11 +294,24 @@ export class EditorKeyboardController {
       const editorIsBash = editor.inputMode === 'bash';
 
       // Bash commands (`! …`) are not steerable: they stay queued so they run
-      // after the current task. Everything else steers in queue order —
-      // plain text as a steered message, slash-skill items as activations
-      // fired into the running turn (never as literal text).
+      // after the current task. Grouped inline-skill submissions are not
+      // steerable either — steer carries no skill activations, so they stay
+      // queued and submit intact when the session drains; the same applies to
+      // an editor draft carrying inline skill tokens. Steering stops at the
+      // first such bundle: items behind it stay queued too, or a later
+      // message would jump ahead of its bundle and reverse the conversational
+      // order. Everything else steers in queue order — plain text as a
+      // steered message, slash-skill items as activations fired into the
+      // running turn (never as literal text).
       const queued = host.state.queuedMessages;
-      const steerable = queued.filter((m) => m.mode !== 'bash');
+      const firstBundle = queued.findIndex((m) => m.inlineSkillActivations !== undefined);
+      const windowBeforeFirstBundle = firstBundle === -1 ? queued : queued.slice(0, firstBundle);
+      const steerable = windowBeforeFirstBundle.filter((m) => m.mode !== 'bash');
+      const editorHasInlineSkills =
+        !editorIsBash &&
+        text.length > 0 &&
+        host.engineV2 &&
+        extractInlineSkillActivations(text, host.skillCommandMap).length > 0;
 
       type SteerRun =
         | { readonly kind: 'text'; readonly items: SteerInputItem[] }
@@ -323,7 +338,7 @@ export class EditorKeyboardController {
         }
       }
       let editorExtraction: ReturnType<typeof extractMediaAttachments> | undefined;
-      if (!editorIsBash && text.length > 0) {
+      if (!editorIsBash && text.length > 0 && !editorHasInlineSkills && firstBundle === -1) {
         try {
           editorExtraction = extractMediaAttachments(text, this.imageStore);
         } catch (error) {
@@ -353,8 +368,10 @@ export class EditorKeyboardController {
         ) {
           return;
         }
-        host.state.queuedMessages = queued.filter((m) => m.mode === 'bash');
-        if (!editorIsBash) editor.setText('');
+        host.state.queuedMessages = queued.filter(
+          (m, index) => m.mode === 'bash' || (firstBundle !== -1 && index >= firstBundle),
+        );
+        if (!editorIsBash && !editorHasInlineSkills && firstBundle === -1) editor.setText('');
         const session = host.session;
         if (host.state.appState.model.trim().length === 0 || session === undefined) {
           host.showError(LLM_NOT_SET_MESSAGE);
