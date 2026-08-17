@@ -93,7 +93,6 @@ export interface GoogleGenAIOptions {
   project?: string | undefined;
   location?: string | undefined;
   stream?: boolean | undefined;
-  thinkingEffort?: ThinkingEffort | undefined;
   defaultHeaders?: Record<string, string>;
   clientFactory?: (auth: ProviderRequestAuth) => GenAIClient;
 }
@@ -708,7 +707,6 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   private readonly _baseUrl: string | undefined;
   private readonly _project: string | undefined;
   private readonly _location: string | undefined;
-  private readonly _thinkingEffort: ThinkingEffort | undefined;
   private readonly _defaultHeaders: Record<string, string> | undefined;
   private readonly _clientFactory: ((auth: ProviderRequestAuth) => GenAIClient) | undefined;
 
@@ -716,7 +714,6 @@ export class GoogleGenAIChatProvider implements ChatProvider {
     this._model = options.model;
     this._vertexai = options.vertexai ?? false;
     this._stream = options.stream ?? true;
-    this._thinkingEffort = options.thinkingEffort;
     this._generationKwargs = {};
 
     const apiKey = options.apiKey ?? process.env['GOOGLE_API_KEY'];
@@ -757,7 +754,7 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return this._thinkingEffort ?? null;
+    return null;
   }
 
   get maxCompletionTokens(): number | undefined {
@@ -785,9 +782,7 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       kwargs = { ...kwargs, topP: options.sampling.topP };
     }
 
-    const thinking =
-      options?.thinking ??
-      (this._thinkingEffort !== undefined ? { effort: this._thinkingEffort } : undefined);
+    const thinking = options?.thinking;
     if (thinking !== undefined) {
       kwargs = { ...kwargs, thinkingConfig: this._encodeThinking(thinking.effort) };
     }

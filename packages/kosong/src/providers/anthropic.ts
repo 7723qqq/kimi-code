@@ -41,6 +41,7 @@ import type {
   ChatProvider,
   FinishReason,
   GenerateOptions,
+  MaxCompletionTokensOptions,
   ProviderRequestAuth,
   ResponseFormat,
   StreamedMessage,
@@ -1354,7 +1355,10 @@ export class AnthropicChatProvider implements ChatProvider {
     return this._withGenerationKwargs(kwargs);
   }
 
-  withMaxCompletionTokens(maxCompletionTokens: number): AnthropicChatProvider {
+  withMaxCompletionTokens(
+    maxCompletionTokens: number,
+    _options?: MaxCompletionTokensOptions,
+  ): AnthropicChatProvider {
     const requestedCap = resolveDefaultMaxTokens(this._model, maxCompletionTokens);
     const existingCap = this._generationKwargs.max_tokens;
     const clone = this._withGenerationKwargs({

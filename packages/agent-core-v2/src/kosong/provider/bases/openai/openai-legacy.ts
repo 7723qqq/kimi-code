@@ -128,7 +128,6 @@ export interface OpenAILegacyOptions {
   maxTokens?: number | undefined;
   reasoningKey?: string | undefined;
   offEffort?: string | undefined;
-  thinkingEffort?: ThinkingEffort | undefined;
   httpClient?: unknown;
   defaultHeaders?: Record<string, string>;
   toolMessageConversion?: ToolMessageConversion | undefined;
@@ -521,7 +520,6 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   private readonly _defaultHeaders: Record<string, string> | undefined;
   private readonly _reasoningKeyDialect: ReasoningKeyDialect;
   private readonly _offEffort: string | undefined;
-  private readonly _thinkingEffort: ThinkingEffort | undefined;
   private readonly _generationKwargs: OpenAILegacyGenerationKwargs;
   private readonly _toolMessageConversion: ToolMessageConversion;
   private readonly _client: OpenAI | undefined;
@@ -548,7 +546,6 @@ export class OpenAILegacyChatProvider implements ChatProvider {
         ? normalizedReasoningKey
         : this._hooks?.reasoningKey?.(),
     );
-    this._thinkingEffort = options.thinkingEffort;
     this._offEffort = options.offEffort;
     this._generationKwargs = normalizeGenerationKwargs(
       this._model,
@@ -571,7 +568,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return this._thinkingEffort ?? null;
+    return null;
   }
 
   get maxCompletionTokens(): number | undefined {
@@ -688,9 +685,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
       kwargs = { ...kwargs, top_p: options.sampling.topP };
     }
 
-    const thinking =
-      options?.thinking ??
-      (this._thinkingEffort !== undefined ? { effort: this._thinkingEffort } : undefined);
+    const thinking = options?.thinking;
     let explicitThinkingEffort: ThinkingEffort | undefined;
     if (thinking !== undefined) {
       const hooked = this._hooks?.withThinking?.(thinking.effort, { keep: thinking.keep }, kwargs);

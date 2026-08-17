@@ -1150,7 +1150,7 @@ describe('KimiChatProvider', () => {
 
   describe('clone client sharing', () => {
     // The original and clone MUST share the underlying OpenAI client.
-    // The dynamic completion budget path (KosongLLM.chatOnce) clones the
+    // The dynamic completion budget path (withMaxCompletionTokens) clones the
     // provider on every step. If a future change introduces a retry path
     // that replaces `clone._client` and closes the previous one, the
     // original instance's `_client` would become a dangling reference to

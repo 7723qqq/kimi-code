@@ -379,7 +379,6 @@ export interface OpenAIResponsesOptions {
   model: string;
   maxOutputTokens?: number | undefined;
   offEffort?: string | undefined;
-  thinkingEffort?: ThinkingEffort | undefined;
   httpClient?: unknown;
   defaultHeaders?: Record<string, string>;
   toolMessageConversion?: ToolMessageConversion | undefined;
@@ -1025,7 +1024,6 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   private readonly _apiKey: string | undefined;
   private readonly _baseUrl: string | undefined;
   private readonly _defaultHeaders: Record<string, string> | undefined;
-  private readonly _thinkingEffort: ThinkingEffort | undefined;
   private readonly _offEffort: string | undefined;
   private readonly _generationKwargs: OpenAIResponsesGenerationKwargs;
   private readonly _toolMessageConversion: ToolMessageConversion;
@@ -1043,7 +1041,6 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     this._defaultHeaders = options.defaultHeaders;
     this._model = options.model;
     this._stream = true;
-    this._thinkingEffort = options.thinkingEffort;
     this._offEffort = options.offEffort;
     this._generationKwargs = {};
     this._toolMessageConversion = options.toolMessageConversion ?? null;
@@ -1063,7 +1060,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return this._thinkingEffort ?? null;
+    return null;
   }
 
   get maxCompletionTokens(): number | undefined {
@@ -1098,9 +1095,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
       kwargs = { ...kwargs, top_p: options.sampling.topP };
     }
 
-    const thinking =
-      options?.thinking ??
-      (this._thinkingEffort !== undefined ? { effort: this._thinkingEffort } : undefined);
+    const thinking = options?.thinking;
     if (thinking !== undefined) {
       const effort =
         thinking.effort === 'off'

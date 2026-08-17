@@ -677,13 +677,13 @@ export class KimiChatProvider implements ChatProvider {
     // lazily re-created on first access.
     clone._files = undefined;
     // `_client` is intentionally shared with the original instance. Per-step
-    // budget clamping (see KosongLLM.chatOnce) relies on this clone being
-    // cheap. If a future change introduces a retry path that REPLACES
-    // `clone._client` with a freshly built client (and closes the old one),
-    // the original instance's `_client` would become a dangling reference to
-    // a closed socket. Keep `_client` shared and never mutate it after
-    // construction; instead build a new KimiChatProvider when a real new
-    // client is required.
+    // budget clamping (the `withMaxCompletionTokens` morph path) relies on
+    // this clone being cheap. If a future change introduces a retry path that
+    // REPLACES `clone._client` with a freshly built client (and closes the old
+    // one), the original instance's `_client` would become a dangling
+    // reference to a closed socket. Keep `_client` shared and never mutate it
+    // after construction; instead build a new KimiChatProvider when a real
+    // new client is required.
     // `_reasoningKeyDialect` is shared for the same reason: the dialect
     // learned from a response on any per-step clone must steer the next
     // request's outbound reasoning key.

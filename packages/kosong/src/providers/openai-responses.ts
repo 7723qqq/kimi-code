@@ -19,6 +19,7 @@ import type {
   ChatProvider,
   FinishReason,
   GenerateOptions,
+  MaxCompletionTokensOptions,
   ProviderRequestAuth,
   ResponseFormat,
   StreamedMessage,
@@ -1262,7 +1263,10 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     return clone;
   }
 
-  withMaxCompletionTokens(maxCompletionTokens: number): OpenAIResponsesChatProvider {
+  withMaxCompletionTokens(
+    maxCompletionTokens: number,
+    _options?: MaxCompletionTokensOptions,
+  ): OpenAIResponsesChatProvider {
     return this.withGenerationKwargs({ max_output_tokens: maxCompletionTokens });
   }
 

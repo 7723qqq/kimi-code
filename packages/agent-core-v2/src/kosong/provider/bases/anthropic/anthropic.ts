@@ -160,7 +160,6 @@ export interface AnthropicOptions {
   adaptiveThinking?: boolean | undefined;
   supportEfforts?: readonly string[] | undefined;
   betaApi?: boolean | undefined;
-  thinkingEffort?: ThinkingEffort | undefined;
   clientFactory?: (auth: ProviderRequestAuth) => Anthropic;
   hooks?: AnthropicHooks | undefined;
 }
@@ -800,7 +799,6 @@ export class AnthropicChatProvider implements ChatProvider {
   private readonly _adaptiveThinking: boolean | undefined;
   private readonly _supportEfforts: readonly string[] | undefined;
   private readonly _betaApi: boolean;
-  private readonly _thinkingEffort: ThinkingEffort | undefined;
   private readonly _explicitMaxTokens: boolean;
   private readonly _hooks: AnthropicHooks | undefined;
 
@@ -811,7 +809,6 @@ export class AnthropicChatProvider implements ChatProvider {
     this._adaptiveThinking = options.adaptiveThinking;
     this._supportEfforts = options.supportEfforts;
     this._betaApi = options.betaApi ?? false;
-    this._thinkingEffort = options.thinkingEffort;
     this._hooks = options.hooks;
     this._apiKey =
       options.apiKey === undefined || options.apiKey.length === 0 ? undefined : options.apiKey;
@@ -831,7 +828,7 @@ export class AnthropicChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return this._thinkingEffort ?? null;
+    return null;
   }
 
   get maxCompletionTokens(): number | undefined {
@@ -891,9 +888,7 @@ export class AnthropicChatProvider implements ChatProvider {
       kwargs = { ...kwargs, top_p: options.sampling.topP };
     }
 
-    const thinking =
-      options?.thinking ??
-      (this._thinkingEffort !== undefined ? { effort: this._thinkingEffort } : undefined);
+    const thinking = options?.thinking;
     if (thinking !== undefined) {
       const hooked = this._hooks?.withThinking?.(
         thinking.effort,
