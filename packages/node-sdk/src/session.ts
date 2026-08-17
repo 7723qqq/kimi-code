@@ -21,6 +21,7 @@ import type {
   GoalSnapshot,
   GoalToolResult,
   JsonObject,
+  McpServerConfig,
   McpServerInfo,
   McpStartupMetrics,
   PermissionMode,
@@ -572,9 +573,33 @@ export class Session {
     return this.rpc.getMcpStartupMetrics({ sessionId: this.id });
   }
 
-  async reconnectMcpServer(name: string): Promise<void> {
+  /**
+   * Connect an MCP server in this live session. `persist: true` also writes
+   * the user-level `mcp.json` (the entry becomes a mutable `global` one);
+   * otherwise it stays a session-local `caller` entry.
+   */
+  async addMcpServer(
+    server: McpServerConfig,
+    options: { readonly persist?: boolean } = {},
+  ): Promise<McpServerInfo> {
     this.ensureOpen();
-    await this.rpc.reconnectMcpServer({ sessionId: this.id, name });
+    return this.rpc.addSessionMcpServer({
+      sessionId: this.id,
+      server,
+      persist: options.persist,
+    });
+  }
+
+  /**
+   * Reconnect a server. Without `config` the session re-resolves the current
+   * effective config from the unified registry (file edits and plugin
+   * enable/disable land here). With `config`, the entry is replaced with the
+   * given full config — a plugin-contributed server rejects this because its
+   * config is read-only, owned by the plugin manifest.
+   */
+  async reconnectMcpServer(name: string, config?: McpServerConfig): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.reconnectMcpServer({ sessionId: this.id, name, config });
   }
 
   async listPlugins(): Promise<readonly PluginSummary[]> {

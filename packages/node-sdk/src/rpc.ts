@@ -28,6 +28,7 @@ import type {
   AddAdditionalDirResult,
   AgentCommandInfo,
   AgentRuntimeBinding,
+  AppMcpServerInspection,
   BackgroundTaskInfo,
   ConfigDiagnostics,
   CreateSessionOptions,
@@ -39,7 +40,9 @@ import type {
   GenerateSessionTitleInput,
   GetConfigOptions,
   GlobalMcpServerAuthStatus,
+  McpManagedServerInfo,
   McpServerConfig,
+  McpServerLocator,
   GoalSnapshot,
   GoalToolResult,
   JsonObject,
@@ -158,6 +161,13 @@ export interface SwitchSessionRuntimeRpcInput extends SessionIdRpcInput {
 
 export interface ReconnectMcpServerRpcInput extends SessionIdRpcInput {
   readonly name: string;
+  /**
+   * Optional full replacement config (the "name + full config" channel).
+   * Omitted: the session re-resolves the effective config from the unified
+   * registry instead of reusing the boot-time snapshot. Plugin-contributed
+   * entries reject an explicit config (theirs is read-only).
+   */
+  readonly config?: McpServerConfig;
 }
 
 type ResolvedCoreAPI = RPCMethods<CoreAPI>;
@@ -374,27 +384,48 @@ export abstract class SDKRpcClientBase {
     );
   }
 
-  async listGlobalMcpServers(): Promise<readonly McpServerConfig[]> {
+  async listGlobalMcpServers(
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
     const rpc = await this.getRpc();
-    return rpc.listGlobalMcpServers({});
+    return rpc.listGlobalMcpServers({ cwd: options.cwd });
   }
 
-  async listGlobalMcpServerAuthStatuses(): Promise<readonly GlobalMcpServerAuthStatus[]> {
+  async getGlobalMcpServer(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<McpManagedServerInfo> {
     const rpc = await this.getRpc();
-    return rpc.listGlobalMcpServerAuthStatuses({});
+    return rpc.getGlobalMcpServer({ name, cwd: options.cwd });
   }
 
-  async addGlobalMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]> {
+  async listGlobalMcpServerAuthStatuses(
+    options: { readonly cwd?: string; readonly verify?: boolean } = {},
+  ): Promise<readonly GlobalMcpServerAuthStatus[]> {
+    const rpc = await this.getRpc();
+    return rpc.listGlobalMcpServerAuthStatuses({ cwd: options.cwd, verify: options.verify });
+  }
+
+  async inspectAppMcpServers(
+    targets?: readonly McpServerLocator[],
+  ): Promise<readonly AppMcpServerInspection[]> {
+    const rpc = await this.getRpc();
+    return rpc.inspectAppMcpServers({ targets });
+  }
+
+  async addGlobalMcpServer(server: McpServerConfig): Promise<readonly McpManagedServerInfo[]> {
     const rpc = await this.getRpc();
     return rpc.addGlobalMcpServer({ server });
   }
 
-  async updateGlobalMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]> {
+  async updateGlobalMcpServer(
+    server: McpServerConfig,
+  ): Promise<readonly McpManagedServerInfo[]> {
     const rpc = await this.getRpc();
     return rpc.updateGlobalMcpServer({ server });
   }
 
-  async removeGlobalMcpServer(name: string): Promise<readonly McpServerConfig[]> {
+  async removeGlobalMcpServer(name: string): Promise<readonly McpManagedServerInfo[]> {
     const rpc = await this.getRpc();
     return rpc.removeGlobalMcpServer({ name });
   }
@@ -402,6 +433,11 @@ export abstract class SDKRpcClientBase {
   async beginGlobalMcpServerAuth(name: string): Promise<BeginGlobalMcpServerAuthResult> {
     const rpc = await this.getRpc();
     return rpc.beginGlobalMcpServerAuth({ name });
+  }
+
+  async beginMcpServerAuth(locator: McpServerLocator): Promise<BeginGlobalMcpServerAuthResult> {
+    const rpc = await this.getRpc();
+    return rpc.beginMcpServerAuth({ locator });
   }
 
   async completeGlobalMcpServerAuth(
@@ -412,14 +448,32 @@ export abstract class SDKRpcClientBase {
     return rpc.completeGlobalMcpServerAuth(input, { signal });
   }
 
+  async completeMcpServerAuth(
+    input: { readonly flowId: string; readonly timeoutMs?: number },
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.completeMcpServerAuth(input, { signal });
+  }
+
   async cancelGlobalMcpServerAuth(flowId: string): Promise<void> {
     const rpc = await this.getRpc();
     return rpc.cancelGlobalMcpServerAuth({ flowId });
   }
 
+  async cancelMcpServerAuth(flowId: string): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.cancelMcpServerAuth({ flowId });
+  }
+
   async resetGlobalMcpServerAuth(name: string): Promise<void> {
     const rpc = await this.getRpc();
     return rpc.resetGlobalMcpServerAuth({ name });
+  }
+
+  async resetMcpServerAuth(locator: McpServerLocator): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.resetMcpServerAuth({ locator });
   }
 
   async testGlobalMcpServer(
@@ -428,6 +482,18 @@ export abstract class SDKRpcClientBase {
   ): Promise<McpTestResult> {
     const rpc = await this.getRpc();
     return rpc.testGlobalMcpServer({ name, cwd: options.cwd });
+  }
+
+  /**
+   * Probe a full inline (unsaved) MCP server config — the `server` channel of
+   * the engine's `testGlobalMcpServer`, so nothing has to be persisted first.
+   */
+  async testGlobalMcpServerConfig(
+    server: McpServerConfig,
+    options: { readonly cwd?: string } = {},
+  ): Promise<McpTestResult> {
+    const rpc = await this.getRpc();
+    return rpc.testGlobalMcpServer({ server, cwd: options.cwd });
   }
 
   async prompt(input: SessionPromptRpcInput): Promise<void> {
@@ -869,7 +935,29 @@ export abstract class SDKRpcClientBase {
 
   async reconnectMcpServer(input: ReconnectMcpServerRpcInput): Promise<void> {
     const rpc = await this.getRpc();
-    return rpc.reconnectMcpServer({ sessionId: input.sessionId, name: input.name });
+    return rpc.reconnectMcpServer({
+      sessionId: input.sessionId,
+      name: input.name,
+      config: input.config,
+    });
+  }
+
+  /**
+   * Connect an MCP server in a live session. `persist: true` also writes the
+   * user-level `mcp.json` (the entry becomes a mutable `global` one);
+   * otherwise it stays a session-local `caller` entry.
+   */
+  async addSessionMcpServer(input: {
+    readonly sessionId: string;
+    readonly server: McpServerConfig;
+    readonly persist?: boolean;
+  }): Promise<McpServerInfo> {
+    const rpc = await this.getRpc();
+    return rpc.addSessionMcpServer({
+      sessionId: input.sessionId,
+      server: input.server,
+      persist: input.persist,
+    });
   }
 
   async listPlugins(): Promise<readonly PluginSummary[]> {

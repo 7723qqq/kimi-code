@@ -738,7 +738,11 @@ describe('AgentLifecycleService', () => {
     expect(tokenEntries).toEqual([
       [
         expect.stringMatching(/^credentials\/mcp\/linear-[a-f0-9]{24}-tokens\.json$/),
-        { access_token: 'session-token', token_type: 'Bearer' },
+        {
+          access_token: 'session-token',
+          token_type: 'Bearer',
+          obtained_at: expect.any(Number),
+        },
       ],
     ]);
   });
