@@ -111,7 +111,7 @@ export interface Message {
    * `messages[].tools`) serialize it; callers must not send such a message to
    * a provider without that capability.
    */
-  readonly tools?: readonly Tool[] | undefined;
+  readonly tools?: readonly Tool[];
 }
 
 /** Check if a streamed part is a ContentPart (text, think, image_url, audio_url, video_url). */

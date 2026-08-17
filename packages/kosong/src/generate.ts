@@ -373,7 +373,7 @@ function deepCopyPart(part: StreamedMessagePart): StreamedMessagePart {
     case 'function':
       return {
         ...part,
-        ...(part.extras !== undefined ? { extras: structuredClone(part.extras) } : {}),
+        extras: part.extras === undefined ? undefined : structuredClone(part.extras),
       };
     default: {
       const exhaustive: never = part;

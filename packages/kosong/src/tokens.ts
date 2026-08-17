@@ -77,9 +77,11 @@ export function estimateTokensForTools(tools: readonly Tool[]): number {
   for (const tool of tools) {
     total += estimateTokens(tool.name);
     total += estimateTokens(tool.description);
-    total += estimateTokensForJson(JSON.stringify(tool.parameters));
+    total += estimateTokens(JSON.stringify(tool.parameters));
   }
-  return total;
+  // The multiplier applies to the summed estimate, matching the native batch
+  // path above — applying it per-tool would make the two paths disagree.
+  return Math.ceil(total * JSON_TOKEN_MULTIPLIER);
 }
 
 export function estimateTokensForMessage(message: Message): number {

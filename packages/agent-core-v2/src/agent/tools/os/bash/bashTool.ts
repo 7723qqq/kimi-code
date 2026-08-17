@@ -10,7 +10,10 @@
  * The Rust native bash lifecycle (`tryNativeBashSpawn`) is the primary spawn
  * path — it streams stdout/stderr to an `IProcess` adapter and kills the
  * process tree on demand; when the native module is unavailable the tool
- * falls back to `ISessionProcessRunner` (node-local `child_process`).
+ * falls back to `ISessionProcessRunner` (node-local `child_process`). A
+ * terminal-backed runner (the ACP terminal reverse-RPC bridge) always
+ * receives the invocation through the runner instead, so the client terminal
+ * displays the command.
  *
  * Collaborators injected via constructor:
  *   - `runner`     — `ISessionProcessRunner`, spawns the shell process

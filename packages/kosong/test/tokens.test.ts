@@ -66,6 +66,22 @@ describe('estimateTokensForMessage(s)', () => {
     ).toBe(MEDIA_TOKEN_ESTIMATE);
     expect(estimateTokensForContentPart({ type: 'think', think: 'abcd' })).toBe(1);
   });
+
+  it('counts message-level tool declarations (dynamic tool schemas)', () => {
+    const tool = { name: 'read', description: 'Read a file', parameters: { type: 'object' } };
+    const message: Message = {
+      role: 'system',
+      content: [],
+      toolCalls: [],
+      tools: [tool],
+    };
+    // The tools field carries full schemas; without it the injected schemas
+    // would be invisible to every compaction budget. The estimate is the role
+    // plus the tool schemas (no content, no tool calls).
+    expect(estimateTokensForMessage(message)).toBe(
+      estimateTokens('system') + estimateTokensForTools([tool]),
+    );
+  });
 });
 
 describe('estimateTokensForTools', () => {

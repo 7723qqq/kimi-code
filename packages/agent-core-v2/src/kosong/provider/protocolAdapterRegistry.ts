@@ -44,7 +44,7 @@ import {
 } from '#/kosong/protocol/protocolBase';
 import type { ProtocolTrait, ResolvedTrait, TraitContext } from '#/kosong/protocol/protocolTrait';
 
-import { getProviderDefinition } from './providerDefinition';
+import { getProviderDefinition, hasProviderDefinition } from './providerDefinition';
 
 const CONFIG_DEFAULT_HEADERS_TRAIT: ProtocolTrait = {
   defaultHeaders: (ctx) =>
@@ -77,7 +77,12 @@ export class ProtocolAdapterRegistry implements IProtocolAdapterRegistry {
   resolveAdapterIdentity(protocol: Protocol, providerType?: string): ResolvedAdapterIdentity {
     const definition =
       providerType === undefined ? undefined : getProviderDefinition(providerType, protocol);
-    if (providerType !== undefined && definition === undefined) {
+    // Warn only when the vendor is KNOWN but this protocol pair is missing —
+    // that is a real misconfiguration (e.g. kimi configured over
+    // google-genai). A completely unknown providerType is the supported
+    // "unregistered vendor" branch (custom relays, Ollama, …) and degrades
+    // to the bare protocol base by design, so it must not warn.
+    if (providerType !== undefined && definition === undefined && hasProviderDefinition(providerType)) {
       warnUnregisteredProviderPair(providerType, protocol);
     }
     const baseId: ProtocolBaseId = protocol;

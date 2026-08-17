@@ -152,11 +152,14 @@ export class ModelRequesterImpl implements ModelRequester {
             { ...options, auth },
           );
         },
-        () => {
+        (firstError) => {
           // A 401 mid-stream means the first attempt already pushed partial
-          // parts. Drop the unconsumed backlog and reset the timing anchor so
-          // the replay starts clean; parts already delivered to the consumer
-          // cannot be recalled (push-based streaming).
+          // parts. Parts already delivered to the consumer cannot be recalled,
+          // and a replay would interleave two generations into one message —
+          // surface the auth error instead of replaying.
+          if (firstChunkAt !== undefined) {
+            throw firstError;
+          }
           queue.clear();
           firstChunkAt = undefined;
         },
@@ -193,16 +196,18 @@ export class ModelRequesterImpl implements ModelRequester {
 
   private async runWithAuthRefresh<T>(
     run: (auth: ProviderRequestAuth | undefined) => Promise<T>,
-    onReplay?: () => void,
+    onReplay?: (firstError: unknown) => void,
   ): Promise<T> {
     const auth = await this.authProvider.getAuth();
+    let firstError: unknown;
     try {
       return await run(auth);
     } catch (error) {
+      firstError = error;
       if (!this.shouldForceRefresh(error)) throw error;
     }
 
-    onReplay?.();
+    onReplay?.(firstError);
     const refreshedAuth = await this.authProvider.getAuth({ force: true });
     try {
       return await run(refreshedAuth);

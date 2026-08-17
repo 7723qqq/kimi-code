@@ -22,7 +22,6 @@ import type {
   AgentProfileContext,
   EnvironmentDisclosureSnapshot,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import type { ErrorCode } from '#/errors';
 import type { ModelCapability } from '#/kosong/contract/capability';
 import type { ThinkingEffort } from '#/kosong/contract/provider';
 import type { ModelRequestParams } from '#/kosong/model/modelRequester';
@@ -35,7 +34,7 @@ export type ProfileErrorCode = (typeof ProfileErrors.codes)[keyof typeof Profile
 
 export class ProfileError extends Error2 {
   constructor(code: ProfileErrorCode, message: string, details?: Record<string, unknown>) {
-    super(code as ErrorCode, message, { details });
+    super(code, message, { details });
     this.name = 'ProfileError';
   }
 }

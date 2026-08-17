@@ -23,6 +23,7 @@ export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
   private ended = false;
   private closed = false;
   private readonly maxBufferSize: number | undefined;
+  private bufferWarned = false;
 
   constructor(options?: { readonly maxBufferSize?: number }) {
     this.maxBufferSize = options?.maxBufferSize;
@@ -35,10 +36,17 @@ export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
       waiter.resolve({ done: false, value });
       return;
     }
-    if (this.maxBufferSize !== undefined && this.values.length >= this.maxBufferSize) {
-      // Defensive observability only: the buffer is bounded by the producer's
-      // own await points in practice, so an oversized backlog means the
-      // consumer stalled. Never drop values — that would corrupt the stream.
+    if (
+      !this.bufferWarned &&
+      this.maxBufferSize !== undefined &&
+      this.values.length >= this.maxBufferSize
+    ) {
+      // Defensive observability only, one-shot: the buffer is bounded by the
+      // producer's own await points in practice, so an oversized backlog means
+      // the consumer stalled. Never drop values — that would corrupt the
+      // stream, and a per-push warning would flood stderr while the consumer
+      // stays stalled.
+      this.bufferWarned = true;
       try {
         process.stderr.write(
           `[asyncEventQueue] buffer exceeded ${this.maxBufferSize} values; consumer may be stalled\n`,

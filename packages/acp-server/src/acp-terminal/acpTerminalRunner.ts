@@ -90,8 +90,14 @@ function envRecordToAcp(
 export class AcpProcessRunner implements ISessionProcessRunner {
   declare readonly _serviceBrand: undefined;
 
-  /** Exec calls are backed by a client-visible terminal. */
-  readonly terminalBacked = true;
+  /**
+   * Exec calls are backed by a client-visible terminal only when the client
+   * advertised `clientCapabilities.terminal`; otherwise the runner is a plain
+   * local spawn and consumers may keep their native fast paths.
+   */
+  get terminalBacked(): boolean {
+    return this.connection.terminalEnabled;
+  }
 
   constructor(
     @ISessionContext private readonly ctx: ISessionContext,

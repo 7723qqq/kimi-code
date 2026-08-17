@@ -3315,8 +3315,11 @@ export class KimiTUI {
       // Cache miss = tokens written into the cache (cache_creation). Plain
       // input (input_other) is not part of the cache system, so it must not
       // dilute the hit rate: read/(read+creation) is the exact hit rate.
+      // OpenAI-compatible endpoints (Kimi/DeepSeek/OpenAI) report no cache
+      // writes — their miss lands in input_other — so the gate also admits
+      // plain input to keep the footer's fallback readout populated.
       const miss = usage.inputCacheCreation ?? 0;
-      if (read > 0 || miss > 0) {
+      if (read > 0 || miss > 0 || (usage.inputOther ?? 0) > 0) {
         patch.cacheReadTokens = this.state.appState.cacheReadTokens + read;
         patch.cacheMissTokens = this.state.appState.cacheMissTokens + miss;
         // Keep plain input alongside so the footer can fall back to the

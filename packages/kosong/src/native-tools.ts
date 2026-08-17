@@ -36,7 +36,15 @@ function callNativeSync<T>(name: string, args: unknown[]): T | undefined {
   try {
     const result = (fn as (...callArgs: unknown[]) => unknown)(...args);
     return (result as T) ?? undefined;
-  } catch {
+  } catch (error) {
+    // A thrown native call is never silently treated as "module missing" —
+    // report it so a broken addon is distinguishable from an absent one.
+    const message = error instanceof Error ? error.message : String(error);
+    try {
+      process.stderr.write(`[native-tools] native ${name} threw: ${message}\n`);
+    } catch {
+      // stderr itself failed — nothing sensible left to do.
+    }
     return undefined;
   }
 }

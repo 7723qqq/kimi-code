@@ -84,6 +84,26 @@ function streamOf(
   };
 }
 
+/** A stream that yields `parts` and then throws `error` mid-iteration. */
+function streamThatFailsMidway(
+  parts: readonly StreamedMessagePart[],
+  error: unknown,
+): StreamedMessage {
+  return {
+    id: 'msg-1',
+    usage: null,
+    finishReason: null,
+    rawFinishReason: null,
+    traceId: null,
+    async *[Symbol.asyncIterator]() {
+      for (const part of parts) {
+        yield part;
+      }
+      throw error;
+    },
+  };
+}
+
 function registryReturning(provider: ChatProvider): IProtocolAdapterRegistry {
   return {
     _serviceBrand: undefined,
@@ -235,6 +255,34 @@ describe('ModelRequesterImpl request execution', () => {
     expect(provider.calls[0]?.options?.auth).toEqual({ apiKey: 'tok-1' });
     expect(provider.calls[1]?.options?.auth).toEqual({ apiKey: 'tok-2' });
     expect(authCalls).toEqual([{}, { force: true }]);
+  });
+
+  it('does not replay a mid-stream 401 (parts already delivered)', async () => {
+    const provider = new FakeChatProvider();
+    provider.handler = (callIndex) =>
+      callIndex === 0
+        ? Promise.resolve(
+            streamThatFailsMidway(
+              [{ type: 'text', text: 'partial' }],
+              new APIStatusError(401, 'token expired mid-stream'),
+            ),
+          )
+        : Promise.resolve(streamOf([{ type: 'text', text: 'ok' }]));
+    const requester = new ModelRequesterImpl(
+      modelWith({
+        canRefresh: true,
+        getAuth: () => Promise.resolve({ apiKey: 'tok' }),
+      }),
+      registryReturning(provider),
+    );
+
+    const failure = await collect(requester.request(INPUT)).catch((error: unknown) => error);
+    // A mid-stream 401 is surfaced instead of replayed: parts already
+    // delivered to the consumer cannot be recalled, and a replay would
+    // interleave two generations into one message.
+    expect(isError2(failure)).toBe(true);
+    expect((failure as { code: string }).code).toBe(ProtocolErrors.codes.PROVIDER_AUTH_ERROR);
+    expect(provider.calls).toHaveLength(1);
   });
 
   it('surfaces a replay-surviving 401 as provider.auth_error', async () => {
