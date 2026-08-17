@@ -7,8 +7,10 @@
  * folds the completion-token budget into the profile's dialect-free intent
  * params, then drives a bounded request chain through the `ModelRequester`
  * resolved from `IModelCatalog`: one primary `requester.request(input, signal,
- * params)` attempt plus projection rebuilds for request structure or media
- * compatibility. Before each request the projected messages pass through `media`'s
+ * params)` attempt plus accumulating projection rebuilds — each repeated
+ * provider rejection (request structure, body size, image format) adds its own
+ * repair on top of the ones already applied. Before each request the projected
+ * messages pass through `media`'s
  * media resolver, which rewrites every `kimi-file://` prompt-media reference
  * to a provider-acceptable part (an uploaded `ms://` video, an inline base64
  * `data:` part, or a degradation tag/drop) so the internal reference never
@@ -41,6 +43,7 @@ import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory'
 import {
   IAgentContextProjectorService,
   type MediaStripSnapshot,
+  type ProjectionPolicy,
 } from '#/agent/contextProjector/contextProjector';
 import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
@@ -127,8 +130,6 @@ interface ResolvedLLMRequest {
   readonly source: AgentLLMRequestSource | undefined;
   readonly logFields: AgentLLMRequestLogFields;
 }
-
-type RequestProjection = 'normal' | 'strict' | 'media-degraded' | 'media-stripped';
 
 interface LLMRequestLogInput {
   readonly protocol: Protocol;
@@ -342,41 +343,34 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   ): Promise<AgentLLMRequestFinish> {
     this.toolCallIdNormalizer.seedFrom(this.context.get());
     const shaped = this.toolSelect.shapeHistory(request.messages);
-    let mediaStripSnapshot = this.mediaStripSnapshotForTurn(request.source);
-    const requestInput = (projection: RequestProjection) => {
-      return {
+    const recoveredStrip = this.mediaStripSnapshotForTurn(request.source);
+    let policy: ProjectionPolicy | undefined =
+      recoveredStrip !== undefined
+        ? { media: { strip: recoveredStrip } }
+        : this.isRecoveryTurn(this.mediaDegradedTurns, request.source)
+          ? { media: 'degraded' }
+          : undefined;
+    const captureMediaStripPolicy = (): { readonly strip: MediaStripSnapshot } => {
+      const snapshot = this.projector.captureMediaStripSnapshot(shaped);
+      this.markMediaStrippedRecoveryTurn(snapshot, request.source);
+      return { strip: snapshot };
+    };
+    const run = async (
+      policy: ProjectionPolicy | undefined,
+    ): Promise<AgentLLMRequestFinish> => {
+      onRequestTrace(undefined);
+      const projection = projectionNameOf(policy);
+      const fields =
+        projection === undefined ? request.logFields : { ...request.logFields, projection };
+      const input = {
         systemPrompt: request.systemPrompt,
         tools: request.tools,
-        messages:
-          projection === 'strict'
-            ? this.projector.projectStrict(shaped)
-            : projection === 'media-degraded'
-              ? this.projector.projectMediaDegraded(shaped)
-              : projection === 'media-stripped'
-                ? this.projector.projectMediaStripped(
-                    shaped,
-                    (mediaStripSnapshot ??=
-                      this.projector.captureMediaStripSnapshot(shaped)),
-                  )
-                : this.projector.project(shaped),
-      };
-    };
-
-    const run = async (projection: RequestProjection): Promise<AgentLLMRequestFinish> => {
-      onRequestTrace(undefined);
-      const projected = requestInput(projection);
-      const input = {
-        ...projected,
         messages: await this.mediaResolver.resolve(
-          projected.messages,
+          this.projector.project(shaped, policy),
           request.requester,
           signal,
         ),
       };
-      const fields =
-        projection === 'normal'
-          ? request.logFields
-          : { ...request.logFields, projection };
       this.warnAboutAnthropicThinkingEffort(request);
       const logInput: LLMRequestLogInput = {
         protocol: request.model.protocol,
@@ -473,73 +467,75 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       };
     };
 
-    const initialProjection: RequestProjection = mediaStripSnapshot !== undefined
-      ? 'media-stripped'
-      : this.isRecoveryTurn(this.mediaDegradedTurns, request.source)
-        ? 'media-degraded'
-        : 'normal';
-    let projection: RequestProjection = initialProjection;
     for (;;) {
       try {
-        return await run(projection);
+        return await run(policy);
       } catch (error) {
-        if (signal?.aborted === true) throw error;
-        const raw = unwrapErrorCause(error);
-        if (
-          raw instanceof APIRequestTooLargeError &&
-          (projection === 'normal' || projection === 'media-degraded')
-        ) {
-          signal?.throwIfAborted();
-          if (projection === 'normal') {
-            this.log.warn(
-              'provider rejected request as too large; resending with degraded media',
-              {
-                model: request.model.name,
-                ...request.logFields,
-              },
-            );
-            this.markRecoveryTurn(this.mediaDegradedTurns, request.source);
-            projection = 'media-degraded';
-          } else {
-            this.log.warn(
-              'provider rejected degraded-media request as too large; resending with rejected media stripped',
-              {
-                model: request.model.name,
-                ...request.logFields,
-              },
-            );
-            mediaStripSnapshot = this.projector.captureMediaStripSnapshot(shaped);
-            this.markMediaStrippedRecoveryTurn(mediaStripSnapshot, request.source);
-            projection = 'media-stripped';
-          }
-          continue;
-        }
-        if (projection !== 'media-stripped' && isImageFormatError(raw)) {
-          signal?.throwIfAborted();
-          this.log.warn(
-            'provider rejected an image in the request; resending with rejected media stripped',
-            {
-              model: request.model.name,
-              ...request.logFields,
-            },
-          );
-          mediaStripSnapshot = this.projector.captureMediaStripSnapshot(shaped);
-          this.markMediaStrippedRecoveryTurn(mediaStripSnapshot, request.source);
-          projection = 'media-stripped';
-          continue;
-        }
-        if (projection === 'normal' && isRecoverableRequestStructureError(raw)) {
-          signal?.throwIfAborted();
-          this.log.warn('provider rejected request structure; resending with strict projection', {
-            model: request.model.name,
-            ...request.logFields,
-          });
-          projection = 'strict';
-          continue;
-        }
-        throw error;
+        const nextPolicy = this.nextProjectionPolicyForError(
+          error,
+          policy,
+          request,
+          signal,
+          captureMediaStripPolicy,
+        );
+        if (nextPolicy === undefined) throw error;
+        policy = nextPolicy;
       }
     }
+  }
+
+  private nextProjectionPolicyForError(
+    error: unknown,
+    policy: ProjectionPolicy | undefined,
+    request: ResolvedLLMRequest,
+    signal: AbortSignal | undefined,
+    captureMediaStripPolicy: () => { readonly strip: MediaStripSnapshot },
+  ): ProjectionPolicy | undefined {
+    if (signal?.aborted === true) return undefined;
+    const raw = unwrapErrorCause(error);
+    const media = policy?.media;
+    if (
+      raw instanceof APIRequestTooLargeError &&
+      (media === undefined || media === 'degraded')
+    ) {
+      signal?.throwIfAborted();
+      if (media === undefined) {
+        this.log.warn('provider rejected request as too large; resending with degraded media', {
+          model: request.model.name,
+          ...request.logFields,
+        });
+        this.markRecoveryTurn(this.mediaDegradedTurns, request.source);
+        return { ...policy, media: 'degraded' };
+      }
+      this.log.warn(
+        'provider rejected degraded-media request as too large; resending with rejected media stripped',
+        {
+          model: request.model.name,
+          ...request.logFields,
+        },
+      );
+      return { ...policy, media: captureMediaStripPolicy() };
+    }
+    if (typeof media !== 'object' && isImageFormatError(raw)) {
+      signal?.throwIfAborted();
+      this.log.warn(
+        'provider rejected an image in the request; resending with rejected media stripped',
+        {
+          model: request.model.name,
+          ...request.logFields,
+        },
+      );
+      return { ...policy, media: captureMediaStripPolicy() };
+    }
+    if (policy?.structure === undefined && isRecoverableRequestStructureError(raw)) {
+      signal?.throwIfAborted();
+      this.log.warn('provider rejected request structure; resending with strict projection', {
+        model: request.model.name,
+        ...request.logFields,
+      });
+      return { ...policy, structure: 'strict' };
+    }
+    return undefined;
   }
 
   private normalizeStreamPart(
@@ -833,13 +829,32 @@ function numberField(fields: AgentLLMRequestLogFields, key: string): number | un
   return typeof value === 'number' ? value : undefined;
 }
 
-function projectionField(
-  fields: AgentLLMRequestLogFields,
-): 'strict' | 'media-degraded' | 'media-stripped' | undefined {
+type LlmRequestProjection = NonNullable<LlmRequestPayload['projection']>;
+
+function projectionNameOf(policy: ProjectionPolicy | undefined): LlmRequestProjection | undefined {
+  if (policy?.structure === 'strict') {
+    if (policy.media === 'degraded') return 'strict-media-degraded';
+    if (typeof policy.media === 'object') return 'strict-media-stripped';
+    return 'strict';
+  }
+  if (policy === undefined) return undefined;
+  if (policy.media === 'degraded') return 'media-degraded';
+  if (typeof policy.media === 'object') return 'media-stripped';
+  return undefined;
+}
+
+function projectionField(fields: AgentLLMRequestLogFields): LlmRequestProjection | undefined {
   const value = fields['projection'];
-  return value === 'strict' || value === 'media-degraded' || value === 'media-stripped'
-    ? value
-    : undefined;
+  switch (value) {
+    case 'strict':
+    case 'media-degraded':
+    case 'media-stripped':
+    case 'strict-media-degraded':
+    case 'strict-media-stripped':
+      return value;
+    default:
+      return undefined;
+  }
 }
 
 function fingerprint(content: string): string {

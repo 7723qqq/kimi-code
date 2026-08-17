@@ -305,7 +305,7 @@ interface LlmRequestPayload {
   messageCount: number;
   turnStep?: string;
   attempt?: string;
-  projection?: 'strict' | 'media-degraded' | 'media-stripped';
+  projection?: 'strict' | 'media-degraded' | 'media-stripped' | 'strict-media-degraded' | 'strict-media-stripped';
   droppedCount?: number;
 }
 
