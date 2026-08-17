@@ -326,10 +326,7 @@ pub fn native_bash_spawn(
 pub async fn native_bash_wait(id: i64) -> Result<NativeBashExit> {
     let exit_result = {
         let guard = table().lock().unwrap();
-        match guard.get(&id) {
-            Some(m) => Some(m.exit_result.clone()),
-            None => None,
-        }
+        guard.get(&id).map(|m| m.exit_result.clone())
     };
     let Some(exit_result) = exit_result else {
         return Err(napi::Error::from_reason(format!(

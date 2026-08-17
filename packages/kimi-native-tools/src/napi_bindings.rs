@@ -138,26 +138,16 @@ pub async fn native_read(
     line_offset: Option<i64>,
     n_lines: Option<u32>,
 ) -> ReadResult {
-    // Only cache full-file reads (no offset/limit)
-    if line_offset.is_none() && n_lines.is_none() {
-        if let Some((content, line_count)) = crate::file_cache::FILE_CACHE.get(&path) {
-            return ReadResult {
-                content,
-                line_count,
-                error: None,
-                error_kind: None,
-            };
-        }
+    // Any read request is cacheable — the cache is keyed by (path, offset,
+    // n_lines) and invalidated by file metadata, so full-file and partial
+    // reads alike can be served from cache (see file_cache.rs).
+    if let Some(cached) = crate::file_cache::FILE_CACHE.get(&path, line_offset, n_lines) {
+        return cached;
     }
 
     // Snapshot the invalidation metadata BEFORE the read so put() can detect
     // a concurrent modification (TOCTOU guard, see file_cache.rs).
-    let cacheable = line_offset.is_none() && n_lines.is_none();
-    let pre_read = if cacheable {
-        crate::file_cache::snapshot(&path)
-    } else {
-        None
-    };
+    let pre_read = crate::file_cache::snapshot(&path);
 
     let path_clone = path.clone();
     let ol = line_offset;
@@ -179,11 +169,11 @@ pub async fn native_read(
         error_kind: Some("panic".to_string()),
     });
 
-    // Cache full-file reads (put() re-checks the metadata snapshot and skips
+    // Cache successful reads (put() re-checks the metadata snapshot and skips
     // caching when the file changed during the read).
     if result.error.is_none() {
         if let Some(pre) = pre_read {
-            crate::file_cache::FILE_CACHE.put(path, result.content.clone(), result.line_count, pre);
+            crate::file_cache::FILE_CACHE.put(path, line_offset, n_lines, result.clone(), pre);
         }
     }
 
@@ -219,11 +209,25 @@ pub async fn native_batch_read(
         .zip(lines)
         .map(|((path, line_offset), n_lines)| {
             tokio::task::spawn_blocking(move || {
-                read::read_file(&ReadConfig {
-                    path,
+                // Same cache path as native_read: any request is cacheable,
+                // keyed by (path, offset, n_lines) and TOCTOU-guarded.
+                if let Some(cached) = crate::file_cache::FILE_CACHE.get(&path, line_offset, n_lines)
+                {
+                    return cached;
+                }
+                let pre_read = crate::file_cache::snapshot(&path);
+                let result = read::read_file(&ReadConfig {
+                    path: path.clone(),
                     line_offset,
                     n_lines,
-                })
+                });
+                if result.error.is_none() {
+                    if let Some(pre) = pre_read {
+                        crate::file_cache::FILE_CACHE
+                            .put(path, line_offset, n_lines, result.clone(), pre);
+                    }
+                }
+                result
             })
         })
         .collect();
