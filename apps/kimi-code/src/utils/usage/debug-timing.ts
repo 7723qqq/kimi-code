@@ -66,6 +66,9 @@ export function formatStepDebugTiming(input: StepTimingInput): string | undefine
     const cacheCreationTokens = input.usage.inputCacheCreation ?? 0;
     // Exact cache hit rate: cache reads / (reads + creations). Plain input
     // is not part of the cache system and must not dilute the ratio.
+    // OpenAI-compatible endpoints (Kimi/DeepSeek/OpenAI) never report cache
+    // writes — their miss lands in input_other — so the fallback below is
+    // the norm for them, not an edge case.
     let cacheHitRate: number;
     if (cacheCreationTokens > 0) {
       cacheHitRate = Math.round((cacheReadTokens / (cacheReadTokens + cacheCreationTokens)) * 100);

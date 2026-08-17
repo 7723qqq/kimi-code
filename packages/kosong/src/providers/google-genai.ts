@@ -992,9 +992,17 @@ export class GoogleGenAIChatProvider implements ChatProvider {
 
   withMaxCompletionTokens(
     maxCompletionTokens: number,
-    _options?: MaxCompletionTokensOptions,
+    options?: MaxCompletionTokensOptions,
   ): GoogleGenAIChatProvider {
-    return this.withGenerationKwargs({ maxOutputTokens: maxCompletionTokens });
+    let cap = maxCompletionTokens;
+    if (
+      options?.usedContextTokens !== undefined &&
+      options?.maxContextTokens !== undefined &&
+      options.maxContextTokens > 0
+    ) {
+      cap = Math.min(cap, options.maxContextTokens - options.usedContextTokens);
+    }
+    return this.withGenerationKwargs({ maxOutputTokens: Math.max(1, cap) });
   }
 
   private _clone(): GoogleGenAIChatProvider {

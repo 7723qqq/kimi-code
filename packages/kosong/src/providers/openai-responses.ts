@@ -1265,9 +1265,17 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
 
   withMaxCompletionTokens(
     maxCompletionTokens: number,
-    _options?: MaxCompletionTokensOptions,
+    options?: MaxCompletionTokensOptions,
   ): OpenAIResponsesChatProvider {
-    return this.withGenerationKwargs({ max_output_tokens: maxCompletionTokens });
+    let cap = maxCompletionTokens;
+    if (
+      options?.usedContextTokens !== undefined &&
+      options?.maxContextTokens !== undefined &&
+      options.maxContextTokens > 0
+    ) {
+      cap = Math.min(cap, options.maxContextTokens - options.usedContextTokens);
+    }
+    return this.withGenerationKwargs({ max_output_tokens: Math.max(1, cap) });
   }
 
   private _clone(): OpenAIResponsesChatProvider {

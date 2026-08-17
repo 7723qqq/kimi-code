@@ -22,23 +22,7 @@ import type { ContentPart, Message } from '../message';
 import type { FinishReason } from '../provider';
 import type { Tool } from '../tool';
 import type { TokenUsage } from '../usage';
-import {
-  hasPrefix as hasModelPrefix,
-  isOpenAIReasoningModel,
-  OPENAI_REASONING_CAPABILITY,
-  OPENAI_TEXT_TOOL_CAPABILITY,
-  OPENAI_VISION_TOOL_CAPABILITY,
-  OPENAI_VISION_TOOL_PREFIXES,
-} from './capability-registry';
 
-export {
-  hasModelPrefix,
-  isOpenAIReasoningModel,
-  OPENAI_REASONING_CAPABILITY,
-  OPENAI_TEXT_TOOL_CAPABILITY,
-  OPENAI_VISION_TOOL_CAPABILITY,
-  OPENAI_VISION_TOOL_PREFIXES,
-};
 export interface OpenAIContentPart {
   type: string;
   text?: string | undefined;

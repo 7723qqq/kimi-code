@@ -125,11 +125,6 @@ export function tryNativeEscapeXmlTags(input: string): string | undefined {
   return callNativeSync<string>('nativeEscapeXmlTags', [input]);
 }
 
-// ── Token estimation / truncation ───────────────────────────────────
-export function tryNativeEstimateTokens(text: string): number | undefined {
-  return callNativeSync<number>('nativeEstimateTokens', [text]);
-}
-
 // ── File Read (native fast-path) ─────────────────────────────────────
 
 export interface NativeReadResult {
@@ -197,12 +192,6 @@ export function tryNativeWrite(
       errorKind: 'native_error',
     }),
   );
-}
-export function tryNativeEstimateTokensBatch(texts: readonly string[]): number | undefined {
-  return callNativeSync<number>('nativeEstimateTokensBatch', [[...texts]]);
-}
-export function tryNativeTruncateTextToTokens(text: string, maxTokens: number): string | undefined {
-  return callNativeSync<string>('nativeTruncateTextToTokens', [text, maxTokens]);
 }
 
 // ── MCP tool-name sanitization ──────────────────────────────────────

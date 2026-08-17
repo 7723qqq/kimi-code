@@ -60,18 +60,15 @@ export function estimateTokensForMessages(messages: readonly Message[]): number 
 }
 
 export function estimateTokensForTools(tools: readonly Tool[]): number {
-  const batch = tryNativeEstimateTokensBatch;
-  if (batch !== undefined) {
-    const texts: string[] = [];
-    for (const tool of tools) {
-      texts.push(tool.name);
-      texts.push(tool.description);
-      texts.push(JSON.stringify(tool.parameters));
-    }
-    const result = batch(texts);
-    if (result !== undefined) {
-      return Math.ceil(result * JSON_TOKEN_MULTIPLIER);
-    }
+  const texts: string[] = [];
+  for (const tool of tools) {
+    texts.push(tool.name);
+    texts.push(tool.description);
+    texts.push(JSON.stringify(tool.parameters));
+  }
+  const native = tryNativeEstimateTokensBatch(texts);
+  if (native !== undefined) {
+    return Math.ceil(native * JSON_TOKEN_MULTIPLIER);
   }
   let total = 0;
   for (const tool of tools) {

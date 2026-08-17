@@ -1357,9 +1357,17 @@ export class AnthropicChatProvider implements ChatProvider {
 
   withMaxCompletionTokens(
     maxCompletionTokens: number,
-    _options?: MaxCompletionTokensOptions,
+    options?: MaxCompletionTokensOptions,
   ): AnthropicChatProvider {
-    const requestedCap = resolveDefaultMaxTokens(this._model, maxCompletionTokens);
+    let cap = maxCompletionTokens;
+    if (
+      options?.usedContextTokens !== undefined &&
+      options?.maxContextTokens !== undefined &&
+      options.maxContextTokens > 0
+    ) {
+      cap = Math.min(cap, options.maxContextTokens - options.usedContextTokens);
+    }
+    const requestedCap = resolveDefaultMaxTokens(this._model, Math.max(1, cap));
     const existingCap = this._generationKwargs.max_tokens;
     const clone = this._withGenerationKwargs({
       max_tokens:

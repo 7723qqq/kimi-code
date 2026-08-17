@@ -225,9 +225,9 @@ function formatContextStatus(usage: number, tokens?: number, maxTokens?: number)
  * step reported usage (no session traffic yet).
  *
  * Hit rate: reads / (reads + writes) when the provider reports cache writes.
- * Providers that never surface cache writes (e.g. DeepSeek's Anthropic-compatible
- * endpoint reports `cache_read_input_tokens` only) fall back to the share of
- * total input that hit the cache — otherwise the readout would always read 100%.
+ * OpenAI-compatible endpoints (Kimi/DeepSeek/OpenAI) never surface cache
+ * writes — their miss lands in `input_other` — so the share-of-total-input
+ * fallback is the norm for them, otherwise the readout would always read 100%.
  */
 function formatCacheHitRate(
   cacheReadTokens: number,
