@@ -75,6 +75,13 @@ export function requiresStrictThinkingValidation(
   return strict;
 }
 
+/**
+ * Whether a models.dev wire type disables thinking for always-thinking
+ * models. Consumes the models.dev wire vocabulary (`KNOWN_WIRE_TYPES`, which
+ * includes `'kimi'`), NOT the engine's `Protocol` enum — the enum has no
+ * `'kimi'` value, so passing a real `Protocol` here makes the `'kimi'`
+ * branch dead. Callers pass the raw models.dev wire string.
+ */
 export function wireHasProtocolThinkingDisable(protocol: string | undefined): boolean {
   return protocol === 'anthropic' || protocol === 'kimi';
 }

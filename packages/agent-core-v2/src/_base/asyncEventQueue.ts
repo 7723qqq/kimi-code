@@ -22,6 +22,11 @@ export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
   private failed = false;
   private ended = false;
   private closed = false;
+  private readonly maxBufferSize: number | undefined;
+
+  constructor(options?: { readonly maxBufferSize?: number }) {
+    this.maxBufferSize = options?.maxBufferSize;
+  }
 
   push(value: T): void {
     if (this.failed || this.ended || this.closed) return;
@@ -30,7 +35,29 @@ export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
       waiter.resolve({ done: false, value });
       return;
     }
+    if (this.maxBufferSize !== undefined && this.values.length >= this.maxBufferSize) {
+      // Defensive observability only: the buffer is bounded by the producer's
+      // own await points in practice, so an oversized backlog means the
+      // consumer stalled. Never drop values — that would corrupt the stream.
+      try {
+        process.stderr.write(
+          `[asyncEventQueue] buffer exceeded ${this.maxBufferSize} values; consumer may be stalled\n`,
+        );
+      } catch {
+        // stderr itself failed — nothing sensible left to do.
+      }
+    }
     this.values.push(value);
+  }
+
+  /**
+   * Drop all buffered-but-unconsumed values. Used to discard a partial stream
+   * before replaying a request (e.g. the auth-refresh replay in
+   * `ModelRequesterImpl`). Values already delivered to a consumer cannot be
+   * recalled — that is inherent to push-based streaming.
+   */
+  clear(): void {
+    this.values.length = 0;
   }
 
   end(): void {

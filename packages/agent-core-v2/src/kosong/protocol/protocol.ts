@@ -27,7 +27,7 @@ import type { ModelCapability } from '#/kosong/contract/capability';
 import type { InspectionSource } from '#/kosong/contract/inspection';
 import type { ChatProvider } from '#/kosong/contract/provider';
 
-import type { ProtocolBaseId, ResolvedAdapterIdentity } from './protocolBase';
+import type { ResolvedAdapterIdentity } from './protocolBase';
 
 export const ProtocolSchema = z.enum(['anthropic', 'openai', 'openai_responses', 'google-genai']);
 
@@ -67,8 +67,6 @@ export interface IProtocolAdapterRegistry {
   supportedProtocols(): readonly Protocol[];
 
   resolveAdapterIdentity(protocol: Protocol, providerType?: string): ResolvedAdapterIdentity;
-
-  resolveProviderBaseId(protocol: Protocol, providerType?: string): ProtocolBaseId;
 
   resolveCapability(protocol: Protocol, modelName: string, providerType?: string): ModelCapability;
 

@@ -59,6 +59,10 @@ export function getProviderDefinition(
   const byProtocol = providerDefinitions.get(id);
   if (byProtocol === undefined) return undefined;
   if (protocol !== undefined) return byProtocol.get(protocol);
+  // Protocol-less lookup returns the first registered definition. Vendors
+  // register one definition per protocol; callers that need the full set
+  // should use `getProviderDefinitions` instead. The result is deterministic
+  // (insertion order) but depends on registration order.
   return byProtocol.values().next().value;
 }
 

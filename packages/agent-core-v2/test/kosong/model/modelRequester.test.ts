@@ -25,7 +25,6 @@ import type { Tool } from '#/kosong/contract/tool';
 import { emptyUsage, type TokenUsage } from '#/kosong/contract/usage';
 import type { Model } from '#/kosong/model/catalog';
 import type { ModelRequestEvent } from '#/kosong/model/modelRequester';
-import { effectiveMaxCompletionTokens } from '#/kosong/model/modelRequester';
 import { buildStreamTiming, ModelRequesterImpl } from '#/kosong/model/modelRequesterImpl';
 import { ProtocolErrors } from '#/kosong/protocol/errors';
 import type { IProtocolAdapterRegistry } from '#/kosong/protocol/protocol';
@@ -307,14 +306,6 @@ describe('ModelRequesterImpl request execution', () => {
       videoUrl: { url: 'https://cdn.example.test/v.mp4' },
     });
     expect(uploadCalls[0]?.auth).toEqual({ apiKey: 'sk-1' });
-  });
-});
-
-describe('effectiveMaxCompletionTokens', () => {
-  it('reads the folded budget back from the params', () => {
-    expect(effectiveMaxCompletionTokens(undefined)).toBeUndefined();
-    expect(effectiveMaxCompletionTokens({})).toBeUndefined();
-    expect(effectiveMaxCompletionTokens({ maxCompletionTokens: 512 })).toBe(512);
   });
 });
 

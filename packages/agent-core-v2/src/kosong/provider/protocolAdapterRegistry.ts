@@ -51,6 +51,22 @@ const CONFIG_DEFAULT_HEADERS_TRAIT: ProtocolTrait = {
     ctx.config.defaultHeaders === undefined ? undefined : { ...ctx.config.defaultHeaders },
 };
 
+// One-shot warnings for unregistered (providerType, protocol) pairs, so a
+// misconfigured vendor silently degrading to the bare protocol base is
+// visible without spamming every request.
+const warnedUnregisteredPairs = new Set<string>();
+
+function warnUnregisteredProviderPair(providerType: string, protocol: Protocol): void {
+  const key = `${providerType}@${protocol}`;
+  if (warnedUnregisteredPairs.has(key)) return;
+  warnedUnregisteredPairs.add(key);
+  console.warn(
+    `[kosong] provider '${providerType}' has no registered definition for protocol '${protocol}'; ` +
+      'falling back to the bare protocol base (no vendor traits). ' +
+      'Check the provider type and protocol configuration.',
+  );
+}
+
 export class ProtocolAdapterRegistry implements IProtocolAdapterRegistry {
   declare readonly _serviceBrand: undefined;
 
@@ -61,9 +77,16 @@ export class ProtocolAdapterRegistry implements IProtocolAdapterRegistry {
   resolveAdapterIdentity(protocol: Protocol, providerType?: string): ResolvedAdapterIdentity {
     const definition =
       providerType === undefined ? undefined : getProviderDefinition(providerType, protocol);
+    if (providerType !== undefined && definition === undefined) {
+      warnUnregisteredProviderPair(providerType, protocol);
+    }
     const baseId: ProtocolBaseId = protocol;
     const traits: readonly ProtocolTrait[] = definition?.traits ?? [];
 
+    // Identity resolution knows only (protocol, providerType); the model name
+    // is not available here, so trait hooks must read the model name from
+    // their `modelName` argument (e.g. `capability(modelName, ctx)`) rather
+    // than from `ctx.config.modelName`, which is empty at this stage.
     const context: TraitContext = {
       config: { protocol, providerType, modelName: '' },
       providerId: providerType,
@@ -71,15 +94,6 @@ export class ProtocolAdapterRegistry implements IProtocolAdapterRegistry {
     const resolved: ResolvedTrait[] = traits.map((trait) => ({ trait, context }));
     resolved.push({ trait: CONFIG_DEFAULT_HEADERS_TRAIT, context });
     return { baseId, traits: resolved };
-  }
-
-  resolveProviderBaseId(protocol: Protocol, providerType?: string): ProtocolBaseId {
-    const definition =
-      providerType === undefined ? undefined : getProviderDefinition(providerType, protocol);
-    if (definition !== undefined) {
-      return definition.baseProtocol;
-    }
-    return protocol;
   }
 
   resolveCapability(protocol: Protocol, modelName: string, providerType?: string): ModelCapability {

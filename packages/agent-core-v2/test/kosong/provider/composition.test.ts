@@ -278,19 +278,6 @@ describe('resolveAdapterIdentity', () => {
   });
 });
 
-describe('resolveProviderBaseId', () => {
-  it('returns the pair registration’s baseProtocol — the protocol itself by construction', () => {
-    expect(registry.resolveProviderBaseId('openai', 'kimi')).toBe('openai');
-    expect(registry.resolveProviderBaseId('anthropic', 'kimi')).toBe('anthropic');
-  });
-
-  it('returns the protocol itself otherwise', () => {
-    expect(registry.resolveProviderBaseId('google-genai', 'kimi')).toBe('google-genai');
-    expect(registry.resolveProviderBaseId('openai', 'no-such-vendor')).toBe('openai');
-    expect(registry.resolveProviderBaseId('openai')).toBe('openai');
-  });
-});
-
 describe('resolveCapability', () => {
   it('falls back to trait capability hooks before the base catalog', () => {
     const fromTrait = registry.resolveCapability('openai', 'special-model', 'cap-vendor');

@@ -74,7 +74,7 @@ export class ModelRequesterImpl implements ModelRequester {
     signal?: AbortSignal,
     params?: ModelRequestParams,
   ): AsyncIterable<ModelRequestEvent> {
-    const queue = new AsyncEventQueue<ModelRequestEvent>();
+    const queue = new AsyncEventQueue<ModelRequestEvent>({ maxBufferSize: 100_000 });
     void this.runRequest(input, signal, queue, params).then(
       () => queue.end(),
       (error) => queue.fail(error),
@@ -105,7 +105,7 @@ export class ModelRequesterImpl implements ModelRequester {
     signal?.throwIfAborted();
     const provider = this.resolveChatProvider();
 
-    let requestStartedAt = Date.now();
+    let requestStartedAt: number | undefined;
     let requestSentAt: number | undefined;
     let firstChunkAt: number | undefined;
     let streamEndedAt: number | undefined;
@@ -122,9 +122,6 @@ export class ModelRequesterImpl implements ModelRequester {
       maxCompletionTokens: params?.maxCompletionTokens,
       usedContextTokens: params?.usedContextTokens,
       maxContextTokens: params?.maxContextTokens,
-      onRequestStart: () => {
-        requestStartedAt = Date.now();
-      },
       onRequestSent: () => {
         requestSentAt = Date.now();
       },
@@ -138,22 +135,32 @@ export class ModelRequesterImpl implements ModelRequester {
 
     let result: GenerateResult;
     try {
-      result = await this.runWithAuthRefresh((auth) => {
-        requestStartedAt = Date.now();
-        return generate(
-          provider,
-          input.systemPrompt,
-          [...input.tools],
-          [...input.messages],
-          {
-            onMessagePart: (part) => {
-              firstChunkAt ??= Date.now();
-              queue.push({ type: 'part', part });
+      result = await this.runWithAuthRefresh(
+        (auth) => {
+          requestStartedAt = Date.now();
+          return generate(
+            provider,
+            input.systemPrompt,
+            [...input.tools],
+            [...input.messages],
+            {
+              onMessagePart: (part) => {
+                firstChunkAt ??= Date.now();
+                queue.push({ type: 'part', part });
+              },
             },
-          },
-          { ...options, auth },
-        );
-      });
+            { ...options, auth },
+          );
+        },
+        () => {
+          // A 401 mid-stream means the first attempt already pushed partial
+          // parts. Drop the unconsumed backlog and reset the timing anchor so
+          // the replay starts clean; parts already delivered to the consumer
+          // cannot be recalled (push-based streaming).
+          queue.clear();
+          firstChunkAt = undefined;
+        },
+      );
     } catch (error) {
       if (isAbortError(error) || signal?.aborted === true) throw error;
       throw translateProviderError(error);
@@ -174,7 +181,7 @@ export class ModelRequesterImpl implements ModelRequester {
       queue.push({
         type: 'timing',
         ...buildStreamTiming(
-          requestStartedAt,
+          requestStartedAt ?? Date.now(),
           requestSentAt,
           firstChunkAt,
           streamEndedAt,
@@ -186,6 +193,7 @@ export class ModelRequesterImpl implements ModelRequester {
 
   private async runWithAuthRefresh<T>(
     run: (auth: ProviderRequestAuth | undefined) => Promise<T>,
+    onReplay?: () => void,
   ): Promise<T> {
     const auth = await this.authProvider.getAuth();
     try {
@@ -194,6 +202,7 @@ export class ModelRequesterImpl implements ModelRequester {
       if (!this.shouldForceRefresh(error)) throw error;
     }
 
+    onReplay?.();
     const refreshedAuth = await this.authProvider.getAuth({ force: true });
     try {
       return await run(refreshedAuth);

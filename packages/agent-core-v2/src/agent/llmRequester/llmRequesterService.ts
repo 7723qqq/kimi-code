@@ -78,7 +78,6 @@ import { completionBudgetParams, resolveCompletionBudget } from '#/kosong/model/
 import { IModelService } from '#/kosong/model/model';
 import type { ModelOverrides } from '#/kosong/model/model.types';
 import {
-  effectiveMaxCompletionTokens,
   type ModelRequestEvent,
   type ModelRequestParams,
   type ModelRequester,
@@ -396,7 +395,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         modelName: request.model.name,
         modelAlias: request.modelAlias,
         thinkingEffort: request.thinkingEffort,
-        maxTokens: effectiveMaxCompletionTokens(request.params),
+        maxTokens: request.params?.maxCompletionTokens,
         systemPrompt: input.systemPrompt,
         tools: input.tools,
         messages: input.messages,

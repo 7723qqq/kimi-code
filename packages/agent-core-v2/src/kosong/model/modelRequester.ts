@@ -57,6 +57,12 @@ export interface ModelRequestParams {
   readonly cacheKey?: string;
   readonly sampling?: SamplingOptions;
   readonly thinkingEffort?: ThinkingEffort;
+  /**
+   * Thinking-keep value for the current turn. Only honored when
+   * {@link thinkingEffort} is also set — the wire intent is carried as a
+   * single `thinking: { effort, keep }` pair, so a keep without an effort is
+   * dropped at the mapping boundary (`ModelRequesterImpl`).
+   */
   readonly thinkingKeep?: string;
   readonly maxCompletionTokens?: number;
   readonly usedContextTokens?: number;
@@ -77,8 +83,4 @@ export interface ModelRequester {
     input: string | VideoUploadInput,
     options?: { readonly signal?: AbortSignal },
   ): Promise<VideoURLPart>;
-}
-
-export function effectiveMaxCompletionTokens(params?: ModelRequestParams): number | undefined {
-  return params?.maxCompletionTokens;
 }

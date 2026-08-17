@@ -2699,8 +2699,6 @@ function createGenerateBackedProtocolRegistry(generate: GenerateFn): IProtocolAd
     supportedProtocols: () => real.supportedProtocols(),
     resolveAdapterIdentity: (protocol, providerType) =>
       real.resolveAdapterIdentity(protocol, providerType),
-    resolveProviderBaseId: (protocol, providerType) =>
-      real.resolveProviderBaseId(protocol, providerType),
     resolveCapability: (protocol, modelName, providerType) =>
       real.resolveCapability(protocol, modelName, providerType),
     explainCapability: (protocol, modelName, providerType) =>
