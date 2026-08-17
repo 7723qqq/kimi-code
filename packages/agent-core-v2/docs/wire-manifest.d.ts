@@ -82,8 +82,10 @@ interface ConfigUpdatePayload {
   _name: 'config.update';
   modelAlias?: string;
   profileName?: string;
-  thinkingEffort?: ThinkingEffort;
-  thinkingLevel?: ThinkingEffort;
+  /** ThinkingEffort */
+  thinkingEffort?: 'off' | 'on' | (string & {});
+  /** ThinkingEffort */
+  thinkingLevel?: 'off' | 'on' | (string & {});
   systemPrompt?: string;
   /** EnvironmentDisclosureSnapshot */
   environmentDisclosure?: {
@@ -112,7 +114,14 @@ interface ContextAppendLoopEventPayload {
 interface ContextAppendMessagePayload {
   _name: 'context.append_message';
   /** ContextMessage */
-  message: Message & { id?: string, providerMessageId?: string, origin?: 'user' | 'skill_activation' | 'plugin_command' | 'injection' | 'shell_command' | 'compaction_summary' | 'system_trigger' | 'task' | 'cron_job' | 'cron_missed' | 'hook_result' | 'retry' | undefined, isError?: boolean, note?: string, toolCallDisplays?: Record<string, ToolInputDisplay> | undefined };
+  message: {
+    id?: string;
+    providerMessageId?: string;
+    origin?: 'user' | 'skill_activation' | 'plugin_command' | 'injection' | 'shell_command' | 'compaction_summary' | 'system_trigger' | 'task' | 'cron_job' | 'cron_missed' | 'hook_result' | 'retry' | undefined;
+    isError?: boolean;
+    note?: string;
+    toolCallDisplays?: Record<string, ToolInputDisplay> | undefined;
+  };
 }
 
 /**
@@ -307,7 +316,8 @@ interface LlmRequestPayload {
   provider: string;
   model: string;
   modelAlias?: string;
-  thinkingEffort?: ThinkingEffort;
+  /** ThinkingEffort */
+  thinkingEffort?: 'off' | 'on' | (string & {});
   thinkingKeep?: string;
   temperature?: number;
   topP?: number;
@@ -469,7 +479,8 @@ interface ProfileBindPayload {
   _name: 'profile.bind';
   modelAlias?: string;
   profileName?: string;
-  thinkingEffort: ThinkingEffort;
+  /** ThinkingEffort */
+  thinkingEffort: 'off' | 'on' | (string & {});
   systemPrompt: string;
   /** EnvironmentDisclosureSnapshot */
   environmentDisclosure?: {
@@ -640,7 +651,78 @@ interface TurnEndedPayload {
   _name: 'turn.ended';
   turnId: number;
   reason: 'completed' | 'cancelled' | 'failed' | 'blocked';
-  error?: KimiErrorPayload;
+  /** KimiErrorPayload */
+  error?: {
+    code: string;
+    message: string;
+    name?: string;
+    details?: Readonly<Record<string, unknown>>;
+    retryable: boolean;
+    cause?: {
+      code: string;
+      message: string;
+      name?: string;
+      details?: Readonly<Record<string, unknown>>;
+      retryable: boolean;
+      cause?: {
+        code: string;
+        message: string;
+        name?: string;
+        details?: Readonly<Record<string, unknown>>;
+        retryable: boolean;
+        cause?: {
+          code: string;
+          message: string;
+          name?: string;
+          details?: Readonly<Record<string, unknown>>;
+          retryable: boolean;
+          cause?: {
+            code: string;
+            message: string;
+            name?: string;
+            details?: Readonly<Record<string, unknown>>;
+            retryable: boolean;
+            cause?: {
+              code: string;
+              message: string;
+              name?: string;
+              details?: Readonly<Record<string, unknown>>;
+              retryable: boolean;
+              cause?: {
+                code: string;
+                message: string;
+                name?: string;
+                details?: Readonly<Record<string, unknown>>;
+                retryable: boolean;
+                cause?: {
+                  code: string;
+                  message: string;
+                  name?: string;
+                  details?: Readonly<Record<string, unknown>>;
+                  retryable: boolean;
+                  cause?: {
+                    code: string;
+                    message: string;
+                    name?: string;
+                    details?: Readonly<Record<string, unknown>>;
+                    retryable: boolean;
+                    cause?: {
+                      code: string;
+                      message: string;
+                      name?: string;
+                      details?: Readonly<Record<string, unknown>>;
+                      retryable: boolean;
+                      cause?: object;
+                    };
+                  };
+                };
+              };
+            };
+          };
+        };
+      };
+    };
+  };
   durationMs?: number;
 }
 
@@ -673,7 +755,9 @@ interface TurnSteerPayload {
 interface UsageRecordPayload {
   _name: 'usage.record';
   model: string;
-  usage: TokenUsage;
+  /** TokenUsage */
+  usage: {
+  };
   /** UsageRecordScope */
   usageScope?: 'session' | 'turn';
 }

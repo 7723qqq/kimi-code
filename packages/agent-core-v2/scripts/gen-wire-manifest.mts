@@ -41,6 +41,8 @@ import {
 
 const PKG = join(import.meta.dirname, '..');
 const SRC = join(PKG, 'src');
+/** Shared kosong package source root (the engine's contract/ re-exports it). */
+const KOSONG_SRC = join(PKG, '..', 'kosong', 'src');
 export const MANIFEST_PATH = join(PKG, 'docs', 'wire-manifest.d.ts');
 
 // ---------------------------------------------------------------------------
@@ -575,7 +577,9 @@ function resolveModuleFile(fromFile: string, specifier: string): string | undefi
   let base: string;
   if (specifier.startsWith('#/')) base = join(SRC, specifier.slice(2));
   else if (specifier.startsWith('.')) base = join(dirname(fromFile), specifier);
-  else return undefined;
+  else if (specifier.startsWith('@moonshot-ai/kosong/')) {
+    base = join(KOSONG_SRC, specifier.slice('@moonshot-ai/kosong/'.length));
+  } else return undefined;
   for (const candidate of [`${base}.ts`, join(base, 'index.ts')]) {
     if (existsSync(candidate)) return candidate;
   }
