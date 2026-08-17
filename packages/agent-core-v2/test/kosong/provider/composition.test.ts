@@ -16,7 +16,7 @@
  *     definition declares).
  *
  * Plus the registry resolution contract: `resolveAdapterIdentity` branches,
- * `resolveProviderBaseId`, the `resolveCapability` fallback chain, and the
+ * the `resolveCapability` fallback chain, and the
  * composed-provider shape (`name` is the base's, `uploadVideo` is bound only
  * when a trait declares it).
  *

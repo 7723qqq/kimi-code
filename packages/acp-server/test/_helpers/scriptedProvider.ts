@@ -138,16 +138,14 @@ export function createScriptedProvider(): ScriptedProvider {
   // sub-agents) draws from the same FIFO queue.
   const provider = new ScriptedChatProvider(queue, calls);
   // Identity/capability resolution delegates to the real registry (the
-  // interface grew `resolveAdapterIdentity` / `resolveProviderBaseId` /
-  // `resolveCapability` / `explainCapability` — delegating keeps the stub
-  // truthful and immune to further growth); only `createChatProvider` is
-  // scripted.
+  // interface grew `resolveAdapterIdentity` / `resolveCapability` /
+  // `explainCapability` — delegating keeps the stub truthful and immune to
+  // further growth); only `createChatProvider` is scripted.
   const real = new ProtocolAdapterRegistry();
   const registry: IProtocolAdapterRegistryType = {
     _serviceBrand: undefined,
     supportedProtocols: () => real.supportedProtocols(),
     resolveAdapterIdentity: real.resolveAdapterIdentity.bind(real),
-    resolveProviderBaseId: real.resolveProviderBaseId.bind(real),
     resolveCapability: real.resolveCapability.bind(real),
     explainCapability: real.explainCapability.bind(real),
     // `createChatProvider` is called by `ModelImpl` (a package-internal method

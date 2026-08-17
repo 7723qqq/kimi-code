@@ -145,7 +145,6 @@ function createProtocolRegistryStub(): IProtocolAdapterRegistry {
             ? [{ trait: { withThinking: () => {} }, context: {} }]
             : [],
     }),
-    resolveProviderBaseId: (protocol: Protocol) => protocol,
     resolveCapability: () => {
       throw new Error('not exercised');
     },

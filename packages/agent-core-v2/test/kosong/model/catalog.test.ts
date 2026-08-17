@@ -904,9 +904,6 @@ describe('ModelCatalog ping', () => {
         resolveAdapterIdentity: () => {
           throw new Error('not exercised');
         },
-        resolveProviderBaseId: () => {
-          throw new Error('not exercised');
-        },
         resolveCapability: () => UNKNOWN_CAPABILITY,
         explainCapability: () => ({
           capability: UNKNOWN_CAPABILITY,

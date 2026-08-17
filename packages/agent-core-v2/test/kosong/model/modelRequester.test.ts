@@ -91,9 +91,6 @@ function registryReturning(provider: ChatProvider): IProtocolAdapterRegistry {
     resolveAdapterIdentity: () => {
       throw new Error('not needed');
     },
-    resolveProviderBaseId: () => {
-      throw new Error('not needed');
-    },
     resolveCapability: () => {
       throw new Error('not needed');
     },
