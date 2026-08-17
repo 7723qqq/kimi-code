@@ -10,13 +10,18 @@
 
 import { registerProtocolBase } from '#/kosong/protocol/protocolBase';
 import { traitConvertError, traitDefaultHeaders } from '#/kosong/protocol/protocolTrait';
+import { isUnknownCapability } from '@moonshot-ai/kosong/capability';
+import { getOpenAIResponsesModelCapability } from '@moonshot-ai/kosong/providers/capability-registry';
 
-import { getOpenAIResponsesModelCapability, OpenAIResponsesChatProvider } from './openai-responses';
+import { OpenAIResponsesChatProvider } from './openai-responses';
 import { compactObject, firstProcessEnv, traitEndpoint, traitProvides } from './openaiHooks';
 
 registerProtocolBase({
   id: 'openai_responses',
-  capability: getOpenAIResponsesModelCapability,
+  capability: (modelName) => {
+    const capability = getOpenAIResponsesModelCapability(modelName);
+    return isUnknownCapability(capability) ? undefined : capability;
+  },
   createChatProvider({ config, traits }) {
     const endpoint = traitEndpoint(traits);
     return new OpenAIResponsesChatProvider({

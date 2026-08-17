@@ -15,12 +15,30 @@ import {
   parseRetryAfterMs,
   parseTraceId,
   throwIfAbortError,
-} from '#/errors';
-import { extractText } from '#/message';
-import type { ContentPart, Message } from '#/message';
-import type { FinishReason } from '#/provider';
-import type { Tool } from '#/tool';
-import type { TokenUsage } from '#/usage';
+} from '../errors';
+import { BugIndicatingError } from '../errors/errors';
+import { extractText } from '../message';
+import type { ContentPart, Message } from '../message';
+import type { FinishReason } from '../provider';
+import type { Tool } from '../tool';
+import type { TokenUsage } from '../usage';
+import {
+  hasPrefix as hasModelPrefix,
+  isOpenAIReasoningModel,
+  OPENAI_REASONING_CAPABILITY,
+  OPENAI_TEXT_TOOL_CAPABILITY,
+  OPENAI_VISION_TOOL_CAPABILITY,
+  OPENAI_VISION_TOOL_PREFIXES,
+} from './capability-registry';
+
+export {
+  hasModelPrefix,
+  isOpenAIReasoningModel,
+  OPENAI_REASONING_CAPABILITY,
+  OPENAI_TEXT_TOOL_CAPABILITY,
+  OPENAI_VISION_TOOL_CAPABILITY,
+  OPENAI_VISION_TOOL_PREFIXES,
+};
 export interface OpenAIContentPart {
   type: string;
   text?: string | undefined;
@@ -65,17 +83,17 @@ export function convertContentPart(part: ContentPart): OpenAIContentPart | null 
             : { url: part.videoUrl.url, id: part.videoUrl.id },
       };
     default:
-      throw new Error(`Unknown content part type: ${(part as ContentPart).type}`);
+      throw new BugIndicatingError(`Unknown content part type: ${(part as ContentPart).type}`);
   }
 }
-export interface OpenAIToolParam {
+export type OpenAIToolParam = {
   type: string;
   function: {
     name: string;
     description?: string;
     parameters?: Record<string, unknown>;
   };
-}
+};
 
 /**
  * Convert a kosong `Tool` to OpenAI tool format.
@@ -232,22 +250,11 @@ export function extractUsage(usage: unknown): TokenUsage | null {
     }
   }
 
-  // Cache writes are not reported by OpenAI-compatible APIs; the "miss"
-  // bucket (DeepSeek's `prompt_cache_miss_tokens`, or the non-cached
-  // remainder of the prompt) is the closest proxy — without it the hit rate
-  // reads/(reads+writes) would always be 100% whenever any token was read.
-  const hasMissField = miss !== undefined;
-  const cacheCreation = hasMissField
-    ? (miss ?? 0)
-    : cached > 0
-      ? Math.max(promptTokens - cached, 0)
-      : 0;
-
   return {
-    inputOther: hasMissField ? 0 : cached > 0 ? 0 : Math.max(promptTokens - cached, 0),
+    inputOther: miss ?? Math.max(promptTokens - cached, 0),
     output: completionTokens,
     inputCacheRead: cached,
-    inputCacheCreation: cacheCreation,
+    inputCacheCreation: 0,
   };
 }
 /**

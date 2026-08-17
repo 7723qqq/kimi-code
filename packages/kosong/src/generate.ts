@@ -1,4 +1,4 @@
-import { APIEmptyResponseError } from './errors';
+import { APIEmptyResponseError, createAbortError } from './errors';
 import {
   isContentPart,
   isToolCall,
@@ -105,7 +105,7 @@ export async function generate(
   // themselves honor `signal` would otherwise emit a network call that the
   // caller has explicitly cancelled.
   if (options?.signal?.aborted) {
-    throwAbortError();
+    throw createAbortError();
   }
 
   // Deferred tools are executable client-side but must not appear in the
@@ -270,10 +270,6 @@ type CancelableStream = StreamedMessage & {
   return?: () => unknown;
 };
 
-function throwAbortError(): never {
-  throw new DOMException('The operation was aborted.', 'AbortError');
-}
-
 async function cancelStream(stream: StreamedMessage): Promise<void> {
   const cancelable = stream as CancelableStream;
 
@@ -295,7 +291,7 @@ async function throwIfAborted(signal?: AbortSignal, stream?: StreamedMessage): P
     await cancelStream(stream);
   }
 
-  throwAbortError();
+  throw createAbortError();
 }
 
 /** True when `pending` is a ToolCall whose _streamIndex equals `index`. */

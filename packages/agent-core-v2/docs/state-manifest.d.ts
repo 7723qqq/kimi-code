@@ -1033,7 +1033,7 @@ export interface AgentStateSnapshot {
   'llmRequester.turnConfigs': Map<number, /* TurnRequestConfig — packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts */ {
     readonly resolved: /* ProfileModelContext — packages/agent-core-v2/src/agent/profile/profile.ts */ {
       readonly modelAlias: string;
-      readonly modelCapabilities: /* ModelCapability — packages/agent-core-v2/src/kosong/contract/capability.ts */ {
+      readonly modelCapabilities: /* ModelCapability — packages/kosong/src/capability.ts */ {
         readonly image_in: boolean;
         readonly video_in: boolean;
         readonly audio_in: boolean;
@@ -1045,13 +1045,13 @@ export interface AgentStateSnapshot {
       };
       readonly maxOutputSize: number | undefined;
       readonly alwaysThinking: boolean | undefined;
-      readonly thinkingLevel: /* ThinkingEffort — packages/agent-core-v2/src/kosong/contract/provider.ts */ 'off' | 'on' | (string & {});
+      readonly thinkingLevel: /* ThinkingEffort — packages/kosong/src/provider.ts */ 'off' | 'on' | (string & {});
       readonly reservedContextSize: number | undefined;
       readonly compactionTriggerRatio: number | undefined;
     };
     readonly params: /* ModelRequestParams — packages/agent-core-v2/src/kosong/model/modelRequester.ts */ {
       readonly cacheKey?: string;
-      readonly sampling?: /* SamplingOptions — packages/agent-core-v2/src/kosong/contract/provider.ts */ {
+      readonly sampling?: /* SamplingOptions — packages/kosong/src/provider.ts */ {
         readonly temperature?: number;
         readonly topP?: number;
       };
@@ -1074,26 +1074,26 @@ export interface AgentStateSnapshot {
   // src/agent/media/mediaToolsRegistrar.ts
   'media.registeredKey': string | undefined;
   // src/agent/media/videoResolverService.ts
-  'media.resolved': Map<string, /* ContentPart — packages/agent-core-v2/src/kosong/contract/message.ts */ /* TextPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+  'media.resolved': Map<string, /* ContentPart — packages/kosong/src/message.ts */ /* TextPart — packages/kosong/src/message.ts */ {
     type: 'text';
     text: string;
-  } | /* ThinkPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+  } | /* ThinkPart — packages/kosong/src/message.ts */ {
     type: 'think';
     think: string;
     encrypted?: string;
-  } | /* ImageURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+  } | /* ImageURLPart — packages/kosong/src/message.ts */ {
     type: 'image_url';
     imageUrl: {
       url: string;
       id?: string;
     };
-  } | /* AudioURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+  } | /* AudioURLPart — packages/kosong/src/message.ts */ {
     type: 'audio_url';
     audioUrl: {
       url: string;
       id?: string;
     };
-  } | /* VideoURLPart — packages/agent-core-v2/src/kosong/contract/message.ts */ {
+  } | /* VideoURLPart — packages/kosong/src/message.ts */ {
     type: 'video_url';
     videoUrl: {
       url: string;
@@ -1180,7 +1180,7 @@ export interface AgentStateSnapshot {
   // src/agent/toolSelect/toolSelectService.ts
   'toolSelect.pendingLoaded': Set<string>;
   // src/agent/usage/usageService.ts
-  'usage.currentTurn': /* TokenUsage — packages/agent-core-v2/src/kosong/contract/usage.ts */ {
+  'usage.currentTurn': /* TokenUsage — packages/kosong/src/usage.ts */ {
     inputOther: number;
     output: number;
     inputCacheRead: number;

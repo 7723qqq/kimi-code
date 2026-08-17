@@ -1,3 +1,9 @@
+/**
+ * @deprecated Legacy standalone OpenAI Responses provider implementation. The
+ * engine (agent-core-v2) uses the trait-composed providers built from the
+ * shared kosong contract layer instead; this class is kept for the standalone
+ * `createProvider` surface and its tests.
+ */
 import OpenAI from 'openai';
 
 import {
@@ -37,11 +43,8 @@ import {
   resolveAuthBackedClient,
   AuthClientLRU,
 } from './request-auth';
-import {
-  normalizeToolCallIdsForProvider,
-  sanitizeOpenAIResponsesCallId,
-  type ToolCallIdPolicy,
-} from './tool-call-id';
+import type { ToolCallIdPolicy } from '../provider';
+import { normalizeToolCallIdsForProvider, sanitizeOpenAIResponsesCallId } from './tool-call-id';
 
 /**
  * Normalize the Responses API status / incomplete_details into the unified

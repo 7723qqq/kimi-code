@@ -21,7 +21,8 @@ export interface JsonSchemaResponseFormat {
 export type ResponseFormat = JsonObjectResponseFormat | JsonSchemaResponseFormat;
 
 /**
- * Thinking effort passed to {@link ChatProvider.withThinking}.
+ * Thinking effort passed to {@link ChatProvider.generate} (or the legacy
+ * {@link ChatProvider.withThinking} morph).
  *
  * `'off'` and `'on'` are the only reserved values: `'off'` disables thinking,
  * and `'on'` is the on-signal for boolean models (models that do not declare
@@ -132,6 +133,24 @@ export interface ProviderRequestAuth {
   headers?: Record<string, string>;
 }
 
+/** Sampling overrides for a single generation call. */
+export interface SamplingOptions {
+  readonly temperature?: number;
+  readonly topP?: number;
+}
+
+/** Thinking intent for a single generation call. */
+export interface ThinkingRequestOptions {
+  readonly effort: ThinkingEffort;
+  readonly keep?: string;
+}
+
+/** Provider-side tool-call id policy (normalization + length cap). */
+export interface ToolCallIdPolicy {
+  normalize: (id: string) => string;
+  maxLength?: number;
+}
+
 export interface GenerateOptions {
   /**
    * An {@link AbortSignal} that, when aborted, requests cancellation of the
@@ -151,6 +170,22 @@ export interface GenerateOptions {
    * structured-output field when supported.
    */
   responseFormat?: ResponseFormat;
+  /**
+   * Session-affinity prompt-cache key. Each wire dialect decides how — or
+   * whether — to encode it (`prompt_cache_key` on OpenAI-compatible
+   * transports, `metadata.user_id` on Anthropic, or silently dropped).
+   */
+  cacheKey?: string;
+  /** Sampling overrides (temperature / top-p). */
+  sampling?: SamplingOptions;
+  /** Thinking intent (effort + optional keep). */
+  thinking?: ThinkingRequestOptions;
+  /** Per-request completion-token budget. */
+  maxCompletionTokens?: number;
+  /** Tokens already consumed by the current context (window clamp input). */
+  usedContextTokens?: number;
+  /** Model context-window size in tokens (window clamp input). */
+  maxContextTokens?: number;
   /**
    * Host-side instrumentation hook fired immediately before invoking the
    * provider adapter's generate call.
@@ -223,6 +258,12 @@ export interface VideoUploadInput {
  * converts the common {@link Message} / {@link Tool} types into the
  * provider-specific wire format, streams back a {@link StreamedMessage}, and
  * exposes configuration helpers such as {@link withThinking}.
+ *
+ * Per-turn intent (prompt-cache key, sampling overrides, thinking effort/keep,
+ * completion-token budget) flows through {@link GenerateOptions} on each
+ * `generate` call. The `with*` morph methods are the legacy standalone-provider
+ * surface (kept optional for backward compatibility); the engine's
+ * trait-composed providers do not implement them.
  */
 export interface ChatProvider {
   /** Short identifier for the provider backend (e.g. `"kimi"`, `"anthropic"`). */
@@ -256,17 +297,16 @@ export interface ChatProvider {
     history: Message[],
     options?: GenerateOptions,
   ): Promise<StreamedMessage>;
-  /** Return a shallow copy of this provider with the given thinking effort. */
-  withThinking(effort: ThinkingEffort): ChatProvider;
+  /**
+   * Return a shallow copy of this provider with the given thinking effort.
+   * Legacy morph surface — the engine passes thinking through
+   * {@link GenerateOptions.thinking} instead.
+   */
+  withThinking?(effort: ThinkingEffort): ChatProvider;
   /**
    * Return a shallow copy of this provider with the per-request completion
-   * budget clamped to `maxCompletionTokens`. Optional because not every
-   * backend benefits from a client-computed cap.
-   *
-   * When `options` are provided, implementations may further tighten the cap
-   * based on their own transport constraints — e.g. chat-completions
-   * endpoints size the cap to the remaining context window
-   * (`maxContextTokens - usedContextTokens`) and/or clamp to a fixed ceiling.
+   * budget clamped to `maxCompletionTokens`. Legacy morph surface — the
+   * engine passes the budget through {@link GenerateOptions} instead.
    *
    * Implementations MUST NOT mutate or replace internal HTTP clients on the
    * returned clone — the clone is expected to share transport state with the

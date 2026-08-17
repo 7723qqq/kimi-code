@@ -1,3 +1,9 @@
+/**
+ * @deprecated Legacy standalone Google GenAI provider implementation. The
+ * engine (agent-core-v2) uses the trait-composed providers built from the
+ * shared kosong contract layer instead; this class is kept for the standalone
+ * `createProvider` surface and its tests.
+ */
 import { ApiError as GoogleApiError, GoogleGenAI as GenAIClient } from '@google/genai';
 
 import {

@@ -40,8 +40,11 @@ import type {
 import type { Tool } from '#/kosong/contract/tool';
 import type { TokenUsage } from '#/kosong/contract/usage';
 
-import { mergeConsecutiveUserMessages } from '../merge-user-messages';
-import { requireProviderApiKey, resolveAuthBackedClient } from '../request-auth';
+import { mergeConsecutiveUserMessages } from '@moonshot-ai/kosong/providers/merge-user-messages';
+import {
+  requireProviderApiKey,
+  resolveAuthBackedClient,
+} from '@moonshot-ai/kosong/providers/request-auth';
 
 function normalizeGoogleGenAIFinishReason(raw: unknown): {
   finishReason: FinishReason | null;
@@ -904,44 +907,4 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       },
     );
   }
-}
-
-const GEMINI_CATALOGUED_PREFIXES = [
-  'gemini-1.5-pro',
-  'gemini-1.5-flash',
-  'gemini-2.0-flash',
-  'gemini-2.0-pro',
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-] as const;
-
-const GEMINI_MULTIMODAL_TOOL_CAPABILITY = Object.freeze({
-  image_in: true,
-  video_in: true,
-  audio_in: true,
-  thinking: false,
-  tool_use: true,
-  max_context_tokens: 0,
-});
-
-const GEMINI_THINKING_MULTIMODAL_TOOL_CAPABILITY = Object.freeze({
-  image_in: true,
-  video_in: true,
-  audio_in: true,
-  thinking: true,
-  tool_use: true,
-  max_context_tokens: 0,
-});
-
-export function getGoogleGenAIModelCapability(modelName: string) {
-  const normalized = modelName.toLowerCase();
-  if (!normalized.startsWith('gemini-')) return;
-  if (!GEMINI_CATALOGUED_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
-    return;
-  }
-
-  if (normalized.startsWith('gemini-2.5-') || normalized.includes('thinking')) {
-    return GEMINI_THINKING_MULTIMODAL_TOOL_CAPABILITY;
-  }
-  return GEMINI_MULTIMODAL_TOOL_CAPABILITY;
 }

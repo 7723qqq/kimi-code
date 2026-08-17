@@ -19,13 +19,13 @@ import { ChatProviderError } from '#/kosong/contract/errors';
 import type { VideoURLPart } from '#/kosong/contract/message';
 import type { ProviderRequestAuth, VideoUploadInput } from '#/kosong/contract/provider';
 
-import { convertOpenAIError } from '../../bases/openai/openai-common';
+import { convertOpenAIError } from '@moonshot-ai/kosong/providers/openai-common';
 import {
   mergeRequestHeaders,
   requireProviderApiKey,
   resolveAuthBackedClient,
-} from '../../bases/request-auth';
-import { classifyKimiQuotaError } from './kimi-errors';
+} from '@moonshot-ai/kosong/providers/request-auth';
+import { classifyKimiQuotaError } from '@moonshot-ai/kosong/providers/kimi-errors';
 
 export interface KimiUploadOptions {
   auth?: ProviderRequestAuth;

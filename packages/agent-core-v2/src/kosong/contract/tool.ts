@@ -1,15 +1,9 @@
 /**
  * `kosong/contract` domain — the provider-agnostic tool definition.
  *
- * A tool that the model may invoke during generation. The definition is
- * provider-agnostic; each provider implementation converts it to the
- * appropriate wire format (e.g. OpenAI function-calling, Anthropic tool-use,
- * Google function declarations).
+ * Re-export layer: the implementation moved to `@moonshot-ai/kosong/tool`
+ * (shared contract layer). Keep this file as a thin re-export so existing
+ * `#/kosong/contract/tool` imports stay valid.
  */
 
-export interface Tool {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  deferred?: true;
-}
+export * from '@moonshot-ai/kosong/tool';

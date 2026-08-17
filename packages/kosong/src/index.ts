@@ -25,17 +25,33 @@ export type {
 
 // Provider interfaces
 export * from './provider';
+/**
+ * @deprecated The engine (agent-core-v2) composes providers through its
+ * protocol-adapter registry instead of this factory; kept for the standalone
+ * provider surface and tests.
+ */
 export { createProvider, getModelCapability } from './providers';
 export type { ProviderConfig, ProviderType } from './providers';
-// Kimi provider: exported so callers can narrow a `ChatProvider` to the Kimi
-// backend (instanceof) and apply Kimi-specific request params (generation
-// kwargs, `thinking.keep` extra body).
+/**
+ * @deprecated Legacy standalone Kimi provider class. The engine
+ * (agent-core-v2) uses the trait-composed providers built from the shared
+ * kosong contract layer; kept for the standalone `createProvider` surface.
+ */
 export { KimiChatProvider } from './providers/kimi';
 export type { ExtraBody, GenerationKwargs, KimiOptions, ThinkingConfig } from './providers/kimi';
+/**
+ * @deprecated Import from `@moonshot-ai/kosong/providers/kimi-errors` instead
+ * (the engine consumes the subpath).
+ */
 export { classifyKimiQuotaError } from './providers/kimi-errors';
 
 // Model capability matrix
-export { isUnknownCapability, UNKNOWN_CAPABILITY } from './capability';
+export { UNKNOWN_CAPABILITY } from './capability';
+/**
+ * @deprecated Kept for tests; `UNKNOWN_CAPABILITY` identity checks are the
+ * supported way to detect the unknown marker.
+ */
+export { isUnknownCapability } from './capability';
 export type { ModelCapability } from './capability';
 
 // Astron (xunfei coding plan) model definitions
@@ -65,6 +81,10 @@ export type {
 } from './catalog';
 
 // HTTP client
+/**
+ * @deprecated No production consumer; the engine and node-sdk use their own
+ * HTTP layers. Kept for the standalone provider surface and tests.
+ */
 export { createSharedAgent, createSharedFetch, loadSystemCAs } from './http/undici-agent';
 export { generate } from './generate';
 export type { GenerateCallbacks, GenerateResult } from './generate';

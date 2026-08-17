@@ -10,6 +10,8 @@
 
 import { registerProtocolBase } from '#/kosong/protocol/protocolBase';
 import { traitDefaultHeaders } from '#/kosong/protocol/protocolTrait';
+import { isUnknownCapability } from '@moonshot-ai/kosong/capability';
+import { getAnthropicModelCapability } from '@moonshot-ai/kosong/providers/capability-registry';
 
 import {
   compactObject,
@@ -17,12 +19,15 @@ import {
   traitEndpoint,
   traitProvides,
 } from '../openai/openaiHooks';
-import { AnthropicChatProvider, getAnthropicModelCapability } from './anthropic';
+import { AnthropicChatProvider } from './anthropic';
 import { composeAnthropicHooks } from './anthropicHooks';
 
 registerProtocolBase({
   id: 'anthropic',
-  capability: getAnthropicModelCapability,
+  capability: (modelName) => {
+    const capability = getAnthropicModelCapability(modelName);
+    return isUnknownCapability(capability) ? undefined : capability;
+  },
   createChatProvider({ config, traits }) {
     const endpoint = traitEndpoint(traits);
     return new AnthropicChatProvider({

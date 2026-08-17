@@ -87,11 +87,11 @@ import type {
   TraitContext,
 } from '#/kosong/protocol/protocolTrait';
 
-import { type OpenAIToolParam, toolToOpenAI } from '../../bases/openai/openai-common';
+import { type OpenAIToolParam, toolToOpenAI } from '@moonshot-ai/kosong/providers/openai-common';
 import { registerProviderDefinition } from '../../providerDefinition';
-import { classifyKimiQuotaError } from './kimi-errors';
+import { classifyKimiQuotaError } from '@moonshot-ai/kosong/providers/kimi-errors';
 import { KimiFiles } from './kimi-files';
-import { normalizeKimiToolSchema } from './kimi-schema';
+import { normalizeKimiToolSchema } from '@moonshot-ai/kosong/providers/kimi-schema';
 
 export const KIMI_API_KEY_ENV = 'KIMI_API_KEY';
 export const KIMI_BASE_URL_ENV = 'KIMI_BASE_URL';

@@ -2152,10 +2152,10 @@ describe('extractUsage', () => {
       cached_tokens: 60,
     });
     expect(usage).toEqual({
-      inputOther: 0,
+      inputOther: 40,
       output: 20,
       inputCacheRead: 60,
-      inputCacheCreation: 40,
+      inputCacheCreation: 0,
     });
   });
 
@@ -2167,10 +2167,10 @@ describe('extractUsage', () => {
       prompt_tokens_details: { cached_tokens: 50 },
     });
     expect(usage).toEqual({
-      inputOther: 0,
+      inputOther: 50,
       output: 20,
       inputCacheRead: 50,
-      inputCacheCreation: 50,
+      inputCacheCreation: 0,
     });
   });
 
@@ -2183,10 +2183,10 @@ describe('extractUsage', () => {
       prompt_cache_miss_tokens: 30,
     });
     expect(usage).toEqual({
-      inputOther: 0,
+      inputOther: 30,
       output: 20,
       inputCacheRead: 70,
-      inputCacheCreation: 30,
+      inputCacheCreation: 0,
     });
   });
 
@@ -2199,10 +2199,10 @@ describe('extractUsage', () => {
       prompt_cache_miss_tokens: 30,
     });
     expect(usage).toEqual({
-      inputOther: 0,
+      inputOther: 30,
       output: 20,
       inputCacheRead: 70,
-      inputCacheCreation: 30,
+      inputCacheCreation: 0,
     });
   });
 

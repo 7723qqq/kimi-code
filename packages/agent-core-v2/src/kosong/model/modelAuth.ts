@@ -28,7 +28,7 @@ import {
   BUDGET_THINKING_EFFORTS,
   matchKnownAnthropicModelProfile,
   matchUnknownClaudeProfile,
-} from '../provider/bases/anthropic/anthropic-profile';
+} from '@moonshot-ai/kosong/providers/anthropic-profile';
 import type { ProviderConfig } from '../provider/provider';
 import { explainProviderEndpoint } from '../provider/providerDefinition';
 import type { ModelRecord } from './model';

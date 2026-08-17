@@ -21,7 +21,7 @@ const OPENAI_RESPONSES_DEVELOPER_ROLE_MODELS = new Set([
   'o4-mini',
 ]);
 
-const OPENAI_VISION_TOOL_PREFIXES = ['gpt-4o', 'gpt-4-turbo', 'gpt-4.1', 'gpt-4.5'] as const;
+export const OPENAI_VISION_TOOL_PREFIXES = ['gpt-4o', 'gpt-4-turbo', 'gpt-4.1', 'gpt-4.5'] as const;
 
 // Claude prefixes are grouped by capability set, not by version family:
 // a new model joins the group whose capability it matches (e.g. Fable sits
@@ -47,7 +47,7 @@ const GEMINI_CATALOGUED_PREFIXES = [
   'gemini-2.5-flash',
 ] as const;
 
-const OPENAI_REASONING_CAPABILITY: ModelCapability = Object.freeze({
+export const OPENAI_REASONING_CAPABILITY: ModelCapability = Object.freeze({
   image_in: false,
   video_in: false,
   audio_in: false,
@@ -56,7 +56,7 @@ const OPENAI_REASONING_CAPABILITY: ModelCapability = Object.freeze({
   max_context_tokens: 0,
 });
 
-const OPENAI_VISION_TOOL_CAPABILITY: ModelCapability = Object.freeze({
+export const OPENAI_VISION_TOOL_CAPABILITY: ModelCapability = Object.freeze({
   image_in: true,
   video_in: false,
   audio_in: false,
@@ -65,7 +65,7 @@ const OPENAI_VISION_TOOL_CAPABILITY: ModelCapability = Object.freeze({
   max_context_tokens: 0,
 });
 
-const OPENAI_TEXT_TOOL_CAPABILITY: ModelCapability = Object.freeze({
+export const OPENAI_TEXT_TOOL_CAPABILITY: ModelCapability = Object.freeze({
   image_in: false,
   video_in: false,
   audio_in: false,
@@ -151,11 +151,11 @@ function normalizeModelName(modelName: string): string {
   return modelName.toLowerCase();
 }
 
-function hasPrefix(modelName: string, prefixes: readonly string[]): boolean {
+export function hasPrefix(modelName: string, prefixes: readonly string[]): boolean {
   return prefixes.some((prefix) => modelName.startsWith(prefix));
 }
 
-function isOpenAIReasoningModel(modelName: string): boolean {
+export function isOpenAIReasoningModel(modelName: string): boolean {
   return /^o\d/.test(modelName);
 }
 

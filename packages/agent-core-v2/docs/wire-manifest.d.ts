@@ -82,10 +82,8 @@ interface ConfigUpdatePayload {
   _name: 'config.update';
   modelAlias?: string;
   profileName?: string;
-  /** ThinkingEffort */
-  thinkingEffort?: 'off' | 'on' | (string & {});
-  /** ThinkingEffort */
-  thinkingLevel?: 'off' | 'on' | (string & {});
+  thinkingEffort?: ThinkingEffort;
+  thinkingLevel?: ThinkingEffort;
   systemPrompt?: string;
   /** EnvironmentDisclosureSnapshot */
   environmentDisclosure?: {
@@ -114,33 +112,7 @@ interface ContextAppendLoopEventPayload {
 interface ContextAppendMessagePayload {
   _name: 'context.append_message';
   /** ContextMessage */
-  message: {
-    role: 'system' | 'user' | 'assistant' | 'tool';
-    name?: string;
-    content: ('text' | 'think' | 'image_url' | 'audio_url' | 'video_url')[];
-    toolCalls: {
-      type: 'function';
-      id: string;
-      name: string;
-      arguments: string | null;
-      extras?: Record<string, unknown>;
-      _streamIndex?: number | string;
-    }[];
-    toolCallId?: string;
-    partial?: boolean;
-    tools?: {
-      name: string;
-      description: string;
-      parameters: Record<string, unknown>;
-      deferred?: true;
-    }[];
-    id?: string;
-    providerMessageId?: string;
-    origin?: 'user' | 'skill_activation' | 'plugin_command' | 'injection' | 'shell_command' | 'compaction_summary' | 'system_trigger' | 'task' | 'cron_job' | 'cron_missed' | 'hook_result' | 'retry' | undefined;
-    isError?: boolean;
-    note?: string;
-    toolCallDisplays?: Record<string, ToolInputDisplay> | undefined;
-  };
+  message: Message & { id?: string, providerMessageId?: string, origin?: 'user' | 'skill_activation' | 'plugin_command' | 'injection' | 'shell_command' | 'compaction_summary' | 'system_trigger' | 'task' | 'cron_job' | 'cron_missed' | 'hook_result' | 'retry' | undefined, isError?: boolean, note?: string, toolCallDisplays?: Record<string, ToolInputDisplay> | undefined };
 }
 
 /**
@@ -335,8 +307,7 @@ interface LlmRequestPayload {
   provider: string;
   model: string;
   modelAlias?: string;
-  /** ThinkingEffort */
-  thinkingEffort?: 'off' | 'on' | (string & {});
+  thinkingEffort?: ThinkingEffort;
   thinkingKeep?: string;
   temperature?: number;
   topP?: number;
@@ -498,8 +469,7 @@ interface ProfileBindPayload {
   _name: 'profile.bind';
   modelAlias?: string;
   profileName?: string;
-  /** ThinkingEffort */
-  thinkingEffort: 'off' | 'on' | (string & {});
+  thinkingEffort: ThinkingEffort;
   systemPrompt: string;
   /** EnvironmentDisclosureSnapshot */
   environmentDisclosure?: {
@@ -670,50 +640,7 @@ interface TurnEndedPayload {
   _name: 'turn.ended';
   turnId: number;
   reason: 'completed' | 'cancelled' | 'failed' | 'blocked';
-  /** KimiErrorPayload */
-  error?: {
-    code: (typeof ErrorCodes)[keyof typeof ErrorCodes];
-    message: string;
-    name?: string;
-    details?: Readonly<Record<string, unknown>>;
-    retryable: boolean;
-    cause?: {
-      code: (typeof ErrorCodes)[keyof typeof ErrorCodes];
-      message: string;
-      name?: string;
-      details?: Readonly<Record<string, unknown>>;
-      retryable: boolean;
-      cause?: {
-        code: (typeof ErrorCodes)[keyof typeof ErrorCodes];
-        message: string;
-        name?: string;
-        details?: Readonly<Record<string, unknown>>;
-        retryable: boolean;
-        cause?: {
-          code: (typeof ErrorCodes)[keyof typeof ErrorCodes];
-          message: string;
-          name?: string;
-          details?: Readonly<Record<string, unknown>>;
-          retryable: boolean;
-          cause?: {
-            code: (typeof ErrorCodes)[keyof typeof ErrorCodes];
-            message: string;
-            name?: string;
-            details?: Readonly<Record<string, unknown>>;
-            retryable: boolean;
-            cause?: {
-              code: ErrorCode;
-              message: string;
-              name?: string;
-              details?: Readonly<Record<string, unknown>>;
-              retryable: boolean;
-              cause?: ErrorPayload;
-            };
-          };
-        };
-      };
-    };
-  };
+  error?: KimiErrorPayload;
   durationMs?: number;
 }
 
@@ -746,13 +673,7 @@ interface TurnSteerPayload {
 interface UsageRecordPayload {
   _name: 'usage.record';
   model: string;
-  /** TokenUsage */
-  usage: {
-    inputOther: number;
-    output: number;
-    inputCacheRead: number;
-    inputCacheCreation: number;
-  };
+  usage: TokenUsage;
   /** UsageRecordScope */
   usageScope?: 'session' | 'turn';
 }

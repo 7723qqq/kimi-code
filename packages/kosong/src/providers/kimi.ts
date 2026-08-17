@@ -1,3 +1,9 @@
+/**
+ * @deprecated Legacy standalone Kimi provider implementation. The engine
+ * (agent-core-v2) uses the trait-composed providers built from the shared
+ * kosong contract layer instead; this class is kept for the standalone
+ * `createProvider` surface and its tests.
+ */
 import OpenAI from 'openai';
 
 import { parseTraceId } from '#/errors';
@@ -41,11 +47,8 @@ import {
   resolveAuthBackedClient,
   AuthClientLRU,
 } from './request-auth';
-import {
-  normalizeToolCallIdsForProvider,
-  sanitizeToolCallId,
-  type ToolCallIdPolicy,
-} from './tool-call-id';
+import type { ToolCallIdPolicy } from '../provider';
+import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from './tool-call-id';
 export interface KimiOptions {
   apiKey?: string | undefined;
   baseUrl?: string | undefined;

@@ -35,6 +35,54 @@
     "./providers/*": {
       "types": "./src/providers/*.ts",
       "default": "./src/providers/*.ts"
+    },
+    "./errors/*": {
+      "types": "./src/errors/*.ts",
+      "default": "./src/errors/*.ts"
+    },
+    "./message": {
+      "types": "./src/message.ts",
+      "default": "./src/message.ts"
+    },
+    "./message-helpers": {
+      "types": "./src/message-helpers.ts",
+      "default": "./src/message-helpers.ts"
+    },
+    "./tool": {
+      "types": "./src/tool.ts",
+      "default": "./src/tool.ts"
+    },
+    "./usage": {
+      "types": "./src/usage.ts",
+      "default": "./src/usage.ts"
+    },
+    "./capability": {
+      "types": "./src/capability.ts",
+      "default": "./src/capability.ts"
+    },
+    "./provider": {
+      "types": "./src/provider.ts",
+      "default": "./src/provider.ts"
+    },
+    "./generate": {
+      "types": "./src/generate.ts",
+      "default": "./src/generate.ts"
+    },
+    "./errors": {
+      "types": "./src/errors.ts",
+      "default": "./src/errors.ts"
+    },
+    "./tokens": {
+      "types": "./src/tokens.ts",
+      "default": "./src/tokens.ts"
+    },
+    "./inspection": {
+      "types": "./src/inspection.ts",
+      "default": "./src/inspection.ts"
+    },
+    "./request-trace": {
+      "types": "./src/request-trace.ts",
+      "default": "./src/request-trace.ts"
     }
   },
   "scripts": {
@@ -45,6 +93,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.2",
     "@google/genai": "^1.49.0",
+    "@moonshot-ai/kimi-i18n": "workspace:^",
+    "@moonshot-ai/kimi-native-tools": "workspace:^",
     "openai": "^6.34.0",
     "undici": "^8.5.0",
     "zod": "^4.3.6",

@@ -1,10 +1,10 @@
 /**
  * `kosong/contract` domain — live request provenance contract.
  *
- * Exposes the provider trace identifier of one logical LLM request while its
- * result is still pending. Pure contract (types only); no scoped service.
+ * Re-export layer: the implementation moved to
+ * `@moonshot-ai/kosong/request-trace` (shared contract layer). Keep this
+ * file as a thin re-export so existing `#/kosong/contract/requestTrace`
+ * imports stay valid.
  */
 
-export interface LLMRequestTrace {
-  readonly traceId: string | undefined;
-}
+export * from '@moonshot-ai/kosong/request-trace';

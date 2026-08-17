@@ -61,32 +61,29 @@ import {
   mergeRequestHeaders,
   requireProviderApiKey,
   resolveAuthBackedClient,
-} from '../request-auth';
-import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
+} from '@moonshot-ai/kosong/providers/request-auth';
+import {
+  normalizeToolCallIdsForProvider,
+  sanitizeToolCallId,
+} from '@moonshot-ai/kosong/providers/tool-call-id';
 import {
   convertChatCompletionStreamToolCall,
   type BufferedChatCompletionToolCall,
-} from './chat-completions-stream';
+} from '@moonshot-ai/kosong/providers/chat-completions-stream';
 import {
   convertContentPart,
   convertOpenAIError,
   convertToolMessageContent,
   extractUsage,
-  hasModelPrefix,
   isFunctionToolCall,
-  isOpenAIReasoningModel,
   normalizeOpenAIFinishReason,
-  OPENAI_REASONING_CAPABILITY,
-  OPENAI_TEXT_TOOL_CAPABILITY,
-  OPENAI_VISION_TOOL_CAPABILITY,
-  OPENAI_VISION_TOOL_PREFIXES,
   type OpenAIContentPart,
   TOOL_RESULT_MEDIA_PLACEHOLDER,
   TOOL_RESULT_MEDIA_PROMPT,
   type ToolMessageConversion,
   toolToOpenAI,
-} from './openai-common';
-import { ReasoningKeyDialect } from './reasoning-key';
+} from '@moonshot-ai/kosong/providers/openai-common';
+import { ReasoningKeyDialect } from '@moonshot-ai/kosong/providers/reasoning-key';
 
 const CHAT_COMPLETIONS_MAX_OUTPUT_TOKENS_CEILING = 128 * 1024;
 
@@ -778,18 +775,4 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     }
     return new OpenAI(clientOpts as ConstructorParameters<typeof OpenAI>[0]);
   }
-}
-
-export function getOpenAILegacyModelCapability(modelName: string) {
-  const normalized = modelName.toLowerCase();
-  if (isOpenAIReasoningModel(normalized)) {
-    return OPENAI_REASONING_CAPABILITY;
-  }
-  if (hasModelPrefix(normalized, OPENAI_VISION_TOOL_PREFIXES)) {
-    return OPENAI_VISION_TOOL_CAPABILITY;
-  }
-  if (normalized.startsWith('gpt-3.5-turbo')) {
-    return OPENAI_TEXT_TOOL_CAPABILITY;
-  }
-  return;
 }

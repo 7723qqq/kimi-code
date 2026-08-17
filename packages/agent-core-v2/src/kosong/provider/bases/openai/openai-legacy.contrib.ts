@@ -15,8 +15,10 @@
 
 import { registerProtocolBase } from '#/kosong/protocol/protocolBase';
 import { traitDefaultHeaders } from '#/kosong/protocol/protocolTrait';
+import { isUnknownCapability } from '@moonshot-ai/kosong/capability';
+import { getOpenAILegacyModelCapability } from '@moonshot-ai/kosong/providers/capability-registry';
 
-import { getOpenAILegacyModelCapability, OpenAILegacyChatProvider } from './openai-legacy';
+import { OpenAILegacyChatProvider } from './openai-legacy';
 import {
   compactObject,
   composeOpenAIChatHooks,
@@ -27,7 +29,10 @@ import {
 
 registerProtocolBase({
   id: 'openai',
-  capability: getOpenAILegacyModelCapability,
+  capability: (modelName) => {
+    const capability = getOpenAILegacyModelCapability(modelName);
+    return isUnknownCapability(capability) ? undefined : capability;
+  },
   createChatProvider({ config, traits }) {
     const endpoint = traitEndpoint(traits);
     return new OpenAILegacyChatProvider({

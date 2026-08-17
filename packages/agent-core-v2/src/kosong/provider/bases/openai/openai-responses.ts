@@ -53,21 +53,20 @@ import {
   mergeRequestHeaders,
   requireProviderApiKey,
   resolveAuthBackedClient,
-} from '../request-auth';
-import { normalizeToolCallIdsForProvider, sanitizeOpenAIResponsesCallId } from '../tool-call-id';
+} from '@moonshot-ai/kosong/providers/request-auth';
+import {
+  normalizeToolCallIdsForProvider,
+  sanitizeOpenAIResponsesCallId,
+} from '@moonshot-ai/kosong/providers/tool-call-id';
 import {
   convertOpenAIError,
-  hasModelPrefix,
   isMediaPart,
   isOpenAIInsufficientQuotaCode,
-  isOpenAIReasoningModel,
-  OPENAI_REASONING_CAPABILITY,
-  OPENAI_VISION_TOOL_CAPABILITY,
-  OPENAI_VISION_TOOL_PREFIXES,
   TOOL_RESULT_MEDIA_PLACEHOLDER,
   TOOL_RESULT_MEDIA_PROMPT,
   type ToolMessageConversion,
-} from './openai-common';
+} from '@moonshot-ai/kosong/providers/openai-common';
+import { usesOpenAIResponsesDeveloperRole } from '@moonshot-ai/kosong/providers/capability-registry';
 
 function normalizeResponsesFinishReason(
   status: string | null | undefined,
@@ -517,29 +516,6 @@ function mapAudioUrlToInputItem(url: string): unknown {
     return { type: 'input_file', file_url: url };
   }
   return null;
-}
-
-const OPENAI_RESPONSES_DEVELOPER_ROLE_MODELS = new Set([
-  'gpt-4.1',
-  'gpt-4.1-mini',
-  'gpt-4.1-nano',
-  'gpt-5-codex',
-  'o1',
-  'o1-mini',
-  'o1-pro',
-  'o3',
-  'o3-mini',
-  'o3-pro',
-  'o4-mini',
-]);
-
-export function usesOpenAIResponsesDeveloperRole(modelName: string): boolean {
-  const normalized = modelName.toLowerCase();
-  if (OPENAI_RESPONSES_DEVELOPER_ROLE_MODELS.has(normalized)) return true;
-  for (const cataloguedModel of OPENAI_RESPONSES_DEVELOPER_ROLE_MODELS) {
-    if (normalized.startsWith(cataloguedModel + '-')) return true;
-  }
-  return false;
 }
 
 function convertMessage(
@@ -1232,15 +1208,4 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     }
     return new OpenAI(clientOpts as ConstructorParameters<typeof OpenAI>[0]);
   }
-}
-
-export function getOpenAIResponsesModelCapability(modelName: string) {
-  const normalized = modelName.toLowerCase();
-  if (isOpenAIReasoningModel(normalized)) {
-    return OPENAI_REASONING_CAPABILITY;
-  }
-  if (hasModelPrefix(normalized, OPENAI_VISION_TOOL_PREFIXES)) {
-    return OPENAI_VISION_TOOL_CAPABILITY;
-  }
-  return;
 }

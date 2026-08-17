@@ -71,11 +71,11 @@ import {
   type ProtocolProviderOptions,
 } from '#/kosong/protocol/protocol';
 
-import type { LATEST_OPUS_PROFILE } from '../provider/bases/anthropic/anthropic-profile';
+import type { LATEST_OPUS_PROFILE } from '@moonshot-ai/kosong/providers/anthropic-profile';
 import {
   matchKnownAnthropicModelProfile,
   matchUnknownClaudeProfile,
-} from '../provider/bases/anthropic/anthropic-profile';
+} from '@moonshot-ai/kosong/providers/anthropic-profile';
 import { IProviderService, type ProviderConfig } from '../provider/provider';
 import {
   explainProviderEndpoint,

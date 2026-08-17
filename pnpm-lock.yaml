@@ -799,6 +799,12 @@ importers:
       '@google/genai':
         specifier: ^1.49.0
         version: 1.49.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))
+      '@moonshot-ai/kimi-i18n':
+        specifier: workspace:^
+        version: link:../i18n
+      '@moonshot-ai/kimi-native-tools':
+        specifier: workspace:^
+        version: link:../kimi-native-tools
       openai:
         specifier: ^6.34.0
         version: 6.34.0(ws@8.21.2)(zod@4.3.6)

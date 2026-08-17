@@ -20,11 +20,16 @@ import {
   traitEndpoint,
   traitProvides,
 } from '../openai/openaiHooks';
-import { getGoogleGenAIModelCapability, GoogleGenAIChatProvider } from './google-genai';
+import { isUnknownCapability } from '@moonshot-ai/kosong/capability';
+import { getGoogleGenAIModelCapability } from '@moonshot-ai/kosong/providers/capability-registry';
+import { GoogleGenAIChatProvider } from './google-genai';
 
 registerProtocolBase({
   id: 'google-genai',
-  capability: getGoogleGenAIModelCapability,
+  capability: (modelName) => {
+    const capability = getGoogleGenAIModelCapability(modelName);
+    return isUnknownCapability(capability) ? undefined : capability;
+  },
   createChatProvider({ config, traits }) {
     const endpoint = traitEndpoint(traits);
     return new GoogleGenAIChatProvider({

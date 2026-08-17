@@ -1,3 +1,9 @@
+/**
+ * @deprecated Legacy standalone OpenAI Chat Completions provider
+ * implementation. The engine (agent-core-v2) uses the trait-composed
+ * providers built from the shared kosong contract layer instead; this class
+ * is kept for the standalone `createProvider` surface and its tests.
+ */
 import OpenAI from 'openai';
 
 /**
@@ -51,11 +57,8 @@ import {
   resolveAuthBackedClient,
   AuthClientLRU,
 } from './request-auth';
-import {
-  normalizeToolCallIdsForProvider,
-  sanitizeToolCallId,
-  type ToolCallIdPolicy,
-} from './tool-call-id';
+import type { ToolCallIdPolicy } from '../provider';
+import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from './tool-call-id';
 
 // Inbound: scan the known reasoning field names in priority order; first
 // string value wins. Outbound: echo the dialect the endpoint actually spoke

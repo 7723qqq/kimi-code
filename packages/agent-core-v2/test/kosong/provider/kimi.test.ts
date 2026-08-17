@@ -33,7 +33,7 @@ import { APIProviderQuotaExhaustedError, isRetryableGenerateError } from '#/koso
 import type { Message } from '#/kosong/contract/message';
 import type { Tool } from '#/kosong/contract/tool';
 import type { ProtocolTrait, TraitContext } from '#/kosong/protocol/protocolTrait';
-import { extractUsage } from '#/kosong/provider/bases/openai/openai-common';
+import { extractUsage } from '@moonshot-ai/kosong/providers/openai-common';
 import { KimiFiles } from '#/kosong/provider/providers/kimi/kimi-files';
 import {
   convertKimiTool,

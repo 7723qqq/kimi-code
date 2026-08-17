@@ -1,9 +1,6 @@
-import type { Message, ToolCall } from '#/message';
-
-export interface ToolCallIdPolicy {
-  normalize: (id: string) => string;
-  maxLength?: number;
-}
+import { BugIndicatingError } from '../errors/errors';
+import type { Message, ToolCall } from '../message';
+import type { ToolCallIdPolicy } from '../provider';
 
 const EMPTY_TOOL_CALL_ID = 'tool_call';
 const TOOL_CALL_ID_SAFE_CHARS = /[^a-zA-Z0-9_-]/g;
@@ -119,7 +116,9 @@ function truncateToolCallId(base: string, maxLength: number | undefined, suffix:
   if (maxLength === undefined) return `${base}${suffix}`;
   const baseLength = maxLength - suffix.length;
   if (baseLength <= 0) {
-    throw new Error(`Tool call id maxLength ${maxLength} is too small for suffix ${suffix}.`);
+    throw new BugIndicatingError(
+      `Tool call id maxLength ${maxLength} is too small for suffix ${suffix}.`,
+    );
   }
   return `${base.slice(0, baseLength)}${suffix}`;
 }

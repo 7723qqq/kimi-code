@@ -2,22 +2,10 @@
  * `kosong/contract.messageHelpers` — runtime helpers for building and
  * inspecting wire messages / content parts / tool calls.
  *
- * Constructors: `createAssistantMessage | createToolMessage | createUserMessage`.
- * Utilities: `extractText | mergeInPlace` (in-place merge of streamed
- * tool-call argument deltas).
- *
- * Re-exports the helper surface so callers can take it without pulling in the
- * entire wire-type module.
+ * Re-export layer: the implementation moved to
+ * `@moonshot-ai/kosong/message-helpers` (shared contract layer). Keep this
+ * file as a thin re-export so existing `#/kosong/contract/messageHelpers`
+ * imports stay valid.
  */
 
-export {
-  createAssistantMessage,
-  createToolMessage,
-  createUserMessage,
-  extractText,
-  isContentPart,
-  isToolCall,
-  isToolCallPart,
-  isToolDeclarationOnlyMessage,
-  mergeInPlace,
-} from './message';
+export * from '@moonshot-ai/kosong/message-helpers';

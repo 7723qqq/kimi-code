@@ -1,3 +1,9 @@
+/**
+ * @deprecated Legacy standalone Anthropic provider implementation. The engine
+ * (agent-core-v2) uses the trait-composed providers built from the shared
+ * kosong contract layer instead; this class is kept for the standalone
+ * `createProvider` surface and its tests.
+ */
 import Anthropic, {
   APIError as AnthropicAPIError,
   APIConnectionError as AnthropicConnectionError,
@@ -55,11 +61,8 @@ import {
 import { mergeConsecutiveUserMessages } from './merge-user-messages';
 import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 import { AuthClientLRU, mergeRequestHeaders, resolveAuthBackedClient } from './request-auth';
-import {
-  normalizeToolCallIdsForProvider,
-  sanitizeToolCallId,
-  type ToolCallIdPolicy,
-} from './tool-call-id';
+import type { ToolCallIdPolicy } from '../provider';
+import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from './tool-call-id';
 
 /**
  * Normalize an Anthropic `stop_reason` string to the unified
