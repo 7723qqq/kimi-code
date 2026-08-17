@@ -885,7 +885,8 @@ describe('BashTool', () => {
     expect(argv).toEqual([
       'C:\\Program Files\\Git\\bin\\bash.exe',
       '-c',
-      "cd '/c/Users/me/project' && echo ok 2>/dev/null",
+      'export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"; ' +
+        "cd '/c/Users/me/project' && echo ok 2>/dev/null",
     ]);
     expect(execOptions?.env).toMatchObject({ SHELL: 'C:\\Program Files\\Git\\bin\\bash.exe' });
     expect(result).toMatchObject({
@@ -1235,7 +1236,10 @@ describe('BashTool', () => {
     await executeTool(tool, context({ command: 'ls 2>nul', timeout: 60 }));
 
     const argv = exec.mock.calls[0]?.[0] as readonly string[];
-    expect(argv[2]).toBe("cd '/c/Users/me/project' && ls 2>/dev/null");
+    expect(argv[2]).toBe(
+      'export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"; ' +
+        "cd '/c/Users/me/project' && ls 2>/dev/null",
+    );
   });
 
   it('passes nul-redirect through unchanged on Linux so the argv keeps the literal file target', async () => {
@@ -1790,7 +1794,8 @@ describe('BashTool background mode', () => {
     expect(argv).toEqual([
       'C:\\Program Files\\Git\\bin\\bash.exe',
       '-c',
-      "cd '/c/Users/me/project' && echo ok 2>/dev/null",
+      'export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"; ' +
+        "cd '/c/Users/me/project' && echo ok 2>/dev/null",
     ]);
     expect(execOptions?.env).toMatchObject({ SHELL: 'C:\\Program Files\\Git\\bin\\bash.exe' });
     expect(secondProc.kill).toHaveBeenCalledWith('SIGTERM');

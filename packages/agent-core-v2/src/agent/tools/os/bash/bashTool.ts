@@ -301,7 +301,14 @@ export class BashTool implements IBashTool {
       ];
     }
     const shellCwd = this.isWindowsBash ? windowsPathToPosixPath(effectiveCwd) : effectiveCwd;
-    return [this.env.shellPath, '-c', `cd ${shellQuote(shellCwd)} && ${command}`];
+    // MSYS2 bash (unlike Git Bash) does not prepend its own /usr/bin to the
+    // inherited Windows PATH in non-login mode, so common commands (ls, grep,
+    // which, ...) would be "command not found". Prepend the standard POSIX
+    // dirs explicitly; harmless on Git Bash / POSIX where they already exist.
+    const pathPrefix = this.isWindowsBash
+      ? 'export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"; '
+      : '';
+    return [this.env.shellPath, '-c', `${pathPrefix}cd ${shellQuote(shellCwd)} && ${command}`];
   }
 
   private async execution(

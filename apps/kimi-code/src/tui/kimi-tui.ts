@@ -30,6 +30,13 @@ import {
 import { resolve } from 'pathe';
 
 import type { CLIOptions } from '#/cli/options';
+import {
+  createMsys2PromptDeps,
+  installMsys2,
+  markPrompted,
+  setUserShellPath,
+  shouldPromptMsys2,
+} from '#/cli/msys2-prompt';
 import { getLocale, t } from '#/i18n';
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
@@ -71,6 +78,7 @@ import {
 import { CompactionComponent } from './components/dialogs/compaction';
 import { HelpPanelComponent } from './components/dialogs/help-panel';
 import { defaultThinkingEffortFor } from './components/dialogs/model-selector';
+import { Msys2PromptComponent, type Msys2PromptChoice } from './components/dialogs/msys2-prompt';
 import { QuestionDialogComponent } from './components/dialogs/question-dialog';
 import { SessionPickerComponent, type SessionRow } from './components/dialogs/session-picker';
 import { TrustPromptComponent, type TrustPromptChoice } from './components/dialogs/trust-prompt';
@@ -639,12 +647,18 @@ export class KimiTUI {
       const trustPromptStartedLoop = await this.maybeRunWorkspaceTrustPrompt();
       startupTrace('trustPrompt:end');
 
+      // The one-time MSYS2 install gate (Windows only) runs after the trust
+      // gate: it spawns winget, which must never run before trust is granted.
+      startupTrace('msys2Prompt:begin');
+      const msys2PromptStartedLoop = await this.maybeRunMsys2Prompt(trustPromptStartedLoop);
+      startupTrace('msys2Prompt:end');
+
       if (this.migrationPlan !== null) {
         // Migration needs the event loop running first (pi-tui component).
         // When the trust prompt already started it, starting it again would
         // re-run pi-tui's terminal.start() — stacking a second Kitty
         // keyboard-protocol push and duplicate stdin listeners.
-        if (!trustPromptStartedLoop) this.startEventLoop();
+        if (!trustPromptStartedLoop && !msys2PromptStartedLoop) this.startEventLoop();
         try {
           const migrationResult = await this.runMigrationScreen(this.migrationPlan);
           if (this.migrateOnly) {
@@ -674,7 +688,7 @@ export class KimiTUI {
       // again would re-run pi-tui's terminal.start() — stacking a second
       // Kitty keyboard-protocol push (leaking CSI-u mode past exit) and
       // duplicate stdin listeners.
-      if (!trustPromptStartedLoop) this.startEventLoop();
+      if (!trustPromptStartedLoop && !msys2PromptStartedLoop) this.startEventLoop();
       startupTrace('eventLoop:started');
       try {
         this.startBackgroundFdAutocomplete();
@@ -3460,6 +3474,57 @@ export class KimiTUI {
     } catch {
       // A failed write leaves the workspace untrusted (re-asked next launch).
     }
+    return true;
+  }
+
+  /**
+   * One-time MSYS2 install gate (Windows only). When no MSYS2 bash is
+   * available and the prompt has not been shown before, asks the user whether
+   * to install MSYS2 via winget and switch the shell to it (KIMI_SHELL_PATH).
+   * Skipping or a successful install marks the prompt as shown so it never
+   * reappears; a failed install leaves it unmarked so the next launch can
+   * retry. Returns true when the prompt ran (the caller must not start the
+   * event loop again).
+   */
+  private async maybeRunMsys2Prompt(eventLoopStarted: boolean): Promise<boolean> {
+    const deps = createMsys2PromptDeps();
+    if (!(await shouldPromptMsys2(deps))) return false;
+    if (!eventLoopStarted) this.startEventLoop();
+    const choice = await new Promise<Msys2PromptChoice>((resolve) => {
+      this.state.activeDialog = 'msys2-prompt';
+      this.mountEditorReplacement(
+        new Msys2PromptComponent({
+          onSelect: (c) => {
+            resolve(c);
+          },
+          onCancel: () => {
+            resolve('skip');
+          },
+        }),
+      );
+    });
+    this.state.activeDialog = null;
+    if (choice === 'install') {
+      const spinner = this.showProgressSpinner(t('tui.msys2Prompt.installing'));
+      const result = await installMsys2(deps);
+      if (result.ok && result.bashPath !== undefined) {
+        const switched = setUserShellPath(result.bashPath, deps);
+        spinner.stop({ ok: true, label: t('tui.msys2Prompt.installSuccess') });
+        this.showStatus(
+          switched
+            ? t('tui.msys2Prompt.restartHint')
+            : t('tui.msys2Prompt.installSuccessNoSwitch'),
+        );
+        await markPrompted(deps);
+      } else {
+        spinner.stop({ ok: false, label: t('tui.msys2Prompt.installFailed') });
+        this.showError(result.error ?? t('tui.msys2Prompt.installFailed'));
+        this.showStatus(t('tui.msys2Prompt.manualInstallHint'));
+      }
+    } else {
+      await markPrompted(deps);
+    }
+    this.restoreEditor();
     return true;
   }
 

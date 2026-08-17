@@ -69,7 +69,7 @@ export interface TUIState {
   /** A follow-up session page fetch is in flight. */
   sessionsLoadingMore: boolean;
   sessionsScope: 'cwd' | 'all';
-  activeDialog: 'session-picker' | 'help' | 'trust-prompt' | 'cache-hint' | null;
+  activeDialog: 'session-picker' | 'help' | 'trust-prompt' | 'msys2-prompt' | 'cache-hint' | null;
   tasksBrowser: TasksBrowserState | undefined;
   externalEditorRunning: boolean;
   queuedMessages: QueuedMessage[];

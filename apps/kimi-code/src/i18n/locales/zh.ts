@@ -102,6 +102,9 @@ export default {
       agentEmpty: 'Agent 不能为空。',
       agentFilePathEmpty: 'Agent 文件路径不能为空。',
     },
+    msys2Prompt: {
+      notice: '未检测到 MSYS2（完整 Linux 命令行环境）。可运行 winget install MSYS2.MSYS2 安装',
+    },
   },
   startup: {
     operations: {
@@ -390,6 +393,20 @@ export default {
           arrowUpDown: '浏览输入历史',
           enter: '提交',
         },
+      },
+      msys2Prompt: {
+        title: '未检测到 MSYS2',
+        hint: 'MSYS2 为 Windows 提供完整的 Linux 命令行环境。现在安装并切换 shell 吗？',
+        install: '安装 MSYS2',
+        installDescription: '通过 winget 安装并切换 shell 到 MSYS2 bash（需重启生效）。',
+        skip: '跳过',
+        skipDescription: '继续使用当前 shell。之后可随时安装 MSYS2。',
+        installing: '正在安装 MSYS2…',
+        installSuccess: 'MSYS2 安装完成',
+        installFailed: 'MSYS2 安装失败',
+        restartHint: '请重启 kimi-code 以使用 MSYS2 shell。',
+        installSuccessNoSwitch: 'MSYS2 已安装，但 shell 切换失败。请手动设置 KIMI_SHELL_PATH。',
+        manualInstallHint: '请从 https://www.msys2.org/ 手动安装 MSYS2',
       },
       modelSelector: {
         title: '选择模型',

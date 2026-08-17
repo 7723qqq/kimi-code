@@ -90,6 +90,9 @@
       "agentFileOnlyOnce": "--agent-file may only be specified once.",
       "agentEmpty": "Agent cannot be empty.",
       "agentFilePathEmpty": "Agent file path cannot be empty."
+    },
+    "msys2Prompt": {
+      "notice": "MSYS2 (full Linux command-line environment) not detected. Install it with: winget install MSYS2.MSYS2"
     }
   },
   "startup": {
@@ -378,6 +381,20 @@
           "arrowUpDown": "Browse input history",
           "enter": "Submit"
         }
+      },
+      "msys2Prompt": {
+        "title": "MSYS2 not detected",
+        "hint": "MSYS2 provides a full Linux command-line environment on Windows. Install it now and switch the shell?",
+        "install": "Install MSYS2",
+        "installDescription": "Installs via winget and switches the shell to MSYS2 bash (restart required).",
+        "skip": "Skip",
+        "skipDescription": "Continue with the current shell. You can install MSYS2 later.",
+        "installing": "Installing MSYS2…",
+        "installSuccess": "MSYS2 installed",
+        "installFailed": "MSYS2 install failed",
+        "restartHint": "Restart kimi-code to use the MSYS2 shell.",
+        "installSuccessNoSwitch": "MSYS2 installed, but the shell switch failed. Set KIMI_SHELL_PATH manually.",
+        "manualInstallHint": "Install MSYS2 manually from https://www.msys2.org/"
       },
       "modelSelector": {
         "title": "Select a model",

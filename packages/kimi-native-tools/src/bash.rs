@@ -66,7 +66,17 @@ pub fn bash_exec(config: &BashConfig) -> BashResult {
     for arg in &shell_args {
         cmd.arg(arg);
     }
-    cmd.arg(&config.command);
+    // MSYS2 bash (unlike Git Bash) does not prepend its own /usr/bin to the
+    // inherited Windows PATH in non-login mode, so common commands (ls, grep,
+    // which, ...) would be "command not found". Prepend the standard POSIX
+    // dirs explicitly; harmless on Git Bash / POSIX where they already exist.
+    let is_bash = shell_args.len() == 1 && shell_args[0] == "-c";
+    let command = if cfg!(windows) && is_bash {
+        format!("export PATH=\"/usr/local/bin:/usr/bin:/bin:$PATH\"; {}", config.command)
+    } else {
+        config.command.clone()
+    };
+    cmd.arg(&command);
 
     // Set working directory.
     if let Some(ref cwd) = config.cwd {

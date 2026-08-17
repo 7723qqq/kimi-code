@@ -65,6 +65,7 @@ import {
   CLI_USER_AGENT_PRODUCT,
   PROMPT_CLEANUP_TIMEOUT_MS,
 } from '#/constant/app';
+import { createMsys2PromptDeps, shouldPromptMsys2 } from '#/cli/msys2-prompt';
 import { t } from '#/i18n';
 
 import {
@@ -118,6 +119,12 @@ export async function runV2Print(
   writeExperimentalVersion(version, outputFormat, stdout, stderr);
 
   const homeDir = resolveKimiHome();
+  // One-time MSYS2 notice (Windows only): surface the install hint on stderr
+  // without blocking the run or marking the prompt as shown — the TUI gate
+  // stays the primary surface.
+  if (await shouldPromptMsys2(createMsys2PromptDeps(homeDir))) {
+    stderr.write(t('cli.msys2Prompt.notice') + '\n');
+  }
   let firstLaunch = false;
   const deviceId = createKimiDeviceId(homeDir, {
     onFirstLaunch: () => {

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { log, type GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BannerProvider } from '#/tui/banner/banner-provider';
 import { readBannerDisplayState } from '#/tui/banner/state';
@@ -23,6 +23,12 @@ import {
 } from '#/tui/utils/terminal-theme';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { quoteShellArg } from '#/utils/shell-quote';
+import {
+  installMsys2,
+  markPrompted,
+  setUserShellPath,
+  shouldPromptMsys2,
+} from '#/cli/msys2-prompt';
 
 vi.mock('#/tui/commands/prompts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#/tui/commands/prompts')>();
@@ -30,6 +36,13 @@ vi.mock('#/tui/commands/prompts', async (importOriginal) => {
 });
 vi.mock('#/utils/clipboard/clipboard-text', () => ({
   copyTextToClipboard: vi.fn(async () => {}),
+}));
+vi.mock('#/cli/msys2-prompt', () => ({
+  createMsys2PromptDeps: vi.fn(() => ({})),
+  shouldPromptMsys2: vi.fn(async () => false),
+  installMsys2: vi.fn(async () => ({ ok: true, bashPath: 'C:\\msys64\\usr\\bin\\bash.exe' })),
+  setUserShellPath: vi.fn(() => true),
+  markPrompted: vi.fn(async () => {}),
 }));
 
 const copyTextToClipboardMock = vi.mocked(copyTextToClipboard);
@@ -2416,6 +2429,97 @@ describe('KimiTUI startup', () => {
       replayTurnLimit: REPLAY_TURN_LIMIT,
     });
     expect(driver.state.appState.sessionId).toBe('ses-target');
+  });
+});
+
+describe('MSYS2 install gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  interface Msys2GateDriver extends StartupDriver {
+    start(): Promise<void>;
+    mountEditorReplacement(panel: { handleInput(data: string): void }): void;
+  }
+
+  function makeGateDriver() {
+    const harness = makeHarness(makeSession());
+    const driver = makeDriver(harness, makeStartupInput()) as unknown as Msys2GateDriver;
+    vi.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    vi.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    return { harness, driver };
+  }
+
+  it('skips the gate when the prompt is not needed', async () => {
+    vi.mocked(shouldPromptMsys2).mockResolvedValue(false);
+    const { driver } = makeGateDriver();
+    const mountSpy = vi.spyOn(driver, 'mountEditorReplacement');
+
+    await driver.start();
+
+    expect(shouldPromptMsys2).toHaveBeenCalled();
+    expect(mountSpy).not.toHaveBeenCalled();
+    expect(markPrompted).not.toHaveBeenCalled();
+  });
+
+  it('asks to install MSYS2 and marks prompted when skipped', async () => {
+    vi.mocked(shouldPromptMsys2).mockResolvedValue(true);
+    const { driver } = makeGateDriver();
+    const mountSpy = vi.spyOn(driver, 'mountEditorReplacement');
+
+    const startPromise = driver.start();
+    await vi.waitFor(() => {
+      expect(mountSpy).toHaveBeenCalled();
+    });
+    // Move from the default (install) to skip, then confirm.
+    mountSpy.mock.calls[0]![0].handleInput('\u001B[B');
+    mountSpy.mock.calls[0]![0].handleInput('\r');
+    await startPromise;
+
+    expect(markPrompted).toHaveBeenCalled();
+    expect(installMsys2).not.toHaveBeenCalled();
+  });
+
+  it('installs MSYS2 and switches the shell when confirmed', async () => {
+    vi.mocked(shouldPromptMsys2).mockResolvedValue(true);
+    vi.mocked(installMsys2).mockResolvedValue({
+      ok: true,
+      bashPath: 'C:\\msys64\\usr\\bin\\bash.exe',
+    });
+    vi.mocked(setUserShellPath).mockReturnValue(true);
+    const { driver } = makeGateDriver();
+    const mountSpy = vi.spyOn(driver, 'mountEditorReplacement');
+
+    const startPromise = driver.start();
+    await vi.waitFor(() => {
+      expect(mountSpy).toHaveBeenCalled();
+    });
+    mountSpy.mock.calls[0]![0].handleInput('\r');
+    await startPromise;
+
+    expect(installMsys2).toHaveBeenCalled();
+    expect(setUserShellPath).toHaveBeenCalledWith(
+      'C:\\msys64\\usr\\bin\\bash.exe',
+      expect.anything(),
+    );
+    expect(markPrompted).toHaveBeenCalled();
+  });
+
+  it('does not mark prompted when the install fails', async () => {
+    vi.mocked(shouldPromptMsys2).mockResolvedValue(true);
+    vi.mocked(installMsys2).mockResolvedValue({ ok: false, error: 'winget not found' });
+    const { driver } = makeGateDriver();
+    const mountSpy = vi.spyOn(driver, 'mountEditorReplacement');
+
+    const startPromise = driver.start();
+    await vi.waitFor(() => {
+      expect(mountSpy).toHaveBeenCalled();
+    });
+    mountSpy.mock.calls[0]![0].handleInput('\r');
+    await startPromise;
+
+    expect(markPrompted).not.toHaveBeenCalled();
   });
 });
 
