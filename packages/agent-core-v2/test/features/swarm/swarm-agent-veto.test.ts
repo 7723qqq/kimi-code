@@ -3,7 +3,7 @@ import { t, setLocale } from '@moonshot-ai/kimi-i18n';
  * Test: Agent tool is hard-denied while swarm mode is active.
  *
  * These tests verify the veto listener added to AgentSwarmService that blocks
- * the `Agent` tool when swarm mode is on 鈥?the hard enforcement counterpart to
+ * the `Agent` tool when swarm mode is on —the hard enforcement counterpart to
  * the soft enter-reminder constraint.
  *
  * Coverage matrix:
@@ -99,7 +99,7 @@ function expectedVetoShape(): { veto: { output: string; isError: boolean } } {
 
 // 鈹€鈹€ Test Suite 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-describe('AgentSwarmService 鈥?Agent tool veto in swarm mode', () => {
+describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let executorEvents: ToolExecutorEventStubs;
@@ -175,7 +175,7 @@ describe('AgentSwarmService 鈥?Agent tool veto in swarm mode', () => {
 
       // Must return a veto with exact shape
       expect(decision).toEqual(expectedVetoShape());
-      // Veto must short-circuit 鈥?downstream gate must NOT have run
+      // Veto must short-circuit —downstream gate must NOT have run
       expect(permissionGateRan).toBe(false);
       // Deny message must be formatted exactly once through the approval service
       expect(formatDenyMessage).toHaveBeenCalledTimes(1);
@@ -183,7 +183,7 @@ describe('AgentSwarmService 鈥?Agent tool veto in swarm mode', () => {
     });
 
     it('allows the Agent tool when swarm mode has never been activated', async () => {
-      // Intentionally NOT calling swarm.enter() 鈥?service exists but swarm is off
+      // Intentionally NOT calling swarm.enter() —service exists but swarm is off
       void ix.get(IAgentSwarmService);
 
       const decision = await fire(makeHookContext([makeToolCall('Agent', 'call_agent')]));
@@ -326,7 +326,7 @@ describe('AgentSwarmService 鈥?Agent tool veto in swarm mode', () => {
     it('idempotent exit (calling exit when not active) does not throw', async () => {
       const swarm = ix.get(IAgentSwarmService);
 
-      // Never entered 鈥?exit should be safe no-op
+      // Never entered —exit should be safe no-op
       expect(() => swarm.exit()).not.toThrow();
       expect(swarm.isActive).toBe(false);
     });

@@ -1,5 +1,5 @@
 /**
- * HostEnvironmentService 鈥?shell-probe error handling.
+ * HostEnvironmentService —shell-probe error handling.
  *
  * Stubs the host-environment probe to fail the way a Windows host without Git
  * Bash does, so the suite runs identically on any platform. Pins the failure

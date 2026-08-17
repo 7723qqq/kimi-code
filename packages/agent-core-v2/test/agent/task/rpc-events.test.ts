@@ -295,7 +295,7 @@ function registerProcess(
   return manager.registerTask(new ProcessTask(proc, command, description));
 }
 
-describe('AgentTaskService 鈥?event emission', () => {
+describe('AgentTaskService —event emission', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -438,7 +438,7 @@ describe('AgentTaskService 鈥?event emission', () => {
   });
 });
 
-describe('AgentTaskService 鈥?notification delivery', () => {
+describe('AgentTaskService —notification delivery', () => {
   it('delivers completed agent task notifications through an auto-launched turn', async () => {
     const { agent, ctx, manager } = createAgentTaskService();
     ctx.mockNextResponse({ type: 'text', text: 'notification ack' });
@@ -925,7 +925,7 @@ describe('AgentTaskService 鈥?notification delivery', () => {
   });
 });
 
-describe('AgentTaskService 鈥?agent recovery notification bodies', () => {
+describe('AgentTaskService —agent recovery notification bodies', () => {
   it('failed agent task body includes resume instructions with the correct agent_id', async () => {
     const { agent, ctx, manager } = createAgentTaskService();
     const taskId = manager.registerTask(
