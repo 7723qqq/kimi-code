@@ -175,7 +175,7 @@ packages/
 
 **`agent-core-v2`** (v0.4.0) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server` and `klient`. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
 
-**`kosong`** (v0.6.0) — The LLM / provider abstraction layer. Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
+**`kosong`** (v0.6.0) — The LLM / provider abstraction layer — the single shared home for the provider wire contract. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). `agent-core-v2`'s `src/kosong/` keeps the DI/trait composition machinery and imports the shared layers from here (its `contract/` directory is a thin re-export). Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
 
 **`klient`** (v0.1.2) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction (ipc or memory). Also hosts e2e suites.
 
