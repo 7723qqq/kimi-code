@@ -127,6 +127,13 @@ describe('shouldPromptMsys2', () => {
     const deps = makeDeps();
     expect(await shouldPromptMsys2(deps)).toBe(true);
   });
+
+  it('does not prompt when KIMI_SHELL_PATH is set to any shell', async () => {
+    const deps = makeDeps({
+      env: { KIMI_SHELL_PATH: 'C:\\Program Files\\Git\\bin\\bash.exe' },
+    });
+    expect(await shouldPromptMsys2(deps)).toBe(false);
+  });
 });
 
 describe('installMsys2', () => {

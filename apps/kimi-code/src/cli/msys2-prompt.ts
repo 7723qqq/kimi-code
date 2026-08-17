@@ -90,10 +90,13 @@ export async function markPrompted(deps: Msys2PromptDeps): Promise<void> {
 
 /**
  * Whether the one-time MSYS2 install prompt should be shown: Windows host,
- * no MSYS2 bash detected, and the prompt has not been shown before.
+ * no MSYS2 bash detected, and the prompt has not been shown before. A
+ * non-empty `KIMI_SHELL_PATH` skips the prompt entirely — the user has
+ * explicitly pinned a shell and should not be nagged.
  */
 export async function shouldPromptMsys2(deps: Msys2PromptDeps): Promise<boolean> {
   if (deps.platform !== 'win32') return false;
+  if ((deps.env['KIMI_SHELL_PATH'] ?? '').trim().length > 0) return false;
   if (await hasPrompted(deps)) return false;
   return (await detectMsys2Bash(deps)) === undefined;
 }
