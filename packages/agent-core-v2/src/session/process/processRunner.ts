@@ -31,6 +31,15 @@ export interface ProcessExecOptions {
 export interface ISessionProcessRunner {
   readonly _serviceBrand: undefined;
 
+  /**
+   * Whether `exec()` calls are backed by a client-visible terminal (the ACP
+   * terminal reverse-RPC bridge). Consumers that have a native fast path
+   * (e.g. the Bash tool's Rust spawn) must route through the runner instead
+   * when this is true, so the client terminal actually displays the command.
+   * Absent/`false` means a plain local spawn.
+   */
+  readonly terminalBacked?: boolean;
+
   exec(args: readonly string[], options?: ProcessExecOptions): Promise<IProcess>;
 }
 

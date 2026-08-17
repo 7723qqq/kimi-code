@@ -249,19 +249,25 @@ export class BashTool implements IBashTool {
       SHELL: this.env.shellPath,
     };
 
-    // Native Rust bash is the primary path; node-local spawn is the fallback.
-    // The callback may only fire once this call returns (TSFN dispatches on
-    // the event loop), so `nativeProc` is always assigned before it runs.
-    let nativeProc: NativeBashProcess | undefined;
-    const spawnResult = tryNativeBashSpawn(
-      { argv: shellArgs, env: noninteractiveEnv },
-      (event) => {
-        nativeProc?.handleEvent(event);
-      },
-    );
-    if (spawnResult !== undefined) {
-      nativeProc = new NativeBashProcess(spawnResult.id, spawnResult.pid);
-      return nativeProc;
+    // A terminal-backed runner (the ACP terminal reverse-RPC bridge) must
+    // receive the Bash invocation so the client terminal displays the command
+    // — the native fast path would bypass it. Only when the runner is a plain
+    // local spawn does the Rust native bash lifecycle take precedence.
+    if (this.runner.terminalBacked !== true) {
+      // Native Rust bash is the primary path; node-local spawn is the fallback.
+      // The callback may only fire once this call returns (TSFN dispatches on
+      // the event loop), so `nativeProc` is always assigned before it runs.
+      let nativeProc: NativeBashProcess | undefined;
+      const spawnResult = tryNativeBashSpawn(
+        { argv: shellArgs, env: noninteractiveEnv },
+        (event) => {
+          nativeProc?.handleEvent(event);
+        },
+      );
+      if (spawnResult !== undefined) {
+        nativeProc = new NativeBashProcess(spawnResult.id, spawnResult.pid);
+        return nativeProc;
+      }
     }
 
     return this.runner.exec(shellArgs, { env: noninteractiveEnv });

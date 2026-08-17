@@ -90,6 +90,9 @@ function envRecordToAcp(
 export class AcpProcessRunner implements ISessionProcessRunner {
   declare readonly _serviceBrand: undefined;
 
+  /** Exec calls are backed by a client-visible terminal. */
+  readonly terminalBacked = true;
+
   constructor(
     @ISessionContext private readonly ctx: ISessionContext,
     @IAcpConnection private readonly connection: IAcpConnection,

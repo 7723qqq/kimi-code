@@ -9,13 +9,6 @@
  * `assistant.delta` → ACP `session/update` translation, and turn settlement.
  */
 
-// The Bash tool prefers the Rust native spawn path when the addon is built;
-// that path bypasses `ISessionProcessRunner` and therefore the ACP terminal
-// reverse-RPC this suite exercises. Force the JS fallback so Bash executions
-// flow through the `AcpProcessRunner` terminal bridge exactly like CI (where
-// the addon is not built).
-process.env['KIMI_NATIVE_TOOLS_FORCE_JS'] = '1';
-
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
