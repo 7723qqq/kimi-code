@@ -133,7 +133,7 @@ describe('probeHostEnvironment', () => {
           existingPaths: [],
         }),
       ),
-    ).rejects.toThrow(/Git Bash was not found/);
+    ).rejects.toThrow(/No bash shell was found/);
   });
 
   it('prefers PowerShell 7 over Git Bash on win32', async () => {

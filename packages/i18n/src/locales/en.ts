@@ -202,6 +202,8 @@ export const en = {
   v2Errors: {
     internal: 'Internal error',
     notImplemented: 'Not implemented',
+    shellNotFoundAction:
+      'No usable shell was found. Install MSYS2 (winget install MSYS2.MSYS2) or Git for Windows, or set KIMI_SHELL_PATH to a shell executable.',
     loopMaxStepsExceeded: 'Loop max steps exceeded',
     loopMaxStepsAction:
       'Raise loop_control.max_steps_per_turn in config.toml, or run "/update-config" then "/reload".',

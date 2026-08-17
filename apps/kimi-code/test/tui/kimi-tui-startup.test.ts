@@ -2521,6 +2521,46 @@ describe('MSYS2 install gate', () => {
 
     expect(markPrompted).not.toHaveBeenCalled();
   });
+
+  it('marks prompted and skips the shell switch when setx fails', async () => {
+    vi.mocked(shouldPromptMsys2).mockResolvedValue(true);
+    vi.mocked(installMsys2).mockResolvedValue({
+      ok: true,
+      bashPath: 'C:\\msys64\\usr\\bin\\bash.exe',
+    });
+    vi.mocked(setUserShellPath).mockReturnValue(false);
+    const { driver } = makeGateDriver();
+    const mountSpy = vi.spyOn(driver, 'mountEditorReplacement');
+
+    const startPromise = driver.start();
+    await vi.waitFor(() => {
+      expect(mountSpy).toHaveBeenCalled();
+    });
+    mountSpy.mock.calls[0]![0].handleInput('\r');
+    await startPromise;
+
+    expect(setUserShellPath).toHaveBeenCalledWith(
+      'C:\\msys64\\usr\\bin\\bash.exe',
+      expect.anything(),
+    );
+    expect(markPrompted).toHaveBeenCalled();
+  });
+
+  it('treats Esc as skip and marks prompted', async () => {
+    vi.mocked(shouldPromptMsys2).mockResolvedValue(true);
+    const { driver } = makeGateDriver();
+    const mountSpy = vi.spyOn(driver, 'mountEditorReplacement');
+
+    const startPromise = driver.start();
+    await vi.waitFor(() => {
+      expect(mountSpy).toHaveBeenCalled();
+    });
+    mountSpy.mock.calls[0]![0].handleInput('\u001B');
+    await startPromise;
+
+    expect(markPrompted).toHaveBeenCalled();
+    expect(installMsys2).not.toHaveBeenCalled();
+  });
 });
 
 function uiContainsFooter(driver: StartupDriver): boolean {

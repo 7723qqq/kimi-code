@@ -65,8 +65,31 @@ export function subagentTypeNotAllowedMessage(name: string, allowlist: readonly 
   return `Subagent type "${name}" is not allowed for this agent. Allowed subagent types: ${allowed}.`;
 }
 
-const WINDOWS_NOTES =
-  'IMPORTANT: You are on Windows. The Bash tool runs through Git Bash, so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.';
+const WINDOWS_NOTES_BASH =
+  'IMPORTANT: You are on Windows. The Bash tool runs through bash (Git Bash or MSYS2), so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.';
+
+const WINDOWS_NOTES_POWERSHELL =
+  'IMPORTANT: You are on Windows. The Bash tool runs through PowerShell, so use PowerShell syntax inside Bash commands — `$env:VAR` for environment variables, `Get-ChildItem` instead of `ls`, and `;` or `if` instead of `&&`. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.';
+
+const WINDOWS_NOTES_CMD =
+  'IMPORTANT: You are on Windows. The Bash tool runs through cmd.exe, so use cmd syntax inside Bash commands — `%VAR%` for environment variables, `dir` instead of `ls`. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.';
+
+const WINDOWS_NOTES_GENERIC =
+  'IMPORTANT: You are on Windows. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.';
+
+function windowsNotesFor(shellName: string): string {
+  switch (shellName) {
+    case 'bash':
+      return WINDOWS_NOTES_BASH;
+    case 'powershell':
+    case 'pwsh':
+      return WINDOWS_NOTES_POWERSHELL;
+    case 'cmd':
+      return WINDOWS_NOTES_CMD;
+    default:
+      return WINDOWS_NOTES_GENERIC;
+  }
+}
 
 export const DEFAULT_PRODUCT_NAME = 'Kimi Code CLI';
 
@@ -100,7 +123,7 @@ export function systemPromptVars(
     product_name: context.productName ?? DEFAULT_PRODUCT_NAME,
     reply_style_guide: context.replyStyleGuide ?? DEFAULT_REPLY_STYLE_GUIDE,
     os: context.osKind ?? '',
-    windows_notes: context.osKind === 'Windows' ? `\n\n${WINDOWS_NOTES}\n\n` : '',
+    windows_notes: context.osKind === 'Windows' ? `\n\n${windowsNotesFor(shellName)}\n\n` : '',
     shell: shellName.length > 0 ? `${shellName} (\`${shellPath}\`)` : '',
     now: context.now ?? new Date().toISOString(),
     cwd: context.cwd ?? '',

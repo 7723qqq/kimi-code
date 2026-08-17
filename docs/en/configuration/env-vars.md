@@ -144,7 +144,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_WEB_FETCH_BASE_URL` | API URL of the web fetch (`FetchURL`) service; takes higher priority than `[services.moonshot_fetch] base_url`. Persisted credentials and custom headers are not forwarded to an env-selected endpoint. Without an env or config endpoint, signed-in users try the managed Kimi OAuth fetch service before direct local requests | Non-blank string; blank values are ignored |
 | `KIMI_WEB_FETCH_API_KEY` | API key of the web fetch (`FetchURL`) service; replaces both the configured API key and OAuth credential when set | Non-blank string; blank values are ignored |
 | `KIMI_CODE_EXPERIMENTAL_FLAG` | Enable all registered experimental features for this process; it does not select the agent engine | `1`, `true`, `yes`, `on` |
-| `KIMI_SHELL_PATH` | Override the Git Bash path on Windows (used when auto-detection fails) | Absolute path |
+| `KIMI_SHELL_PATH` | Pin the shell executable on Windows (highest priority, above `[shell] preference` and auto-detection). The basename decides the shell semantics: `pwsh`/`powershell` → PowerShell, `cmd` → cmd, anything else → bash. Pointing it at a missing file is an error, not a silent fallback | Absolute path to a shell executable |
 | `KIMI_MODEL_MAX_COMPLETION_TOKENS` | Hard cap on `max_completion_tokens` per LLM step; applies to the `kimi` provider only | Positive integer; `0` or negative disables clamping |
 | `KIMI_MODEL_TEMPERATURE` | Sampling temperature for every request; applies to the `kimi` provider only (global — independent of `KIMI_MODEL_NAME`) | Number, e.g. `0.3` |
 | `KIMI_MODEL_TOP_P` | Nucleus-sampling `top_p` for every request; applies to the `kimi` provider only (global) | Number, e.g. `0.95` |
@@ -173,13 +173,13 @@ The CLI also reads several standard system variables to detect the runtime envir
 
 - `HOME`: used to resolve the default data path
 - `VISUAL`, `EDITOR`: external editor command (`VISUAL` takes precedence)
-- `PATH`: used to locate dependencies such as `rg`, `fd`, `fdfind`, and `git`; on Windows, Git Bash detection checks each `git.exe` found on `PATH`, including package-manager shims such as Scoop
+- `PATH`: used to locate dependencies such as `rg`, `fd`, `fdfind`, and `git`; on Windows, bash detection checks each `git.exe` found on `PATH` (including package-manager shims such as Scoop) and probes Git Bash and MSYS2 install locations
 - `NO_COLOR`, `FORCE_COLOR`: control color output (following the [no-color.org](https://no-color.org) convention)
 - `CI`: when non-empty and not `"0"`, disables theme detection and falls back to the dark theme
 - `TERM_PROGRAM`, `TERM`, `TMUX`: detect terminal features and notification support
 - `DISPLAY`, `WAYLAND_DISPLAY`, `XDG_SESSION_TYPE`: detect Linux graphical sessions (for clipboard and image features)
 - `WSL_DISTRO_NAME`, `WSLENV`: detect WSL for the clipboard PowerShell bridge
-- `LOCALAPPDATA`: used on Windows as a fallback when probing for the Git Bash installation path
+- `LOCALAPPDATA`: used on Windows when probing for PowerShell 7 and Git Bash install paths
 
 ## HTTP proxy
 

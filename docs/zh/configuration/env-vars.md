@@ -144,7 +144,7 @@ kimi
 | `KIMI_WEB_FETCH_BASE_URL` | 网页抓取（`FetchURL`）服务的 API URL；优先级高于 `[services.moonshot_fetch] base_url`。文件中持久化的凭据和自定义 header 不会发送到环境变量指定的端点。环境变量和配置都没有指定端点时，已登录用户会先尝试 Kimi OAuth 托管抓取服务，再回退到本地直接请求 | 非空字符串；空白值被忽略 |
 | `KIMI_WEB_FETCH_API_KEY` | 网页抓取（`FetchURL`）服务的 API 密钥；设置后同时替换配置中的 API 密钥和 OAuth 凭据 | 非空字符串；空白值被忽略 |
 | `KIMI_CODE_EXPERIMENTAL_FLAG` | 在当前进程启用所有已注册的实验功能；不用于选择 Agent 引擎 | `1`、`true`、`yes`、`on` |
-| `KIMI_SHELL_PATH` | Windows 上覆盖 Git Bash 路径（自动探测失败时使用） | 绝对路径 |
+| `KIMI_SHELL_PATH` | 固定 Windows 上的 Shell 可执行文件（最高优先级，高于 `[shell] preference` 和自动探测）。按文件名决定 Shell 语义：`pwsh`/`powershell` → PowerShell，`cmd` → cmd，其他 → bash。指向不存在的文件会报错，不会静默回退 | Shell 可执行文件的绝对路径 |
 | `KIMI_MODEL_MAX_COMPLETION_TOKENS` | 单步 LLM 请求的 `max_completion_tokens` 硬上限，仅对 `kimi` 供应商生效 | 正整数；`0` 或负数禁用 clamp |
 | `KIMI_MODEL_TEMPERATURE` | 每次请求的采样温度，仅对 `kimi` 供应商生效（全局生效，不依赖 `KIMI_MODEL_NAME`） | 数字，如 `0.3` |
 | `KIMI_MODEL_TOP_P` | 每次请求的核采样 `top_p`，仅对 `kimi` 供应商生效（全局生效） | 数字，如 `0.95` |
@@ -173,13 +173,13 @@ CLI 还会读取一些标准系统变量来检测运行环境，不会修改它�
 
 - `HOME`：解析默认数据路径
 - `VISUAL`、`EDITOR`：外部编辑器命令（`VISUAL` 优先）
-- `PATH`：定位 `rg`、`fd`、`fdfind`、`git` 等依赖；在 Windows 上，Git Bash 探测会检查 `PATH` 中找到的每个 `git.exe`，包括 Scoop 等包管理器提供的 shim
+- `PATH`：定位 `rg`、`fd`、`fdfind`、`git` 等依赖；在 Windows 上，bash 探测会检查 `PATH` 中找到的每个 `git.exe`（包括 Scoop 等包管理器提供的 shim），并探测 Git Bash 与 MSYS2 的安装位置
 - `NO_COLOR`、`FORCE_COLOR`：控制颜色输出（遵循 [no-color.org](https://no-color.org) 约定）
 - `CI`：非空且非 `"0"` 时关闭主题检测，回退深色主题
 - `TERM_PROGRAM`、`TERM`、`TMUX`：检测终端特性和通知支持
 - `DISPLAY`、`WAYLAND_DISPLAY`、`XDG_SESSION_TYPE`：检测 Linux 图形会话（用于剪贴板和图片功能）
 - `WSL_DISTRO_NAME`、`WSLENV`：检测 WSL，用于剪贴板 PowerShell 桥接
-- `LOCALAPPDATA`：Windows 上探测 Git Bash 安装路径时作为 fallback 使用
+- `LOCALAPPDATA`：Windows 上探测 PowerShell 7 与 Git Bash 安装路径时使用
 
 ## HTTP 代理
 

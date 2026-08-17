@@ -320,6 +320,14 @@ kimi-for-coding-highspeed-deep = "同一模型的高 Thinking 档位。适合较
 
 在 print 模式（`kimi -p "<prompt>"`）下，只要还有未决的后台任务，Kimi Code 在 main agent 的 turn 结束后不会退出：每个任务完成都会以合成 user 消息回馈给 main agent，steer 出新的 turn（默认 `print_background_mode = "steer"`），直到某 turn 结束时没有任何未决任务才退出。该循环受 `print_wait_ceiling_s` 与 `print_max_turns` 约束，默认值都近似不设限。print 模式下后台工作也不会被墙钟超时杀掉：后台 `Bash` 任务默认无超时（`bash_task_timeout_s = 0`），subagent 默认无超时（`[subagent] timeout_ms = 0`），只有模型自己能停止任务。将 `print_background_mode` 设为 `"drain"` 可等待任务结束但不回馈结果，设为 `"exit"` 则在 main agent 结束后立即退出。
 
+## `shell`
+
+`shell` 用于固定 Windows 上 `Bash` 工具使用的 Shell。优先级低于 `KIMI_SHELL_PATH` 环境变量，高于自动探测（PowerShell 7 → Windows PowerShell → Git Bash 或 MSYS2 bash）。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `preference` | `"auto" | "bash" | "powershell" | "pwsh" | "cmd"` | `"auto"` | Windows 上使用哪个 Shell。`auto` 保持平台默认优先级；显式值固定 Shell（找不到固定 Shell 时，探测回退到默认优先级）。`KIMI_SHELL_PATH` 仍优先于此配置 |
+
 ## `subagent`
 
 `subagent` 控制派生 subagent（`Agent` / `AgentSwarm`）的运行方式。

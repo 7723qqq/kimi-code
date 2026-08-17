@@ -432,7 +432,7 @@ describe('main entry command handling', () => {
   it('formats Kimi startup errors with structured fields', () => {
     const error = new KimiError(
       ErrorCodes.SHELL_GIT_BASH_NOT_FOUND,
-      'Git Bash was not found on this Windows host. Checked: C:\\Program Files\\Git\\bin\\bash.exe.',
+      'No bash shell was found on this Windows host. Checked: C:\\Program Files\\Git\\bin\\bash.exe.',
     );
     const red = (text: string): string => `\u001B[31m${text}\u001B[39m`;
 
@@ -441,7 +441,7 @@ describe('main entry command handling', () => {
         '\u001B[31merror: Git Bash not found\u001B[39m',
         '',
         '\u001B[31mmessage:\u001B[39m',
-        '\u001B[31mGit Bash was not found on this Windows host. Checked: C:\\Program Files\\Git\\bin\\bash.exe.\u001B[39m',
+        '\u001B[31mNo bash shell was found on this Windows host. Checked: C:\\Program Files\\Git\\bin\\bash.exe.\u001B[39m',
         '',
       ].join('\n'),
     );

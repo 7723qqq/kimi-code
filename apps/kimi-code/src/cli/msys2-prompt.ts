@@ -56,13 +56,17 @@ export function createMsys2PromptDeps(homeDir: string = resolveKimiHome()): Msys
 
 /**
  * Locate an MSYS2 bash. `KIMI_SHELL_PATH` pointing into an msys64 tree counts
- * as installed (the user already switched); otherwise the default install
- * path is probed. Returns undefined when no MSYS2 bash is available.
+ * as installed (the user already switched) — but only when the file actually
+ * exists, so a stale environment variable (MSYS2 uninstalled, path typo)
+ * still triggers the prompt. Otherwise the default install path is probed.
+ * Returns undefined when no MSYS2 bash is available.
  */
 export async function detectMsys2Bash(deps: Msys2PromptDeps): Promise<string | undefined> {
   const override = deps.env['KIMI_SHELL_PATH']?.trim();
   if (override !== undefined && override.length > 0 && /msys64/i.test(override)) {
-    return override;
+    if (await deps.isFile(override)) {
+      return override;
+    }
   }
   for (const candidate of MSYS2_BASH_CANDIDATES) {
     if (await deps.isFile(candidate)) {

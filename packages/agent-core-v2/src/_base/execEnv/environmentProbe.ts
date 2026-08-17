@@ -75,6 +75,7 @@ const MINGW_PREFIX_SET: ReadonlySet<string> = new Set([
   'ucrt64',
   'clang64',
   'clangarm64',
+  'msys64',
 ]);
 
 function resolveOsKind(platform: string): OsKind {
@@ -356,6 +357,7 @@ async function locateWindowsGitBash(deps: HostEnvironmentProbeDeps): Promise<str
     'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
     'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
     'C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe',
+    'C:\\msys64\\usr\\bin\\bash.exe',
   ];
   const localAppData = deps.env['LOCALAPPDATA']?.trim();
   if (localAppData !== undefined && localAppData.length > 0) {
@@ -370,7 +372,7 @@ async function locateWindowsGitBash(deps: HostEnvironmentProbeDeps): Promise<str
   }
 
   throw new ProbeShellNotFoundError(
-    'Git Bash was not found on this Windows host. Install Git for Windows from https://gitforwindows.org/ or set KIMI_SHELL_PATH to a bash.exe.',
+    'No bash shell was found on this Windows host. Install MSYS2 (winget install MSYS2.MSYS2) or Git for Windows from https://gitforwindows.org/, or set KIMI_SHELL_PATH to a bash.exe.',
     checked,
   );
 }

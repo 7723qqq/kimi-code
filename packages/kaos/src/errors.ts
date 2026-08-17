@@ -29,9 +29,9 @@ export class KaosFileExistsError extends KaosError {
 }
 
 /**
- * Thrown by `detectEnvironment` on Windows when no Git Bash install can be
- * located. Carries the list of paths that were probed so callers can include
- * them in install hints.
+ * Thrown by `detectEnvironment` on Windows when no bash shell (Git Bash or
+ * MSYS2) can be located. Carries the list of paths that were probed so
+ * callers can include them in install hints.
  */
 export class KaosShellNotFoundError extends KaosError {
   constructor(message: string) {

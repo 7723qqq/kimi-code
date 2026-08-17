@@ -48,9 +48,9 @@ impl Default for BashConfig {
 ///
 /// Behavior:
 ///   - On Unix: runs via `/bin/bash -c <command>`.
-///   - On Windows: runs via PowerShell 7 / Windows PowerShell / Git Bash /
-///     `cmd.exe` (in that order of preference), or the `KIMI_SHELL_PATH`
-///     override.
+///   - On Windows: runs via PowerShell 7 / Windows PowerShell / Git Bash or
+///     MSYS2 bash / `cmd.exe` (in that order of preference), or the
+///     `KIMI_SHELL_PATH` override.
 ///   - Captures stdout and stderr.
 ///   - Applies timeout (default 60s, max 300s for foreground).
 ///   - Returns exit code, stdout, stderr, and timeout flag.
@@ -375,15 +375,25 @@ fn is_bat_command(command: &str) -> bool {
 
 #[cfg(windows)]
 fn which_bash() -> Result<String, ()> {
-    // Check common Git Bash locations.
-    let candidates = [
-        "C:\\Program Files\\Git\\bin\\bash.exe",
-        "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+    // Check common Git Bash and MSYS2 locations. Mirrors the TS probe
+    // (environmentProbe.ts locateWindowsGitBash): many Git for Windows
+    // installs only ship `usr\bin\bash.exe`, and per-user installs live
+    // under %LOCALAPPDATA%\Programs\Git.
+    let mut candidates = vec![
+        "C:\\Program Files\\Git\\bin\\bash.exe".to_string(),
+        "C:\\Program Files\\Git\\usr\\bin\\bash.exe".to_string(),
+        "C:\\Program Files (x86)\\Git\\bin\\bash.exe".to_string(),
+        "C:\\Program Files (x86)\\Git\\usr\\bin\\bash.exe".to_string(),
+        "C:\\msys64\\usr\\bin\\bash.exe".to_string(),
     ];
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        candidates.push(format!("{}\\Programs\\Git\\bin\\bash.exe", local_app_data));
+        candidates.push(format!("{}\\Programs\\Git\\usr\\bin\\bash.exe", local_app_data));
+    }
 
     for candidate in &candidates {
         if std::path::Path::new(candidate).exists() {
-            return Ok(candidate.to_string());
+            return Ok(candidate.clone());
         }
     }
 

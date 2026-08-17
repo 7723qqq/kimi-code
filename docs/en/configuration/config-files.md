@@ -321,6 +321,14 @@ Retries only apply to transient failures — connection errors, timeouts, HTTP 4
 
 In print mode (`kimi -p "<prompt>"`), Kimi Code stays alive after the main agent's turn as long as background tasks are still pending: each completion is fed back to the main agent as a synthetic user message, steering it into a new turn (`print_background_mode = "steer"` by default), and the run exits once a turn ends with nothing pending. The loop is bounded by `print_wait_ceiling_s` and `print_max_turns`, both effectively unbounded by default. Background work is never killed by a wall-clock cap in print mode either: background `Bash` tasks default to no timeout (`bash_task_timeout_s = 0`), and subagents run without a timeout (`[subagent] timeout_ms = 0`), so only the model itself stops a task. Set `print_background_mode` to `"drain"` to wait for tasks without feeding results back, or `"exit"` to end the run as soon as the main agent finishes.
 
+## `shell`
+
+`shell` pins the shell used by the `Bash` tool on Windows. It takes lower priority than the `KIMI_SHELL_PATH` environment variable, and higher than auto-detection (PowerShell 7 → Windows PowerShell → Git Bash or MSYS2 bash).
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `preference` | `"auto" \| "bash" \| "powershell" \| "pwsh" \| "cmd"` | `"auto"` | Which shell to use on Windows. `auto` keeps the platform default priority; an explicit value pins the shell (when the pinned shell cannot be located, detection falls through to the default priority). `KIMI_SHELL_PATH` still wins over this |
+
 ## `subagent`
 
 `subagent` controls how spawned subagents (`Agent` / `AgentSwarm`) run.

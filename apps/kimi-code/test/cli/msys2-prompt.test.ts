@@ -54,8 +54,16 @@ describe('detectMsys2Bash', () => {
   it('treats KIMI_SHELL_PATH into an msys64 tree as installed', async () => {
     const deps = makeDeps({
       env: { KIMI_SHELL_PATH: 'C:\\msys64\\usr\\bin\\bash.exe' },
+      isFile: async (path) => path === 'C:\\msys64\\usr\\bin\\bash.exe',
     });
     expect(await detectMsys2Bash(deps)).toBe('C:\\msys64\\usr\\bin\\bash.exe');
+  });
+
+  it('ignores a stale KIMI_SHELL_PATH whose file no longer exists', async () => {
+    const deps = makeDeps({
+      env: { KIMI_SHELL_PATH: 'C:\\msys64\\usr\\bin\\bash.exe' },
+    });
+    expect(await detectMsys2Bash(deps)).toBeUndefined();
   });
 
   it('ignores KIMI_SHELL_PATH that does not point into msys64', async () => {

@@ -71,10 +71,10 @@ export const OsProcessErrors = {
       public: true,
     },
     'shell.git_bash_not_found': {
-      title: 'Git Bash not found',
+      title: t('errors.shellGitBashNotFound'),
       retryable: false,
       public: true,
-      action: 'Install Git for Windows so shell commands can run under Git Bash.',
+      action: t('v2Errors.shellNotFoundAction'),
     },
   },
 } as const satisfies ErrorDomain;
