@@ -1304,6 +1304,11 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     const clientOpts: Record<string, unknown> = {
       apiKey,
       baseURL: this._baseUrl,
+      // The SDK client is built with `maxRetries: 0`: the SDK's internal
+      // backoff sleep never observes the turn's AbortSignal, so rate-limit /
+      // server / connection retry is owned by the engine's step-retry layer
+      // (observable and cancellable), never by the SDK.
+      maxRetries: 0,
     };
     const defaultHeaders = mergeRequestHeaders(this._defaultHeaders, auth?.headers);
     if (defaultHeaders !== undefined) {

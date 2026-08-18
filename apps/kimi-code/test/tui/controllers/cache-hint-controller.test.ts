@@ -49,6 +49,7 @@ function makeHost(
     mountEditorReplacement: vi.fn(),
     restoreEditor: vi.fn(),
     restoreInputText: vi.fn(),
+    recallStashedMedia: vi.fn(),
     showError: vi.fn(),
     createNewSession: vi.fn(async () => {
       if (overrides.createNewSessionFails !== true) state.appState.sessionId = 's2';

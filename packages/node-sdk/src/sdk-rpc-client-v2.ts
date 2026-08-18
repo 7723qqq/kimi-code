@@ -171,6 +171,7 @@ import {
   ISessionMcpHandle,
   ISessionMetadata,
   ISessionSkillCatalog,
+  ISessionTodoService,
   ISessionWorkspaceContext,
   ITelemetryService,
   IWorkspaceAliases,
@@ -205,6 +206,7 @@ import {
   type Scope,
   type ServicesAccessor,
   type SessionSummary as V2SessionSummary,
+  type TodoStatus,
 } from '@moonshot-ai/agent-core-v2';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { IAgentIdentity } from '@moonshot-ai/agent-core-v2/app/agentIdentity/agentIdentity';
@@ -306,11 +308,15 @@ import type {
   SessionStatus,
   SessionSummary,
   SessionSummaryPage,
+  SessionTodoItem,
+  SessionTodoStatus,
   SessionUsage,
   SkillSummary,
   TelemetryClient,
+  UploadFileOptions,
   WorkspaceTrustInfo,
 } from '#/types';
+import type { FileMeta } from '#/types';
 import {
   diagnosticsToConfigDiagnostics,
   planProviderRemoval,
@@ -652,6 +658,23 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       ErrorCodes.NOT_IMPLEMENTED,
       'This SDK method is not wired to agent-core-v2 yet.',
     );
+  }
+
+  /**
+   * Through the app-scope `IFileService` — see the klient files facade.
+   * `uploadFile` → `klient.global.files.save` (the app-scope `IFileService`).
+   */
+  override async uploadFile(data: Uint8Array, options: UploadFileOptions): Promise<FileMeta> {
+    return this.klient.global.files.save({
+      data,
+      filename: options.name,
+      mimeType: options.mimeType,
+      expiresInSec: options.expiresInSec,
+    });
+  }
+
+  override async deleteFile(fileId: string): Promise<void> {
+    return this.klient.global.files.delete(fileId);
   }
 
   override async getExperimentalFeatures(): Promise<readonly ExperimentalFeatureState[]> {
@@ -1850,6 +1873,21 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
+   * Through the session scope (`ISessionTodoService`) — no klient facade
+   * exists. v1's getTodos is a pass-through of the same engine service.
+   * The engine's five-state todo statuses (open/blocked/abandoned included)
+   * collapse to the SDK's three-state shape: unfinished states map to
+   * `pending`, `in_progress` and `done` pass through.
+   */
+  override async getTodos(input: SessionIdRpcInput): Promise<readonly SessionTodoItem[]> {
+    const session = this.requireLiveSession(input.sessionId);
+    return session.accessor
+      .get(ISessionTodoService)
+      .getTodos()
+      .map((todo) => ({ title: todo.title, status: collapseTodoStatus(todo.status) }));
+  }
+
+  /**
    * Through the agent scope (`IAgentContextMemoryService.clear`) — no klient
    * facade exists. v1's `context.clear` has no busy check and does not touch
    * queued or running prompts; the memory-service clear matches that exactly
@@ -2662,4 +2700,14 @@ function describeWorkspaceMcpServer(
     };
   }
   return { name, transport: config.transport, url: config.url };
+}
+
+/**
+ * Collapse the engine's five-state todo status to the SDK's three-state
+ * shape: `in_progress` / `done` pass through; every unfinished or
+ * non-terminal state (`open`, `blocked`, `abandoned`) reads as `pending`.
+ */
+function collapseTodoStatus(status: TodoStatus): SessionTodoStatus {
+  if (status === 'in_progress' || status === 'done') return status;
+  return 'pending';
 }

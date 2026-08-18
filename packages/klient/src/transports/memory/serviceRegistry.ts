@@ -25,6 +25,7 @@ import { IBootstrapService } from '@moonshot-ai/agent-core-v2/app/bootstrap/boot
 import { ICapabilityService } from '@moonshot-ai/agent-core-v2/app/capability/capability';
 import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
 import { IEventService } from '@moonshot-ai/agent-core-v2/app/event/event';
+import { IFileService } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import { IFlagService } from '@moonshot-ai/agent-core-v2/app/flag/flag';
 import { IHostFolderBrowser } from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
 import { IProviderDiscoveryService } from '@moonshot-ai/agent-core-v2/app/kosongConfig/discovery';
@@ -59,6 +60,7 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   pluginService: IPluginService,
   capabilityService: ICapabilityService,
   hostFolderBrowser: IHostFolderBrowser,
+  fileService: IFileService,
   bootstrapService: IBootstrapService,
   workspaceLifecycleService: IWorkspaceLifecycleService,
   sessionLifecycleService: ISessionLifecycleService,

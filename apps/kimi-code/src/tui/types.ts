@@ -283,6 +283,10 @@ export interface TranscriptEntry {
   skillName?: string;
   skillArgs?: string;
   skillTrigger?: SkillActivationTrigger;
+  /** Card belongs to the following prompt's bundled submission: undo removes them together. */
+  bundledWithPrompt?: boolean;
+  /** Entry renders a UserPromptSubmit hook result (sits inside its prompt's group window). */
+  hookResult?: boolean;
   pluginCommandData?: PluginCommandTranscriptData;
 }
 
@@ -294,11 +298,21 @@ export interface LivePaneState {
   pendingQuestion: PendingQuestion | null;
 }
 
+export interface InlineSkillActivation {
+  readonly skillName: string;
+  /**
+   * Skill arguments. Only set for a leading `/skill:<name> args` command that
+   * is combined with further inline skills; inline tokens carry no args.
+   */
+  readonly args?: string;
+}
+
 export interface QueuedMessage {
   readonly text: string;
   readonly agentId?: string;
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
+  readonly videoAttachmentIds?: readonly number[];
   /** `bash` for a `!` shell command queued while another command is running;
    *  undefined (=`prompt`) for a normal message. */
   readonly mode?: 'prompt' | 'bash';
@@ -314,6 +328,7 @@ export interface SteerInputItem {
   readonly text: string;
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
+  readonly videoAttachmentIds?: readonly number[];
 }
 
 export const INITIAL_LIVE_PANE: LivePaneState = {

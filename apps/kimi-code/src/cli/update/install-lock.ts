@@ -80,8 +80,7 @@ async function createLockFile(
 export async function tryAcquireUpdateInstallLock(
   request: UpdateInstallLockRequest,
   filePath: string = getUpdateInstallLockFile(),
-): Promise<UpdateInstallLockHandle | null> {
-  await mkdir(dirname(filePath), { recursive: true });
+): Promise<UpdateInstallLockHandle | null> {  await mkdir(dirname(filePath), { recursive: true });
   try {
     return await createLockFile(filePath, request);
   } catch (error) {
@@ -98,5 +97,31 @@ export async function tryAcquireUpdateInstallLock(
   } catch (error) {
     if (isAlreadyExists(error)) return null;
     throw error;
+  }
+}
+
+/**
+ * Read the version a live install lock was acquired for, or undefined when
+ * no (parseable) lock is present. Used to tell a same-version downloader
+ * "someone else is already fetching exactly this version" apart from a
+ * stale/foreign lock.
+ */
+export async function readUpdateInstallLockVersion(
+  filePath: string = getUpdateInstallLockFile(),
+): Promise<string | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile(filePath, 'utf-8');
+  } catch (error) {
+    if (isNotFound(error)) return undefined;
+    throw error;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== 'object' || parsed === null) return undefined;
+    const version = (parsed as { readonly version?: unknown }).version;
+    return typeof version === 'string' && version.length > 0 ? version : undefined;
+  } catch {
+    return undefined;
   }
 }

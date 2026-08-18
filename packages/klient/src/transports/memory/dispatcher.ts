@@ -18,6 +18,7 @@
 
 import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2/_base/di/instantiation';
 import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
+import { Readable } from 'node:stream';
 import { getLiveSessionById } from '@moonshot-ai/agent-core-v2/app/workspaceLifecycle/sessionLookup';
 import { IWorkspaceLifecycleService } from '@moonshot-ai/agent-core-v2/app/workspaceLifecycle/workspaceLifecycle';
 import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
@@ -173,6 +174,37 @@ export function createMemoryDispatcher(
       const member = instance[method];
       if (member === undefined) {
         throw new RPCError(REQUEST_INVALID, `method not found: ${service}.${method}`);
+      }
+      // `fileService` adapts bytes ⇄ streams: the JSON wire cannot carry
+      // `save`'s Readable source or `get`'s result stream, so both cross as
+      // base64 strings (the same kind of wire adaptation as kap-server's
+      // dispatcher). The facade encodes/decodes the caller's `Uint8Array`s.
+      if (service === 'fileService' && method === 'save') {
+        const [data, filename, options] = args;
+        const result = await (member as (...a: unknown[]) => Promise<unknown>).call(
+          instance,
+          Readable.from(Buffer.from(data as string, 'base64')),
+          filename,
+          options,
+        );
+        return clone(result);
+      }
+      if (service === 'fileService' && method === 'get') {
+        const [fileId] = args;
+        const result = await (member as (...a: unknown[]) => Promise<unknown>).call(
+          instance,
+          fileId,
+        );
+        const { meta, stream } = result as {
+          meta: { id: string; name: string; media_type: string; size: number; created_at: string; expires_at?: string };
+          stream: AsyncIterable<Uint8Array>;
+        };
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of stream) chunks.push(chunk);
+        return clone({
+          meta: wireClone(meta),
+          data: Buffer.concat(chunks).toString('base64'),
+        });
       }
       if (typeof member !== 'function') {
         return clone(member);

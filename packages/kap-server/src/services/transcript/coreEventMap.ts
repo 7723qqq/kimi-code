@@ -319,6 +319,7 @@ export class AgentTranscriptProjector {
   }
 
   private onTurnEnded(event: {
+    time?: number;
     turnId: number;
     reason: 'completed' | 'cancelled' | 'failed' | 'blocked';
     error?: { message: string };
@@ -345,7 +346,7 @@ export class AgentTranscriptProjector {
       origin: prev?.origin ?? { kind: 'other' },
       prompt: prev?.prompt,
       startedAt: prev?.startedAt,
-      endedAt: nowIso(),
+      endedAt: event.time === undefined ? nowIso() : epochMsToIso(event.time),
       durationMs: event.durationMs,
       error: event.error?.message,
       usage: this.takeTurnUsage(turnId),

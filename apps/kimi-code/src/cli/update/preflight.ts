@@ -454,13 +454,13 @@ async function showPendingBackgroundInstallNotice(
  * prompt. Migrated from kimi-cli, where the variable gated all auto-update
  * behavior. Accepts the usual truthy values (`1`/`true`/`yes`/`on`).
  */
-function isAutoUpdateDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+export function isAutoUpdateDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
   const truthy = (value?: string): boolean =>
     ['1', 'true', 'yes', 'on'].includes((value ?? '').trim().toLowerCase());
   return truthy(env['KIMI_CODE_NO_AUTO_UPDATE']) || truthy(env['KIMI_CLI_NO_AUTO_UPDATE']);
 }
 
-async function shouldAutoInstallUpdates(logger: UpdateLogger): Promise<boolean> {
+export async function shouldAutoInstallUpdates(logger: UpdateLogger = log): Promise<boolean> {
   try {
     const config = await loadTuiConfig();
     return config.upgrade.autoInstall;

@@ -265,6 +265,17 @@ function convertMessage(
   // Qwen, One API gateways — work out of the box). Servers that don't
   // understand the field ignore it; an explicit `reasoningKey` config pins
   // the dialect instead of detecting it.
+  if (
+    message.role === 'assistant' &&
+    hasReasoningPart &&
+    result.content === undefined &&
+    result.tool_calls === undefined
+  ) {
+    // A reasoning-only assistant is projected with explicit empty `content`.
+    // The reasoning field remains intact while strict Chat Completions
+    // gateways still see the required `content` or `tool_calls` shape.
+    result.content = '';
+  }
   if (hasReasoningPart) {
     result[reasoningKey] = reasoningContent;
   }
@@ -818,6 +829,11 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     const clientOpts: Record<string, unknown> = {
       apiKey,
       baseURL: this._baseUrl,
+      // The SDK client is built with `maxRetries: 0`: the SDK's internal
+      // backoff sleep never observes the turn's AbortSignal, so rate-limit /
+      // server / connection retry is owned by the engine's step-retry layer
+      // (observable and cancellable), never by the SDK.
+      maxRetries: 0,
     };
     const defaultHeaders = mergeRequestHeaders(this._defaultHeaders, auth?.headers);
     if (defaultHeaders !== undefined) {

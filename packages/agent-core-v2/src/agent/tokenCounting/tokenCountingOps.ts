@@ -1,5 +1,5 @@
 /**
- * `tokenCounting` domain — wire Model (`TokenCountingModel`) and the transient
+ * `tokenCounting` domain — wire Model (`TokenCountingModel`) and the persisted
  * Ops maintaining the measured-anchor ledger.
  *
  * State is `{ anchors, tokens }`: `anchors` is the live history of measured
@@ -10,9 +10,10 @@
  * display value carried by the most recent Op, kept for `toEvent` / status
  * emission because Ops are pure and cannot estimate.
  *
- * All three Ops are live-only (`persist: false`): the ledger is not a v1
- * record type, so resume starts empty and reads estimates until the next
- * measured exchange — same contract as the previous single-anchor model.
+ * All three Ops are persisted to the wire journal: the ledger survives
+ * archiving → unarchive and close → resume, so the displayed context size
+ * keeps its measured value instead of dropping to an estimate until the
+ * next measured exchange.
  * `apply` functions are pure and return the SAME reference on a no-op so the
  * wire's reference-equality gate stays quiet.
  */
@@ -38,7 +39,7 @@ export const TokenCountingModel = defineModel<TokenCountingState>('tokenCounting
 }));
 
 declare module '#/wire/types' {
-  interface TransientOpMap {
+  interface PersistedOpMap {
     'token_counting.measured': typeof tokenCountingMeasured;
     'token_counting.truncated': typeof tokenCountingTruncated;
     'token_counting.rebased': typeof tokenCountingRebased;
@@ -58,7 +59,6 @@ function anchorsEqual(a: readonly TokenAnchor[], b: readonly TokenAnchor[]): boo
 /** Exchange anchor: a true LLM-reported count for the whole live context. */
 export const tokenCountingMeasured = TokenCountingModel.defineOp('token_counting.measured', {
   schema: sizeSchema,
-  persist: false,
   apply: (s, p) => {
     const length = normalizeAnchorLength(p.length);
     const tokens = Math.max(0, p.tokens);
@@ -76,7 +76,6 @@ export const tokenCountingMeasured = TokenCountingModel.defineOp('token_counting
  *  precomputed post-cut size, carried for status display only. */
 export const tokenCountingTruncated = TokenCountingModel.defineOp('token_counting.truncated', {
   schema: sizeSchema,
-  persist: false,
   apply: (s, p) => {
     const length = normalizeAnchorLength(p.length);
     const tokens = Math.max(0, p.tokens);
@@ -94,7 +93,6 @@ export const tokenCountingTruncated = TokenCountingModel.defineOp('token_countin
  *  exchange anchors. */
 export const tokenCountingRebased = TokenCountingModel.defineOp('token_counting.rebased', {
   schema: sizeSchema.extend({ measured: z.boolean() }),
-  persist: false,
   apply: (s, p) => {
     const length = normalizeAnchorLength(p.length);
     const tokens = Math.max(0, p.tokens);

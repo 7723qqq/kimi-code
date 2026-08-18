@@ -506,7 +506,16 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
     isToolResultOnly: (content) =>
       content.parts.length > 0 &&
       content.parts.every((part) => part.functionResponse !== undefined),
-    merge: (last, next) => ({ ...last, parts: [...last.parts, ...next.parts] }),
+    merge: (last, next) => {
+      const lastStartsWithFunctionResponse = last.parts[0]?.functionResponse !== undefined;
+      const nextHasFunctionResponse = next.parts.some(
+        (part) => part.functionResponse !== undefined,
+      );
+      if (lastStartsWithFunctionResponse && !nextHasFunctionResponse) {
+        return { ...next, parts: [...next.parts, ...last.parts] };
+      }
+      return { ...last, parts: [...last.parts, ...next.parts] };
+    },
   });
 }
 export class GoogleGenAIStreamedMessage implements StreamedMessage {
@@ -717,7 +726,16 @@ const TIMEOUT_RE = /timed?\s*out|timeout|deadline/i;
 export function convertGoogleGenAIError(error: unknown): ChatProviderError {
   // Google SDK's exported ApiError carries an HTTP status code
   if (error instanceof GoogleApiError) {
-    return normalizeAPIStatusError(error.status, error.message);
+    // Error conversion recovers the server-directed retry delay from the wire
+    // body: the SDK's `ApiError` drops response headers, so the
+    // `google.rpc.RetryInfo` detail inside the stringified error body is the
+    // only carrier of that wait time.
+    return normalizeAPIStatusError(
+      error.status,
+      error.message,
+      undefined,
+      parseRetryInfoDelayMs(error.message),
+    );
   }
   if (error instanceof Error) {
     const msg = error.message;
@@ -1012,5 +1030,36 @@ export class GoogleGenAIChatProvider implements ChatProvider {
     );
     clone._generationKwargs = { ...this._generationKwargs };
     return clone;
+  }
+}
+
+/**
+ * Recover the server-directed retry delay from a stringified Google API
+ * error body: the SDK's `ApiError` drops response headers, so the
+ * `google.rpc.RetryInfo` detail is the only carrier of that wait time.
+ */
+function parseRetryInfoDelayMs(message: string): number | null {
+  const jsonStart = message.indexOf('{');
+  if (jsonStart < 0) return null;
+  try {
+    const body: unknown = JSON.parse(message.slice(jsonStart));
+    if (typeof body !== 'object' || body === null) return null;
+    const details = (body as { error?: { details?: unknown } }).error?.details;
+    if (!Array.isArray(details)) return null;
+    for (const detail of details) {
+      if (typeof detail !== 'object' || detail === null) continue;
+      const type = (detail as { '@type'?: unknown })['@type'];
+      if (typeof type !== 'string' || !type.endsWith('google.rpc.RetryInfo')) continue;
+      const retryDelay = (detail as { retryDelay?: unknown }).retryDelay;
+      if (typeof retryDelay !== 'string') continue;
+      const match = /^(\d+(?:\.\d+)?)s$/.exec(retryDelay.trim());
+      if (match?.[1] === undefined) continue;
+      const seconds = Number.parseFloat(match[1]);
+      if (!Number.isFinite(seconds) || seconds < 0) continue;
+      return Math.round(seconds * 1000);
+    }
+    return null;
+  } catch {
+    return null;
   }
 }

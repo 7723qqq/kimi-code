@@ -669,6 +669,7 @@ export interface TurnStartedEvent {
 
 export interface TurnEndedEvent {
   readonly type: 'turn.ended';
+  readonly time?: number;
   readonly turnId: number;
   readonly reason: TurnEndReason;
   readonly error?: KimiErrorPayload;

@@ -201,6 +201,17 @@ export interface WorkspaceTrustInfo {
   readonly gatedMcpServers: readonly WorkspaceTrustMcpServerInfo[];
 }
 
+/** Metadata of one upload in the engine's daemon file store. */
+export type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
+
+/** Input for `uploadFile`: the upload's display name and MIME type. */
+export interface UploadFileOptions {
+  readonly name: string;
+  readonly mimeType?: string;
+  /** Optional daemon-side TTL for staging uploads. */
+  readonly expiresInSec?: number;
+}
+
 export interface CreateGoalInput {
   readonly objective: string;
   readonly replace?: boolean;
@@ -384,6 +395,13 @@ export interface PlanInfo {
 }
 
 export type SessionPlan = PlanInfo | null;
+
+export type SessionTodoStatus = 'pending' | 'in_progress' | 'done';
+
+export interface SessionTodoItem {
+  readonly title: string;
+  readonly status: SessionTodoStatus;
+}
 
 export interface TokenUsage {
   readonly inputOther: number;

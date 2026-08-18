@@ -101,8 +101,20 @@ export class AgentMediaToolsRegistrar extends Service implements IAgentMediaTool
     let requester: ModelRequester | undefined;
     let model: Model | undefined;
     if (modelAlias !== '') {
-      requester = this.modelCatalog.getRequester(modelAlias);
-      model = requester.model;
+      // The alias re-resolved on every refresh comes from persisted profile
+      // state that resume replays without catalog validation, so it may no
+      // longer resolve (e.g. its config.toml entry was removed on logout).
+      // A failed resolution degrades to "no model" — registration proceeds
+      // from the profile-reported capabilities without a model-bound video
+      // uploader — instead of throwing out of the event listener, where the
+      // escape would surface as an `[unexpected]` error.
+      try {
+        requester = this.modelCatalog.getRequester(modelAlias);
+        model = requester.model;
+      } catch {
+        requester = undefined;
+        model = undefined;
+      }
     }
     this.registration = registerMediaTools(this.toolRegistry, {
       fs: this.fs,

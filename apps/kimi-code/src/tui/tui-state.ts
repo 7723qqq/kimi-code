@@ -70,6 +70,12 @@ export interface TUIState {
   sessionsLoadingMore: boolean;
   sessionsScope: 'cwd' | 'all';
   activeDialog: 'session-picker' | 'help' | 'trust-prompt' | 'msys2-prompt' | 'cache-hint' | null;
+  /**
+   * True while an editor-replacement panel (help, trust prompt, goal queue
+   * manager, …) is mounted in place of the editor. Delayed input restores
+   * must not run in that state — they would displace the newer panel.
+   */
+  editorReplacementMounted: boolean;
   tasksBrowser: TasksBrowserState | undefined;
   externalEditorRunning: boolean;
   queuedMessages: QueuedMessage[];
@@ -186,6 +192,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     sessionsLoadingMore: false,
     sessionsScope: 'cwd',
     activeDialog: null,
+    editorReplacementMounted: false,
     tasksBrowser: undefined,
     externalEditorRunning: false,
     queuedMessages: [],

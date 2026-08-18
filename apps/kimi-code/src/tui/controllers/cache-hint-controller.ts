@@ -45,6 +45,12 @@ export interface CacheHintHost {
   showError(message: string): void;
   createNewSession(): Promise<void>;
   sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void>;
+  /**
+   * A stashed extraction is being released back into the editor: consume the
+   * staged media's retains so the restored draft resubmits them (daemon
+   * uploads stay alive for that consumer; see `StagingLeaseTracker`).
+   */
+  recallStashedMedia(extraction: ExtractionResult | undefined): void;
 }
 
 type HintDecision = { readonly idleSeconds: number; readonly totalTokens: number };
@@ -306,7 +312,7 @@ export class CacheHintController {
     // would reorder the conversation.
     if (this.idlePrompted) {
       if (this.lastDialogRestored) {
-        this.restoreStashedInput(stash.text);
+        this.restoreStashedInput(stash);
       } else {
         await this.releaseStashed(stash);
       }
@@ -317,7 +323,7 @@ export class CacheHintController {
     // meanwhile, never send the stashed text into the wrong session — hand it
     // back to the editor instead.
     if (host.session?.id !== sessionId) {
-      this.restoreStashedInput(stash.text);
+      this.restoreStashedInput(stash);
       return;
     }
     // If a foreground operation (turn, /compact, …) started meanwhile, don't
@@ -360,11 +366,14 @@ export class CacheHintController {
   }
 
   /** Restore a stashed input to the editor, appending to anything already
-   *  restored this cycle so earlier text is not overwritten. */
-  private restoreStashedInput(text: string | undefined): void {
-    if (text === undefined) return;
-    this.restoredTexts.push(text);
+   *  restored this cycle so earlier text is not overwritten, and release the
+   *  stash's staged media back to the restored draft (consume retains; daemon
+   *  uploads stay alive for the next submit). */
+  private restoreStashedInput(stash: StashedSubmit | undefined): void {
+    if (stash === undefined) return;
+    this.restoredTexts.push(stash.text);
     this.host.restoreInputText(this.restoredTexts.join('\n'));
+    this.host.recallStashedMedia(stash.extraction);
   }
 
   private upstreamModelId(): string | undefined {
@@ -430,7 +439,7 @@ export class CacheHintController {
     const { host } = this;
     const restoreInput = () => {
       this.lastDialogRestored = true;
-      this.restoreStashedInput(stashed?.text);
+      this.restoreStashedInput(stashed);
     };
     switch (action) {
       case 'dismiss':

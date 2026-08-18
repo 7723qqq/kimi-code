@@ -6,7 +6,7 @@
  * these helpers.
  */
 
-import { appendFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
 import type { z } from 'zod';
@@ -99,4 +99,22 @@ export async function appendJsonlLine<T>(
   const parsed = lineSchema.parse(value);
   await mkdir(dirname(filePath), { recursive: true });
   await appendFile(filePath, `${JSON.stringify(parsed)}\n`, 'utf-8');
+}
+
+/**
+ * Create a file with `content` only when it does not exist yet — a
+ * create-if-absent primitive for lock / marker files that must never
+ * overwrite a concurrently published newer state. Throws `EEXIST` when the
+ * path is already taken (callers decide whether that is a race or a stale
+ * residue).
+ */
+export async function createFileIfAbsent(filePath: string, content: string): Promise<void> {
+  assertNonConfigWrite(filePath);
+  await mkdir(dirname(filePath), { recursive: true });
+  const file = await open(filePath, 'wx', 0o600);
+  try {
+    await file.writeFile(content, 'utf-8');
+  } finally {
+    await file.close();
+  }
 }

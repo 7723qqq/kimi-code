@@ -17,6 +17,7 @@ import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
 import { printableChar } from '#/tui/utils/printable-key';
+import { findInlineSkillTokens } from '#/tui/utils/inline-skill-tokens';
 
 import { extractAtPrefix } from './file-mention-provider';
 import { WrappingSelectList } from './wrapping-select-list';
@@ -611,6 +612,42 @@ export function highlightFirstSlashToken(line: string, token: 'primary'): string
   if (visibleToken === '/goal') {
     ranges.push(...goalCommandPathRanges(visible, endVisible));
   }
+  return highlightVisibleRanges(line, ranges, token);
+}
+
+/**
+ * Paint inline skill tokens (`/name` after whitespace) anywhere in the line.
+ * Only tokens resolving against `knownSkills` are coloured (with the same
+ * `skill:` prefix fallback as the leading-command path); unknown tokens,
+ * paths, URLs, and fractions stay plain. `excludedLeadingRange` marks a
+ * leading slash-command area the caller already painted (or wants plain) —
+ * typically the first token of a multi-token input — and skips tokens that
+ * fall entirely inside it. Returns undefined when nothing was painted.
+ */
+export function highlightInlineSkillTokens(
+  line: string,
+  knownSkills: ReadonlySet<string>,
+  excludedLeadingRange: { start: number; end: number } | null,
+  token: 'primary',
+): string | undefined {
+  const visible = stripSgr(line);
+  const tokens = findInlineSkillTokens(visible, {
+    isKnownSkill: (commandName) =>
+      knownSkills.has(commandName) || knownSkills.has(`skill:${commandName}`),
+    includeLeading: true,
+  });
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const token of tokens) {
+    if (
+      excludedLeadingRange !== null &&
+      token.start >= excludedLeadingRange.start &&
+      token.end <= excludedLeadingRange.end
+    ) {
+      continue;
+    }
+    ranges.push({ start: token.start, end: token.end });
+  }
+  if (ranges.length === 0) return undefined;
   return highlightVisibleRanges(line, ranges, token);
 }
 

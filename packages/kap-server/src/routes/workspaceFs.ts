@@ -71,10 +71,10 @@ import {
 } from '@moonshot-ai/agent-core-v2';
 import {
   buildEtag,
-  detectBinary,
   FS_BINARY_SAMPLE_BYTES,
   guessMime,
 } from '@moonshot-ai/agent-core-v2/_base/utils/fileMeta';
+import { classifyTextSample } from '@moonshot-ai/agent-core-v2/_base/text/encoding';
 import {
   fsBrowseQuerySchema,
   fsBrowseResponseSchema,
@@ -282,7 +282,8 @@ async function handleFsContent(
   try {
     const sampleSize = Math.min(FS_BINARY_SAMPLE_BYTES, st.size);
     const sample = sampleSize === 0 ? new Uint8Array() : await hostFs.readBytes(abs, sampleSize);
-    isBinary = detectBinary(sample);
+    const classification = classifyTextSample(sample);
+    isBinary = classification.isBinary || classification.encoding !== 'utf-8';
   } catch (error) {
     sendOsFsError(reply, requestId, error, path);
     return;

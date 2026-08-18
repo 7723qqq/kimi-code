@@ -2599,7 +2599,7 @@ command = "vim"
     expect(transcript).not.toContain('review');
   });
 
-  it('sends a pasted video as a file:// video_url part', async () => {
+  it('sends a pasted video as a bare kimi-file video_url part', async () => {
     const { driver, session } = await makeDriver();
     const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
     const dir = await mkdtemp(join(tmpdir(), 'tui-video-'));
@@ -2607,9 +2607,11 @@ command = "vim"
       const srcVideo = join(dir, 'clip.mp4');
       await writeFile(srcVideo, 'video-bytes');
       const attachment = imageStore.addVideo('video/mp4', srcVideo);
+      imageStore.completeVideo(attachment, { fileId: 'file-v1' });
 
-      // Submission is fully synchronous: the paste is copied to the cache and
-      // referenced by a `file://` video_url the engine resolves in-turn.
+      // Submission is fully synchronous: the paste was uploaded to the
+      // daemon file store in the background and is referenced by a bare
+      // `kimi-file://` video_url the engine's prompt intake materializes.
       driver.handleUserInput(`watch ${attachment.placeholder}`);
 
       const parts = vi.mocked(session.prompt).mock.calls[0]?.[0] as
@@ -2621,13 +2623,13 @@ command = "vim"
         | undefined;
       expect(parts?.[0]).toEqual({ type: 'text', text: 'watch ' });
       expect(parts?.[1]?.type).toBe('video_url');
-      expect(parts?.[1]?.videoUrl?.url).toMatch(/^file:\/\/.*clip\.mp4$/);
+      expect(parts?.[1]?.videoUrl?.url).toBe('kimi-file://file-v1');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it('queues a pasted video (file:// part) while a turn is streaming', async () => {
+  it('queues a pasted video (kimi-file part) while a turn is streaming', async () => {
     const session = makeSession();
     const { driver } = await makeDriver(session);
     const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
@@ -2636,6 +2638,7 @@ command = "vim"
       const srcVideo = join(dir, 'clip.mp4');
       await writeFile(srcVideo, 'video-bytes');
       const attachment = imageStore.addVideo('video/mp4', srcVideo);
+      imageStore.completeVideo(attachment, { fileId: 'file-v1' });
       driver.state.appState.streamingPhase = 'waiting';
 
       driver.handleUserInput(`describe ${attachment.placeholder}`);
@@ -2650,7 +2653,7 @@ command = "vim"
       }>;
       expect(parts?.[0]).toEqual({ type: 'text', text: 'describe ' });
       expect(parts?.[1]?.type).toBe('video_url');
-      expect(parts?.[1]?.videoUrl?.url).toMatch(/^file:\/\/.*clip\.mp4$/);
+      expect(parts?.[1]?.videoUrl?.url).toBe('kimi-file://file-v1');
 
       driver.sendQueuedMessage(session, queued!);
       expect(session.prompt).toHaveBeenCalledWith(parts);

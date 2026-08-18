@@ -3,15 +3,18 @@
  * we'll send to the SDK prompt endpoint.
  *
  * `extractMediaAttachments` (sync) is the single expansion path for prompts:
+ * `extractMediaAttachments` (sync) is the single expansion path for prompts:
  *   - image placeholders expand to inline image content parts (preceded by a
  *     compression caption when paste-time compression shrank the bytes — see
  *     `ImageAttachment.original`);
- *   - video placeholders are copied into the shared cache (`getCacheDir()`)
- *     and expand to a `video_url` part pointing at the cache copy with a
- *     `file://` url. The v1 engine resolves that local reference inside the
- *     turn — uploading it (the `ms://` inline form) or degrading to a
- *     `<video path>` tag the model reads with `ReadMediaFile` — before the
- *     prompt lands in history.
+ *   - video placeholders expand to a bare `kimi-file://<id>` video part:
+ *     the paste was uploaded to the daemon file store in the background
+ *     (`VideoAttachment.fileId`), and the engine's prompt intake
+ *     materializes the session copy and rewrites the reference with its
+ *     `?path=`, exactly like an uploaded image. A video without a usable
+ *     upload — still in flight after the bounded submit wait, failed, or
+ *     expired — aborts extraction with an error: video bytes have no
+ *     inline fallback form.
  *
  * `rewriteMediaPlaceholders` is the separate text channel for slash-command
  * args (`/skill`, plugin commands): those are plain text, so media is rendered
@@ -31,13 +34,13 @@
 import { randomUUID } from 'node:crypto';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import type { PromptPart } from '@moonshot-ai/kimi-code-sdk';
-import { buildImageCompressionCaption } from '@moonshot-ai/kimi-code-sdk';
+import { buildDaemonFileUrl, buildImageCompressionCaption } from '@moonshot-ai/kimi-code-sdk';
 
 import { getCacheDir } from '#/utils/paths';
 
+import { MEDIA_FILE_REF_MIN_REMAINING_MS } from '../constant/media';
 import type {
   ImageAttachment,
   ImageAttachmentStore,
@@ -83,10 +86,12 @@ export function extractMediaAttachments(
     const before = text.slice(cursor, match.index);
     pushText(parts, before);
     if (attachment.kind === 'video') {
-      // Copy the paste into the shared cache and reference it by a `file://`
-      // url; the engine resolves (uploads or degrades) it inside the turn.
-      const cachePath = materializeVideoToCache(attachment);
-      parts.push(videoPartForCachePath(cachePath));
+      // The paste was uploaded to the daemon file store in the background:
+      // reference it by a bare `kimi-file://` url — the engine's prompt
+      // intake materializes the session copy, so the edge stages no local
+      // copy. Throws when the upload is unusable (still in flight, failed,
+      // expired): a video has no inline fallback.
+      parts.push(videoPartForAttachment(attachment));
       videoAttachmentIds.push(id);
     } else {
       // Paste-time compression is announced next to the image so the model
@@ -103,6 +108,7 @@ export function extractMediaAttachments(
   const tail = text.slice(cursor);
   pushText(parts, tail);
 
+  store.retainFileIds([...imageAttachmentIds, ...videoAttachmentIds]);
   return {
     // Text-only submissions drop the synthesised parts array — the
     // caller's contract is "parts is meaningful iff hasMedia", and
@@ -212,17 +218,71 @@ function imagePartForAttachment(att: ImageAttachment): PromptPart {
 }
 
 /**
- * A `video_url` prompt part pointing at a cache copy by `file://` url. The v1
- * engine resolves the local reference in-turn (upload → `ms://`, or degrade to
- * a `<video path>` tag) before it reaches the model or the persisted history.
+ * A `video_url` prompt part referencing the paste's daemon upload by a bare
+ * `kimi-file://` url — the engine's prompt intake materializes the session
+ * copy before the part reaches the model or the persisted history. Throws
+ * when the upload is unusable: video bytes have no inline fallback, so the
+ * submission is refused with an actionable message instead.
  */
-function videoPartForCachePath(cachePath: string): PromptPart {
-  return {
-    type: 'video_url',
-    videoUrl: { url: pathToFileURL(cachePath).href },
-  };
+function videoPartForAttachment(att: VideoAttachment): PromptPart {
+  const fileId = att.fileId;
+  const expired =
+    att.fileExpiresAt !== undefined &&
+    att.fileExpiresAt - Date.now() <= MEDIA_FILE_REF_MIN_REMAINING_MS;
+  if (fileId !== undefined && !expired) {
+    return {
+      type: 'video_url',
+      videoUrl: { url: buildDaemonFileUrl(fileId) },
+    };
+  }
+  if (att.pending !== undefined) {
+    throw new Error(`Video "${att.label}" is still uploading; try again in a moment.`);
+  }
+  throw new Error(
+    expired
+      ? `Video "${att.label}" expired before it was sent; paste it again.`
+      : `Video "${att.label}" could not be uploaded; paste it again.`,
+  );
 }
 
+/**
+ * Give media referenced by `text` a bounded moment to finish its background
+ * paste ingestion (video daemon upload — see `VideoAttachment.pending`)
+ * before extraction, so a paste-then-immediately-submit still expands to the
+ * daemon-ref form. The returned promise resolves after `timeoutMs` at the
+ * latest; a video whose ingestion has not landed by then refuses the
+ * submission (no inline form exists). Returns undefined when nothing is
+ * pending, so the submit path stays synchronous for media-free prompts.
+ */
+export function pendingMediaIngestions(
+  text: string,
+  store: ImageAttachmentStore,
+  timeoutMs: number,
+): Promise<void> | undefined {
+  const pendings: Promise<void>[] = [];
+  PLACEHOLDER_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = PLACEHOLDER_REGEX.exec(text)) !== null) {
+    const [, kind, idStr] = match;
+    if (kind !== 'video' || idStr === undefined) continue;
+    const attachment = store.get(Number.parseInt(idStr, 10));
+    if (attachment?.kind === 'video' && attachment.pending !== undefined) {
+      pendings.push(attachment.pending);
+    }
+  }
+  if (pendings.length === 0) return undefined;
+  return Promise.race([
+    Promise.allSettled(pendings).then(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
+}
+
+/**
+ * Copy a pasted video into the shared cache for the slash-command args
+ * channel (`rewriteMediaPlaceholders`): command args are plain text, so the
+ * model reaches the video through `ReadMediaFile` on the cache copy — the
+ * prompt-part channel never stages one (see `videoPartForAttachment`).
+ */
 function materializeVideoToCache(att: VideoAttachment, escapeProofName = false): string {
   const cacheDir = getCacheDir();
   mkdirSync(cacheDir, { recursive: true });

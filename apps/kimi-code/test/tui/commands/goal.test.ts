@@ -106,6 +106,8 @@ function makeHost(
         streamingPhase: overrides.streaming ? 'streaming' : 'idle',
         isCompacting: false,
       },
+      editor: { getText: vi.fn(() => '') },
+      editorReplacementMounted: false,
       transcriptContainer,
       ui: { requestRender: vi.fn() },
       theme: { palette: getBuiltInPalette('dark') },

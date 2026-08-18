@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
+import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
@@ -8,6 +10,7 @@ import type {
   ApprovalResponse,
   BackgroundTaskInfo,
   CreateSessionOptions,
+  Event,
   KimiHarness,
   PermissionMode,
   PluginCommandDef,
@@ -61,6 +64,7 @@ import {
   type SkillListSession,
 } from './commands';
 import * as slashCommands from './commands/dispatch';
+import { goalObjectiveLengthWarning } from './commands/goal';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
@@ -119,6 +123,7 @@ import {
   SESSION_LIST_PAGE_SIZE,
   SESSIONLESS_STARTUP_NOTICE,
 } from './constant/kimi-tui';
+import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from './constant/media';
 import { CHROME_GUTTER } from './constant/rendering';
 import { MAX_TERMINAL_TITLE_LENGTH } from './constant/terminal';
 import { AuthFlowController } from './controllers/auth-flow';
@@ -128,6 +133,7 @@ import { ClipboardImageHintController } from './controllers/clipboard-image-hint
 import { EditorKeyboardController } from './controllers/editor-keyboard';
 import { SessionEventHandler } from './controllers/session-event-handler';
 import { SessionReplayRenderer } from './controllers/session-replay';
+import { StagingLeaseTracker, type StagingLease } from './controllers/staging-leases';
 import { StreamingUIController } from './controllers/streaming-ui';
 import { TasksBrowserController } from './controllers/tasks-browser';
 import { WorkflowPanelController } from './controllers/workflow-panel';
@@ -160,7 +166,11 @@ import { isDeadTerminalError } from './utils/dead-terminal';
 import { formatErrorMessage } from './utils/event-payload';
 import { pickForegroundTasks } from './utils/foreground-task';
 import { ImageAttachmentStore, type ImageAttachment } from './utils/image-attachment-store';
-import { extractMediaAttachments, rewriteMediaPlaceholders } from './utils/image-placeholder';
+import {
+  extractMediaAttachments,
+  pendingMediaIngestions,
+  rewriteMediaPlaceholders,
+} from './utils/image-placeholder';
 import type { ExtractionResult } from './utils/image-placeholder';
 import { installInputLatencyProbe } from './utils/input-latency';
 import { REPLAY_TURN_LIMIT } from './utils/message-replay';
@@ -300,7 +310,14 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
 interface SendMessageOptions {
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
+  readonly videoAttachmentIds?: readonly number[];
   readonly hasMedia?: boolean;
+  /**
+   * Lease pre-created at extraction time by `sendNormalUserInput`. Dispatch
+   * reuses it (carrying its exact-binding submission id); enqueueing defers
+   * it — the queue item owns the raw ids and re-leases at dequeue.
+   */
+  readonly lease?: StagingLease;
 }
 
 /**
@@ -358,6 +375,8 @@ export class KimiTUI {
   /** In-flight lazy session creation (v2 engine), shared by concurrent first-use triggers. */
   private ensureSessionPromise: Promise<Session | undefined> | null = null;
   private readonly cacheHint = new CacheHintController(this);
+  /** Staged prompt media lifecycle (daemon uploads + cache copies) — see StagingLeaseTracker. */
+  private readonly staging: StagingLeaseTracker;
   private readonly approvalController = new ApprovalController();
   private readonly questionController = new QuestionController();
   private readonly reverseRpcDisposers: Array<() => void> = [];
@@ -444,6 +463,21 @@ export class KimiTUI {
 
   constructor(harness: KimiHarness, startupInput: KimiTUIStartupInput) {
     this.harness = harness;
+    this.staging = new StagingLeaseTracker({
+      takeFileIds: (ids) => this.imageStore.takeFileIds(ids),
+      releaseRetains: (ids) => {
+        this.imageStore.releaseRetains(ids);
+      },
+      deleteFiles: async (fileIds, paths) => {
+        await Promise.all([
+          ...fileIds.map((fileId) => this.harness.deleteFile(fileId).catch(() => undefined)),
+          ...paths.map((path) => unlink(path).catch(() => undefined)),
+        ]);
+      },
+      warn: (message) => {
+        this.track('staging_lease_invariant', { message });
+      },
+    });
     const tuiOptions: KimiTUIOptions = {
       initialAppState: createInitialAppState(startupInput),
       startup: {
@@ -1036,6 +1070,10 @@ export class KimiTUI {
     // raw mode with a hidden cursor.
     try {
       await this.closeSession('shutting down');
+      this.clearQueuedMessages();
+      this.staging.releaseAll();
+      this.staging.deleteStaged(this.imageStore.clear());
+      await this.staging.drain();
       await this.harness.close();
     } finally {
       this.sessionEventHandler.stopAllMcpServerStatusSpinners();
@@ -1376,40 +1414,78 @@ export class KimiTUI {
       return;
     }
     let extraction: ReturnType<typeof extractMediaAttachments>;
+    if (preExtracted === undefined) {
+      // A just-pasted image/video may still be finishing its background
+      // ingestion (video daemon upload): give it a bounded moment so the
+      // submit can use the daemon-ref form — a slower video upload refuses
+      // the submission below. Undefined when nothing is pending, keeping the
+      // media-free send path synchronous.
+      const ingestionWait = pendingMediaIngestions(
+        text,
+        this.imageStore,
+        MEDIA_INGESTION_SUBMIT_WAIT_MS,
+      );
+      if (ingestionWait !== undefined) await ingestionWait;
+    }
     try {
-      // Pasted videos are copied into the cache and expand to a `file://`
-      // `video_url` part; the engine resolves (uploads or degrades) them
-      // inside the turn, so submission stays fully synchronous.
-      //
       // A cache-hint-swallowed resend passes its pre-dialog extraction back
       // in: the image store may already be cleared (e.g. after "Start a new
       // session"), so re-extracting from the text would lose the media.
       extraction = preExtracted ?? extractMediaAttachments(text, this.imageStore);
     } catch (error) {
-      // A video cache copy failed (unwritable cache dir, vanished source…);
-      // nothing was dispatched.
+      // A pasted video's daemon upload was unusable (still in flight,
+      // failed, expired); nothing was dispatched.
       this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
       return;
     }
-    if (!this.validateMediaCapabilities(extraction)) return;
+    // Create the staging lease right after extraction, so every exit below
+    // releases through the tracker instead of open-coding ids — a
+    // forgotten exit degrades to an unclaimed lease (swept by `releaseAll`)
+    // instead of a permanently retained upload.
+    const stagingLease = this.staging.create(
+      // One retain per unique id per extraction: dedupe repeated placeholder
+      // occurrences so the lease's id multiplicity matches the retain count.
+      [...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds])],
+      [],
+      'user',
+      extraction.hasMedia && this.state.appState.goal?.status !== 'active'
+        ? randomUUID()
+        : undefined,
+    );
+    if (!this.validateMediaCapabilities(extraction)) {
+      this.staging.release(stagingLease);
+      return;
+    }
     // Idle cache-hint interception sits before session creation; it is
-    // synchronous unless a hint actually fires, keeping the send path
-    // await-free up to sendMessage.
-    if (this.cacheHint.maybeInterceptOnSubmit(text, extraction)) return;
+    // synchronous unless a hint actually fires. Aside from the bounded
+    // ingestion wait above, the send path stays await-free up to sendMessage.
+    if (this.cacheHint.maybeInterceptOnSubmit(text, extraction)) {
+      // The stash owns the extraction from here: its resend re-leases inside
+      // the re-entered send path, its restore goes through releaseRecalled
+      // (see CacheHintController). Detach so the stash is not double-owned.
+      this.staging.defer(stagingLease);
+      return;
+    }
     let session = this.session;
     if (session === undefined) {
       if (!this.engineV2) {
         this.showError(getLlmNotSetMessage());
+        this.staging.release(stagingLease);
         return;
       }
       session = await this.ensureSession();
-      if (session === undefined) return;
+      if (session === undefined) {
+        this.staging.release(stagingLease);
+        return;
+      }
     }
     if (extraction.hasMedia) {
       this.sendMessage(session, text, {
         hasMedia: true,
         parts: extraction.parts,
         imageAttachmentIds: extraction.imageAttachmentIds,
+        videoAttachmentIds: extraction.videoAttachmentIds,
+        lease: stagingLease,
       });
     } else {
       this.sendMessage(session, text);
@@ -1479,7 +1555,28 @@ export class KimiTUI {
     if (this.state.queuedMessages.length === 0) return undefined;
     const last = this.state.queuedMessages.at(-1)!;
     this.state.queuedMessages = this.state.queuedMessages.slice(0, -1);
+    // A recall restores the draft into the editor — it is not a discard:
+    // consumes the retains only, keeping the staged daemon uploads alive
+    // (see `releaseRecalled`) so the restored draft resubmits them.
+    this.staging.releaseRecalled([
+      ...(last.imageAttachmentIds ?? []),
+      ...(last.videoAttachmentIds ?? []),
+    ]);
     return last;
+  }
+
+  /**
+   * Cache-hint restore: a dismissed/hand-back interception returns its draft
+   * to the editor — same semantics as a queue recall (consume the stash
+   * extraction's retains; the staged daemon uploads stay alive for the
+   * restored draft).
+   */
+  recallStashedMedia(extraction: ExtractionResult | undefined): void {
+    if (extraction === undefined) return;
+    this.staging.releaseRecalled([
+      ...extraction.imageAttachmentIds,
+      ...extraction.videoAttachmentIds,
+    ]);
   }
 
   // =========================================================================
@@ -1491,6 +1588,9 @@ export class KimiTUI {
     options?: SendMessageOptions,
     mode?: 'prompt' | 'bash',
   ): void {
+    // A queued message re-leases its staged media at dequeue dispatch; the
+    // pre-dispatch lease defers to the queue item's raw ids.
+    this.staging.defer(options?.lease);
     this.state.queuedMessages.push({
       text,
       agentId: this.harness.interactiveAgentId,
@@ -1498,6 +1598,10 @@ export class KimiTUI {
       imageAttachmentIds:
         options?.imageAttachmentIds !== undefined && options.imageAttachmentIds.length > 0
           ? options.imageAttachmentIds
+          : undefined,
+      videoAttachmentIds:
+        options?.videoAttachmentIds !== undefined && options.videoAttachmentIds.length > 0
+          ? options.videoAttachmentIds
           : undefined,
       mode,
     });
@@ -1530,6 +1634,7 @@ export class KimiTUI {
 
   sendQueuedMessage(session: Session, item: QueuedMessage): void {
     if (item.mode === 'bash') {
+      this.staging.releaseQueued([item]);
       void this.runShellCommandFromInput(item.text);
       return;
     }
@@ -1537,12 +1642,25 @@ export class KimiTUI {
       this.sendMessageInternal(session, item.text, {
         parts: item.parts,
         imageAttachmentIds: item.imageAttachmentIds,
+        videoAttachmentIds: item.videoAttachmentIds,
       });
     });
   }
 
   requestQueuedGoalPromotion(): void {
     this.sessionEventHandler.requestQueuedGoalPromotion();
+  }
+
+  handleTurnStarted(event: Extract<Event, { type: 'turn.started' }>): void {
+    this.staging.handleTurnStarted(event);
+  }
+
+  handleTurnEnded(event: Extract<Event, { type: 'turn.ended' }>): void {
+    this.staging.handleTurnEnded(event);
+  }
+
+  releaseStagingMedia(mediaAttachmentIds: readonly number[]): void {
+    this.staging.releaseMedia(mediaAttachmentIds, []);
   }
 
   private sendMessageInternal(session: Session, input: string, options?: SendMessageOptions): void {
@@ -1559,16 +1677,47 @@ export class KimiTUI {
       imageAttachmentIds,
     });
 
+    // A goal-active steer is buffered into the running goal turn — no new
+    // turn.started will fire for handleTurnStarted to claim the lease — so
+    // bind it to that turn here. The turn context must be read BEFORE
+    // beginSessionRequest resets it, and only while a turn is actually live
+    // (finalizeTurn clears the id at turn end; a queued dispatch can land
+    // while the goal driver's next continuation turn is already streaming).
+    const runningTurnId =
+      this.state.appState.streamingPhase === 'idle' || this.state.appState.streamingPhase === 'shell'
+        ? undefined
+        : this.streamingUI.getTurnContext().turnId;
     this.beginSessionRequest();
 
     const sdkInput = options?.parts ?? input;
+    const goalActive = this.state.appState.goal?.status === 'active';
+    // The lease normally arrives pre-created by sendNormalUserInput. Queued
+    // dispatches and steer batches arrive with raw ids instead: a prompt
+    // submission carrying staged media gets a lease minted here and bound to
+    // the consuming turn by the origin heuristic (`handleTurnStarted`) — the
+    // TUI serializes same-origin dispatches, so the earliest-unclaimed pick
+    // is sound. The goal-steer path binds its lease explicitly below.
+    const stagingIds = [
+      ...(options?.imageAttachmentIds ?? []),
+      ...(options?.videoAttachmentIds ?? []),
+    ];
+    const stagingLease =
+      options?.lease ??
+      this.staging.create(
+        // One retain per unique id per extraction: dedupe repeated placeholder
+        // occurrences so the lease's id multiplicity matches the retain count.
+        [...new Set(stagingIds)],
+        [],
+        'user',
+      );
     // While a goal is being pursued the engine holds its active turn across the
     // whole continuation loop, so a fresh prompt races the goal driver at every
     // continuation boundary and is rejected with `turn.agent_busy`, dropping
     // the message. Steer instead: the engine buffers it into the running goal
     // turn, or launches a turn of its own if the loop just ended.
-    if (this.state.appState.goal?.status === 'active') {
-      void session.steer(sdkInput).catch((error: unknown) => {
+    if (goalActive) {
+      if (runningTurnId !== undefined) this.staging.bindToTurn(stagingLease, runningTurnId);
+      this.staging.trackDispatch(stagingLease, session.steer(sdkInput), (error) => {
         const message = formatErrorMessage(error);
         // Same reset as the prompt path: beginSessionRequest already moved the
         // TUI to the waiting phase, and no turn events may follow a failed
@@ -1578,7 +1727,7 @@ export class KimiTUI {
       });
       return;
     }
-    void session.prompt(sdkInput).catch((error: unknown) => {
+    this.staging.trackDispatch(stagingLease, session.prompt(sdkInput), (error) => {
       const message = formatErrorMessage(error);
       this.failSessionRequest(`Failed to send: ${message}`);
     });
@@ -1638,6 +1787,9 @@ export class KimiTUI {
       this.state.appState.streamingPhase !== 'idle' ||
       this.state.appState.isCompacting
     ) {
+      // A queued message re-leases its staged media at dequeue dispatch; the
+      // pre-dispatch lease defers to the queue item's raw ids.
+      this.staging.defer(options?.lease);
       this.enqueueMessage(input, options);
       return;
     }
@@ -1672,7 +1824,15 @@ export class KimiTUI {
       });
     }
 
-    void session.steer(combineSteerInput(input)).catch((error: unknown) => {
+    // Dedupe per item, not across the batch: each queued message retained a
+    // shared medium once, so the batch's id multiplicity is the retain count.
+    const mediaAttachmentIds = input.flatMap((item) => [
+      ...new Set([...(item.imageAttachmentIds ?? []), ...(item.videoAttachmentIds ?? [])]),
+    ]);
+    const stagingLease = this.staging.create(mediaAttachmentIds, [], 'user');
+    const currentTurnId = this.streamingUI.getTurnContext().turnId;
+    if (currentTurnId !== undefined) this.staging.bindToTurn(stagingLease, currentTurnId);
+    this.staging.trackDispatch(stagingLease, session.steer(combineSteerInput(input)), (error) => {
       const message = formatErrorMessage(error);
       this.showError(`Failed to steer: ${message}`);
     });
@@ -1687,7 +1847,9 @@ export class KimiTUI {
   }
 
   clearQueuedMessages(): void {
+    const queued = this.state.queuedMessages;
     this.state.queuedMessages = [];
+    this.staging.releaseQueued(queued);
   }
 
   shiftQueuedMessage(): QueuedMessage | undefined {
@@ -1971,6 +2133,7 @@ export class KimiTUI {
 
   async setSession(session: Session): Promise<void> {
     const previous = this.unloadCurrentSession('switching session');
+    if (previous !== undefined) this.staging.releaseAll();
     await previous?.close();
     this.session = session;
     this.harness.setTelemetryContext({ sessionId: session.id });
@@ -2540,7 +2703,8 @@ export class KimiTUI {
     this.clearTerminalInlineImages();
     this.state.todoPanel.clear();
     this.state.todoPanelContainer.clear();
-    this.imageStore.clear();
+    const stagingFileIds = this.imageStore.clear();
+    this.staging.deleteStaged(stagingFileIds);
     this.renderWelcome();
     // No forced full render on session reset: let the differential renderer
     // converge on its own (a mass change above the viewport still makes the
@@ -2591,7 +2755,8 @@ export class KimiTUI {
     // only be dropped once its owning user message leaves the transcript.
     for (const entry of toRemove) {
       if (entry.kind === 'user' && entry.imageAttachmentIds !== undefined) {
-        this.imageStore.removeMany(entry.imageAttachmentIds);
+        const stagingFileIds = this.imageStore.removeMany(entry.imageAttachmentIds);
+        this.staging.deleteStaged(stagingFileIds);
       }
     }
 
@@ -3182,6 +3347,21 @@ export class KimiTUI {
     this.state.ui.requestRender();
   }
 
+  /**
+   * Live pre-send warning in the footer while the typed `/goal` objective
+   * exceeds the length limit, so the user can trim it (or move it into a
+   * file) before submitting instead of losing the input to a rejection.
+   * `undefined` input means the text cannot be a `/goal` command and is not
+   * measured at all. The footer keeps this warning in its own slot, so
+   * transient hints (exit confirm, detach, image paste) only displace it
+   * temporarily.
+   */
+  updateGoalLengthWarning(text: string | undefined): void {
+    const warning = text === undefined ? undefined : goalObjectiveLengthWarning(text);
+    this.state.footer.setWarningHint(warning ?? null);
+    this.state.ui.requestRender();
+  }
+
   async applyTheme(themeName: ThemeName, resolved?: ResolvedTheme): Promise<void> {
     const palette = await getColorPalette(themeName === 'auto' ? (resolved ?? 'dark') : themeName);
     currentTheme.setPalette(palette);
@@ -3283,6 +3463,7 @@ export class KimiTUI {
   // =========================================================================
 
   mountEditorReplacement(panel: Component & Focusable): void {
+    this.state.editorReplacementMounted = true;
     this.state.editorContainer.clear();
     this.state.editorContainer.addChild(panel);
     this.state.ui.setFocus(panel);
@@ -3290,6 +3471,7 @@ export class KimiTUI {
   }
 
   restoreEditor(): void {
+    this.state.editorReplacementMounted = false;
     this.state.editorContainer.clear();
     this.state.editorContainer.addChild(this.state.editor);
     this.state.ui.setFocus(this.state.editor);

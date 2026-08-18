@@ -38,8 +38,10 @@ import type {
   TelemetryContextPatch,
   TelemetryProperties,
   TestMcpServerOptions,
+  UploadFileOptions,
   WorkspaceTrustInfo,
 } from '#/types';
+import type { FileMeta } from '#/types';
 
 export interface KimiHarnessRuntimeOptions {
   readonly identity?: KimiHostIdentity;
@@ -427,6 +429,14 @@ export class KimiHarness {
 
   async getExperimentalFeatures(): Promise<readonly ExperimentalFeatureState[]> {
     return this.rpc.getExperimentalFeatures();
+  }
+
+  async uploadFile(data: Uint8Array, options: UploadFileOptions): Promise<FileMeta> {
+    return this.rpc.uploadFile(data, options);
+  }
+
+  async deleteFile(fileId: string): Promise<void> {
+    return this.rpc.deleteFile(fileId);
   }
 
   async ensureConfigFile(): Promise<void> {
