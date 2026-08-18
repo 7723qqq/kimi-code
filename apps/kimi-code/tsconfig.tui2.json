@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "experimentalDecorators": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/solid",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "noEmit": true
+  },
+  "include": [
+    "src/tui2/**/*.ts",
+    "src/tui2/**/*.tsx",
+    "test/tui2/**/*.ts",
+    "test/tui2/**/*.tsx"
+  ],
+  "exclude": [
+    "../../packages/agent-core-v2",
+    "../../packages/kimi-agent",
+    "../../packages/kimi-native-tools",
+    "../../packages/kimi-build",
+    "node_modules",
+    "dist"
+  ]
+}

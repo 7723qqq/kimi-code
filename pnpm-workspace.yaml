@@ -12,6 +12,9 @@ packages:
   - docs
 
 catalog:
+  solid-js: ^1.9.7
+  opentui-core: 0.5.4
+  opentui-solid: 0.5.4
   zod: 4.3.6
   pathe: ^2.0.3
   smol-toml: ^1.6.1

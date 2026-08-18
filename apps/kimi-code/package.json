@@ -73,13 +73,17 @@
     "dev:prod": "node dist/main.mjs",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:tui2": "tsc -p tsconfig.tui2.json --noEmit",
     "test": "pnpm -w run build:packages && vitest run",
     "e2e": "pnpm -w run build:packages && KIMI_E2E=1 vitest run test/e2e",
     "e2e:real": "pnpm -w run build:packages && KIMI_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts",
     "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {
-    "@moonshot-ai/kimi-agent": "workspace:^"
+    "@moonshot-ai/kimi-agent": "workspace:^",
+    "@opentui/core": "0.5.4",
+    "@opentui/solid": "0.5.4",
+    "solid-js": "^1.9.7"
   },
   "devDependencies": {
     "@moonshot-ai/acp-server": "workspace:^",
