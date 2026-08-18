@@ -1,11 +1,13 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/object-patch.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/object-patch.ts';
+/**
+ * Returns true when applying `patch` would change at least one own property.
+ * Used before UI refresh paths so repeated equivalent state patches are cheap.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+export function hasPatchChanges<T extends object>(target: T, patch: Partial<T>): boolean {
+  for (const key of Object.keys(patch) as Array<keyof T>) {
+    if (!Object.is(target[key], patch[key])) return true;
+  }
+  return false;
+}

@@ -1,11 +1,20 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/reverse-rpc/question/controller.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../../tui/reverse-rpc/question/controller.ts';
+/**
+ * Question reverse RPC controller.
+ *
+ * Mirrors `tui/reverse-rpc/question/controller.ts`. Queues question dialog
+ * requests and produces an empty-answers cancellation response. Pure logic.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+import { ReverseRpcController } from '../base-controller';
+import type { QuestionPanelData, QuestionPanelResponse } from '../types';
+
+export class QuestionController extends ReverseRpcController<
+  QuestionPanelData,
+  QuestionPanelResponse
+> {
+  protected createCancelResponse(_reason: string): QuestionPanelResponse {
+    return { answers: [] };
+  }
+}

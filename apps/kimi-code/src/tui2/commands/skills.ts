@@ -1,11 +1,52 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/commands/skills.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/commands/skills.ts';
+/**
+ * Skill slash command builder — derive user-activatable skill commands from
+ * a session's skill list.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+import type { Session, SkillSummary } from '@moonshot-ai/kimi-code-sdk';
+
+import type { KimiSlashCommand } from './types';
+
+export type SkillListSession = Pick<Session, 'listSkills'>;
+
+export interface SkillSlashCommands {
+  readonly commands: readonly KimiSlashCommand[];
+  readonly commandMap: ReadonlyMap<string, string>;
+}
+
+export function isUserActivatableSkill(skill: SkillSummary): boolean {
+  return (
+    skill.type === undefined ||
+    skill.type === 'prompt' ||
+    skill.type === 'inline' ||
+    skill.type === 'flow'
+  );
+}
+
+function compareSkillSlashCommands(a: SkillSummary, b: SkillSummary): number {
+  return (
+    getSkillSlashCommandGroup(a.source) - getSkillSlashCommandGroup(b.source) ||
+    a.name.localeCompare(b.name)
+  );
+}
+
+function getSkillSlashCommandGroup(source: SkillSummary['source']): number {
+  return source === 'builtin' ? 0 : 1;
+}
+
+export function buildSkillSlashCommands(skills: readonly SkillSummary[]): SkillSlashCommands {
+  const commandMap = new Map<string, string>();
+  const sortedSkills = [...skills].toSorted(compareSkillSlashCommands);
+  const commands = sortedSkills.filter(isUserActivatableSkill).map((skill) => {
+    const commandName =
+      skill.source === 'builtin' || skill.isSubSkill === true ? skill.name : `skill:${skill.name}`;
+    commandMap.set(commandName, skill.name);
+    return {
+      name: commandName,
+      aliases: [],
+      description: skill.description ?? '',
+    };
+  });
+  return { commands, commandMap };
+}

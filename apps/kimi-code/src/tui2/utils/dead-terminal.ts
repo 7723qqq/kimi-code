@@ -1,11 +1,20 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/dead-terminal.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/dead-terminal.ts';
+/**
+ * Detects errors that mean the controlling terminal (stdout/stderr pty) is
+ * effectively gone — for example after the parent shell crashed, the tmux
+ * server vanished, or an SSH connection dropped without delivering SIGHUP.
+ *
+ * Continuing to write to a dead terminal would re-fire the same error on every
+ * render tick and pin a CPU core. Callers should respond by skipping any
+ * cleanup that touches stdout/stderr and exiting immediately.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+const DEAD_TERMINAL_ERROR_CODES = new Set<string>(['EIO', 'EPIPE', 'ENOTCONN']);
+
+export function isDeadTerminalError(error: unknown): boolean {
+  if (error === null || typeof error !== 'object' || !('code' in error)) {
+    return false;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  return code !== undefined && DEAD_TERMINAL_ERROR_CODES.has(code);
+}

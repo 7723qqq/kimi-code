@@ -8,4 +8,4 @@
 // a time without churning the rest of the tree.
 //
 // Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/searchable-list.ts';
+export * from '../../tui/utils/searchable-list';

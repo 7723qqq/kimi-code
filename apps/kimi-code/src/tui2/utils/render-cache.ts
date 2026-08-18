@@ -1,11 +1,30 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/render-cache.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/render-cache.ts';
+/**
+ * Render-cache toggle for TUI message components.
+ *
+ * The transcript re-renders the entire component tree on every frame, and
+ * most message components rebuild their `render(width)` output from scratch
+ * even when their content has not changed. Caching the rendered lines (keyed
+ * on width + a dirty flag) turns an unchanged message's render into an O(1)
+ * array reference return, which is the dominant per-frame cost once the
+ * transcript grows long.
+ *
+ * The cache is on by default and can be disabled with
+ * `KIMI_TUI_NO_RENDER_CACHE=1` as an escape hatch (and to let benchmarks
+ * compare cached vs. uncached runs in the same process).
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+let enabled = process.env['KIMI_TUI_NO_RENDER_CACHE'] !== '1';
+
+export function isRenderCacheEnabled(): boolean {
+  return enabled;
+}
+
+/**
+ * Override the cache at runtime. Intended for benchmarks / tests only;
+ * production code should not call this.
+ */
+export function setRenderCacheEnabled(value: boolean): void {
+  enabled = value;
+}

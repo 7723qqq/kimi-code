@@ -1,11 +1,27 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/hook-result-format.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/hook-result-format.ts';
+/**
+ * Format a `hook.result` event into markdown / plain-text transcript lines
+ * (`*<title>*` + body) rendered when a user hook reports a result.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+import type { Event } from '@moonshot-ai/kimi-code-sdk';
+
+type HookResultEvent = Extract<Event, { type: 'hook.result' }>;
+
+export function formatHookResultMarkdown(event: HookResultEvent): string {
+  return `*${formatHookResultTitle(event)}*\n\n${formatHookResultBody(event)}`;
+}
+
+export function formatHookResultPlain(event: HookResultEvent): string {
+  return `${formatHookResultTitle(event)}\n\n${formatHookResultBody(event)}`;
+}
+
+function formatHookResultTitle(event: HookResultEvent): string {
+  return `${event.hookEvent} hook${event.blocked === true ? ' blocked' : ''}`;
+}
+
+function formatHookResultBody(event: HookResultEvent): string {
+  const content = event.content.trim();
+  return content.length === 0 ? '(empty)' : content;
+}

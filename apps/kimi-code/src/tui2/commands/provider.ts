@@ -1,11 +1,426 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/commands/provider.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/commands/provider.ts';
+/**
+ * `/provider` slash command — provider manager with catalog add, custom
+ * registry import, and default-model selection flows.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+import {
+  applyCustomRegistryEntries,
+  fetchCustomRegistry,
+  type CustomRegistrySource,
+  type ManagedKimiConfigShape,
+} from '@moonshot-ai/kimi-code-oauth';
+import {
+  applyCatalogProvider,
+  cascadeSubagentModelPool,
+  catalogProviderModels,
+  CatalogFetchError,
+  DEFAULT_CATALOG_URL,
+  resolveCatalogImport,
+  SECONDARY_DERIVED_MODEL_ALIAS,
+  type Catalog,
+  type ThinkingEffort,
+} from '@moonshot-ai/kimi-code-sdk';
+
+import { createKimiCodeUserAgent } from '#/cli/version';
+import { t } from '#/i18n';
+import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
+
+import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
+import {
+  CustomRegistryImportDialogComponent,
+  type CustomRegistryImportResult,
+} from '../components/dialogs/custom-registry-import';
+import {
+  ProviderManagerComponent,
+  type ProviderManagerOptions,
+} from '../components/dialogs/provider-manager';
+import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
+import { DEFAULT_OAUTH_PROVIDER_NAME } from '../constant/kimi-tui';
+import { formatErrorMessage } from '../utils/event-payload';
+import { thinkingEffortToConfig } from '../utils/thinking-config';
+import { effectiveModelForHost } from './config';
+import type { SlashCommandHost } from './dispatch';
+import { promptApiKey, promptBaseUrl, promptCatalogProviderSelection } from './prompts';
+
+// ---------------------------------------------------------------------------
+// /provider command
+// ---------------------------------------------------------------------------
+
+export async function handleProviderCommand(host: SlashCommandHost): Promise<void> {
+  const options = buildProviderManagerOptions(host);
+  const component = new ProviderManagerComponent(options);
+  host.mountEditorReplacement(component);
+}
+
+function buildProviderManagerOptions(host: SlashCommandHost): ProviderManagerOptions {
+  const activeProviderId = host.state.appState.availableModels[host.state.appState.model]?.provider;
+  return {
+    providers: host.state.appState.availableProviders,
+    activeProviderId,
+    onAdd: () => {
+      void handleProviderAdd(host).catch((error: unknown) => {
+        host.showError(
+          t('tui.statusMessages.addProviderFailed', { error: formatErrorMessage(error) }),
+        );
+      });
+    },
+    onDeleteSource: (providerIds) => {
+      void handleProviderManagerDeleteSource(host, providerIds).catch((error: unknown) => {
+        host.showError(
+          t('tui.statusMessages.removeProviderFailedGeneric', { error: formatErrorMessage(error) }),
+        );
+      });
+    },
+    onClose: () => {
+      host.restoreEditor();
+    },
+  };
+}
+
+async function handleProviderManagerDeleteSource(
+  host: SlashCommandHost,
+  providerIds: readonly string[],
+): Promise<void> {
+  for (const providerId of providerIds) {
+    try {
+      await handleProviderDelete(host, providerId);
+    } catch (error) {
+      const msg = formatErrorMessage(error);
+      host.showError(t('tui.statusMessages.removeProviderFailed', { providerId, error: msg }));
+    }
+  }
+  reopenProviderManager(host);
+}
+
+async function handleProviderDelete(host: SlashCommandHost, providerId: string): Promise<void> {
+  if (providerId === DEFAULT_OAUTH_PROVIDER_NAME) {
+    await host.harness.auth.logout(DEFAULT_OAUTH_PROVIDER_NAME);
+    await host.authFlow.refreshConfigAfterLogout();
+    await host.authFlow.clearActiveSessionAfterLogout();
+    return;
+  }
+
+  const activeProvider = host.state.appState.availableModels[host.state.appState.model]?.provider;
+  const config = await host.harness.removeProvider(providerId);
+  if (activeProvider === providerId) {
+    await host.authFlow.refreshConfigAfterLogout();
+    await host.authFlow.clearActiveSessionAfterLogout();
+  } else {
+    host.setAppState({
+      availableProviders: config.providers ?? {},
+      availableModels: config.models ?? {},
+    });
+  }
+}
+
+async function handleProviderAdd(host: SlashCommandHost): Promise<void> {
+  const source = await promptProviderAddSource(host);
+  if (source === undefined) {
+    reopenProviderManager(host);
+    return;
+  }
+
+  if (source === 'known') {
+    await handleCatalogProviderAdd(host);
+    return;
+  }
+  const handled = await handleCustomRegistryAddViaDialog(host);
+  if (!handled) {
+    reopenProviderManager(host);
+  }
+}
+
+function reopenProviderManager(host: SlashCommandHost): void {
+  const options = buildProviderManagerOptions(host);
+  const component = new ProviderManagerComponent(options);
+  host.mountEditorReplacement(component);
+}
+
+function promptProviderAddSource(host: SlashCommandHost): Promise<'known' | 'custom' | undefined> {
+  return new Promise((resolve) => {
+    const picker = new ChoicePickerComponent({
+      title: t('tui.statusMessages.addProviderTitle'),
+      options: [
+        { value: 'known', label: t('tui.statusMessages.knownThirdPartyProvider') },
+        { value: 'custom', label: t('tui.statusMessages.customRegistryOption') },
+      ],
+      onSelect: (value) => {
+        host.restoreEditor();
+        resolve(value === 'known' || value === 'custom' ? value : undefined);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+        resolve(undefined as never);
+      },
+    });
+    host.mountEditorReplacement(picker);
+  });
+}
+
+async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
+  const controller = new AbortController();
+  const cancel = (): void => {
+    controller.abort();
+  };
+  host.cancelInFlight = cancel;
+
+  const spinner = host.showLoginProgressSpinner(
+    t('tui.statusMessages.fetchingCatalog', { url: DEFAULT_CATALOG_URL }),
+  );
+  let catalog: Catalog | undefined;
+  try {
+    const loaded = await fetchCatalogOrBuiltIn(DEFAULT_CATALOG_URL, {
+      signal: controller.signal,
+      userAgent: createKimiCodeUserAgent(),
+    });
+    catalog = loaded.catalog;
+    spinner.stop({
+      ok: true,
+      label: loaded.fromBuiltIn
+        ? t('tui.statusMessages.catalogFromBuiltIn')
+        : t('tui.statusMessages.catalogLoaded'),
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      spinner.stop({ ok: false, label: t('tui.statusMessages.aborted') });
+    } else {
+      const hint = error instanceof CatalogFetchError ? ` (HTTP ${error.status})` : '';
+      spinner.stop({ ok: false, label: t('tui.statusMessages.catalogFailedToLoad') });
+      host.showError(
+        t('tui.statusMessages.catalogFetchFailed', {
+          hint,
+          error: formatErrorMessage(error),
+        }),
+      );
+    }
+  } finally {
+    if (host.cancelInFlight === cancel) host.cancelInFlight = undefined;
+  }
+
+  if (catalog === undefined) return;
+
+  const providerId = await promptCatalogProviderSelection(host, catalog);
+  if (providerId === undefined) return;
+  const entry = catalog[providerId];
+  if (entry === undefined) return;
+
+  const models = catalogProviderModels(entry);
+  if (models.length === 0) {
+    host.showError(t('tui.statusMessages.providerNoUsableModels', { providerId }));
+    return;
+  }
+
+  let resolution = resolveCatalogImport(entry);
+  if (resolution.kind === 'needs-base-url') {
+    const entered = await promptBaseUrl(host, entry.name ?? providerId);
+    if (entered === undefined) return;
+    resolution = resolveCatalogImport(entry, entered);
+  }
+  if (resolution.kind !== 'ok') {
+    if (resolution.kind === 'invalid') {
+      if (resolution.reason === 'unknown-explicit-type') {
+        host.showError(
+          t('tui.statusMessages.providerCatalogUnsupportedProtocol', {
+            providerId,
+            type: entry.type ?? '',
+          }),
+        );
+      } else if (resolution.reason === 'proprietary-sdk') {
+        host.showError(t('tui.statusMessages.providerCatalogProprietarySdk', { providerId }));
+      } else {
+        host.showError(t('tui.statusMessages.providerCatalogPlaceholderBaseUrl'));
+      }
+    }
+    return;
+  }
+  const { wire, baseUrl } = resolution;
+
+  const apiKey = await promptApiKey(host, entry.name ?? providerId);
+  if (apiKey === undefined) return;
+
+  // Persist the provider and all its models immediately after the api key is
+  // entered. The model selector that follows is just a convenience to pick the
+  // default model; ESC leaves the provider in place without a default selection.
+  const existingConfig = await host.harness.getConfig();
+  const poolSnapshot =
+    existingConfig.providers[providerId] !== undefined ? existingConfig.secondaryModel : undefined;
+  if (existingConfig.providers[providerId] !== undefined) {
+    await host.harness.removeProvider(providerId);
+  }
+
+  const config = await host.harness.getConfig();
+  applyCatalogProvider(config, {
+    providerId,
+    wire,
+    baseUrl,
+    apiKey,
+    models,
+    selectedModelId: '', // no default yet; user picks in the model selector
+    thinking: false, // will be resolved by the model selector
+  });
+
+  await host.harness.setConfig({
+    providers: config.providers,
+    models: config.models,
+  });
+
+  // removeProvider cascaded the subagent pool against a model table where
+  // every `${providerId}/...` alias was absent; restore the entries that
+  // survived the re-add (aliases the catalog genuinely dropped stay dropped).
+  if (poolSnapshot !== undefined) {
+    const restored = cascadeSubagentModelPool(poolSnapshot, config.models ?? {});
+    if (restored !== null) {
+      await host.harness.setConfig({ secondaryModel: restored ?? poolSnapshot });
+    }
+  }
+
+  await host.authFlow.refreshConfigAfterLogin();
+  host.track('connect', { provider: providerId, method: 'catalog' });
+  host.showStatus(
+    t('tui.statusMessages.providerAdded', { providerName: entry.name ?? providerId }),
+  );
+  if (resolution.guessed) {
+    host.showStatus(t('tui.statusMessages.protocolGuessed', { providerId }));
+  }
+
+  // Build a merged model dictionary that includes existing models plus the
+  // newly-persisted provider's models, so the tabbed selector shows every
+  // provider's tab (the new provider's tab starts active via initialTabId).
+  // The v1 runtime may carry the synthesized `__secondary__` derived entry —
+  // never selectable in a picker.
+  const stateModels = await host.harness.getConfig().then((c) => c.models ?? {});
+  const mergedModels = { ...stateModels };
+  delete mergedModels[SECONDARY_DERIVED_MODEL_ALIAS];
+
+  const selector = new TabbedModelSelectorComponent({
+    models: mergedModels,
+    currentValue: host.state.appState.model,
+    selectedValue: Object.keys(mergedModels).find((a) => a.startsWith(`${providerId}/`)),
+    currentThinkingEffort: host.state.appState.thinkingEffort,
+    initialTabId: providerId,
+    onSelect: ({ alias, thinking }) => {
+      host.restoreEditor();
+      void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
+        host.showError(`Set default model failed: ${formatErrorMessage(error)}`);
+      });
+    },
+    onCancel: () => {
+      host.restoreEditor();
+    },
+  });
+  host.mountEditorReplacement(selector);
+}
+
+async function setDefaultModel(
+  host: SlashCommandHost,
+  alias: string,
+  effort: ThinkingEffort,
+): Promise<void> {
+  // Resolve efforts the same way the /model path does (effectiveModelForHost
+  // applies overrides and the protocol-profile inference): catalog entries for
+  // e.g. Anthropic models declare no support_efforts on the alias, and without
+  // the inference a top-tier pick would slip through as a persisted effort.
+  const model = host.state.appState.availableModels[alias];
+  await host.harness.setConfig({
+    defaultModel: alias,
+    thinking: thinkingEffortToConfig(
+      effort,
+      model === undefined ? undefined : effectiveModelForHost(host, model).supportEfforts,
+    ),
+  });
+  await host.authFlow.refreshConfigAfterLogin();
+  host.track('model_switch', { model: alias });
+  host.showStatus(t('tui.statusMessages.defaultModelSet', { alias, effort }));
+}
+
+async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise<boolean> {
+  const value = await promptCustomRegistryImport(host);
+  if (value === undefined) return false;
+
+  const source: CustomRegistrySource = {
+    kind: 'apiJson',
+    url: value.url,
+    apiKey: value.apiKey,
+  };
+
+  let entries: Awaited<ReturnType<typeof fetchCustomRegistry>>;
+  try {
+    entries = await fetchCustomRegistry(source, { userAgent: createKimiCodeUserAgent() });
+  } catch (error) {
+    host.showError(
+      t('tui.statusMessages.failedToImportRegistry', { error: formatErrorMessage(error) }),
+    );
+    return false;
+  }
+
+  const addedProviderIds = Object.values(entries).map((entry) => entry.id);
+  try {
+    const config = await host.harness.getConfig();
+    applyCustomRegistryEntries(config as unknown as ManagedKimiConfigShape, entries, source);
+    await host.harness.setConfig({
+      providers: config.providers,
+      models: config.models,
+    });
+    await host.authFlow.refreshConfigAfterLogin();
+  } catch (error) {
+    host.showError(
+      t('tui.statusMessages.failedToApplyRegistry', { error: formatErrorMessage(error) }),
+    );
+    return false;
+  }
+
+  const count = addedProviderIds.length;
+  if (count === 0) {
+    host.showStatus(t('tui.statusMessages.registryNoProviders'));
+    return false;
+  }
+  host.showStatus(
+    count === 1
+      ? t('tui.statusMessages.importedOneProvider')
+      : t('tui.statusMessages.importedProviders', { count }),
+    'success',
+  );
+
+  // Offer the model selector so the user can pick a default, just like the
+  // catalog (known-provider) flow. Copy without the v1-synthesized
+  // `__secondary__` derived entry — never selectable in a picker.
+  const stateModels = { ...(await host.harness.getConfig().then((c) => c.models ?? {})) };
+  delete stateModels[SECONDARY_DERIVED_MODEL_ALIAS];
+  const firstNewAlias = Object.keys(stateModels).find((a) =>
+    addedProviderIds.some((pid) => a.startsWith(`${pid}/`)),
+  );
+  const firstNewProvider = firstNewAlias
+    ? stateModels[firstNewAlias]?.provider
+    : addedProviderIds[0];
+  const selector = new TabbedModelSelectorComponent({
+    models: stateModels,
+    currentValue: host.state.appState.model,
+    selectedValue: firstNewAlias,
+    currentThinkingEffort: host.state.appState.thinkingEffort,
+    initialTabId: firstNewProvider,
+    onSelect: ({ alias, thinking }) => {
+      host.restoreEditor();
+      void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
+        host.showError(`Set default model failed: ${formatErrorMessage(error)}`);
+      });
+    },
+    onCancel: () => {
+      host.restoreEditor();
+    },
+  });
+  host.mountEditorReplacement(selector);
+  return true;
+}
+
+function promptCustomRegistryImport(
+  host: SlashCommandHost,
+): Promise<{ readonly url: string; readonly apiKey: string } | undefined> {
+  return new Promise((resolve) => {
+    const dialog = new CustomRegistryImportDialogComponent((result: CustomRegistryImportResult) => {
+      host.restoreEditor();
+      resolve(result.kind === 'ok' ? result.value : undefined);
+    });
+    host.mountEditorReplacement(dialog);
+  });
+}

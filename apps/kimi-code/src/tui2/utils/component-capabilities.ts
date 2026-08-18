@@ -1,11 +1,32 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/component-capabilities.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/component-capabilities.ts';
+/**
+ * Framework-agnostic structural guards used to detect optional component
+ * capabilities (`setExpanded`, `dispose`) without importing the renderer.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+export interface Expandable {
+  setExpanded(expanded: boolean): void;
+}
+
+export interface Disposable {
+  dispose(): void;
+}
+
+export function isExpandable(obj: unknown): obj is Expandable {
+  return (
+    typeof obj === 'object' &&
+    obj !== null &&
+    'setExpanded' in obj &&
+    typeof (obj as Expandable).setExpanded === 'function'
+  );
+}
+
+export function hasDispose(value: unknown): value is Disposable {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'dispose' in value &&
+    typeof (value as Disposable).dispose === 'function'
+  );
+}

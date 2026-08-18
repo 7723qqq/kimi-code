@@ -1,11 +1,32 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/terminal-state.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/terminal-state.ts';
+/**
+ * Terminal capability snapshot (notification keys, focus, OSC9 / progress /
+ * tmux support) derived from the current terminal environment.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+import {
+  isInsideTmux,
+  supportsOsc9Notification,
+  supportsTerminalProgress,
+} from './terminal-notification';
+
+export interface TerminalState {
+  notificationKeys: Set<string>;
+  focused: boolean;
+  supportsOsc9: boolean;
+  supportsProgress: boolean;
+  insideTmux: boolean;
+  progressActive: boolean;
+}
+
+export function createTerminalState(): TerminalState {
+  return {
+    notificationKeys: new Set<string>(),
+    focused: true,
+    supportsOsc9: supportsOsc9Notification(),
+    supportsProgress: supportsTerminalProgress(),
+    insideTmux: isInsideTmux(),
+    progressActive: false,
+  };
+}

@@ -1,11 +1,19 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/commands/parse.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/commands/parse.ts';
+/**
+ * Slash input parsing — split a raw input line into command name and args.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+import type { ParsedSlashInput } from './types';
+
+export function parseSlashInput(input: string): ParsedSlashInput | null {
+  if (!input.startsWith('/')) return null;
+  const trimmed = input.slice(1).trim();
+  if (trimmed.length === 0) return null;
+  const spaceIdx = trimmed.indexOf(' ');
+  const name = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
+  const args = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim();
+  // Reject file paths (e.g. `/usr/local/bin`), but allow namespaced plugin
+  // commands whose name itself contains `/` (e.g. `plugin:frontend/component`).
+  if (name.includes('/') && !name.includes(':')) return null;
+  return { name, args };
+}

@@ -1,11 +1,21 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/errors.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/errors.ts';
+/**
+ * Framework-agnostic error classification: distinguish abort errors from other
+ * failures so the TUI can decide whether to stop a stream gracefully.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+function isAbortMessage(message: string): boolean {
+  return message === 'Aborted' || message.endsWith(': Aborted');
+}
+
+export function isAbortError(error: unknown): boolean {
+  if (error instanceof Error) {
+    return error.name === 'AbortError' || isAbortMessage(error.message);
+  }
+  if (typeof error === 'object' && error !== null) {
+    const message = (error as { readonly message?: unknown }).message;
+    return typeof message === 'string' && isAbortMessage(message);
+  }
+  return isAbortMessage(String(error));
+}

@@ -1,11 +1,22 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/startup.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/startup.ts';
+/**
+ * Startup-notice composition and OAuth-login-required classification used by
+ * the startup banner / auth flow.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+import { OAUTH_LOGIN_REQUIRED_CODE } from '../constant/kimi-tui';
+
+export function combineStartupNotice(
+  existing: string | undefined,
+  next: string | undefined,
+): string | undefined {
+  if (existing !== undefined && next !== undefined) {
+    return `${existing}\n${next}`;
+  }
+  return existing ?? next;
+}
+
+export function isOAuthLoginRequiredError(error: unknown): boolean {
+  return (error as { readonly code?: unknown }).code === OAUTH_LOGIN_REQUIRED_CODE;
+}

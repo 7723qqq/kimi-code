@@ -1,11 +1,39 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/reverse-rpc/approval/handler.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../../tui/reverse-rpc/approval/handler.ts';
+/**
+ * Approval request handler.
+ *
+ * Mirrors `tui/reverse-rpc/approval/handler.ts`. Wraps an
+ * {@link ApprovalController} in an SDK `ApprovalHandler`: adapts the core
+ * payload into view data, shows the panel, and maps the user's response back.
+ * Failures degrade to a cancelled response rather than throwing.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+import type {
+  ApprovalHandler,
+  ApprovalRequest,
+  ApprovalResponse,
+} from '@moonshot-ai/kimi-code-sdk';
+
+import { adaptApprovalRequest } from './adapter';
+import type { ApprovalController } from './controller';
+
+export function createApprovalRequestHandler(
+  controller: ApprovalController,
+  onResponse?: (request: ApprovalRequest, response: ApprovalResponse) => void,
+): ApprovalHandler {
+  return async (event): Promise<ApprovalResponse> => {
+    try {
+      const response = await controller.show(adaptApprovalRequest(event));
+      onResponse?.(event, response);
+      return response;
+    } catch {
+      const response: ApprovalResponse = {
+        decision: 'cancelled',
+        feedback: 'approval handler failed',
+      };
+      onResponse?.(event, response);
+      return response;
+    }
+  };
+}

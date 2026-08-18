@@ -1,11 +1,21 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/mcp-tool-name.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/mcp-tool-name.ts';
+/**
+ * Decodes the `mcp__<server>__<tool>` qualified names produced by kimi-core's
+ * `qualifyMcpToolName`. Returns null for non-MCP tools and for hash-truncated
+ * qualified names (where the trailing `__<tool>` segment has been collapsed).
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+export function decodeMcpToolName(
+  name: string,
+): { readonly serverName: string; readonly toolName: string } | null {
+  const PREFIX = 'mcp__';
+  if (!name.startsWith(PREFIX)) return null;
+  const rest = name.slice(PREFIX.length);
+  const sep = rest.indexOf('__');
+  if (sep <= 0 || sep === rest.length - 2) return null;
+  return {
+    serverName: rest.slice(0, sep),
+    toolName: rest.slice(sep + 2),
+  };
+}

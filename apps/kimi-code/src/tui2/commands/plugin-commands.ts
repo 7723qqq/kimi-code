@@ -1,11 +1,33 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/commands/plugin-commands.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/commands/plugin-commands.ts';
+/**
+ * Plugin slash command assembly — turn plugin command definitions into
+ * namespaced slash commands (`plugin:command`) with a markdown body map.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+import type { PluginCommandDef } from '@moonshot-ai/kimi-code-sdk';
+
+import type { KimiSlashCommand } from './types';
+
+export interface PluginSlashCommands {
+  readonly commands: readonly KimiSlashCommand[];
+  /** Maps a namespaced command name (`plugin:command`) to its markdown body. */
+  readonly commandMap: ReadonlyMap<string, string>;
+}
+
+export function pluginCommandName(pluginId: string, name: string): string {
+  return `${pluginId}:${name}`;
+}
+
+export function buildPluginSlashCommands(defs: readonly PluginCommandDef[]): PluginSlashCommands {
+  const commandMap = new Map<string, string>();
+  const commands = defs.map((def) => {
+    const commandName = pluginCommandName(def.pluginId, def.name);
+    commandMap.set(commandName, def.body);
+    return {
+      name: commandName,
+      aliases: [],
+      description: def.description,
+    } satisfies KimiSlashCommand;
+  });
+  return { commands, commandMap };
+}

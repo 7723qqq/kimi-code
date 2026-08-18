@@ -1,11 +1,54 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/refresh-providers.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/refresh-providers.ts';
+/**
+ * CLI-side host for provider-model refresh. Thin adapter over the shared
+ * `refreshProviderModels` orchestrator in `@moonshot-ai/kimi-code-oauth`
+ * (which is also what the daemon's scheduled/manual refresh uses).
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+import {
+  refreshProviderModels,
+  type ProviderChange,
+  type RefreshProviderOptions,
+  type RefreshProviderScope,
+  type RefreshResult,
+} from '@moonshot-ai/kimi-code-oauth';
+import type { KimiConfig, KimiConfigPatch, OAuthRef } from '@moonshot-ai/kimi-code-sdk';
+
+/**
+ * CLI-side host for provider-model refresh. Kept on the SDK's full config types
+ * so existing TUI callers (and tests) don't change; the daemon uses the oauth
+ * package's `ManagedKimiConfigShape`-typed host directly.
+ */
+export interface RefreshProviderHost {
+  getConfig(): Promise<KimiConfig>;
+  removeProvider(providerId: string): Promise<KimiConfig>;
+  setConfig(patch: KimiConfigPatch): Promise<KimiConfig>;
+  resolveOAuthToken(providerName: string, oauthRef?: OAuthRef): Promise<string>;
+  /** Product User-Agent sent on custom-registry (api.json) fetches. */
+  readonly userAgent?: string;
+}
+
+export type { ProviderChange, RefreshProviderOptions, RefreshProviderScope, RefreshResult };
+
+/**
+ * Refresh remote model metadata for the configured providers. Thin adapter over
+ * the shared `refreshProviderModels` orchestrator in `@moonshot-ai/kimi-code-oauth`
+ * (which is also what the daemon's scheduled/manual refresh uses).
+ */
+export function refreshAllProviderModels(
+  host: RefreshProviderHost,
+  options: RefreshProviderOptions = {},
+): Promise<RefreshResult> {
+  return refreshProviderModels(
+    {
+      getConfig: () => host.getConfig(),
+      removeProvider: (providerId) => host.removeProvider(providerId),
+      setConfig: (patch) => host.setConfig(patch as unknown as KimiConfigPatch),
+      resolveOAuthToken: (providerName, oauthRef) =>
+        host.resolveOAuthToken(providerName, oauthRef as unknown as OAuthRef),
+      userAgent: host.userAgent,
+    },
+    options,
+  );
+}
