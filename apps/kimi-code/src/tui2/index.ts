@@ -1,11 +1,15 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/index.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../tui/index';
+/**
+ * TUI2 public surface.
+ *
+ * In the current skeleton, every module under `tui2/` re-exports the
+ * matching `tui/` module, so the public surface is identical to v1.
+ * As real tui2 implementations land, this index keeps the same shape
+ * and only the internal re-exports change. External callers (the CLI
+ * entry, the web harness) never need to update.
+ *
+ * The env switch lives in `tui2/env.ts` -- this file is reached only
+ * when the variant is already resolved to v2.
+ */
+export * from './kimi-tui'
+export type { KimiTUIStartupInput, KimiTUIOptions } from './kimi-tui'
+export { isTuiV2Enabled, resolveTuiVariant, type TuiVariant } from './env'

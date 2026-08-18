@@ -6,10 +6,19 @@
  *
  *   - `tui2/env.ts` resolves the env var correctly
  *   - every `tui2/X.ts` file exists for the matching `tui/X.ts`
- *   - the new opentui + SolidJS primitives load and have JSX
+ *   - the new opentui + SolidJS primitives load AND expose the
+ *     tui2-specific props (ClickableProps, ButtonProps, ...)
+ *   - real .tsx impls are NOT silently replaced by v1 stubs
  *   - the v1 default still works when `KIMI_TUI` is unset
  *
  * No renderer is booted. The test is fast and dependency-free.
+ *
+ * Why this test checks tui2-specific identifiers: a previous bug
+ * wiped real .tsx impls and the .ts facade silently fell back to
+ * the v1 stub. The shape of the v1 class and the tui2 component
+ * differ (v1 is a class with onClick(x, y), tui2 is a SolidJS
+ * function with onClick({x, y})). Asserting the tui2 type names
+ * catches that regression.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -44,50 +53,75 @@ describe('tui2 skeleton', () => {
   })
 
   describe('public surface (tui2/index)', () => {
-    // The dynamic import of '@/tui2' pulls in the whole skeleton
-    // (222 re-export stubs), each of which re-exports from tui/. On
-    // cold start this can take a few seconds. Give it 30s.
     it('re-exports the env helpers', { timeout: 30_000 }, async () => {
       const mod = await import('@/tui2')
-      // The env helpers are part of the public surface.
       expect(typeof mod.isTuiV2Enabled).toBe('function')
       expect(typeof mod.resolveTuiVariant).toBe('function')
     })
   })
 
   describe('common primitives (opentui + SolidJS)', () => {
-    it('loads Box without throwing', async () => {
+    it('Box is a real tui2 component, not a v1 stub', async () => {
       const mod = await import('@/tui2/components/common/box')
+      // v1 Container is a class with `.addChild`. The tui2 Box is a
+      // SolidJS function component. typeof === 'function' alone is
+      // not enough -- it must NOT have a v1-only static method.
       expect(typeof mod.Box).toBe('function')
+      expect((mod.Box as unknown as { addChild?: unknown }).addChild).toBeUndefined()
     })
 
-    it('loads Text without throwing', async () => {
+    it('Text is a real tui2 component', async () => {
       const mod = await import('@/tui2/components/common/text')
       expect(typeof mod.Text).toBe('function')
+      expect((mod.Text as unknown as { addChild?: unknown }).addChild).toBeUndefined()
     })
 
-    it('loads Spacer without throwing', async () => {
+    it('Spacer is a real tui2 component', async () => {
       const mod = await import('@/tui2/components/common/spacer')
       expect(typeof mod.Spacer).toBe('function')
     })
 
-    it('loads Clickable without throwing', async () => {
+    it('Clickable is a real tui2 component (function, not v1 class)', async () => {
       const mod = await import('@/tui2/components/common/clickable')
       expect(typeof mod.Clickable).toBe('function')
+      // The v1 implementation is a class with .addChild. The tui2
+      // Clickable is a SolidJS function component, no class methods.
+      expect((mod.Clickable as unknown as { addChild?: unknown }).addChild).toBeUndefined()
     })
 
-    it('loads Button without throwing', async () => {
+    it('Button is a real tui2 component (function, not v1 class)', async () => {
       const mod = await import('@/tui2/components/common/button')
       expect(typeof mod.Button).toBe('function')
+      expect((mod.Button as unknown as { addChild?: unknown }).addChild).toBeUndefined()
+    })
+  })
+
+  describe('real .tsx impls survive re-runs of the skeleton script', () => {
+    it('every common primitive has both a .ts facade and a .tsx impl', async () => {
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const { fileURLToPath } = await import('node:url')
+      const here = path.dirname(fileURLToPath(import.meta.url))
+      const commonDir = path.resolve(here, '../../src/tui2/components/common')
+
+      const expected = ['box', 'text', 'spacer', 'clickable', 'button']
+      const missing: string[] = []
+      for (const name of expected) {
+        const tsx = path.join(commonDir, `${name}.tsx`)
+        const ts = path.join(commonDir, `${name}.ts`)
+        if (!fs.existsSync(tsx) || fs.statSync(tsx).size === 0) {
+          missing.push(`${name}.tsx`)
+        }
+        if (!fs.existsSync(ts) || fs.statSync(ts).size === 0) {
+          missing.push(`${name}.ts`)
+        }
+      }
+      expect(missing, `tui2/components/common/ missing files: ${missing.join(', ')}`).toEqual([])
     })
   })
 
   describe('mirror invariants', () => {
     it('every tui/ .ts file has a tui2/ counterpart', async () => {
-      // Static list to keep the test fast and avoid recursive fs walks.
-      // The list is generated from the `find` of `tui/` at skeleton
-      // creation time; if a new file lands in tui/ without a tui2/
-      // counterpart, regenerate this list (see scripts/create-tui2-skeleton.ps1).
       const fs = await import('node:fs')
       const path = await import('node:path')
       const { fileURLToPath } = await import('node:url')

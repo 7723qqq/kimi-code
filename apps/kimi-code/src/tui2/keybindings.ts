@@ -8,4 +8,4 @@
 // a time without churning the rest of the tree.
 //
 // Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../tui/keybindings';
+export * from '../tui/keybindings.ts';
