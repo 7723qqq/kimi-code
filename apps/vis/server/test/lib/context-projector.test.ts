@@ -822,7 +822,7 @@ describe('context-projector', () => {
     ]);
   });
 
-  // ---- Fix ④: UI-only markers must not offset agent-core history indices ------
+  // ---- Fix 4: UI-only markers must not offset agent-core history indices ------
   // agent-core computes compactedCount (and the micro-compaction cutoff) as
   // indices into _history, which NEVER contains the synthetic 'undo'/'clear'
   // markers we push into our messages array. So index-based ops must count ONLY
@@ -1457,7 +1457,7 @@ describe('context-projector', () => {
     expect(proj.contextTokens).toBe(42);
   });
 
-  // ---- Fix ②: contextTokens updates on clear / compaction lifecycle events ---
+  // ---- Fix 2: contextTokens updates on clear / compaction lifecycle events ---
   // agent-core ContextMemory sets _tokenCount on clear() (→ 0) and
   // applyCompaction(result) (→ result.tokensAfter), not only on step.end. These
   // are derived state, so they apply identically in both projection modes.

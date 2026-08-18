@@ -11,7 +11,7 @@
  * Lifetime rules (per §5.6):
  * - the materialized unit's disposal hangs on the RECORD PROVIDER's book —
  *   disposing the provider retracts the record and tears the materialized
- *   units down across the tree (连坐);
+ *   units down across the tree (collective retraction);
  * - a target scope's natural death tears its materialized units down with it
  *   (the fold ledger is anchored into the scope's container ledger); both
  *   anchors are idempotent, so a provider dying mid-teardown is a no-op;

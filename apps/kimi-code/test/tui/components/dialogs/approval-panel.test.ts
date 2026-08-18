@@ -1,4 +1,5 @@
 import { CURSOR_MARKER } from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
 import { describe, expect, it } from 'vitest';
 
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
@@ -472,5 +473,37 @@ describe('ApprovalPanelComponent', () => {
     dialog.handleInput('o');
     dialog.handleInput('\r');
     expect(responses).toEqual([{ response: 'rejected', feedback: 'no', selected_label: 'Revise' }]);
+  });
+
+  it('submits the choice under the clicked row', () => {
+    const { dialog, responses } = makeDialog();
+    const lines = dialog.render(80);
+    const rejectRow = lines.findIndex((l) => strip(l).includes('3. Reject'));
+    expect(rejectRow).toBeGreaterThanOrEqual(0);
+
+    dialog.handleClick({ x: 0, y: rejectRow });
+    expect(responses).toHaveLength(1);
+    expect(responses[0]!.response).toBe('rejected');
+  });
+
+  it('highlights the hovered option row', () => {
+    const previousChalkLevel = chalk.level;
+    chalk.level = 3;
+    try {
+      const { dialog } = makeDialog();
+      const lines = dialog.render(80);
+      const rejectRow = lines.findIndex((l) => strip(l).includes('3. Reject'));
+      expect(rejectRow).toBeGreaterThanOrEqual(0);
+      expect(lines[rejectRow]).not.toContain('\u001B[48');
+
+      dialog.onHoverChange(true, 0, rejectRow);
+      const hovered = dialog.render(80);
+      expect(hovered[rejectRow]).toContain('\u001B[48');
+
+      dialog.onHoverChange(false, 0, 0);
+      expect(dialog.render(80)[rejectRow]).not.toContain('\u001B[48');
+    } finally {
+      chalk.level = previousChalkLevel;
+    }
   });
 });

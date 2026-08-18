@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::oneshot;
@@ -24,11 +25,18 @@ type AsyncMethodHandler = Arc<dyn Fn(serde_json::Value) -> crate::rpc::types::Bo
 /// One side of an in-flight request: the oneshot sender awaiting a reply.
 type PendingRequest = oneshot::Sender<Result<serde_json::Value, String>>;
 
+/// Maximum time to wait for the host to reply to a `call_host` request before
+/// giving up. A host that never responds would otherwise leave the oneshot
+/// sender in `pending` forever (memory leak + hung future).
+const CALL_HOST_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// The async JSON-RPC server.
 pub struct RpcServer {
     methods: Mutex<HashMap<String, AsyncMethodHandler>>,
     pending: Arc<Mutex<HashMap<u32, PendingRequest>>>,
     next_id: AtomicU32,
+    /// Per-call timeout for `call_host` replies. Overridable for tests.
+    call_host_timeout: Duration,
 }
 
 impl Default for RpcServer {
@@ -44,7 +52,14 @@ impl RpcServer {
             methods: Mutex::new(HashMap::new()),
             pending: Arc::new(Mutex::new(HashMap::new())),
             next_id: AtomicU32::new(1),
+            call_host_timeout: CALL_HOST_TIMEOUT,
         }
+    }
+
+    /// Override the per-call host timeout (used by tests to exercise the
+    /// timeout path without waiting the full default).
+    pub fn set_call_host_timeout(&mut self, timeout: Duration) {
+        self.call_host_timeout = timeout;
     }
 
     /// Register an async handler for a method.
@@ -142,7 +157,18 @@ impl RpcServer {
             serde_json::to_string(&request).map_err(|e| e.to_string())?
         );
 
-        rx.await.map_err(|_| "response channel closed".to_string())?
+        match tokio::time::timeout(self.call_host_timeout, rx).await {
+            Ok(Ok(res)) => res.map_err(|_| "response channel closed".to_string()),
+            Ok(Err(_)) => Err("response channel closed".to_string()),
+            Err(_) => {
+                // Timeout: drop the pending entry so it does not linger.
+                self.pending
+                    .lock()
+                    .map_err(|e| format!("lock error: {e}"))?
+                    .remove(&id);
+                Err(format!("host call '{method}' timed out after {CALL_HOST_TIMEOUT:?}"))
+            }
+        }
     }
 
     /// Invoke a method, preferring a locally-registered handler and falling
@@ -431,6 +457,20 @@ mod tests {
         let id1 = server.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let id2 = server.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         assert!(id2 > id1);
+    }
+
+    #[tokio::test]
+    async fn test_call_host_times_out_and_cleans_pending() {
+        let mut server = RpcServer::new();
+        server.set_call_host_timeout(Duration::from_millis(50));
+        let server = Arc::new(server);
+        // No host is listening on stdout, so the request never gets a reply.
+        // The timeout must fire, return an error, and drop the pending entry.
+        let result = server.call_host_value("host/llm_chat", json!({})).await;
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("timed out"), "unexpected error: {msg}");
+        assert!(server.pending.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

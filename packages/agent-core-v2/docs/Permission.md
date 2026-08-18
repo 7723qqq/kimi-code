@@ -1,36 +1,36 @@
-# 权限系统设计（Permission）
+# Permission System Design
 
-本文系统整理 agent-core 权限系统的目标方案，并与 `packages/agent-core`（v1）现状对比。结论先行：
+This document systematically lays out the target design for the agent-core permission system and compares it with the current state of `packages/agent-core` (v1). Conclusions first:
 
-> **状态（2026-08-15）**: v1 包（`packages/agent-core`）已从仓库删除，§二「现状（v1）」为历史快照。演进落地情况：step1（veto 监听器 + `IAgentToolApprovalService`）已实现；step2（`permissionMode` 域 + `session/approval` broker）已实现；step3（`IPermissionPolicyRegistry` 注册表）**未实现**——`permissionPolicyService.ts` 仍是硬编码 policy 数组，并新增了文档未收录的 `GuardianReviewPermissionPolicyService` 维度。引用实现以当前代码为准。
+> **Status (2026-08-15)**: The v1 package (`packages/agent-core`) has been removed from the repository; §2 "Current state (v1)" is a historical snapshot. Evolution status: step1 (veto listeners + `IAgentToolApprovalService`) is implemented; step2 (`permissionMode` domain + `session/approval` broker) is implemented; step3 (`IPermissionPolicyRegistry` registry) is **not implemented** — `permissionPolicyService.ts` still holds a hardcoded policy array, and a `GuardianReviewPermissionPolicyService` dimension not covered by this document has been added. The current code is the reference implementation.
 
-> **权限系统应是一个「可组合、可注册的责任链（微内核）」**：内核只负责按顺序跑链、首个命中赢；具体权限维度（policy）由各自的 Domain Service 通过注册表插入；工具只需在 `resolveExecution` 里声明标准化的资源访问（`accesses`），通用维度集中消费这份元数据。
+> **The permission system should be a "composable, registerable chain of responsibility (microkernel)"**: the kernel only runs the chain in order, first hit wins; specific permission dimensions (policies) are inserted by their owning Domain Services through the registry; tools only declare standardized resource accesses (`accesses`) in `resolveExecution`, and generic dimensions consume this metadata centrally.
 >
-> **链只裁决危险程度**。policy 节点回答的是「这个调用有多危险、用户能否逐次豁免这个判断」——它产出的 `ask`/`deny` 永远可被用户豁免。**Harness 约束不是权限**：运行机制为自身正确性施加的限制（plan 模式禁写、AgentSwarm 批量排他、btw side-question fork 禁工具、goal 预算拒绝）产出的是无 ask 通道、用户无法逐次豁免的硬 deny，它们以 `onBeforeExecuteTool` veto 监听器挂在各自 domain，用 `event.veto(...)` 表态（先例：`goalService.ts` 的预算/过期拒绝）。产物审批（plan review、goal-start review）同样不是权限：由 owning domain 用 cold 的 `event.waitUntil(factory)` 拦截自己的工具、直接驱动共享的 `IAgentToolApprovalService` 审批往返——审批只可能在没有任何监听器 veto 该调用之后才开始。
+> **The chain only adjudicates danger level.** A policy node answers "how dangerous is this call, and can the user exempt this judgment per call" — the `ask`/`deny` it produces can always be exempted by the user. **Harness constraints are not permissions**: restrictions the runtime imposes for its own correctness (plan mode write prohibition, AgentSwarm batch exclusivity, btw side-question fork tool prohibition, goal budget rejection) produce hard denies with no ask channel that the user cannot exempt per call; they hang on their respective domains as `onBeforeExecuteTool` veto listeners and speak via `event.veto(...)` (precedent: `goalService.ts`'s budget/expiry rejection). Artifact approvals (plan review, goal-start review) are likewise not permissions: the owning domain intercepts its own tools with a cold `event.waitUntil(factory)` and directly drives the shared `IAgentToolApprovalService` approval round-trip — approval can only start after no listener has vetoed the call.
 >
-> **不引入 Casbin**——因为这里「难的是决策行为」（续体、副作用、RPC、状态机），不是「匹配 + 标量决策」。
+> **No Casbin** — because here "the hard part is decision behavior" (continuations, side effects, RPC, state machines), not "matching + scalar decisions".
 
 ---
 
-## 一、背景与问题定义
+## 1. Background and problem definition
 
-权限系统回答一个问题：**对于每一次工具调用，在当前 agent、当前 mode 下，放行 / 拒绝 / 询问用户？**
+The permission system answers one question: **for each tool call, under the current agent and mode, allow / deny / ask the user?**
 
-这个决策有三个特点，决定了它的架构取向：
+This decision has three characteristics that determine its architectural orientation:
 
-1. **决策携带行为**。返回 `ask` 不是一个枚举值，而是一条含 RPC 往返、hook、telemetry、状态写入、续体的工作流；返回 `deny` 可能是执行了一段外部 hook 的结果。
-2. **策略异质**。有的查工具名集合，有的数同批 AgentSwarm 个数，有的跑 hook，有的检查 plan 状态机——没有统一的 `(sub, obj, act)` 形状。
-3. **多 agent × 多 mode × 外部扩展**。不同 agent / mode 需要不同权限，且要允许外部（组织管理员、插件）解耦地贡献规则或行为。
+1. **The decision carries behavior.** Returning `ask` is not an enum value but a workflow containing RPC round-trips, hooks, telemetry, state writes, and continuations; returning `deny` may be the result of running an external hook.
+2. **Policies are heterogeneous.** Some check tool-name sets, some count AgentSwarm instances in a batch, some run hooks, some inspect the plan state machine — there is no uniform `(sub, obj, act)` shape.
+3. **Multiple agents × multiple modes × external extension.** Different agents/modes need different permissions, and external parties (org admins, plugins) must be able to contribute rules or behavior in a decoupled way.
 
 ---
 
-## 二、现状（agent-core v1）
+## 2. Current state (agent-core v1)
 
-代码位于 `packages/agent-core/src/agent/permission/`（removed with the v1 engine）。
+Code lives in `packages/agent-core/src/agent/permission/` (removed with the v1 engine).
 
-### 2.1 架构：有序责任链 + 首个命中赢
+### 2.1 Architecture: ordered chain of responsibility + first hit wins
 
-`PermissionManager`（`index.ts`）持有一组 `PermissionPolicy`，决策时顺序遍历，第一个返回非 `undefined` 的 policy 胜出：
+`PermissionManager` (`index.ts`) holds a set of `PermissionPolicy`s; when deciding, it iterates in order and the first policy returning non-`undefined` wins:
 
 ```ts
 // index.ts evaluatePolicies
@@ -40,7 +40,7 @@ for (const policy of this.policies) {
 }
 ```
 
-每个 policy 是一个实现 `PermissionPolicy` 接口的类，`evaluate(context)` 不适用就返回 `undefined`（传给下一个）。`PermissionPolicyResult` 不是标量，而是可携带续体和副作用的「行为包」：
+Each policy is a class implementing the `PermissionPolicy` interface; `evaluate(context)` returns `undefined` when not applicable (passing to the next). `PermissionPolicyResult` is not a scalar but a "behavior package" that can carry continuations and side effects:
 
 ```ts
 // types.ts
@@ -50,118 +50,118 @@ type PermissionPolicyResult =
   | { kind: 'ask';     reason?; resolveApproval?; resolveError? };
 ```
 
-### 2.2 11 个权限维度（19 个 policy）
+### 2.2 11 permission dimensions (19 policies)
 
-链目前在 `policies/index.ts#createPermissionDecisionPolicies()` 中**硬编码**，顺序即优先级。19 个 policy 可归并为 11 个权限维度：
+The chain is currently **hardcoded** in `policies/index.ts#createPermissionDecisionPolicies()`; order is priority. The 19 policies can be grouped into 11 permission dimensions:
 
-| # | 维度 | 对应 policy | 决策看什么 |
+| # | Dimension | Policies | What the decision looks at |
 |---|---|---|---|
-| 1 | 外部钩子否决 | `pre-tool-call-hook` | 用户 `PreToolUse` hook 是否返回 block |
-| 2 | 工具批量排他 | `agent-swarm-exclusive-deny`、`swarm-mode-agent-swarm-approve` | 同批工具结构（AgentSwarm 须单独）+ swarm 模式 |
-| 3 | 运行模式姿态 | `auto-mode-approve`、`yolo-mode-approve`、`auto-mode-ask-user-question-deny` | `permission.mode` |
-| 4 | Plan 模式约束 | `plan-mode-guard-deny`、`plan-mode-tool-approve`、`exit-plan-mode-review-ask` | `planMode.isActive` + plan 文件路径 + review 状态 |
-| 5 | Goal 启动审批 | `goal-start-review-ask` | `tool === CreateGoal` 且非 auto |
-| 6 | 静态配置规则 | `user-configured-deny/ask/allow` | 用户/项目/turn 配置的 DSL 规则 |
-| 7 | 会话批准记忆 | `session-approval-history` | 本会话 "approve for session" 缓存 |
-| 8 | 敏感/特殊路径 | `sensitive-file-access-ask`、`git-control-path-access-ask` | 工具访问的文件路径 |
-| 9 | 工具内在风险 | `default-tool-approve` | 工具名 ∈ 默认安全集合 |
-| 10 | 工作区写信任 | `git-cwd-write-approve` | POSIX + git worktree + cwd 内写 |
-| 11 | 兜底 | `fallback-ask` | 无（默认 ask） |
+| 1 | External hook veto | `pre-tool-call-hook` | whether the user's `PreToolUse` hook returns block |
+| 2 | Tool batch exclusivity | `agent-swarm-exclusive-deny`、`swarm-mode-agent-swarm-approve` | same-batch tool structure (AgentSwarm must be alone) + swarm mode |
+| 3 | Run-mode posture | `auto-mode-approve`、`yolo-mode-approve`、`auto-mode-ask-user-question-deny` | `permission.mode` |
+| 4 | Plan mode constraints | `plan-mode-guard-deny`、`plan-mode-tool-approve`、`exit-plan-mode-review-ask` | `planMode.isActive` + plan file path + review state |
+| 5 | Goal start approval | `goal-start-review-ask` | `tool === CreateGoal` and not auto |
+| 6 | Static config rules | `user-configured-deny/ask/allow` | DSL rules configured by user/project/turn |
+| 7 | Session approval memory | `session-approval-history` | this session's "approve for session" cache |
+| 8 | Sensitive/special paths | `sensitive-file-access-ask`、`git-control-path-access-ask` | file paths the tool accesses |
+| 9 | Intrinsic tool risk | `default-tool-approve` | tool name ∈ default safe set |
+| 10 | Workspace write trust | `git-cwd-write-approve` | POSIX + git worktree + write within cwd |
+| 11 | Fallback | `fallback-ask` | none (ask by default) |
 
-链的顺序是一条**从高到低的安全级联**：外部强制 → 结构性拒绝 → 状态机拒绝 → 静态 deny → mode 放行 → 会话记忆放行 → 静态 ask → 静态 allow → 流程放行 → 敏感路径 ask → 默认放行 → 兜底 ask。
+The chain order is a **safety cascade from high to low**: external enforcement → structural denial → state-machine denial → static deny → mode allow → session-memory allow → static ask → static allow → flow allow → sensitive-path ask → default allow → fallback ask.
 
-### 2.3 资源访问声明：`resolveExecution` + `accesses`
+### 2.3 Resource access declaration: `resolveExecution` + `accesses`
 
-工具通过 `resolveExecution(input)` 在执行前声明自己访问的资源（`packages/agent-core/src/loop/types.ts`、`tool-access.ts` — removed with the v1 engine）：
+Tools declare the resources they access via `resolveExecution(input)` before execution (`packages/agent-core/src/loop/types.ts`, `tool-access.ts` — removed with the v1 engine):
 
 ```ts
 interface RunnableToolExecution {
-  readonly accesses?: ToolAccesses;        // 资源 + 操作
+  readonly accesses?: ToolAccesses;        // resources + operations
   readonly matchesRule?: (ruleArgs) => boolean;
   readonly approvalRule: string;
   readonly execute: (ctx) => Promise<ExecutableToolResult>;
 }
 ```
 
-`ToolAccesses` 是 `ToolResourceAccess[]`，目前支持 `file` 与 `all` 两类资源（详见 §5.5）。权限维度（如 `sensitive-file-access-ask`、`git-cwd-write-approve`）读 `context.execution.accesses` 做判断。
+`ToolAccesses` is `ToolResourceAccess[]`, currently supporting two resource kinds, `file` and `all` (see §5.5). Permission dimensions (e.g. `sensitive-file-access-ask`, `git-cwd-write-approve`) read `context.execution.accesses` to decide.
 
-### 2.4 优势
+### 2.4 Strengths
 
-- **清晰可审计**：顺序显式，每个 policy 旁有注释解释其位置，安全姿态一目了然。
-- **首个命中短路**：大多数调用（如只读工具）在 `default-tool-approve` 即返回，性能好。
-- **行为表达力强**：`ask` 可携带 `resolveApproval` 续体、`executionMetadata`、自定义消息和副作用。
+- **Clear and auditable**: order is explicit, each policy has a comment explaining its position, the security posture is obvious at a glance.
+- **First-hit short-circuit**: most calls (e.g. read-only tools) return at `default-tool-approve`, good performance.
+- **Expressive behavior**: `ask` can carry a `resolveApproval` continuation, `executionMetadata`, custom messages, and side effects.
 
-### 2.5 痛点
+### 2.5 Pain points
 
-1. **链硬编码**。19 个 policy 在一个函数里 `new`，外部无法贡献。
-2. **mode 是 policy 内部的 `if`**。`YoloModeApprove` / `AutoModeApprove` 各自 `if (mode !== 'x') return`，"不同 mode 不同链"只能靠塞更多 self-guard 的 policy。
-3. **没有按 agent 区分链的入口**（只有散落的 `agent.type === 'sub'` 判断）。
-4. **没有外部扩展点**。唯一的外部介入是 `PreToolUse` hook（占 guard 一个固定槽位）。
-5. **bash/write 等通用工具的维度集中在核心**，工具自己只声明 `accesses`，不知道维度存在——这是优点，但也意味着新增维度要改核心。
+1. **Hardcoded chain.** 19 policies are `new`ed in one function; externals cannot contribute.
+2. **Mode is an `if` inside policies.** `YoloModeApprove` / `AutoModeApprove` each do `if (mode !== 'x') return`; "different chains per mode" can only be achieved by stuffing in more self-guarding policies.
+3. **No per-agent chain entry point** (only scattered `agent.type === 'sub'` checks).
+4. **No external extension point.** The only external intervention is the `PreToolUse` hook (occupying one fixed guard slot).
+5. **Dimensions for generic tools (bash/write) are centralized in the core**; tools only declare `accesses` and don't know the dimensions exist — an advantage, but it means new dimensions require core changes.
 
 ---
 
-## 三、为什么不是 Casbin
+## 3. Why not Casbin
 
-Casbin 的两个卖点（`policy_effect` 和灵活 priority）在当前业务下都落不到实处。
+Casbin's two selling points (`policy_effect` and flexible priority) don't land in the current business.
 
-### 3.1 `policy_effect` 用不上
+### 3.1 `policy_effect` is not needed
 
-`policy_effect` 解决「多规则命中后如何组合」。但 agent-core 的组合逻辑是**固定的安全级联**，且真正的复杂度在每条 policy 的 `evaluate` 行为里，Casbin 表达式吸收不了。更重要的是：组合顺序是安全相关的、故意写死的姿态，不希望外部改动——外部可调的安全旋钮已通过 `mode` + allow/deny/ask 规则暴露。
+`policy_effect` answers "how to combine multiple matched rules". But agent-core's combination logic is a **fixed safety cascade**, and the real complexity lives in each policy's `evaluate` behavior, which Casbin expressions cannot absorb. More importantly: the combination order is safety-related and deliberately hardcoded — external changes are not wanted; the externally adjustable safety knobs are already exposed via `mode` + allow/deny/ask rules.
 
-### 3.2 灵活 priority 用不上
+### 3.2 Flexible priority is not needed
 
-priority 的痛点是「多模块各自贡献规则时数字撞车」。agent-core 当前没有插件注入点、没有多主体/RBAC，主体固定（agent/用户），不存在撞车问题。Casbin 的 `(sub, obj, act)`、`g()`、domain 等抽象在这里空转。
+The pain point priority solves is "numeric collisions when multiple modules each contribute rules". agent-core currently has no plugin injection point and no multi-subject/RBAC; the subject is fixed (agent/user), so no collision problem exists. Casbin's `(sub, obj, act)`, `g()`, domain and other abstractions spin idle here.
 
-### 3.3 根本性不匹配：决策不是标量
+### 3.3 Fundamental mismatch: decisions are not scalars
 
-`enforce()` 的契约是「输入请求 → 输出 effect」。agent-core 的决策是**行为包**：
+`enforce()`'s contract is "input request → output effect". agent-core's decision is a **behavior package**:
 
-| policy | 返回 `ask` 后的真实行为 |
+| policy | real behavior after returning `ask` |
 |---|---|
-| `requestToolApproval` | 触发 hook → 异步 RPC 问用户 → 记 telemetry → 写 records/replay → 可选写会话缓存 → 调续体 |
-| `goal-start-review-ask` | 弹菜单 → 根据回答**切换 permission mode** → 放行 |
-| `exit-plan-mode-review-ask` | 推进 plan 状态机 → 记多种 telemetry → **合成工具结果**短路执行 |
-| `pre-tool-call-hook` | `deny` 是**异步执行外部 hook** 的结果 |
+| `requestToolApproval` | trigger hook → async RPC ask user → record telemetry → write records/replay → optionally write session cache → invoke continuation |
+| `goal-start-review-ask` | pop a menu → **switch permission mode** based on the answer → allow |
+| `exit-plan-mode-review-ask` | advance the plan state machine → record multiple telemetry → **synthesize a tool result** to short-circuit execution |
+| `pre-tool-call-hook` | `deny` is the result of **asynchronously running an external hook** |
 
-这些续体、副作用、合成结果没有槽位放进 Casbin 的标量 effect。即便让 Casbin 算出 `ask`，外面仍需重写一整套把 `ask` 关联到行为的逻辑——Casbin 降级成枚举生成器。
+These continuations, side effects, and synthesized results have no slot in Casbin's scalar effect. Even if Casbin computed `ask`, a whole set of logic associating `ask` with behavior would still need to be rewritten outside — Casbin degrades to an enum generator.
 
-### 3.4 Casbin 何时才值得
+### 3.4 When Casbin would be worth it
 
-当「难的是匹配语义本身」时——角色继承、domain 隔离、ABAC 表达式、从 DB 加载策略——Casbin 才有用武之地。在此之前不引入。
+Only when "the hard part is the matching semantics itself" — role inheritance, domain isolation, ABAC expressions, loading policies from a DB — does Casbin earn its place. Not before.
 
 ---
 
-## 四、设计模式定位
+## 4. Design pattern positioning
 
-权限编排不是一个单一模式，而是分层组合：
+Permission orchestration is not a single pattern but a layered composition:
 
-| 层 | 模式 | 作用 |
+| Layer | Pattern | Role |
 |---|---|---|
-| 运行时决策 | **责任链（Chain of Responsibility）** | 多个候选处理者按顺序，首个命中赢，后续短路 |
-| 单个处理者 | **策略（Strategy）** | 每个 policy 是「权限裁决」算法族的可互换实现 |
-| 组装 / 外部扩展 | **插件 / 微内核（Plugin / Microkernel）** | 极简内核 + 明确扩展点 + 可插拔的 policy |
-| 落地辅助 | **注册表（Registry）+ 工厂（Factory）** | 收集插件；按 (agent, mode) 现场组装链 |
+| Runtime decision | **Chain of Responsibility** | multiple candidate handlers in order, first hit wins, rest short-circuit |
+| Single handler | **Strategy** | each policy is an interchangeable implementation of the "permission adjudication" algorithm family |
+| Assembly / external extension | **Plugin / Microkernel** | minimal kernel + explicit extension points + pluggable policies |
+| Implementation support | **Registry + Factory** | collect plugins; assemble chains on the spot per (agent, mode) |
 
-与 Casbin 的范式对比：
+Paradigm comparison with Casbin:
 
-- **Casbin = 单一 Strategy + 数据驱动**：所有决策走同一个 matcher 表达式，差异压成 policy rows（数据）。
-- **本方案 = 多 Strategy + 责任链组合**：每个 policy 是独立策略，差异靠代码，靠责任链组装。
+- **Casbin = single Strategy + data-driven**: all decisions go through the same matcher expression, differences are compressed into policy rows (data).
+- **This design = multiple Strategies + chain composition**: each policy is an independent strategy, differences live in code, assembled by the chain.
 
-行为密集型系统必须选后者——行为无法压成数据行。
+Behavior-intensive systems must choose the latter — behavior cannot be compressed into data rows.
 
 ---
 
-## 五、目标方案
+## 5. Target design
 
-### 5.1 核心原则
+### 5.1 Core principles
 
-1. **链编码「权限维度」，不编码「工具」**。新增工具不延长链；只有新增维度才加节点。
-2. **两条贡献路径**：高频琐碎的具体内容走**数据路径**（规则）；低频有行为的新维度走**代码路径**（policy）。
-3. **guard/review 下链，风险上链**：Harness 约束与产物审批以 executor hook 挂在 owning domain（见 5.4）；domain 贡献的**风险**维度才在 DI 中自注册 policy，镜像 v2 已有的「domain 自注册工具」。
-4. **工具声明资源，通用维度消费**：bash/write/read 等只声明 `accesses`，文件/安全维度集中判断。
+1. **The chain encodes "permission dimensions", not "tools".** New tools don't lengthen the chain; only new dimensions add nodes.
+2. **Two contribution paths**: high-frequency trivial concrete content goes the **data path** (rules); low-frequency behavioral new dimensions go the **code path** (policies).
+3. **Guards/reviews off the chain, risk onto the chain**: Harness constraints and artifact approvals hang on their owning domains as executor hooks (see 5.4); domain-contributed **risk** dimensions self-register policies in DI, mirroring v2's existing "domain self-registers tools".
+4. **Tools declare resources, generic dimensions consume**: bash/write/read etc. only declare `accesses`; file/security dimensions judge centrally.
 
-### 5.2 核心抽象
+### 5.2 Core abstractions
 
 ```ts
 type Phase =
@@ -171,19 +171,19 @@ type Phase =
 interface PermissionPolicyEntry {
   name: string;
   phase: Phase;
-  modes?: PermissionMode[];        // 声明在哪些 mode 生效（不再在 evaluate 里 if）
+  modes?: PermissionMode[];        // declares which modes it applies to (no more if in evaluate)
   agentTypes?: AgentType[];
   factory: (accessor: ServicesAccessor) => PermissionPolicy;
 }
 
-// App scope —— 收集所有 domain 的注册
+// App scope — collects registrations from all domains
 interface IPermissionPolicyRegistry {
   register(entry: PermissionPolicyEntry): IDisposable;
   list(): readonly PermissionPolicyEntry[];
 }
 ```
 
-`PermissionPolicyService`（Agent scope）从硬编码列表改为「按 (agent, mode) 组装」：
+`PermissionPolicyService` (Agent scope) changes from a hardcoded list to "assemble per (agent, mode)":
 
 ```ts
 this.policies = registry.list()
@@ -193,49 +193,49 @@ this.policies = registry.list()
   .map(e => e.factory(accessor));
 ```
 
-要点：
+Key points:
 
-- `modes`/`agentTypes` 是**声明**，把现在 `YoloModeApprove` 里的 `if (mode !== 'yolo') return` 提到元数据。
-- `factory` 而非 `instance`：节点可能依赖 agent-scoped 服务（mode、rules），需在 Agent scope 实例化——对称 `IToolDefinitionRegistry`(App) 存 factory、`IToolService`(Agent) 实例化工具。
-- **不同 (agent, mode) 产出形状不同的链**：yolo 下 ask/fallback 阶段被物理过滤掉。
+- `modes`/`agentTypes` are **declarations**, lifting the `if (mode !== 'yolo') return` in today's `YoloModeApprove` into metadata.
+- `factory` rather than `instance`: nodes may depend on agent-scoped services (mode, rules) and need instantiation at Agent scope — symmetric to `IToolDefinitionRegistry`(App) storing factories and `IToolService`(Agent) instantiating tools.
+- **Different (agent, mode) produce differently shaped chains**: under yolo, the ask/fallback phases are physically filtered out.
 
-### 5.3 两条贡献路径
+### 5.3 Two contribution paths
 
-| 新增的是…… | 路径 | 链长变化 |
+| What's new… | Path | Chain length change |
 |---|---|---|
-| 新工具、新组织规则、新用户偏好（"禁 `Bash(curl *)`"） | **数据路径**：往现有节点塞一条 `PermissionRule` | 不变 |
-| 新横切行为（自定义审批 UI、审计日志、新 mode） | **代码路径**：注册一个新 policy 节点 | +1 |
+| New tool, new org rule, new user preference ("ban `Bash(curl *)`") | **Data path**: add a `PermissionRule` to an existing node | unchanged |
+| New cross-cutting behavior (custom approval UI, audit logs, new mode) | **Code path**: register a new policy node | +1 |
 
-绝大部分增长走数据路径——节点数被「行为种类」约束，规则数才随具体情况增长（规则匹配是廉价的 Set/glob）。
+The vast majority of growth goes the data path — node count is bounded by "behavior kinds", while rule count grows with concrete situations (rule matching is a cheap Set/glob).
 
-### 5.4 Domain 维度：guard/review 走 executor veto 事件，风险维度走链注册
+### 5.4 Domain dimensions: guards/reviews via executor veto events, risk dimensions via chain registration
 
-**Harness 约束与产物审批不再上链。** 拥有它们的 domain 注册一个 `onBeforeExecuteTool` veto 监听器，通过事件对象自行裁决：
+**Harness constraints and artifact approvals no longer go on the chain.** The owning domain registers an `onBeforeExecuteTool` veto listener and adjudicates through the event object:
 
 ```ts
-// src/plan/planService.ts —— 构造函数
+// src/plan/planService.ts — constructor
 constructor(@IAgentToolExecutorService executor, ...) {
   executor.onBeforeExecuteTool((event) => this.guardToolExecution(event));
 }
 ```
 
-- veto 事件没有 id、没有排序契约。监听器用 `event.veto(result)`（先到先得，终止裁决）、`event.allow()`（终局放行，终止包括 permission gate 自己在内的一切后续表态）、`event.pass(metadata)`（留痕放行，不终止他人表态）或 `event.waitUntil(factory)`（申报需要等外部输入的挂起裁决）表态。
-- **guard（硬 deny）**：`event.veto(denyToolExecution(toolApproval.formatDenyMessage(...)))`。即时 veto 会压制所有待履行的 `waitUntil` factory——deny 之前绝不可能先弹出别人的审批。
-- **review（产物审批）**：拦截自家工具，`event.waitUntil(() => ...requestToolApproval(event, ask, origin))`。factory 是 cold 的——executor 只会在所有监听器都跑完且无人 veto/allow 后才履行它，所以 review 的 Interaction 只可能在调用已经确定要继续时发出；不审批的情形一律不表态，让用户规则继续生效。
-- **纯放行**：不要随便 `allow()`——把工具加进 `default-tool-approve` 白名单，保住用户 deny/ask 规则的优先权；`allow()` 留给 plan 文件写 guard 这种必须绕过整条权限链的场景。
+- Veto events have no ids and no ordering contract. Listeners speak via `event.veto(result)` (first come first served, terminates adjudication), `event.allow()` (final allow, terminates all further statements including the permission gate itself), `event.pass(metadata)` (allow with a trace, does not terminate others' statements), or `event.waitUntil(factory)` (declares a pending adjudication that needs external input).
+- **Guard (hard deny)**: `event.veto(denyToolExecution(toolApproval.formatDenyMessage(...)))`. An immediate veto suppresses all pending `waitUntil` factories — a deny can never be preceded by someone else's approval popup.
+- **Review (artifact approval)**: intercept own tools, `event.waitUntil(() => ...requestToolApproval(event, ask, origin))`. The factory is cold — the executor only fulfills it after all listeners have run and nobody vetoed/allowed, so a review Interaction can only be emitted once the call is confirmed to proceed; when no approval is needed, stay silent and let user rules keep working.
+- **Pure allow**: don't `allow()` casually — add the tool to the `default-tool-approve` whitelist to preserve the priority of user deny/ask rules; reserve `allow()` for scenarios that must bypass the whole permission chain, like the plan-file write guard.
 
-**domain 贡献的风险维度仍走链**（下面的注册表路径）：domain 状态会改变*危险度*结论的，经 `IPermissionPolicyRegistry` 自注册 policy，镜像 v2 里「domain 在构造函数中 `toolRegistry.register(...)`」的现成做法。复杂 domain 可对外只注册**一个复合节点**（Composite），内部跑小链，避免泄漏内部顺序到全局。
+**Domain-contributed risk dimensions still go on the chain** (the registry path below): domains whose state changes the *danger* conclusion self-register policies via `IPermissionPolicyRegistry`, mirroring v2's existing "domain calls `toolRegistry.register(...)` in its constructor" practice. Complex domains may register only **one composite node** (Composite) externally, running a small internal chain, to avoid leaking internal ordering into the global chain.
 
-### 5.5 工具运行时声明资源（`resolveExecution` / `accesses`）
+### 5.5 Tools declare resources at runtime (`resolveExecution` / `accesses`)
 
-工具在 `resolveExecution(input)` 里、执行前，用 `ToolAccesses.*` builder 声明访问的资源：
+Tools declare the resources they access in `resolveExecution(input)`, before execution, using the `ToolAccesses.*` builders:
 
 ```ts
 // v1: packages/agent-core/src/tools/builtin/file/write.ts (removed with the v1 engine)
 resolveExecution(args: WriteInput): ToolExecution {
   const path = resolvePathAccessPath(args.path, { kaos, workspace, operation: 'write' });
   return {
-    accesses: ToolAccesses.writeFile(path),            // 声明：写这个文件
+    accesses: ToolAccesses.writeFile(path),            // declares: writing this file
     approvalRule: literalRulePattern(this.name, path),
     matchesRule: (ruleArgs) => matchesPathRuleSubject(ruleArgs, path, ...),
     execute: () => this.execution(args, path),
@@ -243,22 +243,22 @@ resolveExecution(args: WriteInput): ToolExecution {
 }
 ```
 
-`ToolAccesses` 目前两类资源：
+`ToolAccesses` currently has two resource kinds:
 
 ```ts
 type ToolResourceAccess =
   | { kind: 'file'; operation: 'read'|'write'|'readwrite'|'search'; path: string; recursive?: boolean }
-  | { kind: 'all' };   // 无法枚举的副作用（悲观、全局排他）
+  | { kind: 'all' };   // side effects that cannot be enumerated (pessimistic, globally exclusive)
 ```
 
-**两条互补通道**：
+**Two complementary channels**:
 
-- **能枚举资源的**（write/read/edit/grep/glob）→ 用 `accesses`，通用文件维度自动覆盖。
-- **不能枚举资源的**（bash 跑任意命令）→ 不声明 `accesses`，改用 `matchesRule` DSL（如 `Bash(rm *)` 按命令串 glob）。
+- **Enumerable resources** (write/read/edit/grep/glob) → use `accesses`; generic file dimensions cover them automatically.
+- **Non-enumerable resources** (bash running arbitrary commands) → don't declare `accesses`; use the `matchesRule` DSL instead (e.g. `Bash(rm *)` globs the command string).
 
-**kaos 的定位**：kaos 是执行环境抽象（fs/process/pathClass），供文件维度做路径归一化与判断，**不是权限维度抽象本身**。权限语义在 kaos 之上的「文件访问」层。
+**kaos's role**: kaos is the execution-environment abstraction (fs/process/pathClass) that file dimensions use for path normalization and judgment — **not a permission-dimension abstraction itself**. Permission semantics live in the "file access" layer above kaos.
 
-**v2 演进方向**：扩展 `ToolResourceAccess` 联合类型，让非文件资源也能结构化声明：
+**v2 evolution direction**: extend the `ToolResourceAccess` union so non-file resources can also be declared structurally:
 
 ```ts
 type ToolResourceAccess =
@@ -269,67 +269,67 @@ type ToolResourceAccess =
   | { kind: 'all' };
 ```
 
-每新增一种资源类型，可对应加一个通用维度消费它；工具侧始终只负责**声明**。
+Each new resource kind can get a generic dimension consuming it; the tool side always only **declares**.
 
-### 5.6 维度归属
+### 5.6 Dimension ownership
 
-| 维度 | 拥有者 | 类型 |
+| Dimension | Owner | Type |
 |---|---|---|
-| 外部钩子否决 | `externalHooks` domain | 通用 |
-| 工具批量排他 | `swarm` domain —— `onBeforeExecuteTool` veto 监听器 | Harness 约束（链外） |
-| Plan 写守卫 | `plan` domain —— `onBeforeExecuteTool` veto 监听器 | Harness 约束（链外） |
-| Plan 审批 | `plan` domain —— 同监听器的 `waitUntil` + `toolApproval` | 产物审批（链外） |
-| Goal 启动审批 | `goal` domain —— veto 监听器的 `waitUntil` + `toolApproval` | 产物审批（链外） |
-| Goal 预算/过期拒绝 | `goal` domain —— `onBeforeExecuteTool` veto 监听器 | Harness 约束（链外） |
-| btw 禁工具 | `btw` domain —— fork 上的 veto 监听器 | Harness 约束（链外） |
-| 运行模式姿态（auto/yolo） | `permissionMode` domain（链节点，待「档位 × 路由」拆分） | 通用 |
-| 静态配置规则 | `permissionRules` domain | 通用（数据路径） |
-| 会话批准记忆 | `permissionRules` domain | 通用 |
-| 敏感/特殊路径 | 通用「文件访问/安全」维度 | 通用（消费 `accesses`） |
-| 工具内在风险 | 核心 permission（`default-tool-approve`） | 通用（消费工具声明） |
-| 工作区写信任 | 通用「文件访问/安全」维度 | 通用（消费 `accesses`） |
-| 兜底 | 核心 permission | 通用 |
-| 审批往返 | `toolApproval` domain —— 供 gate 的 ask 与各域 review 共用 | 基础设施 |
+| External hook veto | `externalHooks` domain | generic |
+| Tool batch exclusivity | `swarm` domain — `onBeforeExecuteTool` veto listener | Harness constraint (off-chain) |
+| Plan write guard | `plan` domain — `onBeforeExecuteTool` veto listener | Harness constraint (off-chain) |
+| Plan approval | `plan` domain — same listener's `waitUntil` + `toolApproval` | artifact approval (off-chain) |
+| Goal start approval | `goal` domain — veto listener's `waitUntil` + `toolApproval` | artifact approval (off-chain) |
+| Goal budget/expiry rejection | `goal` domain — `onBeforeExecuteTool` veto listener | Harness constraint (off-chain) |
+| btw tool prohibition | `btw` domain — veto listener on the fork | Harness constraint (off-chain) |
+| Run-mode posture (auto/yolo) | `permissionMode` domain (chain node, pending "tier × routing" split) | generic |
+| Static config rules | `permissionRules` domain | generic (data path) |
+| Session approval memory | `permissionRules` domain | generic |
+| Sensitive/special paths | generic "file access/security" dimension | generic (consumes `accesses`) |
+| Intrinsic tool risk | core permission (`default-tool-approve`) | generic (consumes tool declarations) |
+| Workspace write trust | generic "file access/security" dimension | generic (consumes `accesses`) |
+| Fallback | core permission | generic |
+| Approval round-trip | `toolApproval` domain — shared by the gate's ask and each domain's review | infrastructure |
 
-规律：**Harness 约束与产物审批跟着 owning domain 走 `onBeforeExecuteTool` veto 监听器；风险维度以 policy 上链（注册表落地后自注册）；通用维度集中注册，靠工具声明的 `accesses` 跨工具生效。**
+Pattern: **Harness constraints and artifact approvals follow the owning domain via `onBeforeExecuteTool` veto listeners; risk dimensions go on the chain as policies (self-registered once the registry lands); generic dimensions register centrally and take effect across tools via the `accesses` tools declare.**
 
 ---
 
-## 六、现状 vs 方案 对比
+## 6. Current state vs. target design
 
-| 方面 | 现状（v1） | 目标方案 |
+| Aspect | Current (v1) | Target design |
 |---|---|---|
-| 链的构造 | `policies/index.ts` 硬编码 19 个 `new` | `IPermissionPolicyRegistry` 收集，`compose(agent, mode)` 组装 |
-| mode 处理 | policy 内部 `if (mode !== 'x') return` | 声明式 `modes` 元数据，compose 时过滤 |
-| 按 agent 区分 | 散落 `agent.type === 'sub'` | 声明式 `agentTypes` 元数据 |
-| 外部扩展 | 仅 `PreToolUse` hook 一个固定槽 | 注册表开放注册 policy（代码）+ rule（数据） |
-| Domain 维度 | 集中在核心文件 | guard/review 走 domain 自带 `onBeforeExecuteTool` veto 监听器；风险维度走 domain 自注册 policy |
-| 工具维度 | 工具声明 `accesses`，维度集中 | 不变，扩展 `ToolResourceAccess` 资源类型 |
-| 决策行为 | 续体 + 副作用（已具备） | 不变（这是必须保留的核心能力） |
-| 运行时性能 | 顺序链 + 短路 | 不变；节点增多时可加工具名索引优化 |
+| Chain construction | `policies/index.ts` hardcodes 19 `new`s | `IPermissionPolicyRegistry` collects; `compose(agent, mode)` assembles |
+| Mode handling | `if (mode !== 'x') return` inside policies | declarative `modes` metadata, filtered at compose |
+| Per-agent distinction | scattered `agent.type === 'sub'` | declarative `agentTypes` metadata |
+| External extension | only the `PreToolUse` hook, one fixed slot | registry open for policy (code) + rule (data) registration |
+| Domain dimensions | centralized in core files | guards/reviews via domain-owned `onBeforeExecuteTool` veto listeners; risk dimensions via domain self-registered policies |
+| Tool dimensions | tools declare `accesses`, dimensions centralized | unchanged; extend `ToolResourceAccess` resource kinds |
+| Decision behavior | continuations + side effects (already present) | unchanged (core capability that must be preserved) |
+| Runtime performance | ordered chain + short-circuit | unchanged; tool-name index optimization possible when nodes grow |
 
-**不变的**：责任链内核、首个命中赢、`PermissionPolicyResult` 行为包、`resolveExecution`/`accesses` 机制。
+**Unchanged**: the chain-of-responsibility kernel, first-hit-wins, the `PermissionPolicyResult` behavior package, the `resolveExecution`/`accesses` mechanism.
 
-**改变的**：链从「硬编码列表」变成「注册表 + 工厂组装」；mode/agent 从「内部 if」变成「声明式元数据」；维度归属从「核心集中」变成「domain 自注册」。
-
----
-
-## 七、演进路径
-
-渐进式，避免一步到位：
-
-1. ~~**Domain 维度下沉**~~（已完成）。plan guard/review、goal-start review、swarm 批量排他、btw deny-all 已从链上移出，以 `onBeforeExecuteTool` veto 监听器挂在各自 domain（即时 `veto`/`allow`/`pass` 表态 + cold `waitUntil` factory 承载审批往返）；审批往返提取为共享的 `IAgentToolApprovalService`；`registerPolicy` 机制删除（btw 是唯一生产用例）。链上只剩 12 个危险度判定节点。
-2. **档位 × 路由拆分**。把「危险度档位」（只读/读写/yolo——`yolo-mode-approve` 的实质）与「交互路由」（`auto-mode-approve` / `auto-mode-ask-user-question-deny` 的实质：不经用户地路由 ask 与 review）拆开；路由层落在 `session/approval` broker 上，剩余 3 个 mode policy 在此步离开链。
-3. **注册表 + Composer（行为零变化）**。把 `PermissionPolicyService` 构造函数里硬编码的 `new`，改为从 `IPermissionPolicyRegistry` 读取并组装；mode 守门提升为 `modes` 元数据。获得多 agent/mode 可选链与外部注册入口。
-4. **第四步（按需）：扩展资源类型**。当非文件资源（网络/DB/shell）需要结构化维度时，扩展 `ToolResourceAccess` 联合。
-5. **第五步（按需）：匹配内核换 Casbin**。仅当外部规则真的需要 RBAC/ABAC 语义时，把数据路径的规则匹配内核换成 Casbin。不到此步不引。
+**Changed**: the chain goes from "hardcoded list" to "registry + factory assembly"; mode/agent go from "internal if" to "declarative metadata"; dimension ownership goes from "centralized in core" to "domain self-registration".
 
 ---
 
-## 八、待决问题
+## 7. Evolution path
 
-1. **Composite 节点的边界**：哪些 domain 内部用复合节点（隐藏子顺序），哪些直接注册多个 phase 节点？
-2. **同 phase 多节点的排序**：注册顺序是否足够，还是需要显式 `order` 逃生舱？
-3. **`ToolResourceAccess` 扩展节奏**：哪些非文件资源优先纳入（shell / network / datastore）？
-4. **v1 → v2 迁移时机**：v2 权限子系统目前是 v1 类型/逻辑的薄包装，何时把 `accesses`、`PermissionPolicyResult` 等提升为正式 v2 类型？
-5. **运行时性能阈值**：节点数达到多少时引入工具名索引（`byTool` 分派）优化？当前 12 个节点、首个命中短路，远未触及。
+Incremental, avoiding a big bang:
+
+1. ~~**Domain dimensions moved off the chain**~~ (done). plan guard/review, goal-start review, swarm batch exclusivity, and btw deny-all have been moved off the chain onto `onBeforeExecuteTool` veto listeners in their respective domains (immediate `veto`/`allow`/`pass` statements + cold `waitUntil` factories carrying approval round-trips); the approval round-trip was extracted into the shared `IAgentToolApprovalService`; the `registerPolicy` mechanism was removed (btw was its only production use). Only 12 danger-adjudication nodes remain on the chain.
+2. **Tier × routing split**. Split "danger tier" (read-only/read-write/yolo — the substance of `yolo-mode-approve`) from "interaction routing" (the substance of `auto-mode-approve` / `auto-mode-ask-user-question-deny`: routing ask and review without the user); the routing layer lands on the `session/approval` broker, and the remaining 3 mode policies leave the chain in this step.
+3. **Registry + Composer (zero behavior change)**. Replace the hardcoded `new`s in `PermissionPolicyService`'s constructor with reads from `IPermissionPolicyRegistry` and assembly; mode gating is promoted to `modes` metadata. Gains multi-agent/mode selectable chains and an external registration entry point.
+4. **Step 4 (on demand): extend resource kinds**. When non-file resources (network/DB/shell) need structured dimensions, extend the `ToolResourceAccess` union.
+5. **Step 5 (on demand): swap the matching kernel for Casbin**. Only if external rules genuinely need RBAC/ABAC semantics, replace the data path's rule-matching kernel with Casbin. Not before.
+
+---
+
+## 8. Open questions
+
+1. **Composite node boundaries**: which domains use composite nodes internally (hiding sub-order), which register multiple phase nodes directly?
+2. **Ordering of multiple nodes in the same phase**: is registration order enough, or is an explicit `order` escape hatch needed?
+3. **`ToolResourceAccess` extension cadence**: which non-file resources get priority (shell / network / datastore)?
+4. **v1 → v2 migration timing**: the v2 permission subsystem is currently a thin wrapper over v1 types/logic; when should `accesses`, `PermissionPolicyResult` etc. be promoted to first-class v2 types?
+5. **Runtime performance threshold**: at how many nodes should a tool-name index (`byTool` dispatch) optimization be introduced? The current 12 nodes with first-hit short-circuit are far from it.

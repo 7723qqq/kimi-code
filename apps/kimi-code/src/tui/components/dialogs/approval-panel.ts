@@ -14,6 +14,7 @@ import {
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
+  type TuiClickEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
@@ -229,18 +230,26 @@ export class ApprovalPanelComponent extends Container implements Focusable {
   private readonly onOpenPreview:
     | ((block: DiffDisplayBlock | FileContentDisplayBlock) => void)
     | undefined;
+  /** Fired when the hovered option changes (host triggers re-render). */
+  private readonly onHoverNotify: (() => void) | undefined;
+  /** Rendered row → choice index, for mouse hit-testing. */
+  private optionRows = new Map<number, number>();
+  /** Option index currently under the pointer, for hover highlight. */
+  private hoveredOption: number | undefined;
 
   constructor(
     request: PendingApproval,
     onResponse: (response: ApprovalPanelResponse) => void,
     onToggleToolOutput?: () => void,
     onOpenPreview?: (block: DiffDisplayBlock | FileContentDisplayBlock) => void,
+    onHoverNotify?: () => void,
   ) {
     super();
     this.request = request;
     this.onResponse = onResponse;
     this.onToggleToolOutput = onToggleToolOutput;
     this.onOpenPreview = onOpenPreview;
+    this.onHoverNotify = onHoverNotify;
     this.feedbackInput.onSubmit = (value) => {
       this.submit(this.selectedIndex, value);
     };
@@ -330,6 +339,21 @@ export class ApprovalPanelComponent extends Container implements Focusable {
     }
   }
 
+  /** Clicking a numbered option submits it. */
+  handleClick(event: TuiClickEvent): void {
+    const index = this.optionRows.get(event.y);
+    if (index === undefined) return;
+    this.selectAndSubmit(index);
+  }
+
+  /** Highlight the option row under the pointer. */
+  onHoverChange(hovered: boolean, _x: number, y: number): void {
+    const option = hovered ? this.optionRows.get(y) : undefined;
+    if (option === this.hoveredOption) return;
+    this.hoveredOption = option;
+    this.onHoverNotify?.();
+  }
+
   override render(width: number): string[] {
     this.clear();
     this.ensureValidSelection();
@@ -374,6 +398,7 @@ export class ApprovalPanelComponent extends Container implements Focusable {
     }
 
     lines.push('');
+    this.optionRows.clear();
     for (let idx = 0; idx < data.choices.length; idx++) {
       const option = data.choices[idx];
       if (option === undefined) continue;
@@ -381,12 +406,20 @@ export class ApprovalPanelComponent extends Container implements Focusable {
       const num = idx + 1;
 
       const labelWithNum = `${String(num)}. ${option.label}`;
+      const buttonText = `[ ${labelWithNum} ]`;
+      this.optionRows.set(lines.length, idx);
+      const isHovered = idx === this.hoveredOption;
       if (this.feedbackMode && option.requires_feedback === true && isSelected) {
         lines.push(indent(this.renderInlineFeedbackLine(width - 2, labelWithNum)));
+      } else if (isHovered && !isSelected) {
+        // Hover highlight: filled accent background.
+        lines.push(
+          indent(`  ${currentTheme.bg('accent', currentTheme.fg('text', ` ${buttonText} `))}`),
+        );
       } else if (isSelected) {
-        lines.push(indent(`${selectColorBold('▶')} ${selectColorBold(labelWithNum)}`));
+        lines.push(indent(`${selectColorBold('▶')} ${selectColorBold(buttonText)}`));
       } else {
-        lines.push(indent(strong(`  ${labelWithNum}`)));
+        lines.push(indent(strong(`  ${buttonText}`)));
       }
 
       // Optional helper text under the label, aligned past the pointer/number.

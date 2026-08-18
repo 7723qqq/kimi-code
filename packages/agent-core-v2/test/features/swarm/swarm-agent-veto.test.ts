@@ -10,12 +10,12 @@ import { t, setLocale } from '@moonshot-ai/kimi-i18n';
  *
  * | Swarm State | Tool           | Expected      | Case ID |
  * |-------------|----------------|---------------|---------|
- * | active      | Agent          | 鉂?VETO       | 1, 5    |
- * | inactive    | Agent          | 鉁?pass-through| 2       |
- * | exited      | Agent          | 鉁?pass-through| 3       |
- * | active      | Read (other)   | 鉁?pass-through| 4       |
- * | active      | AgentSwarm     | 鉁?pass-through| 6       |
- * | active      | Agent + mixed  | 鉂?VETO       | 5       |
+ * | active      | Agent          | ✗VETO       | 1, 5    |
+ * | inactive    | Agent          | ✓pass-through| 2       |
+ * | exited      | Agent          | ✓pass-through| 3       |
+ * | active      | Read (other)   | ✓pass-through| 4       |
+ * | active      | AgentSwarm     | ✓pass-through| 6       |
+ * | active      | Agent + mixed  | ✗VETO       | 5       |
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
@@ -54,7 +54,7 @@ import {
 } from '../../agent/toolExecutor/stubs';
 import { registerTestAgentWire, testWireScope } from '../../wire/stubs';
 
-// 鈹€鈹€ Helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 const signal = new AbortController().signal;
 
@@ -97,7 +97,7 @@ function expectedVetoShape(): { veto: { output: string; isError: boolean } } {
   };
 }
 
-// 鈹€鈹€ Test Suite 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ── Test Suite ─────────────────────────────────────────────────────────────
 
 describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
   let disposables: DisposableStore;
@@ -162,9 +162,9 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
     return executorEvents.fireBeforeExecute(ctx);
   }
 
-  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+  // ════════════════════════════════════
   // Core veto behavior
-  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+  // ════════════════════════════════════
 
   describe('core veto behavior', () => {
     it('vetoes the Agent tool while swarm mode is active', async () => {
@@ -208,7 +208,7 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
     it('allows the Agent tool after re-entering and exiting again (idempotency)', async () => {
       const swarm = ix.get(IAgentSwarmService);
 
-      // Cycle: active 鈫?exit 鈫?active 鈫?exit 鈫?verify Agent is allowed
+      // Cycle: active →exit →active →exit →verify Agent is allowed
       swarm.enter('task');
       swarm.exit();
       swarm.enter('tool');
@@ -221,9 +221,9 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
     });
   });
 
-  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+  // ════════════════════════════════════
   // Non-target tools are not affected
-  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+  // ════════════════════════════════════
 
   describe('non-target tools pass through in swarm mode', () => {
     it('does not veto Read in swarm mode', async () => {
@@ -259,16 +259,16 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
     });
   });
 
-  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+  // ════════════════════════════════════
   // Edge cases
-  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+  // ════════════════════════════════════
 
   describe('edge cases', () => {
     it('vetoes Agent even when batched with other tools (Agent is adjudicating)', async () => {
       const swarm = ix.get(IAgentSwarmService);
       swarm.enter('manual');
 
-      // Agent is toolCalls[0] 鈫?the one being adjudicated
+      // Agent is toolCalls[0] →the one being adjudicated
       const decision = await fire(
         makeHookContext([makeToolCall('Agent', 'call_agent'), makeToolCall('Read', 'call_read')]),
       );

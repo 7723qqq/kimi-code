@@ -370,7 +370,7 @@ function AssistantMessage({
               )}
             </div>
 
-            {/* 内嵌错误显示 */}
+            {/* Inline error display */}
             {isShowingInlineError && message.inlineError && (
               <div className="@[420px]:pl-5">
                 <InlineError error={message.inlineError} />

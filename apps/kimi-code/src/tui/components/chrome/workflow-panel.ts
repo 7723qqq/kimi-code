@@ -16,7 +16,7 @@
  *   ⊘ (dim)    →  cancelled
  */
 
-import type { Component } from '@moonshot-ai/pi-tui';
+import type { Component, TuiClickEvent } from '@moonshot-ai/pi-tui';
 import { truncateToWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
@@ -41,6 +41,12 @@ export const MAX_VISIBLE_RUNS = 5;
 export class WorkflowPanelComponent implements Component {
   private runs: readonly WorkflowRunData[] = [];
   private expanded = false;
+  private onToggle: (() => void) | undefined;
+
+  /** Register a callback fired after a mouse click toggles expansion. */
+  setOnToggle(callback: () => void): void {
+    this.onToggle = callback;
+  }
 
   setRuns(runs: readonly WorkflowRunData[]): void {
     this.runs = runs.map((r) => ({ ...r }));
@@ -65,6 +71,12 @@ export class WorkflowPanelComponent implements Component {
 
   toggleExpanded(): void {
     this.expanded = !this.expanded;
+  }
+
+  /** Clicking the panel toggles expansion. */
+  handleClick(_event: TuiClickEvent): void {
+    this.toggleExpanded();
+    this.onToggle?.();
   }
 
   invalidate(): void {}

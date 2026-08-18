@@ -49,7 +49,11 @@ export class AgentGroupComponent extends Container {
   private lastFlushPhases = new Map<string, ToolCallSubagentSnapshot['phase']>();
   private _invalidating = false;
 
-  constructor(private readonly ui: TUI | undefined) {
+  constructor(
+    private readonly ui: TUI | undefined,
+    /** Fired on child snapshot changes (host refreshes the agent pane). */
+    private readonly onSnapshot?: () => void,
+  ) {
     super();
     this.addChild(new Spacer(1));
     this.headerText = new Text('', 0, 0);
@@ -83,6 +87,7 @@ export class AgentGroupComponent extends Container {
     this.entries.push({ toolCallId, tc });
     tc.setSnapshotListener(() => {
       this.scheduleRender();
+      this.onSnapshot?.();
     });
     this.flushRender();
   }

@@ -15,7 +15,27 @@ import {
 	type TerminalColorScheme,
 } from "./terminal-colors.ts";
 import { getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.ts";
-import { extractSegments, normalizeTerminalOutput, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.ts";
+import {
+	extractSegments,
+	getOsc8LinkAtColumn,
+	normalizeTerminalOutput,
+	sliceByColumn,
+	sliceWithWidth,
+	visibleWidth,
+} from "./utils.ts";
+
+/**
+ * A click delivered to a component via `Component.handleClick`.
+ * Coordinates are 0-based and relative to the component's own rendered area.
+ * pi-tui already resolved the press-and-release-on-same-cell semantics, so
+ * the component only needs to act on the click.
+ */
+export interface TuiClickEvent {
+	/** 0-based column relative to the component's left edge. */
+	x: number;
+	/** 0-based row relative to the component's top edge. */
+	y: number;
+}
 
 /**
  * Component interface - all components must implement this
@@ -32,6 +52,21 @@ export interface Component {
 	 * Optional handler for keyboard input when component has focus
 	 */
 	handleInput?(data: string): void;
+
+	/**
+	 * Optional handler for mouse clicks. Called when a left-button click
+	 * (press and release on the same cell) lands on this component's rendered
+	 * area. Coordinates are relative to the component.
+	 */
+	handleClick?(event: TuiClickEvent): void;
+
+	/**
+	 * Optional handler for mouse hover state changes. Called with `true` when
+	 * the pointer enters the component's rendered area and `false` when it
+	 * leaves. `x`/`y` are the pointer position relative to the component, so
+	 * row/column-level hover (e.g. highlighting the hovered button) is possible.
+	 */
+	onHoverChange?(hovered: boolean, x: number, y: number): void;
 
 	/**
 	 * If true, component receives key release events (Kitty protocol).
@@ -337,6 +372,21 @@ export abstract class TuiBase extends Container implements TUI {
 	private focusedComponent: Component | null = null;
 	private inputListeners = new Set<TuiInputListener>();
 
+	// ── Mouse click support ────────────────────────────────────────────
+	/** Row ranges of mounted components from the last render, for hit-testing. */
+	private componentRowRanges = new Map<
+		Component,
+		{ start: number; end: number; parent?: Component; xOffset?: number }
+	>();
+	/** Last left-button press position (screen coords) for click detection. */
+	private mousePress: { x: number; y: number } | undefined;
+	/** Component currently under the pointer (for hover enter/leave notifications). */
+	private hoverComponent: Component | undefined;
+	/** Rendered lines of the last frame, for OSC8 link hit-testing. */
+	private lastRenderedLines: string[] = [];
+	/** Called when an OSC8 hyperlink is clicked (mouse capture takes over native activation). */
+	onOpenUrl: ((url: string) => void) | undefined;
+
 	/** Global callback for debug key (Shift+Ctrl+D). Called before input is forwarded to focused component. */
 	public onDebug?: () => void;
 	private renderRequested = false;
@@ -535,6 +585,47 @@ export abstract class TuiBase extends Container implements TUI {
 		return this.children;
 	}
 
+	override render(width: number): string[] {
+		// Record each mounted component's row range so mouse clicks can be
+		// hit-tested back to the component under the pointer.
+		this.componentRowRanges.clear();
+		const lines: string[] = [];
+		for (const child of this.children) {
+			const start = lines.length;
+			const childLines = child.render(width);
+			this.recordRowRanges(child, start, childLines.length, width);
+			for (const line of childLines) lines.push(line);
+		}
+		this.lastRenderedLines = lines;
+		return lines;
+	}
+
+	private recordRowRanges(
+		component: Component,
+		start: number,
+		totalLines: number,
+		width: number,
+		parent?: Component,
+		xOffset = 0,
+	): void {
+		this.componentRowRanges.set(component, { start, end: start + totalLines - 1, parent, xOffset });
+		// Recurse into any Container that has children. This covers the stock
+		// concatenating render, padded wrappers like GutterContainer (which
+		// overrides render but still concatenates child rows), and custom-render
+		// containers such as ToolCallComponent. Components that render
+		// independently (dialogs with no children) are hit-tested as a whole.
+		if (component instanceof Container && component.children.length > 0) {
+			const childXOffset =
+				xOffset + ((component as { getLeftPad?: () => number }).getLeftPad?.() ?? 0);
+			let row = start;
+			for (const child of component.children) {
+				const childLines = child.render(width);
+				this.recordRowRanges(child, row, childLines.length, width, component, childXOffset);
+				row += childLines.length;
+			}
+		}
+	}
+
 	private isComponentMounted(component: Component): boolean {
 		return this.getMountedRoots().some((child) => this.containsComponent(child, component));
 	}
@@ -707,6 +798,178 @@ export abstract class TuiBase extends Container implements TUI {
 		this.requestRender();
 	}
 
+	/** Enable SGR mouse capture: button events + motion (hover) + focus + SGR. */
+	protected enableMouseCapture(): void {
+		// 1000 basic, 1002 button-event, 1003 any-event (reports motion without
+		// a button pressed — required for hover), 1004 focus, 1006 SGR encoding.
+		this.terminal.write("\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1004h\x1b[?1006h");
+	}
+
+	/** Disable SGR mouse capture. */
+	protected disableMouseCapture(): void {
+		this.terminal.write("\x1b[?1006l\x1b[?1004l\x1b[?1002l\x1b[?1000l");
+	}
+
+	/** Parse an SGR mouse sequence into a screen-coordinate event. */
+	private parseSgrMouseEventBase(
+		data: string,
+	): { button: number; x: number; y: number; release: boolean } | undefined {
+		const match = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(data);
+		if (!match) return undefined;
+		return {
+			button: Number.parseInt(match[1]!, 10),
+			x: Number.parseInt(match[2]!, 10) - 1,
+			y: Number.parseInt(match[3]!, 10) - 1,
+			release: match[4] === "m",
+		};
+	}
+
+	/** Find the deepest mounted component whose rendered rows contain `row`. */
+	getComponentAt(row: number): Component | undefined {
+		let best: Component | undefined;
+		let bestDepth = -1;
+		for (const [component, range] of this.componentRowRanges) {
+			if (row >= range.start && row <= range.end) {
+				const depth = this.componentDepth(component);
+				if (depth > bestDepth) {
+					best = component;
+					bestDepth = depth;
+				}
+			}
+		}
+		return best;
+	}
+
+	private componentDepth(component: Component): number {
+		let depth = 0;
+		let current = this.componentRowRanges.get(component)?.parent;
+		while (current !== undefined) {
+			depth++;
+			current = this.componentRowRanges.get(current)?.parent;
+		}
+		return depth;
+	}
+
+	/**
+	 * Viewport top (content row of the first visible screen row). Main-screen
+	 * (scrollback) rendering scrolls content under a fixed viewport, so click
+	 * coordinates must be translated back to content rows before hit-testing.
+	 * Defaults to 0 for fixed-viewport TUIs.
+	 */
+	protected getViewportTop(): number {
+		return 0;
+	}
+
+	/**
+	 * Fallback wheel handler for app-owned viewports. Fullscreen mode routes
+	 * the wheel in its input listener (before this point); subclasses with a
+	 * scroll view but no listener override this. Default: no-op.
+	 */
+	protected handleWheelEvent(_x: number, _y: number, _direction: number): void {}
+
+	/** Route a click to the component under the pointer, if any. */
+	private handleClickEvent(x: number, y: number): boolean {
+		// Translate screen coordinates to content rows (main-screen scrollback
+		// rendering may have scrolled the content under the viewport).
+		const contentY = y + this.getViewportTop();
+		// Walk up from the leaf component under the pointer to the nearest
+		// ancestor that handles clicks (e.g. a header Text inside a
+		// clickable ToolCallComponent).
+		let component = this.getComponentAt(contentY);
+		while (component && !component.handleClick) {
+			component = this.componentRowRanges.get(component)?.parent;
+		}
+		if (!component?.handleClick) return false;
+		const range = this.componentRowRanges.get(component);
+		if (!range) return false;
+		component.handleClick({
+			x: x - (range.xOffset ?? 0),
+			y: contentY - range.start,
+		});
+		return true;
+	}
+
+	/**
+	 * Handle a raw input string that may be an SGR mouse sequence.
+	 * Returns true when the input was consumed as a mouse event.
+	 */
+	private handleMouseInput(data: string): boolean {
+		const event = this.parseSgrMouseEventBase(data);
+		if (!event) return false;
+		// Wheel events (bit 64) are not clicks. Route them to the app-owned
+		// scroll view when one exists (fullscreen mode handles the wheel in
+		// its input listener before this point; this hook is the fallback).
+		// The event is still consumed so the raw SGR sequence never reaches
+		// the focused component as keyboard input.
+		if ((event.button & 64) !== 0) {
+			this.handleWheelEvent(event.x, event.y, (event.button & 3) === 0 ? -1 : 1);
+			return true;
+		}
+		// Only left-button clicks (button 0) are routed to components.
+		if ((event.button & 3) !== 0) return true;
+		if (event.release) {
+			// A click is a press and release near the same cell without
+			// dragging. Tolerate ±1 cell of drift — real mice routinely land
+			// the press and release one cell apart, and an exact match makes
+			// clicks flaky.
+			if (
+				this.mousePress &&
+				Math.abs(this.mousePress.x - event.x) <= 1 &&
+				Math.abs(this.mousePress.y - event.y) <= 1
+			) {
+				this.mousePress = undefined;
+				// OSC8 hyperlink activation takes priority over component clicks.
+				if (this.onOpenUrl) {
+					const url = getOsc8LinkAtColumn(
+						this.lastRenderedLines[event.y + this.getViewportTop()] ?? '',
+						event.x,
+					);
+					if (url !== undefined) {
+						this.onOpenUrl(url);
+						return true;
+					}
+				}
+				this.handleClickEvent(event.x, event.y);
+			} else {
+				this.mousePress = undefined;
+			}
+			return true;
+		}
+		// Motion events (bit 32): update the hover component.
+		if ((event.button & 32) !== 0) {
+			this.updateHover(event.x, event.y);
+			return true;
+		}
+		// Press: record the position.
+		this.mousePress = { x: event.x, y: event.y };
+		this.updateHover(event.x, event.y);
+		return true;
+	}
+
+	/** Update hover state as the pointer moves over components. */
+	private updateHover(x: number, y: number): void {
+		const contentY = y + this.getViewportTop();
+		let component = this.getComponentAt(contentY);
+		while (component && !component.onHoverChange) {
+			component = this.componentRowRanges.get(component)?.parent;
+		}
+		const range = component ? this.componentRowRanges.get(component) : undefined;
+		const relX = range ? x - (range.xOffset ?? 0) : x;
+		const relY = range ? contentY - range.start : contentY;
+		if (component === this.hoverComponent) {
+			// Same component: notify with the new coordinates so row/column-level
+			// hover (e.g. the hovered button) can update, and re-render so the
+			// highlight follows the pointer.
+			component?.onHoverChange?.(true, relX, relY);
+			if (component) this.requestRender();
+			return;
+		}
+		this.hoverComponent?.onHoverChange?.(false, 0, 0);
+		this.hoverComponent = component;
+		component?.onHoverChange?.(true, relX, relY);
+		if (component) this.requestRender();
+	}
+
 	addInputListener(listener: TuiInputListener): () => void {
 		this.inputListeners.add(listener);
 		return () => {
@@ -842,6 +1105,13 @@ export abstract class TuiBase extends Container implements TUI {
 				return;
 			}
 			data = current;
+		}
+
+		// Mouse events: route clicks to the component under the pointer.
+		// Runs after input listeners so TuiAltScreen's scroll/selection/link
+		// handling keeps priority; only unconsumed clicks reach components.
+		if (this.handleMouseInput(data)) {
+			return;
 		}
 
 		// Consume terminal cell size responses without blocking unrelated input.

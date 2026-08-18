@@ -71,6 +71,12 @@ fn fetch_url_inner(config: &FetchUrlConfig) -> Result<FetchUrlResult, String> {
         .timeout_write(timeout)
         .redirects(0) // We handle redirects manually for per-hop SSRF checks
         .user_agent(&config.user_agent)
+        // Resolve through a validating resolver so the address ureq connects
+        // to is the same one that passed the SSRF check (closes the
+        // DNS-rebinding TOCTOU window).
+        .resolver(SsfrResolver {
+            allow_private: config.allow_private,
+        })
         .build();
 
     let mut redirects: u32 = 0;
@@ -153,6 +159,39 @@ fn fetch_url_inner(config: &FetchUrlConfig) -> Result<FetchUrlResult, String> {
 }
 
 // ── SSRF Protection ──────────────────────────────────────────────────────────
+
+/// Custom DNS resolver that re-validates every resolved address against the
+/// SSRF policy at connection time.
+///
+/// This closes the DNS-rebinding TOCTOU window: `validate_url` performs a
+/// pre-flight check for a fast, friendly error, but the actual connection is
+/// made through this resolver, so the address ureq connects to is the same one
+/// that was validated. Without it, ureq would re-resolve the hostname itself,
+/// and an attacker could pass validation with a public IP and then have the
+/// connection resolve to a private one.
+struct SsfrResolver {
+    allow_private: bool,
+}
+
+impl ureq::Resolver for SsfrResolver {
+    fn resolve(&self, netloc: &str) -> std::io::Result<Vec<std::net::SocketAddr>> {
+        let addrs: Vec<_> = netloc
+            .to_socket_addrs()
+            .map_err(|e| std::io::Error::other(format!("Cannot resolve {netloc}: {e}")))?
+            .collect();
+        if !self.allow_private {
+            for addr in &addrs {
+                if is_private_ip(addr.ip()) {
+                    return Err(std::io::Error::other(format!(
+                        "Refusing to connect to private address {}",
+                        addr.ip()
+                    )));
+                }
+            }
+        }
+        Ok(addrs)
+    }
+}
 
 fn validate_url(url_str: &str, allow_private: bool) -> Result<(), String> {
     let parsed = Url::parse(url_str).map_err(|e| format!("Invalid URL: {e}"))?;
@@ -423,6 +462,7 @@ fn clean_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ureq::Resolver;
 
     #[test]
     fn test_private_ipv4() {
@@ -471,6 +511,22 @@ mod tests {
     fn test_validate_url_allows_private_when_enabled() {
         assert!(validate_url("http://127.0.0.1/secret", true).is_ok());
         assert!(validate_url("http://192.168.1.1/router", true).is_ok());
+    }
+
+    #[test]
+    fn test_ssfr_resolver_rejects_private() {
+        let resolver = SsfrResolver { allow_private: false };
+        // IP literals resolve without DNS, so these are deterministic.
+        assert!(resolver.resolve("127.0.0.1:80").is_err());
+        assert!(resolver.resolve("10.0.0.1:80").is_err());
+        assert!(resolver.resolve("192.168.1.1:80").is_err());
+        assert!(resolver.resolve("8.8.8.8:80").is_ok());
+    }
+
+    #[test]
+    fn test_ssfr_resolver_allows_private_when_enabled() {
+        let resolver = SsfrResolver { allow_private: true };
+        assert!(resolver.resolve("127.0.0.1:80").is_ok());
     }
 
     #[test]

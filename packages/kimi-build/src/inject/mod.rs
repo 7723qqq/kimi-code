@@ -74,22 +74,24 @@ fn is_elf(data: &[u8]) -> bool {
 /// The last byte is '0' before injection, '1' after. This function finds
 /// the sentinel in the binary and flips the flag byte.
 pub fn set_sentinel_fuse_flag(output: &str) -> anyhow::Result<()> {
-    const SENTINEL_FUSE: &[u8] = b"NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
-
     let mut binary = std::fs::read(output)
         .map_err(|e| anyhow::anyhow!("Failed to read back '{}': {}", output, e))?;
 
-    let pos = binary
-        .windows(SENTINEL_FUSE.len())
-        .position(|window| window == SENTINEL_FUSE)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Sentinel fuse not found in '{}'. Is this a Node.js SEA-enabled binary?",
-                output
-            )
-        })?;
+    // Node.js embeds a sentinel fuse string "NODE_SEA_FUSE_<hash>:0" in its
+    // binary. The hash is version-specific, so match it dynamically (mirrors
+    // the TS side's `NODE_SEA_FUSE_[0-9a-f]+` regex) rather than hardcoding a
+    // single hash that would silently stop matching when upstream Node changes
+    // it. Use the bytes regex so `m.end()` is a byte offset into `binary`.
+    let sentinel_re = regex::bytes::Regex::new(r"NODE_SEA_FUSE_[0-9a-f]+")
+        .expect("static sentinel regex is valid");
+    let m = sentinel_re.find(&binary).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Sentinel fuse not found in '{}'. Is this a Node.js SEA-enabled binary?",
+            output
+        )
+    })?;
 
-    let colon_pos = pos + SENTINEL_FUSE.len();
+    let colon_pos = m.end();
     if colon_pos >= binary.len() || binary[colon_pos] != b':' {
         anyhow::bail!(
             "Expected ':' after sentinel fuse at offset {} in '{}', got byte {:02x}",

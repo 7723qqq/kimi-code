@@ -62,6 +62,12 @@ pub fn execute_loop_step<'a>(
 /// Takes owned `messages` and `tool_defs` so the future doesn't borrow
 /// from the caller's local scope — this avoids lifetime propagation
 /// issues when awaited inside an outer async block.
+///
+/// `tools` (the `&[&dyn ExecutableTool]` slice) is currently unused: tool
+/// execution is delegated to the host via `HostCallbacks::execute_tool`, and
+/// tool definitions are sent to the LLM via `tool_defs`. The parameter is
+/// kept as the reserved entry point for future in-process `ExecutableTool`
+/// execution.
 pub fn execute_loop_step_with_retry<'a>(
     _turn_id: &'a str,
     _step: u32,

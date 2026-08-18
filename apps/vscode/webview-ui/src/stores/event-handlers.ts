@@ -282,25 +282,25 @@ function isTaskToolResult(steps: UIStep[] | undefined, toolCallId: string): bool
 }
 
 function handlePreflightError(draft: ChatState, _code: string, _message: string): void {
-  // Pre-flight: 删除未发送成功的消息，恢复输入
+  // Pre-flight: remove the message that failed to send and restore the input
   addTokenUsage(draft.tokenUsage, draft.activeTokenUsage);
   draft.activeTokenUsage = createEmptyTokenUsage();
   draft.isStreaming = false;
   draft.isCompacting = false;
   useApprovalStore.getState().clearRequests();
 
-  // 删除空的 assistant 消息
+  // Remove the empty assistant message
   const lastAssistant = getLastAssistant(draft);
   if (lastAssistant && !hasContent(lastAssistant)) {
     draft.messages.pop();
   }
 
-  // 删除对应的 user 消息
+  // Remove the corresponding user message
   const lastUser = draft.messages.at(-1);
   if (lastUser?.role === 'user') {
     const userContent = lastUser.content;
     draft.messages.pop();
-    // 触发回滚（通过 pendingInput 保存）
+    // Trigger a rollback (saved via pendingInput)
     draft.pendingInput = { content: userContent, model: '' };
   }
 }
@@ -311,7 +311,7 @@ function handleRuntimeError(
   message: string,
   detail?: string,
 ): void {
-  // Runtime: 保留现场，添加内嵌错误
+  // Runtime: keep the current state and add an inline error
   addTokenUsage(draft.tokenUsage, draft.activeTokenUsage);
   draft.activeTokenUsage = createEmptyTokenUsage();
   draft.isStreaming = false;
@@ -320,18 +320,18 @@ function handleRuntimeError(
 
   const lastAssistant = getLastAssistant(draft);
   if (lastAssistant) {
-    // 如果完全没有内容，添加一个空的 step 以便显示错误
+    // If there is no content at all, add an empty step so the error can be displayed
     if (!lastAssistant.steps) {
       lastAssistant.steps = [];
     }
     finishAllTextItems(lastAssistant.steps);
-    // 设置内嵌错误，保留服务器原始错误信息
+    // Set the inline error, preserving the server's original error message
     lastAssistant.inlineError = { code, message, detail };
   }
 }
 
 const eventHandlers: Record<string, EventHandler> = {
-  // UI 事件 (Bridge 层)
+  // UI events (Bridge layer)
   session_start: (draft, payload: { sessionId: string; model?: string }) => {
     if (payload.sessionId) {
       draft.sessionId = payload.sessionId;
@@ -357,7 +357,7 @@ const eventHandlers: Record<string, EventHandler> = {
 
     if (code === 'UNKNOWN_EVENT_TYPE') {
       return;
-    } // 忽略未知事件类型错误，通常是版本不匹配导致
+    } // Ignore unknown event type errors, usually caused by a version mismatch
 
     if (phase === 'preflight') {
       handlePreflightError(draft, code, payload.message);
@@ -378,7 +378,7 @@ const eventHandlers: Record<string, EventHandler> = {
     }
   },
 
-  // Wire 事件
+  // Wire events
   TurnBegin: (draft, payload: TurnBegin & { forkable?: boolean }) => {
     draft.tokenUsage = createEmptyTokenUsage();
     draft.activeTokenUsage = createEmptyTokenUsage();

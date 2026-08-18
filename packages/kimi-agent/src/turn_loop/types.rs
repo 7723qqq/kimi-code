@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::rpc::types::TokenUsage;
+use crate::rpc::types::{Message, TokenUsage, ToolDef};
 
 pub use crate::rpc::types::ContentBlock;
 
@@ -81,6 +81,41 @@ pub struct ToolInfo {
     pub name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
+}
+
+/// Convert an RPC `Message` into the turn-loop `LLMMessage`. Shared by the
+/// stdio (`main.rs`) and napi (`napi_bindings.rs`) entry points so the
+/// mapping stays in one place.
+impl From<Message> for LLMMessage {
+    fn from(m: Message) -> Self {
+        LLMMessage {
+            role: m.role,
+            content: m.content,
+            blocks: m.blocks,
+            tool_calls: m
+                .tool_calls
+                .into_iter()
+                .map(|tc| ToolCall {
+                    id: tc.id,
+                    name: tc.name,
+                    arguments: tc.arguments,
+                })
+                .collect(),
+            tool_call_id: m.tool_call_id,
+        }
+    }
+}
+
+/// Convert an RPC `ToolDef` into the turn-loop `ToolInfo`. Shared by the
+/// stdio and napi entry points.
+impl From<ToolDef> for ToolInfo {
+    fn from(t: ToolDef) -> Self {
+        ToolInfo {
+            name: t.name,
+            description: t.description,
+            input_schema: t.input_schema,
+        }
+    }
 }
 
 /// The LLM's response to a chat call.

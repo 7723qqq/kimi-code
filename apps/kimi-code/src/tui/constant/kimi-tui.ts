@@ -31,6 +31,13 @@ export const EXIT_CONFIRM_WINDOW_MS = 1500;
 // presses far apart don't accidentally trigger undo.
 export const DOUBLE_ESC_WINDOW_MS = 600;
 
+/**
+ * How long the leader key (`ctrl+x`) stays armed waiting for a chord before
+ * cancelling. Long enough to read the which-key overlay, short enough that a
+ * stray `ctrl+x` doesn't swallow the next keystroke.
+ */
+export const LEADER_TIMEOUT_MS = 2000;
+
 /** Session picker page size: one backend keyset page and one picker window. */
 export const SESSION_LIST_PAGE_SIZE = 50;
 

@@ -1,5 +1,5 @@
 /**
- * Compatibility专项 — the local/local on-disk layout after the Workspace-domain
+ * Compatibility special — the local/local on-disk layout after the Workspace-domain
  * refactor is byte-identical to the pre-refactor one.
  *
  * Creates a session through the full server stack (workspace handler →

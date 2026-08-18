@@ -39,6 +39,8 @@ export interface CallPreviewContext {
   readonly currentPlan?: string;
   /** Plan path override captured from runtime events. */
   readonly planPath?: string;
+  /** Fired when a Bash command preview is clicked (host copies it). */
+  readonly onCopyCommand?: (command: string) => void;
 }
 
 /**
@@ -78,7 +80,7 @@ export function buildCallPreview(ctx: CallPreviewContext): Component[] {
     return buildEditPreview(toolCall, shouldCap);
   }
   if (name === 'Bash') {
-    return buildBashPreview(toolCall, expanded);
+    return buildBashPreview(toolCall, expanded, ctx.onCopyCommand);
   }
   return [];
 }
@@ -131,7 +133,11 @@ function buildEditPreview(toolCall: ToolCallBlockData, shouldCap: boolean): Comp
 
 // ── Bash preview ──
 
-function buildBashPreview(toolCall: ToolCallBlockData, expanded: boolean): Component[] {
+function buildBashPreview(
+  toolCall: ToolCallBlockData,
+  expanded: boolean,
+  onCopyCommand: ((command: string) => void) | undefined,
+): Component[] {
   const command = str(toolCall.args['command']);
   if (command.length === 0) return [];
   return [
@@ -139,6 +145,7 @@ function buildBashPreview(toolCall: ToolCallBlockData, expanded: boolean): Compo
       command,
       showCommand: true,
       commandPreviewLines: expanded ? undefined : COMMAND_PREVIEW_LINES,
+      onCopyCommand,
     }),
   ];
 }

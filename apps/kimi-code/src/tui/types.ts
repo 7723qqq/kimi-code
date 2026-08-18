@@ -60,18 +60,19 @@ export interface AppState {
   contextUsage: number;
   contextTokens: number;
   maxContextTokens: number;
-  /** 会话累计缓存命中输入 token（精确命中率 = read/(read+creation)）。 */
+  /** Session-cumulative cache-hit input tokens (exact hit rate = read/(read+creation)). */
   cacheReadTokens: number;
-  /** 会话累计缓存写入输入 token（即缓存未命中，cache_creation）。 */
+  /** Session-cumulative cache-write input tokens (i.e. cache misses, cache_creation). */
   cacheMissTokens: number;
   /**
-   * 会话累计普通（非缓存）输入 token，供缓存写入数据缺失时回退计算
-   * "命中占总输入比例"（否则 read/(read+0) 恒为 100%）。
+   * Session-cumulative plain (non-cache) input tokens, used as a fallback for
+   * the "hit share of total input" ratio when cache-write data is missing
+   * (otherwise read/(read+0) is always 100%).
    */
   cacheOtherTokens: number;
-  /** 最近一步的模型输出速度（tokens/秒）。 */
+  /** Model output speed of the most recent step (tokens/second). */
   tokenSpeed: number;
-  /** 会话级累计统计（轮次/步数/耗时/token），footer 第二行展示；TUI 生命周期内有效。 */
+  /** Session-level cumulative stats (turns/steps/elapsed/tokens), shown on the footer's second line; valid for the TUI lifetime. */
   sessionStats: SessionStats;
   isCompacting: boolean;
   isReplaying: boolean;
@@ -105,24 +106,25 @@ export interface AppState {
 }
 
 /**
- * 会话级累计统计，供 footer 第二行展示。
- * 数据来自 `turn.started` / `turn.step.completed` / `tool.call.started`→`tool.result`
- * 事件，在 TUI 生命周期内累计（新会话/重启后自然清零，与 cache* 字段一致）。
+ * Session-level cumulative stats, shown on the footer's second line.
+ * Data comes from `turn.started` / `turn.step.completed` / `tool.call.started`→`tool.result`
+ * events and accumulates over the TUI lifetime (naturally reset by a new
+ * session/restart, consistent with the cache* fields).
  */
 export interface SessionStats {
-  /** 用户轮次（`turn.started`，排除插件内部轮）。 */
+  /** User turns (`turn.started`, excluding plugin-internal turns). */
   turnCount: number;
-  /** LLM 调用步数（`turn.step.completed`）。 */
+  /** LLM call steps (`turn.step.completed`). */
   stepCount: number;
-  /** 累计 LLM 流式耗时（`llmStreamDurationMs`），毫秒。 */
+  /** Cumulative LLM streaming time (`llmStreamDurationMs`), in milliseconds. */
   llmTotalMs: number;
-  /** 累计工具调用耗时（TUI 侧 `tool.call.started`→`tool.result` 计时），毫秒。 */
+  /** Cumulative tool-call time (timed TUI-side from `tool.call.started`→`tool.result`), in milliseconds. */
   toolTotalMs: number;
-  /** `llmFirstTokenLatencyMs` 样本，渲染时求平均。 */
+  /** `llmFirstTokenLatencyMs` samples, averaged at render time. */
   firstTokenSamples: number[];
-  /** 累计输入 token（inputOther + inputCacheRead + inputCacheCreation）。 */
+  /** Cumulative input tokens (inputOther + inputCacheRead + inputCacheCreation). */
   inputTokens: number;
-  /** 累计输出 token（usage.output 精确值）。 */
+  /** Cumulative output tokens (exact usage.output value). */
   outputTokens: number;
 }
 
@@ -292,6 +294,8 @@ export interface LivePaneState {
   mode: LivePaneMode;
   pendingApproval: PendingApproval | null;
   pendingQuestion: PendingQuestion | null;
+  /** User toggle for the activity pane (leader+b). */
+  activityPaneVisible: boolean;
 }
 
 export interface QueuedMessage {
@@ -320,6 +324,7 @@ export const INITIAL_LIVE_PANE: LivePaneState = {
   mode: 'idle',
   pendingApproval: null,
   pendingQuestion: null,
+  activityPaneVisible: true,
 };
 
 // ---------------------------------------------------------------------------

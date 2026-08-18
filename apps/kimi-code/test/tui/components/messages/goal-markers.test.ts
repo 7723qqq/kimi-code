@@ -123,4 +123,24 @@ describe('SwarmModeMarkerComponent', () => {
       }
     }
   });
+
+  it('toggles expansion when clicked', () => {
+    let toggled = false;
+    const marker = new GoalMarkerComponent('Goal paused', 'Paused after interruption', 'warning', {
+      onToggle: () => {
+        toggled = true;
+      },
+    });
+
+    // Collapsed: reason hidden.
+    const collapsed = strip(marker.render(80));
+    expect(collapsed).not.toContain('Paused after interruption');
+
+    marker.handleClick({ x: 0, y: 0 });
+    expect(toggled).toBe(true);
+
+    // Expanded: reason shown.
+    const expanded = strip(marker.render(80));
+    expect(expanded).toContain('Paused after interruption');
+  });
 });

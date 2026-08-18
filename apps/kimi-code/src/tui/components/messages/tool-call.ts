@@ -11,7 +11,7 @@
  *   - prefixed-wrapped-line: wrapping text component for subagent windows
  */
 
-import { Container, Spacer, Text, type Component, type TUI } from '@moonshot-ai/pi-tui';
+import { Container, Spacer, Text, type Component, type TUI, type TuiClickEvent } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import {
@@ -25,6 +25,8 @@ import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
+import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
+import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 
 import { ShellExecutionComponent } from './shell-execution';
 // Extracted modules
@@ -74,6 +76,7 @@ const MAX_PROGRESS_LINES = 24;
 
 export class ToolCallComponent extends Container {
   private expanded = false;
+  private navigated = false;
   private toolCall: ToolCallBlockData;
   private readonly markdownTheme = createMarkdownTheme();
   private result: ToolResultBlockData | undefined;
@@ -184,6 +187,26 @@ export class ToolCallComponent extends Container {
     if (this.expanded === expanded) return;
     this.expanded = expanded;
     this.rebuildBody();
+  }
+
+  isExpanded(): boolean {
+    return this.expanded;
+  }
+
+  /** Navigation-mode focus highlight (header background). */
+  setNavigated(navigated: boolean): void {
+    if (this.navigated === navigated) return;
+    this.navigated = navigated;
+    this.headerText.setText(this.buildHeader());
+  }
+
+  /** Clicking the header row toggles expansion. */
+  handleClick(event: TuiClickEvent): void {
+    // The header sits on row 1 — a Spacer(1) blank line occupies row 0.
+    if (event.y === 1) {
+      this.setExpanded(!this.expanded);
+      this.ui?.requestRender();
+    }
   }
 
   setResult(result: ToolResultBlockData): void {
@@ -456,6 +479,11 @@ export class ToolCallComponent extends Container {
   // ── Header building ──
 
   private buildHeader(): string {
+    const header = this.buildHeaderInner();
+    return this.navigated ? currentTheme.bg('accent', header) : header;
+  }
+
+  private buildHeaderInner(): string {
     const { toolCall, result } = this;
     const isFinished = result !== undefined;
     const isError = result?.is_error ?? false;
@@ -540,10 +568,29 @@ export class ToolCallComponent extends Container {
       decoded !== null
         ? `${currentTheme.boldFg('primary', decoded.toolName)}${currentTheme.dim(` · MCP/${decoded.serverName}`)}`
         : currentTheme.boldFg('primary', toolCall.name);
-    const argStr = keyArg ? currentTheme.dim(` (${keyArg})`) : '';
+    const argStr = keyArg
+      ? currentTheme.dim(` (${this.maybeLinkifyPath(toolCall.name, keyArg)})`)
+      : '';
     let chipStr = '';
     if (isFinished && result) chipStr = this.buildHeaderChip(result);
-    return `${bullet}${verbStyled} ${toolLabel}${argStr}${chipStr}`;
+    // Clickable expand/collapse affordance: clicking the header row toggles
+    // the body (see handleClick), and the label hints at the action.
+    const toggleHint = this.expanded
+      ? currentTheme.fg('textMuted', ` [${t('tui.messages.toolCall.footer.collapse')}]`)
+      : currentTheme.fg('textMuted', ` [${t('tui.messages.toolCall.footer.expand')}]`);
+    return `${bullet}${verbStyled} ${toolLabel}${argStr}${chipStr}${toggleHint}`;
+  }
+
+  /**
+   * Wrap a file-path key argument (Read/Write/Edit) in an OSC8 hyperlink so
+   * clicking it opens the file. Non-path arguments pass through unchanged.
+   */
+  private maybeLinkifyPath(toolName: string, keyArg: string): string {
+    if (toolName !== 'Read' && toolName !== 'Write' && toolName !== 'Edit') return keyArg;
+    const raw = str(this.toolCall.args['file_path'] ?? this.toolCall.args['path']);
+    if (raw.length === 0) return keyArg;
+    const fileUrl = `file://${raw.replaceAll('\\', '/')}`;
+    return toTerminalHyperlink(keyArg, fileUrl);
   }
 
   private buildHeaderChip(result: ToolResultBlockData): string {
@@ -952,6 +999,9 @@ export class ToolCallComponent extends Container {
       markdownTheme: this.markdownTheme,
       currentPlan: this.currentPlan,
       planPath: this.planPath,
+      onCopyCommand: (command) => {
+        void copyTextToClipboard(command);
+      },
     });
     for (const component of components) {
       this.addChild(component);

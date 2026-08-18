@@ -25,6 +25,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 
 use napi::{
     bindgen_prelude::{Env, JsFunction},
@@ -40,7 +41,10 @@ use tokio::sync::oneshot;
 use crate::callbacks::{HostCallbacks, NativeToolCallbacks};
 use crate::llm::http::NativeHttpLlm;
 use crate::llm::proxy::HostLlmProxy;
-use crate::rpc::types::{LlmChatRequest, LlmChatResponse, NativeLlmConfig, ToolExecuteRequest, ToolExecuteResponse};
+use crate::rpc::types::{
+    LlmChatRequest, LlmChatResponse, Message, NativeLlmConfig, ToolDef, ToolExecuteRequest,
+    ToolExecuteResponse,
+};
 use crate::turn_loop::{
     run_turn::run_turn,
     types::*,
@@ -70,6 +74,11 @@ static PAYLOAD_REGISTRY: LazyLock<Mutex<HashMap<u32, String>>> =
 /// Each entry is a small JSON string; 1000 entries is a generous ceiling that
 /// prevents unbounded growth without affecting normal operation.
 const PAYLOAD_REGISTRY_MAX_ENTRIES: usize = 1000;
+
+/// Maximum time to wait for the JS host to resolve a callback before giving
+/// up. A host that never calls `resolveCallback` would otherwise leave the
+/// oneshot sender in `CALLBACK_REGISTRY` forever (memory leak + hung future).
+const CALLBACK_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Monotonically increasing callback ID. Wrapping is fine because the ID
 /// space is large enough that collisions are impossible in practice.
@@ -199,8 +208,18 @@ async fn invoke_via_registry(
     }
 
     // Await the oneshot receiver. The sender is triggered by resolve_callback.
-    rx.await
-        .map_err(|e| format!("{label} closed: {e}"))?
+    // Bound the wait so a host that never resolves cannot hang the turn loop
+    // or leak the registry entry forever.
+    match tokio::time::timeout(CALLBACK_TIMEOUT, rx).await {
+        Ok(Ok(res)) => res.map_err(|e| format!("{label} closed: {e}")),
+        Ok(Err(_)) => Err(format!("{label} closed")),
+        Err(_) => {
+            // Timeout: drop the stale registry entries so they do not linger.
+            PAYLOAD_REGISTRY.lock().unwrap().remove(&id);
+            CALLBACK_REGISTRY.lock().unwrap().remove(&id);
+            Err(format!("{label} timed out after {CALLBACK_TIMEOUT:?}"))
+        }
+    }
 }
 
 /// Standalone async function for LLM chat via callback registry.
@@ -432,31 +451,35 @@ async fn run_turn_rust_impl(
 
     let messages: Vec<LLMMessage> = params
         .messages
-        .iter()
-        .map(|m| LLMMessage {
-            role: m.role.clone(),
-            content: m.content.clone(),
-            blocks: m
-                .blocks_json
-                .as_deref()
-                .and_then(|j| serde_json::from_str(j).ok())
-                .unwrap_or_default(),
-            tool_calls: m
-                .tool_calls_json
-                .as_deref()
-                .and_then(|j| serde_json::from_str(j).ok())
-                .unwrap_or_default(),
-            tool_call_id: m.tool_call_id.clone(),
+        .into_iter()
+        .map(|m| {
+            LLMMessage::from(Message {
+                role: m.role,
+                content: m.content,
+                blocks: m
+                    .blocks_json
+                    .as_deref()
+                    .and_then(|j| serde_json::from_str(j).ok())
+                    .unwrap_or_default(),
+                tool_calls: m
+                    .tool_calls_json
+                    .as_deref()
+                    .and_then(|j| serde_json::from_str(j).ok())
+                    .unwrap_or_default(),
+                tool_call_id: m.tool_call_id,
+            })
         })
         .collect();
 
     let tool_defs: Vec<ToolInfo> = params
         .tools
-        .iter()
-        .map(|t| ToolInfo {
-            name: t.name.clone(),
-            description: t.description.clone(),
-            input_schema: serde_json::from_str(&t.input_schema).unwrap_or_default(),
+        .into_iter()
+        .map(|t| {
+            ToolInfo::from(ToolDef {
+                name: t.name,
+                description: t.description,
+                input_schema: serde_json::from_str(&t.input_schema).unwrap_or_default(),
+            })
         })
         .collect();
 

@@ -14,6 +14,8 @@ import {
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import { LEADER_TIMEOUT_MS } from '#/tui/constant/kimi-tui';
+import { LEADER_ACTIONS, getKimiKeybindings, type LeaderAction } from '#/tui/keybindings';
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
 import { printableChar } from '#/tui/utils/printable-key';
@@ -161,10 +163,26 @@ export class CustomEditor extends Editor {
    * the text-paste fallback against stale insertion at a moved cursor.
    */
   public onPasteImage?: () => Promise<boolean>;
+  /**
+   * Fired when a leader chord (`ctrl+x` then a key) resolves to an action.
+   * The chord key is consumed; the host dispatches the action.
+   */
+  public onLeaderAction?: (action: LeaderAction) => void;
+  /** Fired when the leader chord window arms (`true`) or disarms (`false`). */
+  public onLeaderModeChange?: (active: boolean) => void;
+  /** Fired when the which-key overlay is requested (`ctrl+alt+k`). */
+  public onShowWhichKey?: () => void;
+  /**
+   * Fired for every key while transcript navigation is active. Return `true`
+   * to consume the key (the editor must not process it further).
+   */
+  public onTranscriptNavKey?: (data: string) => boolean;
 
   private consumingPaste = false;
   private consumeBuffer = '';
   private argumentHints: ReadonlyMap<string, string> = new Map();
+  private leaderActive = false;
+  private leaderTimer: ReturnType<typeof setTimeout> | null = null;
 
   setArgumentHints(hints: ReadonlyMap<string, string>): void {
     this.argumentHints = hints;
@@ -218,6 +236,38 @@ export class CustomEditor extends Editor {
     if (this.inputMode === mode) return;
     this.inputMode = mode;
     this.onInputModeChange?.(mode);
+  }
+
+  /** True while the leader chord window is armed (waiting for the next key). */
+  isLeaderActive(): boolean {
+    return this.leaderActive;
+  }
+
+  private enterLeaderMode(): void {
+    this.clearLeaderTimer();
+    this.leaderActive = true;
+    this.onLeaderModeChange?.(true);
+    this.leaderTimer = setTimeout(() => {
+      this.exitLeaderMode();
+    }, LEADER_TIMEOUT_MS);
+  }
+
+  private exitLeaderMode(): void {
+    this.clearLeaderTimer();
+    if (!this.leaderActive) return;
+    this.leaderActive = false;
+    this.onLeaderModeChange?.(false);
+  }
+
+  private clearLeaderTimer(): void {
+    if (this.leaderTimer !== null) {
+      clearTimeout(this.leaderTimer);
+      this.leaderTimer = null;
+    }
+  }
+
+  private resolveLeaderChord(data: string): LeaderAction | undefined {
+    return LEADER_ACTIONS[printableChar(data)];
   }
 
   private expandPasteMarkerAtCursor(): boolean {
@@ -332,9 +382,11 @@ export class CustomEditor extends Editor {
       return;
     }
 
+    const kb = getKimiKeybindings();
+
     // Any input other than a lone Escape breaks a pending double-Esc sequence,
     // so the shortcut only fires for two consecutive Escape presses.
-    if (!matchesKey(normalized, Key.escape)) {
+    if (!kb.matches(normalized, 'kimi.editor.escape')) {
       this.onNonEscapeInput?.();
     }
 
@@ -405,52 +457,97 @@ export class CustomEditor extends Editor {
       }
     }
 
-    if (matchesKey(normalized, Key.ctrl('d'))) {
+    // Leader key: arm the chord window. The next printable key resolves it.
+    if (kb.matches(normalized, 'kimi.editor.leader')) {
+      this.enterLeaderMode();
+      return;
+    }
+
+    // While the leader chord is armed, the next key resolves it. An
+    // unrecognised key (or Escape) simply disarms the window and is consumed.
+    if (this.leaderActive) {
+      this.exitLeaderMode();
+      const action = this.resolveLeaderChord(normalized);
+      if (action !== undefined) {
+        this.onLeaderAction?.(action);
+      }
+      return;
+    }
+
+    // Which-key overlay.
+    if (kb.matches(normalized, 'kimi.editor.whichKey')) {
+      this.onShowWhichKey?.();
+      return;
+    }
+
+    // Transcript navigation mode: while active, j/k/↑/↓/Enter/Esc are
+    // consumed by the navigation controller instead of the editor.
+    if (this.onTranscriptNavKey?.(normalized) === true) {
+      return;
+    }
+
+    // Bash mode stays single-line: swallow newline keys so shift+enter /
+    // ctrl+j never insert a line break into a shell command. Mirrors pi-tui's
+    // `tui.input.newLine` condition (including the legacy shift+enter
+    // sequences that `kb.matches` alone does not cover).
+    if (
+      this.inputMode === 'bash' &&
+      (kb.matches(normalized, 'tui.input.newLine') ||
+        (normalized.codePointAt(0) === 10 && normalized.length > 1) ||
+        normalized === '\u001B\r' ||
+        normalized === '\u001B[13;2~' ||
+        (normalized.length > 1 && normalized.includes('\u001B') && normalized.includes('\r')) ||
+        (normalized === '\n' && normalized.length === 1))
+    ) {
+      return;
+    }
+
+    if (kb.matches(normalized, 'kimi.editor.ctrlD')) {
       if (this.getText().length === 0) {
         this.onCtrlD?.();
         return;
       }
     }
 
-    if (matchesKey(normalized, Key.ctrl('c'))) {
+    if (kb.matches(normalized, 'kimi.editor.ctrlC')) {
       this.onCtrlC?.();
       return;
     }
 
-    if (matchesKey(normalized, Key.ctrl('g'))) {
+    if (kb.matches(normalized, 'kimi.editor.ctrlG')) {
       this.onOpenExternalEditor?.();
       return;
     }
 
-    if (matchesKey(normalized, Key.ctrl('o'))) {
+    if (kb.matches(normalized, 'kimi.editor.ctrlO')) {
       this.onToggleToolExpand?.();
       return;
     }
 
-    if (matchesKey(normalized, Key.ctrl('s'))) {
+    if (kb.matches(normalized, 'kimi.editor.ctrlS')) {
       this.onCtrlS?.();
       return;
     }
 
-    if (matchesKey(normalized, Key.ctrl('b'))) {
+    if (kb.matches(normalized, 'kimi.editor.ctrlB')) {
       // Only consume the key when the handler actually detached something;
       // otherwise fall through so readline's backward-char still works at the
       // idle prompt.
       if (this.onCtrlB?.() === true) return;
     }
 
-    if (matchesKey(normalized, Key.ctrl('t'))) {
+    if (kb.matches(normalized, 'kimi.editor.ctrlT')) {
       // Only consume the key when the todo list actually has overflow to
       // expand/collapse; otherwise fall through to the editor default.
       if (this.onToggleTodoExpand?.() === true) return;
     }
 
-    if (matchesKey(normalized, 'shift+tab')) {
+    if (kb.matches(normalized, 'kimi.editor.shiftTab')) {
       this.onShiftTab?.();
       return;
     }
 
-    if (matchesKey(normalized, Key.ctrl('-'))) {
+    if (kb.matches(normalized, 'kimi.editor.undo')) {
       this.onUndo?.();
     }
 
@@ -460,7 +557,7 @@ export class CustomEditor extends Editor {
     if (
       this.inputMode === 'bash' &&
       this.getText().length === 0 &&
-      (matchesKey(normalized, Key.escape) || matchesKey(normalized, Key.backspace))
+      (kb.matches(normalized, 'kimi.editor.escape') || matchesKey(normalized, Key.backspace))
     ) {
       this.inputMode = 'prompt';
       this.onInputModeChange?.('prompt');
@@ -480,7 +577,7 @@ export class CustomEditor extends Editor {
       }
     }
 
-    if (matchesKey(normalized, Key.escape)) {
+    if (kb.matches(normalized, 'kimi.editor.escape')) {
       if (this.hasAutocompleteActivity()) {
         this.cancelAutocompleteActivity();
         return;

@@ -126,31 +126,10 @@ async fn main() -> anyhow::Result<()> {
                     Box::new(multi)
                 };
 
-                let messages: Vec<LLMMessage> = input
-                    .messages
-                    .into_iter()
-                    .map(|m| LLMMessage {
-                        role: m.role,
-                        content: m.content,
-                        blocks: m.blocks,
-                        tool_calls: m
-                            .tool_calls
-                            .into_iter()
-                            .map(|tc| ToolCall { id: tc.id, name: tc.name, arguments: tc.arguments })
-                            .collect(),
-                        tool_call_id: m.tool_call_id,
-                    })
-                    .collect();
-
-                let tool_defs: Vec<ToolInfo> = input
-                    .tools
-                    .into_iter()
-                    .map(|t| ToolInfo {
-                        name: t.name,
-                        description: t.description,
-                        input_schema: t.input_schema,
-                    })
-                    .collect();
+                let messages: Vec<LLMMessage> =
+                    input.messages.into_iter().map(LLMMessage::from).collect();
+                let tool_defs: Vec<ToolInfo> =
+                    input.tools.into_iter().map(ToolInfo::from).collect();
 
                 let tools: Vec<&dyn ExecutableTool> = vec![];
 
@@ -186,14 +165,12 @@ async fn main() -> anyhow::Result<()> {
                         })
                     }
                     Err(e) => {
-                        let output = RunTurnResult {
-                            stop_reason: format!("Error: {e}"),
-                            steps: 0,
-                            usage: TokenUsage::default(),
-                        };
-                        serde_json::to_value(&output).map_err(|_| {
-                            types::JsonRpcError::internal_error(format!("Turn failed: {e}"))
-                        })
+                        // A turn failure is a real error, not a normal end of
+                        // turn. Return a JSON-RPC error so the host can
+                        // distinguish it from a clean `EndTurn` — encoding it
+                        // as a successful `stop_reason: "Error: ..."` would
+                        // make the host treat a failure as a normal completion.
+                        Err(types::JsonRpcError::internal_error(format!("Turn failed: {e}")))
                     }
                 }
             })

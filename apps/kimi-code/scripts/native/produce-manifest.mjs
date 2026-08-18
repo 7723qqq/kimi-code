@@ -22,7 +22,7 @@ if (!inputDir || !tag) {
   process.exit(1);
 }
 
-// Tag 格式 `@moonshot-ai/kimi-code@x.y.z` 或 `vx.y.z` 或 `x.y.z`，都归一化到 x.y.z
+// Tag formats `@moonshot-ai/kimi-code@x.y.z`, `vx.y.z`, or `x.y.z` are all normalized to x.y.z
 const version = tag.replace(/^@moonshot-ai\/kimi-code@/, '').replace(/^v/, '');
 
 const entries = await readdir(inputDir);

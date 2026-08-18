@@ -77,6 +77,7 @@ import {
 } from './components/dialogs/approval-preview';
 import { CompactionComponent } from './components/dialogs/compaction';
 import { HelpPanelComponent } from './components/dialogs/help-panel';
+import { WhichKeyComponent } from './components/dialogs/which-key';
 import { defaultThinkingEffortFor } from './components/dialogs/model-selector';
 import { Msys2PromptComponent, type Msys2PromptChoice } from './components/dialogs/msys2-prompt';
 import { QuestionDialogComponent } from './components/dialogs/question-dialog';
@@ -103,12 +104,14 @@ import {
 } from './components/messages/status-message';
 import { StepSummaryComponent } from './components/messages/step-summary';
 import { ThinkingComponent } from './components/messages/thinking';
-import { ToolCallComponent } from './components/messages/tool-call';
+import { ToolCallComponent, type ToolCallSubagentSnapshot } from './components/messages/tool-call';
 import {
   ReplayTurnBoundaryComponent,
   UserMessageComponent,
 } from './components/messages/user-message';
 import { ActivityPaneComponent, type ActivityPaneMode } from './components/panes/activity-pane';
+import type { AgentPaneItem } from './components/panes/agent-pane';
+import type { DiffReviewItem } from './components/panes/diff-review-pane';
 import { QueuePaneComponent } from './components/panes/queue-pane';
 import type { TuiConfig } from './config';
 import {
@@ -119,7 +122,7 @@ import {
   SESSION_LIST_PAGE_SIZE,
   SESSIONLESS_STARTUP_NOTICE,
 } from './constant/kimi-tui';
-import { CHROME_GUTTER } from './constant/rendering';
+import { AGENT_PANE_WIDTH, CHROME_GUTTER, REVIEW_PANE_WIDTH } from './constant/rendering';
 import { MAX_TERMINAL_TITLE_LENGTH } from './constant/terminal';
 import { AuthFlowController } from './controllers/auth-flow';
 import { BtwPanelController } from './controllers/btw-panel';
@@ -502,6 +505,13 @@ export class KimiTUI {
     });
     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);
     this.editorKeyboard.install();
+    // Mouse clicks on the todo / workflow panels toggle their expansion.
+    this.state.todoPanel.setOnToggle(() => this.state.ui.requestRender());
+    this.state.workflowPanel.setOnToggle(() => this.state.ui.requestRender());
+    // Clicking the footer's model slot opens the model selector.
+    this.state.footer.onModelClick = () => {
+      slashCommands.dispatchInput(this, '/model');
+    };
     this.buildLayout();
   }
 
@@ -1238,6 +1248,12 @@ export class KimiTUI {
     slashCommands.dispatchInput(this, text);
   }
 
+  /** Dispatch a slash command by name (used by leader-key chords). */
+  runSlashCommand(name: string, args?: string): void {
+    const input = args !== undefined && args.length > 0 ? `/${name} ${args}` : `/${name}`;
+    slashCommands.dispatchInput(this, input);
+  }
+
   private async runShellCommandFromInput(command: string): Promise<void> {
     let session = this.session;
     if (session === undefined) {
@@ -1754,6 +1770,7 @@ export class KimiTUI {
     if ('planMode' in patch) this.updateEditorBorderHighlight();
     this.state.footer.setState(this.state.appState);
     this.updateActivityPane();
+    this.updateAgentPane();
     if (busyChanged) {
       this.updateQueueDisplay();
       this.sessionEventHandler.retryQueuedGoalPromotion();
@@ -2404,7 +2421,9 @@ export class KimiTUI {
           return new GoalSetMessageComponent();
         }
         if (entry.goalData?.kind === 'lifecycle') {
-          return buildGoalMarker(entry.goalData.change, this.state.toolOutputExpanded);
+          return buildGoalMarker(entry.goalData.change, this.state.toolOutputExpanded, undefined, () =>
+            this.state.ui.requestRender(),
+          );
         }
         return null;
       case 'assistant': {
@@ -2878,6 +2897,30 @@ export class KimiTUI {
   // Panes / Presentation State
   // =========================================================================
 
+  /** Rebuild the right-side agent status panel from the transcript. */
+  updateAgentPane(): void {
+    const items: AgentPaneItem[] = [];
+    const phase = this.state.appState.streamingPhase;
+    items.push({
+      id: 'main',
+      name: t('tui.panes.agentPane.mainAgent'),
+      status: phase === 'idle' ? 'done' : 'active',
+      detail: phase === 'idle' ? undefined : mainAgentPhaseLabel(phase),
+    });
+    for (const child of this.state.transcriptContainer.children) {
+      if (!(child instanceof ToolCallComponent)) continue;
+      const snap = child.getSubagentSnapshot();
+      if (snap.toolName !== 'Agent' || snap.agentName === undefined) continue;
+      items.push({
+        id: snap.toolCallId,
+        name: snap.agentName,
+        status: subagentStatus(snap.phase, snap.isError),
+        detail: snap.latestActivity,
+      });
+    }
+    this.state.agentPane.setItems(items);
+  }
+
   updateActivityPane(): void {
     const effectiveMode = this.resolveActivityPaneMode();
     const tipKind = loadingTipKind(effectiveMode);
@@ -2987,7 +3030,71 @@ export class KimiTUI {
     this.state.ui.requestRender();
   }
 
+  toggleActivityPane(): void {
+    this.state.livePane.activityPaneVisible = !this.state.livePane.activityPaneVisible;
+    this.updateActivityPane();
+  }
+
+  /** Toggle the right-side agent status panel (leader+p). */
+  toggleAgentPane(): void {
+    const row = this.state.transcriptRow;
+    const container = this.state.agentPaneContainer;
+    if (row === undefined) return;
+    if (row.children.includes(container)) {
+      row.removeChild(container);
+    } else {
+      // The review pane and the agent pane share the right slot.
+      row.removeChild(this.state.diffReviewPaneContainer);
+      row.addChild(container, { basis: AGENT_PANE_WIDTH, grow: 0, shrink: 0 });
+    }
+    this.state.ui.requestRender();
+  }
+
+  /** Toggle the right-side diff review panel (leader+r). */
+  toggleDiffReviewPane(): void {
+    const row = this.state.transcriptRow;
+    const container = this.state.diffReviewPaneContainer;
+    if (row === undefined) return;
+    if (row.children.includes(container)) {
+      row.removeChild(container);
+    } else {
+      // The review pane and the agent pane share the right slot.
+      row.removeChild(this.state.agentPaneContainer);
+      row.addChild(container, { basis: REVIEW_PANE_WIDTH, grow: 0, shrink: 0 });
+    }
+    this.state.ui.requestRender();
+  }
+
+  /** Rebuild the right-side diff review panel from the transcript. */
+  updateDiffReviewPane(): void {
+    const items: DiffReviewItem[] = [];
+    const seen = new Set<string>();
+    for (const child of this.state.transcriptContainer.children) {
+      if (!(child instanceof ToolCallComponent)) continue;
+      const display = child.toolCallView.display;
+      if (display === undefined) continue;
+      let path: string | undefined;
+      let before: string | undefined;
+      let after: string | undefined;
+      if (display.kind === 'diff') {
+        path = display.path;
+        before = display.before;
+        after = display.after;
+      } else if (display.kind === 'file_io' && display.before !== undefined && display.after !== undefined) {
+        path = display.path;
+        before = display.before;
+        after = display.after;
+      }
+      if (path === undefined || before === undefined || after === undefined) continue;
+      if (seen.has(path)) continue;
+      seen.add(path);
+      items.push({ path, before, after });
+    }
+    this.state.diffReviewPane.setItems(items);
+  }
+
   private resolveActivityPaneMode(): EffectiveActivityPaneMode {
+    if (!this.state.livePane.activityPaneVisible) return 'hidden';
     if (this.state.activeDialog === 'session-picker') return 'hidden';
     if (this.state.livePane.pendingApproval !== null) return 'hidden';
     if (this.state.appState.isCompacting) return 'hidden';
@@ -3545,6 +3652,42 @@ export class KimiTUI {
     this.restoreEditor();
   }
 
+  showWhichKey(): void {
+    this.state.activeDialog = 'which-key';
+    this.mountEditorReplacement(
+      new WhichKeyComponent({
+        onClose: () => {
+          this.hideWhichKey();
+        },
+        onSelect: (action) => {
+          this.editorKeyboard.dispatchWhichKeyAction(action);
+        },
+      }),
+    );
+  }
+
+  private hideWhichKey(): void {
+    this.state.activeDialog = null;
+    this.restoreEditor();
+  }
+
+  private leaderOverlay: WhichKeyComponent | undefined;
+
+  showLeaderOverlay(): void {
+    if (this.leaderOverlay !== undefined) return;
+    this.leaderOverlay = new WhichKeyComponent({ focusable: false });
+    this.state.editorContainer.addChild(this.leaderOverlay);
+    this.state.ui.requestRender();
+  }
+
+  hideLeaderOverlay(): void {
+    const overlay = this.leaderOverlay;
+    if (overlay === undefined) return;
+    this.leaderOverlay = undefined;
+    this.state.editorContainer.removeChild(overlay);
+    this.state.ui.requestRender();
+  }
+
   private sessionPickerOptions: {
     readonly applyStartupModes: boolean;
     readonly closeOnCancel: boolean;
@@ -3722,6 +3865,9 @@ export class KimiTUI {
       (block) => {
         this.openApprovalPreview(panel, block);
       },
+      () => {
+        this.state.ui.requestRender();
+      },
     );
     this.activeApprovalPanel = panel;
     this.mountEditorReplacement(panel);
@@ -3790,5 +3936,39 @@ export class KimiTUI {
   private hideQuestionDialog(): void {
     this.patchLivePane({ pendingQuestion: null });
     this.restoreEditor();
+  }
+}
+
+function mainAgentPhaseLabel(phase: AppState['streamingPhase']): string | undefined {
+  switch (phase) {
+    case 'thinking':
+      return t('tui.panes.agentPane.phaseThinking');
+    case 'composing':
+      return t('tui.panes.agentPane.phaseComposing');
+    case 'shell':
+      return t('tui.panes.agentPane.phaseShell');
+    case 'waiting':
+      return t('tui.panes.agentPane.phaseWaiting');
+    case 'idle':
+      return undefined;
+  }
+}
+
+function subagentStatus(
+  phase: ToolCallSubagentSnapshot['phase'],
+  isError: boolean,
+): AgentPaneItem['status'] {
+  if (isError || phase === 'failed') return 'error';
+  switch (phase) {
+    case 'running':
+      return 'active';
+    case 'queued':
+    case 'spawning':
+    case 'backgrounded':
+      return 'waiting';
+    case 'done':
+      return 'done';
+    case undefined:
+      return 'waiting';
   }
 }

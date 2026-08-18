@@ -290,6 +290,31 @@ describe('ToolCallComponent', () => {
     expect(expanded).not.toContain('ctrl+o to expand');
   });
 
+  it('toggles expansion when the header row is clicked', () => {
+    const component = new ToolCallComponent(
+      {
+        id: 'call_shell',
+        name: 'Bash',
+        args: { command: 'printf output' },
+      },
+      {
+        tool_call_id: 'call_shell',
+        output: ['line1', 'line2', 'line3', 'line4', 'line5'].join('\n'),
+        is_error: false,
+      },
+    );
+
+    const collapsed = strip(component.render(100).join('\n'));
+    expect(collapsed).not.toContain('line4');
+
+    // Click the header row (y=1 — a Spacer blank line occupies row 0).
+    component.handleClick({ x: 0, y: 1 });
+
+    const expanded = strip(component.render(100).join('\n'));
+    expect(expanded).toContain('line4');
+    expect(expanded).toContain('line5');
+  });
+
   it('renders live Bash output while the command is running', () => {
     const component = new ToolCallComponent(
       {

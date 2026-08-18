@@ -1,6 +1,6 @@
 # Service Design Principles
 
-> **路径提示（2026-08-15）**: 本文的示例域名（`chatProvider`/`modelRuntime`/`filestore`/`blobStore`/`records`/`turn`/`swarm`）为早期设计命名，当前实现已更名（如 `agent/llmRequester`、`agent/blob`、`app/sessionIndex`、`app/llmProtocol`、`features/swarm`）。文中「scope 即状态身份」等原则仍然成立，示例仅作结构示意。
+> **Path note (2026-08-15)**: The example domain names in this document (`chatProvider`/`modelRuntime`/`filestore`/`blobStore`/`records`/`turn`/`swarm`) are early design names; the current implementation has renamed them (e.g. `agent/llmRequester`, `agent/blob`, `app/sessionIndex`, `app/llmProtocol`, `features/swarm`). Principles such as "scope is the identity of state" still hold; the examples are structural illustrations only.
 
 
 > First-principles guide for designing a new Service in agent-core-v2: how to pick its

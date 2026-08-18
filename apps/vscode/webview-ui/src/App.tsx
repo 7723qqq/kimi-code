@@ -22,7 +22,7 @@ function MainContent({ onAuthAction }: { onAuthAction: () => void }) {
 
   useEffect(() => {
     return bridge.on(Events.StreamEvent, (event: UIStreamEvent) => {
-      // 只有当前已有 session 时才过滤，确保 session_start 能正常处理
+      // Only filter when a session already exists, so session_start is handled normally
       if (
         sessionId &&
         '_sessionId' in event &&
@@ -117,7 +117,7 @@ export default function App() {
 
   const resolution = resolveAppView({ status, modelsCount, skippedLogin, showLogin });
 
-  // 登录界面：未登录且未跳过，或用户从其他界面主动选择登录
+  // Login screen: not logged in and not skipped, or the user actively chose to log in from another screen
   if (resolution.view === 'login') {
     return (
       <div className="flex flex-col h-screen text-foreground overflow-hidden">
@@ -128,7 +128,7 @@ export default function App() {
     );
   }
 
-  // 错误与设置状态界面；no-models 必须保留回到登录界面的入口
+  // Error and settings status screens; no-models must keep an entry back to the login screen
   if (resolution.view === 'status') {
     return (
       <div className="flex flex-col h-screen text-foreground overflow-hidden">
@@ -144,7 +144,7 @@ export default function App() {
     );
   }
 
-  // 正常状态
+  // Normal state
   return (
     <div className="flex flex-col h-screen text-foreground overflow-hidden">
       <Header />

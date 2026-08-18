@@ -1,12 +1,12 @@
 //! Goal state machine — 6-state design based on Codex `ext/goal/`.
 //!
 //! States:
-//! - `Active`: 正在被 goal driver 推进，自动续跑
-//! - `Paused`: 暂停，可恢复
-//! - `Blocked`: 真实阻塞，可恢复
-//! - `Complete`: 完成（瞬态，发出事件后清除）
-//! - `BudgetLimited`: token 预算耗尽，仍可收尾
-//! - `UsageLimited`: API usage limit 耗尽，仍可收尾
+//! - `Active`: being advanced by the goal driver, auto-continues
+//! - `Paused`: paused, resumable
+//! - `Blocked`: genuinely blocked, resumable
+//! - `Complete`: finished (transient; cleared after the event is emitted)
+//! - `BudgetLimited`: token budget exhausted, can still wrap up
+//! - `UsageLimited`: API usage limit exhausted, can still wrap up
 //!
 //! JSON schema (camelCase): matches TS `GoalState` one-to-one.
 //! All engine methods consume/produce this schema.

@@ -1,6 +1,6 @@
 // Format an ISO timestamp for display beneath a user message bubble.
 // - Today:        14:32
-// - Yesterday:    昨天 14:32
+// - Yesterday:    Yesterday 14:32
 // - This year:    06-15 14:32
 // - Older years:  2025-06-15 14:32
 // Invalid input falls back to the original string.

@@ -148,7 +148,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
       return;
     }
 
-    // 只在输入框为空时恢复
+    // Only restore when the input box is empty
     if (text.trim()) {
       return;
     }

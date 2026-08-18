@@ -182,4 +182,23 @@ describe('ChoicePickerComponent', () => {
     // Unselected option: description falls back to textMuted.
     expect(renderDescLine('none')).toBe(mutedLine);
   });
+
+  it('selects the option under the clicked row', () => {
+    const onSelect = vi.fn();
+    const picker = new ChoicePickerComponent({
+      title: 'Pick',
+      options: [
+        { value: 'a', label: 'Alpha' },
+        { value: 'b', label: 'Beta' },
+      ],
+      onSelect,
+      onCancel: vi.fn(),
+    });
+    const lines = picker.render(120);
+    const betaRow = lines.findIndex((l) => strip(l).includes('Beta'));
+    expect(betaRow).toBeGreaterThanOrEqual(0);
+
+    picker.handleClick({ x: 0, y: betaRow });
+    expect(onSelect).toHaveBeenCalledWith('b');
+  });
 });

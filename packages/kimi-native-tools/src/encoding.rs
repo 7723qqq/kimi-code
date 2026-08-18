@@ -300,7 +300,7 @@ mod tests {
     fn test_almost_utf8_is_lenient() {
         // Valid UTF-8 line plus one junk byte — decodes as GBK without CJK
         // and with a tiny replacement ratio, so the lenient reading wins.
-        let mut bytes = b"\xe6\xad\xa3\xe5\xb8\xb8\n".to_vec(); // 正常\n
+        let mut bytes = b"\xe6\xad\xa3\xe5\xb8\xb8\n".to_vec(); // decodes to "normal\n"
         bytes.push(0x88);
         assert_eq!(
             detect_legacy_text_encoding(&bytes),

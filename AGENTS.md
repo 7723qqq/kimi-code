@@ -218,7 +218,7 @@ scripts/
 ## Environment Requirements
 
 - **Node.js**: `>=24.15.0` (`.nvmrc` is `24.15.0`). `engine-strict=false` in `.npmrc`, so `pnpm install` does **not** fail on a Node version mismatch — verify with `.nvmrc` instead.
-- **Node engines**: 发布包的 engines 有意保持 >=22.19.0 的宽松下限（上游一致），仓库开发标准以 .nvmrc 24.15.0 为准
+- **Node engines**: published packages intentionally keep a loose lower bound of >=22.19.0 (matching upstream); the repository development standard is .nvmrc 24.15.0
 - **pnpm**: `10.33.0` (specified in root `package.json` `packageManager`).
 - **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
@@ -474,10 +474,11 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 - Think from first principles. Start from real requirements, code facts, and verification results; if the goal is unclear, discuss it with the user first.
 - Treat code, not documentation, as the source of truth. Unless the user explicitly says otherwise, do not read ordinary Markdown just to understand the implementation.
+- Think less, read more code — reduce baseless speculation and pointless agonizing; when unsure, read the code, check the docs, and run verification. Let facts replace guesses.
 - Before making code changes, read the relevant code and the most recent constraints, and follow the nearest `AGENTS.md` in the directory tree.
 - Keep changes focused. Do not slip in unrelated refactors along the way.
 - When committing, do not add any co-author attribution, and do not reveal the identity of the agent in commit messages, PR descriptions, or any explanatory text.
-- 每次提交必须同步远程仓库。禁止只提交到本地而不推送。每次 `git commit` 之后必须立即执行 `git push`，确保本地和远程（`origin`）始终保持一致。任何分支上的工作（包括功能分支、修复分支、实验性分支）在提交后都应推送，避免本地代码丢失或远程仓库落后。
+- Every commit must be synced to the remote repository. Never commit locally without pushing. After every `git commit`, immediately run `git push` so local and remote (`origin`) always stay in sync. Work on any branch (feature, fix, or experimental branches) should be pushed after committing, to avoid losing local code or letting the remote fall behind.
 
 ## Workflow Requirements
 

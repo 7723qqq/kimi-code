@@ -68,11 +68,10 @@ pub fn schedule_tool_calls(tool_calls: Vec<ScheduledToolCall>) -> Vec<Vec<Schedu
 
 /// Execute all scheduled tool calls in order, respecting conflict boundaries.
 ///
-/// Returns results in the original call order (batches are flattened back
-/// to a single Vec).
+/// Tools within a batch are conflict-free by construction, so they run in
+/// parallel; batches run sequentially. Results are returned in the original
+/// call order (batches are flattened back to a single Vec).
 pub async fn execute_scheduled<F, Fut>(
-    _turn_id: &str,
-    _step: u32,
     scheduled: Vec<ScheduledToolCall>,
     execute_fn: F,
 ) -> Result<Vec<ExecutableToolResult>, Box<dyn std::error::Error>>
@@ -83,9 +82,14 @@ where
     let batches = schedule_tool_calls(scheduled);
     let mut all_results = Vec::new();
     for batch in &batches {
-        for scheduled in batch {
-            let result = execute_fn(&scheduled.tool_call).await?;
-            all_results.push(result);
+        // Run the batch's tools concurrently (they are non-conflicting), then
+        // append results in the original call order.
+        let results = futures_util::future::join_all(
+            batch.iter().map(|s| execute_fn(&s.tool_call)),
+        )
+        .await;
+        for r in results {
+            all_results.push(r?);
         }
     }
     Ok(all_results)
@@ -487,5 +491,84 @@ mod tests {
         let batches = schedule_tool_calls(calls);
         assert_eq!(batches.len(), 1);
         assert_eq!(batches[0].len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_execute_scheduled_runs_batch_in_parallel() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        // Two non-conflicting reads → one batch → must run concurrently.
+        let calls = vec![
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "1".into(), name: "read".into(), arguments: serde_json::json!({}) },
+                accesses: vec![read_file_access("/a.txt")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "2".into(), name: "read".into(), arguments: serde_json::json!({}) },
+                accesses: vec![read_file_access("/b.txt")],
+            },
+        ];
+
+        let concurrent = Arc::new(AtomicU32::new(0));
+        let max_concurrent = Arc::new(AtomicU32::new(0));
+        let cc = concurrent.clone();
+        let mc = max_concurrent.clone();
+
+        let result = execute_scheduled(calls, move |_tc: &ToolCall| {
+            let cc = cc.clone();
+            let mc = mc.clone();
+            async move {
+                let cur = cc.fetch_add(1, Ordering::SeqCst) + 1;
+                mc.fetch_max(cur, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                cc.fetch_sub(1, Ordering::SeqCst);
+                Ok(ExecutableToolResult {
+                    content: "ok".into(),
+                    is_error: false,
+                    is_prediction: false,
+                })
+            }
+        })
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 2);
+        // Both ran concurrently → peak concurrency reached 2.
+        assert_eq!(max_concurrent.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn test_execute_scheduled_preserves_call_order() {
+        // Conflicting writes → separate batches → serial, but results must
+        // come back in the original call order.
+        let calls = vec![
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "1".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/f.txt")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall { id: "2".into(), name: "w".into(), arguments: serde_json::json!({}) },
+                accesses: vec![write_file_access("/f.txt")],
+            },
+        ];
+
+        let result = execute_scheduled(calls, |tc: &ToolCall| {
+            let id = tc.id.clone();
+            async move {
+                Ok(ExecutableToolResult {
+                    content: id,
+                    is_error: false,
+                    is_prediction: false,
+                })
+            }
+        })
+        .await;
+
+        let results = result.unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].content, "1");
+        assert_eq!(results[1].content, "2");
     }
 }

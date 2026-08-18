@@ -9,8 +9,8 @@
  * `BufferedOp`s and answered with `PendingFiberHandle`s, then flushed
  * against the real `FiberRuntime` by `bindServiceUnit` right after
  * construction (`fiber.ts`). Reads (`get` / `ref`) are forbidden during this
- * phase — declare dependencies as constructor parameters instead (构造期只写
- * 不读). A `Service` created by manual `new` never gets a bound runtime, and
+ * phase — declare dependencies as constructor parameters instead (writes
+ * only during construction). A `Service` created by manual `new` never gets a bound runtime, and
  * its capability calls throw `FiberProtocolError`.
  *
  * The `SERVICE_MARK` prototype marker (set below) lets the container

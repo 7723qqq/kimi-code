@@ -9,7 +9,7 @@
  * is issued.
  */
 
-import type { Component } from '@moonshot-ai/pi-tui';
+import type { Component, TuiClickEvent } from '@moonshot-ai/pi-tui';
 import { truncateToWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
@@ -115,6 +115,12 @@ export function selectVisibleTodos(todos: readonly TodoItem[]): VisibleTodos {
 export class TodoPanelComponent implements Component {
   private todos: readonly TodoItem[] = [];
   private expanded = false;
+  private onToggle: (() => void) | undefined;
+
+  /** Register a callback fired after a mouse click toggles expansion. */
+  setOnToggle(callback: () => void): void {
+    this.onToggle = callback;
+  }
 
   setTodos(todos: readonly TodoItem[]): void {
     this.todos = todos.map((t) => ({ title: t.title, status: t.status }));
@@ -144,6 +150,12 @@ export class TodoPanelComponent implements Component {
 
   toggleExpanded(): void {
     this.expanded = !this.expanded;
+  }
+
+  /** Clicking the panel toggles expansion. */
+  handleClick(_event: TuiClickEvent): void {
+    this.toggleExpanded();
+    this.onToggle?.();
   }
 
   invalidate(): void {}

@@ -115,6 +115,16 @@ export class TuiMainScreen extends TuiBase implements TUI {
 		this.previousViewportTop = 0;
 	}
 
+	protected override getViewportTop(): number {
+		return this.previousViewportTop;
+	}
+
+	// Main-screen (scrollback) mode deliberately does NOT enable SGR mouse
+	// capture: capture hands every mouse event — including the wheel — to the
+	// app, which would break native scrollback scrolling and text selection.
+	// Click routing is only available in fullscreen (alt-screen) mode, where
+	// the app owns the viewport and routes the wheel to the ScrollView itself.
+
 	protected override beforeTerminalStop(options: TuiStopOptions): void {
 		if (options.preserveScreen || this.previousLines.length === 0) return;
 		this.terminal.write(" ");

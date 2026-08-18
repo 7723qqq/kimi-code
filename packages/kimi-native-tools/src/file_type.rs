@@ -168,24 +168,24 @@ fn is_video_magic(header: &[u8]) -> bool {
 /// keep the two lists in sync. The list is intentionally short to
 /// avoid false positives; exemptions like `.env.example` are handled
 /// explicitly in `is_sensitive_file`.
-const SENSITIVE_BASENAMES: &[&str] = &[".env", "id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
+const SENSITIVE_BASENAMES: &[&[u8]] = &[b".env", b"id_rsa", b"id_ed25519", b"id_ecdsa", b"credentials"];
 
-const ENV_EXEMPTIONS: &[&str] = &[".env.example", ".env.sample", ".env.template"];
-const PUBLIC_KEY_BASENAMES: &[&str] = &["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"];
+const ENV_EXEMPTIONS: &[&[u8]] = &[b".env.example", b".env.sample", b".env.template"];
+const PUBLIC_KEY_BASENAMES: &[&[u8]] = &[b"id_rsa.pub", b"id_ed25519.pub", b"id_ecdsa.pub"];
 
-const SENSITIVE_BASENAME_PREFIXES: &[&str] = &["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
+const SENSITIVE_BASENAME_PREFIXES: &[&[u8]] = &[b"id_rsa", b"id_ed25519", b"id_ecdsa", b"credentials"];
 
-const SENSITIVE_DOT_VARIANT_SUFFIXES: &[&str] = &[
-    ".bak",
-    ".backup",
-    ".copy",
-    ".disabled",
-    ".key",
-    ".old",
-    ".orig",
-    ".pem",
-    ".save",
-    ".tmp",
+const SENSITIVE_DOT_VARIANT_SUFFIXES: &[&[u8]] = &[
+    b".bak",
+    b".backup",
+    b".copy",
+    b".disabled",
+    b".key",
+    b".old",
+    b".orig",
+    b".pem",
+    b".save",
+    b".tmp",
 ];
 
 /// Image dimensions (width × height in pixels).
@@ -290,50 +290,12 @@ pub fn sniff_image_dimensions(data: &[u8]) -> Option<ImageDimensions> {
 /// file. Matching is case-insensitive and pattern-aware: `.env.local` is
 /// flagged but `.env.example` is exempted, and `id_rsa.bak` is flagged
 /// while `id_rsafoo` is not.
+///
+/// Delegates to [`is_sensitive_file_bytes`] so the matching logic lives in
+/// exactly one place (the allocation-free byte version). `path.as_bytes()`
+/// is a zero-copy view, so this adds no allocation.
 pub fn is_sensitive_file(path: &str) -> bool {
-    let normalized = path.replace('\\', "/");
-    let basename = normalized.rsplit('/').next().unwrap_or(path);
-    let comparable_name = basename.to_lowercase();
-    let comparable_path = normalized.to_lowercase();
-
-    if ENV_EXEMPTIONS.iter().any(|e| *e == comparable_name) {
-        return false;
-    }
-    if PUBLIC_KEY_BASENAMES.iter().any(|e| *e == comparable_name) {
-        return false;
-    }
-    if SENSITIVE_BASENAMES.iter().any(|e| *e == comparable_name) {
-        return true;
-    }
-    if comparable_name.starts_with(".env.") {
-        return true;
-    }
-
-    for prefix in SENSITIVE_BASENAME_PREFIXES {
-        if comparable_name == *prefix {
-            return true;
-        }
-        if comparable_name.len() > prefix.len() && comparable_name.starts_with(prefix) {
-            let suffix = &comparable_name[prefix.len()..];
-            let next = suffix.chars().next();
-            if next == Some('-') || next == Some('_') {
-                return true;
-            }
-            if next == Some('.') && SENSITIVE_DOT_VARIANT_SUFFIXES.iter().any(|s| s == &suffix) {
-                return true;
-            }
-        }
-    }
-
-    for suffix in [".aws/credentials", ".gcp/credentials"] {
-        if comparable_path.ends_with(&format!("/{}", suffix))
-            || comparable_path.contains(&format!("/{}/", suffix))
-        {
-            return true;
-        }
-    }
-
-    false
+    is_sensitive_file_bytes(path.as_bytes())
 }
 
 /// Same logic as [`is_sensitive_file`], but operates on raw bytes (`&[u8]`)
@@ -401,27 +363,16 @@ pub fn is_sensitive_file_bytes(path: &[u8]) -> bool {
 
     // ── Exemptions ─────────────────────────────────────────────────
 
-    if name.eq_ignore_ascii_case(b".env.example")
-        || name.eq_ignore_ascii_case(b".env.sample")
-        || name.eq_ignore_ascii_case(b".env.template")
-    {
+    if ENV_EXEMPTIONS.iter().any(|e| name.eq_ignore_ascii_case(e)) {
         return false;
     }
-    if name.eq_ignore_ascii_case(b"id_rsa.pub")
-        || name.eq_ignore_ascii_case(b"id_ed25519.pub")
-        || name.eq_ignore_ascii_case(b"id_ecdsa.pub")
-    {
+    if PUBLIC_KEY_BASENAMES.iter().any(|e| name.eq_ignore_ascii_case(e)) {
         return false;
     }
 
     // ── Exact basename matches ─────────────────────────────────────
 
-    if name.eq_ignore_ascii_case(b".env")
-        || name.eq_ignore_ascii_case(b"id_rsa")
-        || name.eq_ignore_ascii_case(b"id_ed25519")
-        || name.eq_ignore_ascii_case(b"id_ecdsa")
-        || name.eq_ignore_ascii_case(b"credentials")
-    {
+    if SENSITIVE_BASENAMES.iter().any(|e| name.eq_ignore_ascii_case(e)) {
         return true;
     }
 
@@ -433,21 +384,7 @@ pub fn is_sensitive_file_bytes(path: &[u8]) -> bool {
 
     // ── Prefixed variants: id_rsa.bak, id_rsa-backup, etc. ─────────
 
-    const PREFIXES: &[&[u8]] = &[b"id_rsa", b"id_ed25519", b"id_ecdsa", b"credentials"];
-    const DOT_SUFFIXES: &[&[u8]] = &[
-        b".bak",
-        b".backup",
-        b".copy",
-        b".disabled",
-        b".key",
-        b".old",
-        b".orig",
-        b".pem",
-        b".save",
-        b".tmp",
-    ];
-
-    for &prefix in PREFIXES {
+    for &prefix in SENSITIVE_BASENAME_PREFIXES {
         if name.len() > prefix.len() && name[..prefix.len()].eq_ignore_ascii_case(prefix) {
             let suffix = &name[prefix.len()..];
             let next = suffix[0];
@@ -455,7 +392,7 @@ pub fn is_sensitive_file_bytes(path: &[u8]) -> bool {
                 return true;
             }
             if next == b'.' {
-                for &dot_suffix in DOT_SUFFIXES {
+                for &dot_suffix in SENSITIVE_DOT_VARIANT_SUFFIXES {
                     if suffix.eq_ignore_ascii_case(dot_suffix) {
                         return true;
                     }

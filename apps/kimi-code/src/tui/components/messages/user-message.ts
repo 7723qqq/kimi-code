@@ -14,6 +14,7 @@ import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 export class UserMessageComponent implements Component {
   private text: string;
   private readonly bullet?: string;
+  private navigated = false;
   private spacerComponent: Spacer;
   private imageThumbnails: ImageThumbnail[];
 
@@ -24,6 +25,13 @@ export class UserMessageComponent implements Component {
     this.bullet = bullet;
     this.spacerComponent = new Spacer(1);
     this.imageThumbnails = images?.map((img) => new ImageThumbnail(img)) ?? [];
+  }
+
+  /** Navigation-mode focus highlight (first line background). */
+  setNavigated(navigated: boolean): void {
+    if (this.navigated === navigated) return;
+    this.navigated = navigated;
+    this.markRenderDirty();
   }
 
   private markRenderDirty(): void {
@@ -79,14 +87,17 @@ export class UserMessageComponent implements Component {
     }
 
     const rendered = markOsc133Zone(
-      lines.map((line) => {
+      lines.map((line, i) => {
         // Inline image sequences (Kitty / iTerm2) carry their own placement
         // information and have zero visible width, but pi-tui's truncateToWidth
         // treats the embedded base64 payload as visible text and would chop the
         // escape sequence in half, leaving garbage like "0m...". Skip truncation
         // for those lines; the image itself already respects maxWidthCells.
         if (isImageLine(line)) return line;
-        return truncateToWidth(line, safeWidth, '…');
+        const truncated = truncateToWidth(line, safeWidth, '…');
+        // Navigation-mode focus highlight: the first content line (the bullet
+        // row) gets an accent background.
+        return this.navigated && i === 1 ? currentTheme.bg('accent', truncated) : truncated;
       }),
     );
     if (isRenderCacheEnabled()) {

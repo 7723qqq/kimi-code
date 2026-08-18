@@ -71,7 +71,7 @@ registerFlagDefinition(myFeatureFlag);
 Then make sure the file is imported during bootstrap so the top-level call runs at import time:
 
 ```ts
-// src/index.ts（无域 barrel；按叶子文件逐个导入/导出）
+// src/index.ts (no domain barrel; import/export each leaf file individually)
 import '#/<domain>/flag';
 ```
 

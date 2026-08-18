@@ -162,4 +162,24 @@ describe('ShellExecutionComponent', () => {
       expect(rendered).toContain('line5');
     });
   });
+
+  it('copies the command when the command preview is clicked', () => {
+    let copied: string | undefined;
+    const component = new ShellExecutionComponent({
+      command: 'printf hello\nprintf world',
+      showCommand: true,
+      onCopyCommand: (command) => {
+        copied = command;
+      },
+    });
+
+    // Click on the first command line (y=0).
+    component.handleClick({ x: 0, y: 0 });
+    expect(copied).toBe('printf hello\nprintf world');
+
+    // Clicking below the command lines does not copy.
+    copied = undefined;
+    component.handleClick({ x: 0, y: 5 });
+    expect(copied).toBeUndefined();
+  });
 });

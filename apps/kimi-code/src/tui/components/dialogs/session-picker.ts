@@ -9,6 +9,7 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiClickEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
@@ -94,6 +95,10 @@ export class SessionPickerComponent extends Container implements Focusable {
   private hasMore: boolean;
   private loadingMore: boolean;
   private list: SearchableList<SessionRow>;
+  /** Rendered row → session index, for mouse hit-testing. */
+  private sessionRows = new Map<number, number>();
+  /** Session index currently under the pointer, for hover highlight. */
+  private hoveredSession: number | undefined;
 
   focused = false;
 
@@ -244,6 +249,21 @@ export class SessionPickerComponent extends Container implements Focusable {
     }
   }
 
+  /** Clicking a session card selects it. */
+  handleClick(event: TuiClickEvent): void {
+    const index = this.sessionRows.get(event.y);
+    if (index === undefined) return;
+    const session = this.list.view().items[index];
+    if (session) this.onSelect(session);
+  }
+
+  /** Highlight the session card under the pointer. */
+  onHoverChange(hovered: boolean, _x: number, y: number): void {
+    const session = hovered ? this.sessionRows.get(y) : undefined;
+    if (session === this.hoveredSession) return;
+    this.hoveredSession = session;
+  }
+
   override render(width: number): string[] {
     return this.renderLines(width).map((line) => truncateToWidth(line, width, ELLIPSIS));
   }
@@ -346,11 +366,22 @@ export class SessionPickerComponent extends Container implements Focusable {
       visibleStart + this.maxVisibleSessions,
     );
 
+    this.sessionRows.clear();
     for (const [vi, session] of visibleSessions.entries()) {
       const index = visibleStart + vi;
       const isSelected = index === selectedIndex;
       const isCurrent = session.id === this.currentSessionId;
-      const card = this.renderSessionCard(width, session, isSelected, isCurrent);
+      const cardStart = lines.length;
+      const card = this.renderSessionCard(
+        width,
+        session,
+        isSelected,
+        isCurrent,
+        index === this.hoveredSession,
+      );
+      for (let r = 0; r < card.length; r++) {
+        this.sessionRows.set(cardStart + r, index);
+      }
       lines.push(...card);
       if (vi < visibleSessions.length - 1) lines.push('');
     }
@@ -403,7 +434,12 @@ export class SessionPickerComponent extends Container implements Focusable {
     session: SessionRow,
     isSelected: boolean,
     isCurrent: boolean,
+    isHovered: boolean,
   ): string[] {
+    const hovered = isHovered && !isSelected;
+    // Hover highlight: filled accent background across the whole card, with
+    // the text flattened to the default color (matches model-selector).
+    const hoverStyle = (text: string) => currentTheme.bg('accent', currentTheme.fg('text', text));
     const pointer = isSelected ? SELECT_POINTER : ' ';
     const indent = '  ';
     const indentWidth = visibleWidth(indent);
@@ -424,11 +460,16 @@ export class SessionPickerComponent extends Container implements Focusable {
     const titleBudget = Math.max(8, width - headerPrefixWidth - trailingWidth);
     const shownTitle = truncateToWidth(singleLine(titleSource), titleBudget, ELLIPSIS);
 
-    let header = currentTheme.fg(isSelected ? 'primary' : 'textDim', pointer + ' ');
-    header += titleStyle(shownTitle);
-    if (time.length > 0) header += '  ' + currentTheme.fg('textDim', time);
-    if (badge.length > 0) header += '  ' + currentTheme.fg('success', badge);
-    const card: string[] = [header];
+    const card: string[] = [];
+    if (hovered) {
+      card.push(hoverStyle(`${pointer} ${shownTitle}${trailingText}`));
+    } else {
+      let header = currentTheme.fg(isSelected ? 'primary' : 'textDim', pointer + ' ');
+      header += titleStyle(shownTitle);
+      if (time.length > 0) header += '  ' + currentTheme.fg('textDim', time);
+      if (badge.length > 0) header += '  ' + currentTheme.fg('success', badge);
+      card.push(header);
+    }
 
     // Session id is rendered in full at normal widths (the final clamp in
     // `render()` truncates it only when the terminal is narrower than the id).
@@ -442,25 +483,32 @@ export class SessionPickerComponent extends Container implements Focusable {
     const dirWidth = visibleWidth(aliasedDir);
 
     if (idLineWidth + metaGapWidth + dirWidth <= width) {
+      const metaText = `${indent}${fullId}${metaGap}${aliasedDir}`;
       card.push(
-        indent +
-          currentTheme.fg('textMuted', fullId) +
-          currentTheme.fg('textDim', metaGap) +
-          currentTheme.fg('textMuted', aliasedDir),
+        hovered
+          ? hoverStyle(metaText)
+          : indent +
+              currentTheme.fg('textMuted', fullId) +
+              currentTheme.fg('textDim', metaGap) +
+              currentTheme.fg('textMuted', aliasedDir),
       );
     } else {
       // Not enough room for both on one line — keep the id intact and put the
       // directory on the next line (left-truncated only if it still doesn't fit).
+      const idText = indent + truncateToWidth(fullId, Math.max(idWidth, width - indentWidth), ELLIPSIS);
       card.push(
-        indent +
-          currentTheme.fg(
-            'textMuted',
-            truncateToWidth(fullId, Math.max(idWidth, width - indentWidth), ELLIPSIS),
-          ),
+        hovered
+          ? hoverStyle(idText)
+          : indent +
+              currentTheme.fg(
+                'textMuted',
+                truncateToWidth(fullId, Math.max(idWidth, width - indentWidth), ELLIPSIS),
+              ),
       );
       const dirBudget = Math.max(8, width - indentWidth);
       const dir = truncatePathLeft(aliasedDir, dirBudget);
-      card.push(indent + currentTheme.fg('textMuted', dir));
+      const dirText = indent + dir;
+      card.push(hovered ? hoverStyle(dirText) : indent + currentTheme.fg('textMuted', dir));
     }
 
     const rawPrompt = session.last_prompt?.trim();
@@ -469,8 +517,12 @@ export class SessionPickerComponent extends Container implements Focusable {
       const promptMarkerWidth = visibleWidth(promptMarker);
       const promptBudget = Math.max(8, width - indentWidth - promptMarkerWidth);
       const promptText = truncateToWidth(singleLine(rawPrompt), promptBudget, ELLIPSIS);
-      const promptLine = indent + currentTheme.fg('textDim', promptMarker + promptText);
-      card.push(promptLine);
+      const promptLine = `${indent}${promptMarker}${promptText}`;
+      card.push(
+        hovered
+          ? hoverStyle(promptLine)
+          : indent + currentTheme.fg('textDim', promptMarker + promptText),
+      );
     }
 
     return card;

@@ -15,6 +15,7 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiClickEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
@@ -84,6 +85,10 @@ export class ChoicePickerComponent extends Container implements Focusable {
   focused = false;
   private readonly opts: ChoicePickerOptions;
   private readonly list: SearchableList<ChoiceOption>;
+  /** Rendered row → option index, for mouse hit-testing. */
+  private optionRows = new Map<number, number>();
+  /** Option index currently under the pointer, for hover highlight. */
+  private hoveredOption: number | undefined;
 
   constructor(opts: ChoicePickerOptions) {
     super();
@@ -129,6 +134,21 @@ export class ChoicePickerComponent extends Container implements Focusable {
     this.list.handleKey(data);
   }
 
+  /** Clicking an option row selects and submits it. */
+  handleClick(event: TuiClickEvent): void {
+    const index = this.optionRows.get(event.y);
+    if (index === undefined) return;
+    const opt = this.list.view().items[index];
+    if (opt !== undefined) this.opts.onSelect(opt.value);
+  }
+
+  /** Highlight the option row under the pointer. */
+  onHoverChange(hovered: boolean, _x: number, y: number): void {
+    const option = hovered ? this.optionRows.get(y) : undefined;
+    if (option === this.hoveredOption) return;
+    this.hoveredOption = option;
+  }
+
   override render(width: number): string[] {
     const searchable = this.opts.searchable === true;
     const view = this.list.view();
@@ -172,17 +192,26 @@ export class ChoicePickerComponent extends Container implements Focusable {
     if (options.length === 0) {
       lines.push(currentTheme.fg('textMuted', `   ${t('tui.dialogs.choicePicker.noMatches')}`));
     }
+    this.optionRows.clear();
     for (let i = view.page.start; i < view.page.end; i++) {
       const opt = options[i]!;
       const isSelected = i === view.selectedIndex;
       const isCurrent = opt.value === this.opts.currentValue;
+      const isHovered = i === this.hoveredOption;
       const pointer = isSelected ? SELECT_POINTER : ' ';
       const labelStyle = optionLabelStyle(opt, isSelected);
-      let line = currentTheme.fg(isSelected ? 'primary' : 'textDim', `  ${pointer} `);
-      line += labelStyle(opt.label);
+      let line: string;
+      if (isHovered && !isSelected) {
+        // Hover highlight: filled accent background.
+        line = currentTheme.bg('accent', currentTheme.fg('text', `  ${pointer} ${opt.label}`));
+      } else {
+        line = currentTheme.fg(isSelected ? 'primary' : 'textDim', `  ${pointer} `);
+        line += labelStyle(opt.label);
+      }
       if (isCurrent) {
         line += ' ' + currentTheme.fg('success', getCurrentMark());
       }
+      this.optionRows.set(lines.length, i);
       lines.push(line);
       if (opt.description !== undefined && opt.description.length > 0) {
         const descriptionWidth = Math.max(1, width - 4);

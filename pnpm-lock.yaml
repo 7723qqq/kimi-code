@@ -111,9 +111,15 @@ importers:
       '@opentui/core':
         specifier: 0.5.4
         version: 0.5.4(typescript@6.0.3)(web-tree-sitter@0.25.10)
+      '@opentui/keymap':
+        specifier: 0.5.4
+        version: 0.5.4(@opentui/solid@0.5.4(solid-js@1.9.15)(typescript@6.0.3)(web-tree-sitter@0.25.10))(react@19.2.5)(solid-js@1.9.15)(typescript@6.0.3)(web-tree-sitter@0.25.10)
       '@opentui/solid':
         specifier: 0.5.4
         version: 0.5.4(solid-js@1.9.15)(typescript@6.0.3)(web-tree-sitter@0.25.10)
+      opentui-spinner:
+        specifier: 0.0.7
+        version: 0.0.7(@opentui/core@0.5.4(typescript@6.0.3)(web-tree-sitter@0.25.10))(@opentui/solid@0.5.4(solid-js@1.9.15)(typescript@6.0.3)(web-tree-sitter@0.25.10))(typescript@6.0.3)
       solid-js:
         specifier: ^1.9.7
         version: 1.9.15
@@ -2922,6 +2928,23 @@ packages:
     peerDependencies:
       web-tree-sitter: 0.25.10
 
+  '@opentui/keymap@0.5.4':
+    resolution: {integrity: sha512-WAB6EH6C7SicmK/ycvx+mUu00sQ755gToZqBx8vgLhS7qZ07s/WLi88Ys0D6AA0i8lOiSIPA4uqei1jkV8UnBQ==}
+    peerDependencies:
+      '@opentui/react': 0.5.4
+      '@opentui/solid': 0.5.4
+      react: '>=19.2.0'
+      solid-js: 1.9.12
+    peerDependenciesMeta:
+      '@opentui/react':
+        optional: true
+      '@opentui/solid':
+        optional: true
+      react:
+        optional: true
+      solid-js:
+        optional: true
+
   '@opentui/solid@0.5.4':
     resolution: {integrity: sha512-1injDvieTyYXD3RLC2EclaJK8XZ2+qyJ7wGeQPSzpcYEEcanb7G79KVWFlN7YUzqVAhTIictZDoQ6SRvIwL4Ww==}
     peerDependencies:
@@ -5506,6 +5529,10 @@ packages:
     resolution: {integrity: sha512-ywqV+5MmyL4E7ybXgKys4DugZbX0FC6LnwrhjuykIjnK9k8OQacQ7axGKnjDXWNhns0xot3bZI5h55H8yo9cJg==}
     engines: {node: '>=6'}
 
+  cli-spinners@3.4.0:
+    resolution: {integrity: sha512-bXfOC4QcT1tKXGorxL3wbJm6XJPDqEnij2gQ2m7ESQuE+/z9YFIWnl/5RpTiKWbMq3EVKR4fRLJGn6DVfu0mpw==}
+    engines: {node: '>=18.20'}
+
   cli-table3@0.6.5:
     resolution: {integrity: sha512-+W/5efTR7y5HRD7gACw9yQjqMVvEMLBHmboM/kPWam+H+Hmyrgjh6YncVKK122YZkXrLudzTuAukUw9FnMf7IQ==}
     engines: {node: 10.* || >= 12.*}
@@ -7833,6 +7860,19 @@ packages:
 
   openapi-types@12.1.3:
     resolution: {integrity: sha512-N4YtSYJqghVu4iek2ZUvcN/0aqH1kRDuNqzcycDxhOUpg7GdvLa2F3DgS6yBNhInhv2r/6I0Flkn7CqL8+nIcw==}
+
+  opentui-spinner@0.0.7:
+    resolution: {integrity: sha512-nPzwAvJG+y9rVEwwHLHqbsMzLnIk2zw+F9LqwA7aYJvpM5gsrKC2rrGi36A+tZpA+1RnWxXeWEgVZMchnaH18Q==}
+    peerDependencies:
+      '@opentui/core': ^0.3.4
+      '@opentui/react': ^0.3.4
+      '@opentui/solid': ^0.3.4
+      typescript: ^5
+    peerDependenciesMeta:
+      '@opentui/react':
+        optional: true
+      '@opentui/solid':
+        optional: true
 
   ora@8.2.0:
     resolution: {integrity: sha512-weP+BZ8MVNnlCm8c0Qdc1WSWq4Qn7I+9CJGm7Qali6g44e/PUzbjNqJX5NJ9ljlNMosfJvg1fKEGILklK9cwnw==}
@@ -12029,6 +12069,17 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
+  '@opentui/keymap@0.5.4(@opentui/solid@0.5.4(solid-js@1.9.15)(typescript@6.0.3)(web-tree-sitter@0.25.10))(react@19.2.5)(solid-js@1.9.15)(typescript@6.0.3)(web-tree-sitter@0.25.10)':
+    dependencies:
+      '@opentui/core': 0.5.4(typescript@6.0.3)(web-tree-sitter@0.25.10)
+    optionalDependencies:
+      '@opentui/solid': 0.5.4(solid-js@1.9.15)(typescript@6.0.3)(web-tree-sitter@0.25.10)
+      react: 19.2.5
+      solid-js: 1.9.15
+    transitivePeerDependencies:
+      - typescript
+      - web-tree-sitter
+
   '@opentui/solid@0.5.4(solid-js@1.9.15)(typescript@6.0.3)(web-tree-sitter@0.25.10)':
     dependencies:
       '@babel/core': 8.0.1
@@ -13846,7 +13897,7 @@ snapshots:
       obug: 2.1.4
       std-env: 4.0.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.10(@types/node@22.19.17)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.3))(vite@7.3.6(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
+      vitest: 4.1.10(@types/node@22.19.17)(@vitest/coverage-v8@4.1.10)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.19.17)(typescript@6.0.2))(vite@7.3.6(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.3))
 
   '@vitest/expect@4.1.10':
     dependencies:
@@ -14525,6 +14576,8 @@ snapshots:
       yargs: 16.2.0
 
   cli-spinners@2.9.2: {}
+
+  cli-spinners@3.4.0: {}
 
   cli-table3@0.6.5:
     dependencies:
@@ -17192,6 +17245,14 @@ snapshots:
       zod: 4.3.6
 
   openapi-types@12.1.3: {}
+
+  opentui-spinner@0.0.7(@opentui/core@0.5.4(typescript@6.0.3)(web-tree-sitter@0.25.10))(@opentui/solid@0.5.4(solid-js@1.9.15)(typescript@6.0.3)(web-tree-sitter@0.25.10))(typescript@6.0.3):
+    dependencies:
+      '@opentui/core': 0.5.4(typescript@6.0.3)(web-tree-sitter@0.25.10)
+      cli-spinners: 3.4.0
+      typescript: 6.0.3
+    optionalDependencies:
+      '@opentui/solid': 0.5.4(solid-js@1.9.15)(typescript@6.0.3)(web-tree-sitter@0.25.10)
 
   ora@8.2.0:
     dependencies:

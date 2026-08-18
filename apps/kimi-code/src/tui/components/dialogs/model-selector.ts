@@ -11,6 +11,7 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
   type Focusable,
+  type TuiClickEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '#/constant/app';
@@ -189,6 +190,10 @@ export class ModelSelectorComponent extends Container implements Focusable {
   private readonly list: SearchableList<ModelChoice>;
   /** Per-model thinking-effort override set by ←/→; absent → the default. */
   private readonly thinkingOverrides = new Map<string, string>();
+  /** Rendered row → choice index, for mouse hit-testing. */
+  private optionRows = new Map<number, number>();
+  /** Choice index currently under the pointer, for hover highlight. */
+  private hoveredOption: number | undefined;
 
   constructor(opts: ModelSelectorOptions) {
     super();
@@ -293,6 +298,25 @@ export class ModelSelectorComponent extends Container implements Focusable {
     }
   }
 
+  /** Clicking a model row selects and submits it. */
+  handleClick(event: TuiClickEvent): void {
+    const index = this.optionRows.get(event.y);
+    if (index === undefined) return;
+    const choice = this.list.view().items[index];
+    if (choice === undefined) return;
+    this.opts.onSelect({
+      alias: choice.alias,
+      thinking: commitEffort(choice, this.effectiveEffort(choice)),
+    });
+  }
+
+  /** Highlight the model row under the pointer. */
+  onHoverChange(hovered: boolean, _x: number, y: number): void {
+    const option = hovered ? this.optionRows.get(y) : undefined;
+    if (option === this.hoveredOption) return;
+    this.hoveredOption = option;
+  }
+
   override render(width: number): string[] {
     const searchable = this.opts.searchable === true;
     const view = this.list.view();
@@ -350,6 +374,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
       }
       nameWidth = Math.min(nameWidth, nameCap);
 
+      this.optionRows.clear();
       for (let i = view.page.start; i < view.page.end; i++) {
         const choice = view.items[i];
         if (choice === undefined) continue;
@@ -358,15 +383,26 @@ export class ModelSelectorComponent extends Container implements Focusable {
         const pointer = isSelected ? SELECT_POINTER : ' ';
         const truncatedName = truncateToWidth(choice.name, nameWidth, '…');
         const namePad = ' '.repeat(Math.max(0, nameWidth - visibleWidth(truncatedName)));
-        let line = currentTheme.fg(isSelected ? 'primary' : 'textDim', `  ${pointer} `);
-        line +=
-          (isSelected
-            ? currentTheme.boldFg('primary', truncatedName)
-            : currentTheme.fg('text', truncatedName)) + namePad;
-        line += '  ' + currentTheme.fg('textMuted', choice.provider);
+        const isHovered = i === this.hoveredOption;
+        let line: string;
+        if (isHovered && !isSelected) {
+          // Hover highlight: filled accent background.
+          line = currentTheme.bg(
+            'accent',
+            currentTheme.fg('text', `  ${pointer} ${truncatedName}${namePad}  ${choice.provider}`),
+          );
+        } else {
+          line = currentTheme.fg(isSelected ? 'primary' : 'textDim', `  ${pointer} `);
+          line +=
+            (isSelected
+              ? currentTheme.boldFg('primary', truncatedName)
+              : currentTheme.fg('text', truncatedName)) + namePad;
+          line += '  ' + currentTheme.fg('textMuted', choice.provider);
+        }
         if (isCurrent) {
           line += ' ' + currentTheme.fg('success', getCurrentMark());
         }
+        this.optionRows.set(lines.length, i);
         lines.push(line);
       }
     }

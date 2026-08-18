@@ -8,7 +8,7 @@
  */
 
 import type { GoalChange } from '@moonshot-ai/kimi-code-sdk';
-import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
+import { truncateToWidth, type Component, type TuiClickEvent } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
@@ -26,15 +26,20 @@ interface GoalMarkerOptions {
   readonly expandable?: boolean;
   readonly indent?: string;
   readonly leadingBlank?: boolean;
+  /** Fired after a mouse click toggles expansion (host triggers re-render). */
+  readonly onToggle?: () => void;
 }
 
 export class GoalMarkerComponent implements Component {
   private expanded = false;
+  private navigated = false;
   private readonly marker: string;
   private readonly textToken: ColorToken;
   private readonly expandable: boolean;
   private readonly indent: string;
   private readonly leadingBlank: boolean;
+
+  private readonly onToggle: (() => void) | undefined;
 
   constructor(
     private readonly headline: string,
@@ -47,6 +52,7 @@ export class GoalMarkerComponent implements Component {
     this.expandable = options.expandable ?? true;
     this.indent = options.indent ?? HEAD_INDENT;
     this.leadingBlank = options.leadingBlank ?? false;
+    this.onToggle = options.onToggle;
   }
 
   invalidate(): void {}
@@ -55,22 +61,54 @@ export class GoalMarkerComponent implements Component {
     this.expanded = expanded;
   }
 
+  isExpanded(): boolean {
+    return this.expanded;
+  }
+
+  /** Navigation-mode focus highlight (header background). */
+  setNavigated(navigated: boolean): void {
+    this.navigated = navigated;
+  }
+
+  /** Clicking the marker toggles expansion. */
+  handleClick(_event: TuiClickEvent): void {
+    if (this.expandable) {
+      this.setExpanded(!this.expanded);
+      this.onToggle?.();
+    }
+  }
+
   render(width: number): string[] {
     const dot = currentTheme.fg(this.accentToken, this.marker);
     const head = currentTheme.fg(this.textToken, this.headline);
     const hasDetail = this.detail !== undefined && this.detail.length > 0;
-    if (!hasDetail) return this.clampToWidth([`${this.indent}${dot} ${head}`], width);
+    if (!hasDetail) {
+      const line = `${this.indent}${dot} ${head}`;
+      return this.clampToWidth([this.navigated ? currentTheme.bg('accent', line) : line], width);
+    }
 
     if (!this.expandable) {
-      return this.clampToWidth([`${this.indent}${dot} ${head}`], width);
+      const line = `${this.indent}${dot} ${head}`;
+      return this.clampToWidth([this.navigated ? currentTheme.bg('accent', line) : line], width);
     }
     if (!this.expanded) {
       return this.clampToWidth(
-        [`${this.indent}${dot} ${head} ${currentTheme.fg('textMuted', '(ctrl+o)')}`],
+        [
+          this.navigated
+            ? currentTheme.bg(
+                'accent',
+                `${this.indent}${dot} ${head} ${currentTheme.fg('textMuted', '(ctrl+o)')}`,
+              )
+            : `${this.indent}${dot} ${head} ${currentTheme.fg('textMuted', '(ctrl+o)')}`,
+        ],
         width,
       );
     }
-    const out = [`${this.indent}${dot} ${head}`];
+    const out = [
+      this.navigated
+        ? currentTheme.bg('accent', `${this.indent}${dot} ${head}`)
+        : `${this.indent}${dot} ${head}`,
+    ];
     const wrapWidth = Math.max(20, width - DETAIL_INDENT.length);
     for (const line of wrap(this.detail!, wrapWidth)) {
       out.push(DETAIL_INDENT + currentTheme.fg('textDim', line));
@@ -98,6 +136,7 @@ export function buildGoalMarker(
   change: GoalChange,
   expanded: boolean,
   actor?: GoalMarkerActor,
+  onToggle?: () => void,
 ): GoalMarkerComponent | null {
   const spec = markerSpec(change, actor);
   if (spec === null) return null;
@@ -105,7 +144,7 @@ export function buildGoalMarker(
     spec.headline,
     spec.detail ?? change.reason,
     spec.accentToken,
-    spec.options,
+    { ...spec.options, onToggle },
   );
   marker.setExpanded(expanded);
   return marker;

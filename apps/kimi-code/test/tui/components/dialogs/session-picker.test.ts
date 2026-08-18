@@ -1,3 +1,4 @@
+import chalk from 'chalk';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -908,5 +909,65 @@ describe('SessionPickerComponent', () => {
     component.handleInput('a');
 
     expect(renderPlain(component)).toContain('· searching all…');
+  });
+
+  it('selects the session under the clicked row', () => {
+    const onSelect = vi.fn();
+    const component = new SessionPickerComponent({
+      sessions: [
+        { id: 'ses-1', title: 'Session One', work_dir: '/tmp/a', updated_at: 1_700_000_000_000 },
+        { id: 'ses-2', title: 'Session Two', work_dir: '/tmp/b', updated_at: 1_700_000_000_000 },
+      ],
+      loading: false,
+      currentSessionId: '',
+      onSelect,
+      onCancel: vi.fn(),
+    });
+    const lines = component.render(120).map(stripAnsi);
+    const row = lines.findIndex((l) => l.includes('Session Two'));
+    expect(row).toBeGreaterThanOrEqual(0);
+
+    component.handleClick({ x: 0, y: row });
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'ses-2' }));
+  });
+
+  it('highlights the hovered session card with an accent background', () => {
+    const previousChalkLevel = chalk.level;
+    chalk.level = 3;
+    try {
+      const component = new SessionPickerComponent({
+        sessions: [
+          { id: 'ses-1', title: 'Session One', work_dir: '/tmp/a', updated_at: 1_700_000_000_000 },
+          { id: 'ses-2', title: 'Session Two', work_dir: '/tmp/b', updated_at: 1_700_000_000_000 },
+        ],
+        loading: false,
+        currentSessionId: '',
+        onSelect: vi.fn(),
+        onCancel: vi.fn(),
+      });
+
+      // No hover: no background highlight anywhere.
+      expect(component.render(120).join('\n')).not.toMatch(/\u001B\[48/);
+
+      const lines = component.render(120).map(stripAnsi);
+      const row = lines.findIndex((l) => l.includes('Session Two'));
+      expect(row).toBeGreaterThanOrEqual(0);
+
+      component.onHoverChange(true, 0, row);
+      const hovered = component.render(120).join('\n');
+      // The hovered card's header line carries the accent background.
+      const headerLine = hovered.split('\n')[row] ?? '';
+      expect(headerLine).toMatch(/\u001B\[48/);
+      expect(stripAnsi(headerLine)).toContain('Session Two');
+      // The card's meta line (session id) is highlighted too.
+      const metaLine = hovered.split('\n')[row + 1] ?? '';
+      expect(metaLine).toMatch(/\u001B\[48/);
+
+      // Leaving the card clears the highlight.
+      component.onHoverChange(false, 0, 0);
+      expect(component.render(120).join('\n')).not.toMatch(/\u001B\[48/);
+    } finally {
+      chalk.level = previousChalkLevel;
+    }
   });
 });

@@ -16,6 +16,12 @@ export const OSC133_ZONE_FINAL = '\x1B]133;C\x07';
 // vertical borders are the visual anchor everything else aligns against.
 export const CHROME_GUTTER = 1;
 
+// Fixed width of the right-side agent status panel (fullscreen mode).
+export const AGENT_PANE_WIDTH = 28;
+
+// Wider width for the diff review panel — diffs need room to breathe.
+export const REVIEW_PANE_WIDTH = 60;
+
 // Shared preview caps used by thinking, tool results, and shell snippets.
 export const RESULT_PREVIEW_LINES = 3;
 export const THINKING_PREVIEW_LINES = 2;

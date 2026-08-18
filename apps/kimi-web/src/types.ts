@@ -133,7 +133,7 @@ export interface AgentMember {
   text?: string;
   suspendedReason?: string;
   swarmIndex?: number;
-  /** Task lifecycle timestamps (ISO strings) used for the "已工作 {duration}"
+  /** Task lifecycle timestamps (ISO strings) used for the "Worked {duration}"
    *  panel fold. Mirrors AppTask.createdAt/startedAt/completedAt. */
   createdAt?: string;
   startedAt?: string;

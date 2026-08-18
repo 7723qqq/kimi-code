@@ -145,7 +145,7 @@ describe('derived figures', () => {
   it('never exceeds 100% when snapshot usage overlays cache-excluded inputTokens', () => {
     // Regression: the snapshot's inputTokens excludes cache buckets, so a
     // session with heavy cache reuse (read 158.4K, other 10K, creation 0)
-    // used to render "缓存命中 1584%". The standard formula over cache
+    // used to render "Cache hit 1584%". The standard formula over cache
     // traffic keeps the figure bounded.
     const stats = {
       ...createSessionStatsState().stats,

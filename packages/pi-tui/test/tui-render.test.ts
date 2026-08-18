@@ -1229,3 +1229,195 @@ describe("TUI steady-frame processed-line reuse", () => {
 		}
 	});
 });
+
+describe("TUI mouse click routing", () => {
+	it("routes a left click to the component under the pointer", async () => {
+		const terminal = new VirtualTerminal(40, 10);
+		const tui: TUI = new TuiMainScreen(terminal);
+		const clicks: { x: number; y: number }[] = [];
+		const component: Component = {
+			render: () => ["Line 0", "Line 1", "Line 2"],
+			handleClick: (event) => clicks.push(event),
+			invalidate: () => {},
+		};
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+
+		// Press and release on screen row 1 (0-based), column 5.
+		// SGR coordinates are 1-based: <button;col;rowM (press) / m (release).
+		terminal.sendInput("\x1b[<0;6;2M");
+		terminal.sendInput("\x1b[<0;6;2m");
+
+		assert.equal(clicks.length, 1);
+		assert.equal(clicks[0]!.x, 5);
+		assert.equal(clicks[0]!.y, 1);
+		tui.stop();
+	});
+
+	it("does not route clicks to components without handleClick", async () => {
+		const terminal = new VirtualTerminal(40, 10);
+		const tui: TUI = new TuiMainScreen(terminal);
+		const component: Component = {
+			render: () => ["Line 0"],
+			invalidate: () => {},
+		};
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+
+		// Click on line 0 — no handler, must not throw.
+		terminal.sendInput("\x1b[<0;1;1M");
+		terminal.sendInput("\x1b[<0;1;1m");
+		tui.stop();
+	});
+
+	it("ignores wheel events and non-left buttons", async () => {
+		const terminal = new VirtualTerminal(40, 10);
+		const tui: TUI = new TuiMainScreen(terminal);
+		const clicks: { x: number; y: number }[] = [];
+		const component: Component = {
+			render: () => ["Line 0"],
+			handleClick: (event) => clicks.push(event),
+			invalidate: () => {},
+		};
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+
+		// Wheel up (button 64), right button (button 2), middle button (button 1).
+		terminal.sendInput("\x1b[<64;1;1M");
+		terminal.sendInput("\x1b[<2;1;1M");
+		terminal.sendInput("\x1b[<1;1;1M");
+
+		assert.equal(clicks.length, 0);
+		tui.stop();
+	});
+
+	it("routes clicks through padded containers to their children", async () => {
+		const terminal = new VirtualTerminal(40, 10);
+		const tui: TUI = new TuiMainScreen(terminal);
+		const clicks: { x: number; y: number }[] = [];
+		// A container that pads child rows with leading spaces and overrides
+		// render — like kimi-code's GutterContainer. Clicks must still reach
+		// the child, with x offset by the pad.
+		class PaddedContainer extends Container {
+			getLeftPad(): number {
+				return 2;
+			}
+			override render(width: number): string[] {
+				return super.render(width).map((line) => "  " + line);
+			}
+		}
+		const pad = new PaddedContainer();
+		const child: Component = {
+			render: () => ["Line 0", "Line 1"],
+			handleClick: (event) => clicks.push(event),
+			invalidate: () => {},
+		};
+		pad.addChild(child);
+		tui.addChild(pad);
+		tui.start();
+		await terminal.waitForRender();
+
+		// Click screen row 1 (0-based), column 5 (1-based 6). The child should
+		// receive x = 5 - 2 (left pad) = 3, y = 1.
+		terminal.sendInput("\x1b[<0;6;2M");
+		terminal.sendInput("\x1b[<0;6;2m");
+
+		assert.equal(clicks.length, 1);
+		assert.equal(clicks[0]!.x, 3);
+		assert.equal(clicks[0]!.y, 1);
+		tui.stop();
+	});
+
+	it("hit-tests clicks against scrolled content rows", async () => {
+		const terminal = new VirtualTerminal(40, 10);
+		const tui: TUI = new TuiMainScreen(terminal);
+		const clicks: { x: number; y: number }[] = [];
+		// 20 content rows in a 10-row terminal: the main screen scrolls, so the
+		// viewport shows the tail and clicks must be translated back to content
+		// rows (regression: clicks missed after scrolling).
+		const component: Component = {
+			render: () => Array.from({ length: 20 }, (_, i) => `Line ${i}`),
+			handleClick: (event) => clicks.push(event),
+			invalidate: () => {},
+		};
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+
+		// Click the bottom screen row — must hit a content row in the scrolled
+		// tail, not row 9 of the raw render.
+		terminal.sendInput("\x1b[<0;1;10M");
+		terminal.sendInput("\x1b[<0;1;10m");
+
+		assert.equal(clicks.length, 1);
+		assert.ok(clicks[0]!.y >= 10, `expected a scrolled content row, got ${clicks[0]!.y}`);
+		tui.stop();
+	});
+
+	it("routes clicks after an editor-replacement dialog opens and closes", async () => {
+		const terminal = new VirtualTerminal(40, 15);
+		const tui: TUI = new TuiMainScreen(terminal);
+		const transcriptClicks: { x: number; y: number }[] = [];
+
+		class PaddedContainer extends Container {
+			getLeftPad(): number {
+				return 2;
+			}
+			override render(width: number): string[] {
+				return super.render(width).map((line) => "  " + line);
+			}
+		}
+
+		const transcript = new PaddedContainer();
+		const message: Component = {
+			render: () => ["Message line 0", "Message line 1"],
+			handleClick: (event) => transcriptClicks.push(event),
+			invalidate: () => {},
+		};
+		transcript.addChild(message);
+		tui.addChild(transcript);
+
+		// Editor container that gets replaced by a tall dialog panel and back.
+		const editorContainer = new PaddedContainer();
+		const editor: Component = {
+			render: () => ["Editor line"],
+			invalidate: () => {},
+		};
+		editorContainer.addChild(editor);
+		tui.addChild(editorContainer);
+
+		tui.start();
+		await terminal.waitForRender();
+
+		// Click the first message row (screen row 0, column 3 = 1-based 4).
+		terminal.sendInput("\x1b[<0;4;1M");
+		terminal.sendInput("\x1b[<0;4;1m");
+		assert.equal(transcriptClicks.length, 1, "message click before dialog");
+
+		// Simulate opening a dialog: replace the editor with a tall panel.
+		const panel: Component = {
+			render: () => ["Panel line 0", "Panel line 1", "Panel line 2", "Panel line 3"],
+			handleClick: () => {},
+			invalidate: () => {},
+		};
+		editorContainer.clear();
+		editorContainer.addChild(panel);
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		// Simulate closing the dialog: restore the editor.
+		editorContainer.clear();
+		editorContainer.addChild(editor);
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		// Click the same message row again — must still hit after the swap.
+		terminal.sendInput("\x1b[<0;4;1M");
+		terminal.sendInput("\x1b[<0;4;1m");
+		assert.equal(transcriptClicks.length, 2, "message click after dialog closed");
+		tui.stop();
+	});
+});

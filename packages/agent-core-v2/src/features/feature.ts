@@ -9,7 +9,7 @@
  * present and future scope of that kind), agent tools (`toolRegistry`), and
  * agent profiles (`agentProfileCatalog`). Everything a Feature provides hangs
  * on its own book, so retracting the Feature unit withdraws every
- * contribution across the scope tree (连坐). Recipes declare a stable
+ * contribution across the scope tree (collective retraction). Recipes declare a stable
  * `static readonly name`; the assembly keys managed units by it.
  */
 

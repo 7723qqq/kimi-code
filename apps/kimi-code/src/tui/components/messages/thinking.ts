@@ -5,7 +5,7 @@
  * Supports expand/collapse via Ctrl+O (shared with tool output).
  */
 
-import { Text, truncateToWidth, type Component, type TUI } from '@moonshot-ai/pi-tui';
+import { Text, truncateToWidth, type Component, type TUI, type TuiClickEvent } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import {
@@ -25,6 +25,7 @@ export class ThinkingComponent implements Component {
   private showMarker: boolean;
   private mode: ThinkingRenderMode;
   private expanded = false;
+  private navigated = false;
   private readonly ui: TUI | undefined;
   private spinnerFrame = 0;
   private spinnerInterval: ReturnType<typeof setInterval> | undefined;
@@ -88,6 +89,23 @@ export class ThinkingComponent implements Component {
     this.markRenderDirty();
   }
 
+  isExpanded(): boolean {
+    return this.expanded;
+  }
+
+  /** Navigation-mode focus highlight (header background). */
+  setNavigated(navigated: boolean): void {
+    if (this.navigated === navigated) return;
+    this.navigated = navigated;
+    this.markRenderDirty();
+  }
+
+  /** Clicking the thinking block toggles expansion. */
+  handleClick(_event: TuiClickEvent): void {
+    this.setExpanded(!this.expanded);
+    this.ui?.requestRender();
+  }
+
   render(width: number): string[] {
     if (
       isRenderCacheEnabled() &&
@@ -137,6 +155,12 @@ export class ThinkingComponent implements Component {
         );
         rendered = truncated;
       }
+    }
+
+    // Navigation-mode focus highlight: the header row (spinner/label or the
+    // first content line with its marker) gets an accent background.
+    if (this.navigated && rendered[1] !== undefined) {
+      rendered[1] = currentTheme.bg('accent', rendered[1]);
     }
 
     if (isRenderCacheEnabled()) {

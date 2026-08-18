@@ -24,8 +24,8 @@
  * container pushes a `ConstructionFrame`, the `Service` base buffers
  * capability calls made inside the constructor as `BufferedOp`s (answered
  * with `PendingFiberHandle`s), and `bindServiceUnit` flushes the buffer
- * against the freshly bound runtime once construction finishes — 构造期只写
- * 不读. `ScopeUnits(kind)` mints the per-scope-kind materialization
+ * against the freshly bound runtime once construction finishes — writes
+ * only during construction. `ScopeUnits(kind)` mints the per-scope-kind materialization
  * collection token folded by `scopeUnits.ts`.
  */
 

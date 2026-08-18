@@ -257,4 +257,37 @@ describe('FooterComponent swarm-plan badge', () => {
     expect(rendered).not.toContain('plan');
     expect(rendered).not.toContain('swarm-plan');
   });
+
+  it('fires onModelClick when the model slot is clicked', () => {
+    const footer = new FooterComponent(appState);
+    let clicked = false;
+    footer.onModelClick = () => {
+      clicked = true;
+    };
+    const line1 = footer.render(120)[0]!;
+    const plain = line1.replaceAll(/\u001B\[[0-9;]*m/g, '');
+    const modelCol = plain.indexOf('kimi-k2');
+    expect(modelCol).toBeGreaterThanOrEqual(0);
+
+    footer.handleClick({ x: modelCol, y: 0 });
+    expect(clicked).toBe(true);
+  });
+
+  it('highlights the model slot while hovered', () => {
+    const footer = new FooterComponent(appState);
+    const line1 = footer.render(120)[0]!;
+    const plain = line1.replaceAll(/\u001B\[[0-9;]*m/g, '');
+    const modelCol = plain.indexOf('kimi-k2');
+    expect(modelCol).toBeGreaterThanOrEqual(0);
+
+    // Not hovered yet: no background fill.
+    expect(line1).not.toContain('\u001B[48');
+
+    footer.onHoverChange(true, modelCol, 0);
+    const hovered = footer.render(120)[0]!;
+    expect(hovered).toContain('\u001B[48');
+
+    footer.onHoverChange(false, 0, 0);
+    expect(footer.render(120)[0]!).not.toContain('\u001B[48');
+  });
 });

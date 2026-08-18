@@ -101,7 +101,7 @@ describe('FooterComponent status_line items', () => {
     const withoutTips = plain(new FooterComponent(state).render(200)[0]!);
 
     expect(withoutTips.length).toBeLessThan(withTips.length);
-    expect(withoutTips.trimEnd()).toMatch(/kimi-k2 {2}\/tmp\/project$/);
+    expect(withoutTips.trimEnd()).toMatch(/\[kimi-k2\] {2}\/tmp\/project$/);
   });
 
   it('honors the configured position of the tips slot', () => {

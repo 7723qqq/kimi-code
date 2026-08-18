@@ -1,4 +1,4 @@
-import type { Component } from '@moonshot-ai/pi-tui';
+import type { Component, TuiClickEvent } from '@moonshot-ai/pi-tui';
 import { Container, Text } from '@moonshot-ai/pi-tui';
 
 import { currentTheme } from '#/tui/theme';
@@ -22,14 +22,22 @@ export interface ShellExecutionOptions {
   readonly resultPreviewLines?: number;
   readonly tailOutput?: boolean;
   readonly expandHint?: boolean;
+  /** Fired when the command preview is clicked (host copies it). */
+  readonly onCopyCommand?: (command: string) => void;
 }
 
 export class ShellExecutionComponent extends Container {
+  private readonly command: string;
+  private commandLineCount = 0;
+  private readonly onCopyCommand: ((command: string) => void) | undefined;
+
   constructor(options: ShellExecutionOptions) {
     super();
+    this.command = options.command ?? '';
+    this.onCopyCommand = options.onCopyCommand;
 
     if (options.showCommand === true) {
-      this.addCommandPreview(options.command ?? '', options.commandPreviewLines);
+      this.addCommandPreview(this.command, options.commandPreviewLines);
     }
 
     if (options.result !== undefined) {
@@ -47,6 +55,7 @@ export class ShellExecutionComponent extends Container {
     if (command.length === 0) return;
     const allLines = command.split('\n');
     const lines = previewLines === undefined ? allLines : allLines.slice(0, previewLines);
+    this.commandLineCount = lines.length;
     for (const [i, line] of lines.entries()) {
       // Distinguish the command (input) from the result (output): the `$`
       // prompt uses the dedicated shell-mode hue, the command body uses
@@ -78,6 +87,13 @@ export class ShellExecutionComponent extends Container {
         color: 'textMuted',
       }),
     );
+  }
+
+  /** Clicking the command preview copies the command. */
+  handleClick(event: TuiClickEvent): void {
+    if (event.y < this.commandLineCount && this.command.length > 0) {
+      this.onCopyCommand?.(this.command);
+    }
   }
 }
 

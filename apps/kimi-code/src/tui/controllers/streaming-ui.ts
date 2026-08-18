@@ -32,6 +32,8 @@ export interface StreamingUIHost {
   patchLivePane(patch: Partial<LivePaneState>): void;
   resetLivePane(): void;
   updateActivityPane(): void;
+  updateAgentPane(): void;
+  updateDiffReviewPane(): void;
   updateQueueDisplay(): void;
   requireSession(): Session;
   deferUserMessages: boolean;
@@ -665,6 +667,16 @@ export class StreamingUIController {
     if (state.toolOutputExpanded) tc.setExpanded(true);
     this._pendingToolComponents.set(toolCall.id, tc);
 
+    // Subagent state changes refresh the right-side agent pane. The listener
+    // is replaced when the call is later grouped (AgentGroupComponent.attach).
+    if (toolCall.name === 'Agent') {
+      tc.setSnapshotListener(() => this.host.updateAgentPane());
+    }
+    // File-change display data feeds the diff review pane.
+    if (toolCall.display?.kind === 'diff' || toolCall.display?.kind === 'file_io') {
+      this.host.updateDiffReviewPane();
+    }
+
     if (toolCall.name !== 'Agent') this._pendingAgentGroup = null;
     if (toolCall.name !== 'Read') this._pendingReadGroup = null;
 
@@ -835,7 +847,7 @@ export class StreamingUIController {
 
   private upgradeSoloAgentToGroup(solo: ToolCallComponent): AgentGroupComponent {
     const { state } = this.host;
-    const group = new AgentGroupComponent(state.ui);
+    const group = new AgentGroupComponent(state.ui, () => this.host.updateAgentPane());
     const children = state.transcriptContainer.children;
     const idx = children.indexOf(solo);
     if (idx >= 0) {

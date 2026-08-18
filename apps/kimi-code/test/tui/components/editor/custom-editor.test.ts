@@ -788,3 +788,95 @@ describe('CustomEditor bash mode file completion', () => {
     expect(calls.every((call) => call.force === true)).toBe(true);
   });
 });
+
+describe('CustomEditor multi-line input', () => {
+  it('inserts a newline on ctrl+j (tui.input.newLine)', () => {
+    const editor = makeEditor();
+    editor.handleInput('hello');
+    editor.handleInput('\n');
+    editor.handleInput('world');
+    expect(editor.getText()).toBe('hello\nworld');
+  });
+
+  it('inserts a newline on shift+enter', () => {
+    const editor = makeEditor();
+    editor.handleInput('hello');
+    editor.handleInput('\x1b\r');
+    editor.handleInput('world');
+    expect(editor.getText()).toBe('hello\nworld');
+  });
+
+  it('submits multi-line text via onSubmit', () => {
+    const editor = makeEditor();
+    const onSubmit = vi.fn();
+    editor.onSubmit = onSubmit;
+    editor.handleInput('line1');
+    editor.handleInput('\n');
+    editor.handleInput('line2');
+    editor.handleInput('\r');
+    expect(onSubmit).toHaveBeenCalledWith('line1\nline2');
+  });
+
+  it('keeps bash mode single-line (ctrl+j does not insert a newline)', () => {
+    const editor = makeEditor();
+    editor.inputMode = 'bash';
+    editor.handleInput('ls');
+    editor.handleInput('\n');
+    expect(editor.getText()).toBe('ls');
+  });
+
+  it('keeps bash mode single-line (shift+enter does not insert a newline)', () => {
+    const editor = makeEditor();
+    editor.inputMode = 'bash';
+    editor.handleInput('ls');
+    editor.handleInput('\x1b\r');
+    expect(editor.getText()).toBe('ls');
+  });
+});
+
+describe('CustomEditor leader key', () => {
+  it('arms the leader chord on ctrl+x and dispatches the action on the next key', () => {
+    const editor = makeEditor();
+    const onLeaderAction = vi.fn();
+    const onLeaderModeChange = vi.fn();
+    editor.onLeaderAction = onLeaderAction;
+    editor.onLeaderModeChange = onLeaderModeChange;
+
+    editor.handleInput('\x18'); // ctrl+x
+    expect(onLeaderModeChange).toHaveBeenCalledWith(true);
+    expect(editor.isLeaderActive()).toBe(true);
+
+    editor.handleInput('m'); // leader+m = model
+    expect(onLeaderAction).toHaveBeenCalledWith('model');
+    expect(onLeaderModeChange).toHaveBeenCalledWith(false);
+    expect(editor.isLeaderActive()).toBe(false);
+  });
+
+  it('cancels the leader chord on an unrecognised key', () => {
+    const editor = makeEditor();
+    const onLeaderAction = vi.fn();
+    editor.onLeaderAction = onLeaderAction;
+    editor.handleInput('\x18');
+    editor.handleInput('z');
+    expect(onLeaderAction).not.toHaveBeenCalled();
+    expect(editor.isLeaderActive()).toBe(false);
+  });
+
+  it('cancels the leader chord on escape', () => {
+    const editor = makeEditor();
+    const onLeaderAction = vi.fn();
+    editor.onLeaderAction = onLeaderAction;
+    editor.handleInput('\x18');
+    editor.handleInput('\x1b');
+    expect(onLeaderAction).not.toHaveBeenCalled();
+    expect(editor.isLeaderActive()).toBe(false);
+  });
+
+  it('triggers onShowWhichKey on ctrl+alt+k', () => {
+    const editor = makeEditor();
+    const onShowWhichKey = vi.fn();
+    editor.onShowWhichKey = onShowWhichKey;
+    editor.handleInput('\x1b[107;7u'); // ctrl+alt+k (Kitty CSI-u)
+    expect(onShowWhichKey).toHaveBeenCalledOnce();
+  });
+});

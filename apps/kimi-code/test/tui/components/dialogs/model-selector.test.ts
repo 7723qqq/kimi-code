@@ -564,4 +564,23 @@ describe('ModelSelectorComponent overrides', () => {
     expect(out).toContain('High');
     expect(out).not.toContain('Max');
   });
+
+  it('selects the model under the clicked row', () => {
+    const onSelect = vi.fn();
+    const picker = new ModelSelectorComponent({
+      models: { kimi: model('Kimi K2'), other: model('Other Model') },
+      currentValue: 'kimi',
+      currentThinkingEffort: 'on',
+      onSelect,
+      onCancel: vi.fn(),
+    });
+    const lines = picker.render(120).map(strip);
+    const otherRow = lines.findIndex((l) => l.includes('Other Model'));
+    expect(otherRow).toBeGreaterThanOrEqual(0);
+
+    picker.handleClick({ x: 0, y: otherRow });
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ alias: 'other' }),
+    );
+  });
 });

@@ -1,6 +1,6 @@
 # DI testing
 
-> **路径提示（2026-08-15）**: 本文引用的示例测试（`test/message/*`、`test/turn/*`、`test/environment/*`、`test/records/stubs.ts`）已随重构移动或删除；实际测试树见 `test/` 下按域划分的目录（如 `test/agent/`、`test/session/`、`test/wire/`）。「按接口解析、`createServices`、stubs 约定」等规则不变。
+> **Path note (2026-08-15)**: The example tests referenced in this document (`test/message/*`, `test/turn/*`, `test/environment/*`, `test/records/stubs.ts`) have been moved or removed by refactors; see the domain-organized directories under `test/` (e.g. `test/agent/`, `test/session/`, `test/wire/`) for the actual test tree. Rules such as "resolve by interface", `createServices`, and the stubs conventions remain unchanged.
 
 
 > Conventions for testing services built on the DI × Scope architecture.

@@ -5,6 +5,7 @@ import {
   truncateToWidth,
   visibleWidth,
   type Focusable,
+  type TuiClickEvent,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
@@ -33,6 +34,8 @@ export class UndoSelectorComponent extends Container implements Focusable {
   private readonly opts: UndoSelectorOptions;
   private readonly list: SearchableList<UndoChoice>;
   private submitted = false;
+  /** Rendered row → choice index, for mouse hit-testing. */
+  private optionRows = new Map<number, number>();
 
   constructor(opts: UndoSelectorOptions) {
     super();
@@ -65,6 +68,19 @@ export class UndoSelectorComponent extends Container implements Focusable {
     }
   }
 
+  /** Clicking a choice row selects it. */
+  handleClick(event: TuiClickEvent): void {
+    if (!this.submitted) {
+      const index = this.optionRows.get(event.y);
+      if (index === undefined) return;
+      const choice = this.list.view().items[index];
+      if (choice !== undefined) {
+        this.submitted = true;
+        this.opts.onSelect(choice);
+      }
+    }
+  }
+
   override render(width: number): string[] {
     const view = this.list.view();
 
@@ -83,9 +99,11 @@ export class UndoSelectorComponent extends Container implements Focusable {
       const start = Math.min(Math.max(0, view.selectedIndex - PREFERRED_SELECTED_OFFSET), maxStart);
       const end = start + visibleCount;
 
+      this.optionRows.clear();
       for (let i = start; i < end; i++) {
         const choice = view.items[i];
         if (choice === undefined) continue;
+        this.optionRows.set(lines.length, i);
         lines.push(
           this.renderChoiceLine(choice, i === view.selectedIndex, i > view.selectedIndex, width),
         );

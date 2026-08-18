@@ -1,5 +1,6 @@
 import type { Container } from '@moonshot-ai/pi-tui';
 import {
+  HStack,
   ProcessTerminal,
   ScrollView,
   TuiAltScreen,
@@ -18,8 +19,10 @@ import { TodoPanelComponent } from './components/chrome/todo-panel';
 import { WorkflowPanelComponent } from './components/chrome/workflow-panel';
 import type { SessionRow } from './components/dialogs/session-picker';
 import { CustomEditor } from './components/editor/custom-editor';
+import { AgentPaneComponent } from './components/panes/agent-pane';
+import { DiffReviewPaneComponent } from './components/panes/diff-review-pane';
 import { DEFAULT_TUI_CONFIG } from './config';
-import { CHROME_GUTTER } from './constant/rendering';
+import { AGENT_PANE_WIDTH, CHROME_GUTTER } from './constant/rendering';
 import type { TasksBrowserState } from './controllers/tasks-browser';
 import { currentTheme, type Theme } from './theme';
 import {
@@ -45,6 +48,10 @@ export interface TUIState {
   workflowPanel: WorkflowPanelComponent;
   queueContainer: Container;
   btwPanelContainer: Container;
+  agentPaneContainer: Container;
+  agentPane: AgentPaneComponent;
+  diffReviewPaneContainer: Container;
+  diffReviewPane: DiffReviewPaneComponent;
   editorContainer: Container;
   /**
    * Fullscreen mode only: the bottom dock (activity/todo/queue/btw/editor +
@@ -52,6 +59,18 @@ export interface TUIState {
    * mode, where all chrome is a direct child of the root container.
    */
   dockContainer: VStack | undefined;
+  /**
+   * Fullscreen mode only: the ScrollView wrapping the transcript. Used by the
+   * transcript navigation mode to scroll the focused message into view.
+   * Undefined in regular mode.
+   */
+  scrollView: ScrollView | undefined;
+  /**
+   * Fullscreen mode only: the row holding the transcript ScrollView and the
+   * right-side agent pane. The agent pane is removed/added here to toggle it.
+   * Undefined in regular mode.
+   */
+  transcriptRow: HStack | undefined;
   footer: FooterComponent;
   editor: CustomEditor;
   theme: Theme;
@@ -69,7 +88,14 @@ export interface TUIState {
   /** A follow-up session page fetch is in flight. */
   sessionsLoadingMore: boolean;
   sessionsScope: 'cwd' | 'all';
-  activeDialog: 'session-picker' | 'help' | 'trust-prompt' | 'msys2-prompt' | 'cache-hint' | null;
+  activeDialog:
+    | 'session-picker'
+    | 'help'
+    | 'which-key'
+    | 'trust-prompt'
+    | 'msys2-prompt'
+    | 'cache-hint'
+    | null;
   tasksBrowser: TasksBrowserState | undefined;
   externalEditorRunning: boolean;
   queuedMessages: QueuedMessage[];
@@ -113,6 +139,11 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
         },
       })
     : new TuiMainScreen(terminal);
+  if (!fullscreen) {
+    // Main-screen mouse capture also takes over the terminal's native link
+    // activation, so route OSC 8 clicks through our own opener.
+    ui.onOpenUrl = openUrl;
+  }
 
   const transcriptContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const activityContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
@@ -122,6 +153,10 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   const workflowPanel = new WorkflowPanelComponent();
   const queueContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const btwPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+  const agentPaneContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+  const agentPane = new AgentPaneComponent();
+  const diffReviewPaneContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+  const diffReviewPane = new DiffReviewPaneComponent();
   const editorContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const editor = new CustomEditor(ui, {
     disablePasteBurst: initialAppState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
@@ -131,6 +166,8 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   });
 
   let dockContainer: VStack | undefined;
+  let scrollView: ScrollView | undefined;
+  let transcriptRow: HStack | undefined;
   if (ui instanceof TuiAltScreen) {
     // Fullscreen (alternate screen): the transcript scrolls inside the primary
     // ScrollView while the rest of the chrome stays docked at the bottom. The
@@ -139,7 +176,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     // from basis 0 and grows; the dock keeps its intrinsic height, with the
     // editor never squeezed below its 3 rows (top border / input / bottom
     // border) and the footer below 1 — otherwise the box outline gets clipped.
-    const scrollView = new ScrollView(transcriptContainer, {
+    scrollView = new ScrollView(transcriptContainer, {
       follow: 'end',
       primary: true,
       overscroll: 'chain',
@@ -151,8 +188,12 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     dockContainer.addChild(queueContainer, { shrink: 1, minSize: 0 });
     dockContainer.addChild(btwPanelContainer, { shrink: 1, minSize: 0 });
     dockContainer.addChild(editorContainer, { shrink: 1, minSize: 3 });
+    // Right-side agent status panel: fixed width, the transcript grows.
+    transcriptRow = new HStack();
+    transcriptRow.addChild(scrollView, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
+    transcriptRow.addChild(agentPaneContainer, { basis: AGENT_PANE_WIDTH, grow: 0, shrink: 0 });
     const root = new VStack();
-    root.addChild(scrollView, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
+    root.addChild(transcriptRow, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
     root.addChild(dockContainer, { basis: 'auto', grow: 0, shrink: 1, minSize: 1 });
     ui.setLayoutRoot(root);
   }
@@ -168,8 +209,14 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     workflowPanel,
     queueContainer,
     btwPanelContainer,
+    agentPaneContainer,
+    agentPane,
+    diffReviewPaneContainer,
+    diffReviewPane,
     editorContainer,
     dockContainer,
+    scrollView: scrollView,
+    transcriptRow: transcriptRow,
     editor,
     footer,
     theme,

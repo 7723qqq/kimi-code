@@ -51,7 +51,7 @@ export function useFilePicker(
   const showFileMenu = activeToken?.trigger === '@';
   const query = activeToken?.query || '';
 
-  // 搜索文件 - query 变化时重新搜索
+  // Search files - re-search when the query changes
   const { data: searchResults = [], loading: isSearchLoading } = useRequest(
     () => bridge.getProjectFiles({ query: query || undefined }),
     {
@@ -61,7 +61,7 @@ export function useFilePicker(
     },
   );
 
-  // 文件夹浏览
+  // Folder browsing
   const {
     data: folderItems = [],
     loading: isFolderLoading,

@@ -1,6 +1,6 @@
 /**
  * Plan-sample acceptance test — `plan/plan-domain-plugin.manifest.ts` as the
- * API acceptance standard (Phase 3 验证项), exercised against the REAL kernel
+ * API acceptance standard (Phase 3 verification items), exercised against the REAL kernel
  * and the REAL domain collection tokens. Each section cites the sample line
  * it proves; the unload chain asserts §3's teardown order end to end.
  */

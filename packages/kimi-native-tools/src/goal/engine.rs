@@ -24,7 +24,11 @@ pub fn validate_create_input(
     let criterion = completion_criterion.map(|c| {
         let t = c.trim();
         if t.len() > 10_000 {
-            t[..10_000].to_string()
+            // Truncate on a char boundary: slicing at 10_000 bytes directly
+            // would panic when the boundary lands inside a multi-byte UTF-8
+            // character (e.g. a CJK completion criterion).
+            let end = t.floor_char_boundary(10_000);
+            t[..end].to_string()
         } else {
             t.to_string()
         }
@@ -177,6 +181,18 @@ mod tests {
         let long = "a".repeat(10_001);
         let (_, crit) = validate_create_input("test", Some(&long)).unwrap();
         assert_eq!(crit.unwrap().len(), 10_000);
+    }
+
+    #[test]
+    fn test_validate_create_input_criterion_truncation_utf8() {
+        // Regression: slicing at 10_000 bytes used to panic when the boundary
+        // fell inside a multi-byte UTF-8 character.
+        let long = "目标".repeat(10_000); // 6 bytes per repetition
+        let (_, crit) = validate_create_input("test", Some(&long)).unwrap();
+        let crit = crit.unwrap();
+        assert!(crit.len() <= 10_000, "truncated length {} exceeds 10_000", crit.len());
+        assert!(crit.is_char_boundary(crit.len()));
+        assert!(crit.chars().all(|c| c == '目' || c == '标'));
     }
 
     #[test]

@@ -38,6 +38,11 @@ export class GutterContainer extends Container {
     super();
   }
 
+  /** Left gutter width, used by the TUI's mouse hit-testing to offset child x. */
+  getLeftPad(): number {
+    return this.leftPad;
+  }
+
   override invalidate(): void {
     this.renderCache = undefined;
     super.invalidate();

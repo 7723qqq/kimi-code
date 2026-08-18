@@ -1136,7 +1136,7 @@ mod tests {
     fn test_read_almost_utf8_lenient() {
         // Valid UTF-8 line plus one junk byte → lenient display with the
         // replacement note.
-        let mut bytes = b"\xe6\xad\xa3\xe5\xb8\xb8\n".to_vec(); // 正常\n
+        let mut bytes = b"\xe6\xad\xa3\xe5\xb8\xb8\n".to_vec(); // decodes to "normal\n"
         bytes.push(0x88);
         let f = write_temp(&bytes);
         let result = read_file(&ReadConfig {

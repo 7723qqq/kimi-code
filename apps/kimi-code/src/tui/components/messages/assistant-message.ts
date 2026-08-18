@@ -33,12 +33,20 @@ export class AssistantMessageComponent implements Component {
   private lastText = '';
   private lastTransient = false;
   private showBullet: boolean;
+  private navigated = false;
 
   private renderCache: { width: number; lines: string[] } | undefined;
 
   constructor(showBullet: boolean = true) {
     this.showBullet = showBullet;
     this.contentContainer = new Container();
+  }
+
+  /** Navigation-mode focus highlight (first line background). */
+  setNavigated(navigated: boolean): void {
+    if (this.navigated === navigated) return;
+    this.navigated = navigated;
+    this.markRenderDirty();
   }
 
   private markRenderDirty(): void {
@@ -141,7 +149,14 @@ export class AssistantMessageComponent implements Component {
         i === 0 && this.showBullet ? currentTheme.fg('text', STATUS_BULLET) : MESSAGE_INDENT;
       lines.push(p + contentLines[i]);
     }
-    const rendered = markOsc133Zone(lines.map((line) => truncateToWidth(line, safeWidth, '…')));
+    const rendered = markOsc133Zone(
+      lines.map((line, i) => {
+        const truncated = truncateToWidth(line, safeWidth, '…');
+        // Navigation-mode focus highlight: the first content line (the bullet
+        // row) gets an accent background.
+        return this.navigated && i === 1 ? currentTheme.bg('accent', truncated) : truncated;
+      }),
+    );
     if (isRenderCacheEnabled()) {
       this.renderCache = { width: safeWidth, lines: rendered };
     }

@@ -12,6 +12,8 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
+import type { WhichKeyAction } from '#/tui/components/dialogs/which-key';
+import type { LeaderAction } from '#/tui/keybindings';
 import { ClipboardMediaError, readClipboardMedia } from '#/utils/clipboard/clipboard-image';
 import { parseImageMeta } from '#/utils/image/image-mime';
 import { editInExternalEditor, resolveEditorCommand } from '#/utils/process/external-editor';
@@ -30,6 +32,7 @@ import { formatErrorMessage } from '../utils/event-payload';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
 import { extractMediaAttachments } from '../utils/image-placeholder';
 import type { BtwPanelController } from './btw-panel';
+import { TranscriptNavigationController } from './transcript-navigation';
 
 export interface EditorKeyboardHost {
   state: TUIState;
@@ -69,16 +72,33 @@ export interface EditorKeyboardHost {
   clearQueuedMessages(): void;
   setExternalEditorRunning(running: boolean): void;
   updateActivityPane(): void;
+  /** Dispatch a slash command by name (e.g. `'model'`, `'sessions'`). */
+  runSlashCommand(name: string, args?: string): void;
+  /** Show the which-key modal (`ctrl+alt+k`). */
+  showWhichKey(): void;
+  /** Show the transient leader-chord overlay (non-focusable). */
+  showLeaderOverlay(): void;
+  /** Remove the transient leader-chord overlay. */
+  hideLeaderOverlay(): void;
+  /** Toggle the activity pane (leader+b). */
+  toggleActivityPane(): void;
+  /** Toggle the right-side agent status panel (leader+p). */
+  toggleAgentPane(): void;
+  /** Toggle the right-side diff review panel (leader+d). */
+  toggleDiffReviewPane(): void;
 }
 
 export class EditorKeyboardController {
   private pendingExit: PendingExit | null = null;
   private pendingUndoEsc: { readonly timer: ReturnType<typeof setTimeout> } | null = null;
+  private readonly transcriptNav: TranscriptNavigationController;
 
   constructor(
     private readonly host: EditorKeyboardHost,
     private readonly imageStore: ImageAttachmentStore,
-  ) {}
+  ) {
+    this.transcriptNav = new TranscriptNavigationController(host);
+  }
 
   install(): void {
     const { host } = this;
@@ -385,6 +405,119 @@ export class EditorKeyboardController {
     editor.onDownArrowEmpty = () => host.btwPanelController.scroll('down');
 
     editor.onPasteImage = async () => this.handleClipboardImagePaste();
+
+    editor.onLeaderAction = (action) => {
+      this.dispatchLeaderAction(action);
+    };
+    editor.onLeaderModeChange = (active) => {
+      if (active) {
+        host.showLeaderOverlay();
+      } else {
+        host.hideLeaderOverlay();
+      }
+    };
+    editor.onShowWhichKey = () => {
+      host.showWhichKey();
+    };
+
+    // Transcript navigation mode: while active, j/k/↑/↓/Enter/Esc are
+    // consumed here instead of reaching the editor buffer. The diff review
+    // pane takes priority when it is open.
+    editor.onTranscriptNavKey = (data) => {
+      const { state } = host;
+      if (state.transcriptRow?.children.includes(state.diffReviewPaneContainer) === true) {
+        const consumed = state.diffReviewPane.handleKey(data);
+        if (consumed) state.ui.requestRender();
+        return consumed;
+      }
+      return this.transcriptNav.handleKey(data);
+    };
+  }
+
+  /** Execute a command picked from the which-key palette. */
+  dispatchWhichKeyAction(action: WhichKeyAction): void {
+    if (isLeaderAction(action)) {
+      this.dispatchLeaderAction(action);
+      return;
+    }
+    const { host } = this;
+    switch (action) {
+      case 'exit':
+        void host.stop(0);
+        return;
+      case 'interrupt':
+        host.cancelRunningShellCommand();
+        return;
+      case 'toggle-tool-output':
+        host.toggleToolOutputExpansion();
+        return;
+      case 'detach':
+        host.detachCurrentForegroundTask();
+        return;
+      case 'toggle-todo':
+        host.toggleTodoPanelExpansion();
+        return;
+      case 'plan-mode':
+        host.handlePlanToggle(!host.state.appState.planMode);
+        return;
+      case 'steer':
+      case 'escape':
+      case 'which-key':
+      case 'newline':
+        return; // informational only
+    }
+  }
+
+  private dispatchLeaderAction(action: LeaderAction): void {
+    const { host } = this;
+    switch (action) {
+      case 'external-editor':
+        host.track('shortcut_editor');
+        void this.openExternalEditor();
+        return;
+      case 'model':
+        host.runSlashCommand('model');
+        return;
+      case 'sessions':
+        host.runSlashCommand('sessions');
+        return;
+      case 'new-session':
+        host.runSlashCommand('new');
+        return;
+      case 'compact':
+        host.runSlashCommand('compact');
+        return;
+      case 'undo':
+        host.openUndoSelector();
+        return;
+      case 'redo':
+        host.showError(t('tui.statusMessages.redoNotAvailable'));
+        return;
+      case 'status':
+        host.runSlashCommand('status');
+        return;
+      case 'sidebar':
+        host.toggleActivityPane();
+        return;
+      case 'theme':
+        host.runSlashCommand('theme');
+        return;
+      case 'agent':
+        host.runSlashCommand('team');
+        return;
+      case 'help':
+        host.runSlashCommand('help');
+        return;
+      case 'navigate':
+        this.transcriptNav.toggle();
+        return;
+      case 'agent-pane':
+        host.toggleAgentPane();
+        return;
+      case 'review':
+        host.toggleDiffReviewPane();
+        return;
+    }
   }
 
   clearPendingExit(): void {
@@ -580,4 +713,24 @@ export class EditorKeyboardController {
       this.host.setExternalEditorRunning(false);
     }
   }
+}
+
+// Shortcut-only actions (not leader chords). Overlapping members
+// (external-editor, undo, navigate, agent-pane, review) resolve to the
+// leader dispatch, which performs the same action.
+const SHORTCUT_ONLY_ACTIONS = new Set<WhichKeyAction>([
+  'exit',
+  'interrupt',
+  'steer',
+  'detach',
+  'toggle-tool-output',
+  'toggle-todo',
+  'plan-mode',
+  'escape',
+  'which-key',
+  'newline',
+]);
+
+function isLeaderAction(action: WhichKeyAction): action is LeaderAction {
+  return !SHORTCUT_ONLY_ACTIONS.has(action);
 }

@@ -125,7 +125,7 @@ function enrichChildren(
       return child;
     }
 
-    // 跳过链接和代码块（但不跳过行内 code，因为会在 code 组件中单独处理）
+    // Skip links and code blocks (but not inline code, which is handled separately in the code component)
     if (typeof child.type === 'string' && ['a', 'pre'].includes(child.type)) {
       return child;
     }

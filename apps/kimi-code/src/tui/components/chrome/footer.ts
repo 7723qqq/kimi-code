@@ -10,7 +10,7 @@
  */
 
 import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
-import type { Component } from '@moonshot-ai/pi-tui';
+import type { Component, TuiClickEvent } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
@@ -362,6 +362,12 @@ export class FooterComponent implements Component {
    */
   private backgroundBashTaskCount = 0;
   private backgroundAgentCount = 0;
+  /** Rendered column ranges of status-line slots, for mouse hit-testing. */
+  private slotRanges = new Map<string, { start: number; end: number }>();
+  /** Fired when the model slot is clicked (host opens the model selector). */
+  onModelClick: (() => void) | undefined;
+  /** Whether the pointer currently hovers the model slot (for highlight). */
+  private modelHovered = false;
 
   constructor(state: AppState, onRefresh: () => void = () => {}) {
     this.state = state;
@@ -445,10 +451,19 @@ export class FooterComponent implements Component {
       const slots = this.buildSlots(colors);
       const configured = this.state.statusLine?.items ?? null;
       const order: readonly string[] = configured ?? DEFAULT_STATUS_LINE_ITEMS;
+      this.slotRanges.clear();
       const left: string[] = [];
+      let col = 0;
       for (const slot of order) {
         const pieces = slots[slot as keyof typeof slots];
-        if (pieces !== undefined) left.push(...pieces);
+        if (pieces === undefined || pieces.length === 0) continue;
+        for (const piece of pieces) {
+          if (left.length > 0) col += 2; // '  ' separator between slots
+          const width = visibleWidth(piece);
+          this.slotRanges.set(slot, { start: col, end: col + width - 1 });
+          left.push(piece);
+          col += width;
+        }
       }
 
       const leftLine = left.join('  ');
@@ -529,6 +544,26 @@ export class FooterComponent implements Component {
     return [truncateToWidth(line1, width), truncateToWidth(line2, width)];
   }
 
+  /** Clicking a status-line slot triggers its action (model slot opens the selector). */
+  handleClick(event: TuiClickEvent): void {
+    if (event.y !== 0) return;
+    for (const [slot, range] of this.slotRanges) {
+      if (event.x >= range.start && event.x <= range.end) {
+        if (slot === 'model') this.onModelClick?.();
+        return;
+      }
+    }
+  }
+
+  /** Highlight the model slot while the pointer hovers it. */
+  onHoverChange(hovered: boolean, x: number, y: number): void {
+    const range = this.slotRanges.get('model');
+    const next = hovered && y === 0 && range !== undefined && x >= range.start && x <= range.end;
+    if (next === this.modelHovered) return;
+    this.modelHovered = next;
+    this.onRefresh();
+  }
+
   /**
    * Rendered pieces per status-line slot. Empty-content slots (e.g. no goal,
    * outside a git repo) yield an empty list so composition just skips them.
@@ -587,13 +622,23 @@ export class FooterComponent implements Component {
           ? pulseHexColor(colors.textDim, colors.text, Math.sin(this.pulsePhase * Math.PI))
           : colors.text;
       const modelLabel = `${model}${thinkingLabel}`;
-      let renderedModelLabel =
-        chalk.hex(colors.text)(model) +
-        (thinkingLabel ? chalk.hex(thinkingColor)(thinkingLabel) : '');
       if (isRainbowDancing()) {
-        renderedModelLabel = renderDanceFooterModel(modelLabel);
+        slots['model'] = [renderDanceFooterModel(modelLabel)];
+      } else if (this.modelHovered) {
+        // Hover: invert to a filled accent button so the slot reads as active.
+        slots['model'] = [
+          chalk.bgHex(colors.primary)(chalk.hex(colors.text)(`[ ${modelLabel} ]`)),
+        ];
+      } else {
+        // Render the model slot as a visible button — clicking it opens the
+        // model selector (see handleClick).
+        slots['model'] = [
+          chalk.hex(colors.primary)('[') +
+            chalk.hex(colors.text)(model) +
+            (thinkingLabel ? chalk.hex(thinkingColor)(thinkingLabel) : '') +
+            chalk.hex(colors.primary)(']'),
+        ];
       }
-      slots['model'] = [renderedModelLabel];
     }
 
     // Background-task badges. `bash-*` tasks (shell processes) and `agent-*`
