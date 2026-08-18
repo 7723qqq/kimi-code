@@ -25,8 +25,8 @@ import { detectPendingMigration } from '#/migration/index';
 import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
-import { KimiTUI } from '#/tui/index';
 import { currentTheme, getColorPalette } from '#/tui/theme';
+import { resolveTuiVariant } from '#/tui2/env';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 import { startupTrace } from '#/utils/startup-trace';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
@@ -44,6 +44,16 @@ export async function runShell(
 ): Promise<void> {
   const startedAt = Date.now();
   const configStartedAt = startedAt;
+
+  // Resolve which TUI stack serves this session. v2 (opentui + SolidJS) is
+  // opt-in via KIMI_TUI=v2; unset/v1 keeps the pi-tui default. The v2 entry
+  // currently re-exports the v1 surface, so this is behaviour-preserving —
+  // it just wires the routing so the rollout switch is real.
+  const tuiVariant = resolveTuiVariant();
+  const tuiEntry = await (tuiVariant === 'v2'
+    ? import('#/tui2/index')
+    : import('#/tui/index'));
+  const KimiTUI = tuiEntry.KimiTUI;
   let tuiConfig: TuiConfig;
   let configWarning: string | undefined;
   try {
@@ -91,6 +101,7 @@ export async function runShell(
   log.info('kimi-code starting', {
     version,
     uiMode: CLI_UI_MODE,
+    tuiVariant,
     nodeVersion: process.version,
     platform: `${process.platform}/${process.arch}`,
     workDir,

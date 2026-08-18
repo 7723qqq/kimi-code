@@ -1,11 +1,79 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/theme/theme.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/theme/theme.ts';
+/**
+ * Theme class + global singleton (opentui edition).
+ *
+ * Mirrors the shape of `tui/theme/theme.ts` but targets opentui's colour
+ * model: opentui renderables take `ColorInput` (`string` hex, or `RGBA`)
+ * via their `fg` / `bg` / `borderColor` props, NOT ANSI-wrapped strings.
+ * So the v2 `Theme` resolves a `ColorToken` to a hex `ColorInput` instead of
+ * wrapping text in chalk SGR codes. Component call sites read the current
+ * palette through the singleton, so switching themes stays instantaneous.
+ *
+ * Text styling (bold / dim / italic / underline / strikethrough) is expressed
+ * as opentui's numeric attribute bits (`TextAttributes`), provided here as
+ * `attributes(token, textStyle)` helpers so renderers can apply them without
+ * importing opentui directly.
+ *
+ * Status: REAL (tui2). Replaces the v1 chalk-backed stub.
+ */
+
+import { RGBA, TextAttributes } from '@opentui/core';
+import type { ColorInput } from '@opentui/core';
+
+import type { ColorPalette } from './colors';
+import { darkColors } from './colors';
+
+export type ColorToken = keyof ColorPalette;
+
+/** Opentui text-attribute bits that map to the v1 style vocabulary. */
+export type TextStyle = 'bold' | 'dim' | 'italic' | 'underline' | 'strikethrough';
+
+const STYLE_TO_ATTRIBUTE: Readonly<Record<TextStyle, number>> = {
+  bold: TextAttributes.BOLD,
+  dim: TextAttributes.DIM,
+  italic: TextAttributes.ITALIC,
+  underline: TextAttributes.UNDERLINE,
+  strikethrough: TextAttributes.STRIKETHROUGH,
+};
+
+export class Theme {
+  private _palette: ColorPalette;
+
+  constructor(palette: ColorPalette) {
+    this._palette = palette;
+  }
+
+  get palette(): ColorPalette {
+    return this._palette;
+  }
+
+  setPalette(palette: ColorPalette): void {
+    this._palette = palette;
+  }
+
+  /** Hex `ColorInput` for a semantic token — safe to pass to opentui props. */
+  color(token: ColorToken): ColorInput {
+    return this._palette[token];
+  }
+
+  /** Hex string (not RGBA) for token — convenient when building lookup tables. */
+  hex(token: ColorToken): string {
+    return this._palette[token];
+  }
+
+  /** RGBA instance for a token — for direct opentui manipulation. */
+  rgba(token: ColorToken): RGBA {
+    return RGBA.fromHex(this._palette[token]);
+  }
+
+  /** opentui attribute bits for a v1-style text style (or a combination). */
+  attributes(style: TextStyle | readonly TextStyle[]): number {
+    const styles: readonly TextStyle[] = Array.isArray(style) ? style : [style];
+    return styles.reduce(
+      (acc, s) => acc | (s in STYLE_TO_ATTRIBUTE ? STYLE_TO_ATTRIBUTE[s] : 0),
+      TextAttributes.NONE,
+    );
+  }
+}
+
+/** Global singleton.  Initialise with dark palette; switch via `setPalette`. */
+export const currentTheme = new Theme(darkColors);

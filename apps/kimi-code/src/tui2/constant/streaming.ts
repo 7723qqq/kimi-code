@@ -1,11 +1,27 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/constant/streaming.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/constant/streaming.ts';
+/**
+ * Streaming-related constants for the v2 TUI.
+ *
+ * Mirrors `tui/constant/streaming.ts`. These bound the live-streaming parse
+ * and coalescing knobs, independent of the renderer that consumes them.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+// Extracts useful string fields from partially streamed JSON tool args.
+// This is intentionally a preview parser, not a full JSON parser.
+export const STREAMING_ARGS_FIELD_RE =
+  /"(path|file_path|command|pattern|query|url|description|title|name)"\s*:\s*"((?:\\.|[^"\\])*)"/g;
+
+// Bounds live tool-argument previews; final tool.call payloads remain complete.
+export const STREAMING_ARGS_PREVIEW_MAX_CHARS = 64 * 1024;
+
+// Coalesces high-frequency model/tool deltas before rebuilding TUI components.
+export const STREAMING_UI_FLUSH_MS = 50;
+
+// Bounds how much of a still-growing assistant message the transient
+// (streaming) renderer re-parses per flush. Re-lexing + re-wrapping the whole
+// accumulated draft on the main thread every frame is O(n) per flush and
+// O(n^2) over a long stream, which freezes input (ESC/Ctrl+C) and rendering
+// on large messages. Only the bounded tail is rendered while streaming; the
+// full text renders once the turn's assistant stream ends (non-transient).
+export const STREAMING_MARKDOWN_TAIL_CHARS = 20 * 1024;
