@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AgentTranscript } from '#/store/agentTranscript';
 import { TranscriptStore } from '#/store/transcriptStore';
-import { appendAtOffset } from '#/ops/apply';
+import { appendAtOffset, applyOperation, EMPTY_AGENT_STATE } from '#/ops/apply';
 import type {
   FrameUpsertOp,
   TurnUpsertOp,
@@ -54,6 +54,119 @@ function toolFrame(state: ToolCallFrame['state'], output?: unknown): TranscriptO
     },
   ];
 }
+
+describe('applyOperation (pure reducer)', () => {
+  it('seeds state from EMPTY_AGENT_STATE; no-op upserts return the same reference', () => {
+    const seeded = applyOperation(EMPTY_AGENT_STATE, turn1);
+    expect(seeded.changed).toBe(true);
+    expect(seeded.state.items).toHaveLength(1);
+
+    const again = applyOperation(seeded.state, turn1);
+    expect(again.changed).toBe(false);
+    expect(again.state).toBe(seeded.state);
+  });
+
+  it('copy-on-write: untouched entity maps and items share references', () => {
+    const withTask = applyOperation(EMPTY_AGENT_STATE, {
+      op: 'task.upsert',
+      task: { taskId: 'task1', kind: 'shell', state: 'running', detached: false, outputTail: '' },
+    }).state;
+    const withTurn = applyOperation(withTask, turn1);
+    // The turn insert rebuilds items but must not clone the entity maps.
+    expect(withTurn.state.tasks).toBe(withTask.tasks);
+    expect(withTurn.state.items).not.toBe(withTask.items);
+    // A later entity change keeps the items array untouched.
+    const next = applyOperation(withTurn.state, {
+      op: 'task.upsert',
+      task: { taskId: 'task1', kind: 'shell', state: 'completed', detached: false, outputTail: '' },
+    });
+    expect(next.state.items).toBe(withTurn.state.items);
+    expect(next.state.tasks).not.toBe(withTask.tasks);
+  });
+
+  it('items.remove drops markers and taskrefs by id; unknown ids are a no-op', () => {
+    const withMarker = applyOperation(EMPTY_AGENT_STATE, {
+      op: 'marker.upsert',
+      item: { kind: 'marker', markerId: 'm1', marker: 'goal' },
+    }).state;
+    const withRef = applyOperation(withMarker, {
+      op: 'taskref.upsert',
+      item: { kind: 'taskref', refId: 'r1', taskId: 'task1' },
+    }).state;
+
+    const noop = applyOperation(withRef, { op: 'items.remove', ids: ['nope'] });
+    expect(noop.changed).toBe(false);
+    expect(noop.state).toBe(withRef);
+
+    const removed = applyOperation(withRef, { op: 'items.remove', ids: ['m1', 'r1'] });
+    expect(removed.changed).toBe(true);
+    expect(removed.state.items).toEqual([]);
+  });
+
+  it('appending to an unknown task id auto-vivifies a running task entity', () => {
+    const result = applyOperation(EMPTY_AGENT_STATE, {
+      op: 'append',
+      target: { type: 'task', taskId: 'ghost' },
+      offset: 0,
+      text: 'boom\n',
+    });
+    expect(result.changed).toBe(true);
+    expect(result.state.tasks.get('ghost')).toMatchObject({
+      kind: 'other',
+      state: 'running',
+      detached: false,
+      outputTail: 'boom\n',
+    });
+  });
+
+  it('append to a missing frame signals a gap anchored at expected 0', () => {
+    const result = applyOperation(EMPTY_AGENT_STATE, {
+      op: 'append',
+      target: { type: 'frame', turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' },
+      offset: 4,
+      text: 'x',
+    });
+    expect(result.changed).toBe(false);
+    expect(result.gap).toEqual({ expected: 0, got: 4 });
+  });
+
+  it('reset rebuilds the pending index from snapshot interactions and the window flag', () => {
+    const state = applyOperation(EMPTY_AGENT_STATE, {
+      op: 'reset',
+      agentId: 'main',
+      snapshot: {
+        items: [],
+        tasks: [],
+        interactions: [
+          { interactionId: 'a1', interactionKind: 'approval', toolCallId: 'c1', state: 'pending' },
+          { interactionId: 'a2', interactionKind: 'question', state: 'answered' },
+        ],
+        attachments: [],
+        todos: [],
+        prompts: [],
+        meta: {},
+        hasMoreOlder: true,
+      },
+    }).state;
+    expect([...state.pendingInteractions]).toEqual(['a1']);
+    expect(state.hasMoreOlder).toBe(true);
+
+    const unflagged = applyOperation(EMPTY_AGENT_STATE, {
+      op: 'reset',
+      agentId: 'main',
+      snapshot: {
+        items: [],
+        tasks: [],
+        interactions: [],
+        attachments: [],
+        todos: [],
+        prompts: [],
+        meta: {},
+      },
+    }).state;
+    expect(unflagged.hasMoreOlder).toBe(false);
+  });
+});
 
 describe('AgentTranscript', () => {
   it('applies turn/step/frame and keeps a self-consistent snapshot', () => {
@@ -389,6 +502,40 @@ describe('AgentTranscript', () => {
     expect(seen).toEqual(['turn.upsert']);
   });
 
+  it('apply keeps the first gap when one batch carries several', () => {
+    const tx = new AgentTranscript('main');
+    tx.apply([
+      turn1,
+      {
+        op: 'frame.upsert',
+        turnId: 't1',
+        stepId: 't1.1',
+        frame: { kind: 'text', frameId: 't1.1.f1', role: 'assistant', text: '' },
+      },
+    ]);
+    const target = { type: 'frame' as const, turnId: 't1', stepId: 't1.1', frameId: 't1.1.f1' };
+    const batch = tx.apply([
+      { op: 'append', target, offset: 9, text: 'x' },
+      { op: 'append', target, offset: 8, text: 'y' },
+    ]);
+    // The earliest divergence anchors the caller's resync decision.
+    expect(batch.gap).toEqual({ target, expected: 0, got: 9 });
+    const frame = tx.getTurn('t1')?.steps[0]?.frames[0];
+    expect(frame?.kind === 'text' && frame.text).toBe('');
+  });
+
+  it('onChange dispose stops delivery', () => {
+    const tx = new AgentTranscript('main');
+    let calls = 0;
+    const sub = tx.onChange(() => {
+      calls += 1;
+    });
+    tx.apply([turn1]);
+    sub.dispose();
+    tx.apply([{ op: 'marker.upsert', item: { kind: 'marker', markerId: 'm1', marker: 'goal' } }]);
+    expect(calls).toBe(1);
+  });
+
   it('task upsert + append keeps output tail globally, detached flips freely', () => {
     const tx = new AgentTranscript('main');
     tx.apply([
@@ -581,5 +728,61 @@ describe('TranscriptStore', () => {
     store.markDisposed('main', '2026-07-20T02:00:00.000Z');
     expect(store.agents()[0]?.disposedAt).toBe('2026-07-20T01:00:00.000Z');
     expect(rosters).toHaveLength(1);
+  });
+
+  it('ensureAgent without a descriptor creates the transcript but no roster entry', () => {
+    const store = new TranscriptStore('s1');
+    const tx = store.ensureAgent('main');
+    expect(store.getAgent('main')).toBe(tx);
+    expect(store.agents()).toEqual([]);
+  });
+
+  it('repeated ensure with an identical descriptor emits no roster churn', () => {
+    const store = new TranscriptStore('s1');
+    store.ensureAgent('main', { agentId: 'main', type: 'main' });
+    const rosters: number[] = [];
+    store.onRosterChange((agents) => rosters.push(agents.length));
+    // A fresh object with the same fields must not re-broadcast (polling /
+    // repeated ensure arrive as new objects every time).
+    store.ensureAgent('main', { agentId: 'main', type: 'main' });
+    expect(rosters).toEqual([]);
+    expect(store.ensureAgent('main')).toBe(store.getAgent('main'));
+  });
+
+  it('describeAgent replaces the descriptor and skips identical ones', () => {
+    const store = new TranscriptStore('s1');
+    store.ensureAgent('main', { agentId: 'main', type: 'sub', parentAgentId: 'main' });
+    const rosters: Array<readonly string[]> = [];
+    store.onRosterChange((agents) => rosters.push(agents.map((a) => a.label ?? a.agentId)));
+    store.describeAgent({ agentId: 'main', type: 'sub', parentAgentId: 'main', label: 'scanner' });
+    expect(rosters).toEqual([['scanner']]);
+    store.describeAgent({ agentId: 'main', type: 'sub', parentAgentId: 'main', label: 'scanner' });
+    expect(rosters).toHaveLength(1);
+    expect(store.agents()[0]).toMatchObject({ label: 'scanner' });
+  });
+
+  it('removeAgent drops transcript and descriptor; unknown ids emit nothing', () => {
+    const store = new TranscriptStore('s1');
+    const tx = store.ensureAgent('main', { agentId: 'main', type: 'main' });
+    const rosters: number[] = [];
+    store.onRosterChange((agents) => rosters.push(agents.length));
+    expect(store.removeAgent('ghost')).toBe(false);
+    expect(rosters).toEqual([]);
+    expect(store.removeAgent('main')).toBe(true);
+    expect(store.getAgent('main')).toBeUndefined();
+    expect(store.agents()).toEqual([]);
+    expect(rosters).toEqual([0]);
+    // Re-ensure yields a fresh transcript, not the dropped one.
+    expect(store.ensureAgent('main')).not.toBe(tx);
+  });
+
+  it('onRosterChange dispose stops delivery', () => {
+    const store = new TranscriptStore('s1');
+    const seen: number[] = [];
+    const sub = store.onRosterChange((agents) => seen.push(agents.length));
+    store.ensureAgent('main', { agentId: 'main', type: 'main' });
+    sub.dispose();
+    store.ensureAgent('sub-1', { agentId: 'sub-1', type: 'sub' });
+    expect(seen).toEqual([1]);
   });
 });

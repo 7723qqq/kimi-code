@@ -1,19 +1,27 @@
 import { describe, expect, it } from 'vitest';
 
-import { filterOpsForGrade, isAppendOnly, redactSnapshotForGrade } from '#/granularity/filterOps';
-import { detachGrades, gradeFor, needsResetOnTransition } from '#/granularity/grade';
-import { paginateTurns } from '#/pagination/paginate';
-import { ViewRegistry } from '#/view/registry';
-import { groupMessagesIntoSnapshot, type HistoryContentPart } from '#/history/groupTurns';
-import { foldWireRecordFacts, type HistoryWireRecord } from '#/history/foldFacts';
+import { transcriptEventSchema } from '#/contract/events';
 import {
+  agentTranscriptSnapshotSchema,
+  isPlainAgentId,
   transcriptOperationSchema,
+  transcriptOpsCatchupResponseSchema,
+  transcriptPlanResponseSchema,
   transcriptQuerySchema,
   transcriptResponseSchema,
   transcriptGradeSpecSchema,
+  transcriptSubscribeV2PayloadSchema,
+  transcriptUserMessagesResponseSchema,
 } from '#/contract/schema';
+import { filterOpsForGrade, isAppendOnly, redactSnapshotForGrade } from '#/granularity/filterOps';
+import { detachGrades, gradeFor, needsResetOnTransition } from '#/granularity/grade';
+import { foldWireRecordFacts, type HistoryWireRecord } from '#/history/foldFacts';
+import { groupMessagesIntoSnapshot, type HistoryContentPart } from '#/history/groupTurns';
+import { compareTurnIds, frameId, stepId, turnId, turnOrdinal } from '#/model/ids';
 import type { TranscriptItem } from '#/model/item';
 import type { AgentTranscriptSnapshot, TranscriptOperation } from '#/ops/operation';
+import { paginateTurns } from '#/pagination/paginate';
+import { ViewRegistry } from '#/view/registry';
 
 const idLabel = (i: TranscriptItem): string =>
   i.kind === 'turn' ? i.turnId : i.kind === 'marker' ? i.markerId : i.refId;
@@ -47,6 +55,27 @@ const promptOp: TranscriptOperation = {
   op: 'prompt.upsert',
   prompt: { promptId: 'p1', status: 'queued', createdAt: '2026-07-22T00:00:00.000Z' },
 };
+
+describe('id helpers', () => {
+  it('builds the nested natural-key id vocabulary', () => {
+    expect(turnId(3)).toBe('t3');
+    expect(stepId('t3', 2)).toBe('t3.2');
+    expect(frameId('t3.2', 4)).toBe('t3.2.f4');
+  });
+
+  it('compares turn ids by embedded ordinal, not lexicographically', () => {
+    // 't10' must sort after 't2' — cursors and insert ordering depend on it.
+    expect(compareTurnIds('t2', 't10')).toBeLessThan(0);
+    expect(compareTurnIds('t10', 't2')).toBeGreaterThan(0);
+    expect(compareTurnIds('t7', 't7')).toBe(0);
+  });
+
+  it('turnOrdinal falls back to 0 for malformed ids', () => {
+    expect(turnOrdinal('t42')).toBe(42);
+    expect(turnOrdinal('t')).toBe(0);
+    expect(turnOrdinal('nonsense')).toBe(0);
+  });
+});
 
 describe('granularity', () => {
   const ops: TranscriptOperation[] = [
@@ -222,6 +251,44 @@ describe('paginateTurns', () => {
     expect(only.items.map(idLabel)).toEqual(['m0']);
     expect(only.hasMore).toBe(false);
   });
+
+  it('clamps pageSize below 1 to a single-turn page', () => {
+    const page = paginateTurns(items, { pageSize: 0 });
+    expect(page.items.map(idLabel)).toEqual(['t5', 'm5']);
+    expect(page.hasMore).toBe(true);
+  });
+
+  it('after_turn past the newest turn yields an empty page', () => {
+    expect(paginateTurns(items, { afterTurn: 't5', pageSize: 2 })).toEqual({
+      items: [],
+      hasMore: false,
+    });
+  });
+
+  it('before_turn older than every turn yields the head unit alone', () => {
+    const page = paginateTurns(items, { beforeTurn: 't1', pageSize: 3 });
+    expect(page.items.map(idLabel)).toEqual(['m0']);
+    expect(page.hasMore).toBe(false);
+  });
+
+  it('after_turn paging never carries the head unit, only turn segments', () => {
+    // The leading non-turn unit is the oldest content: it rides with
+    // before-cursor paging only, never with after-cursor paging.
+    const page = paginateTurns(items, { afterTurn: 't0', pageSize: 5 });
+    expect(page.items.map(idLabel)).toEqual([
+      't1',
+      'm1',
+      't2',
+      'm2',
+      't3',
+      'm3',
+      't4',
+      'm4',
+      't5',
+      'm5',
+    ]);
+    expect(page.hasMore).toBe(false);
+  });
 });
 
 describe('ViewRegistry', () => {
@@ -244,6 +311,33 @@ describe('ViewRegistry', () => {
     expect(registry.resolveInput({ kind: 'cron' })).toBe('cronInput');
     expect(registry.resolveInput({ kind: 'user' })).toBeUndefined();
     expect(registry.resolveMarker('goal')).toBe('goalMarker');
+  });
+
+  it('returns undefined for unregistered tools when no fallback is configured', () => {
+    const registry = new ViewRegistry<string>();
+    expect(
+      registry.resolveTool({
+        kind: 'tool',
+        frameId: 'f',
+        toolCallId: 'c1',
+        name: 'Bash',
+        state: 'running',
+      }),
+    ).toBeUndefined();
+  });
+
+  it('tool dispatch is case-insensitive on both register and resolve', () => {
+    const registry = new ViewRegistry<string>();
+    registry.registerTool('READ', 'readRenderer');
+    expect(
+      registry.resolveTool({
+        kind: 'tool',
+        frameId: 'f',
+        toolCallId: 'c1',
+        name: 'Read',
+        state: 'done',
+      }),
+    ).toBe('readRenderer');
   });
 });
 
@@ -374,6 +468,20 @@ describe('contract schemas', () => {
 
   it('rejects mutually exclusive cursors and bad grades', () => {
     expect(() => transcriptGradeSpecSchema.parse({ '*': 'stream' })).toThrow();
+    // The cursor pair is mutually exclusive…
+    expect(
+      transcriptQuerySchema.safeParse({ agent_id: 'main', before_turn: 't1', after_turn: 't2' })
+        .success,
+    ).toBe(false);
+    // …and page_size is bounded to [1, 100].
+    for (const bad of [0, 101]) {
+      expect(transcriptQuerySchema.safeParse({ agent_id: 'main', page_size: bad }).success).toBe(
+        false,
+      );
+    }
+    expect(transcriptQuerySchema.safeParse({ agent_id: 'main', page_size: 100 }).success).toBe(
+      true,
+    );
     const ok = transcriptResponseSchema.safeParse({
       agent_id: 'main',
       items: [],
@@ -396,6 +504,180 @@ describe('contract schemas', () => {
     for (const hostile of ['../main', '..\\main', '..', 'a/b', 'a\\b', '.', 'a\0b', 'x'.repeat(200)]) {
       expect(transcriptQuerySchema.safeParse({ ...base, agent_id: hostile }).success).toBe(false);
     }
+  });
+
+  it('isPlainAgentId accepts slug/ulid shapes and rejects path-hostile ones', () => {
+    for (const plain of ['main', 'sub-1', 'agent.v2', '01HF7YAT31J7SMRT1QXGJWKR8D', 'a_b']) {
+      expect(isPlainAgentId(plain)).toBe(true);
+    }
+    for (const hostile of ['.', '..', 'a/b', 'a\\b', 'a b', 'a\0b', 'x'.repeat(129)]) {
+      expect(isPlainAgentId(hostile)).toBe(false);
+    }
+  });
+
+  it('snapshot schema defaults late-added entity channels for older servers', () => {
+    const parsed = agentTranscriptSnapshotSchema.parse({ items: [], tasks: [], meta: {} });
+    expect(parsed.interactions).toEqual([]);
+    expect(parsed.attachments).toEqual([]);
+    expect(parsed.todos).toEqual([]);
+    expect(parsed.prompts).toEqual([]);
+    expect(parsed.hasMoreOlder).toBeUndefined();
+  });
+
+  it('validates the subscribe_v2 payload: grade map, since cursors, seq bounds', () => {
+    expect(
+      transcriptSubscribeV2PayloadSchema.safeParse({
+        session_id: 's1',
+        transcript: { '*': 'turn', main: 'delta' },
+        transcript_since: { main: 5 },
+      }).success,
+    ).toBe(true);
+    // Both the session id and the grade map are required.
+    expect(transcriptSubscribeV2PayloadSchema.safeParse({ transcript: {} }).success).toBe(false);
+    expect(transcriptSubscribeV2PayloadSchema.safeParse({ session_id: 's1' }).success).toBe(false);
+    expect(
+      transcriptSubscribeV2PayloadSchema.safeParse({
+        session_id: 's1',
+        transcript: { '*': 'bogus' },
+      }).success,
+    ).toBe(false);
+    // Seq cursors are nonnegative integers.
+    expect(
+      transcriptSubscribeV2PayloadSchema.safeParse({
+        session_id: 's1',
+        transcript: {},
+        transcript_since: { main: -1 },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates the ops catch-up response shape', () => {
+    expect(
+      transcriptOpsCatchupResponseSchema.safeParse({
+        agent_id: 'main',
+        batches: [{ seq: 3, ops: [turnOp(1)] }],
+        latest_seq: 5,
+        complete: false,
+      }).success,
+    ).toBe(true);
+    expect(
+      transcriptOpsCatchupResponseSchema.safeParse({
+        agent_id: 'main',
+        batches: [],
+        complete: false,
+      }).success,
+    ).toBe(false); // latest_seq is required
+  });
+
+  it('validates the user-messages read, defaulting attachments', () => {
+    const ok = transcriptUserMessagesResponseSchema.safeParse({
+      agents: [
+        {
+          agent_id: 'main',
+          messages: [
+            {
+              turn_id: 't1',
+              ordinal: 1,
+              state: 'completed',
+              origin: { kind: 'user' },
+              prompt: 'hi',
+            },
+          ],
+        },
+      ],
+    });
+    expect(ok.success).toBe(true);
+    expect(ok.success && ok.data.agents[0]?.attachments).toEqual([]);
+    // prompt is the projection's defining field — required.
+    expect(
+      transcriptUserMessagesResponseSchema.safeParse({
+        agents: [
+          {
+            agent_id: 'main',
+            messages: [{ turn_id: 't1', ordinal: 1, state: 'completed', origin: { kind: 'user' } }],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates the plan read with the review round-trip', () => {
+    expect(
+      transcriptPlanResponseSchema.safeParse({
+        agent_id: 'main',
+        plans: [
+          {
+            tool_call_id: 'c1',
+            turn_id: 't1',
+            source: 'interaction',
+            plan: 'step 1: write tests',
+            path: 'agents/main/plan/p1/v1.md',
+            options: [{ label: 'Approve', description: 'ship it' }],
+            review: { state: 'approved', selected_option: 'Approve' },
+          },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(
+      transcriptPlanResponseSchema.safeParse({
+        agent_id: 'main',
+        plans: [{ tool_call_id: 'c1', turn_id: 't1', source: 'bogus', plan: 'x' }],
+      }).success,
+    ).toBe(false);
+    expect(
+      transcriptPlanResponseSchema.safeParse({
+        agent_id: 'main',
+        plans: [
+          {
+            tool_call_id: 'c1',
+            turn_id: 't1',
+            source: 'display',
+            plan: 'x',
+            review: { state: 'nope' },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('transcript WS events', () => {
+  const snapshot = { items: [], tasks: [], meta: {} };
+
+  it('parses reset and ops events; seq stays optional for legacy peers', () => {
+    expect(
+      transcriptEventSchema.safeParse({
+        type: 'transcript.reset',
+        agent_id: 'main',
+        snapshot,
+        has_more_older: false,
+        seq: 3,
+      }).success,
+    ).toBe(true);
+    expect(
+      transcriptEventSchema.safeParse({
+        type: 'transcript.reset',
+        agent_id: 'main',
+        snapshot,
+        has_more_older: true,
+      }).success,
+    ).toBe(true);
+    expect(
+      transcriptEventSchema.safeParse({
+        type: 'transcript.ops',
+        agent_id: 'main',
+        ops: [turnOp(1)],
+        seq: 7,
+      }).success,
+    ).toBe(true);
+    expect(
+      transcriptEventSchema.safeParse({ type: 'transcript.ops', agent_id: 'main', ops: [] })
+        .success,
+    ).toBe(true);
+  });
+
+  it('rejects unknown event types', () => {
+    expect(transcriptEventSchema.safeParse({ type: 'transcript.bogus' }).success).toBe(false);
   });
 });
 
