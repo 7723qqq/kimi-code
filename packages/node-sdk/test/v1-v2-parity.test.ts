@@ -4690,8 +4690,8 @@ describe('v1↔v2 residual surface parity', () => {
       // timestamps are reported by both.
       expect(typeof v1Result.manifest.exportedAt).toBe('string');
       expect(typeof v2Result.manifest.exportedAt).toBe('string');
-      expect(v1Result.manifest.wireProtocolVersion).toBe('1.6');
-      expect(v2Result.manifest.wireProtocolVersion).toBe('1.6');
+      expect(v1Result.manifest.wireProtocolVersion).toBe('1.5');
+      expect(v2Result.manifest.wireProtocolVersion).toBe('1.5');
       expect(typeof v1Result.manifest.sessionFirstActivity).toBe('string');
       expect(typeof v2Result.manifest.sessionFirstActivity).toBe('string');
       // The archives actually landed on disk, non-empty.

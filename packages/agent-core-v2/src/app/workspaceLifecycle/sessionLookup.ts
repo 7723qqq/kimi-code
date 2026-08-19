@@ -15,6 +15,7 @@ import type { ServicesAccessor } from '#/_base/di/instantiation';
 import { DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, isError2 } from '#/errors';
 import {
@@ -45,9 +46,8 @@ export async function resumeSessionById(
   sessionId: string,
   opts?: ResumeSessionOptions,
 ): Promise<ISessionScopeHandle | undefined> {
-  let handler: IWorkspaceScopeHandle | undefined;
   try {
-    handler = await handlerForSession(accessor, sessionId);
+    return await accessor.get(ISessionManager).resume(sessionId, opts);
   } catch (error) {
     accessor
       .get(ITelemetryService)
@@ -57,8 +57,6 @@ export async function resumeSessionById(
       });
     throw error;
   }
-  if (handler === undefined) return undefined;
-  return handler.accessor.get(ISessionLifecycleService).resume(sessionId, opts);
 }
 
 export function liveHandlerForSession(
@@ -77,18 +75,14 @@ export function getLiveSessionById(
   accessor: ServicesAccessor,
   sessionId: string,
 ): ISessionScopeHandle | undefined {
-  return liveHandlerForSession(accessor, sessionId)
-    ?.accessor.get(ISessionLifecycleService)
-    .get(sessionId);
+  return accessor.get(ISessionManager).get(sessionId);
 }
 
 export async function closeSessionById(
   accessor: ServicesAccessor,
   sessionId: string,
 ): Promise<void> {
-  const handler = liveHandlerForSession(accessor, sessionId);
-  if (handler === undefined) return;
-  await handler.accessor.get(ISessionLifecycleService).close(sessionId);
+  await accessor.get(ISessionManager).close(sessionId);
 }
 
 export function followWorkspaceHandlers(
@@ -108,4 +102,19 @@ export function followWorkspaceHandlers(
     }),
   );
   return store;
+}
+
+type SessionLifecycleEvents = Required<
+  Pick<ISessionManager, 'onDidCloseSession' | 'onDidArchiveSession'>
+>;
+
+export function followSessionLifecycles(
+  accessor: ServicesAccessor,
+  follow: (service: SessionLifecycleEvents) => IDisposable,
+): IDisposable {
+  const manager = accessor.get(ISessionManager);
+  if (manager.onDidCloseSession === undefined || manager.onDidArchiveSession === undefined) {
+    return { dispose: () => {} };
+  }
+  return follow(manager as SessionLifecycleEvents);
 }

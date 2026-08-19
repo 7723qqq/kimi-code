@@ -177,7 +177,6 @@ import {
   IWorkspaceInstanceManager,
   IWorkspaceMcpService,
   ISessionActivityView,
-  ISessionLifecycleService,
   IWorkspaceLifecycleService,
   sessionDirOf,
   workspacePersistenceScope,
@@ -207,11 +206,11 @@ import {
 } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
 import { createMcpOAuthStore } from '@moonshot-ai/agent-core-v2/app/mcpConfig/oauthStore';
 import { IPluginService } from '@moonshot-ai/agent-core-v2/app/plugin/plugin';
+import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
 import {
   closeSessionById,
-  followWorkspaceHandlers,
+  followSessionLifecycles,
   getLiveSessionById,
-  handlerForSession,
   resumeSessionById,
 } from '@moonshot-ai/agent-core-v2/app/workspaceLifecycle/sessionLookup';
 import type { McpServerConfig as WorkspaceMcpServerConfig } from '@moonshot-ai/agent-core-v2/mcpCore/config-schema';
@@ -531,7 +530,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       // engine-initiated close) drops its wiring with the scope. Close events
       // fire per workspace handler, so follow every handler — present and
       // future — through the App-scope registry.
-      followWorkspaceHandlers(this.app.accessor, (service) =>
+      followSessionLifecycles(this.app.accessor, (service) =>
         service.onDidCloseSession((closed) => {
           this.unwireSession(closed.sessionId);
         }),
@@ -1299,10 +1298,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
         );
       }
     }
-    const handler = await this.engineAccessor
-      .get(IWorkspaceLifecycleService)
-      .handlerFor({ root: workDir });
-    const handle = await handler.accessor.get(ISessionLifecycleService).create({
+    const handle = await this.engineAccessor.get(ISessionManager).create({
       sessionId: input.id,
       workDir,
       additionalDirs: input.additionalDirs,
@@ -1386,11 +1382,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.runSessionAccessAll(
       input.forkId === undefined ? [input.id] : [input.id, input.forkId],
       async () => {
-        const forkHandler = await handlerForSession(this.engineAccessor, input.id);
-        if (forkHandler === undefined) throw SDKRpcClientV2.sessionNotFound(input.id);
         let handle: ISessionScopeHandle;
         try {
-          handle = await forkHandler.accessor.get(ISessionLifecycleService).fork({
+          handle = await this.engineAccessor.get(ISessionManager).fork({
             sourceSessionId: input.id,
             newSessionId: input.forkId,
             title: input.title,
@@ -1434,10 +1428,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     // Same per-session queue as close/reload: a delete serializes against
     // every other lifecycle operation on the session.
     return this.runSessionAccess(input.sessionId, async () => {
-      const handler = await handlerForSession(this.engineAccessor, input.sessionId);
-      if (handler === undefined) throw SDKRpcClientV2.sessionNotFound(input.sessionId);
       try {
-        await handler.accessor.get(ISessionLifecycleService).delete(input.sessionId);
+        await this.engineAccessor.get(ISessionManager).delete(input.sessionId);
       } catch (error) {
         // The session vanished between the index check and the delete: the
         // engine's own not-found crosses as an Error2 — restate it in v1's shape.
@@ -1523,18 +1515,14 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   private async refreshPluginSessionStarts(excludedSessionId?: string): Promise<void> {
-    const workspaceLifecycle = this.engineAccessor.get(IWorkspaceLifecycleService);
-    const instancesById = new Map(
-      this.engineAccessor
-        .get(IWorkspaceInstanceManager)
-        .list()
-        .map((instance) => [instance.id, instance]),
-    );
+    const workspaces = this.engineAccessor.get(IWorkspaceInstanceManager);
     await Promise.all(
-      workspaceLifecycle.handlers.list().map(async (handler) => {
-        const instance = instancesById.get(handler.id);
-        if (instance !== undefined) await instance.program.skills.reload();
-        const sessions = handler.accessor.get(ISessionLifecycleService).list();
+      workspaces.list().map(async (handler) => {
+        await handler.program.skills.reload();
+        const sessions = this.engineAccessor
+          .get(ISessionManager)
+          .list()
+          .filter((session) => session.accessor.get(ISessionContext).workspaceId === handler.id);
         await Promise.all(
           sessions.map(async (session) => {
             if (session.id === excludedSessionId) return;

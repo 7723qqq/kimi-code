@@ -18,6 +18,7 @@ import {
   HostProcessError,
   IHostRequestHeaders,
   ISessionLifecycleService,
+  ISessionManager,
   IWorkspaceLifecycleService,
   OsProcessErrors,
 } from '@moonshot-ai/agent-core-v2';
@@ -377,10 +378,8 @@ key = "${titleOAuthRef.key}"
       // lands while the close is still in flight.
       const titlePromise = client.generateSessionTitle({ id: 'ses_title_race' });
       await fetchStarted;
-      const handler = await client.engineAccessor
-        .get(IWorkspaceLifecycleService)
-        .handlerFor({ root: workDir });
-      const tempHandle = handler.accessor.get(ISessionLifecycleService).get('ses_title_race');
+      const sessionManager = client.engineAccessor.get(ISessionManager);
+      const tempHandle = sessionManager.get('ses_title_race');
       expect(tempHandle).toBeDefined();
       let markCloseStarted!: () => void;
       let openCloseGate!: () => void;
@@ -390,7 +389,7 @@ key = "${titleOAuthRef.key}"
       const closeGate = new Promise<void>((resolve) => {
         openCloseGate = resolve;
       });
-      handler.accessor.get(ISessionLifecycleService).onWillCloseSession((event) => {
+      sessionManager.onWillCloseSession!((event) => {
         if (event.sessionId !== 'ses_title_race') return;
         markCloseStarted();
         event.waitUntil(closeGate);

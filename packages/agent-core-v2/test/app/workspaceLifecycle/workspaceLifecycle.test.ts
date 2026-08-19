@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ScopeActivation, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
+import {
+  ScopeActivation,
+  _clearScopedRegistryForTests,
+  registerScopedService,
+} from '#/_base/di/scope';
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
-import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import {
   followWorkspaceHandlers,
@@ -16,8 +20,11 @@ import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLif
 import { Error2, ErrorCodes } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { IWorkspaceInstanceManager, type WorkspaceInstanceRef } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
+import {
+  IWorkspaceInstanceManager,
+  type WorkspaceInstanceRef,
+} from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 
@@ -104,17 +111,27 @@ function managerStub(
   return { manager, fire, getOrCreate };
 }
 
-function sessionManagerStub(sessions: readonly { readonly id: string; readonly workspaceId: string }[]) {
-  return {
-    _serviceBrand: undefined,
-    list: () =>
-      sessions.map(({ id, workspaceId }) => ({
+function sessionManagerStub(
+  sessions: readonly { readonly id: string; readonly workspaceId: string }[],
+) {
+  const live = new Map(
+    sessions.map(({ id, workspaceId }) => [
+      id,
+      {
         id,
         accessor: {
           get: <T>(token: unknown): T =>
             token === ISessionContext ? ({ workspaceId } as T) : (undefined as T),
         },
-      })),
+      },
+    ]),
+  );
+  return {
+    _serviceBrand: undefined,
+    list: () => [...live.values()],
+    get: (sessionId: string) => live.get(sessionId),
+    resume: async (sessionId: string) => live.get(sessionId),
+    close: async () => undefined,
   } as unknown as ISessionManager;
 }
 
@@ -151,12 +168,14 @@ describe('WorkspaceLifecycleService', () => {
     host = undefined;
   });
 
-  function build(options: {
-    instances?: WorkspaceInstance[];
-    sessions?: readonly { readonly id: string; readonly workspaceId: string }[];
-    createInstance?: (ref: WorkspaceInstanceRef) => WorkspaceInstance;
-    extra?: ReturnType<typeof stubPair>[];
-  } = {}): {
+  function build(
+    options: {
+      instances?: WorkspaceInstance[];
+      sessions?: readonly { readonly id: string; readonly workspaceId: string }[];
+      createInstance?: (ref: WorkspaceInstanceRef) => WorkspaceInstance;
+      extra?: ReturnType<typeof stubPair>[];
+    } = {},
+  ): {
     lifecycle: IWorkspaceLifecycleService;
     manager: ReturnType<typeof managerStub>;
   } {
@@ -269,7 +288,9 @@ describe('WorkspaceLifecycleService', () => {
     });
     const handler = await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
 
-    expect(() => handler.accessor.get(ISessionIndex)).toThrow(/only resolves ISessionLifecycleService/);
+    expect(() => handler.accessor.get(ISessionIndex)).toThrow(
+      /only resolves ISessionLifecycleService/,
+    );
   });
 
   it('handle.dispose disposes the cached controller', async () => {
@@ -290,28 +311,21 @@ describe('WorkspaceLifecycleService', () => {
   });
 
   describe('sessionLookup', () => {
-    it('resumeSessionById routes index → handlerFor → handler resume', async () => {
-      const controller = controllerStub('controller');
-      const { lifecycle } = build({
-        instances: [fakeInstance('wd_proj', '/tmp/proj', controller)],
+    it('resumeSessionById routes to the session manager', async () => {
+      const resume = vi.fn(async () => ({ id: 's1' }));
+      build({
         extra: [
-          stubPair(ISessionIndex, {
-            ...sessionIndexStub(),
-            get: (id: string) =>
-              Promise.resolve(
-                id === 's1'
-                  ? { id: 's1', workspaceId: 'wd_proj', cwd: '/tmp/proj', createdAt: 1, updatedAt: 1, archived: false }
-                  : undefined,
-              ),
-          } as unknown as ISessionIndex),
+          stubPair(ISessionManager, {
+            ...sessionManagerStub([]),
+            resume,
+          } as unknown as ISessionManager),
         ],
       });
 
       const handle = await resumeSessionById(host!.app.accessor, 's1');
 
       expect(handle?.id).toBe('s1');
-      expect(controller.resume).toHaveBeenCalledWith('s1', undefined);
-      expect(lifecycle.handlers.list()).toHaveLength(1);
+      expect(resume).toHaveBeenCalledWith('s1', undefined);
     });
 
     it('resumeSessionById returns undefined for an unknown session', async () => {
@@ -319,13 +333,13 @@ describe('WorkspaceLifecycleService', () => {
       await expect(resumeSessionById(host!.app.accessor, 'nope')).resolves.toBeUndefined();
     });
 
-    it('resumeSessionById reports session_load_failed when the index read fails', async () => {
+    it('resumeSessionById reports session_load_failed when the resume fails', async () => {
       build({
         extra: [
-          stubPair(ISessionIndex, {
-            ...sessionIndexStub(),
-            get: () => Promise.reject(new Error2(ErrorCodes.SESSION_NOT_FOUND, 'index read failed')),
-          } as unknown as ISessionIndex),
+          stubPair(ISessionManager, {
+            ...sessionManagerStub([]),
+            resume: () => Promise.reject(new Error2(ErrorCodes.SESSION_NOT_FOUND, 'resume failed')),
+          } as unknown as ISessionManager),
         ],
       });
 
@@ -339,13 +353,9 @@ describe('WorkspaceLifecycleService', () => {
     });
 
     it('getLiveSessionById finds only live sessions', async () => {
-      const controller = controllerStub('controller');
-      controller.get.mockImplementation((sessionId: string) =>
-        sessionId === 's1' ? { id: 's1' } : undefined,
-      );
-      build({ instances: [fakeInstance('wd_proj', '/tmp/proj', controller)] });
-      const lifecycle = host!.app.accessor.get(IWorkspaceLifecycleService);
-      await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
+      build({
+        sessions: [{ id: 's1', workspaceId: 'wd_proj' }],
+      });
 
       expect(getLiveSessionById(host!.app.accessor, 's1')?.id).toBe('s1');
       expect(getLiveSessionById(host!.app.accessor, 'other')).toBeUndefined();
@@ -357,7 +367,8 @@ describe('WorkspaceLifecycleService', () => {
       const { lifecycle } = build({
         instances: [fakeInstance('wd_a', '/tmp/a', firstController)],
         createInstance: (ref) => {
-          const workspaceId = 'workspaceId' in ref && ref.workspaceId !== undefined ? ref.workspaceId : 'wd_b';
+          const workspaceId =
+            'workspaceId' in ref && ref.workspaceId !== undefined ? ref.workspaceId : 'wd_b';
           const root = 'root' in ref && ref.root !== undefined ? ref.root : '/tmp/b';
           return fakeInstance(workspaceId, root, secondController);
         },
