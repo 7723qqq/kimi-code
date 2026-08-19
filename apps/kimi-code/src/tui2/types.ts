@@ -280,6 +280,10 @@ export interface TranscriptEntry {
   detail?: string;
   /** Optional override for the leading bullet of a 'user' message entry. An empty string suppresses the bullet entirely (used by shell-command echoes so `$` replaces the sparkles marker). */
   bullet?: string;
+  /** Transcript-navigation mode: whether this entry is expanded (tool calls, thinking, goal markers). */
+  expanded?: boolean;
+  /** Transcript-navigation mode: whether this entry is the focused one. */
+  navigated?: boolean;
   toolCallData?: ToolCallBlockData;
   backgroundAgentStatus?: BackgroundAgentStatusData;
   compactionData?: CompactionTranscriptData;
@@ -312,6 +316,27 @@ export interface WorkflowRunData {
 export const MAX_VISIBLE_RUNS = 5;
 
 export type LivePaneMode = 'idle' | 'waiting' | 'thinking' | 'tool' | 'session';
+
+/** The dialog currently open on top of the shell; null when none. */
+export type ActiveDialog =
+  | 'session-picker'
+  | 'help'
+  | 'which-key'
+  | 'trust-prompt'
+  | 'msys2-prompt'
+  | 'cache-hint'
+  | 'model-selector'
+  | 'permission-selector'
+  | 'theme-selector'
+  | 'locale-selector'
+  | 'settings-selector'
+  | 'plugins-selector'
+  | 'tasks-browser'
+  | 'goal-queue-manager'
+  | 'undo-selector'
+  | 'question-dialog'
+  | 'approval-panel'
+  | null;
 
 export interface LivePaneState {
   mode: LivePaneMode;
