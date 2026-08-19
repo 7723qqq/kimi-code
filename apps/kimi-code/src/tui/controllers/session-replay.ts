@@ -10,7 +10,6 @@ import type {
 
 import { t } from '#/i18n';
 
-import type { TodoItem } from '../components/chrome/todo-panel';
 import { modelDisplayName } from '../components/dialogs/model-selector';
 import { ToolCallComponent } from '../components/messages/tool-call';
 import { ReplayTurnBoundaryComponent } from '../components/messages/user-message';
@@ -25,7 +24,7 @@ import type {
 } from '../types';
 import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
-import { formatErrorMessage, isTodoItemShape } from '../utils/event-payload';
+import { formatErrorMessage, normalizeTodoItems } from '../utils/event-payload';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import {
   appStateFromResumeAgent,
@@ -127,9 +126,7 @@ export class SessionReplayRenderer {
       return;
     }
 
-    const todos = rawTodos
-      .filter((todo): todo is TodoItem => isTodoItemShape(todo))
-      .map((todo) => ({ title: todo.title, status: todo.status }));
+    const todos = normalizeTodoItems(rawTodos);
     if (todos.length > 0 && todos.every((todo) => todo.status === 'done')) {
       this.host.streamingUI.setTodoList([]);
       return;
