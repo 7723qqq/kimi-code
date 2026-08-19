@@ -1,9 +1,9 @@
 <!-- apps/kimi-web/src/components/chat/ActivityNotice.vue -->
 <!-- Generic in-transcript "working on X" notice: a plain spinner plus a
      body-sized label. Used for long-running session activities that are not a
-     chat turn (e.g. "Compacting context…"). Uses the plain Spinner primitive
-     (design-system §03/§06) — MoonSpinner is reserved for the chat "waiting
-     for the agent's first response" state. -->
+     chat turn (e.g. the context-compaction notice). Uses the plain Spinner
+     primitive (design-system §03/§06) — MoonSpinner is reserved for the chat
+     "waiting for the agent's first response" state. -->
 <script setup lang="ts">
 import Spinner from '../ui/Spinner.vue';
 

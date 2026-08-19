@@ -316,7 +316,7 @@ function canEditTurn(turn: ChatTurn): boolean {
   );
 }
 
-/** Divider label: "Context compacted"/"auto-compacted" + optional token stats. */
+/** Divider label: the compacted / auto-compacted text + optional token stats. */
 function compactionDividerLabel(turn: ChatTurn): string {
   const c = turn.compaction;
   const base =

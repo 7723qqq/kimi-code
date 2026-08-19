@@ -6,7 +6,7 @@
      as the user hasn't scrolled up.
 
      Layout mirrors the official web's agent detail: the work process (task +
-     tool-call progress) folds behind a "已工作 {duration}" fold that auto-opens
+     tool-call progress) folds behind a "worked {duration}" fold that auto-opens
      while the subagent runs and collapses once it settles; the live output
      (thinking) and the final result stay visible below. Each command group and
      the header expose copy-command / copy-output buttons. -->
@@ -210,7 +210,7 @@ watch(
       <div v-if="member.suspendedReason" class="ap-reason">{{ member.suspendedReason }}</div>
 
       <!-- Work process (task + tool-call progress) folds behind the per-turn
-           "已工作 {duration}" fold; it auto-opens while running and collapses
+           "worked {duration}" fold; it auto-opens while running and collapses
            once the subagent settles (matching the main chat's TurnFold). -->
       <TurnFold
         v-if="member.prompt || progressGroups.length > 0"

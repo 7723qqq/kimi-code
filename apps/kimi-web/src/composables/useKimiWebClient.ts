@@ -2575,7 +2575,7 @@ const sessionsForView = computed<Session[]>(() => {
     });
 });
 
-/** Per-workspace groups for the 'all workspaces' scope. */
+/** Per-workspace groups for the all-workspaces scope. */
 const workspaceGroups = computed<WorkspaceGroup[]>(() => {
   void sessionTimeClock.value;
   const byId = new Map<string, Session[]>();

@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { createApp } from 'vue';
 
 import { createInitialState, reduceAppEvent } from '../src/api/daemon/eventReducer';
 import type { AppMessage, AppSession, AppTask } from '../src/api/types';
 import { i18n } from '../src/i18n';
+
+// The reducer's subagent-placeholder detection compares against the localized
+// `tasks.dockSubagent` value, so install i18n and pin the locale to `en` (the
+// tests use the literal English placeholder) before exercising it.
+createApp({}).use(i18n);
+i18n.global.locale.value = 'en';
 
 function makeSession(id: string, updatedAt: string): AppSession {
   return {

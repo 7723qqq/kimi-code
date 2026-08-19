@@ -46,7 +46,7 @@ function finish(): void {
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
           role="img"
-          aria-label="Kimi Code"
+          :aria-label="t('sidebar.brand')"
         >
           <defs>
             <mask id="obKimiEyes" maskUnits="userSpaceOnUse">

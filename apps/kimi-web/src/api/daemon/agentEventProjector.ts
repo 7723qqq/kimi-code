@@ -232,7 +232,7 @@ function patchSubagent(
       id: subagentId,
       sessionId,
       kind: 'subagent',
-      description: 'Sub Agent',
+      description: i18n.global.t('tasks.dockSubagent'),
       status: 'running',
       createdAt: new Date().toISOString(),
       subagentPhase: 'queued',
@@ -1197,7 +1197,9 @@ export function createAgentProjector(): AgentProjector {
           sessionId,
           kind: 'subagent',
           description:
-            typeof p?.description === 'string' ? p.description : (p?.subagentName ?? 'Sub Agent'),
+            typeof p?.description === 'string'
+              ? p.description
+              : (p?.subagentName ?? i18n.global.t('tasks.dockSubagent')),
           status: 'running',
           createdAt: new Date().toISOString(),
           subagentPhase: 'queued',

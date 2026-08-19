@@ -170,7 +170,7 @@ function revisePlan(): void {
   openFeedback();
 }
 function rejectAndExitPlan(): void {
-  act('rejectAndExit', { decision: 'rejected', selectedLabel: 'Reject and Exit' });
+  act('rejectAndExit', { decision: 'rejected', selectedLabel: t('approval.rejectAndExit') });
 }
 
 // ---------------------------------------------------------------------------

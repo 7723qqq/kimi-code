@@ -3711,9 +3711,9 @@ grid-template-columns: auto 0 minmax(0, 1fr) 0 auto;
                 <tr>
                   <td class="tk">Behavior</td>
                   <td>
-                    "Load more" fetches the next page and auto-expands; once more than the first
-                    page is loaded, "Show less" appears and collapses back to the first page
-                    (view-layer trim — data is kept, no refetch); "Show all" re-expands
+                    The load-more action fetches the next page and auto-expands; once more than the
+                    first page is loaded, a collapse action appears and returns to the first page
+                    (view-layer trim — data is kept, no refetch); a show-all action re-expands
                   </td>
                 </tr>
               </tbody>

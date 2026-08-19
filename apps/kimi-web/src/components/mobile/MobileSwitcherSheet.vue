@@ -572,7 +572,7 @@ function onDeleteWorkspace(ws: WorkspaceView): void {
   min-width: 132px;
 }
 
-/* "Show more" — same indent as session rows, 44px tap target */
+/* The expand row — same indent as session rows, 44px tap target */
 .mshow-more {
   display: flex;
   align-items: center;

@@ -38,8 +38,11 @@ const MAX_BACKGROUND_OUTPUT_LINES = 40;
 /** Skeleton description used by `patchSubagent` in agentEventProjector.ts when
  *  a lifecycle event re-projects a subagent the projector never saw spawn
  *  (e.g. after a page refresh, where the snapshot roster — not the WS stream —
- *  carried the real description). */
-const PLACEHOLDER_SUBAGENT_DESCRIPTION = 'Sub Agent';
+ *  carried the real description). Evaluated at call time so a mid-session
+ *  locale switch keeps the placeholder comparison consistent. */
+function isPlaceholderSubagentDescription(desc: string): boolean {
+  return desc === i18n.global.t('tasks.dockSubagent');
+}
 
 // ---------------------------------------------------------------------------
 // State
@@ -732,8 +735,8 @@ export function reduceAppEvent(
           // metadata; don't let its placeholder clobber the roster-seeded
           // description.
           description:
-            event.task.description === PLACEHOLDER_SUBAGENT_DESCRIPTION &&
-            previous.description !== PLACEHOLDER_SUBAGENT_DESCRIPTION
+            isPlaceholderSubagentDescription(event.task.description) &&
+            !isPlaceholderSubagentDescription(previous.description)
               ? previous.description
               : event.task.description,
           swarmIndex: event.task.swarmIndex ?? previous.swarmIndex,

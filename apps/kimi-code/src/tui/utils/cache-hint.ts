@@ -11,7 +11,7 @@ export interface CacheHintInput {
   readonly modelId?: string;
   /** Fetch failure → undefined → skip. */
   readonly config?: CacheHintConfig;
-  /** User chose "Don't ask me again" (tui.toml). */
+  /** User dismissed the cache hint (tui.toml). */
   readonly dismissed: boolean;
 }
 

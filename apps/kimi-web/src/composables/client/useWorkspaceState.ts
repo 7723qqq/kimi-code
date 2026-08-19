@@ -2437,7 +2437,7 @@ export function useWorkspaceState(rawState: ExtendedState, deps: UseWorkspaceSta
     try {
       const webLog = sessionExportTraceToJsonl();
       const { blob, fileName } = await getKimiWebApi().exportSession(sessionId, webLog);
-      if (typeof document === 'undefined') throw new Error('Document is unavailable');
+      if (typeof document === 'undefined') throw new Error(i18n.global.t('warnings.documentUnavailable'));
       const url = URL.createObjectURL(blob);
       let anchor: HTMLAnchorElement | undefined;
       try {

@@ -37,6 +37,7 @@ export default {
   daemonNetworkMessage: 'Web 没有拿到本地服务的响应。请确认 Kimi daemon 仍在运行，或刷新页面重试。',
   daemonNetworkTitle: '无法连接到 Kimi daemon',
   diagnostics: '诊断信息',
+  documentUnavailable: '文档不可用',
   hideDetails: '收起详情',
   operationFailedMessage: '刚才的操作没有完成，请稍后重试。',
   operationFailedTitle: '操作失败',
