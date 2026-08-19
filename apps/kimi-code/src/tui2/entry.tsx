@@ -33,7 +33,13 @@ function SessionShell() {
       if (text.length === 0) return
       store.setState('transcript', (entries) => [
         ...entries,
-        { id: `user-${Date.now()}`, kind: 'user', renderMode: 'plain', content: text },
+        {
+          id: `user-${Date.now()}`,
+          kind: 'user' as const,
+          renderMode: 'plain' as const,
+          content: text,
+          modelText: false,
+        },
       ])
       store.setState('streams', '1', { assistantText: `echo: ${text}`, thinkingText: '', toolCalls: {} })
       setDraft('')

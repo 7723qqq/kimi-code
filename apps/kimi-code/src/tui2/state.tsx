@@ -33,12 +33,15 @@ import type {
   UpgradePreferences,
 } from './config'
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types'
+import type { SessionRow } from './components/dialogs/session-picker'
 import type { ThemeName } from './theme'
 import { createTerminalState, type TerminalState } from './utils/terminal-state'
 import type {
   ActiveDialog,
+  AgentPaneItem,
   BackgroundCounts,
   BannerState,
+  DiffReviewItem,
   LivePaneMode,
   QueuedMessage,
   SessionStats,
@@ -119,13 +122,27 @@ export interface TuiRuntimeState {
   }
   /** Editor draft text (mirrors the input line; also used by BTW busy notice). */
   editorDraft: string
+  /** Editor border highlight state (plan/bash/slash context). */
+  editorBorderHighlighted: boolean
+  /** Editor border color token. */
+  editorBorderToken: 'shellMode' | 'primary' | 'border'
+  /** Autocomplete provider (slash commands + file mentions). */
+  autocompleteProvider: unknown
+  /** Right-side agent pane visibility. */
+  agentPaneVisible: boolean
+  /** Right-side diff review pane visibility. */
+  diffReviewPaneVisible: boolean
+  /** Todo panel expansion state. */
+  todoPanelExpanded: boolean
+  /** Leader-chord overlay visibility. */
+  leaderOverlayVisible: boolean
   /** Queued messages waiting for the current turn to end. */
   queuedMessages: readonly QueuedMessage[]
   /** True while a queued user message has been shifted out of
    * `queuedMessages` but its deferred send has not run yet. */
   queuedMessageDispatchPending: boolean
   /** Sorted list of sessions for the picker. */
-  sessions: readonly { id: string; title: string; updatedAt: number }[]
+  sessions: readonly SessionRow[]
   loadingSessions: boolean
   /** Keyset cursor for the next older page; `undefined` when the listing is exhausted. */
   sessionsNextCursor: string | undefined
@@ -192,6 +209,16 @@ export interface TuiRuntimeState {
   todoItems: readonly TodoItem[]
   /** Background task counts for the footer badge. */
   backgroundCounts: BackgroundCounts
+  /** Right-side agent status panel items. */
+  agentPaneItems: readonly AgentPaneItem[]
+  /** Right-side diff review panel items. */
+  diffReviewItems: readonly DiffReviewItem[]
+  /** Live progress spinner (login / msys2 install); null when none. */
+  progressSpinner: { label: string } | null
+  /** Live `!` shell output entries keyed by commandId. */
+  shellOutputs: Record<string, { content: string; taskId?: string; finished?: boolean }>
+  /** Current activity-pane loading tip. */
+  activityTip: string | undefined
   /** Tasks-browser dialog state; undefined when closed. */
   tasksBrowser: TasksBrowserState | undefined
   /** Terminal capability snapshot (focus, notification support). */
@@ -233,6 +260,13 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
     scrollOffset: 0,
   },
   editorDraft: '',
+  editorBorderHighlighted: false,
+  editorBorderToken: 'border',
+  autocompleteProvider: undefined,
+  agentPaneVisible: true,
+  diffReviewPaneVisible: false,
+  todoPanelExpanded: false,
+  leaderOverlayVisible: false,
   queuedMessages: [],
   queuedMessageDispatchPending: false,
   sessions: [],
@@ -287,6 +321,11 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
   toolOutputExpanded: false,
   todoItems: [],
   backgroundCounts: { bashTasks: 0, agentTasks: 0 },
+  agentPaneItems: [],
+  diffReviewItems: [],
+  progressSpinner: null,
+  shellOutputs: {},
+  activityTip: undefined,
   tasksBrowser: undefined,
   terminalState: createTerminalState(),
   swarmModeEntry: undefined,
@@ -297,10 +336,48 @@ export interface Tui2Store {
   readonly setState: SetStoreFunction<TuiRuntimeState>
 }
 
-export function createTui2Store(input?: { workDir?: string }): Tui2Store {
+export interface Tui2StoreInit {
+  workDir?: string;
+  additionalDirs?: readonly string[];
+  model?: string;
+  permissionMode?: PermissionMode;
+  planMode?: boolean;
+  thinkingEffort?: ThinkingEffort;
+  locale?: string;
+  theme?: ThemeName;
+  version?: string;
+  editorCommand?: string | null;
+  disablePasteBurst?: boolean;
+  renderLatex?: boolean;
+  cacheExpiryHint?: boolean;
+  notifications?: NotificationsConfig;
+  upgrade?: UpgradePreferences;
+  statusLine?: StatusLineConfig;
+  agentProfile?: string;
+  agentFiles?: readonly string[];
+}
+
+export function createTui2Store(input?: Tui2StoreInit): Tui2Store {
   const [state, setState] = createStore<TuiRuntimeState>({
     ...INITIAL_RUNTIME,
     workDir: input?.workDir ?? process.cwd(),
+    additionalDirs: [...(input?.additionalDirs ?? [])],
+    model: input?.model ?? '',
+    permissionMode: input?.permissionMode ?? 'manual',
+    planMode: input?.planMode ?? false,
+    thinkingEffort: input?.thinkingEffort ?? 'off',
+    locale: input?.locale ?? 'en',
+    theme: input?.theme ?? 'auto',
+    version: input?.version ?? '',
+    editorCommand: input?.editorCommand ?? null,
+    disablePasteBurst: input?.disablePasteBurst ?? false,
+    renderLatex: input?.renderLatex ?? true,
+    cacheExpiryHint: input?.cacheExpiryHint ?? true,
+    notifications: input?.notifications ?? { enabled: true, condition: 'unfocused' },
+    upgrade: input?.upgrade ?? { autoInstall: true },
+    statusLine: input?.statusLine,
+    agentProfile: input?.agentProfile,
+    agentFiles: input?.agentFiles,
   })
   return { state, setState }
 }

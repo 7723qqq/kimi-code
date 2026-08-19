@@ -305,6 +305,10 @@ export interface TranscriptEntry {
    * (distinct from real model-authored text; lets rendering avoid localizing /
    * string-matching the message content to pick the goal-completion card). */
   goalCompletionData?: boolean;
+  /** Step-summary entry (folded thinking/tool/assistant counts). */
+  stepSummary?: boolean;
+  /** Counts folded into a step-summary entry. */
+  stepSummaryCounts?: { thinking: number; tool: number; assistant: number };
   /** Swarm-mode entry/exit marker data. */
   swarmData?: { state: 'entered' | 'ended' };
   /** Live AgentSwarm progress summary for a tool-call entry. */
@@ -350,6 +354,21 @@ export interface BackgroundCounts {
   readonly agentTasks: number;
 }
 
+/** One row of the right-side agent status panel. */
+export interface AgentPaneItem {
+  readonly id: string;
+  readonly name: string;
+  readonly status: 'active' | 'waiting' | 'done' | 'error';
+  readonly detail?: string;
+}
+
+/** One file-change row of the diff review panel. */
+export interface DiffReviewItem {
+  readonly path: string;
+  readonly before: string;
+  readonly after: string;
+}
+
 /** Tasks-browser dialog state (store-backed; no component instances). */
 export interface TasksBrowserState {
   filter: 'all' | 'active';
@@ -391,6 +410,7 @@ export type ActiveDialog =
   | 'undo-selector'
   | 'question-dialog'
   | 'approval-panel'
+  | 'migration'
   | null;
 
 export interface LivePaneState {

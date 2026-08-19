@@ -10,13 +10,17 @@
  * Status: REAL (tui2). Replaces the v1 stub.
  */
 
-import type { Event } from '@moonshot-ai/kimi-code-sdk';
+import type { Event, Session } from '@moonshot-ai/kimi-code-sdk';
 
 import type { Tui2EventBus } from '../event';
 import type { Tui2Store } from '../state';
 import type { WorkflowRunData, WorkflowStatus } from '../types';
 
 export interface WorkflowPanelController {
+  /** Subscribe to a session's event stream. */
+  subscribe(session: Session): void;
+  /** Unsubscribe from the current session. */
+  unsubscribe(): void;
   /** Clear all tracked runs. */
   clear(): void;
   /** Unsubscribe from the event bus. */
@@ -28,7 +32,7 @@ export interface WorkflowPanelController {
  * Listens for Workflow tool calls/results and builds a live list of runs.
  */
 export function createWorkflowPanelController(
-  bus: Tui2EventBus,
+  bus: Tui2EventBus | undefined,
   store: Tui2Store,
 ): WorkflowPanelController {
   const runs = new Map<string, WorkflowRunData>();
@@ -121,11 +125,24 @@ export function createWorkflowPanelController(
   };
 
   const off = [
-    bus.on('tool.call.started', handleToolCall),
-    bus.on('tool.result', handleToolResult),
+    ...(bus === undefined ? [] : [bus.on('tool.call.started', handleToolCall)]),
+    ...(bus === undefined ? [] : [bus.on('tool.result', handleToolResult)]),
   ];
 
+  let sessionUnsubscribe: (() => void) | undefined;
+
   return {
+    subscribe(session: Session): void {
+      sessionUnsubscribe?.();
+      sessionUnsubscribe = session.onEvent((event: Event) => {
+        if (event.type === 'tool.call.started') handleToolCall(event);
+        else if (event.type === 'tool.result') handleToolResult(event);
+      });
+    },
+    unsubscribe(): void {
+      sessionUnsubscribe?.();
+      sessionUnsubscribe = undefined;
+    },
     clear(): void {
       runs.clear();
       pendingRuns.clear();
@@ -133,6 +150,8 @@ export function createWorkflowPanelController(
     },
     dispose(): void {
       for (const fn of off) fn();
+      sessionUnsubscribe?.();
+      sessionUnsubscribe = undefined;
     },
   };
 }

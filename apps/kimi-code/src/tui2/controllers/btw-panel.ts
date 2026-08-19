@@ -22,7 +22,7 @@ import { formatHookResultPlain } from '../utils/hook-result-format';
 
 export interface BtwPanelHost {
   store: Tui2Store;
-  bus: Tui2EventBus;
+  bus: Tui2EventBus | undefined;
   session: Session | undefined;
   readonly harness: KimiHarness;
 
@@ -186,7 +186,7 @@ export function createBtwPanelController(host: BtwPanelHost): BtwPanelController
     host.harness.withInteractiveAgent(agentId, fn);
 
   // Route session events into the active panel while it is open.
-  const off = [bus.subscribe(routeEvent)];
+  const off = bus === undefined ? [] : [bus.subscribe(routeEvent)];
 
   return {
     open,

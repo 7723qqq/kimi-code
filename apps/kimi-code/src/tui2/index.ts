@@ -11,5 +11,5 @@
  * when the variant is already resolved to v2.
  */
 export * from './kimi-tui'
-export type { KimiTUIStartupInput, KimiTUIOptions } from './kimi-tui'
+export type { KimiTUIStartupInput, KimiTUIOptions, Tui2Terminal } from './kimi-tui'
 export { isTuiV2Enabled, resolveTuiVariant, type TuiVariant } from './env'
