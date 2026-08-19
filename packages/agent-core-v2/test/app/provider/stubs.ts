@@ -1,4 +1,5 @@
-import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
+import type { IProviderService } from '#/kosong/provider/provider';
+import { type ProviderConfig } from '#/kosong/provider/provider';
 
 export function stubProviderService(
   providers: Readonly<Record<string, ProviderConfig>> = {},

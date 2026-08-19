@@ -5,7 +5,8 @@
  * Mirrors `packages/protocol/src/envelope.ts` so the server's wire shape and
  * this client's parsing stay in lockstep.
  */
-import { ErrorCode, ErrorCodeReason, type Envelope } from '@moonshot-ai/protocol';
+import type { ErrorCode } from '@moonshot-ai/protocol';
+import { ErrorCodeReason, type Envelope } from '@moonshot-ai/protocol';
 
 /**
  * Thrown when an HTTP call lands but `envelope.code !== 0`.

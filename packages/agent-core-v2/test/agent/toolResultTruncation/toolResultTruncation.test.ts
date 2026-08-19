@@ -2,17 +2,18 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { ExecutableToolResult } from '#/tool/toolContract';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import type { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { ContentPart } from '#/kosong/contract/message';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { ExecutableToolResult } from '#/tool/toolContract';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 

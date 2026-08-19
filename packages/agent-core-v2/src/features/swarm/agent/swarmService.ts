@@ -1,19 +1,20 @@
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import { Service } from '#/_base/di/service';
 import { IInstantiationService } from '#/_base/di/instantiation';
+import { Service } from '#/_base/di/service';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { TurnEnded } from '#/agent/loop/turnOps';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IEventBus } from '#/app/event/eventBus';
-import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import { SwarmInjection } from './injection/swarmInjection';
-import { IAgentSwarmService, type SwarmModeTrigger } from './swarm';
 import { SwarmModeEnter, SwarmModeExit, swarmKey } from '../swarmOps';
+import { SwarmInjection } from './injection/swarmInjection';
+import type { IAgentSwarmService } from './swarm';
+import { type SwarmModeTrigger } from './swarm';
 
 export class AgentSwarmService extends Service implements IAgentSwarmService {
   declare readonly _serviceBrand: undefined;

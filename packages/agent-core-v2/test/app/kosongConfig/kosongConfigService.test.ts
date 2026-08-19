@@ -1,21 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ILogService, type LogPayload } from '#/_base/log/log';
+import type { ILogService } from '#/_base/log/log';
+import { type LogPayload } from '#/_base/log/log';
 import {
   DEFAULT_MODEL_SECTION,
   DEFAULT_PROVIDER_SECTION,
   MODELS_SECTION,
   PROVIDERS_SECTION,
 } from '#/app/kosongConfig/configSection';
+import { KosongConfigService } from '#/app/kosongConfig/kosongConfigService';
 import { type ModelRecord } from '#/kosong/model/model';
 import { ModelService } from '#/kosong/model/modelService';
 import { type ProviderConfig } from '#/kosong/provider/provider';
 import { ProviderService } from '#/kosong/provider/providerService';
 
 import { StubConfigService } from '../../kosong/stubs';
-import { KosongConfigService } from '#/app/kosongConfig/kosongConfigService';
 
-function stubLogService(): ILogService & { warnings: Array<{ message: string; payload?: LogPayload }> } {
+function stubLogService(): ILogService & {
+  warnings: Array<{ message: string; payload?: LogPayload }>;
+} {
   const warnings: Array<{ message: string; payload?: LogPayload }> = [];
   return {
     warnings,
@@ -270,9 +273,9 @@ describe('KosongConfigService loop termination', () => {
       await flush();
 
       expect(events).toEqual(['providers', 'defaultProvider']);
-      expect(
-        replaceSpy.mock.calls.filter(([domain]) => domain === PROVIDERS_SECTION),
-      ).toHaveLength(1);
+      expect(replaceSpy.mock.calls.filter(([domain]) => domain === PROVIDERS_SECTION)).toHaveLength(
+        1,
+      );
       expect(
         replaceSpy.mock.calls.filter(([domain]) => domain === DEFAULT_PROVIDER_SECTION),
       ).toHaveLength(1);

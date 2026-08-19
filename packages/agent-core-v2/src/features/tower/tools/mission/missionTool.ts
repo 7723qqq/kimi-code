@@ -1,20 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { MISSIONS_DIR, missionFileName } from '#/features/tower/protocol/index';
 import type { TowerMission, TowerStore } from '#/features/tower/protocol/index';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { callerName, newTowerStore, runTowerTool } from '../support';
+import type { ITowerMissionTool } from './mission';
+import { TowerMissionToolInputSchema, type TowerMissionToolInput } from './mission';
 import DESCRIPTION from './mission.md?raw';
-import {
-  ITowerMissionTool,
-  TowerMissionToolInputSchema,
-  type TowerMissionToolInput,
-} from './mission';
 
 export class TowerMissionTool implements ITowerMissionTool {
   declare readonly _serviceBrand: undefined;
@@ -77,9 +74,5 @@ export class TowerMissionTool implements ITowerMissionTool {
 }
 
 async function renderMission(store: TowerStore, mission: TowerMission): Promise<string> {
-  return readFile(
-    store.abs(join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))),
-    'utf8',
-  );
+  return readFile(store.abs(join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))), 'utf8');
 }
-

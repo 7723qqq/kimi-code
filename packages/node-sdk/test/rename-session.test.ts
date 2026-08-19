@@ -15,7 +15,8 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, KimiError, type Event } from '#/index';
+import type { KimiError } from '#/index';
+import { createKimiHarness, type Event } from '#/index';
 
 import { TEST_IDENTITY } from './test-identity';
 

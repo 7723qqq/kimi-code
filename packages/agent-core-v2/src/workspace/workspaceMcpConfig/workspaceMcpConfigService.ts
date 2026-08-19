@@ -1,26 +1,23 @@
+import { dirname } from 'pathe';
+
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { TimeoutTimer } from '#/_base/utils/timer';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
-import { dirname } from 'pathe';
-
-import type { McpServerConfig } from '#/mcpCore/config-schema';
-import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
+import { TimeoutTimer } from '#/_base/utils/timer';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
 import { IPluginService } from '#/app/plugin/plugin';
+import type { McpServerConfig } from '#/mcpCore/config-schema';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
 
 import { loadMcpServers, resolveMcpJsonPaths } from './internal/config-loader';
-import {
-  IWorkspaceMcpConfigService,
-  type McpServersChange,
-  type McpTunables,
-} from './workspaceMcpConfig';
+import type { IWorkspaceMcpConfigService } from './workspaceMcpConfig';
+import { type McpServersChange, type McpTunables } from './workspaceMcpConfig';
 
 const WATCH_DEBOUNCE_MS = 200;
 
@@ -202,4 +199,3 @@ function sortKeysDeep(value: unknown): unknown {
   }
   return value;
 }
-

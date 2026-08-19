@@ -15,12 +15,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import {
   ContextApplyCompaction,
   ContextClear,
   ContextSpliced,
 } from '#/agent/contextMemory/contextEvents';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
   IAgentLoopService,
@@ -40,7 +40,8 @@ import { AgentMicroCompactionService } from '#/agent/microCompaction/microCompac
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
-import { Event2, type Event2Class } from '#/app/event/event2';
+import type { Event2 } from '#/app/event/event2';
+import { type Event2Class } from '#/app/event/event2';
 import type { IEventBus } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -48,9 +49,9 @@ import { createHooks } from '#/hooks';
 import type { ModelCapability } from '#/kosong/contract/capability';
 import type { Message } from '#/kosong/contract/message';
 import { emptyUsage } from '#/kosong/contract/usage';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+import type { IEventDispatcher } from '#/state/eventDispatcher';
 import type { WireRecord } from '#/wire/record';
-import { IWireService } from '#/wire/wire';
+import type { IWireService } from '#/wire/wire';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { testAgent, type TestAgentContext } from '../../harness';
@@ -640,8 +641,6 @@ describe('MicroCompaction (integration)', () => {
 
     memory.undo(2);
     const newLength = memory.get().length;
-    expect(agentState.get(microCompactionKey).cutoff).toBe(
-      Math.min(cutoffAfterDetect, newLength),
-    );
+    expect(agentState.get(microCompactionKey).cutoff).toBe(Math.min(cutoffAfterDetect, newLength));
   });
 });

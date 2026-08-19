@@ -2,44 +2,64 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable, type Writable } from 'node:stream';
-import { LifecycleScope } from '#/app/scopes';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { type IAgentScopeHandle } from '#/_base/di/scope';
 import { Event, type Event as KimiEvent } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { userCancellationReason } from '#/_base/utils/abort';
-import { createHooks } from '#/hooks';
-import type { ToolCall } from '#/kosong/contract/message';
-import type { TokenUsage } from '#/kosong/contract/usage';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
-import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
-import { makeHookRunner } from '../features/externalHooks/runner-stub';
-import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import { ToolAccesses, type ExecutableTool } from '#/tool/toolContract';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { SubagentToolInputSchema, type SubagentToolInput } from '#/agent/tools/agent/agent';
 import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
+import {
+  normalizeAgentProfile,
+  type AgentProfile,
+} from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { IConfigService } from '#/app/config/config';
+import type { Event2 } from '#/app/event/event2';
+import { IEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { Error2, ErrorCodes } from '#/errors';
+import type {
+  ISessionSwarmService,
+  SessionSwarmRunArgs,
+  SessionSwarmRunResult,
+} from '#/features/swarm/session/sessionSwarm';
 import {
   AgentSwarmToolInputSchema,
   type AgentSwarmToolInput,
 } from '#/features/swarm/tools/agent-swarm/agent-swarm';
-import {
-  SubagentToolInputSchema,
-  type SubagentToolInput,
-} from '#/agent/tools/agent/agent';
-import { DEFAULT_SUBAGENT_TIMEOUT_MS, SECONDARY_MODEL_SECTION, SUBAGENT_SECTION } from '#/session/subagent/configSection';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
-import { Error2, ErrorCodes } from '#/errors';
-import { runAgentTurn } from '#/session/subagent/runAgentTurn';
-import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
+import { createHooks } from '#/hooks';
+import type { ToolCall } from '#/kosong/contract/message';
+import type { TokenUsage } from '#/kosong/contract/usage';
+import type { IModelCatalog } from '#/kosong/model/catalog';
+import { type Model } from '#/kosong/model/catalog';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
+import {
+  DEFAULT_SUBAGENT_TIMEOUT_MS,
+  SECONDARY_MODEL_SECTION,
+  SUBAGENT_SECTION,
+} from '#/session/subagent/configSection';
+import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
+import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
+import { runAgentTurn } from '#/session/subagent/runAgentTurn';
 import {
   type AgentRunHandle,
   type AgentRunRequest,
@@ -47,28 +67,13 @@ import {
   ISessionSubagentService,
   type RunAgentOptions,
 } from '#/session/subagent/subagent';
-import { IEventBus } from '#/app/event/eventBus';
-import type { Event2 } from '#/app/event/event2';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
-import { normalizeAgentProfile, type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { ISessionCronService } from '#/session/cron/sessionCronService';
-import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import type {
-  ISessionSwarmService,
-  SessionSwarmRunArgs,
-  SessionSwarmRunResult,
-} from '#/features/swarm/session/sessionSwarm';
-import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
-import { IWireService } from '#/wire/wire';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { AgentStateService } from '#/agent/state/agentStateService';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { createFakeProcessRunner } from '../tools/fixtures/fake-exec';
-import { StubConfigService } from '../kosong/stubs';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { ToolAccesses, type ExecutableTool } from '#/tool/toolContract';
+import { IWireService } from '#/wire/wire';
+
 import { stubFlag } from '../app/flag/stubs';
+import { makeHookRunner } from '../features/externalHooks/runner-stub';
 import {
   agentService,
   appService,
@@ -85,7 +90,9 @@ import {
   type TestAgentOptions,
   type TestAgentServiceOverride,
 } from '../harness';
+import type { StubConfigService } from '../kosong/stubs';
 import { executeTool } from '../tools/fixtures/execute-tool';
+import { createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 
 const signal = new AbortController().signal;
 
@@ -97,15 +104,13 @@ function secondaryModelFlags(enabled = true): TestAgentServiceOverride {
 }
 
 function agentSchemaProperties<T = unknown>(): Record<string, T> {
-  return (
-    toInputJsonSchema(SubagentToolInputSchema) as { properties: Record<string, T> }
-  ).properties;
+  return (toInputJsonSchema(SubagentToolInputSchema) as { properties: Record<string, T> })
+    .properties;
 }
 
 function agentSwarmSchemaProperties<T = unknown>(): Record<string, T> {
-  return (
-    toInputJsonSchema(AgentSwarmToolInputSchema) as { properties: Record<string, T> }
-  ).properties;
+  return (toInputJsonSchema(AgentSwarmToolInputSchema) as { properties: Record<string, T> })
+    .properties;
 }
 
 const BACKGROUND_AGENT_NEXT_STEP =
@@ -141,10 +146,9 @@ function captureLogs(): {
   readonly logger: ILogService;
 } {
   const entries: CapturedLogEntry[] = [];
-  const capture =
-    (level: CapturedLogEntry['level']) => (message: string, payload?: unknown) => {
-      entries.push({ level, message, payload });
-    };
+  const capture = (level: CapturedLogEntry['level']) => (message: string, payload?: unknown) => {
+    entries.push({ level, message, payload });
+  };
   let logger: ILogService;
   logger = {
     _serviceBrand: undefined,
@@ -209,11 +213,7 @@ interface AgentLifecycleStub extends IAgentLifecycleService, ISessionSubagentSer
   readonly run: ReturnType<typeof vi.fn<ISessionSubagentService['run']>>;
   readonly get: ReturnType<typeof vi.fn<IAgentLifecycleService['get']>>;
   readonly publishedEvents: Event2[];
-  addHandle(
-    agentId: string,
-    profileName: string,
-    services?: ReadonlyMap<unknown, unknown>,
-  ): void;
+  addHandle(agentId: string, profileName: string, services?: ReadonlyMap<unknown, unknown>): void;
 }
 
 function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): AgentLifecycleStub {
@@ -344,9 +344,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
     create: vi.fn(async (input = {}) => {
       if (options.createError !== undefined) throw options.createError;
       const agentId =
-        input.agentId ??
-        options.createAgentIds?.[created] ??
-        `agent-child-${String(created + 1)}`;
+        input.agentId ?? options.createAgentIds?.[created] ?? `agent-child-${String(created + 1)}`;
       created += 1;
       const profileName = input.binding?.profile ?? 'coder';
       profileByAgentId.set(agentId, profileName);
@@ -483,7 +481,11 @@ describe('SubagentToolInputSchema', () => {
   });
 
   it('exposes the model parameter as a free-form string in the JSON schema', () => {
-    const properties = agentSchemaProperties<{ description?: string; type?: string; enum?: string[] }>();
+    const properties = agentSchemaProperties<{
+      description?: string;
+      type?: string;
+      enum?: string[];
+    }>();
 
     expect(properties['model']?.type).toBe('string');
     expect(properties['model']?.enum).toBeUndefined();
@@ -533,7 +535,9 @@ describe('Agent tool description', () => {
 
     const description = agentDescription();
 
-    expect(description).toContain('Tools: Bash, Read, ReadMediaFile, Glob, Grep, WebSearch, FetchURL');
+    expect(description).toContain(
+      'Tools: Bash, Read, ReadMediaFile, Glob, Grep, WebSearch, FetchURL',
+    );
     expect(description).toContain('Tools: Bash, CronCreate, CronDelete, CronList, Edit');
   });
 
@@ -612,7 +616,9 @@ describe('Agent tool description', () => {
     const description = agentDescription();
 
     expect(description).toContain('- restricted: Restricted agent\n  Tools: Read');
-    expect(description).toContain('- allow-all-except: Allow all except one\n  Tools: all except Bash');
+    expect(description).toContain(
+      '- allow-all-except: Allow all except one\n  Tools: all except Bash',
+    );
     expect(description).not.toContain('Tools: Bash, Read, mcp__github__*');
   });
 
@@ -833,7 +839,9 @@ describe('Agent tool description', () => {
     const description = agentDescription();
 
     expect(description).toContain('- provider/fast [default]: fast and cheap');
-    expect(description).toContain('- mock-model [main model]: the main model, great at hard things');
+    expect(description).toContain(
+      '- mock-model [main model]: the main model, great at hard things',
+    );
     expect(description).toContain('- provider/smart\n');
     expect(description).toContain('- primary (mock-model)');
   });
@@ -961,9 +969,7 @@ describe('Agent tool execution contract', () => {
       sessionService(IAgentLifecycleService, lifecycle),
       sessionService(ISessionSubagentService, lifecycle),
       sessionService(ISessionCronService, cronStub),
-      modelProviderServices(
-        modelCatalogResolving('mock-model', 'provider/fast', 'provider/smart'),
-      ),
+      modelProviderServices(modelCatalogResolving('mock-model', 'provider/fast', 'provider/smart')),
       ...extra,
     );
     lifecycle.addHandle('main', 'agent');
@@ -1424,7 +1430,10 @@ describe('Agent tool execution contract', () => {
     });
     const context = createAgentToolContext(lifecycle, secondaryModelFlags(), {
       initialConfig: {
-        secondaryModel: { defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap' } },
+        secondaryModel: {
+          defaultModel: 'provider/fast',
+          models: { 'provider/fast': 'fast and cheap' },
+        },
       },
     });
 
@@ -1602,10 +1611,7 @@ describe('Agent tool execution contract', () => {
     });
     const context = createAgentToolContext(
       lifecycle,
-      sessionService(
-        ISessionMetadata,
-        sessionMetadataStub({ 'agent-existing': subagentMeta() }),
-      ),
+      sessionService(ISessionMetadata, sessionMetadataStub({ 'agent-existing': subagentMeta() })),
     );
     lifecycle.addHandle('agent-existing', 'explore');
 
@@ -1671,7 +1677,8 @@ describe('Agent tool execution contract', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      output: 'subagent error: Agent instance "agent-existing" does not belong to this parent agent',
+      output:
+        'subagent error: Agent instance "agent-existing" does not belong to this parent agent',
     });
     expect(lifecycle.run).not.toHaveBeenCalled();
   });
@@ -1680,10 +1687,7 @@ describe('Agent tool execution contract', () => {
     const lifecycle = createAgentLifecycleStub();
     const context = createAgentToolContext(
       lifecycle,
-      sessionService(
-        ISessionMetadata,
-        sessionMetadataStub({ 'agent-existing': subagentMeta() }),
-      ),
+      sessionService(ISessionMetadata, sessionMetadataStub({ 'agent-existing': subagentMeta() })),
     );
     lifecycle.addHandle(
       'agent-existing',
@@ -1693,7 +1697,12 @@ describe('Agent tool execution contract', () => {
           IAgentLoopService,
           {
             _serviceBrand: undefined,
-            status: () => ({ state: 'running', activeTurnId: 1, pendingTurnIds: [], hasPendingRequests: true }),
+            status: () => ({
+              state: 'running',
+              activeTurnId: 1,
+              pendingTurnIds: [],
+              hasPendingRequests: true,
+            }),
           },
         ],
       ]),
@@ -1727,10 +1736,7 @@ describe('Agent tool execution contract', () => {
     });
     const context = createAgentToolContext(
       lifecycle,
-      sessionService(
-        ISessionMetadata,
-        sessionMetadataStub({ 'agent-existing': subagentMeta() }),
-      ),
+      sessionService(ISessionMetadata, sessionMetadataStub({ 'agent-existing': subagentMeta() })),
     );
     lifecycle.addHandle(
       'agent-existing',
@@ -1805,7 +1811,9 @@ describe('Agent tool execution contract', () => {
     );
     const eventOrder = lifecycle.publishedEvents.map((event) => event.type);
     expect(eventOrder.indexOf('subagent.spawned')).toBeGreaterThanOrEqual(0);
-    expect(eventOrder.indexOf('subagent.started')).toBeGreaterThan(eventOrder.indexOf('subagent.spawned'));
+    expect(eventOrder.indexOf('subagent.started')).toBeGreaterThan(
+      eventOrder.indexOf('subagent.spawned'),
+    );
     completion.resolve({ summary: 'finished later' });
   });
 
@@ -2487,21 +2495,21 @@ describe('AgentSwarm tool execution contract', () => {
         },
       ],
     });
-    expect(result.output).toBe([
-      '<agent_swarm_result>',
-      '<summary>completed: 2</summary>',
-      '<subagent agent_id="agent-explore-1" item="src/a.ts" outcome="completed">explore result a</subagent>',
-      '<subagent agent_id="agent-explore-2" item="src/b.ts" outcome="completed">explore result b</subagent>',
-      '</agent_swarm_result>',
-    ].join('\n'));
+    expect(result.output).toBe(
+      [
+        '<agent_swarm_result>',
+        '<summary>completed: 2</summary>',
+        '<subagent agent_id="agent-explore-1" item="src/a.ts" outcome="completed">explore result a</subagent>',
+        '<subagent agent_id="agent-explore-2" item="src/b.ts" outcome="completed">explore result b</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
     expect(result.isError).toBeUndefined();
   });
 
   it('threads the pool default model into spawn task bindings', async () => {
     const runSwarm = vi.fn(
-      async (
-        args: SessionSwarmRunArgs,
-      ): Promise<readonly SessionSwarmRunResult[]> => {
+      async (args: SessionSwarmRunArgs): Promise<readonly SessionSwarmRunResult[]> => {
         return args.tasks.map((task, index) => ({
           task,
           agentId: `agent-explore-${String(index + 1)}`,
@@ -2516,19 +2524,15 @@ describe('AgentSwarm tool execution contract', () => {
       run: runSwarm as ISessionSwarmService['run'],
       cancel: () => {},
     };
-    ctx = createTestAgent(
-      swarmServices(swarmService),
-      secondaryModelFlags(),
-      {
-        initialConfig: {
-          secondaryModel: {
-            defaultModel: 'provider/fast',
-            models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
-          },
-          models: POOL_MODEL_ENTRIES,
+    ctx = createTestAgent(swarmServices(swarmService), secondaryModelFlags(), {
+      initialConfig: {
+        secondaryModel: {
+          defaultModel: 'provider/fast',
+          models: { 'provider/fast': 'fast and cheap', 'provider/smart': 'hard tasks' },
         },
+        models: POOL_MODEL_ENTRIES,
       },
-    );
+    });
 
     await executeTool(agentSwarmTool(ctx), {
       turnId: 0,
@@ -2560,9 +2564,7 @@ describe('AgentSwarm tool execution contract', () => {
 
   it('threads the caller model into spawn task bindings when the tool call opts into "primary"', async () => {
     const runSwarm = vi.fn(
-      async (
-        args: SessionSwarmRunArgs,
-      ): Promise<readonly SessionSwarmRunResult[]> => {
+      async (args: SessionSwarmRunArgs): Promise<readonly SessionSwarmRunResult[]> => {
         return args.tasks.map((task, index) => ({
           task,
           agentId: `agent-explore-${String(index + 1)}`,
@@ -2577,19 +2579,15 @@ describe('AgentSwarm tool execution contract', () => {
       run: runSwarm as ISessionSwarmService['run'],
       cancel: () => {},
     };
-    ctx = createTestAgent(
-      swarmServices(swarmService),
-      secondaryModelFlags(),
-      {
-        initialConfig: {
-          secondaryModel: {
-            defaultModel: 'provider/fast',
-            models: { 'provider/fast': 'fast and cheap' },
-          },
-          models: POOL_MODEL_ENTRIES,
+    ctx = createTestAgent(swarmServices(swarmService), secondaryModelFlags(), {
+      initialConfig: {
+        secondaryModel: {
+          defaultModel: 'provider/fast',
+          models: { 'provider/fast': 'fast and cheap' },
         },
+        models: POOL_MODEL_ENTRIES,
       },
-    );
+    });
 
     await executeTool(agentSwarmTool(ctx), {
       turnId: 0,
@@ -2736,14 +2734,16 @@ describe('AgentSwarm tool execution contract', () => {
         },
       ],
     });
-    expect(result.output).toBe([
-      '<agent_swarm_result>',
-      '<summary>completed: 3</summary>',
-      '<subagent mode="resume" agent_id="agent-old-1" item="src/old-a.ts" outcome="completed">result 1</subagent>',
-      '<subagent mode="resume" agent_id="agent-old-2" item="src/old-b.ts" outcome="completed">result 2</subagent>',
-      '<subagent agent_id="agent-new-3" item="src/new.ts" outcome="completed">result 3</subagent>',
-      '</agent_swarm_result>',
-    ].join('\n'));
+    expect(result.output).toBe(
+      [
+        '<agent_swarm_result>',
+        '<summary>completed: 3</summary>',
+        '<subagent mode="resume" agent_id="agent-old-1" item="src/old-a.ts" outcome="completed">result 1</subagent>',
+        '<subagent mode="resume" agent_id="agent-old-2" item="src/old-b.ts" outcome="completed">result 2</subagent>',
+        '<subagent agent_id="agent-new-3" item="src/new.ts" outcome="completed">result 3</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
     expect(result.isError).toBeUndefined();
   });
 
@@ -2785,14 +2785,16 @@ describe('AgentSwarm tool execution contract', () => {
       signal,
     });
 
-    expect(result.output).toBe([
-      '<agent_swarm_result>',
-      '<summary>completed: 1, failed: 1</summary>',
-      '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
-      '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
-      '<subagent agent_id="agent-coder-2" item="src/b.ts" outcome="failed">Agent timed out after 30s.</subagent>',
-      '</agent_swarm_result>',
-    ].join('\n'));
+    expect(result.output).toBe(
+      [
+        '<agent_swarm_result>',
+        '<summary>completed: 1, failed: 1</summary>',
+        '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
+        '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
+        '<subagent agent_id="agent-coder-2" item="src/b.ts" outcome="failed">Agent timed out after 30s.</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
     expect(result.isError).toBeUndefined();
   });
 
@@ -2832,13 +2834,15 @@ describe('AgentSwarm tool execution contract', () => {
       signal,
     });
 
-    expect(result.output).toBe([
-      '<agent_swarm_result>',
-      '<summary>failed: 2</summary>',
-      '<subagent item="src/a.ts" outcome="failed">Agent did not start.</subagent>',
-      '<subagent item="src/b.ts" outcome="failed">Agent also did not start.</subagent>',
-      '</agent_swarm_result>',
-    ].join('\n'));
+    expect(result.output).toBe(
+      [
+        '<agent_swarm_result>',
+        '<summary>failed: 2</summary>',
+        '<subagent item="src/a.ts" outcome="failed">Agent did not start.</subagent>',
+        '<subagent item="src/b.ts" outcome="failed">Agent also did not start.</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
     expect(result.output).not.toContain('<resume_hint>');
     expect(result.isError).toBeUndefined();
   });
@@ -2865,7 +2869,8 @@ describe('AgentSwarm tool execution contract', () => {
           task: args.tasks[2]!,
           status: 'aborted' as const,
           state: 'not_started' as const,
-          error: 'The user manually interrupted this subagent batch before this subagent was started.',
+          error:
+            'The user manually interrupted this subagent batch before this subagent was started.',
         },
       ],
     );
@@ -2888,15 +2893,17 @@ describe('AgentSwarm tool execution contract', () => {
       signal,
     });
 
-    expect(result.output).toBe([
-      '<agent_swarm_result>',
-      '<summary>completed: 1, aborted: 2</summary>',
-      '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
-      '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
-      '<subagent agent_id="agent-coder-2" item="src/b.ts" state="started" outcome="aborted">The user manually interrupted this subagent batch before this subagent finished.</subagent>',
-      '<subagent item="src/c.ts" state="not_started" outcome="aborted">The user manually interrupted this subagent batch before this subagent was started.</subagent>',
-      '</agent_swarm_result>',
-    ].join('\n'));
+    expect(result.output).toBe(
+      [
+        '<agent_swarm_result>',
+        '<summary>completed: 1, aborted: 2</summary>',
+        '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
+        '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
+        '<subagent agent_id="agent-coder-2" item="src/b.ts" state="started" outcome="aborted">The user manually interrupted this subagent batch before this subagent finished.</subagent>',
+        '<subagent item="src/c.ts" state="not_started" outcome="aborted">The user manually interrupted this subagent batch before this subagent was started.</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
     expect(result.isError).toBeUndefined();
   });
 
@@ -2909,7 +2916,8 @@ describe('AgentSwarm tool execution contract', () => {
       items: ['src/a.ts', 'src/b.ts'],
     });
 
-    if (execution.isError === true) throw new Error('AgentSwarm resolveExecution returned an error');
+    if (execution.isError === true)
+      throw new Error('AgentSwarm resolveExecution returned an error');
     expect(execution.accesses).toEqual(ToolAccesses.all());
     expect(execution.approvalRule).toBe('AgentSwarm');
     expect(execution.matchesRule).toBeUndefined();
@@ -2934,7 +2942,8 @@ describe('AgentSwarm tool execution contract', () => {
       },
     });
 
-    if (execution.isError === true) throw new Error('AgentSwarm resolveExecution returned an error');
+    if (execution.isError === true)
+      throw new Error('AgentSwarm resolveExecution returned an error');
     expect(execution.display).toMatchObject({
       agent_name: 'swarm (3 subagents)',
       prompt: 'Finish review',
@@ -2969,7 +2978,9 @@ describe('Agent tools', () => {
     let triggered: Array<[string, string, number]>;
 
     beforeEach(() => {
-      exec = vi.fn<IHostProcessService['spawn']>().mockRejectedValue(new Error('Bash should not execute'));
+      exec = vi
+        .fn<IHostProcessService['spawn']>()
+        .mockRejectedValue(new Error('Bash should not execute'));
       triggered = [];
       const hookEngine = makeHookRunner(
         [
@@ -2993,7 +3004,11 @@ describe('Agent tools', () => {
         },
       );
       ctx = createTestAgent(
-        execEnvServices({ processRunner: createFakeProcessRunner({ spawn: exec as unknown as IHostProcessService['spawn'] }) }),
+        execEnvServices({
+          processRunner: createFakeProcessRunner({
+            spawn: exec as unknown as IHostProcessService['spawn'],
+          }),
+        }),
         externalHookServices(hookEngine),
       );
       context = ctx.get(IAgentContextMemoryService);
@@ -3152,7 +3167,9 @@ describe('Agent tools', () => {
       const lifecycle = createAgentLifecycleStub({
         createAgentIds: ['agent-child'],
         runCompletion: async () => {
-          throw new Error('Subagent turn failed before completing its final summary: reason=max_tokens');
+          throw new Error(
+            'Subagent turn failed before completing its final summary: reason=max_tokens',
+          );
         },
       });
       ctx = createTestAgent(
@@ -3625,6 +3642,8 @@ function hookPayloadAssertCommand(expected: {
     '  process.exit(0);',
     '});',
     "process.on('uncaughtException', (error) => { console.error(error.message); process.exit(2); });",
-  ].filter((line) => line.length > 0).join('');
+  ]
+    .filter((line) => line.length > 0)
+    .join('');
   return `node -e ${JSON.stringify(script)}`;
 }

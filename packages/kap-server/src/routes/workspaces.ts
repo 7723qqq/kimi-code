@@ -1,14 +1,14 @@
+import { isAbsolute } from 'node:path';
+
+import type { IWorkspaceTrust } from '@moonshot-ai/agent-core-v2';
 import {
   IHostFileSystem,
   IWorkspaceInstanceManager,
   IWorkspaceService,
   IWorkspaceSessions,
-  IWorkspaceTrust,
   type Scope,
   type Workspace,
 } from '@moonshot-ai/agent-core-v2';
-import { isAbsolute } from 'node:path';
-
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -79,7 +79,11 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
       reply.send(okEnvelope({ items: projected }, req.id));
     },
   );
-  app.get(listRoute.path, listRoute.options, listRoute.handler as Parameters<WorkspaceRouteHost['get']>[2]);
+  app.get(
+    listRoute.path,
+    listRoute.options,
+    listRoute.handler as Parameters<WorkspaceRouteHost['get']>[2],
+  );
 
   const createRoute = defineRoute(
     {
@@ -149,7 +153,11 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
         .update(workspace_id, { name: req.body.name });
       if (ws === undefined) {
         reply.send(
-          errEnvelope(ErrorCode.WORKSPACE_NOT_FOUND, `workspace ${workspace_id} does not exist`, req.id),
+          errEnvelope(
+            ErrorCode.WORKSPACE_NOT_FOUND,
+            `workspace ${workspace_id} does not exist`,
+            req.id,
+          ),
         );
         return;
       }
@@ -181,7 +189,11 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
       const existing = await registry.get(workspace_id);
       if (existing === undefined) {
         reply.send(
-          errEnvelope(ErrorCode.WORKSPACE_NOT_FOUND, `workspace ${workspace_id} does not exist`, req.id),
+          errEnvelope(
+            ErrorCode.WORKSPACE_NOT_FOUND,
+            `workspace ${workspace_id} does not exist`,
+            req.id,
+          ),
         );
         return;
       }
@@ -282,12 +294,16 @@ async function resolveTrust(
   const ws = await core.accessor.get(IWorkspaceService).get(workspaceId);
   if (ws === undefined) {
     reply.send(
-      errEnvelope(ErrorCode.WORKSPACE_NOT_FOUND, `workspace ${workspaceId} does not exist`, requestId),
+      errEnvelope(
+        ErrorCode.WORKSPACE_NOT_FOUND,
+        `workspace ${workspaceId} does not exist`,
+        requestId,
+      ),
     );
     return undefined;
   }
-  const workspace = await core
-    .accessor.get(IWorkspaceInstanceManager)
+  const workspace = await core.accessor
+    .get(IWorkspaceInstanceManager)
     .getOrCreate({ workspaceId, root: ws.root });
   return workspace.program.trust;
 }

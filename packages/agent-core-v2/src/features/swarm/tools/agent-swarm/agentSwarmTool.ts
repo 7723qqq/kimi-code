@@ -1,22 +1,15 @@
-import {
-  ToolAccesses,
-  type ExecutableToolContext,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { Error2, ErrorCodes } from '#/errors';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
-import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import {
   subagentAllowlistFor,
   subagentTypeNotAllowedMessage,
 } from '#/app/agentProfileCatalog/profile-shared';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IConfigService } from '#/app/config/config';
+import { IFlagService } from '#/app/flag/flag';
+import { Error2, ErrorCodes } from '#/errors';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import {
   buildSubagentModelDescriptions,
   exposesSubagentModelChoice,
@@ -24,9 +17,17 @@ import {
   resolveSubagentTimeoutMs,
   stripSubagentModelParameter,
 } from '#/session/subagent/configSection';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import {
+  ToolAccesses,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+
+import type { IAgentSwarmTool } from './agent-swarm';
 import {
   AgentSwarmToolInputSchema,
-  IAgentSwarmTool,
   MAX_AGENT_SWARM_SUBAGENTS,
   PROMPT_TEMPLATE_PLACEHOLDER,
   type AgentSwarmToolInput,
@@ -311,9 +312,11 @@ function renderSwarmResults(results: readonly SwarmRunResult[]): string {
   for (const result of results) {
     const agentId = result.agentId === undefined ? '' : ` agent_id="${result.agentId}"`;
     const mode = result.spec.kind === 'resume' ? ' mode="resume"' : '';
-    const item = result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
+    const item =
+      result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
     const state = result.state === undefined ? '' : ` state="${result.state}"`;
-    const body = result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
+    const body =
+      result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
     lines.push(
       `<subagent${mode}${agentId}${item}${state} outcome="${result.status}">${body}</subagent>`,
     );

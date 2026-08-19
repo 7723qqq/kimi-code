@@ -4,12 +4,9 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { newTowerStore, runTowerTool } from '../support';
+import type { ITowerTeardownTool } from './teardown';
+import { TowerTeardownToolInputSchema, type TowerTeardownToolInput } from './teardown';
 import DESCRIPTION from './teardown.md?raw';
-import {
-  ITowerTeardownTool,
-  TowerTeardownToolInputSchema,
-  type TowerTeardownToolInput,
-} from './teardown';
 
 export class TowerTeardownTool implements ITowerTeardownTool {
   declare readonly _serviceBrand: undefined;
@@ -43,4 +40,3 @@ export class TowerTeardownTool implements ITowerTeardownTool {
     };
   }
 }
-

@@ -1,10 +1,25 @@
-import type { ToolCall } from '#/kosong/contract/message';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
+import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import type {
+  ToolCallStarted,
+  ToolProgress,
+  ToolResultEvent,
+} from '#/agent/toolExecutor/toolExecutorEvents';
+import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import type { BeforeToolExecuteEvent, ToolExecutionOutcome } from '#/agent/toolExecutor/toolHooks';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { IEventBus } from '#/app/event/eventBus';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { ToolCall } from '#/kosong/contract/message';
+import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import {
   ToolAccesses,
   type ExecutableTool,
@@ -14,32 +29,18 @@ import {
   type ToolResult,
   type ToolUpdate,
 } from '#/tool/toolContract';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type {
-  BeforeToolExecuteEvent,
-  ToolExecutionOutcome,
-} from '#/agent/toolExecutor/toolHooks';
-import {
-  ToolCallStarted,
-  ToolProgress,
-  ToolResultEvent,
-} from '#/agent/toolExecutor/toolExecutorEvents';
-import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
-import { parseToolCallArguments } from '#/tool/tool-args-parse';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { IEventBus } from '#/app/event/eventBus';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+
 import { registerLogServices } from '../../_base/log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
 
-type ToolExecutorEvent =
-  | { readonly type: 'tool.result'; readonly toolCallId: string; readonly result: ToolResult };
+type ToolExecutorEvent = {
+  readonly type: 'tool.result';
+  readonly toolCallId: string;
+  readonly result: ToolResult;
+};
 
 type ProtocolEvent = ToolCallStarted | ToolProgress | ToolResultEvent;
 
@@ -64,7 +65,10 @@ beforeEach(() => {
       registerTestAgentWireServices(reg, 'wire/tool-executor');
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
-      reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
+      reg.defineInstance(
+        IAgentScopeContext,
+        makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
+      );
       reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryEvents));
       reg.defineInstance(IAgentToolResultTruncationService, {
         _serviceBrand: undefined,
@@ -177,11 +181,9 @@ describe('AgentToolExecutorService', () => {
     const tool = new TestTool('echo');
     registry.register(tool);
 
-    await execute(
-      [toolCall('call_traced', 'echo', { text: 'hi' })],
-      undefined,
-      { traceId: 'trace-tool-1' },
-    );
+    await execute([toolCall('call_traced', 'echo', { text: 'hi' })], undefined, {
+      traceId: 'trace-tool-1',
+    });
 
     expect(telemetryEvents).toContainEqual({
       event: 'tool_call',
@@ -347,9 +349,7 @@ describe('AgentToolExecutorService', () => {
       required: ['value'],
       additionalProperties: false,
     };
-    const accepted = await execute([
-      toolCall('call_open', 'dynamic', { value: 1, model: 'fast' }),
-    ]);
+    const accepted = await execute([toolCall('call_open', 'dynamic', { value: 1, model: 'fast' })]);
 
     expect(accepted).toEqual([expect.objectContaining({ stopTurn: false })]);
     expect(inner.calls).toHaveLength(1);
@@ -422,7 +422,7 @@ describe('AgentToolExecutorService', () => {
     });
   });
 
-  it('preserves an unknown tool\'s valid args in the tool.call.started event', async () => {
+  it("preserves an unknown tool's valid args in the tool.call.started event", async () => {
     const results = await execute([toolCall('call_unknown', 'missing', { x: 1 })]);
 
     expect(results).toEqual([
@@ -490,13 +490,15 @@ describe('AgentToolExecutorService', () => {
     ]);
 
     expect(results).toHaveLength(2);
-    expect(results).toEqual(expect.arrayContaining([
-      expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
-      expect.objectContaining({
-        output: 'Tool skipped because a previous tool call stopped the turn.',
-        isError: true,
-      }),
-    ]));
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
+        expect.objectContaining({
+          output: 'Tool skipped because a previous tool call stopped the turn.',
+          isError: true,
+        }),
+      ]),
+    );
     expect(first.calls).toHaveLength(1);
     expect(second.calls).toEqual([]);
   });
@@ -529,10 +531,7 @@ describe('AgentToolExecutorService', () => {
     const yielded: string[] = [];
     const execution = (async () => {
       for await (const item of executor.execute(
-        [
-          toolCall('call_slow', 'slow', {}),
-          toolCall('call_fast', 'fast', {}),
-        ],
+        [toolCall('call_slow', 'slow', {}), toolCall('call_fast', 'fast', {})],
         { turnId: 0, signal: new AbortController().signal },
       )) {
         const output = item.result.output;
@@ -908,9 +907,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
     const results = await execute([toolCall('call_echo', 'echo', { text: 'hi' })]);
 
     expect(fulfilled).toEqual(['first', 'second']);
-    expect(results).toEqual([
-      expect.objectContaining({ output: 'second-denied', isError: true }),
-    ]);
+    expect(results).toEqual([expect.objectContaining({ output: 'second-denied', isError: true })]);
     expect(tool.calls).toEqual([]);
   });
 
@@ -1050,16 +1047,10 @@ function protocolEventTypes(): string[] {
 function pairedToolCallIds(): { readonly calls: string[]; readonly results: string[] } {
   return {
     calls: protocolEvents
-      .filter(
-        (event): event is ToolCallStarted =>
-          event.type === 'tool.call.started',
-      )
+      .filter((event): event is ToolCallStarted => event.type === 'tool.call.started')
       .map((event) => event.toolCallId),
     results: protocolEvents
-      .filter(
-        (event): event is ToolResultEvent =>
-          event.type === 'tool.result',
-      )
+      .filter((event): event is ToolResultEvent => event.type === 'tool.result')
       .map((event) => event.toolCallId),
   };
 }
@@ -1113,9 +1104,11 @@ class TestTool implements ExecutableTool<Record<string, unknown>> {
         if (this.options.execute !== undefined) {
           return this.options.execute(ctx, args);
         }
-        return this.options.result ?? {
-          output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
-        };
+        return (
+          this.options.result ?? {
+            output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
+          }
+        );
       },
     };
   }

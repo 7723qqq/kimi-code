@@ -1,14 +1,13 @@
-import { Disposable } from '#/_base/di/lifecycle';
 import { ref, type LiveRef } from '#/_base/di/instantiation';
+import { Disposable } from '#/_base/di/lifecycle';
 import { ILogService } from '#/_base/log/log';
-
-import { McpConnectionManager, type McpConnectionView } from '#/mcpCore/connection-manager';
-import type { McpServerConfig } from '#/mcpCore/config-schema';
-import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { McpServerConfig } from '#/mcpCore/config-schema';
+import { McpConnectionManager, type McpConnectionView } from '#/mcpCore/connection-manager';
+import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { ISessionEphemeralMcpServers } from '#/session/mcp/ephemeralMcpServers';
 import { MergedMcpConnectionView } from '#/session/mcp/mergedConnectionView';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
@@ -20,11 +19,8 @@ import {
   type McpServersChange,
 } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
 
-import {
-  IWorkspaceMcpService,
-  type ISessionMcpOverlay,
-  type SessionMcpOverlayOptions,
-} from './workspaceMcp';
+import type { IWorkspaceMcpService } from './workspaceMcp';
+import { type ISessionMcpOverlay, type SessionMcpOverlayOptions } from './workspaceMcp';
 
 export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpService {
   declare readonly _serviceBrand: undefined;
@@ -241,4 +237,3 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
     }
   }
 }
-

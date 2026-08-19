@@ -4,12 +4,9 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { callerName, newTowerStore, runTowerTool } from '../support';
+import type { ITowerFindingTool } from './finding';
+import { TowerFindingToolInputSchema, type TowerFindingToolInput } from './finding';
 import DESCRIPTION from './finding.md?raw';
-import {
-  ITowerFindingTool,
-  TowerFindingToolInputSchema,
-  type TowerFindingToolInput,
-} from './finding';
 
 export class TowerFindingTool implements ITowerFindingTool {
   declare readonly _serviceBrand: undefined;
@@ -47,4 +44,3 @@ export class TowerFindingTool implements ITowerFindingTool {
     };
   }
 }
-

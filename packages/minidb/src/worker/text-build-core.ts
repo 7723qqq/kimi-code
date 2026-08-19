@@ -35,13 +35,20 @@
 import fsSync from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { crc32 } from '../crc32.ts';
+
 import { scanFrameRefsFdAsync, scanBatchOpRefs, TYPE_SET, TYPE_DEL, TYPE_BATCH } from '../codec.ts';
 import type { FrameRef } from '../codec.ts';
+import { crc32 } from '../crc32.ts';
+import type { ByteReader } from '../gen-codec.ts';
+import { GenFileWriter, writeTextDictionaryImage } from '../gen-codec.ts';
 import { tokenize, extractText } from '../text-index/tokenize.ts';
+import {
+  encodeRecord,
+  encodePostingList,
+  decodeRecord,
+  decodePostingList,
+} from '../text-postings.ts';
 import { createNgramTokenizer } from '../trigram.ts';
-import { encodeRecord, encodePostingList, decodeRecord, decodePostingList } from '../text-postings.ts';
-import { GenFileWriter, ByteReader, writeTextDictionaryImage } from '../gen-codec.ts';
 
 // ---- spec / result ------------------------------------------------------------
 
@@ -149,7 +156,13 @@ function readAtSync(fd: number, off: number, len: number): Buffer {
  *  (expired SET → DEL, BATCH unrolled with whole-batch skip on a malformed
  *  body). Value bytes are never copied — only their locations. Returns true
  *  when the frame was an expired-SET drop. */
-function applyFrame(f: FrameRef, file: 'snapshot' | 'wal', fd: number, live: Map<string, LiveLoc>, now: number): boolean {
+function applyFrame(
+  f: FrameRef,
+  file: 'snapshot' | 'wal',
+  fd: number,
+  live: Map<string, LiveLoc>,
+  now: number,
+): boolean {
   let droppedExpired = false;
   const applySet = (key: Buffer, valueOff: number, valLen: number, expireAt: number): void => {
     const k = key.toString('binary');
@@ -188,7 +201,11 @@ function applyFrame(f: FrameRef, file: 'snapshot' | 'wal', fd: number, live: Map
  *  records in the native postings record framing). `syncIo` selects
  *  writeSync (worker thread) over thread-pool writes (inline fallback) —
  *  see TextBuildCoreSpec.syncIo. */
-async function flushSegment(segPath: string, agg: Map<string, Map<number, number>>, syncIo: boolean): Promise<void> {
+async function flushSegment(
+  segPath: string,
+  agg: Map<string, Map<number, number>>,
+  syncIo: boolean,
+): Promise<void> {
   const terms = [...agg.keys()].sort();
   const fh = await fsp.open(segPath, 'w');
   let batch: Buffer[] = [];
@@ -200,7 +217,9 @@ async function flushSegment(segPath: string, agg: Map<string, Map<number, number
     batchBytes = 0;
     let written = 0;
     while (written < buf.length) {
-      const n = syncIo ? fsSync.writeSync(fh.fd, buf, written) : (await fh.write(buf, written)).bytesWritten;
+      const n = syncIo
+        ? fsSync.writeSync(fh.fd, buf, written)
+        : (await fh.write(buf, written)).bytesWritten;
       if (n === 0) throw new Error('text build: segment write made no progress');
       written += n;
     }
@@ -253,7 +272,13 @@ class SegmentReader {
       this.bufLen = 0;
     }
     while (this.bufLen < this.buf.length && this.bufStart + this.bufLen < this.size) {
-      const n = fsSync.readSync(this.fd, this.buf, this.bufLen, Math.min(this.buf.length - this.bufLen, this.size - this.bufStart - this.bufLen), this.bufStart + this.bufLen);
+      const n = fsSync.readSync(
+        this.fd,
+        this.buf,
+        this.bufLen,
+        Math.min(this.buf.length - this.bufLen, this.size - this.bufStart - this.bufLen),
+        this.bufStart + this.bufLen,
+      );
       if (n === 0) break;
       this.bufLen += n;
     }
@@ -323,7 +348,9 @@ class RawPostingsWriter {
     this.crc = crc32(buf, this.crc);
     let written = 0;
     while (written < buf.length) {
-      const n = this.syncIo ? fsSync.writeSync(this.fh!.fd, buf, written) : (await this.fh!.write(buf, written)).bytesWritten;
+      const n = this.syncIo
+        ? fsSync.writeSync(this.fh!.fd, buf, written)
+        : (await this.fh!.write(buf, written)).bytesWritten;
       if (n === 0) throw new Error('text build: postings write made no progress');
       written += n;
     }
@@ -392,7 +419,10 @@ async function writeBaseDocsImage(
 }
 
 /** Read back a base docs image (main thread, at rebase attach time). */
-export function readBaseDocsImage(r: ByteReader): { keys: (string | undefined)[]; docLens: Map<number, number> } {
+export function readBaseDocsImage(r: ByteReader): {
+  keys: (string | undefined)[];
+  docLens: Map<number, number>;
+} {
   const count = r.u64();
   const keys: (string | undefined)[] = [];
   const docLens = new Map<number, number>();
@@ -500,12 +530,18 @@ export async function buildTextArtifacts(spec: TextBuildCoreSpec): Promise<TextB
       if (st.dev !== spec.walDev || st.ino !== spec.walIno) {
         throw new Error('text build: WAL anchor mismatch (rotated)');
       }
-      const r = await scanFrameRefsFdAsync(fd, { onCorrupt: 'resync', endOffset: spec.walOffset, signal: spec.signal });
+      const r = await scanFrameRefsFdAsync(fd, {
+        onCorrupt: 'resync',
+        endOffset: spec.walOffset,
+        signal: spec.signal,
+      });
       // The pinned prefix must scan clean to exactly the checkpoint: a torn
       // or truncated WAL below the checkpoint means the checkpoint moved
       // under us (in-place recovery) — fail the build, never guess.
       if (r.eofOffset !== spec.walOffset) {
-        throw new Error(`text build: WAL prefix does not reach the checkpoint (${r.eofOffset} != ${spec.walOffset})`);
+        throw new Error(
+          `text build: WAL prefix does not reach the checkpoint (${r.eofOffset} != ${spec.walOffset})`,
+        );
       }
       for (const f of r.frames) if (applyFrame(f, 'wal', fd, live, now)) expiredSkipped++;
     } finally {
@@ -580,7 +616,12 @@ export async function buildTextArtifacts(spec: TextBuildCoreSpec): Promise<TextB
   let runFile: 'snapshot' | 'wal' | null = null;
   let runStart = 0; // absolute offset of runBuf[0]
   const valueAt = (file: 'snapshot' | 'wal', off: number, len: number): Buffer => {
-    if (runBuf === null || runFile !== file || off < runStart || off + len > runStart + runBuf.length) {
+    if (
+      runBuf === null ||
+      runFile !== file ||
+      off < runStart ||
+      off + len > runStart + runBuf.length
+    ) {
       // Start a new run: cover this value plus whatever follows contiguously
       // (capped at EOF — the pinned WAL may be shorter than the cap).
       const runLen = Math.min(READ_RUN_CAP, Math.max(len, READ_RUN_GAP), sizeOf(file) - off);
@@ -652,7 +693,9 @@ export async function buildTextArtifacts(spec: TextBuildCoreSpec): Promise<TextB
       if (st.segments.length > 0) await flushState(st);
 
       const dict = new Map<string, { off: number; len: number; df: number }>();
-      const writer = await RawPostingsWriter.open(st.spec.postingsPath, { syncIo: spec.syncIo ?? false });
+      const writer = await RawPostingsWriter.open(st.spec.postingsPath, {
+        syncIo: spec.syncIo ?? false,
+      });
       let postingsInfo: { bytes: number; crc32: number };
       try {
         if (st.segments.length === 0) {

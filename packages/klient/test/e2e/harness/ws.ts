@@ -13,7 +13,7 @@
  * fields pass through") and avoiding double-work since the server emits the
  * shapes already.
  */
-import { WebSocket as WsWebSocket } from 'ws';
+import type { WebSocket as WsWebSocket } from 'ws';
 
 import { recordReportEvent } from './report.js';
 
@@ -134,7 +134,9 @@ export class WsClient {
         }
       }
       if (this._closed) {
-        reject(new Error(`ws closed before matching frame arrived (code=${this._closeReason?.code})`));
+        reject(
+          new Error(`ws closed before matching frame arrived (code=${this._closeReason?.code})`),
+        );
         return;
       }
       const waiter: PendingWaiter = {
@@ -159,12 +161,12 @@ export class WsClient {
   }
 
   /** Send a control message and wait for its `ack` (matched by `id`). */
-  async sendAndAwaitAck(frame: { type: string; id: string; payload: unknown }, timeoutMs: number): Promise<AnyFrame> {
+  async sendAndAwaitAck(
+    frame: { type: string; id: string; payload: unknown },
+    timeoutMs: number,
+  ): Promise<AnyFrame> {
     this.send(frame);
-    return this.waitForFrame(
-      (f) => f.type === 'ack' && f.id === frame.id,
-      timeoutMs,
-    );
+    return this.waitForFrame((f) => f.type === 'ack' && f.id === frame.id, timeoutMs);
   }
 
   /** Resolves when the socket closes (or immediately if already closed). */

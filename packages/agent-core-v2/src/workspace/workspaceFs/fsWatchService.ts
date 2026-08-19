@@ -14,10 +14,10 @@ import {
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 
+import type { IWorkspaceFsWatchService } from './fsWatch';
 import {
   type FsChangeEntry,
   type FsChangeEvent,
-  IWorkspaceFsWatchService,
   type IWorkspaceFsWatchSubscription,
 } from './fsWatch';
 
@@ -273,4 +273,3 @@ function isUnderAny(rel: string, parents: ReadonlySet<string>): boolean {
   }
   return false;
 }
-

@@ -1,14 +1,11 @@
-import type { ToolExecution } from '#/tool/toolContract';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentPlanService } from '#/features/plan/plan';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type { ToolExecution } from '#/tool/toolContract';
 
+import type { IEnterPlanModeTool } from './enter-plan-mode';
+import { EnterPlanModeInputSchema, type EnterPlanModeInput } from './enter-plan-mode';
 import DESCRIPTION from './enter-plan-mode.md?raw';
-import {
-  EnterPlanModeInputSchema,
-  IEnterPlanModeTool,
-  type EnterPlanModeInput,
-} from './enter-plan-mode';
 
 export class EnterPlanModeTool implements IEnterPlanModeTool {
   declare readonly _serviceBrand: undefined;

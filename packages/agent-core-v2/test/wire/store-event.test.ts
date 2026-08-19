@@ -2,16 +2,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentBlobService } from '#/agent/blob/agentBlobService';
-import type { ContentPart } from '#/kosong/contract/message';
+import type { IAgentBlobService } from '#/agent/blob/agentBlobService';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { SyncDescriptor } from '#/_base/di/descriptors';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+import type { ContentPart } from '#/kosong/contract/message';
+import type { IEventDispatcher } from '#/state/eventDispatcher';
 import { EventDispatcherService } from '#/state/eventDispatcherService';
 import { defineState } from '#/state/state';
 import type { WireRecord } from '#/wire/record';

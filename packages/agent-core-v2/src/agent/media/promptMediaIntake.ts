@@ -1,9 +1,9 @@
-import type { IFileService } from '#/app/file/fileService';
 import { abortable } from '#/_base/utils/abort';
+import type { IFileService } from '#/app/file/fileService';
 import type { ContentPart } from '#/kosong/contract/message';
 
 import { daemonFileRefFromPart } from './mediaRef';
-import { ISessionMediaStore } from './sessionMediaStore';
+import type { ISessionMediaStore } from './sessionMediaStore';
 
 export interface PromptMediaIntakeDeps {
   readonly files: IFileService;

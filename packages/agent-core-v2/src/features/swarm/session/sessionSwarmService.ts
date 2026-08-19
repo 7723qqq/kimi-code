@@ -1,16 +1,18 @@
+import type { IAgentScopeHandle } from '#/_base/di/scope';
+import { ILogService } from '#/_base/log/log';
+import { linkAbortSignal } from '#/_base/utils/abort';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentRuntimeBindingService } from '#/agent/runtimeBinding/runtimeBinding';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
+import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
+import { Event2 } from '#/app/event/event2';
+import { Error2, ErrorCodes } from '#/errors';
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import type { TokenUsage } from '#/kosong/contract/usage';
 import { IModelCatalog } from '#/kosong/model/catalog';
-import { Error2, ErrorCodes } from '#/errors';
-import { linkAbortSignal } from '#/_base/utils/abort';
-import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentUserToolService } from '#/agent/userTool/userTool';
-import { Event2 } from '#/app/event/event2';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import {
   isSubagentMeta,
@@ -18,23 +20,15 @@ import {
   subagentParentAgentId,
   subagentSwarmItem,
 } from '#/session/agentLifecycle/subagentMetadata';
-import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { wrapSubagentModelError } from '#/session/subagent/configSection';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { IAgentRuntimeBindingService } from '#/agent/runtimeBinding/runtimeBinding';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
-import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { wrapSubagentModelError } from '#/session/subagent/configSection';
+import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { ILogService } from '#/_base/log/log';
+import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
-import {
-  ISessionSwarmService,
-  type SessionSwarmRunArgs,
-  type SessionSwarmRunResult,
-  type SessionSwarmTask,
-} from './sessionSwarm';
 import {
   resolveSwarmMaxConcurrency,
   AgentRunBatch,
@@ -43,6 +37,12 @@ import {
   type AgentRunBatchLauncher,
   type AgentRunAttemptHandle,
 } from './agentRunBatch';
+import type { ISessionSwarmService } from './sessionSwarm';
+import {
+  type SessionSwarmRunArgs,
+  type SessionSwarmRunResult,
+  type SessionSwarmTask,
+} from './sessionSwarm';
 
 export interface SubagentSuspendedPayload {
   readonly subagentId: string;
@@ -185,10 +185,16 @@ export class SessionSwarmService implements ISessionSwarmService {
     } finally {
       lease.dispose();
     }
-    return this.observe(caller, child.id, options.profileName, {
-      kind: 'prompt',
-      prompt: promptText,
-    }, options);
+    return this.observe(
+      caller,
+      child.id,
+      options.profileName,
+      {
+        kind: 'prompt',
+        prompt: promptText,
+      },
+      options,
+    );
   }
 
   private async resumeAttempt(
@@ -269,9 +275,13 @@ export class SessionSwarmService implements ISessionSwarmService {
   private async requireOwnedSubagent(callerAgentId: string, agentId: string): Promise<void> {
     const meta = await this.agentMeta(agentId);
     if (!isSubagentMeta(meta)) {
-      throw new Error2(ErrorCodes.AGENT_NOT_A_SUBAGENT, `Agent instance "${agentId}" is not a subagent`, {
-        details: { agentId },
-      });
+      throw new Error2(
+        ErrorCodes.AGENT_NOT_A_SUBAGENT,
+        `Agent instance "${agentId}" is not a subagent`,
+        {
+          details: { agentId },
+        },
+      );
     }
     if (subagentParentAgentId(meta) !== callerAgentId) {
       throw new Error2(

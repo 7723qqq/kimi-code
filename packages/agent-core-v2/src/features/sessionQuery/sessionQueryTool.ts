@@ -27,7 +27,8 @@ import type {
 
 import DESCRIPTION from './session-query.md?raw';
 import { ISessionQueryService } from './sessionQueryService';
-import { ISessionQueryTool, SessionQueryToolInput } from './toolContract';
+import type { ISessionQueryTool } from './toolContract';
+import { SessionQueryToolInput } from './toolContract';
 import {
   buildEventFilters,
   buildSessionFilters,

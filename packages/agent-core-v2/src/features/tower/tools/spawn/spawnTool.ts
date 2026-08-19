@@ -2,10 +2,13 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentTaskService } from '#/agent/task/task';
+import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
+import { IConfigService } from '#/app/config/config';
+import { IFlagService } from '#/app/flag/flag';
 import {
   GitError,
   MISSIONS_DIR,
@@ -20,15 +23,7 @@ import {
 } from '#/features/tower/protocol/index';
 import { IAgentTowerService, TOWER_WORKER_PROFILE } from '#/features/tower/tower';
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
 import { IModelCatalog } from '#/kosong/model/catalog';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import {
-  type ExecutableToolContext,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { subagentLabels } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -39,10 +34,15 @@ import {
 } from '#/session/subagent/configSection';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import {
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
-import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
-
-import { ITowerSpawnTool, TowerSpawnToolInputSchema, type TowerSpawnToolInput } from './spawn';
+import type { ITowerSpawnTool } from './spawn';
+import { TowerSpawnToolInputSchema, type TowerSpawnToolInput } from './spawn';
 import DESCRIPTION from './spawn.md?raw';
 
 type SubagentBinding = ReturnType<typeof resolveSubagentBinding>;
@@ -397,4 +397,3 @@ export class TowerSpawnTool implements ITowerSpawnTool {
     );
   }
 }
-

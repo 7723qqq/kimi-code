@@ -1,29 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { ServicesAccessor } from '#/_base/di/instantiation';
-import type { ToolCall } from '#/kosong/contract/message';
-import {
-  compileToolArgsValidator,
-  validateToolArgs,
-} from '#/tool/args-validator';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import { IAgentGoalService } from '#/agent/goal/goal';
-import { CreateGoalTool } from '#/agent/tools/goal/create-goal/createGoalTool';
-import { GetGoalTool } from '#/agent/tools/goal/get-goal/getGoalTool';
-import { SetGoalBudgetTool } from '#/agent/tools/goal/set-goal-budget/setGoalBudgetTool';
-import { UpdateGoalToolInputSchema } from '#/agent/tools/goal/update-goal/update-goal';
-import { UpdateGoalTool } from '#/agent/tools/goal/update-goal/updateGoalTool';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import { TurnStarted } from '#/agent/loop/turnEvents';
+import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import {
   IAgentToolExecutorService,
   type ToolExecutionResult,
 } from '#/agent/toolExecutor/toolExecutor';
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { CreateGoalTool } from '#/agent/tools/goal/create-goal/createGoalTool';
+import { GetGoalTool } from '#/agent/tools/goal/get-goal/getGoalTool';
+import { SetGoalBudgetTool } from '#/agent/tools/goal/set-goal-budget/setGoalBudgetTool';
+import { UpdateGoalToolInputSchema } from '#/agent/tools/goal/update-goal/update-goal';
+import { UpdateGoalTool } from '#/agent/tools/goal/update-goal/updateGoalTool';
 import { IEventBus } from '#/app/event/eventBus';
-import { TurnStarted } from '#/agent/loop/turnEvents';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import type { ToolCall } from '#/kosong/contract/message';
+import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
 
 import {
   agentService,

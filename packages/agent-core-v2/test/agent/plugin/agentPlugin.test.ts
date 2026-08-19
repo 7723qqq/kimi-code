@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { Emitter } from '#/_base/event';
-import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
-import { AgentPluginService } from '#/agent/plugin/agentPluginService';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { IEventBus } from '#/app/event/eventBus';
 import { TurnStarted } from '#/agent/loop/turnEvents';
+import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
+import { AgentPluginService } from '#/agent/plugin/agentPluginService';
+import { IEventBus } from '#/app/event/eventBus';
 import { IPluginService } from '#/app/plugin/plugin';
 import type {
   EnabledPluginSessionStart,
@@ -17,10 +17,16 @@ import type {
 import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
 import { summarizeSkill } from '#/app/skillCatalog/types';
 import type { SkillDefinition } from '#/app/skillCatalog/types';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import type { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 
-import { agentService, appService, createTestAgent, skillServices, type TestAgentContext } from '../../harness';
 import { stubPluginService } from '../../app/plugin/stubs';
+import {
+  agentService,
+  appService,
+  createTestAgent,
+  skillServices,
+  type TestAgentContext,
+} from '../../harness';
 
 function pluginSkill(): SkillDefinition {
   return {
@@ -36,13 +42,17 @@ function pluginSkill(): SkillDefinition {
 }
 
 function findPluginSessionStartEventMessages(ctx: TestAgentContext) {
-  return ctx.contextData().history.filter(
-    (message) =>
-      message.origin?.kind === 'injection' && message.origin.variant === 'plugin_session_start',
-  );
+  return ctx
+    .contextData()
+    .history.filter(
+      (message) =>
+        message.origin?.kind === 'injection' && message.origin.variant === 'plugin_session_start',
+    );
 }
 
-function messageText(message: { readonly content: readonly { readonly type: string; readonly text?: string }[] }): string {
+function messageText(message: {
+  readonly content: readonly { readonly type: string; readonly text?: string }[];
+}): string {
   return message.content.map((part) => (part.type === 'text' ? (part.text ?? '') : '')).join('');
 }
 
@@ -74,10 +84,7 @@ describe('AgentPluginService plugin session-start wiring', () => {
         stubPluginService({ sessionStarts: [{ pluginId: 'demo', skillName: 'demo-skill' }] }),
       ),
       skillServices(catalog),
-      agentService(
-        IAgentPluginService,
-        new SyncDescriptor(AgentPluginService),
-      ),
+      agentService(IAgentPluginService, new SyncDescriptor(AgentPluginService)),
     );
 
     ctx.get(IAgentPluginService);
@@ -103,18 +110,13 @@ describe('AgentPluginService plugin session-start wiring', () => {
         stubPluginService({ sessionStarts: [{ pluginId: 'demo', skillName: 'demo-skill' }] }),
       ),
       skillServices(catalog),
-      agentService(
-        IAgentPluginService,
-        new SyncDescriptor(AgentPluginService),
-      ),
+      agentService(IAgentPluginService, new SyncDescriptor(AgentPluginService)),
     );
 
     ctx.get(IAgentPluginService);
 
     await runInjectionBoundary(ctx);
-    ctx.get(IEventBus).publish(
-      new TurnStarted({ turnId: 2, origin: USER_PROMPT_ORIGIN }),
-    );
+    ctx.get(IEventBus).publish(new TurnStarted({ turnId: 2, origin: USER_PROMPT_ORIGIN }));
     await runInjectionBoundary(ctx);
 
     expect(findPluginSessionStartEventMessages(ctx)).toHaveLength(1);
@@ -150,9 +152,7 @@ describe('AgentPluginService plugin session-start wiring', () => {
 
     const messages = findPluginSessionStartEventMessages(ctx);
     expect(messages).toHaveLength(2);
-    expect(messageText(messages.at(-1)!)).toContain(
-      'Do the explicitly refreshed demo thing.',
-    );
+    expect(messageText(messages.at(-1)!)).toContain('Do the explicitly refreshed demo thing.');
     expect(messageText(messages.at(-1)!)).toContain(
       'supersedes any earlier plugin_session_start reminder',
     );
@@ -166,10 +166,7 @@ describe('AgentPluginService plugin session-start wiring', () => {
       { autoConfigure: true },
       appService(IPluginService, stubPluginService({ sessionStarts: [] })),
       skillServices(catalog),
-      agentService(
-        IAgentPluginService,
-        new SyncDescriptor(AgentPluginService),
-      ),
+      agentService(IAgentPluginService, new SyncDescriptor(AgentPluginService)),
     );
 
     ctx.get(IAgentPluginService);
@@ -202,10 +199,7 @@ describe('AgentPluginService plugin session-start wiring', () => {
         }),
       ),
       skillServices(skillCatalog),
-      agentService(
-        IAgentPluginService,
-        new SyncDescriptor(AgentPluginService),
-      ),
+      agentService(IAgentPluginService, new SyncDescriptor(AgentPluginService)),
     );
 
     ctx.get(IAgentPluginService);
@@ -249,10 +243,7 @@ describe('AgentPluginService plugin session-start wiring', () => {
         }),
       ),
       skillServices(skillCatalog),
-      agentService(
-        IAgentPluginService,
-        new SyncDescriptor(AgentPluginService),
-      ),
+      agentService(IAgentPluginService, new SyncDescriptor(AgentPluginService)),
     );
 
     ctx.get(IAgentPluginService);
@@ -316,9 +307,7 @@ describe('AgentPluginService plugin session-start wiring', () => {
     const latest = findPluginSessionStartEventMessages(ctx).at(-1);
     expect(latest).toBeDefined();
     expect(messageText(latest!)).toContain('Do the updated demo thing.');
-    expect(messageText(latest!)).toContain(
-      'supersedes any earlier plugin_session_start reminder',
-    );
+    expect(messageText(latest!)).toContain('supersedes any earlier plugin_session_start reminder');
     sinkChange.dispose();
   });
 });
@@ -332,10 +321,12 @@ describe('AgentPluginService plugin-change reminder', () => {
   });
 
   function findPluginChangeMessages(context: TestAgentContext) {
-    return context.contextData().history.filter(
-      (message) =>
-        message.origin?.kind === 'injection' && message.origin.variant === 'plugin_change',
-    );
+    return context
+      .contextData()
+      .history.filter(
+        (message) =>
+          message.origin?.kind === 'injection' && message.origin.variant === 'plugin_change',
+      );
   }
 
   it('appends a plugin_change system reminder when the plugin set mutates', async () => {
@@ -410,13 +401,10 @@ describe('AgentPluginService plugin-change reminder', () => {
     ];
     ctx = createTestAgent(
       { autoConfigure: true },
-      appService(
-        IPluginService,
-        {
-          ...stubPluginService({ sessionStarts, mutateEmitter }),
-          enabledSessionStarts: async () => sessionStarts,
-        },
-      ),
+      appService(IPluginService, {
+        ...stubPluginService({ sessionStarts, mutateEmitter }),
+        enabledSessionStarts: async () => sessionStarts,
+      }),
       skillServices(skillCatalogWithChange(catalog, sinkChange)),
       agentService(IAgentPluginService, new SyncDescriptor(AgentPluginService)),
     );

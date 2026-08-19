@@ -1,15 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
+
 import { dirname, join } from 'pathe';
 
 import { type IDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { unwrapErrorCause } from '#/_base/errors/errors';
-import { Error2, ErrorCodes } from '#/errors';
 import { generateHeroSlug } from '#/_base/utils/hero-slug';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { PlanModeInjection } from '#/features/plan/injection/planModeInjection';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
@@ -19,29 +18,23 @@ import type {
   BeforeToolExecuteEvent,
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
-import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
+import { ContextUndone } from '#/agent/undo/undoService';
+import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IEventBus } from '#/app/event/eventBus';
+import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { Error2, ErrorCodes } from '#/errors';
+import { PlanModeInjection } from '#/features/plan/injection/planModeInjection';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
-import { ContextUndone } from '#/agent/undo/undoService';
 import type { ToolFileAccess } from '#/tool/toolContract';
-import {
-  IAgentPlanService,
-  type PlanData,
-  type PlanFilePath,
-} from './plan';
+
 import { ExitPlanModeReview } from './exitPlanModeReview';
-import {
-  PlanModeCancel,
-  PlanModeEnter,
-  PlanModeExit,
-  planKey,
-  PlanRevision,
-} from './planOps';
+import type { IAgentPlanService } from './plan';
+import { type PlanData, type PlanFilePath } from './plan';
+import { PlanModeCancel, PlanModeEnter, PlanModeExit, planKey, PlanRevision } from './planOps';
 
 export class AgentPlanService extends Service implements IAgentPlanService {
   declare readonly _serviceBrand: undefined;
@@ -78,9 +71,7 @@ export class AgentPlanService extends Service implements IAgentPlanService {
     this._register(
       eventBus.subscribe(ContextUndone, () => {
         this.restoreTelemetryMode();
-        void this.dispatcher.dispatch(
-          new AgentStatusUpdated({ planMode: this.isActive }),
-        );
+        void this.dispatcher.dispatch(new AgentStatusUpdated({ planMode: this.isActive }));
       }),
     );
 
@@ -113,7 +104,9 @@ export class AgentPlanService extends Service implements IAgentPlanService {
         return;
       }
       event.veto(
-        denyToolExecution(this.toolApproval.formatDenyMessage(planModeWriteDeniedMessage(plan.path))),
+        denyToolExecution(
+          this.toolApproval.formatDenyMessage(planModeWriteDeniedMessage(plan.path)),
+        ),
       );
       return;
     }
@@ -263,8 +256,7 @@ function writesOnlyPlanFile(
 ): boolean {
   const writeAccesses = (context.execution.accesses ?? []).filter(
     (access): access is ToolFileAccess =>
-      access.kind === 'file' &&
-      (access.operation === 'write' || access.operation === 'readwrite'),
+      access.kind === 'file' && (access.operation === 'write' || access.operation === 'readwrite'),
   );
   if (writeAccesses.length === 0) return false;
   return writeAccesses.every((access) => access.path === planFilePath);

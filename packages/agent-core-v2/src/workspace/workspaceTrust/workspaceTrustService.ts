@@ -1,12 +1,13 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
-import { defineState } from '#/state/state';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { defineState } from '#/state/state';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 
-import { IWorkspaceTrust, type WorkspaceTrustChange } from './workspaceTrust';
+import type { IWorkspaceTrust } from './workspaceTrust';
+import { type WorkspaceTrustChange } from './workspaceTrust';
 
 const TRUST_SCOPE = 'workspace-trust';
 
@@ -15,10 +16,7 @@ interface TrustRecord {
   readonly trustedAt: number;
 }
 
-export const workspaceTrustTrustedKey = defineState<boolean>(
-  'workspaceTrust.trusted',
-  () => false,
-);
+export const workspaceTrustTrustedKey = defineState<boolean>('workspaceTrust.trusted', () => false);
 
 export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust {
   declare readonly _serviceBrand: undefined;
@@ -83,4 +81,3 @@ export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust
     }
   }
 }
-

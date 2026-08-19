@@ -3,7 +3,8 @@ import type { z } from 'zod';
 
 import { BugIndicatingError } from '#/_base/errors/errors';
 import type { StateKey } from '#/_base/state/stateRegistry';
-import { Event2, registerEvent2Class, type Event2Class } from '#/app/event/event2';
+import type { Event2 } from '#/app/event/event2';
+import { registerEvent2Class, type Event2Class } from '#/app/event/event2';
 import type { PartsTransformer, RecordDehydrator } from '#/wire/record';
 
 import { StateError, StateErrors } from './errors';
@@ -168,9 +169,7 @@ export function registerUndoableProtocol(protocol: UndoableProtocol): void {
   }
 }
 
-export function keepsUndoCheckpoints(
-  key: ReplayableStateKey<any>,
-): boolean {
+export function keepsUndoCheckpoints(key: ReplayableStateKey<any>): boolean {
   const undoable = key.replayable.undoable;
   return undoable !== undefined && undoable.onUndo === undefined;
 }

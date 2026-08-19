@@ -1,4 +1,4 @@
-import en from './en';
+import type en from './en';
 
 /**
  * Widen every string leaf of the key tree to `string` while preserving the

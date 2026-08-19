@@ -11,31 +11,34 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type {
   BeforeExecuteDecision,
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
-import { TowerStore } from '#/features/tower/protocol/index';
-import { IAgentTowerService, TOWER_FLAG_ID } from '#/features/tower/tower';
-import { AgentTowerService } from '#/features/tower/towerService';
-import { towerKey } from '#/features/tower/towerOps';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
+import type { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
 import { IFlagService } from '#/app/flag/flag';
+import { TowerStore } from '#/features/tower/protocol/index';
+import { IAgentTowerService, TOWER_FLAG_ID } from '#/features/tower/tower';
+import { towerKey } from '#/features/tower/towerOps';
+import { AgentTowerService } from '#/features/tower/towerService';
 import type { ToolCall } from '#/kosong/contract/message';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ToolAccesses } from '#/tool/toolContract';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
-import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
+import {
+  stubToolExecutorEvents,
+  type ToolExecutorEventStubs,
+} from '../../agent/toolExecutor/stubs';
 import { stubFlag } from '../../app/flag/stubs';
 import {
   registerTestAgentWire,
@@ -63,7 +66,10 @@ function hookContext(toolCalls: ToolCall[]): ResolvedToolExecutionHookContext {
   };
 }
 
-function writeHookContext(toolName: string, paths: readonly string[]): ResolvedToolExecutionHookContext {
+function writeHookContext(
+  toolName: string,
+  paths: readonly string[],
+): ResolvedToolExecutionHookContext {
   const call = toolCall(toolName, `call_${toolName.toLowerCase()}`);
   return {
     turnId: 0,
@@ -99,7 +105,10 @@ describe('AgentTowerService', () => {
     formatDenyMessage = vi.fn((message: string) => message);
     ix.stub(IAgentToolApprovalService, { formatDenyMessage });
     towerFlagOn = true;
-    ix.stub(IFlagService, stubFlag((id) => towerFlagOn && id === TOWER_FLAG_ID));
+    ix.stub(
+      IFlagService,
+      stubFlag((id) => towerFlagOn && id === TOWER_FLAG_ID),
+    );
     ix.stub(IAgentProfileService, {
       data: () => ({ profileName: undefined }),
     } as unknown as IAgentProfileService);
@@ -377,7 +386,9 @@ describe('AgentTowerService', () => {
 
       expect(decision?.veto?.isError).toBe(true);
       const output = decision?.veto?.output;
-      expect(output).toContain(`tower workers may only write inside their own worktree (${worktree})`);
+      expect(output).toContain(
+        `tower workers may only write inside their own worktree (${worktree})`,
+      );
       expect(output).toContain(`${repo}/src/gemm.cpp`);
       expect(output).toContain(`${repo}/.tower/worktrees/wt-2/x.ts`);
       expect(output).toContain('TowerFinding');

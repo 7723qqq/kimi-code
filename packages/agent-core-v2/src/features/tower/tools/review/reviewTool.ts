@@ -4,12 +4,9 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { callerName, newTowerStore, runTowerTool } from '../support';
+import type { ITowerReviewTool } from './review';
+import { TowerReviewToolInputSchema, type TowerReviewToolInput } from './review';
 import DESCRIPTION from './review.md?raw';
-import {
-  ITowerReviewTool,
-  TowerReviewToolInputSchema,
-  type TowerReviewToolInput,
-} from './review';
 
 export class TowerReviewTool implements ITowerReviewTool {
   declare readonly _serviceBrand: undefined;
@@ -46,4 +43,3 @@ export class TowerReviewTool implements ITowerReviewTool {
     };
   }
 }
-

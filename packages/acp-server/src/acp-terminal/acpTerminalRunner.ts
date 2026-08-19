@@ -18,7 +18,8 @@ import type {
   RuntimeProviderHost,
 } from '@moonshot-ai/agent-core-v2';
 
-import { AcpHostFileSystem, IAcpConnection, type IAcpTerminalHandle } from '../acp-fs';
+import type { IAcpConnection } from '../acp-fs';
+import { AcpHostFileSystem, type IAcpTerminalHandle } from '../acp-fs';
 
 const OUTPUT_BYTE_LIMIT = 4 * 1024 * 1024;
 const OUTPUT_POLL_MS = 250;
@@ -128,8 +129,7 @@ class AcpTerminalProcess implements IHostProcess {
     this.stopPolling();
     try {
       await this.handle.release();
-    } catch {
-    }
+    } catch {}
   }
 
   private async run(): Promise<number> {
@@ -150,8 +150,7 @@ class AcpTerminalProcess implements IHostProcess {
       } else if (output.length < this.emitted) {
         this.emitted = output.length;
       }
-    } catch {
-    }
+    } catch {}
   }
 
   private stopPolling(): void {
@@ -164,7 +163,9 @@ class AcpSessionRuntime implements Runtime {
   readonly capabilities = new Set(['process', 'fs'] as const);
   readonly environment: HostEnvironmentInfo;
   readonly path: RuntimePath;
-  readonly workspace = { mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots };
+  readonly workspace = {
+    mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots,
+  };
   readonly fs: IHostFileSystem;
   readonly process;
   readonly watch = undefined;
@@ -259,8 +260,16 @@ export class AcpRuntimeProviderFactory implements RuntimeProviderFactory {
     return `acp:${sessionId}`;
   }
 
-  async attach(workspace: RuntimeProviderContext, host: RuntimeProviderHost): Promise<RuntimeProviderAttachment> {
-    const attachment = new AcpWorkspaceRuntimeAttachment(workspace, host, this.connection, this.environment);
+  async attach(
+    workspace: RuntimeProviderContext,
+    host: RuntimeProviderHost,
+  ): Promise<RuntimeProviderAttachment> {
+    const attachment = new AcpWorkspaceRuntimeAttachment(
+      workspace,
+      host,
+      this.connection,
+      this.environment,
+    );
     this.attachments.set(workspace.id, attachment);
     return {
       dispose: async () => {
@@ -273,7 +282,8 @@ export class AcpRuntimeProviderFactory implements RuntimeProviderFactory {
 
   bindSession(workspaceId: string, sessionId: string, cwd: string): string {
     const attachment = this.attachments.get(workspaceId);
-    if (attachment === undefined) throw new Error(`ACP runtime provider is not attached to workspace ${workspaceId}`);
+    if (attachment === undefined)
+      throw new Error(`ACP runtime provider is not attached to workspace ${workspaceId}`);
     return attachment.bindSession(sessionId, cwd);
   }
 

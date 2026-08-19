@@ -1,18 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { DisposableStore } from '#/_base/di/lifecycle';
 import { SyncDescriptor } from '#/_base/di/descriptors';
+import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
-import { IAgentBlobService } from '#/agent/blob/agentBlobService';
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
+import type { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import type { ContentPart } from '#/kosong/contract/message';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IFileSystemStorageService, StorageError, StorageErrors } from '#/persistence/interface/storage';
+import {
+  IFileSystemStorageService,
+  StorageError,
+  StorageErrors,
+} from '#/persistence/interface/storage';
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
-import { IWireService } from '#/wire/wire';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+import type { IWireService } from '#/wire/wire';
 
 import { recordingWireLog, registerTestAgentWire, testWireScope } from './stubs';
 
@@ -41,7 +48,10 @@ async function readRecords(
   key = KEY,
 ): Promise<WireRecord[]> {
   const out: WireRecord[] = [];
-  for await (const record of target.read<WireRecord>(testWireScope(scope, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of target.read<WireRecord>(
+    testWireScope(scope, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -61,7 +71,10 @@ function wireOverLog(
   dependencies: { blob?: IAgentBlobService } = {},
 ): IWireService {
   const stubIx = disposables.add(new TestInstantiationService());
-  return registerTestAgentWire(stubIx, testWireScope(SCOPE, key), { log: stubLog, ...dependencies });
+  return registerTestAgentWire(stubIx, testWireScope(SCOPE, key), {
+    log: stubLog,
+    ...dependencies,
+  });
 }
 
 describe('WireService seal', () => {
@@ -320,10 +333,7 @@ describe('WireService readJournal', () => {
   });
 
   it('rejects a malformed metadata envelope as corrupted storage', async () => {
-    const stub = wireOverLog(
-      recordingWireLog([{ type: 'metadata' }]),
-      'malformed-metadata',
-    );
+    const stub = wireOverLog(recordingWireLog([{ type: 'metadata' }]), 'malformed-metadata');
 
     const failure = await collect(stub.readJournal()).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(StorageError);

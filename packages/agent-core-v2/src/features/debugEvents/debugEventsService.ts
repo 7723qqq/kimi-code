@@ -5,8 +5,8 @@ import { IEventService } from '#/app/event/event';
 import { IEventBus } from '#/app/event/eventBus';
 import { walkScopeContainers } from '#/debug/scopeTree';
 
+import type { IDebugEventsService } from './debugEvents';
 import {
-  IDebugEventsService,
   type DebugEventBusSnapshot,
   type DebugEventSubscription,
   type DebugEventSubscriptions,

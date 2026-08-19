@@ -1,19 +1,19 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
-import { defineState } from '#/state/state';
 import { IBuiltinSkillSource } from '#/app/skillCatalog/builtinSkillSource';
 import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
 import type { ISkillSource, SkillContribution } from '#/app/skillCatalog/skillSource';
 import type { SkillCatalog } from '#/app/skillCatalog/types';
 import { IUserFileSkillSource } from '#/app/skillCatalog/userFileSkillSource';
 import type { ISessionSkillCatalogData } from '#/session/sessionSkillCatalog/skillCatalogData';
+import { defineState } from '#/state/state';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 
 import { IExplicitFileSkillSource } from './explicitFileSkillSource';
 import { IExtraFileSkillSource } from './extraFileSkillSource';
 import { IPluginSkillSource } from './pluginSkillSource';
 import { IWorkspaceRootSkillSource } from './rootFileSkillSource';
-import { IWorkspaceSkillCatalog } from './workspaceSkillCatalog';
+import type { IWorkspaceSkillCatalog } from './workspaceSkillCatalog';
 
 export const workspaceSkillCatalogContributionsKey = defineState<
   Map<string, { readonly c: SkillContribution; readonly priority: number }>
@@ -117,14 +117,16 @@ export class WorkspaceSkillCatalogService extends Disposable implements IWorkspa
 
   private loadSource(source: ISkillSource, fireChange = false): Promise<void> {
     const previous = this.sourceLoadTails.get(source) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(async () => {
-      const contribution = await source.load();
-      this.contributions.set(source.id, { c: contribution, priority: source.priority });
-      if (fireChange) {
-        this.remerge();
-        this.onDidChangeEmitter.fire(source.id);
-      }
-    });
+    const current = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const contribution = await source.load();
+        this.contributions.set(source.id, { c: contribution, priority: source.priority });
+        if (fireChange) {
+          this.remerge();
+          this.onDidChangeEmitter.fire(source.id);
+        }
+      });
     this.sourceLoadTails.set(source, current);
     const clear = () => {
       if (this.sourceLoadTails.get(source) === current) {
@@ -146,4 +148,3 @@ export class WorkspaceSkillCatalogService extends Disposable implements IWorkspa
     this.merged = m;
   }
 }
-

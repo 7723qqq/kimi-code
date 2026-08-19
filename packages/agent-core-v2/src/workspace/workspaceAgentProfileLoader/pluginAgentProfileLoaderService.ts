@@ -1,18 +1,18 @@
 import { ILogService } from '#/_base/log/log';
-import { IPluginService } from '#/app/plugin/plugin';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-
-import { discoverAgentFiles } from './internal/agentFileDiscovery';
-import { AgentProfileLoaderBase } from './internal/agentProfileLoader';
 import {
   AGENT_PROFILE_SOURCE_PRIORITY,
   type AgentProfileContribution,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
 import type { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
+import { IPluginService } from '#/app/plugin/plugin';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+
+import { discoverAgentFiles } from './internal/agentFileDiscovery';
 import { profilesFromDiscovery } from './internal/agentProfileFromFile';
+import { AgentProfileLoaderBase } from './internal/agentProfileLoader';
+import type { IPluginAgentProfileLoader } from './pluginAgentProfileLoader';
 import { IUserAgentProfileLoader } from './userAgentProfileLoader';
-import { IPluginAgentProfileLoader } from './pluginAgentProfileLoader';
 
 export class PluginAgentProfileLoaderService
   extends AgentProfileLoaderBase
@@ -56,4 +56,3 @@ export class PluginAgentProfileLoaderService
     );
   }
 }
-

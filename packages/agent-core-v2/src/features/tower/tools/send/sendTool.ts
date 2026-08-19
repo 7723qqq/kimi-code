@@ -4,8 +4,9 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { callerName, newTowerStore, runTowerTool } from '../support';
+import type { ITowerSendTool } from './send';
+import { TowerSendToolInputSchema, type TowerSendToolInput } from './send';
 import DESCRIPTION from './send.md?raw';
-import { ITowerSendTool, TowerSendToolInputSchema, type TowerSendToolInput } from './send';
 
 export class TowerSendTool implements ITowerSendTool {
   declare readonly _serviceBrand: undefined;
@@ -40,4 +41,3 @@ export class TowerSendTool implements ITowerSendTool {
     };
   }
 }
-

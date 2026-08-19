@@ -1,21 +1,21 @@
 import { isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { loadAgentsMdDetailed } from '#/agent/profile/context';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { loadAgentsMdDetailed } from '#/agent/profile/context';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { ErrorCodes, Error2 } from '#/errors';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import { ISessionInitService } from './sessionInit';
 import { DEFAULT_INIT_PROMPT, initCompletionReminder } from './profile/init';
+import type { ISessionInitService } from './sessionInit';
 
 const INIT_PROFILE_NAME = 'coder';
 const INIT_PARENT_TOOL_CALL_ID = 'generate-agents-md';

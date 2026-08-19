@@ -1,9 +1,4 @@
 import {
-  unsubscribeV2PayloadSchema,
-  WS_PROTOCOL_VERSION,
-  type SessionCursor,
-} from '../../../protocol/ws-control';
-import {
   detachGrades,
   transcriptSubscribeV2PayloadSchema,
   type TranscriptGradeSpec,
@@ -11,18 +6,15 @@ import {
 import { ulid } from 'ulid';
 import type { RawData, WebSocket } from 'ws';
 
+import {
+  unsubscribeV2PayloadSchema,
+  WS_PROTOCOL_VERSION,
+  type SessionCursor,
+} from '../../../protocol/ws-control';
 import type { CredentialValidator } from '../../../services/auth/credentials';
 import type { IConnectionRegistry } from '../connectionRegistry';
-import {
-  type EventEnvelope,
-  type JournalLogger,
-} from './sessionEventJournal';
-import {
-  buildAck,
-  buildPing,
-  buildResyncRequired,
-  buildServerHello,
-} from './protocol';
+import type { FsWatchBridge } from './fsWatchBridge';
+import { buildAck, buildPing, buildResyncRequired, buildServerHello } from './protocol';
 import {
   type AgentFilter,
   type BroadcastDelivery,
@@ -31,7 +23,7 @@ import {
   type SessionEventBroadcaster,
   type TargetSubscription,
 } from './sessionEventBroadcaster';
-import { FsWatchBridge } from './fsWatchBridge';
+import { type EventEnvelope, type JournalLogger } from './sessionEventJournal';
 
 const DEFAULT_MAX_BUFFER_SIZE = 1000;
 
@@ -212,8 +204,7 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   private enqueueControl(task: () => Promise<void>): void {
-    this.controlQueue = this.controlQueue.then(task).catch(() => {
-    });
+    this.controlQueue = this.controlQueue.then(task).catch(() => {});
   }
 
   /**
@@ -477,7 +468,12 @@ export class WsConnectionV1 implements BroadcastTarget {
     const result = await this.broadcaster.getBufferedSince(sid, cursor, filter, transcriptGrades);
     if (result.resyncRequired !== false) {
       this.sendImmediateFrame(
-        buildResyncRequired(sid, result.resyncRequired as ResyncReason, result.currentSeq, result.epoch),
+        buildResyncRequired(
+          sid,
+          result.resyncRequired as ResyncReason,
+          result.currentSeq,
+          result.epoch,
+        ),
       );
       resyncRequired.push(sid);
     } else {
@@ -564,8 +560,7 @@ export class WsConnectionV1 implements BroadcastTarget {
       if (this.closed || this.socket.readyState !== this.socket.OPEN) return;
       try {
         this.socket.send(JSON.stringify(frame));
-      } catch {
-      }
+      } catch {}
     }
   }
 
@@ -589,8 +584,7 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.flush(true);
     try {
       this.socket.close(code, reason);
-    } catch {
-    }
+    } catch {}
   }
 
   private onClose(): void {

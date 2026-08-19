@@ -5,9 +5,8 @@ import {
   type IDisposable,
 } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
-
+import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 import {
-  IFileSystemStorageService,
   type StorageAppendOptions,
   type StorageReadRange,
   type StorageWriteOptions,

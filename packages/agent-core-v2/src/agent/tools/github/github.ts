@@ -8,7 +8,7 @@
  * subject. No scoped service.
  */
 
-import { z } from 'zod';
+import type { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
 import { type AgentTool } from '#/tool/toolContract';

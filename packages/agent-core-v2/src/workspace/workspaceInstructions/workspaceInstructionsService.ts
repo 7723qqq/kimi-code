@@ -1,22 +1,20 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { defineState } from '#/state/state';
-import { TimeoutTimer } from '#/_base/utils/timer';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
+import { TimeoutTimer } from '#/_base/utils/timer';
 import { agentsMdWatchRoots, loadAgentsMdForRoots } from '#/agent/profile/context';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IHostEnvironment, type HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
 import type { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import { defineState } from '#/state/state';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 
-import {
-  IWorkspaceInstructionsService,
-  type WorkspaceInstructionsSnapshot,
-} from './workspaceInstructions';
+import type { IWorkspaceInstructionsService } from './workspaceInstructions';
+import { type WorkspaceInstructionsSnapshot } from './workspaceInstructions';
 
 const WATCH_DEBOUNCE_MS = 200;
 
@@ -65,25 +63,27 @@ export class WorkspaceInstructionsService
   }
 
   reload(): Promise<void> {
-    const tail = this.reloadTail.catch(() => undefined).then(async () => {
-      const result = await loadAgentsMdForRoots(
-        { fs: this.fs, homeDir: this.env.homeDir },
-        this.bootstrap.homeDir,
-        [this.workspace.cwd],
-      );
-      const next: WorkspaceInstructionsSnapshot = {
-        agentsMd: result.content,
-        agentsMdWarning: result.warning,
-        agentsMdPaths: result.paths,
-      };
-      const changed =
-        next.agentsMd !== this.current.agentsMd ||
-        next.agentsMdWarning !== this.current.agentsMdWarning;
-      this.current = next;
-      if (changed) {
-        this.onDidChangeEmitter.fire();
-      }
-    });
+    const tail = this.reloadTail
+      .catch(() => undefined)
+      .then(async () => {
+        const result = await loadAgentsMdForRoots(
+          { fs: this.fs, homeDir: this.env.homeDir },
+          this.bootstrap.homeDir,
+          [this.workspace.cwd],
+        );
+        const next: WorkspaceInstructionsSnapshot = {
+          agentsMd: result.content,
+          agentsMdWarning: result.warning,
+          agentsMdPaths: result.paths,
+        };
+        const changed =
+          next.agentsMd !== this.current.agentsMd ||
+          next.agentsMdWarning !== this.current.agentsMdWarning;
+        this.current = next;
+        if (changed) {
+          this.onDidChangeEmitter.fire();
+        }
+      });
     this.reloadTail = tail;
     return tail;
   }
@@ -135,4 +135,3 @@ export class WorkspaceInstructionsService
     }
   }
 }
-

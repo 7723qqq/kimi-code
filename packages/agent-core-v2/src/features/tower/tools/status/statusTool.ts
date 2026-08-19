@@ -1,6 +1,6 @@
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { branchExists, branchTip } from '#/features/tower/protocol/index';
 import type { TowerMission, TowerState, TowerStore } from '#/features/tower/protocol/index';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import {
   ITowerRateLimitService,
   type TowerRateLimitSnapshot,
@@ -10,12 +10,9 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { callerName, newTowerStore, runTowerTool } from '../support';
+import type { ITowerStatusTool } from './status';
+import { TowerStatusToolInputSchema, type TowerStatusToolInput } from './status';
 import DESCRIPTION from './status.md?raw';
-import {
-  ITowerStatusTool,
-  TowerStatusToolInputSchema,
-  type TowerStatusToolInput,
-} from './status';
 
 const STATUS_EMOJI: Record<TowerMission['status'], string> = {
   planned: '🟡',
@@ -168,4 +165,3 @@ function renderRoster(state: TowerState): string[] {
     return `- ${a.name} (${a.kind}) — agent ${a.agentId}, ${assignment}`;
   });
 }
-

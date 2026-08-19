@@ -1,20 +1,17 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { defineState } from '#/state/state';
-import { TimeoutTimer } from '#/_base/utils/timer';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
+import { TimeoutTimer } from '#/_base/utils/timer';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
 import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
 import type { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { defineState } from '#/state/state';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 
-import {
-  IWorkspaceDirs,
-  type WorkspaceAddDirInput,
-  type WorkspaceAdditionalDirsResult,
-} from './workspaceDirs';
+import type { IWorkspaceDirs } from './workspaceDirs';
+import { type WorkspaceAddDirInput, type WorkspaceAdditionalDirsResult } from './workspaceDirs';
 
 const WATCH_DEBOUNCE_MS = 200;
 
@@ -104,10 +101,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     const persist = input.persist ?? true;
 
     if (persist) {
-      const persisted = await this.localConfig.appendAdditionalDir(
-        this.workspace.cwd,
-        input.path,
-      );
+      const persisted = await this.localConfig.appendAdditionalDir(this.workspace.cwd, input.path);
       this.projectRoot = persisted.projectRoot;
       this.configPath = persisted.configPath;
       const changed = this.setFileDirs(persisted.additionalDirs);
@@ -125,9 +119,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     const onDisk = await this.localConfig.readAdditionalDirs(this.workspace.cwd);
     this.projectRoot = onDisk.projectRoot;
     this.configPath = onDisk.configPath;
-    const resolved = await this.localConfig.resolveAdditionalDirs(this.workspace.cwd, [
-      input.path,
-    ]);
+    const resolved = await this.localConfig.resolveAdditionalDirs(this.workspace.cwd, [input.path]);
     const changed = this.unionEphemeral(resolved);
     if (changed) {
       this.onDidChangeEmitter.fire();
@@ -195,4 +187,3 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
 function sameStringList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
-

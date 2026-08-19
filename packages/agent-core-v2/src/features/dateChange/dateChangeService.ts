@@ -1,17 +1,18 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import { defineState } from '#/state/state';
 import {
   IAgentContextInjectorService,
   type ContextInjectionContext,
   type ContextInjectionResult,
 } from '#/agent/contextInjector/contextInjector';
-import { pickDisclosureBaseline } from './disclosureBaseline';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IHostClock } from '#/os/interface/hostClock';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { defineState } from '#/state/state';
 
-import { type DateInjectionDisclosure, IAgentDateChangeService } from './dateChange';
+import type { IAgentDateChangeService } from './dateChange';
+import { type DateInjectionDisclosure } from './dateChange';
+import { pickDisclosureBaseline } from './disclosureBaseline';
 
 const DATE_CHANGE_INJECTION_VARIANT = 'date_change';
 
@@ -33,16 +34,17 @@ export class AgentDateChangeService extends Disposable implements IAgentDateChan
     super();
     this._register(this.states.contributeState(dateChangeSeedKey));
     this._register(
-      injector.register<DateInjectionDisclosure>(
-        DATE_CHANGE_INJECTION_VARIANT,
-        (ctx) => this.reminder(ctx),
+      injector.register<DateInjectionDisclosure>(DATE_CHANGE_INJECTION_VARIANT, (ctx) =>
+        this.reminder(ctx),
       ),
     );
   }
 
   private reminder({
     lastDisclosure,
-  }: ContextInjectionContext<DateInjectionDisclosure>): ContextInjectionResult<DateInjectionDisclosure> | undefined {
+  }: ContextInjectionContext<DateInjectionDisclosure>):
+    | ContextInjectionResult<DateInjectionDisclosure>
+    | undefined {
     const profileData = this.profile.data();
     const environment = profileData.environmentDisclosure;
     if (

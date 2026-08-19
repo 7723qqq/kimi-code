@@ -4,8 +4,9 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { newTowerStore, runTowerTool } from '../support';
+import type { ITowerPlanTool } from './plan';
+import { TowerPlanToolInputSchema, type TowerPlanToolInput } from './plan';
 import DESCRIPTION from './plan.md?raw';
-import { ITowerPlanTool, TowerPlanToolInputSchema, type TowerPlanToolInput } from './plan';
 
 export class TowerPlanTool implements ITowerPlanTool {
   declare readonly _serviceBrand: undefined;
@@ -51,4 +52,3 @@ export class TowerPlanTool implements ITowerPlanTool {
     };
   }
 }
-

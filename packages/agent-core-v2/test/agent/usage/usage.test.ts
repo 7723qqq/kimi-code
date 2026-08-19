@@ -10,16 +10,16 @@ import {
   type UsageRecordedContext,
   type UsageStatus,
 } from '#/agent/usage/usage';
-import { AgentUsageService } from '#/agent/usage/usageService';
 import { usageKey } from '#/agent/usage/usageOps';
+import { AgentUsageService } from '#/agent/usage/usageService';
 import type { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+import type { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import {
@@ -60,7 +60,10 @@ afterEach(() => disposables.dispose());
 async function readRecords(): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, KEY), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, KEY),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -117,10 +120,14 @@ describe('AgentUsageService (wire-backed)', () => {
       currentTurn: { inputOther: 110, output: 220, inputCacheRead: 330, inputCacheCreation: 440 },
     });
 
-    svc.record('model-a', { inputOther: 5, output: 6, inputCacheRead: 7, inputCacheCreation: 8 }, {
-      type: 'turn',
-      turnId: 2,
-    });
+    svc.record(
+      'model-a',
+      { inputOther: 5, output: 6, inputCacheRead: 7, inputCacheCreation: 8 },
+      {
+        type: 'turn',
+        turnId: 2,
+      },
+    );
 
     expect(svc.status().currentTurn).toEqual({
       inputOther: 5,
@@ -230,7 +237,10 @@ describe('AgentUsageService (wire-backed)', () => {
     });
 
     const written: WireRecord[] = [];
-    for await (const record of fresh.freshLog.read<WireRecord>(testWireScope(SCOPE, 'usage-replay'), AGENT_WIRE_RECORD_KEY)) {
+    for await (const record of fresh.freshLog.read<WireRecord>(
+      testWireScope(SCOPE, 'usage-replay'),
+      AGENT_WIRE_RECORD_KEY,
+    )) {
       written.push(record);
     }
     expect(written[0]).toMatchObject({ type: 'metadata' });
@@ -244,14 +254,16 @@ describe('AgentUsageService (wire-backed)', () => {
       fresh.dispatcher,
       fresh.freshLog,
       testWireScope(SCOPE, 'usage-legacy-context-replay'),
-      [{
-        type: 'usage.record',
-        model: 'model-a',
-        usage: a1,
-        usageScope: 'turn',
-        turnId: 1,
-        context: { type: 'turn', turnId: 9, step: 3 },
-      }],
+      [
+        {
+          type: 'usage.record',
+          model: 'model-a',
+          usage: a1,
+          usageScope: 'turn',
+          turnId: 1,
+          context: { type: 'turn', turnId: 9, step: 3 },
+        },
+      ],
     );
 
     expect(fresh.agentState.get(usageKey)).toEqual({

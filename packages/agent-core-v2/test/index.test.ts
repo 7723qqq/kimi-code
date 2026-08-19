@@ -1,20 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  WIRE_PROTOCOL_VERSION,
-  EVENT2_REGISTRY,
-  IAgentContextMemoryService,
-  IAgentTokenCountingService,
-  IAgentGoalService,
-  type ContextMessage,
-  type WireRecord,
-} from '#/index';
-import {
-  InMemoryWireRecordPersistence,
-  createTestAgent,
-  testAgent,
-  type TestAgentContext,
-} from './harness';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
@@ -24,18 +9,38 @@ import {
   ContextClear,
   ContextUndo,
 } from '#/agent/contextMemory/contextEvents';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { TokenCountingMeasured } from '#/agent/tokenCounting/tokenCountingOps';
+import type { Event2Class } from '#/app/event/event2';
+import {
+  WIRE_PROTOCOL_VERSION,
+  EVENT2_REGISTRY,
+  IAgentContextMemoryService,
+  IAgentTokenCountingService,
+  IAgentGoalService,
+  type ContextMessage,
+  type WireRecord,
+} from '#/index';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { TokenCountingMeasured } from '#/agent/tokenCounting/tokenCountingOps';
 import { todoKey, ToolsUpdateStore } from '#/session/todo/todoOps';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import type { Event2Class } from '#/app/event/event2';
+import type { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
-import { registerTestAgentWire, registerTestEventDispatcher, restoreTestEventDispatcher } from './wire/stubs';
+
+import {
+  InMemoryWireRecordPersistence,
+  createTestAgent,
+  testAgent,
+  type TestAgentContext,
+} from './harness';
 import { BUILTIN_REPLAYABLE_STATE_KEYS } from './state/builtinReplayableKeys';
+import {
+  registerTestAgentWire,
+  registerTestEventDispatcher,
+  restoreTestEventDispatcher,
+} from './wire/stubs';
 
 const V1_RECORD_TYPES: ReadonlySet<string> = new Set([
   'metadata',
@@ -128,9 +133,7 @@ describe('v1 wire vocabulary', () => {
   it('every durable event type is a known (v1 or v2) record type', () => {
     for (const type of EVENT2_REGISTRY.keys()) {
       expect(
-        V1_RECORD_TYPES.has(type) ||
-          V2_ONLY_RECORD_TYPES.has(type) ||
-          V2_RECORD_TYPES.has(type),
+        V1_RECORD_TYPES.has(type) || V2_ONLY_RECORD_TYPES.has(type) || V2_RECORD_TYPES.has(type),
         `event "${type}" persists an unregistered record type`,
       ).toBe(true);
     }
@@ -160,7 +163,10 @@ describe('v1 wire vocabulary', () => {
 
   it('round-trips the todo list through the persisted tools.update_store record', async () => {
     await dispatcher.dispatch(
-      new ToolsUpdateStore({ key: 'todo', value: [{ title: 'restore me', status: 'in_progress' }] }),
+      new ToolsUpdateStore({
+        key: 'todo',
+        value: [{ title: 'restore me', status: 'in_progress' }],
+      }),
     );
     const records = await readRecords();
 
@@ -177,16 +183,12 @@ describe('v1 wire vocabulary', () => {
 
     await restoreTestEventDispatcher(fresh, log2, SCOPE, records);
 
-    expect(freshState.get(todoKey)).toEqual([
-      { title: 'restore me', status: 'in_progress' },
-    ]);
+    expect(freshState.get(todoKey)).toEqual([{ title: 'restore me', status: 'in_progress' }]);
   });
 });
 
 describe('conversation-time checkpoint registration', () => {
-  const CHECKPOINT_EXEMPT_STATES: ReadonlySet<string> = new Set([
-    'goalForkNotice',
-  ]);
+  const CHECKPOINT_EXEMPT_STATES: ReadonlySet<string> = new Set(['goalForkNotice']);
   const CONTEXT_OWNER_STATE = 'contextMemory';
   const CONTEXT_EVENTS: readonly Event2Class[] = [
     ContextAppendMessage,
@@ -240,17 +242,15 @@ describe('AgentRecords persistence metadata', () => {
   });
 
   it('heals an envelope-less stream on restore instead of rejecting it', async () => {
-    persistence.records.push(
-      {
-        type: 'context.append_message',
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: 'orphaned prompt' }],
-          toolCalls: [],
-          origin: { kind: 'user' },
-        },
+    persistence.records.push({
+      type: 'context.append_message',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: 'orphaned prompt' }],
+        toolCalls: [],
+        origin: { kind: 'user' },
       },
-    );
+    });
 
     expectResumeMatches = false;
     await ctx.restorePersisted();
@@ -337,13 +337,11 @@ describe('AgentRecords persistence metadata', () => {
   });
 
   it('replays a newer wire version without rewriting its metadata', async () => {
-    persistence.records.push(
-      {
-        type: 'metadata',
-        protocol_version: '9.9',
-        created_at: 1,
-      },
-    );
+    persistence.records.push({
+      type: 'metadata',
+      protocol_version: '9.9',
+      created_at: 1,
+    });
 
     await expect(ctx.restorePersisted()).resolves.toBeUndefined();
     expect(persistence.records[0]).toMatchObject({
@@ -353,13 +351,11 @@ describe('AgentRecords persistence metadata', () => {
   });
 
   it('rejects replaying records without a registered migration path', async () => {
-    persistence.records.push(
-      {
-        type: 'metadata',
-        protocol_version: '0.9',
-        created_at: 1,
-      },
-    );
+    persistence.records.push({
+      type: 'metadata',
+      protocol_version: '0.9',
+      created_at: 1,
+    });
 
     expectResumeMatches = false;
     await expect(ctx.restorePersisted()).rejects.toThrow('Missing wire migration for version 0.9');
@@ -495,8 +491,7 @@ describe('AgentRecords persistence metadata', () => {
   });
 });
 
-describe.skip('agent replay range build', () => {
-});
+describe.skip('agent replay range build', () => {});
 
 class RecordingInMemoryWireRecordPersistence extends InMemoryWireRecordPersistence {
   readonly rewrites: WireRecord[][] = [];
@@ -506,7 +501,6 @@ class RecordingInMemoryWireRecordPersistence extends InMemoryWireRecordPersisten
     super.rewrite(records);
   }
 }
-
 
 function userMessage(text: string): ContextMessage {
   return {

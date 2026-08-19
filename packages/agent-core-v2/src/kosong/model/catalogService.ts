@@ -1,10 +1,11 @@
 import { parseKimiCodeCustomHeaders } from '@moonshot-ai/kimi-code-oauth';
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
+import { LifecycleScope } from '#/app/scopes';
 import type { ModelCapability } from '#/kosong/contract/capability';
+import { CONFIG_INVALID_ERROR_CODE } from '#/kosong/contract/errors';
 import type { ProviderRequestAuth } from '#/kosong/contract/provider';
 import type { TokenUsage } from '#/kosong/contract/usage';
 import {
@@ -14,22 +15,17 @@ import {
   type ProtocolProviderOptions,
 } from '#/kosong/protocol/protocol';
 
-import { CONFIG_INVALID_ERROR_CODE } from '#/kosong/contract/errors';
+import type { LATEST_OPUS_PROFILE } from '../provider/bases/anthropic/anthropic-profile';
 import {
-  LATEST_OPUS_PROFILE,
   matchKnownAnthropicModelProfile,
   matchUnknownClaudeProfile,
 } from '../provider/bases/anthropic/anthropic-profile';
-import {
-  IProviderService,
-  type ProviderConfig,
-} from '../provider/provider';
+import { IProviderService, type ProviderConfig } from '../provider/provider';
 import {
   explainProviderEndpoint,
   getProviderDefinition,
   resolveProviderEndpoint,
 } from '../provider/providerDefinition';
-
 import {
   type AuthProvider,
   IModelCatalog,
@@ -55,6 +51,7 @@ import {
   TRACE,
 } from './inspection';
 import { IModelService, type ModelRecord } from './model';
+import type { ResolvedModelAuthMaterial } from './model.types';
 import {
   deriveProviderId,
   effectiveModelConfig,
@@ -62,7 +59,6 @@ import {
   resolveModelAuthMaterial,
 } from './modelAuth';
 import { IModelOAuthTokens } from './modelOAuth';
-import type { ResolvedModelAuthMaterial } from './model.types';
 import type { ModelRequester } from './modelRequester';
 import { ModelRequesterImpl } from './modelRequesterImpl';
 import { drivesThinkingThroughTraits } from './thinking';
@@ -159,7 +155,13 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
           finishReason = event.providerFinishReason ?? event.rawFinishReason;
         }
       }
-      return { ok: true, durationMs: Date.now() - startedAt, text: text.trim(), finishReason, usage };
+      return {
+        ok: true,
+        durationMs: Date.now() - startedAt,
+        text: text.trim(),
+        finishReason,
+        usage,
+      };
     } catch (error) {
       return {
         ok: false,
@@ -208,10 +210,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   async setDefaultModel(modelId: string): Promise<SetDefaultModelResponse> {
     const record = this.models.get(modelId);
     if (record === undefined) {
-      throw new Error2(
-        ModelCatalogErrors.codes.MODEL_NOT_FOUND,
-        `model ${modelId} does not exist`,
-      );
+      throw new Error2(ModelCatalogErrors.codes.MODEL_NOT_FOUND, `model ${modelId} does not exist`);
     }
     const model = this.get(modelId);
     await this.models.setDefaultModel(modelId);
@@ -247,8 +246,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   }
 
   private providerTypeOf(record: ModelRecord): string | undefined {
-    const providerId =
-      record.providerId ?? record.provider ?? this.providers.getDefaultProvider();
+    const providerId = record.providerId ?? record.provider ?? this.providers.getDefaultProvider();
     return this.providers.get(providerId ?? '')?.type ?? record.protocol;
   }
 
@@ -265,8 +263,11 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     trace.record('model.record', { kind: 'config', detail: '[models.*] section' });
 
     const routingModel = effectiveModelConfig(configuredModel);
-    const { providerConfig, providerName, resolvedBaseUrl: rawBaseUrl } =
-      this.resolveProviderContext(id, routingModel, trace);
+    const {
+      providerConfig,
+      providerName,
+      resolvedBaseUrl: rawBaseUrl,
+    } = this.resolveProviderContext(id, routingModel, trace);
     trace.capture(TRACE.providerConfig, providerConfig);
     trace.capture(TRACE.providerName, providerName);
     trace.capture(TRACE.rawBaseUrl, rawBaseUrl);
@@ -380,8 +381,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     readonly providerName: string;
     readonly resolvedBaseUrl: string | undefined;
   } {
-    const providerId =
-      model.providerId ?? model.provider ?? this.providers.getDefaultProvider();
+    const providerId = model.providerId ?? model.provider ?? this.providers.getDefaultProvider();
     if (providerId !== undefined) {
       trace.record('provider', {
         kind: 'config',
@@ -518,8 +518,7 @@ export function resolveOutboundHeaders(
   host: Pick<IHostRequestHeaders, 'headers' | 'thirdPartyHeaders'>,
 ): Readonly<Record<string, string>> {
   const forwardsAll =
-    providerType !== undefined &&
-    getProviderDefinition(providerType)?.hostHeaders === 'full';
+    providerType !== undefined && getProviderDefinition(providerType)?.hostHeaders === 'full';
   const hostLayer = forwardsAll ? host.headers : host.thirdPartyHeaders;
   return { ...parseKimiCodeCustomHeaders(), ...hostLayer, ...customHeaders };
 }
@@ -540,8 +539,7 @@ function resolveModelCapabilities(
     max_context_tokens: maxContextSize,
     max_input_tokens: maxInputSize,
     dynamically_loaded_tools:
-      declared.has('dynamically_loaded_tools') ||
-      detected.dynamically_loaded_tools === true,
+      declared.has('dynamically_loaded_tools') || detected.dynamically_loaded_tools === true,
   };
 }
 
@@ -589,9 +587,7 @@ function buildProtocolProviderOptions(
     }
   }
 
-  return Object.values(options).some((value) => value !== undefined)
-    ? options
-    : undefined;
+  return Object.values(options).some((value) => value !== undefined) ? options : undefined;
 }
 
 function profileForAttribution(

@@ -2,8 +2,10 @@ import { PassThrough, Readable, type Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { userCancellationReason } from '#/_base/utils/abort';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { IAgentTaskService } from '#/agent/task/task';
 import {
-  IAgentTaskService,
   type AgentTask,
   type AgentTaskInfo,
   type AgentTaskOutputSnapshot,
@@ -12,19 +14,22 @@ import {
   type RegisterAgentTaskOptions,
 } from '#/agent/task/task';
 import type { AgentTaskSettlement } from '#/agent/task/types';
-import { userCancellationReason } from '#/_base/utils/abort';
-import type { IConfigService } from '#/app/config/config';
-import { ProcessTask } from '#/agent/tools/os/bash/process-task';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import { type BashInput, BashInputSchema } from '#/agent/tools/os/bash/bash';
 import { BashTool } from '#/agent/tools/os/bash/bashTool';
-import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { ProcessTask } from '#/agent/tools/os/bash/process-task';
+import type { IConfigService } from '#/app/config/config';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { type ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
+import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 
 const posixEnv: IHostEnvironment = {
   _serviceBrand: undefined,
@@ -211,11 +216,13 @@ function processThatNeverExits(): IHostProcess {
   };
 }
 
-function processWithStreamError(options: {
-  readonly stdoutError?: Error;
-  readonly stderrError?: Error;
-  readonly exitCode?: number;
-} = {}): IHostProcess {
+function processWithStreamError(
+  options: {
+    readonly stdoutError?: Error;
+    readonly stderrError?: Error;
+    readonly exitCode?: number;
+  } = {},
+): IHostProcess {
   const exitCode = options.exitCode ?? 0;
   const stdout = new PassThrough();
   const stderr = new PassThrough();
@@ -418,8 +425,7 @@ function createFakeTaskService(options: { maxRunningTasks?: number } = {}): {
     if (!graceful) {
       try {
         await entry.task.forceStop?.();
-      } catch {
-      }
+      } catch {}
     }
     if (isTerminal(entry.status)) return entryToInfo(entry);
     settleTask(entry, { status: 'killed', stopReason: reason });
@@ -449,8 +455,7 @@ function createFakeTaskService(options: { maxRunningTasks?: number } = {}): {
     }
     try {
       entry.task.onDetach?.();
-    } catch {
-    }
+    } catch {}
     release.resolve(viaTimeout ? 'timeout_detached' : 'detached');
     return entryToInfo(entry);
   };
@@ -588,11 +593,9 @@ function createFakeTaskService(options: { maxRunningTasks?: number } = {}): {
       return output.slice(-Math.max(0, Math.trunc(tail)));
     },
 
-    async suppressTerminalNotification(): Promise<void> {
-    },
+    async suppressTerminalNotification(): Promise<void> {},
 
-    markTasksDeliveredViaWait(): void {
-    },
+    markTasksDeliveredViaWait(): void {},
 
     detach(taskId: string): AgentTaskInfo | undefined {
       const entry = tasks.get(taskId);
@@ -674,7 +677,9 @@ function context(
   return { turnId: 0, toolCallId: 'call_bash', args, signal, onForegroundTaskStart };
 }
 
-function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
+function isPromiseLike(
+  value: ToolExecution | Promise<ToolExecution>,
+): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -1183,7 +1188,13 @@ describe('BashTool', () => {
     const fullOutput = 'short line\n'.repeat(6_000);
     const { runner } = createTestRunner(processWithOutput({ stdout: fullOutput }));
     const { service } = createFakeTaskService();
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service, stubToolPolicy(() => false));
+    const tool = bashTool(
+      runner,
+      createTestEnv(),
+      createTestCtx(),
+      service,
+      stubToolPolicy(() => false),
+    );
 
     const result = await executeTool(tool, context({ command: 'flood', timeout: 60 }));
     const output = result.output as string;
@@ -1352,7 +1363,10 @@ describe('BashTool background mode', () => {
     const tool = bashTool(runner, createTestEnv(), createTestCtx(), service);
     const started = vi.fn();
 
-    const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }, undefined, started));
+    const running = executeTool(
+      tool,
+      context({ command: 'sleep 10', timeout: 60 }, undefined, started),
+    );
     await vi.waitFor(() => {
       expect(service.list(false)).toHaveLength(1);
     });
@@ -1426,7 +1440,13 @@ describe('BashTool background mode', () => {
     const { proc, finish } = pendingProcess();
     const { runner } = createTestRunner(proc);
     const { service } = createFakeTaskService();
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), service, stubToolPolicy(() => false));
+    const tool = bashTool(
+      runner,
+      createTestEnv(),
+      createTestCtx(),
+      service,
+      stubToolPolicy(() => false),
+    );
 
     const running = executeTool(tool, context({ command: 'sleep 10', timeout: 60 }));
     await vi.waitFor(() => {
@@ -1495,7 +1515,8 @@ describe('BashTool background mode', () => {
     const { runner, exec } = createTestRunner(proc);
     const backgroundDisabled = bashTool(
       runner,
-      createTestEnv(), createTestCtx(),
+      createTestEnv(),
+      createTestCtx(),
       createFakeTaskService().service,
       stubToolPolicy(() => false),
     );
@@ -1771,7 +1792,13 @@ describe('BashTool prompt / runtime consistency', () => {
       [...enabledTool.description.matchAll(/`(Task[A-Za-z]+)`/g)].map((match) => match[1]),
     );
 
-    const tool = bashTool(runner, createTestEnv(), createTestCtx(), createFakeTaskService().service, stubToolPolicy(() => false));
+    const tool = bashTool(
+      runner,
+      createTestEnv(),
+      createTestCtx(),
+      createFakeTaskService().service,
+      stubToolPolicy(() => false),
+    );
     const result = await executeTool(
       tool,
       context({ command: 'sleep 10', run_in_background: true, description: 'watch' }),

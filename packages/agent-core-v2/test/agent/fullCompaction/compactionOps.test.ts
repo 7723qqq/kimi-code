@@ -3,20 +3,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IEventBus } from '#/app/event/eventBus';
-import { EventBusService } from '#/app/event/eventBusService';
 import {
   fullCompactionKey,
   FullCompactionBegin,
   FullCompactionCancel,
   FullCompactionComplete,
 } from '#/agent/fullCompaction/compactionOps';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IEventBus } from '#/app/event/eventBus';
+import { EventBusService } from '#/app/event/eventBusService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+import type { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import {
@@ -71,7 +71,10 @@ afterEach(() => disposables.dispose());
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -81,7 +84,9 @@ describe('fullCompaction ops (wire-backed)', () => {
   it('begin/complete/cancel drive the phase and persist flat records', async () => {
     expect(agentState.get(fullCompactionKey).phase).toBe('idle');
 
-    void dispatcher.dispatch(new FullCompactionBegin({ source: 'manual', instruction: 'keep facts' }));
+    void dispatcher.dispatch(
+      new FullCompactionBegin({ source: 'manual', instruction: 'keep facts' }),
+    );
     expect(agentState.get(fullCompactionKey).phase).toBe('running');
 
     void dispatcher.dispatch(new FullCompactionComplete({}));

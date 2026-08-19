@@ -4,8 +4,9 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { callerName, newTowerStore, runTowerTool } from '../support';
+import type { ITowerInboxTool } from './inbox';
+import { TowerInboxToolInputSchema, type TowerInboxToolInput } from './inbox';
 import DESCRIPTION from './inbox.md?raw';
-import { ITowerInboxTool, TowerInboxToolInputSchema, type TowerInboxToolInput } from './inbox';
 
 const DEFAULT_LIMIT = 20;
 
@@ -57,4 +58,3 @@ export class TowerInboxTool implements ITowerInboxTool {
     };
   }
 }
-

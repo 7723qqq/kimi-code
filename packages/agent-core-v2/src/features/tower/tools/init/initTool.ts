@@ -5,8 +5,9 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { newTowerStore, runTowerTool } from '../support';
+import type { ITowerInitTool } from './init';
+import { TowerInitToolInputSchema, type TowerInitToolInput } from './init';
 import DESCRIPTION from './init.md?raw';
-import { ITowerInitTool, TowerInitToolInputSchema, type TowerInitToolInput } from './init';
 
 export class TowerInitTool implements ITowerInitTool {
   declare readonly _serviceBrand: undefined;
@@ -52,4 +53,3 @@ export class TowerInitTool implements ITowerInitTool {
     };
   }
 }
-

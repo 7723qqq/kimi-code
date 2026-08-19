@@ -17,22 +17,21 @@ import {
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { basename, dirname, join, resolve } from 'pathe';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { open as openZip } from 'yauzl';
 
+import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { Disposable, DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
+import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
 import {
   createServices,
   type ServiceRegistration,
   type TestInstantiationService,
 } from '#/_base/di/test';
-import { LifecycleScope } from '#/app/scopes';
-import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
-import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { ILogService, type ILogService as LogService } from '#/_base/log/log';
-import { IWireService } from '#/wire/wire';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import { openZipSource, type ZipSource } from '#/app/sessionExport/file-source';
 import {
   type ExportSessionManifest,
@@ -44,16 +43,20 @@ import {
 } from '#/app/sessionExport/sessionExportService';
 import { writeExportZip } from '#/app/sessionExport/zip';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
-import { ISessionManager, type UnguardedSessionLifecycle } from '#/app/sessionManager/sessionManager';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
+import {
+  ISessionManager,
+  type UnguardedSessionLifecycle,
+} from '#/app/sessionManager/sessionManager';
 import { IWorkspaceService } from '#/app/workspace/workspace';
-import { Error2 } from '#/errors';
+import type { Error2 } from '#/errors';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
+import { IWireService } from '#/wire/wire';
+import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 
-import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../../_base/log/stubs';
 import { stubAgentWire } from '../../wire/stubs';
+import { stubBootstrap } from '../bootstrap/stubs';
 
 const fsOpenHook = vi.hoisted(() => ({
   afterOpen: undefined as ((path: string, handle: FileHandle) => Promise<void>) | undefined,
@@ -324,9 +327,9 @@ describe('sessionExport', () => {
       await expect(handle.stat()).rejects.toMatchObject({ code: 'EBADF' });
     }
     await expect(stat(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect((await readdir(tmp)).filter((entry) => entry.startsWith('.kimi-session-export-'))).toEqual(
-      [],
-    );
+    expect(
+      (await readdir(tmp)).filter((entry) => entry.startsWith('.kimi-session-export-')),
+    ).toEqual([]);
   });
 
   it('omits the optional global log when the configured file is missing', async () => {
@@ -949,7 +952,9 @@ function liveSessionHandle(options: {
   };
 }
 
-function testAgentHandle(agentWire: Pick<ReturnType<typeof stubAgentWire>, 'flush'>): IAgentScopeHandle {
+function testAgentHandle(
+  agentWire: Pick<ReturnType<typeof stubAgentWire>, 'flush'>,
+): IAgentScopeHandle {
   return {
     id: 'main',
     kind: LifecycleScope.Agent,

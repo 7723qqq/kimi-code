@@ -1,8 +1,7 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import {
-  ITowerRateLimitService,
-  type TowerRateLimitSnapshot,
-} from './towerRateLimit';
+
+import type { ITowerRateLimitService } from './towerRateLimit';
+import { type TowerRateLimitSnapshot } from './towerRateLimit';
 
 export const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2_000;
 export const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 180_000;
@@ -146,4 +145,3 @@ export class TowerRateLimitService extends Disposable implements ITowerRateLimit
     this.blockedUntil = null;
   }
 }
-

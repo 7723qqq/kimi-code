@@ -1,20 +1,13 @@
-import { z } from 'zod';
+import type { z } from 'zod';
 
 import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { isAbortError } from '#/_base/utils/abort';
-import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { QuestionAnsweredEvent, QuestionDismissedEvent } from '#/app/telemetry/events';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
+import { IAgentTaskService } from '#/agent/task/task';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-
+import type { QuestionAnsweredEvent, QuestionDismissedEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionQuestionService } from '#/session/question/question';
 import type {
   QuestionAnswers,
@@ -22,6 +15,13 @@ import type {
   QuestionResponse,
   QuestionResult,
 } from '#/session/question/question';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
 import {
   AskUserQuestionInputSchemaWithBackground,
   IAskUserQuestionTool,
@@ -101,7 +101,8 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     try {
       taskId = this.tasks.registerTask(
         new QuestionBackgroundTask(
-          (taskSignal) => this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal, trace }),
+          (taskSignal) =>
+            this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal, trace }),
           description,
           { questionCount: args.questions.length, toolCallId },
         ),
@@ -212,9 +213,10 @@ function dismissedQuestionResult(): ExecutableToolResult {
   };
 }
 
-function normalizeQuestionResult(
-  result: QuestionResult,
-): { readonly answers: QuestionAnswers; readonly method?: QuestionAnswerMethod | undefined } | null {
+function normalizeQuestionResult(result: QuestionResult): {
+  readonly answers: QuestionAnswers;
+  readonly method?: QuestionAnswerMethod | undefined;
+} | null {
   if (result === null) return null;
   if (isQuestionResponse(result)) {
     return {

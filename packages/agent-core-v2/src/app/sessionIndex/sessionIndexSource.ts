@@ -1,5 +1,5 @@
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import { CHILD_SESSION_KIND, CHILD_SESSION_KIND_KEY, type SessionSummary } from './sessionIndex';
 

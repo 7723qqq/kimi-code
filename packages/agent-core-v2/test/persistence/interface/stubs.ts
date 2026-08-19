@@ -1,5 +1,5 @@
+import type { IQueryStore } from '#/persistence/interface/queryStore';
 import {
-  IQueryStore,
   type Checkpoint,
   type ColumnPageQuery,
   type IQuery,

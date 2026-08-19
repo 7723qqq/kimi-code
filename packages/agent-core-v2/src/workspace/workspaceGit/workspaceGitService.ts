@@ -2,7 +2,7 @@ import { ref, type LiveRef } from '#/_base/di/instantiation';
 import { type FsDiffResponse, type FsGitStatusResponse, IGitService } from '#/app/git/git';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 
-import { IWorkspaceGitService } from './workspaceGit';
+import type { IWorkspaceGitService } from './workspaceGit';
 
 export class WorkspaceGitService implements IWorkspaceGitService {
   declare readonly _serviceBrand: undefined;
@@ -20,4 +20,3 @@ export class WorkspaceGitService implements IWorkspaceGitService {
     return this.git.current!.diff(this.workspace.cwd, relPath, absPath);
   }
 }
-
