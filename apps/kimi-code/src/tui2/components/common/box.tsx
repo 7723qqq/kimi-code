@@ -34,6 +34,10 @@ export interface BoxProps {
   border?: boolean | string | ('top' | 'right' | 'bottom' | 'left')[]
   borderStyle?: 'single' | 'double' | 'rounded' | 'heavy'
   borderColor?: ColorInput
+  /** Title rendered inside the top border (opentui box titles). */
+  title?: string
+  titleColor?: ColorInput
+  titleAlignment?: 'left' | 'center' | 'right'
   alignItems?: 'flex-start' | 'center' | 'flex-end' | 'stretch'
   justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between'
   focusable?: boolean
