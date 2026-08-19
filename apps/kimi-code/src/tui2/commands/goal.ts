@@ -19,10 +19,7 @@ import {
   GoalStartPermissionPromptComponent,
   type GoalStartPermissionChoice,
 } from '../components/dialogs/goal-start-permission-prompt';
-import {
-  GoalStatusMessageComponent,
-  UpcomingGoalAddedMessageComponent,
-} from '../components/messages/goal-panel';
+// tui2: goal status/added messages render as transcript entries.
 import { getLlmNotSetMessage } from '../constant/kimi-tui';
 import {
   appendGoalQueueItem,
@@ -217,8 +214,12 @@ async function queueNextGoal(
   }
   host.track('goal_queue_append');
   if (!hasCurrentGoal) host.requestQueuedGoalPromotion?.();
-  host.state.transcriptContainer.addChild(new UpcomingGoalAddedMessageComponent());
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry({
+    id: nextTranscriptId(),
+    kind: 'status',
+    renderMode: 'plain',
+    content: t('tui.messages.goalPanel.upcomingAdded'),
+  });
 }
 
 async function showGoalQueueManager(
@@ -516,8 +517,12 @@ async function showGoalStatus(host: SlashCommandHost): Promise<void> {
     host.showStatus(t('tui.statusMessages.noGoalSet'));
     return;
   }
-  host.state.transcriptContainer.addChild(new GoalStatusMessageComponent(goal));
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry({
+    id: nextTranscriptId(),
+    kind: 'status',
+    renderMode: 'plain',
+    content: t('tui.statusMessages.goalStatus', { status: goal.status }),
+  });
 }
 
 function isStreaming(host: SlashCommandHost): boolean {

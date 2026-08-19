@@ -78,7 +78,7 @@ export async function applyReloadedTuiConfig(
     upgrade: config.upgrade,
     statusLine: config.statusLine,
   });
-  host.state.editor.setDisablePasteBurst(config.disablePasteBurst);
+  // tui2: paste-burst is applied via setAppState above.
 }
 
 function applyRuntimeConfig(host: SlashCommandHost, config: KimiConfig): void {

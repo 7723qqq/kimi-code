@@ -1,11 +1,40 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/commands/types.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/commands/types.ts';
+/**
+ * TUI2 slash-command shared types.
+ *
+ * Mirrors `tui/commands/types.ts` — pure types, no rendering dependency.
+ *
+ * Status: REAL (tui2). Mirrors `tui/commands/types.ts`.
+ */
+
+import type { AutocompleteItem, SlashCommand } from '@moonshot-ai/pi-tui';
+
+/** Experimental-flag id surfaced by the engine's flag registry. */
+export type FlagId = string;
+
+export type SlashCommandAvailability = 'always' | 'idle-only';
+
+export interface KimiSlashCommand<Name extends string = string> extends SlashCommand {
+  readonly name: Name;
+  readonly aliases: readonly string[];
+  readonly description: string;
+  readonly priority?: number;
+  readonly availability?: SlashCommandAvailability | ((args: string) => SlashCommandAvailability);
+  /** When set, the command is hidden from the palette and blocked unless this flag is enabled. */
+  readonly experimentalFlag?: FlagId;
+  /**
+   * Generic argument autocompletion. `argumentPrefix` is the text typed after
+   * `/<command> `; return suggestions or `null`. Declared as a plain function
+   * property (not a method) so passing it around is `this`-free. Adapted to
+   * pi-tui's `getArgumentCompletions` in the autocomplete setup.
+   */
+  readonly completeArgs?: (argumentPrefix: string) => AutocompleteItem[] | null;
+}
+
+export interface ParsedSlashInput {
+  readonly name: string;
+  readonly args: string;
+}
+
+export type SlashCommandBusyReason = 'streaming' | 'compacting';
+
+export type SlashCommandInvalidReason = 'unknown';

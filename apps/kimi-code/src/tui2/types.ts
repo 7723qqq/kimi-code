@@ -310,7 +310,7 @@ export interface TranscriptEntry {
   /** Counts folded into a step-summary entry. */
   stepSummaryCounts?: { thinking: number; tool: number; assistant: number };
   /** Swarm-mode entry/exit marker data. */
-  swarmData?: { state: 'entered' | 'ended' };
+  swarmData?: { state: 'active' | 'inactive' | 'ended' };
   /** Live AgentSwarm progress summary for a tool-call entry. */
   agentSwarmData?: {
     toolCallId: string;

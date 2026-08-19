@@ -861,7 +861,7 @@ export class SessionEventHandler {
     }
   }
 
-  private renderSwarmModeMarker(state: 'entered' | 'ended'): void {
+  private renderSwarmModeMarker(state: 'active' | 'inactive' | 'ended'): void {
     this.host.appendTranscriptEntry({
       id: nextTranscriptId(),
       kind: 'status',

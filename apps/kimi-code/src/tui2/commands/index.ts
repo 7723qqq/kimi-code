@@ -1,11 +1,53 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/commands/index.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/commands/index.ts';
+/**
+ * TUI2 slash-command public surface.
+ *
+ * Mirrors `tui/commands/index.ts` with re-exports converged onto the tui2
+ * tree.
+ *
+ * Status: REAL (tui2). Mirrors `tui/commands/index.ts`.
+ */
+
+export * from './experimental-flags';
+export * from './parse';
+export * from './registry';
+export * from './resolve';
+export * from './skills';
+export * from './plugin-commands';
+export * from './types';
+
+export { dispatchInput, type SlashCommandHost } from './dispatch';
+export { handleLoginCommand, handleLogoutCommand } from './auth';
+export { handleBtwCommand } from './btw';
+export { handleCopyCommand } from './copy';
+export {
+  handleCompactCommand,
+  handleEditorCommand,
+  handleModelCommand,
+  handlePlanCommand,
+  handleThemeCommand,
+  handleYoloCommand,
+  showExperimentsPanel,
+  showModelPicker,
+  showPermissionPicker,
+  showSettingsSelector,
+} from './config';
+export { handleSwarmCommand } from './swarm';
+export { handleWorkflowCommand } from './workflow';
+export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
+export { handlePluginsCommand } from './plugins';
+export { handleReloadCommand, handleReloadTuiCommand } from './reload';
+export { handleGoalCommand, parseGoalCommand } from './goal';
+export { goalArgumentCompletions } from './registry';
+export { handleForkCommand, handleInitCommand, handleTitleCommand } from './session';
+export { handleUndoCommand } from './undo';
+export { handleWebCommand } from './web';
+export {
+  promptApiKey,
+  promptCatalogProviderSelection,
+  promptFeedbackInput,
+  promptLogoutProviderSelection,
+  promptModelSelectionForCatalog,
+  promptModelSelectionForOpenPlatform,
+  promptPlatformSelection,
+  runModelSelector,
+} from './prompts';

@@ -12,12 +12,10 @@ import {
   SwarmStartPermissionPromptComponent,
   type SwarmStartPermissionChoice,
 } from '../components/dialogs/swarm-start-permission-prompt';
-import {
-  SwarmModeMarkerComponent,
-  type SwarmModeMarkerState,
-} from '../components/messages/swarm-markers';
+import type { SwarmModeMarkerState } from '../components/messages/swarm-markers';
 import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import { nextTranscriptId } from '../utils/transcript-id';
 import type { SlashCommandHost } from './dispatch';
 
 export async function handleSwarmCommand(host: SlashCommandHost, args: string): Promise<void> {
@@ -162,7 +160,7 @@ async function setSwarmMode(
     return false;
   }
   host.setAppState({ swarmMode: enabled });
-  host.state.swarmModeEntry = enabled ? trigger : undefined;
+  host.store?.setState('swarmModeEntry', enabled ? trigger : undefined);
   return true;
 }
 
@@ -174,6 +172,11 @@ function swarmModeSubcommand(input: string): boolean | undefined {
 }
 
 function renderSwarmModeMarker(host: SlashCommandHost, state: SwarmModeMarkerState): void {
-  host.state.transcriptContainer.addChild(new SwarmModeMarkerComponent(state));
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry({
+    id: nextTranscriptId(),
+    kind: 'status',
+    renderMode: 'plain',
+    content: '',
+    swarmData: { state },
+  });
 }

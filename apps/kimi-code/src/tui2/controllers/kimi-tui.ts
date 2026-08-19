@@ -103,17 +103,21 @@ import { createTui2Store, type Tui2Store } from '../state';
 import type { TuiRuntimeState } from '../state';
 import {
   INITIAL_LIVE_PANE,
+  type ActiveDialog,
+  type AgentPaneItem,
   type AppState,
+  type DiffReviewItem,
   type KimiTUIOptions,
   type LivePaneState,
   type LoginProgressSpinnerHandle,
   type QueuedMessage,
   type SteerInputItem,
+  type TasksBrowserState,
+  type ToolCallBlockData,
   type TranscriptEntry,
   type TUIStartupOptions,
   type TUIStartupState,
 } from '../types';
-import type { AgentPaneItem, DiffReviewItem, TasksBrowserState, ToolCallBlockData } from '../types';
 import { isDeadTerminalError } from '../utils/dead-terminal';
 import { formatErrorMessage } from '../utils/event-payload';
 import { pickForegroundTasks } from '../utils/foreground-task';
@@ -316,6 +320,21 @@ export class KimiTUI {
   /** Host-contract alias for `eventBus` (BtwPanelHost reads `bus`). */
   get bus(): Tui2EventBus | undefined {
     return this.eventBus;
+  }
+
+  /** Minimal shell-state adapter for the v1-shaped command host contract. */
+  get state(): {
+    appState: AppState;
+    transcriptEntries: TranscriptEntry[];
+    activeDialog: ActiveDialog | null;
+    ui: { requestRender(): void };
+  } {
+    return {
+      appState: this.store.state,
+      transcriptEntries: this.store.state.transcript,
+      activeDialog: this.store.state.activeDialog,
+      ui: { requestRender: () => {} },
+    };
   }
 
   track(event: string, properties?: Parameters<KimiHarness['track']>[1]): void {
