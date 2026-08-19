@@ -1483,7 +1483,7 @@ const TODO_ENTITY_ID = 'todo';
 function todoWriteItems(input: unknown): TranscriptTodo['items'] | undefined {
   const todos = (input as { todos?: unknown } | undefined)?.todos;
   if (!Array.isArray(todos)) return undefined;
-  const items: TranscriptTodo['items'] = [];
+  const items: TranscriptTodo['items'][number][] = [];
   for (const entry of todos) {
     const record = entry as Record<string, unknown> | null | undefined;
     const title = record?.['title'];

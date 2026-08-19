@@ -80,7 +80,9 @@ describe('SessionEventHandler — todo panel feed', () => {
     expect(streamingUI.setTodoList).not.toHaveBeenCalled();
 
     handler.handleEvent(todoResult('tc-1'), vi.fn());
-    expect(streamingUI.setTodoList).toHaveBeenCalledWith(todos);
+    expect(streamingUI.setTodoList).toHaveBeenCalledWith([
+      { parentId: null, kind: 'task', title: '测试 Todo 项', status: 'in_progress' },
+    ]);
   });
 
   it('ignores failed TodoList results', () => {

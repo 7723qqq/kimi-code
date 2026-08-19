@@ -81,13 +81,43 @@ export function serializeToolResultOutput(output: unknown): string {
   return JSON.stringify(output, null, 2);
 }
 
-export function isTodoItemShape(
-  value: unknown,
-): value is { title: string; status: 'pending' | 'in_progress' | 'done' } {
+export interface NormalizedTodoItem {
+  readonly id?: string;
+  readonly parentId?: string | null;
+  readonly kind?: 'milestone' | 'task';
+  readonly title: string;
+  readonly status: 'pending' | 'in_progress' | 'done';
+  readonly progress?: number;
+}
+
+export function isTodoItemShape(value: unknown): value is NormalizedTodoItem {
   if (typeof value !== 'object' || value === null) return false;
   const rec = value as { title?: unknown; status?: unknown };
   if (typeof rec.title !== 'string' || rec.title.length === 0) return false;
   return rec.status === 'pending' || rec.status === 'in_progress' || rec.status === 'done';
+}
+
+export function normalizeTodoItems(raw: unknown): readonly NormalizedTodoItem[] {
+  if (!Array.isArray(raw)) return [];
+  const items: NormalizedTodoItem[] = [];
+  for (const entry of raw) {
+    if (!isTodoItemShape(entry)) continue;
+    const rec = entry as unknown as Record<string, unknown>;
+    const progressRaw = rec['progress'];
+    items.push({
+      id: typeof rec['id'] === 'string' && rec['id'].length > 0 ? rec['id'] : undefined,
+      parentId:
+        typeof rec['parentId'] === 'string' && rec['parentId'].length > 0 ? rec['parentId'] : null,
+      kind: rec['kind'] === 'milestone' ? 'milestone' : 'task',
+      title: rec['title'] as string,
+      status: rec['status'] as NormalizedTodoItem['status'],
+      progress:
+        typeof progressRaw === 'number' && Number.isFinite(progressRaw)
+          ? Math.min(100, Math.max(0, Math.round(progressRaw)))
+          : undefined,
+    });
+  }
+  return items;
 }
 
 export function formatErrorMessage(error: unknown): string {

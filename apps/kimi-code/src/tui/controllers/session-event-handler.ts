@@ -75,7 +75,7 @@ import {
   argsRecord,
   formatErrorPayload,
   formatErrorMessage,
-  isTodoItemShape,
+  normalizeTodoItems,
   serializeToolResultOutput,
   stringValue,
 } from '../utils/event-payload';
@@ -821,14 +821,7 @@ export class SessionEventHandler {
     );
     if (matchedCall !== undefined && matchedCall.name === 'TodoList' && !event.isError) {
       const rawTodos = (matchedCall.args as { todos?: unknown }).todos;
-      if (Array.isArray(rawTodos)) {
-        const sanitized = rawTodos
-          .filter((todo): todo is { title: string; status: 'pending' | 'in_progress' | 'done' } =>
-            isTodoItemShape(todo),
-          )
-          .map((t) => ({ title: t.title, status: t.status }));
-        streamingUI.setTodoList(sanitized);
-      }
+      streamingUI.setTodoList(normalizeTodoItems(rawTodos));
     }
     this.host.patchLivePane({ mode: 'waiting' });
   }

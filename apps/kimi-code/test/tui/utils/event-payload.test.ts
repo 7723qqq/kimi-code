@@ -6,6 +6,8 @@ import {
   appendStreamingArgsPreview,
   formatErrorMessage,
   formatErrorPayload,
+  isTodoItemShape,
+  normalizeTodoItems,
   parseStreamingArgs,
 } from '#/tui/utils/event-payload';
 
@@ -67,5 +69,68 @@ describe('error payload formatting', () => {
     });
 
     expect(formatErrorMessage(error)).toBe(conciseFilteredMessage);
+  });
+});
+
+describe('isTodoItemShape', () => {
+  it('accepts entries with or without the new optional fields', () => {
+    expect(isTodoItemShape({ title: 'a', status: 'pending' })).toBe(true);
+    expect(
+      isTodoItemShape({
+        id: 'T1',
+        parentId: null,
+        kind: 'milestone',
+        title: 'M1',
+        status: 'done',
+      }),
+    ).toBe(true);
+    expect(isTodoItemShape({ title: 'a', status: 'blocked' })).toBe(false);
+    expect(isTodoItemShape({ title: '', status: 'pending' })).toBe(false);
+    expect(isTodoItemShape(null)).toBe(false);
+  });
+});
+
+describe('normalizeTodoItems', () => {
+  it('keeps hierarchy/progress fields and filters malformed entries', () => {
+    const items = normalizeTodoItems([
+      { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'pending' },
+      {
+        id: 'T1.1',
+        parentId: 'T1',
+        kind: 'task',
+        title: 'leaf',
+        status: 'in_progress',
+        progress: 40,
+      },
+      { title: 'legacy', status: 'done' },
+      { title: 'bad', status: 'nope' },
+      'garbage',
+    ]);
+    expect(items).toEqual([
+      { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'pending' },
+      {
+        id: 'T1.1',
+        parentId: 'T1',
+        kind: 'task',
+        title: 'leaf',
+        status: 'in_progress',
+        progress: 40,
+      },
+      { parentId: null, kind: 'task', title: 'legacy', status: 'done' },
+    ]);
+  });
+
+  it('clamps out-of-range progress and maps bogus kind to task', () => {
+    expect(normalizeTodoItems([{ title: 'x', status: 'done', progress: 140 }])).toEqual([
+      { parentId: null, kind: 'task', title: 'x', status: 'done', progress: 100 },
+    ]);
+    expect(
+      normalizeTodoItems([{ title: 'x', status: 'done', kind: 'phase' }] as unknown[]),
+    ).toEqual([{ parentId: null, kind: 'task', title: 'x', status: 'done' }]);
+  });
+
+  it('returns [] for non-array input', () => {
+    expect(normalizeTodoItems(undefined)).toEqual([]);
+    expect(normalizeTodoItems('nope')).toEqual([]);
   });
 });

@@ -2,7 +2,6 @@ import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 
-import type { TodoItem } from '../components/chrome/todo-panel';
 import { currentWorkingTip } from '../components/chrome/working-tips';
 import { CompactionComponent } from '../components/dialogs/compaction';
 import { AgentGroupComponent } from '../components/messages/agent-group';
@@ -21,7 +20,11 @@ import type {
   TranscriptEntry,
 } from '../types';
 import { hasDispose } from '../utils/component-capabilities';
-import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-payload';
+import {
+  appendStreamingArgsPreview,
+  type NormalizedTodoItem,
+  parseStreamingArgs,
+} from '../utils/event-payload';
 import { notifyTerminalOnce } from '../utils/terminal-notification';
 import { nextTranscriptId } from '../utils/transcript-id';
 
@@ -720,7 +723,7 @@ export class StreamingUIController {
     this.host.mergeCurrentTurnSteps();
   }
 
-  setTodoList(todos: readonly TodoItem[]): void {
+  setTodoList(todos: readonly NormalizedTodoItem[]): void {
     const { state } = this.host;
     state.todoPanel.setTodos(todos);
     state.todoPanelContainer.clear();
