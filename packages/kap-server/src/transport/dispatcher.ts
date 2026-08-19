@@ -9,6 +9,7 @@ import {
   type ServiceIdentifier,
 } from '@moonshot-ai/agent-core-v2';
 
+import { t } from '../i18n';
 import type { ScopeKind } from './channel';
 import { resolveAnyScopedServiceId } from './channelRegistry';
 import { assertSerializable } from './errors';
@@ -88,16 +89,10 @@ export async function resolveService(
   if (id === undefined) {
     throw new Error2(ErrorCodes.REQUEST_INVALID, `unknown service: ${serviceName}`);
   }
-  if (
-    scopeKind === 'agent' &&
-    id === IAgentGoalService &&
-    params['agent_id'] !== MAIN_AGENT_ID
-  ) {
-    throw new Error2(
-      ErrorCodes.GOAL_UNSUPPORTED_AGENT,
-      'Goals are only supported by the main agent',
-      { details: { agentId: params['agent_id'] ?? '' } },
-    );
+  if (scopeKind === 'agent' && id === IAgentGoalService && params['agent_id'] !== MAIN_AGENT_ID) {
+    throw new Error2(ErrorCodes.GOAL_UNSUPPORTED_AGENT, t('v2Goal.onlyMainAgent'), {
+      details: { agentId: params['agent_id'] ?? '' },
+    });
   }
   try {
     return scope.accessor.get(id) as object;

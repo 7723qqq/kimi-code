@@ -208,12 +208,25 @@ async function extractLocaleValues(modInfo) {
     valueToKeys.get(normalized).push(entry.key);
   }
 
-  return { enLeaves, zhLeaves, valueToKeys };
+  // Pre-compile the per-value match regexes once (scanFile runs them against
+  // every source line; building a RegExp per line × per value is the scanner's
+  // dominant cost on large trees like apps/kimi-code).
+  const valueRegexes = new Map();
+  for (const normalizedValue of valueToKeys.keys()) {
+    const escaped = normalizedValue.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const fuzzyPattern = escaped.replaceAll('*', '.+?');
+    valueRegexes.set(normalizedValue, {
+      value: new RegExp(`['"\`]${fuzzyPattern}['"\`]`),
+      tCall: new RegExp(`(?:\\bt\\(|\\$t\\(|t\\()['"\`]${fuzzyPattern}['"\`]`),
+    });
+  }
+
+  return { enLeaves, zhLeaves, valueToKeys, valueRegexes };
 }
 
 // ── Scanner ────────────────────────────────────────────────────────────────
 
-function scanFile(filePath, content, moduleInfo, valueToKeys) {
+function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
   const findings = [];
   const lines = content.split('\n');
   const relPath = relative(ROOT, filePath).replaceAll('\\', '/');
@@ -229,6 +242,10 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
     // ── Detection 1: Locale value appears hardcoded (not in t() call) ──
     // Only applies to files that already use t() — files without t() imports
     // are expected to have hardcoded strings (they may not be user-facing)
+
+    // Fast path: every value regex requires a quoted literal, so a line
+    // without any quote cannot match any of them.
+    if (!/['"`]/.test(trimmed)) continue;
 
     // Look for locale values appearing as string literals
     for (const [normalizedValue, keys] of valueToKeys) {
@@ -246,16 +263,10 @@ function scanFile(filePath, content, moduleInfo, valueToKeys) {
       )
         continue;
 
-      // Build a regex from the value, escaping regex special chars
-      const escaped = normalizedValue.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      // Replace placeholder * with .+ for fuzzy matching
-      const fuzzyPattern = escaped.replaceAll('*', '.+?');
-      const valueRegex = new RegExp(`['"\`]${fuzzyPattern}['"\`]`);
-
-      if (valueRegex.test(trimmed)) {
+      const regexes = valueRegexes.get(normalizedValue);
+      if (regexes.value.test(trimmed)) {
         // Check if this string is already wrapped in t() or $t()
-        const tCallRegex = new RegExp(`(?:\\bt\\(|\\$t\\(|t\\()['"\`]${fuzzyPattern}['"\`]`);
-        if (tCallRegex.test(trimmed)) continue; // already using t()
+        if (regexes.tCall.test(trimmed)) continue; // already using t()
 
         // Check if this line IS the locale definition itself
         if (relPath.includes(moduleInfo.name === 'kimi-web' ? '/locales/' : '/i18n')) continue;
@@ -340,7 +351,7 @@ function looksLikeUserFacing(str) {
   return (/^[A-Z]/.test(str) && /[a-z]/.test(str)) || /[\u4E00-\u9FFF]/.test(str);
 }
 
-function walkDir(dirPath, moduleInfo, valueToKeys) {
+function walkDir(dirPath, moduleInfo, valueToKeys, valueRegexes) {
   const findings = [];
   try {
     const entries = readdirSync(dirPath, { withFileTypes: true });
@@ -350,13 +361,13 @@ function walkDir(dirPath, moduleInfo, valueToKeys) {
         if (SKIP_DIRS.has(entry.name)) continue;
         if (entry.name.startsWith('.')) continue;
         if (moduleInfo.skipDirs?.includes(entry.name)) continue;
-        findings.push(...walkDir(full, moduleInfo, valueToKeys));
+        findings.push(...walkDir(full, moduleInfo, valueToKeys, valueRegexes));
       } else {
         const ext = entry.name.slice(entry.name.lastIndexOf('.'));
         if (moduleInfo.fileTypes.includes(ext)) {
           try {
             const content = readFileSync(full, 'utf-8');
-            findings.push(...scanFile(full, content, moduleInfo, valueToKeys));
+            findings.push(...scanFile(full, content, moduleInfo, valueToKeys, valueRegexes));
           } catch {
             // skip
           }
@@ -394,9 +405,11 @@ async function main() {
 
     console.log(`\n=== Loading locale files for ${mod.name} ===`);
     let valueToKeys;
+    let valueRegexes;
     try {
       const localeData = await extractLocaleValues(mod);
       valueToKeys = localeData.valueToKeys;
+      valueRegexes = localeData.valueRegexes;
       console.log(
         `  en: ${localeData.enLeaves.length} keys, zh: ${localeData.zhLeaves.length} keys`,
       );
@@ -407,7 +420,7 @@ async function main() {
     }
 
     console.log(`\n=== Scanning ${mod.name} (${mod.srcDir}) ===`);
-    const findings = walkDir(srcDir, mod, valueToKeys);
+    const findings = walkDir(srcDir, mod, valueToKeys, valueRegexes);
     console.log(`  Found ${findings.length} issues`);
 
     // Group by type

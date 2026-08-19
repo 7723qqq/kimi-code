@@ -29,9 +29,14 @@ import {
   type SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
 import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
+import { z } from 'zod';
+
+import { errEnvelope, okEnvelope } from '../envelope';
+import { t } from '../i18n';
+import { requestLog } from '../lib/requestLog';
+import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import { pageResponseSchema } from '../protocol/pagination';
-import { toProtocolMessage } from '../services/messages/messageProjection';
 import {
   archiveSessionResponseSchema,
   compactSessionRequestSchema,
@@ -56,11 +61,7 @@ import {
   type SessionPendingInteraction,
 } from '../protocol/session';
 import { workspaceIdSchema } from '../protocol/workspace';
-import { z } from 'zod';
-
-import { errEnvelope, okEnvelope } from '../envelope';
-import { requestLog } from '../lib/requestLog';
-import { defineRoute } from '../middleware/defineRoute';
+import { toProtocolMessage } from '../services/messages/messageProjection';
 import { ensureMainAgent } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 import { applySessionAgentConfig } from './sessionAgentConfig';
@@ -108,7 +109,7 @@ const sessionsListQueryCoercion = z
     if (value.before_id !== undefined && value.after_id !== undefined) {
       ctx.addIssue({
         code: 'custom',
-        message: 'before_id and after_id are mutually exclusive',
+        message: t('errors.paginationMutuallyExclusive'),
         path: ['before_id'],
         params: { code: ErrorCode.VALIDATION_FAILED },
       });
@@ -138,7 +139,7 @@ const sessionChildrenListQueryCoercion = z
     if (value.before_id !== undefined && value.after_id !== undefined) {
       ctx.addIssue({
         code: 'custom',
-        message: 'before_id and after_id are mutually exclusive',
+        message: t('errors.paginationMutuallyExclusive'),
         path: ['before_id'],
         params: { code: ErrorCode.VALIDATION_FAILED },
       });
@@ -234,14 +235,16 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           await handle.accessor.get(ISessionMetadata).setTitle(body.title);
         }
         const meta = await handle.accessor.get(ISessionMetadata).read();
-        const session = toWireSession(
-          { ...meta, workspaceId: touched.id },
-          touched.root,
-          { busy: false, mainTurnActive: false, pendingInteraction: 'none' },
-        );
-        core.accessor.get(IEventService).publish(
-          new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
-        );
+        const session = toWireSession({ ...meta, workspaceId: touched.id }, touched.root, {
+          busy: false,
+          mainTurnActive: false,
+          pendingInteraction: 'none',
+        });
+        core.accessor
+          .get(IEventService)
+          .publish(
+            new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
+          );
         reply.send(okEnvelope(session, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
@@ -298,7 +301,9 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         readonly facts?: SessionFacts;
       }
 
-      const collect = async (pageSize: number): Promise<{ visible: Eligible[]; hasMore: boolean }> => {
+      const collect = async (
+        pageSize: number,
+      ): Promise<{ visible: Eligible[]; hasMore: boolean }> => {
         const wanted = pageSize + 1;
         const collected: Eligible[] = [];
         let before = raw.before_id;
@@ -608,7 +613,15 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         const { tail } = req.params;
         const parsed = parseActionSuffix({
           tail,
-          allowedActions: ['fork', 'compact', 'undo', 'abort', 'btw', 'archive', 'restore'] as const,
+          allowedActions: [
+            'fork',
+            'compact',
+            'undo',
+            'abort',
+            'btw',
+            'archive',
+            'restore',
+          ] as const,
           resourceLabel: 'session',
         });
         if (parsed.kind !== 'action') {
@@ -623,10 +636,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           const body = forkSessionRequestSchema.parse(req.body);
           const forkHandler = await programForSession(core.accessor, parsed.id);
           if (forkHandler === undefined) {
-            throw new Error2(
-              ErrorCodes.SESSION_NOT_FOUND,
-              `session ${parsed.id} does not exist`,
-            );
+            throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${parsed.id} does not exist`);
           }
           const handle = await core.accessor.get(ISessionManager).fork({
             sourceSessionId: parsed.id,
@@ -640,9 +650,11 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
             ctx.cwd,
             resolveSessionFacts(core, meta.id),
           );
-          core.accessor.get(IEventService).publish(
-            new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
-          );
+          core.accessor
+            .get(IEventService)
+            .publish(
+              new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
+            );
           requestLog(req)?.info(
             { session_id: parsed.id, action: 'fork', new_session_id: session.id },
             'session action completed',
@@ -657,7 +669,10 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           agent.accessor
             .get(IAgentFullCompactionService)
             .begin({ source: 'manual', instruction: normalizeOptional(body.instruction) });
-          requestLog(req)?.info({ session_id: parsed.id, action: 'compact' }, 'session action completed');
+          requestLog(req)?.info(
+            { session_id: parsed.id, action: 'compact' },
+            'session action completed',
+          );
           reply.send(okEnvelope({}, req.id));
           return;
         }
@@ -667,7 +682,10 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           const agent = await resolveMainAgent(core, parsed.id);
           await agent.accessor.get(IAgentConversationUndoService).undo(body.count);
           const history = agent.accessor.get(IAgentContextMemoryService).get();
-          requestLog(req)?.info({ session_id: parsed.id, action: 'undo' }, 'session action completed');
+          requestLog(req)?.info(
+            { session_id: parsed.id, action: 'undo' },
+            'session action completed',
+          );
           const [summary, status] = await Promise.all([
             core.accessor.get(ISessionIndex).get(parsed.id),
             legacy.status(parsed.id),
@@ -692,7 +710,10 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         if (parsed.action === 'abort') {
           const agent = await resolveMainAgent(core, parsed.id);
           agent.accessor.get(IAgentLoopService).cancelFromUser();
-          requestLog(req)?.info({ session_id: parsed.id, action: 'abort' }, 'session action completed');
+          requestLog(req)?.info(
+            { session_id: parsed.id, action: 'abort' },
+            'session action completed',
+          );
           reply.send(okEnvelope({ aborted: true }, req.id));
           return;
         }
@@ -700,10 +721,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         if (parsed.action === 'btw') {
           const session = await resumeSessionById(core.accessor, parsed.id);
           if (session === undefined) {
-            throw new Error2(
-              ErrorCodes.SESSION_NOT_FOUND,
-              `session ${parsed.id} does not exist`,
-            );
+            throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${parsed.id} does not exist`);
           }
           await core.accessor.get(IAuthSummaryService).ensureReady();
           const agentId = await session.accessor.get(ISessionBtwService).start();
@@ -727,7 +745,10 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
             ctx.cwd,
             resolveSessionFacts(core, meta.id),
           );
-          requestLog(req)?.info({ session_id: parsed.id, action: 'restore' }, 'session action completed');
+          requestLog(req)?.info(
+            { session_id: parsed.id, action: 'restore' },
+            'session action completed',
+          );
           reply.send(okEnvelope(session, req.id));
           return;
         }
@@ -741,7 +762,10 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${parsed.id} does not exist`);
         }
         await core.accessor.get(ISessionManager).archive(parsed.id);
-        requestLog(req)?.info({ session_id: parsed.id, action: 'archive' }, 'session action completed');
+        requestLog(req)?.info(
+          { session_id: parsed.id, action: 'archive' },
+          'session action completed',
+        );
         reply.send(okEnvelope({ archived: true }, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
@@ -847,9 +871,11 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           ctx.cwd,
           resolveSessionFacts(core, meta.id),
         );
-        core.accessor.get(IEventService).publish(
-          new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
-        );
+        core.accessor
+          .get(IEventService)
+          .publish(
+            new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
+          );
         reply.send(okEnvelope(session, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);

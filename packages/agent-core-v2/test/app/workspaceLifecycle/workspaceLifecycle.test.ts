@@ -14,7 +14,7 @@ import {
   followWorkspaceHandlers,
   getLiveSessionById,
   resumeSessionById,
-} from '#/app/workspaceLifecycle/sessionLookup';
+} from '#/app/sessionManager/sessionLookup';
 import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
 import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
 import { Error2, ErrorCodes } from '#/errors';

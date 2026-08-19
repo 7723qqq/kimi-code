@@ -206,13 +206,13 @@ import {
 } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
 import { createMcpOAuthStore } from '@moonshot-ai/agent-core-v2/app/mcpConfig/oauthStore';
 import { IPluginService } from '@moonshot-ai/agent-core-v2/app/plugin/plugin';
-import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
 import {
   closeSessionById,
   followSessionLifecycles,
   getLiveSessionById,
   resumeSessionById,
-} from '@moonshot-ai/agent-core-v2/app/workspaceLifecycle/sessionLookup';
+} from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
+import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
 import type { McpServerConfig as WorkspaceMcpServerConfig } from '@moonshot-ai/agent-core-v2/mcpCore/config-schema';
 import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import {} from '@moonshot-ai/agent-core-v2/mcpCore/oauth/coordinator';
