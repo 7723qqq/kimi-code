@@ -228,10 +228,15 @@ function makeFakeHarness() {
       { get: vi.fn(async () => undefined), listRecent: vi.fn(async () => ({ items: [] })) },
     ],
     // `resumeSessionById` (sessionLookup) goes through the session manager
-    // to restore a live session; resume paths must resolve it.
+    // to restore a live session; resume paths must resolve it. Fresh-session
+    // paths call `create` (upstream 0.37.2), so the mock must expose it too.
     [
       ISessionManager,
-      { get: vi.fn(() => undefined), resume: vi.fn(async () => session) },
+      {
+        create: vi.fn(async () => session),
+        get: vi.fn(() => undefined),
+        resume: vi.fn(async () => session),
+      } as unknown as ISessionManager,
     ],
     [
       IBootstrapService,
@@ -340,7 +345,7 @@ describe('runV2Print', () => {
   it('seeds explicit agent files from --agentFile and binds the --agent profile', async () => {
     const stdout = writer();
     const stderr = writer();
-    const { app, agent, appServices, agentServices, handlerServices } = makeFakeHarness();
+    const { app, agent, appServices, agentServices } = makeFakeHarness();
 
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue(agent);
@@ -354,10 +359,8 @@ describe('runV2Print', () => {
     const input = mocks.bootstrap.mock.calls[0]?.[0] as BootstrapInput;
     expect(input.args?.agentFiles).toEqual(['/agents/reviewer.md']);
 
-    const lifecycle = handlerServices.get(ISessionLifecycleService) as {
-      create: ReturnType<typeof vi.fn>;
-    };
-    expect(lifecycle.create).toHaveBeenCalledWith({
+    const sessions = appServices.get(ISessionManager) as { create: ReturnType<typeof vi.fn> };
+    expect(sessions.create).toHaveBeenCalledWith({
       workDir: process.cwd(),
       additionalDirs: undefined,
       mainAgentBinding: { profile: 'reviewer', model: 'k2' },
@@ -375,7 +378,7 @@ describe('runV2Print', () => {
     );
     const stdout = writer();
     const stderr = writer();
-    const { app, agent, appServices, agentServices, handlerServices } = makeFakeHarness();
+    const { app, agent, appServices, agentServices } = makeFakeHarness();
 
     mocks.bootstrap.mockReturnValue({ app });
     mocks.ensureMainAgent.mockResolvedValue(agent);
@@ -388,10 +391,8 @@ describe('runV2Print', () => {
     const input = mocks.bootstrap.mock.calls[0]?.[0] as BootstrapInput;
     expect(input.args?.agentFiles).toEqual([agentFile]);
 
-    const lifecycle = handlerServices.get(ISessionLifecycleService) as {
-      create: ReturnType<typeof vi.fn>;
-    };
-    expect(lifecycle.create).toHaveBeenCalledWith({
+    const sessions = appServices.get(ISessionManager) as { create: ReturnType<typeof vi.fn> };
+    expect(sessions.create).toHaveBeenCalledWith({
       workDir: process.cwd(),
       additionalDirs: undefined,
       mainAgentBinding: { profile: 'file-reviewer', model: 'k2' },
@@ -403,11 +404,9 @@ describe('runV2Print', () => {
   it('does not materialize a main agent after fresh profile binding fails', async () => {
     const stdout = writer();
     const stderr = writer();
-    const { app, handlerServices } = makeFakeHarness();
-    const lifecycle = handlerServices.get(ISessionLifecycleService) as {
-      create: ReturnType<typeof vi.fn>;
-    };
-    lifecycle.create.mockRejectedValueOnce(new Error('Unknown agent profile'));
+    const { app, appServices } = makeFakeHarness();
+    const sessions = appServices.get(ISessionManager) as { create: ReturnType<typeof vi.fn> };
+    sessions.create.mockRejectedValueOnce(new Error('Unknown agent profile'));
     mocks.bootstrap.mockReturnValue({ app });
 
     await expect(

@@ -10,12 +10,16 @@ import { getBinDir } from '#/utils/paths';
 const mocks = vi.hoisted(() => ({
   resolveCommandPath: vi.fn(),
   spawnSync: vi.fn(),
+  execFile: vi.fn(),
 }));
 
 vi.mock('#/utils/process/resolve-command', () => ({
   resolveCommandPath: mocks.resolveCommandPath,
 }));
-vi.mock('node:child_process', () => ({ spawnSync: mocks.spawnSync }));
+vi.mock('node:child_process', () => ({
+  spawnSync: mocks.spawnSync,
+  execFile: mocks.execFile,
+}));
 
 const originalEnv = { ...process.env };
 let tempHome: string | undefined;

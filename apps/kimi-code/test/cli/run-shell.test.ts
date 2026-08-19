@@ -61,6 +61,7 @@ const mocks = vi.hoisted(() => {
     flushDiagnosticLogsSync: vi.fn(),
     harnessCreatesDeviceIdOnConstruction: false,
     execFileSync: vi.fn(() => ''),
+    execFile: vi.fn(),
     spawnSync: vi.fn(),
     resolveCommandPath: vi.fn(() => '/bin/stty' as string | undefined),
     TuiConfigParseError,
@@ -152,6 +153,7 @@ vi.mock('../../src/migration/index', () => ({
 
 vi.mock('node:child_process', () => ({
   execFileSync: mocks.execFileSync,
+  execFile: mocks.execFile,
   spawnSync: mocks.spawnSync,
 }));
 
