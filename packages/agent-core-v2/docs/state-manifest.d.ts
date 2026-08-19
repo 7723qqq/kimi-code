@@ -1625,8 +1625,13 @@ export interface AgentStateSnapshot {
   // src/session/todo/todoOps.ts
   // replayable · durable · undoable — folds: ToolsUpdateStore
   'todo': readonly /* TodoItem — packages/agent-core-v2/src/session/todo/todoItem.ts */ {
+    readonly id: string;
+    readonly parentId: string | null;
+    readonly kind: /* TodoKind — packages/agent-core-v2/src/session/todo/todoItem.ts */ 'task' | 'milestone';
     readonly title: string;
     readonly status: /* TodoStatus — packages/agent-core-v2/src/session/todo/todoItem.ts */ 'pending' | 'in_progress' | 'done';
+    readonly progress?: number;
+    readonly description?: string;
   }[];
 }
 
