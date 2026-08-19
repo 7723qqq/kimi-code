@@ -1,11 +1,122 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/components/messages/tool-call/types.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../../../tui/components/messages/tool-call/types.ts';
+/**
+ * TUI2 shared types for the tool-call module.
+ *
+ * Mirrors `tui/components/messages/tool-call/types.ts` with imports
+ * converged onto the tui2 tree. Pure type surface — no pi-tui / opentui
+ * dependency, so it stays framework-free.
+ *
+ * Status: REAL (tui2). Replaces the v1 stub.
+ */
+
+import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
+
+import type { ToolCallBlockData, ToolResultBlockData } from '../../../types';
+
+export type SubagentTextKind = 'thinking' | 'text';
+export type SubagentPhase = 'queued' | 'spawning' | 'running' | 'done' | 'failed' | 'backgrounded';
+
+export interface FinishedSubCall {
+  readonly name: string;
+  readonly args: Record<string, unknown>;
+  readonly output: string;
+  readonly isError: boolean;
+}
+
+export interface OngoingSubCall {
+  readonly name: string;
+  readonly args: Record<string, unknown>;
+  readonly streamingArguments?: string | undefined;
+}
+
+export interface SubToolActivity {
+  readonly id: string;
+  name: string;
+  args: Record<string, unknown>;
+  phase: 'ongoing' | 'done' | 'failed';
+  output?: string;
+  readonly orderSeq: number;
+}
+
+/**
+ * Immutable subagent state snapshot. The group views (`AgentGroupView`)
+ * derive one per member from the transcript entry's `toolCallData` and
+ * render their own branch lines from it.
+ */
+export interface ToolCallSubagentSnapshot {
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly toolCallDescription: string;
+  readonly agentName: string | undefined;
+  /** Display name of the model the subagent is bound to, when known (live only). */
+  readonly model?: string;
+  /** Thinking effort, present only for concrete levels (on/off hidden). */
+  readonly effort?: string;
+  readonly phase: SubagentPhase | undefined;
+  readonly toolCount: number;
+  readonly elapsedSeconds: number | undefined;
+  readonly tokens: number;
+  readonly isError: boolean;
+  readonly errorText: string | undefined;
+  readonly latestActivity: string | undefined;
+}
+
+/**
+ * Immutable Read tool state snapshot. `ReadGroupView` reads one per group
+ * member and sums lines for the group header.
+ */
+export interface ToolCallReadSnapshot {
+  readonly toolCallId: string;
+  readonly filePath: string | undefined;
+  readonly phase: 'pending' | 'done' | 'failed';
+  readonly lines: number;
+}
+
+// ── Event payload types (SDK events routed by the TUI) ──
+// Kept from v1 for surface parity; tui2 controllers flatten the same data
+// into the transcript entry's `toolCallData` instead of pushing events
+// into components.
+
+export interface SubagentSpawnedMeta {
+  readonly agentId: string;
+  readonly agentName?: string | undefined;
+  readonly runInBackground: boolean;
+}
+
+export interface SubagentStartedMeta {
+  readonly agentId: string;
+  readonly agentName?: string | undefined;
+  readonly runInBackground: boolean;
+}
+
+export interface SubagentCompletedPayload {
+  readonly contextTokens?: number | undefined;
+  readonly usage?: TokenUsage | undefined;
+  readonly resultSummary: string;
+}
+
+export interface SubagentFailedPayload {
+  readonly error: string;
+}
+
+export interface SubagentMetricsPayload {
+  readonly contextTokens?: number | undefined;
+  readonly usage?: TokenUsage | undefined;
+  /** Display name of the model the subagent is bound to (agent.status.updated). */
+  readonly modelDisplay?: string | undefined;
+  /** Thinking effort display, present only for concrete levels (on/off hidden). */
+  readonly effortDisplay?: string | undefined;
+}
+
+export interface BackgroundTaskTerminalStatus {
+  readonly status: 'completed' | 'failed' | 'timed_out' | 'killed' | 'lost';
+  readonly options: { readonly errorText?: string | undefined };
+}
+
+// ── Render context ──
+
+export interface RenderContext {
+  readonly expanded: boolean;
+  readonly workspaceDir: string | undefined;
+}
+
+export type { ToolCallBlockData, ToolResultBlockData };

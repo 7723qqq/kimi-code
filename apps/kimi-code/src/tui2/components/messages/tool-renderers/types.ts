@@ -1,11 +1,35 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/components/messages/tool-renderers/types.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../../../tui/components/messages/tool-renderers/types.ts';
+/**
+ * TUI2 tool result renderer types.
+ *
+ * Mirrors `tui/components/messages/tool-renderers/types.ts` with the
+ * renderer signature adapted to the opentui model: a `ResultRenderer`
+ * returns a SolidJS `JSX.Element` (the tui2 `shellExecutionResultRenderer`
+ * already follows this shape) instead of pi-tui `Component[]`.
+ *
+ * Status: REAL (tui2). Replaces the v1 stub.
+ */
+
+import type { JSX } from 'solid-js';
+
+import { RESULT_PREVIEW_LINES } from '../../../constant/rendering';
+import type { ToolCallBlockData, ToolResultBlockData } from '../../../types';
+
+export interface RendererContext {
+  readonly expanded: boolean;
+}
+
+export type ResultRenderer = (
+  toolCall: ToolCallBlockData,
+  result: ToolResultBlockData,
+  ctx: RendererContext,
+) => JSX.Element;
+
+export const PREVIEW_LINES = RESULT_PREVIEW_LINES;
+
+export function strArg(args: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const v = args[key];
+    if (typeof v === 'string' && v.length > 0) return v;
+  }
+  return '';
+}
