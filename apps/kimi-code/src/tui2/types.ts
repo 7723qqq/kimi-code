@@ -297,6 +297,20 @@ export interface TranscriptEntry {
   pluginCommandData?: PluginCommandTranscriptData;
 }
 
+export type WorkflowStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface WorkflowRunData {
+  readonly runId: string;
+  readonly name: string;
+  readonly status: WorkflowStatus;
+  readonly currentPhase?: string;
+  readonly agentCount: number;
+  readonly startedAt: number;
+  readonly finishedAt?: number;
+}
+
+export const MAX_VISIBLE_RUNS = 5;
+
 export type LivePaneMode = 'idle' | 'waiting' | 'thinking' | 'tool' | 'session';
 
 export interface LivePaneState {

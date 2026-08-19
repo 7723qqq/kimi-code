@@ -22,7 +22,7 @@ import { createStore, produce, reconcile, type SetStoreFunction } from 'solid-js
 import type { PermissionMode, ThinkingEffort } from '@moonshot-ai/kimi-code-sdk'
 
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types'
-import type { LivePaneMode, TranscriptEntry } from './types'
+import type { LivePaneMode, TranscriptEntry, WorkflowRunData } from './types'
 
 /** A turn's streaming buffers, keyed by turnId. */
 export interface TurnStream {
@@ -65,6 +65,22 @@ export interface TuiRuntimeState {
     pendingQuestion: PendingQuestion | null
     activityPaneVisible: boolean
   }
+  /** Live workflow runs for the workflow panel (Workflow tool). */
+  workflowRuns: readonly WorkflowRunData[]
+  /** Live BTW (interactive agent) panel state; `active` false when closed. */
+  btwPanel: {
+    active: boolean
+    agentId: string
+    answer: string
+    thinking: string
+    running: boolean
+    done: boolean
+    failed: string | null
+    transientNotice: string | null
+    scrollOffset: number
+  }
+  /** Editor draft text (mirrors the input line; also used by BTW busy notice). */
+  editorDraft: string
   /** Queued messages waiting for the current turn to end. */
   queuedMessages: readonly string[]
   /** Sorted list of sessions for the picker. */
@@ -92,6 +108,19 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
     pendingQuestion: null,
     activityPaneVisible: true,
   },
+  workflowRuns: [],
+  btwPanel: {
+    active: false,
+    agentId: '',
+    answer: '',
+    thinking: '',
+    running: false,
+    done: false,
+    failed: null,
+    transientNotice: null,
+    scrollOffset: 0,
+  },
+  editorDraft: '',
   queuedMessages: [],
   sessions: [],
   loadingSessions: false,
