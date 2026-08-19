@@ -1,11 +1,22 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/transcript-component-metadata.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/transcript-component-metadata';
+/**
+ * TUI2 transcript component metadata — associate render objects with their
+ * transcript entries.
+ *
+ * Mirrors `tui/utils/transcript-component-metadata.ts` without the pi-tui
+ * `Component` type: the tui2 tree keys by plain object identity, so any
+ * render handle (component instance, DOM node, …) can carry its entry.
+ *
+ * Status: REAL (tui2). Replaces the v1 stub.
+ */
+
+import type { TranscriptEntry } from '../types';
+
+const componentEntries = new WeakMap<object, TranscriptEntry>();
+
+export function markTranscriptComponent(component: object, entry: TranscriptEntry): void {
+  componentEntries.set(component, entry);
+}
+
+export function getTranscriptComponentEntry(component: object): TranscriptEntry | undefined {
+  return componentEntries.get(component);
+}
