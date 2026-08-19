@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest';
 
 import {
   TodoPanelComponent,
+  buildTodoTree,
+  computePanelProgress,
   formatHiddenCounts,
   selectVisibleTodos,
+  type PanelTodoItem,
   type TodoItem,
 } from '#/tui/components/chrome/todo-panel';
 
@@ -379,5 +382,118 @@ describe('formatHiddenCounts', () => {
 
   it('returns empty string when all counts are zero', () => {
     expect(formatHiddenCounts({ done: 0, in_progress: 0, pending: 0 })).toBe('');
+  });
+});
+
+describe('milestone tree rendering', () => {
+  const tree: PanelTodoItem[] = [
+    { id: 'T1', parentId: null, kind: 'milestone', title: 'M1 setup', status: 'done' },
+    { id: 'T1.1', parentId: 'T1', kind: 'task', title: 'read config', status: 'done' },
+    { id: 'T1.2', parentId: 'T1', kind: 'task', title: 'install deps', status: 'done' },
+    { id: 'T2', parentId: null, kind: 'milestone', title: 'M2 build', status: 'pending' },
+    {
+      id: 'T2.1',
+      parentId: 'T2',
+      kind: 'task',
+      title: 'extend schema',
+      status: 'in_progress',
+      progress: 60,
+    },
+    { id: 'T2.2', parentId: 'T2', kind: 'task', title: 'update apply', status: 'pending' },
+    { id: 'T3', parentId: null, kind: 'milestone', title: 'M3 verify', status: 'pending' },
+    { id: 'T3.1', parentId: 'T3', kind: 'task', title: 'run tests', status: 'pending' },
+  ];
+
+  it('renders overall progress header with bars, milestone rows and child rows', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos(tree);
+    const out = strip(panel.render(90).join('\n'));
+    expect(out).toMatch(/Todo/);
+    expect(out).toMatch(/3\/8 · 43%/);
+    expect(out).toMatch(/⣿⣿/);
+    expect(out).toMatch(/M1 setup\s+2\/2/);
+    expect(out).toMatch(/M2 build\s+0\/2 · 30%/);
+    expect(out).toMatch(/● extend schema\s+60%/);
+    expect(out).toMatch(/M3 verify\s+0\/1/);
+  });
+
+  it('collapsed view shows the active milestone block and hides later leaf tasks', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos(tree);
+    const out = strip(panel.render(90).join('\n'));
+    expect(out).toMatch(/● extend schema/);
+    expect(out).toMatch(/○ update apply/);
+    expect(out).not.toMatch(/run tests/);
+    expect(out).toMatch(/more/);
+  });
+
+  it('expanded view renders the full tree including later milestones', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos(tree);
+    panel.setExpanded(true);
+    const out = strip(panel.render(90).join('\n'));
+    expect(out).toMatch(/○ run tests/);
+    expect(out).toMatch(/ctrl\+t to collapse/);
+  });
+
+  it('legacy flat list renders rows plus the overall header, no tree glyphs', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos([
+      { title: 'a', status: 'done' },
+      { title: 'b', status: 'in_progress' },
+      { title: 'c', status: 'pending' },
+      { title: 'd', status: 'pending' },
+    ]);
+    const out = strip(panel.render(90).join('\n'));
+    expect(out).toMatch(/1\/4 · 25%/);
+    expect(out).toMatch(/✓ a/);
+    expect(out).toMatch(/● b/);
+    expect(out).not.toMatch(/◆/);
+  });
+
+  it('childless milestone renders its own status', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos([
+      { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'done' },
+      { id: 'T2', parentId: null, kind: 'milestone', title: 'M2', status: 'pending' },
+    ]);
+    const out = strip(panel.render(90).join('\n'));
+    expect(out).toMatch(/1\/2 · 50%/);
+    expect(out).toMatch(/✓ M1/);
+    expect(out).toMatch(/◆ M2/);
+  });
+});
+
+describe('computePanelProgress (fixture anchored with agent-core-v2 computeTodoProgress)', () => {
+  it('matches the core formula on the shared scenario', () => {
+    const items: PanelTodoItem[] = [
+      { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'pending' },
+      { id: 'T1.1', parentId: 'T1', kind: 'task', title: 'a', status: 'done' },
+      { id: 'T1.2', parentId: 'T1', kind: 'task', title: 'b', status: 'in_progress', progress: 50 },
+      { id: 'T2', parentId: null, kind: 'milestone', title: 'M2', status: 'pending' },
+      { id: 'T2.1', parentId: 'T2', kind: 'task', title: 'c', status: 'pending' },
+      { id: 'T2.2', parentId: 'T2', kind: 'task', title: 'd', status: 'pending' },
+    ];
+    const report = computePanelProgress(items);
+    expect(report.overall).toBe(38);
+    expect(report.done).toBe(1);
+    expect(report.total).toBe(6);
+    expect(report.byId.get('T1')).toBe(75);
+    expect(report.byId.get('T2')).toBe(0);
+  });
+});
+
+describe('buildTodoTree', () => {
+  it('groups children under milestones and returns orphans as top-level', () => {
+    const items: PanelTodoItem[] = [
+      { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'pending' },
+      { id: 'T1.1', parentId: 'T1', kind: 'task', title: 'a', status: 'pending' },
+      { title: 'orphan', status: 'pending' },
+    ];
+    const roots = buildTodoTree(items);
+    expect(roots).toHaveLength(2);
+    expect(roots[0]?.item.title).toBe('M1');
+    expect(roots[0]?.children.map((c) => c.item.title)).toEqual(['a']);
+    expect(roots[1]?.item.title).toBe('orphan');
   });
 });

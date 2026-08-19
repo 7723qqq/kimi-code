@@ -175,8 +175,10 @@ export default {
       },
       todoPanel: {
         header: 'Todo',
+        overallProgress: '{{done}}/{{total}} · {{percent}}%',
         collapseHint: 'all {{count}} items · ctrl+t to collapse',
         expandHint: '… +{{count}} more{{distribution}} · ctrl+t to expand',
+        hiddenChildren: '│ … +{{count}} more in this milestone',
         statusDone: 'done',
         statusInProgress: 'in progress',
         statusPending: 'pending',

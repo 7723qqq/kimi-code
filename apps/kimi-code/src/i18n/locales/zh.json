@@ -161,8 +161,10 @@
       },
       "todoPanel": {
         "header": "待办",
+        "overallProgress": "{{done}}/{{total}} · {{percent}}%",
         "collapseHint": "共 {{count}} 项 · ctrl+t 收起",
         "expandHint": "… +{{count}} 项更多{{distribution}} · ctrl+t 展开",
+        "hiddenChildren": "│ … 本里程碑还有 {{count}} 项",
         "statusDone": "已完成",
         "statusInProgress": "进行中",
         "statusPending": "待处理"
