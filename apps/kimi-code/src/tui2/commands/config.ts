@@ -20,6 +20,7 @@ import type { Locale } from '#/i18n';
 import { getLocale, setLocale, t } from '#/i18n';
 import type { ThemeName } from '../theme';
 import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '../theme';
+import type { AppState } from '../types';
 
 import {
   AstronSettingsComponent,
@@ -65,7 +66,7 @@ function hasConversationHistory(host: SlashCommandHost): boolean {
   return host.state.transcriptEntries.some((entry) => entry.kind === 'user' && entry.bullet !== '');
 }
 
-export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConfig {
+export function currentTuiConfig(host: { state: { appState: AppState } }): TuiConfig {
   return {
     theme: host.state.appState.theme,
     locale: host.state.appState.locale as Locale,

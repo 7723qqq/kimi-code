@@ -171,6 +171,8 @@ export interface TuiRuntimeState {
   startupState: TUIStartupState
   /** The dialog currently open on top of the shell; null when none. */
   activeDialog: ActiveDialog
+  /** Data for the open cache-hint dialog; null when none. */
+  cacheHintDialog: { idleSeconds: number; totalTokens: number } | null
   /** Transient footer hint (clipboard image hint, key hints). */
   footerTransientHint: string | null
   /** Transcript navigation mode (j/k/Enter/Esc). */
@@ -263,6 +265,7 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
   banner: null,
   startupState: 'pending',
   activeDialog: null,
+  cacheHintDialog: null,
   footerTransientHint: null,
   transcriptNav: {
     active: false,
