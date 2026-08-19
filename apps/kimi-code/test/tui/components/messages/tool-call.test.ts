@@ -22,6 +22,9 @@ vi.mock('#/i18n', () => {
     'tui.messages.toolCall.byteSizeKB': '{{count}} KB',
     'tui.messages.toolCall.byteSizeMB': '{{count}} MB',
     'tui.messages.toolCall.elapsedSeconds': '{{count}}s',
+    'tui.messages.goalFormat.elapsedSeconds': '{{count}}s',
+    'tui.messages.goalFormat.elapsedMinutes': '{{minutes}}m {{seconds}}s',
+    'tui.messages.goalFormat.elapsedHours': '{{hours}}h {{minutes}}m',
     'tui.messages.toolCall.elapsedMinutes': '{{minutes}}m {{seconds}}s',
     'tui.messages.toolCall.subAgentDefault': 'SubAgent',
     'tui.messages.toolCall.subAgentSuffix': 'Agent',
@@ -1107,7 +1110,7 @@ describe('ToolCallComponent', () => {
     });
 
     let out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Queued (explore project xxx) · 0 tool(s) · 0s');
+    expect(out).toContain('Explore Agent Queued (explore project xxx) · 0 tools · 0s');
     expect(out).not.toContain('Using Agent');
     expect(out).not.toContain('Used Agent');
 
@@ -1121,7 +1124,7 @@ describe('ToolCallComponent', () => {
     });
 
     out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Running (explore project xxx) · 1 tool(s) · 10s');
+    expect(out).toContain('Explore Agent Running (explore project xxx) · 1 tool · 10s');
     expect(out).toContain('Using Read (apps/kimi-code/src/tui/utils/background-agent-status.ts)');
     // Thinking and text are mutually exclusive in the active window: the most
     // recently streamed (text) wins, so thinking is hidden entirely.
@@ -1143,7 +1146,7 @@ describe('ToolCallComponent', () => {
     vi.setSystemTime(30_000);
 
     out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Completed (explore project xxx) · 1 tool(s) · 12s');
+    expect(out).toContain('Explore Agent Completed (explore project xxx) · 1 tool · 12s');
     expect(out).not.toContain('think3');
     expect(out).toContain('│ answer3');
     expect(out).not.toContain('Used Agent');
@@ -1169,13 +1172,13 @@ describe('ToolCallComponent', () => {
     });
 
     let out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Queued (explore project) · 0 tool(s) · 0s');
+    expect(out).toContain('Explore Agent Queued (explore project) · 0 tools · 0s');
     expect(out).not.toContain('Kimi K2.5');
 
     component.updateSubagentMetrics({ modelDisplay: 'Kimi K2.5' });
 
     out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Queued (explore project) · Kimi K2.5 · 0 tool(s) · 0s');
+    expect(out).toContain('Explore Agent Queued (explore project) · Kimi K2.5 · 0 tools · 0s');
     expect(component.getSubagentSnapshot().model).toBe('Kimi K2.5');
   });
 
@@ -1252,7 +1255,7 @@ describe('ToolCallComponent', () => {
     });
 
     const out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Running (inspect tools) · 5 tool(s) · 0s');
+    expect(out).toContain('Explore Agent Running (inspect tools) · 5 tools · 0s');
     // Only the current (most recent ongoing) tool appears in the summary line.
     expect(out).toContain('Using Grep (auth)');
     // No per-tool activity rows are rendered.
@@ -1472,7 +1475,7 @@ describe('ToolCallComponent', () => {
     component.onSubagentFailed({ error: 'subagent exceeded max_steps' });
 
     const out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Failed (check failure) · 0 tool(s) · 3s');
+    expect(out).toContain('Explore Agent Failed (check failure) · 0 tools · 3s');
     expect(out).toContain('│ subagent exceeded max_steps');
     expect(out).not.toContain('Using Agent');
     expect(out).not.toContain('Used Agent');
@@ -2050,5 +2053,180 @@ describe('ToolCallComponent', () => {
     } finally {
       stderr.restore();
     }
+  });
+
+  describe('WaitFor header', () => {
+    const waitForCompletedOutput = [
+      'wait_status: completed',
+      'task_id: question-80w0h7nw',
+      'waited_ms: 9607',
+      'timeout_ms: 300000',
+      '',
+      '[finished]',
+      'task_id: question-80w0h7nw',
+      'description: demo question',
+      'status: completed',
+      'kind: question',
+    ].join('\n');
+
+    it('shows the waiting tense with the task id while pending', () => {
+      const component = new ToolCallComponent(
+        {
+          id: 'call_wait_pending',
+          name: 'WaitFor',
+          args: { task_id: 'question-80w0h7nw', timeout: 300 },
+        },
+        undefined,
+        stubTui(30),
+      );
+
+      expect(strip(component.render(100).join('\n'))).toContain(
+        'Waiting for background task (question-80w0h7nw)',
+      );
+
+      component.dispose();
+    });
+
+    it('falls back to "any background task" when no task id is given', () => {
+      const component = new ToolCallComponent(
+        { id: 'call_wait_any', name: 'WaitFor', args: { timeout: 300 } },
+        undefined,
+        stubTui(30),
+      );
+
+      expect(strip(component.render(100).join('\n'))).toContain('Waiting for any background task');
+
+      component.dispose();
+    });
+
+    it('shows the waited tense with the elapsed chip once completed', () => {
+      const component = new ToolCallComponent(
+        {
+          id: 'call_wait_done',
+          name: 'WaitFor',
+          args: { task_id: 'question-80w0h7nw', timeout: 300 },
+        },
+        {
+          tool_call_id: 'call_wait_done',
+          output: waitForCompletedOutput,
+          is_error: false,
+        },
+      );
+
+      const out = strip(component.render(100).join('\n'));
+      expect(out).toContain('Waited for background task (question-80w0h7nw)');
+      expect(out).toContain('10s');
+    });
+
+    it('renders a timeout as its own non-error header', () => {
+      const component = new ToolCallComponent(
+        {
+          id: 'call_wait_timeout',
+          name: 'WaitFor',
+          args: { task_id: 'question-80w0h7nw', timeout: 1 },
+        },
+        {
+          tool_call_id: 'call_wait_timeout',
+          output: 'wait_status: timed_out\ntask_id: question-80w0h7nw\nwaited_ms: 1000\ntimeout_ms: 1000',
+          is_error: false,
+        },
+      );
+
+      expect(strip(component.render(100).join('\n'))).toContain(
+        'Wait timed out (question-80w0h7nw)',
+      );
+    });
+
+    it('renders errors with the failure tense', () => {
+      const component = new ToolCallComponent(
+        {
+          id: 'call_wait_error',
+          name: 'WaitFor',
+          args: { task_id: 'bash-x', timeout: 300 },
+        },
+        {
+          tool_call_id: 'call_wait_error',
+          output: 'Task not found: bash-x',
+          is_error: true,
+        },
+      );
+
+      expect(strip(component.render(100).join('\n'))).toContain(
+        'Could not wait for background task (bash-x)',
+      );
+    });
+
+    it('replaces the previous status block when progress arrives with replace', () => {
+      const component = new ToolCallComponent(
+        { id: 'call_wait_replace', name: 'WaitFor', args: { timeout: 600 } },
+        undefined,
+        stubTui(30),
+      );
+
+      component.appendProgress('Waiting 10s / 600s · 2 background tasks still running', {
+        replace: true,
+      });
+      component.appendProgress('Waiting 20s / 600s · 1 background task still running', {
+        replace: true,
+      });
+
+      const out = strip(component.render(100).join('\n'));
+      expect(out).toContain('Waiting 20s / 600s');
+      expect(out).not.toContain('Waiting 10s / 600s');
+
+      component.dispose();
+    });
+
+    it('keeps appending status rows when replace is not set', () => {
+      const component = new ToolCallComponent(
+        { id: 'call_wait_append', name: 'WaitFor', args: { timeout: 600 } },
+        undefined,
+        stubTui(30),
+      );
+
+      component.appendProgress('first status');
+      component.appendProgress('second status');
+
+      const out = strip(component.render(100).join('\n'));
+      expect(out).toContain('first status');
+      expect(out).toContain('second status');
+
+      component.dispose();
+    });
+
+    it('replaces a sub-tool status row when child progress arrives with replace', () => {
+      const component = new ToolCallComponent(
+        { id: 'call_agent_wait', name: 'Agent', args: { description: 'child wait' } },
+        undefined,
+        stubTui(30),
+      );
+      component.onSubagentSpawned({
+        agentId: 'sub_wait_1',
+        agentName: 'coder',
+        runInBackground: false,
+      });
+      component.appendSubToolCall({
+        id: 'sub_wait_1:wait',
+        name: 'WaitFor',
+        args: { timeout: 600 },
+      });
+
+      component.appendSubToolLiveOutput(
+        'sub_wait_1:wait',
+        'Waiting 10s / 600s · 2 background tasks still running\n',
+        { replace: true },
+      );
+      component.appendSubToolLiveOutput(
+        'sub_wait_1:wait',
+        'Waiting 20s / 600s · 1 background task still running\n',
+        { replace: true },
+      );
+
+      const out = strip(component.render(120).join('\n'));
+      expect(out).toContain('Waiting 20s / 600s');
+      expect(out).not.toContain('Waiting 10s / 600s');
+
+      component.dispose();
+    });
   });
 });

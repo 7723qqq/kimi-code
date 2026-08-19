@@ -18,7 +18,7 @@ import type { PromptOutputFormat } from './options';
  * so the renderer stays engine-agnostic without depending on either event
  * definition.
  */
-export interface HookResultEventLike {
+interface HookResultEventLike {
   readonly hookEvent: string;
   readonly content: string;
   readonly blocked?: boolean;
@@ -31,7 +31,7 @@ export interface HookResultEventLike {
  * v2 from the native `turn.step.retrying` `DomainEvent` (same field names),
  * after discarding the failed attempt's partial output.
  */
-export interface RetryingEventLike {
+interface RetryingEventLike {
   readonly failedAttempt: number;
   readonly nextAttempt: number;
   readonly maxAttempts: number;

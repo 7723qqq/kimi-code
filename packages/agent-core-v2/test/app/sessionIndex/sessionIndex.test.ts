@@ -12,6 +12,7 @@ vi.setConfig({ testTimeout: 120_000 });
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
+  overrideScopedService,
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
@@ -758,7 +759,7 @@ describe('FileSessionIndex (read model)', () => {
         return super.batch(ops);
       }
     }
-    registerScopedService(
+    overrideScopedService(
       LifecycleScope.App,
       IQueryStore,
       GatedQueryStore,
@@ -835,7 +836,7 @@ describe('FileSessionIndex (read model)', () => {
         return super.batch(ops);
       }
     }
-    registerScopedService(
+    overrideScopedService(
       LifecycleScope.App,
       IQueryStore,
       FlakyQueryStore,
@@ -894,7 +895,7 @@ describe('FileSessionIndex (read model)', () => {
         return super.batch(ops);
       }
     }
-    registerScopedService(
+    overrideScopedService(
       LifecycleScope.App,
       IQueryStore,
       FlakyQueryStore,
@@ -1059,7 +1060,7 @@ describe('FileSessionIndex (read model)', () => {
         return super.getCheckpoint(source);
       }
     }
-    registerScopedService(
+    overrideScopedService(
       LifecycleScope.App,
       IQueryStore,
       GatedQueryStore,
@@ -1205,7 +1206,7 @@ describe('FileSessionIndex (read model)', () => {
         return super.get<T>(scope, key);
       }
     }
-    registerScopedService(
+    overrideScopedService(
       LifecycleScope.App,
       IQueryStore,
       GatedQueryStore,
@@ -1281,7 +1282,7 @@ describe('FileSessionIndex (read model)', () => {
         return super.batch(ops);
       }
     }
-    registerScopedService(
+    overrideScopedService(
       LifecycleScope.App,
       IQueryStore,
       GatedFlakyQueryStore,
@@ -1465,7 +1466,7 @@ describe('FileSessionIndex (read model)', () => {
   const baseline = { retry: 1, timeout: 120_000 };
 
   it('baseline: warm listRecent(limit=20) at 1k vs 10k vs 50k sessions', baseline, async () => {
-    registerScopedService(
+    overrideScopedService(
       LifecycleScope.App,
       IQueryStore,
       CountingQueryStore,

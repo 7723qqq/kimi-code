@@ -1,19 +1,19 @@
 /**
  * Native v2 `kimi -p` (print mode) runner.
  *
- * The print-mode driver talks to agent-core-v2's native DI services directly —
- * no `PromptHarness`, no SDK-shaped session, no v2→v1 event translation. It:
+ * Unlike the v1 path (and the former `V2PromptHarness` / `V2Session` shim), this
+ * runner talks to agent-core-v2's native DI services directly — no
+ * `PromptHarness`, no SDK-shaped session, no v2→v1 event translation. It:
  *   - `bootstrap()`s the app scope,
  *   - creates / resumes a session and its main agent via native services,
  *   - subscribes to the main agent's per-agent `IEventBus` and renders the
- *     native `DomainEvent` stream (payloads are already v1-protocol-shaped),
+ *     native `Event2` stream (payloads are already v1-protocol-shaped),
  *   - drives a turn through `IAgentPromptService.enqueue()` and awaits
  *     `Turn.result` for authoritative completion,
  *   - applies the print-mode background policy (config-driven, v1-aligned:
  *     `exit` / `drain` / `steer`) before exiting.
  *
- * Selected unconditionally by `runPrompt` — the agent-core-v2 engine is the
- * only engine.
+ * Selected by `runPrompt` unless `KIMI_CODE_LEGACY_FLAG` is truthy.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -32,8 +32,7 @@ import {
   IOAuthToolkit,
   ISessionCronService,
   ISessionIndex,
-  ISessionLifecycleService,
-  IWorkspaceLifecycleService,
+  ISessionManager,
   ITelemetryService,
   PRINT_MAX_TURNS_DEFAULT,
   PRINT_WAIT_CEILING_S_DEFAULT,
@@ -41,6 +40,7 @@ import {
   bootstrap,
   createCloudAppender,
   ensureMainAgent,
+  resumeSessionById,
   logSeed,
   parseAgentFileText,
   resolveAgentPath,
@@ -56,17 +56,23 @@ import {
   type PrintBackgroundMode,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { resumeSessionById } from '@moonshot-ai/agent-core-v2/app/workspaceLifecycle/sessionLookup';
 import { createKimiDefaultHeaders, createKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
+import type { GoalUpdated } from '@moonshot-ai/agent-core-v2/agent/goal/goalOps';
+import type { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import type {
+  AssistantDelta,
+  ThinkingDelta,
+  ToolCallDelta,
+} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/stepRetry/stepRetryService';
+import type { HookResult } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
+import type {
+  ToolCallStarted,
+  ToolProgress,
+  ToolResultEvent,
+} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 import { resolve } from 'pathe';
 
-// The v2 engine's event union is exposed as `Event2` class instances whose
-// payload fields are only known at runtime; the print tool only switches on
-// the string type field and reads payload fields loosely, so the alias keeps
-// the handler signatures stable across engine event-system migrations.
-type DomainEvent = Event2<Record<string, unknown>> & Record<string, unknown>;
-
-import { createMsys2PromptDeps, shouldPromptMsys2 } from '#/cli/msys2-prompt';
 import {
   CLI_SHUTDOWN_TIMEOUT_MS,
   CLI_USER_AGENT_PRODUCT,
@@ -81,18 +87,6 @@ import {
   parseHeadlessGoalCreate,
   type HeadlessGoalCreate,
 } from '../goal-prompt';
-import { resolveOutputFormat } from '../options';
-import type { CLIOptions, PromptOutputFormat } from '../options';
-import {
-  type HookResultEventLike,
-  type PromptOutput,
-  PromptJsonWriter,
-  type PromptTurnWriter,
-  PromptTranscriptWriter,
-  type RetryingEventLike,
-  writeExperimentalVersion,
-  writeResumeHint,
-} from '../prompt-render';
 import {
   type PromptRunIO,
   configuredModel,
@@ -101,6 +95,17 @@ import {
   requireConfiguredModel,
 } from '../run-prompt';
 import { createKimiCodeHostIdentity } from '../version';
+
+import { resolveOutputFormat } from '../options';
+import type { CLIOptions, PromptOutputFormat } from '../options';
+import {
+  type PromptOutput,
+  PromptJsonWriter,
+  type PromptTurnWriter,
+  PromptTranscriptWriter,
+  writeExperimentalVersion,
+  writeResumeHint,
+} from '../prompt-render';
 
 const PROMPT_UI_MODE = 'print';
 /** Re-check `goalActive` at least this often while waiting for goal turns. */
@@ -127,12 +132,6 @@ export async function runV2Print(
   writeExperimentalVersion(version, outputFormat, stdout, stderr);
 
   const homeDir = resolveKimiHome();
-  // One-time MSYS2 notice (Windows only): surface the install hint on stderr
-  // without blocking the run or marking the prompt as shown — the TUI gate
-  // stays the primary surface.
-  if (await shouldPromptMsys2(createMsys2PromptDeps(homeDir))) {
-    stderr.write(t('cli.msys2Prompt.notice') + '\n');
-  }
   let firstLaunch = false;
   const deviceId = createKimiDeviceId(homeDir, {
     onFirstLaunch: () => {
@@ -178,7 +177,7 @@ export async function runV2Print(
   }
   for (const diagnostic of configService.diagnostics()) {
     if (diagnostic.severity === 'warning') {
-      stderr.write(t('tui.statusMessages.warningLabel', { warning: diagnostic.message }) + '\n');
+      stderr.write(`Warning: ${diagnostic.message}\n`);
     }
   }
 
@@ -277,7 +276,7 @@ async function resolveNativeSession(
   defaultModel: string | undefined,
   stderr: PromptOutput,
 ): Promise<ResolvedNativeSession> {
-  const workspaceLifecycle = app.accessor.get(IWorkspaceLifecycleService);
+  const sessions = app.accessor.get(ISessionManager);
   const index = app.accessor.get(ISessionIndex);
 
   // `--agent` selects a catalog profile by name; otherwise `--agent-file`
@@ -327,7 +326,7 @@ async function resolveNativeSession(
   const resumeById = async (id: string): Promise<ISessionScopeHandle> => {
     const session = await resumeSessionById(app.accessor, id);
     if (session === undefined) {
-      throw new Error(t('tui.statusMessages.sessionNotFound', { sessionId: id }));
+      throw new Error(`Session "${id}" not found.`);
     }
     return session;
   };
@@ -348,16 +347,14 @@ async function resolveNativeSession(
   if (opts.session !== undefined) {
     const target = await index.get(opts.session);
     if (target === undefined) {
-      throw new Error(t('tui.statusMessages.sessionNotFound', { sessionId: opts.session }));
+      throw new Error(`Session "${opts.session}" not found.`);
     }
     if (target.cwd !== undefined && resolve(target.cwd) !== resolve(workDir)) {
       stderr.write(
         `Session "${opts.session}" was created under a different directory.\n` +
           `  cd "${target.cwd}" && kimi -r ${opts.session}\n\n`,
       );
-      throw new Error(
-        t('tui.statusMessages.sessionDifferentDirectory', { sessionId: opts.session }),
-      );
+      throw new Error(`Session "${opts.session}" was created under a different directory.`);
     }
     const session = await resumeById(opts.session);
     const agent = await ensureMainAgent(session);
@@ -392,12 +389,11 @@ async function resolveNativeSession(
         goalModel: configuredModel(opts.model, currentModel),
       };
     }
-    stderr.write(t('tui.statusMessages.noSessionsToContinue', { workDir }) + '\n');
+    stderr.write(`No sessions to continue under "${workDir}"; starting a fresh session.\n`);
   }
 
   const model = requireConfiguredModel(opts.model, defaultModel);
-  const handler = await workspaceLifecycle.handlerFor({ root: workDir });
-  const session = await handler.accessor.get(ISessionLifecycleService).create({
+  const session = await sessions.create({
     workDir,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
     mainAgentBinding: {
@@ -433,13 +429,12 @@ async function runNativeTurn(
   await agent.accessor.get(IAuthSummaryService).ensureReady();
 
   const turnEndings = createPrintTurnEndings();
-  const subscription = agent.accessor.get(IEventBus).subscribe((rawEvent) => {
-    const event = rawEvent as unknown as DomainEvent;
+  const subscription = agent.accessor.get(IEventBus).subscribe((event: Event2<any>) => {
     dispatchNativeEvent(writer, event, stderr);
     // Arm the turn-endings collector before `turn.result` settles so a
     // background-task completion that steers a new turn right after the main
     // turn ends cannot have its `turn.ended` slip past the policy loop.
-    if (event.type === 'turn.ended') turnEndings.push(event as PrintTurnEnding);
+    if (event.type === 'turn.ended') turnEndings.push(event as TurnEnded);
   });
   try {
     const handle = await agent.accessor.get(IAgentPromptService).enqueue({
@@ -457,8 +452,8 @@ async function runNativeTurn(
       const completion = await handle.completion;
       throw new Error(
         completion.state === 'blocked'
-          ? t('tui.statusMessages.promptBlocked')
-          : t('tui.statusMessages.promptTurnCannotStart'),
+          ? 'Prompt hook blocked the request.'
+          : 'Prompt turn could not be started',
       );
     }
     const result = await turn.result;
@@ -482,8 +477,7 @@ async function runNativeTurn(
           drain: () => drainBackgroundTasks(session, taskConfig?.printWaitCeilingS),
           turnEndings,
           skipTurnId: turn.id,
-          warn: (message) =>
-            stderr.write(t('tui.statusMessages.warningLabel', { warning: message }) + '\n'),
+          warn: (message) => stderr.write(`Warning: ${message}\n`),
           now: () => Date.now(),
           goalActive: () => goalService.getGoal().goal?.status === 'active',
           cronNextFireAt: () => cronService.getNextFireTime(),
@@ -532,14 +526,12 @@ async function runNativeGoal(
     replace: goal.replace,
   });
   let completedSnapshot: { readonly status: string } | null = null;
-  const subscription = agent.accessor.get(IEventBus).subscribe((rawEvent) => {
-    const event = rawEvent as unknown as DomainEvent;
-    if (
-      event.type === 'goal.updated' &&
-      (event['change'] as { kind?: string } | undefined)?.kind === 'completion' &&
-      event['snapshot'] !== null
-    ) {
-      completedSnapshot = event['snapshot'] as { readonly status: string } | null;
+  const subscription = agent.accessor.get(IEventBus).subscribe((event: Event2<any>) => {
+    if (event.type === 'goal.updated') {
+      const updated = event as unknown as GoalUpdated;
+      if (updated.change?.kind === 'completion' && updated.snapshot !== null) {
+        completedSnapshot = updated.snapshot;
+      }
     }
   });
   try {
@@ -560,7 +552,7 @@ async function runNativeGoal(
 
 function dispatchNativeEvent(
   writer: PromptTurnWriter,
-  event: DomainEvent,
+  event: Event2<any>,
   stderr: PromptOutput,
 ): void {
   switch (event.type) {
@@ -570,41 +562,43 @@ function dispatchNativeEvent(
       return;
     case 'turn.step.retrying':
       writer.discardAssistant();
-      writer.writeRetrying(event as unknown as RetryingEventLike);
+      writer.writeRetrying(event as unknown as TurnStepRetrying);
       return;
     case 'assistant.delta':
-      writer.writeAssistantDelta(event['delta'] as string);
+      writer.writeAssistantDelta((event as unknown as AssistantDelta).delta);
       return;
     case 'hook.result':
-      writer.writeHookResult(event as unknown as HookResultEventLike);
+      writer.writeHookResult(event as unknown as HookResult);
       return;
     case 'thinking.delta':
-      writer.writeThinkingDelta(event['delta'] as string);
+      writer.writeThinkingDelta((event as unknown as ThinkingDelta).delta);
       return;
-    case 'tool.call.started':
-      writer.writeToolCall(event['toolCallId'] as string, event['name'] as string, event['args']);
+    case 'tool.call.started': {
+      const started = event as unknown as ToolCallStarted;
+      writer.writeToolCall(started.toolCallId, started.name, started.args);
       return;
-    case 'tool.call.delta':
-      writer.writeToolCallDelta(
-        event['toolCallId'] as string,
-        event['name'] as string | undefined,
-        event['argumentsPart'] as string | undefined,
-      );
+    }
+    case 'tool.call.delta': {
+      const delta = event as unknown as ToolCallDelta;
+      writer.writeToolCallDelta(delta.toolCallId, delta.name, delta.argumentsPart);
       return;
-    case 'tool.result':
-      writer.writeToolResult(event['toolCallId'] as string, event['output']);
+    }
+    case 'tool.result': {
+      const result = event as unknown as ToolResultEvent;
+      writer.writeToolResult(result.toolCallId, result.output);
       return;
+    }
     case 'tool.progress': {
-      const text = (event['update'] as { text?: string }).text;
-      if (text !== undefined && text.length > 0) {
-        stderr.write(text.endsWith('\n') ? text : `${text}\n`);
+      const progress = (event as unknown as ToolProgress).update;
+      if (progress.text !== undefined && progress.text.length > 0) {
+        stderr.write(progress.text.endsWith('\n') ? progress.text : `${progress.text}\n`);
       }
       return;
     }
   }
 }
 
-export type PrintTurnEnding = DomainEvent & { type: 'turn.ended' };
+export type PrintTurnEnding = TurnEnded;
 
 /**
  * Source of `turn.ended` events for the print steer loop. `next` resolves with
@@ -663,14 +657,14 @@ export function createPrintTurnEndings(): PrintTurnEndings & {
       for (;;) {
         while (buffer.length > 0) {
           const ending = buffer.shift()!;
-          if (ending['turnId'] !== skipTurnId) return ending;
+          if (ending.turnId !== skipTurnId) return ending;
         }
         const ms = deadlineAt - Date.now();
         if (ms <= 0) return null;
         const ending = await waitOnce(ms);
         // Timer-chunk boundary, not the real deadline: keep waiting.
         if (ending === null) continue;
-        if (ending['turnId'] !== skipTurnId) return ending;
+        if (ending.turnId !== skipTurnId) return ending;
         // The skipped turn's own ending: keep waiting within the same budget.
       }
     },
@@ -735,7 +729,9 @@ export interface PrintBackgroundPolicyInput {
  * The steer ceiling deadline is set once on entry, so goal/cron waiting
  * consumes the same budget.
  */
-export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInput): Promise<void> {
+export async function applyPrintBackgroundPolicy(
+  input: PrintBackgroundPolicyInput,
+): Promise<void> {
   const deadline = input.now() + input.ceilingS * 1000;
   let turns = 0;
   // Cron anti-spin guard: the last fire time seen already in the past. Two
@@ -777,7 +773,7 @@ export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInp
             Math.max(fireAt - input.now(), 0) + CRON_FIRE_GRACE_MS,
             input.skipTurnId,
           );
-          if (ended !== null && ended['reason'] !== 'completed') {
+          if (ended !== null && ended.reason !== 'completed') {
             throw new PrintSteeredTurnFailedError(formatTurnEndingFailure(ended));
           }
           // Fire observed (or its grace elapsed without a turn): re-read the
@@ -807,23 +803,21 @@ export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInp
     if (input.countPending() === 0) return;
     const ended = await input.turnEndings.next(deadline - input.now(), input.skipTurnId);
     if (ended === null) return;
-    if (ended['reason'] !== 'completed') {
+    if (ended.reason !== 'completed') {
       throw new PrintSteeredTurnFailedError(formatTurnEndingFailure(ended));
     }
   }
 }
 
 function formatTurnEndingFailure(ending: PrintTurnEnding): string {
-  const error = ending['error'] as { code?: string; message?: string } | undefined;
-  if (error?.code === 'provider.filtered') {
+  if (ending.error?.code === 'provider.filtered') {
     return t('tui.statusMessages.policyBlocked');
   }
-  if (error !== undefined) return `${error.code}: ${error.message}`;
-  const reason = ending['reason'] as string;
-  if (reason === 'blocked') {
+  if (ending.error !== undefined) return `${ending.error.code}: ${ending.error.message}`;
+  if (ending.reason === 'blocked') {
     return t('tui.statusMessages.promptBlocked');
   }
-  return `Prompt turn ended with reason: ${reason}`;
+  return `Prompt turn ended with reason: ${ending.reason}`;
 }
 
 function countPendingBackgroundTasks(session: ISessionScopeHandle): number {
@@ -874,7 +868,7 @@ function formatNativeTurnFailure(result: LoopRunResult): string {
   if (result.type === 'failed') {
     const error = result.error as { readonly code?: string; readonly message?: string } | undefined;
     if (error?.code === 'provider.filtered') {
-      return t('tui.statusMessages.policyBlocked');
+      return 'Provider safety policy blocked the response.';
     }
     if (error?.code !== undefined) {
       return `${error.code}: ${error.message ?? ''}`.trimEnd();
