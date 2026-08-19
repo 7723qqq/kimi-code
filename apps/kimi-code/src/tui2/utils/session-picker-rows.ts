@@ -1,11 +1,29 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/utils/session-picker-rows.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/utils/session-picker-rows';
+/**
+ * TUI2 session picker rows.
+ *
+ * Mirrors `tui/utils/session-picker-rows.ts` with imports converged onto the
+ * tui2 tree.
+ *
+ * Status: REAL (tui2). Mirrors `tui/utils/session-picker-rows.ts`.
+ */
+
+import type { SessionSummary } from '@moonshot-ai/kimi-code-sdk';
+
+import type { SessionRow } from '../components/dialogs/session-picker';
+
+export function sessionRowsForPicker(
+  sessions: readonly SessionSummary[],
+  currentSessionId: string,
+  currentSessionHasContent: boolean,
+): SessionRow[] {
+  return sessions
+    .filter((session) => currentSessionHasContent || session.id !== currentSessionId)
+    .map((session) => ({
+      id: session.id,
+      title: session.title ?? null,
+      last_prompt: session.lastPrompt ?? null,
+      work_dir: session.workDir,
+      updated_at: session.updatedAt ?? session.createdAt ?? 0,
+      metadata: session.metadata,
+    }));
+}
