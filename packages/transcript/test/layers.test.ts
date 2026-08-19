@@ -639,6 +639,40 @@ describe('contract schemas', () => {
       }).success,
     ).toBe(false);
   });
+
+  it('roundtrips todo items carrying hierarchy and progress (all new fields optional)', () => {
+    const todo = {
+      todoId: 'todo',
+      items: [
+        { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'pending' },
+        {
+          id: 'T1.1',
+          parentId: 'T1',
+          kind: 'task',
+          title: 'leaf',
+          status: 'in_progress',
+          progress: 40,
+        },
+        { title: 'legacy', status: 'done' },
+      ],
+      updatedAt: '2026-08-20T00:00:00.000Z',
+    };
+    const rich = transcriptOperationSchema.parse({ op: 'todo.upsert', todo });
+    expect(rich).toEqual({ op: 'todo.upsert', todo });
+
+    expect(
+      transcriptOperationSchema.safeParse({
+        op: 'todo.upsert',
+        todo: { todoId: 'todo', items: [{ title: 'x', status: 'done', kind: 'bogus' }] },
+      }).success,
+    ).toBe(false);
+    expect(
+      transcriptOperationSchema.safeParse({
+        op: 'todo.upsert',
+        todo: { todoId: 'todo', items: [{ title: 'x', status: 'done', progress: 101 }] },
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe('transcript WS events', () => {

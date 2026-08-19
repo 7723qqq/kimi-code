@@ -342,8 +342,12 @@ export const attachmentSchema = z.object({
 });
 
 export const todoItemSchema = z.object({
+  id: z.string().optional(),
+  parentId: z.string().nullable().optional(),
+  kind: z.enum(['milestone', 'task']).optional(),
   title: z.string(),
   status: z.enum(['pending', 'in_progress', 'done']),
+  progress: z.number().min(0).max(100).optional(),
 });
 
 export const todoSchema = z.object({
