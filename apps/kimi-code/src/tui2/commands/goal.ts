@@ -20,7 +20,6 @@ import {
   type GoalStartPermissionChoice,
 } from '../components/dialogs/goal-start-permission-prompt';
 import {
-  GoalSetMessageComponent,
   GoalStatusMessageComponent,
   UpcomingGoalAddedMessageComponent,
 } from '../components/messages/goal-panel';
@@ -33,14 +32,15 @@ import {
   updateGoalQueueItem,
   type GoalQueueSnapshot,
 } from '../goal-queue-store';
+import type { AppState, TranscriptEntry } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
+import { nextTranscriptId } from '../utils/transcript-id';
 import type { SlashCommandHost } from './dispatch';
 
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
 
 type GoalCommandHost = Pick<
   SlashCommandHost,
-  | 'state'
   | 'session'
   | 'requireSession'
   | 'setAppState'
@@ -51,7 +51,11 @@ type GoalCommandHost = Pick<
   | 'restoreEditor'
   | 'restoreInputText'
   | 'sendNormalUserInput'
->;
+> & {
+  state: { appState: AppState };
+  /** tui2: append a transcript entry instead of mounting a pi-tui component. */
+  appendTranscriptEntry?(entry: TranscriptEntry): void;
+};
 
 export interface GoalStartOptions {
   readonly beforeSend?: () => boolean | Promise<boolean>;
@@ -435,8 +439,14 @@ async function startGoal(
   if (options.beforeSend !== undefined && !(await options.beforeSend())) {
     return false;
   }
-  host.state.transcriptContainer.addChild(new GoalSetMessageComponent());
-  host.state.ui.requestRender();
+  if (host.appendTranscriptEntry !== undefined) {
+    host.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'status',
+      renderMode: 'plain',
+      content: t('tui.messages.goalPanel.goalSet'),
+    });
+  }
   if (options.sendInput !== undefined) {
     options.sendInput(parsed.objective);
   } else {

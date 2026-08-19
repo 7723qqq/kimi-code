@@ -199,6 +199,8 @@ export interface SubagentReplayBlockData {
   id: string;
   name?: string;
   text?: string;
+  /** Display name of the bound model (resolved at spawn / status update). */
+  model?: string;
   toolCalls?: readonly SubagentReplayToolCallData[];
 }
 
@@ -305,6 +307,15 @@ export interface TranscriptEntry {
   goalCompletionData?: boolean;
   /** Swarm-mode entry/exit marker data. */
   swarmData?: { state: 'entered' | 'ended' };
+  /** Live AgentSwarm progress summary for a tool-call entry. */
+  agentSwarmData?: {
+    toolCallId: string;
+    description: string;
+    status: 'streaming' | 'running' | 'ended';
+    memberCount: number;
+    completedCount: number;
+    failedCount: number;
+  };
   imageAttachmentIds?: readonly number[];
   skillActivationId?: string;
   skillName?: string;
