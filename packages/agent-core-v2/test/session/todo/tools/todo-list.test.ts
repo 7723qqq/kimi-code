@@ -160,3 +160,56 @@ describe('TodoListTool', () => {
     expect(updateExecution.description).toBe('Updating todo list');
   });
 });
+
+describe('TodoListTool hierarchy and progress', () => {
+  it('accepts milestone/task entries with id, parentId, kind and progress', () => {
+    expect(
+      TodoListInputSchema.safeParse({
+        todos: [
+          { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'pending' },
+          {
+            id: 'T1.1',
+            parentId: 'T1',
+            kind: 'task',
+            title: 'leaf',
+            status: 'in_progress',
+            progress: 40,
+          },
+          { title: 'auto-id', status: 'pending' },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(
+      TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'done', progress: 101 }] })
+        .success,
+    ).toBe(false);
+    expect(
+      TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'done', kind: 'phase' }] })
+        .success,
+    ).toBe(false);
+  });
+
+  it('write mode stores hierarchy fields and echoes computed progress', async () => {
+    const { tool, getTodos } = makeTool();
+    const result = await executeTool(tool, {
+      turnId: 1,
+      toolCallId: 'call_1',
+      args: {
+        todos: [
+          { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'pending' },
+          { id: 'T1.1', parentId: 'T1', title: 'halfway', status: 'in_progress', progress: 50 },
+          { title: 'legacy', status: 'pending' },
+        ],
+      },
+      signal,
+    });
+
+    expect(result).toMatchObject({ isError: false });
+    expect(result.output).toContain('M1 (0/1 · 50%)');
+    expect(result.output).toContain('T1.1: halfway (50%)');
+    const stored = getTodos();
+    expect(stored[0]).toMatchObject({ id: 'T1', kind: 'milestone' });
+    expect(stored[1]).toMatchObject({ id: 'T1.1', parentId: 'T1', progress: 50 });
+    expect(stored[2]).toMatchObject({ id: 'T2', parentId: null, kind: 'task', title: 'legacy' });
+  });
+});
