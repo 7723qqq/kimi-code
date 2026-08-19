@@ -19,7 +19,9 @@ export interface TextProps {
   bg?: ColorInput
   attributes?: number
   width?: number | 'auto' | `${number}%`
+  flexShrink?: number
   wrapMode?: 'word' | 'none' | 'char'
+  truncate?: boolean
   onClick?: () => void
 }
 

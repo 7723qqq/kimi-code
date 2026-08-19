@@ -31,7 +31,9 @@ export interface BoxProps {
   paddingBottom?: number
   gap?: number | string
   backgroundColor?: ColorInput
-  border?: boolean | string
+  border?: boolean | string | ('top' | 'right' | 'bottom' | 'left')[]
+  borderStyle?: 'single' | 'double' | 'rounded' | 'heavy'
+  borderColor?: ColorInput
   alignItems?: 'flex-start' | 'center' | 'flex-end' | 'stretch'
   justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between'
   focusable?: boolean

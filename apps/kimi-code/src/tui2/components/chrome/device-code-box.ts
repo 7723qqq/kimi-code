@@ -1,11 +1,6 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/components/chrome/device-code-box.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../../tui/components/chrome/device-code-box.ts';
+/**
+ * TUI2 OAuth device-code panel — forwarding layer.
+ *
+ * Status: REAL (tui2). Forwards to `device-code-box.tsx`.
+ */
+export * from './device-code-box.tsx'
