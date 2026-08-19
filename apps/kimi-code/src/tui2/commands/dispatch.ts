@@ -432,10 +432,7 @@ async function handleBuiltInSlashCommand(
       // requireSession), so catch here instead of letting the `void` call
       // reject unhandled.
       try {
-        await handlePluginsCommand(
-          host as unknown as Parameters<typeof handlePluginsCommand>[0],
-          args,
-        );
+        await handlePluginsCommand(host, args);
       } catch (error) {
         host.showError(formatErrorMessage(error));
       }

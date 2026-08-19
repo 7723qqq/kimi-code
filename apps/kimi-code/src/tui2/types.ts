@@ -411,6 +411,9 @@ export type ActiveDialog =
   | 'question-dialog'
   | 'approval-panel'
   | 'migration'
+  | 'plugins-selector'
+  | 'plugins-mcp'
+  | 'plugins-confirm'
   | null;
 
 export interface LivePaneState {

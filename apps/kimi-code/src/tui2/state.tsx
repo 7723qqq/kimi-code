@@ -194,6 +194,30 @@ export interface TuiRuntimeState {
   activeDialog: ActiveDialog
   /** Choices for the open undo selector; undefined when none. */
   undoChoices: readonly { id: string; count: number; input: string; label: string }[] | undefined
+  /** Plugins panel dialog state; null when closed. */
+  pluginsPanel: {
+    installed: readonly import('@moonshot-ai/kimi-code-sdk').PluginSummary[]
+    installedIds: ReadonlySet<string>
+    capabilities: readonly import('@moonshot-ai/kimi-code-sdk').CapabilityStatus[]
+    catalogIsDefault: boolean
+    initialTab?: string
+    selectedId?: string
+    pluginHint?: { id: string; text: string }
+    marketplace?: { plugins: readonly unknown[]; source: string }
+    marketplaceError?: string
+    marketplaceLoading: boolean
+    installing?: string
+  } | null
+  /** Plugin MCP picker dialog state; null when closed. */
+  pluginMcpPicker: {
+    info: import('@moonshot-ai/kimi-code-sdk').PluginInfo
+    selectedServer?: string
+    serverHint?: { server: string; text: string }
+  } | null
+  /** Plugin remove/trust confirmation; null when none. */
+  pluginConfirm: { kind: 'remove'; id: string; displayName: string } | { kind: 'trust'; label: string } | null
+  /** Resolver for the open plugin confirmation. */
+  pluginConfirmResolver: ((confirmed: boolean) => void) | undefined
   /** Data for the open cache-hint dialog; null when none. */
   cacheHintDialog: { idleSeconds: number; totalTokens: number } | null
   /** Transient footer hint (clipboard image hint, key hints). */
@@ -314,6 +338,10 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
   startupState: 'pending',
   activeDialog: null,
   undoChoices: undefined,
+  pluginsPanel: null,
+  pluginMcpPicker: null,
+  pluginConfirm: null,
+  pluginConfirmResolver: undefined,
   cacheHintDialog: null,
   footerTransientHint: null,
   transcriptNav: {
