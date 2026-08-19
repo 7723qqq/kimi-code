@@ -1483,13 +1483,28 @@ const TODO_ENTITY_ID = 'todo';
 function todoWriteItems(input: unknown): TranscriptTodo['items'] | undefined {
   const todos = (input as { todos?: unknown } | undefined)?.todos;
   if (!Array.isArray(todos)) return undefined;
-  const items: { title: string; status: 'pending' | 'in_progress' | 'done' }[] = [];
+  const items: TranscriptTodo['items'] = [];
   for (const entry of todos) {
-    const title = (entry as { title?: unknown } | undefined)?.title;
-    const status = (entry as { status?: unknown } | undefined)?.status;
+    const record = entry as Record<string, unknown> | null | undefined;
+    const title = record?.['title'];
+    const status = record?.['status'];
     if (typeof title !== 'string') return undefined;
     if (status !== 'pending' && status !== 'in_progress' && status !== 'done') return undefined;
-    items.push({ title, status });
+    const progressRaw = record?.['progress'];
+    items.push({
+      id: typeof record?.['id'] === 'string' && record['id'].length > 0 ? record['id'] : undefined,
+      parentId:
+        typeof record?.['parentId'] === 'string' && record['parentId'].length > 0
+          ? record['parentId']
+          : null,
+      kind: record?.['kind'] === 'milestone' ? 'milestone' : 'task',
+      title,
+      status,
+      progress:
+        typeof progressRaw === 'number' && Number.isFinite(progressRaw)
+          ? Math.min(100, Math.max(0, Math.round(progressRaw)))
+          : undefined,
+    });
   }
   return items;
 }

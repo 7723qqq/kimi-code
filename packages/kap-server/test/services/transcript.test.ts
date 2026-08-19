@@ -1477,7 +1477,19 @@ describe('AgentTranscriptProjector', () => {
         turnId: 1,
         toolCallId: 'call_write',
         name: 'TodoList',
-        args: { todos: [{ title: 'write tests', status: 'in_progress' }, { title: 'ship', status: 'pending' }] },
+        args: {
+          todos: [
+            { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'pending' },
+            {
+              id: 'T1.1',
+              parentId: 'T1',
+              title: 'write tests',
+              status: 'in_progress',
+              progress: 40,
+            },
+            { title: 'ship', status: 'pending' },
+          ],
+        },
       }),
     );
     const writeFrame = turnOps('t1', tx.getItems()).steps[0]!.frames.find(
@@ -1487,8 +1499,16 @@ describe('AgentTranscriptProjector', () => {
 
     feed(ev({ type: 'tool.result', toolCallId: 'call_write', output: 'updated' }));
     expect(tx.getTodo('todo')?.items).toEqual([
-      { title: 'write tests', status: 'in_progress' },
-      { title: 'ship', status: 'pending' },
+      { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'pending' },
+      {
+        id: 'T1.1',
+        parentId: 'T1',
+        kind: 'task',
+        title: 'write tests',
+        status: 'in_progress',
+        progress: 40,
+      },
+      { parentId: null, kind: 'task', title: 'ship', status: 'pending' },
     ]);
 
     feed(
@@ -1501,7 +1521,27 @@ describe('AgentTranscriptProjector', () => {
       }),
     );
     feed(ev({ type: 'tool.result', toolCallId: 'call_fail', output: 'boom', isError: true }));
-    expect(tx.getTodo('todo')?.items).toHaveLength(2);
+    expect(tx.getTodo('todo')?.items).toHaveLength(3);
+  });
+
+  it('drops the todo document when a TodoList write has a malformed entry', () => {
+    const projector = new AgentTranscriptProjector('main');
+    const tx = new AgentTranscript('main');
+    const feed = (event: ProjectorBusEvent): void => void tx.apply(projector.map(event));
+
+    feed(ev({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } }));
+    feed(ev({ type: 'turn.step.started', turnId: 1, step: 1 }));
+    feed(
+      ev({
+        type: 'tool.call.started',
+        turnId: 1,
+        toolCallId: 'call_bad',
+        name: 'TodoList',
+        args: { todos: [{ title: 'ok', status: 'done' }, { title: 7, status: 'done' }] },
+      }),
+    );
+    feed(ev({ type: 'tool.result', toolCallId: 'call_bad', output: 'x' }));
+    expect(tx.getTodo('todo')).toBeUndefined();
   });
 
   it('emits an unanchored entity when the payload has no toolCallId', () => {
