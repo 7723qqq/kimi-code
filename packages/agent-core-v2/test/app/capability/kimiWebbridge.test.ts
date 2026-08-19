@@ -1,34 +1,18 @@
-/**
- * `kimi-webbridge` capability entry — platform asset mapping, layered
- * detect, and the idempotent install flow (download → start-if-down →
- * plugin wiring). All host effects are faked
- * (temp dirs, scripted fetch, scripted host processes, fake plugins).
- */
-
-import {
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  mkdir,
-  writeFile,
-  access,
-  chmod,
-  stat,
-} from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, mkdir, writeFile, access, chmod, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
 import { Readable, Writable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { CapabilityEntryContext } from '#/app/capability/entries/context';
+import type { IPluginService } from '#/app/plugin/plugin';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import {
   __kimiWebbridgeInternals,
   createKimiWebbridgeEntry,
 } from '#/app/capability/entries/kimiWebbridge';
-import type { IPluginService } from '#/app/plugin/plugin';
-import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import type { CapabilityEntryContext } from '#/app/capability/entries/context';
 
 const DAEMON_BASE = 'http://127.0.0.1:10086';
 
@@ -46,7 +30,7 @@ function fakeProc(code: number, stdout = '', stderr = ''): IHostProcess {
     stderr: Readable.from([stderr]),
     wait: () => Promise.resolve(code),
     kill: () => Promise.resolve(),
-    dispose: () => {},
+    dispose: () => undefined,
   } as IHostProcess;
 }
 
@@ -55,9 +39,7 @@ interface SpawnCall {
   args: readonly string[];
 }
 
-function fakeHostProcess(
-  script?: Array<{ match: string; code: number; stdout?: string; stderr?: string }>,
-): {
+function fakeHostProcess(script?: Array<{ match: string; code: number; stdout?: string; stderr?: string }>): {
   service: IHostProcessService;
   calls: SpawnCall[];
 } {
@@ -74,9 +56,7 @@ function fakeHostProcess(
   return { service, calls };
 }
 
-function fakePlugins(
-  installed: Array<{ id: string; enabled: boolean; state: string; version?: string }>,
-): {
+function fakePlugins(installed: Array<{ id: string; enabled: boolean; state: string; version?: string }>): {
   service: IPluginService;
   installs: string[];
   enabledCalls: Array<{ id: string; enabled: boolean }>;
@@ -103,8 +83,6 @@ function fakePlugins(
       ),
     installPlugin: (input: { source: string }) => {
       installs.push(input.source);
-      // Upsert semantics of the real manager: a new id installs enabled, an
-      // existing record keeps its (possibly disabled) enabled flag.
       const existing = installed.find((p) => p.id === 'kimi-webbridge');
       if (existing === undefined) {
         installed.push({ id: 'kimi-webbridge', enabled: true, state: 'ok', version: '1.11.3' });
@@ -124,16 +102,15 @@ function fakePlugins(
   return { service, installs, enabledCalls };
 }
 
-/** Scripted fetch: answers daemon /status and CDN binary downloads. */
-function fakeFetch(opts: { statusSequence?: Array<object | 'error'>; binary?: Uint8Array }): {
-  fetchImpl: typeof fetch;
-} {
+function fakeFetch(opts: {
+  statusSequence?: Array<object | 'error'>;
+  binary?: Uint8Array;
+}): { fetchImpl: typeof fetch } {
   let statusCalls = 0;
   const fetchImpl = (async (url: string | URL): Promise<Response> => {
     const u = String(url);
     if (u === `${DAEMON_BASE}/status`) {
-      const step =
-        opts.statusSequence?.[Math.min(statusCalls, (opts.statusSequence?.length ?? 1) - 1)];
+      const step = opts.statusSequence?.[Math.min(statusCalls, (opts.statusSequence?.length ?? 1) - 1)];
       statusCalls += 1;
       if (step === 'error' || step === undefined) throw new Error('connection refused');
       return new Response(JSON.stringify(step), { status: 200 });
@@ -192,9 +169,6 @@ describe('kimi-webbridge entry', () => {
     await writeFile(from, 'new');
     await writeFile(to, 'old-running');
 
-    // Stage-then-rename on the target filesystem: the live destination is
-    // replaced atomically (never opened for write — ETXTBSY-safe), the
-    // source is removed, and no sibling temp is left behind.
     await renameAcrossDevicesFallback(from, to);
 
     expect(await readFile(to, 'utf-8')).toBe('new');
@@ -214,9 +188,7 @@ describe('kimi-webbridge entry', () => {
     const binPath = path.join(userHome, '.kimi-webbridge', 'bin', 'kimi-webbridge');
     await writeFile(binPath, 'bin');
     await chmod(binPath, 0o755);
-    const plugins = fakePlugins([
-      { id: 'kimi-webbridge', enabled: true, state: 'ok', version: '1.11.3' },
-    ]);
+    const plugins = fakePlugins([{ id: 'kimi-webbridge', enabled: true, state: 'ok', version: '1.11.3' }]);
     const { fetchImpl } = fakeFetch({
       statusSequence: [{ running: true, version: 'v1.11.3', extension_connected: false }],
     });
@@ -262,9 +234,7 @@ describe('kimi-webbridge entry', () => {
     expect(note).toBe('user-skill-migrated');
     expect(reports).toContain('standalone-skill-migration');
     await expect(access(path.join(kimiHome, 'skills', 'kimi-webbridge'))).rejects.toThrow();
-    await expect(
-      access(path.join(userHome, '.agents', 'skills', 'kimi-webbridge')),
-    ).rejects.toThrow();
+    await expect(access(path.join(userHome, '.agents', 'skills', 'kimi-webbridge'))).rejects.toThrow();
 
     const backupDir = path.join(kimiHome, 'backups', 'kimi-webbridge-skills');
     const backups = await readdir(backupDir);
@@ -280,7 +250,6 @@ describe('kimi-webbridge entry', () => {
   it('installs end-to-end: download, start-if-down, and plugin wiring', async () => {
     const plugins = fakePlugins([]);
     const host = fakeHostProcess();
-    // First status poll (before start): down. Subsequent polls: up.
     const { fetchImpl } = fakeFetch({
       statusSequence: [
         { running: false },
@@ -295,16 +264,12 @@ describe('kimi-webbridge entry', () => {
 
     await entry.install((step, percent) => reports.push([step, percent]));
 
-    // Binary downloaded into place and made executable.
     const binPath = path.join(root, 'user-home', '.kimi-webbridge', 'bin', 'kimi-webbridge');
     await access(binPath);
-    // Daemon started exactly once (start-if-down).
     expect(host.calls.map((c) => `${c.command} ${c.args.join(' ')}`)).toEqual([`${binPath} start`]);
-    // Plugin wiring installed from the official CDN zip.
     expect(plugins.installs).toEqual([
       'https://code.kimi.com/kimi-code/plugins/official/kimi-webbridge.zip',
     ]);
-    // Progress reported download steps.
     expect(reports[0]).toEqual(['download', 0]);
     expect(reports.some(([step]) => step === 'daemon')).toBe(true);
     expect(reports.some(([step]) => step === 'skill')).toBe(true);
@@ -331,9 +296,7 @@ describe('kimi-webbridge entry', () => {
     const binPath = path.join(userHome, '.kimi-webbridge', 'bin', 'kimi-webbridge');
     await writeFile(binPath, 'old-bin');
     await chmod(binPath, 0o755);
-    const plugins = fakePlugins([
-      { id: 'kimi-webbridge', enabled: true, state: 'ok', version: '1.11.3' },
-    ]);
+    const plugins = fakePlugins([{ id: 'kimi-webbridge', enabled: true, state: 'ok', version: '1.11.3' }]);
     const host = fakeHostProcess();
     const { fetchImpl } = fakeFetch({
       statusSequence: [{ running: true, version: 'v1.11.3', extension_connected: true }],
@@ -420,7 +383,6 @@ describe('kimi-webbridge entry', () => {
   it('treats a non-executable leftover binary as missing and re-downloads it', async () => {
     const userHome = path.join(root, 'user-home');
     await mkdir(path.join(userHome, '.kimi-webbridge', 'bin'), { recursive: true });
-    // An install interrupted between rename and chmod leaves this behind.
     const binPath = path.join(userHome, '.kimi-webbridge', 'bin', 'kimi-webbridge');
     await writeFile(binPath, 'stale');
     await chmod(binPath, 0o644);
@@ -437,7 +399,10 @@ describe('kimi-webbridge entry', () => {
     if (process.platform === 'win32') {
       // Windows has no POSIX executable bit, so X_OK always succeeds and the
       // leftover binary reads as a usable install.
-      expect(detected.steps.find((step) => step.id === 'daemon-binary')?.state).toBe('ok');
+      expect(detected.steps.find((step) => step.id === 'daemon-binary')).toEqual({
+        id: 'daemon-binary',
+        state: 'ok',
+      });
       return;
     }
     expect(detected.steps.find((step) => step.id === 'daemon-binary')).toEqual({
@@ -451,16 +416,12 @@ describe('kimi-webbridge entry', () => {
   });
 
   it('re-enables a previously disabled wiring plugin during setup', async () => {
-    const plugins = fakePlugins([
-      { id: 'kimi-webbridge', enabled: false, state: 'ok', version: '1.11.3' },
-    ]);
+    const plugins = fakePlugins([{ id: 'kimi-webbridge', enabled: false, state: 'ok', version: '1.11.3' }]);
     const { fetchImpl } = fakeFetch({
       statusSequence: [{ running: true, version: 'v1.11.3', extension_connected: true }],
     });
     const entry = createKimiWebbridgeEntry(makeCtx({ plugins: plugins.service, fetchImpl }));
 
-    // installPlugin preserves the disabled flag, but setup must not strand
-    // the capability at partial by leaving the wiring off.
     await entry.install(() => {});
     expect(plugins.enabledCalls).toEqual([{ id: 'kimi-webbridge', enabled: true }]);
   });

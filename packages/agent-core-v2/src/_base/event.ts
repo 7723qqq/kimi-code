@@ -1,14 +1,4 @@
-/**
- * `event` domain — `Event` / `Emitter` primitives, the async
- * `AsyncEmitter` / `IWaitUntil` participation primitive (for interceptable
- * `onWill` events whose listeners register work via `waitUntil`), the
- * `handleVetos` helper (for `onBefore*` veto events whose listeners answer
- * with `veto(value, id)`), and event combinators (`once` / `map` / `filter`
- * / `any`). `Emitter` accepts an optional debug name that its
- * `EventSubscription` carries as an `on:<name>` ledger label, so event
- * subscriptions stay identifiable in unit-book introspection.
- */
-
+import { onUnexpectedError, safelyCallListener } from './errors/unexpectedError';
 import {
   Disposable,
   DisposableStore,
@@ -17,7 +7,6 @@ import {
   type IDisposableDebugLabel,
 } from './di/lifecycle';
 import { LinkedList } from './di/util/linkedList';
-import { onUnexpectedError, safelyCallListener } from './errors/unexpectedError';
 
 export interface Event<T> {
   (
@@ -121,7 +110,7 @@ export interface IWaitUntil {
 export type IWaitUntilData<T> = Omit<T, 'waitUntil' | 'signal'>;
 
 export class AsyncEmitter<T extends IWaitUntil> extends Emitter<T> {
-  private _asyncDeliveryQueue?: LinkedList<[(event: T) => void, IWaitUntilData<T>, AbortSignal]>;
+  private _asyncDeliveryQueue?: LinkedList<[(event: T) => void, IWaitUntilData<T>]>;
 
   async fireAsync(data: IWaitUntilData<T>, signal: AbortSignal): Promise<void> {
     if (this.isDisposed || this._listeners === undefined) {
@@ -135,62 +124,36 @@ export class AsyncEmitter<T extends IWaitUntil> extends Emitter<T> {
           entry.listener.call(entry.thisArg, event);
         },
         data,
-        signal,
       ]);
     }
 
-    try {
-      while (this._asyncDeliveryQueue.size > 0) {
-        const [deliver, eventData, entrySignal] = this._asyncDeliveryQueue.shift()!;
-        // Each entry carries the signal of the fire that queued it: an aborted
-        // fire skips its own remaining entries, and entries of other fires are
-        // never delivered with this call's signal.
-        if (entrySignal.aborted) {
-          continue;
-        }
-        const thenables: Promise<unknown>[] = [];
+    while (this._asyncDeliveryQueue.size > 0 && !signal.aborted) {
+      const [deliver, eventData] = this._asyncDeliveryQueue.shift()!;
+      const thenables: Promise<unknown>[] = [];
 
-        const event = {
-          ...eventData,
-          signal: entrySignal,
-          waitUntil: (p: Promise<unknown>): void => {
-            if (Object.isFrozen(thenables)) {
-              throw new Error('waitUntil can NOT be called asynchronously');
-            }
-            thenables.push(p);
-          },
-        } as T;
-
-        try {
-          deliver(event);
-        } catch (error) {
-          onUnexpectedError(error);
-          continue;
-        }
-
-        void Object.freeze(thenables);
-        const settled = await Promise.allSettled(thenables);
-        for (const result of settled) {
-          if (result.status === 'rejected') {
-            onUnexpectedError(result.reason);
+      const event = {
+        ...eventData,
+        signal,
+        waitUntil: (p: Promise<unknown>): void => {
+          if (Object.isFrozen(thenables)) {
+            throw new Error('waitUntil can NOT be called asynchronously');
           }
-        }
+          thenables.push(p);
+        },
+      } as T;
+
+      try {
+        deliver(event);
+      } catch (error) {
+        onUnexpectedError(error);
+        continue;
       }
-    } finally {
-      // If this fire's signal aborted mid-delivery, drop only the entries this
-      // fire queued (identified by their own signal). Entries of other fires
-      // keep their own signal and are delivered by their own loops — never
-      // with this call's signal.
-      if (signal.aborted && this._asyncDeliveryQueue !== undefined) {
-        const kept: [(event: T) => void, IWaitUntilData<T>, AbortSignal][] = [];
-        for (const item of this._asyncDeliveryQueue) {
-          if (item[2] !== signal) {
-            kept.push(item);
-          }
-        }
-        this._asyncDeliveryQueue.clear();
-        for (const item of kept) {
-          this._asyncDeliveryQueue.push(item);
+
+      void Object.freeze(thenables);
+      const settled = await Promise.allSettled(thenables);
+      for (const result of settled) {
+        if (result.status === 'rejected') {
+          onUnexpectedError(result.reason);
         }
       }
     }
@@ -210,10 +173,7 @@ export function handleVetos(
 
   for (const valueOrPromise of vetos) {
     if (valueOrPromise === true) {
-      // Same semantics as a promise resolving to `true` below: record the veto
-      // but keep evaluating the remaining vetos (a single shared result).
-      lazyValue = true;
-      continue;
+      return Promise.resolve(true);
     }
     if (typeof valueOrPromise === 'boolean') {
       continue;
@@ -236,7 +196,6 @@ export function handleVetos(
   return Promise.allSettled(promises).then(() => lazyValue);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace Event {
   export const None: Event<unknown> = () => Disposable.None;
 
@@ -263,7 +222,11 @@ export namespace Event {
 
   export function map<I, O>(event: Event<I>, map: (i: I) => O): Event<O> {
     return (listener, thisArg, disposables) =>
-      event((i) => listener.call(thisArg, map(i)), undefined, disposables);
+      event(
+        (i) => listener.call(thisArg, map(i)),
+        undefined,
+        disposables,
+      );
   }
 
   export function filter<T>(event: Event<T>, filter: (e: T) => boolean): Event<T> {

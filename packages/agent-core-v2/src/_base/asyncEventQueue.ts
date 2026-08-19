@@ -1,17 +1,3 @@
-/**
- * `_base.asyncEventQueue` — push-based async iterable.
- *
- * Bridges a callback-driven producer (e.g. a streaming LLM's `onMessagePart`)
- * to an async-generator consumer. Values pushed while there is a pending
- * `next()` waiter are delivered immediately; otherwise they buffer in-order.
- * `end()` signals normal termination; `fail(err)` terminates with an error
- * that is thrown at the next `next()` (once the buffered values have been
- * drained). Idempotent — repeated `end`/`fail`/`push` after termination are
- * no-ops.
- *
- * Layer L0 substrate.
- */
-
 export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
   private readonly values: T[] = [];
   private readonly waiters: Array<{
@@ -21,55 +7,19 @@ export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
   private error: unknown;
   private failed = false;
   private ended = false;
-  private closed = false;
-  private readonly maxBufferSize: number | undefined;
-  private bufferWarned = false;
-
-  constructor(options?: { readonly maxBufferSize?: number }) {
-    this.maxBufferSize = options?.maxBufferSize;
-  }
 
   push(value: T): void {
-    if (this.failed || this.ended || this.closed) return;
+    if (this.failed || this.ended) return;
     const waiter = this.waiters.shift();
     if (waiter !== undefined) {
       waiter.resolve({ done: false, value });
       return;
     }
-    if (
-      !this.bufferWarned &&
-      this.maxBufferSize !== undefined &&
-      this.values.length >= this.maxBufferSize
-    ) {
-      // Defensive observability only, one-shot: the buffer is bounded by the
-      // producer's own await points in practice, so an oversized backlog means
-      // the consumer stalled. Never drop values — that would corrupt the
-      // stream, and a per-push warning would flood stderr while the consumer
-      // stays stalled.
-      this.bufferWarned = true;
-      try {
-        process.stderr.write(
-          `[asyncEventQueue] buffer exceeded ${this.maxBufferSize} values; consumer may be stalled\n`,
-        );
-      } catch {
-        // stderr itself failed — nothing sensible left to do.
-      }
-    }
     this.values.push(value);
   }
 
-  /**
-   * Drop all buffered-but-unconsumed values. Used to discard a partial stream
-   * before replaying a request (e.g. the auth-refresh replay in
-   * `ModelRequesterImpl`). Values already delivered to a consumer cannot be
-   * recalled — that is inherent to push-based streaming.
-   */
-  clear(): void {
-    this.values.length = 0;
-  }
-
   end(): void {
-    if (this.failed || this.ended || this.closed) return;
+    if (this.failed || this.ended) return;
     this.ended = true;
     for (const waiter of this.waiters.splice(0)) {
       waiter.resolve({ done: true, value: undefined });
@@ -77,7 +27,7 @@ export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
   }
 
   fail(error: unknown): void {
-    if (this.failed || this.ended || this.closed) return;
+    if (this.failed || this.ended) return;
     this.error = error;
     this.failed = true;
     if (this.values.length > 0) return;
@@ -97,35 +47,9 @@ export class AsyncEventQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
     if (this.ended) {
       return Promise.resolve({ done: true, value: undefined });
     }
-    if (this.closed) {
-      return Promise.resolve({ done: true, value: undefined });
-    }
     return new Promise<IteratorResult<T>>((resolve, reject) => {
       this.waiters.push({ resolve, reject });
     });
-  }
-
-  // Called by `for await` when the consumer breaks/exits early. Drain the
-  // buffered values and settle any parked waiters so nothing is leaked for the
-  // remainder of the queue's lifetime.
-  return(): Promise<IteratorResult<T>> {
-    this.closed = true;
-    this.values.length = 0;
-    for (const waiter of this.waiters.splice(0)) {
-      waiter.resolve({ done: true, value: undefined });
-    }
-    return Promise.resolve({ done: true, value: undefined });
-  }
-
-  // Called by `for await` if the consumer's body throws. Clean up like
-  // `return()` but reject the parked waiters with the error.
-  throw(error?: unknown): Promise<IteratorResult<T>> {
-    this.closed = true;
-    this.values.length = 0;
-    for (const waiter of this.waiters.splice(0)) {
-      waiter.reject(error);
-    }
-    return Promise.reject(error);
   }
 
   [Symbol.asyncIterator](): AsyncIterator<T> {

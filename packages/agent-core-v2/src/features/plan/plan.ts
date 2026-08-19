@@ -1,4 +1,4 @@
-import { createDecorator } from '#/_base/di/instantiation';
+import { createDecorator } from "#/_base/di/instantiation";
 
 export type PlanData = null | {
   readonly id: string;
@@ -19,4 +19,5 @@ export interface IAgentPlanService {
   status(): Promise<PlanData>;
 }
 
-export const IAgentPlanService = createDecorator<IAgentPlanService>('agentPlanService');
+export const IAgentPlanService =
+  createDecorator<IAgentPlanService>('agentPlanService');

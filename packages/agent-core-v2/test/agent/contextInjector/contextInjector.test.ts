@@ -1,19 +1,16 @@
-/**
- * Scenario: agent context injection position tracking and wire restoration.
- *
- * Exercises the real injector through its service contract with in-memory
- * context, loop, reminder, event-bus, and wire collaborators.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/agent/contextInjector/contextInjector.test.ts`.
- */
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import {
+  createServices,
+  type TestInstantiationService,
+} from '#/_base/di/test';
+import {
+  IAgentContextInjectorService,
+} from '#/agent/contextInjector/contextInjector';
 import { AgentContextInjectorService } from '#/agent/contextInjector/contextInjectorService';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -23,10 +20,14 @@ import { IAgentSystemReminderService } from '#/agent/systemReminder/systemRemind
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
 import { IEventBus } from '#/app/event/eventBus';
 import { IWireService } from '#/wire/wire';
-
 import { registerLogServices } from '../../_base/log/stubs';
 import { registerContextMemoryServices, type StubContextMemory } from '../contextMemory/stubs';
-import { runWillBeginStepHooks, type StubLoop, stubLoopWithHooks, stubWire } from '../loop/stubs';
+import {
+  runWillBeginStepHooks,
+  type StubLoop,
+  stubLoopWithHooks,
+  stubWire,
+} from '../loop/stubs';
 
 function injector(ix: TestInstantiationService): IAgentContextInjectorService {
   return ix.get(IAgentContextInjectorService);
@@ -94,12 +95,13 @@ describe('AgentContextInjectorService', () => {
   ): void {
     const backing = (context as StubContextMemory).messages as ContextMessage[];
     backing.splice(start, deleteCount, ...inserted);
-    ix.get(IEventBus).publish({
-      type: 'context.spliced',
-      start,
-      deleteCount,
-      messages: [...inserted],
-    });
+    ix.get(IEventBus).publish(
+      new ContextSpliced({
+        start,
+        deleteCount,
+        messages: [...inserted],
+      }),
+    );
   }
 
   it('registers providers and appends injection messages with the provider variant', async () => {
@@ -212,7 +214,7 @@ describe('AgentContextInjectorService', () => {
     loop.settled = async () => {
       throw new Error('idle reconciliation must not wait for an active turn');
     };
-    loop.tryAcquireQuiescence = () => {};
+    loop.tryAcquireQuiescence = () => undefined;
 
     await injector(ix).reconcileWhenIdle('target');
 
@@ -252,7 +254,10 @@ describe('AgentContextInjectorService', () => {
     await runInjectionStep();
 
     expect(seen).toEqual([null, 0, 0]);
-    expect(context.get().map((message) => message.origin?.kind)).toEqual(['injection', 'user']);
+    expect(context.get().map((message) => message.origin?.kind)).toEqual([
+      'injection',
+      'user',
+    ]);
   });
 
   it('resets every stored injection index after context clear', async () => {
@@ -290,7 +295,11 @@ describe('AgentContextInjectorService', () => {
     });
 
     await runInjectionStep();
-    spliceContext(0, 2, [compactionSummary('Compacted summary.')]);
+    spliceContext(
+      0,
+      2,
+      [compactionSummary('Compacted summary.')],
+    );
     await runInjectionStep();
 
     expect(seen).toEqual([null, null]);
@@ -304,7 +313,10 @@ describe('AgentContextInjectorService', () => {
     const seenA: Array<number | null> = [];
     const seenB: Array<number | null> = [];
 
-    context.append(userMessage('old request'), userMessage('old follow-up'));
+    context.append(
+      userMessage('old request'),
+      userMessage('old follow-up'),
+    );
     injector(ix).register('recording_a', ({ lastInjectedAt }) => {
       seenA.push(lastInjectedAt);
       return lastInjectedAt === null ? 'recorded reminder A' : undefined;
@@ -350,7 +362,7 @@ describe('AgentContextInjectorService', () => {
     const seen: boolean[] = [];
     injector(ix).register('per_turn_test', ({ isNewTurn }) => {
       seen.push(isNewTurn);
-      return;
+      return undefined;
     });
 
     await runInjectionStep(true);

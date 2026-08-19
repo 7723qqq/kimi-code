@@ -146,10 +146,7 @@ export class OAuthTokenTransaction<T extends object> {
       return response;
     }
 
-    const payload: unknown = await response
-      .clone()
-      .json()
-      .catch(() => {});
+    const payload: unknown = await response.clone().json().catch(() => undefined);
     const parsed = this.options.parse(payload);
     if (parsed === undefined) return response;
     const tokens =
@@ -199,9 +196,7 @@ export class OAuthTokenTransaction<T extends object> {
     return true;
   }
 
-  private takeInvalidate(
-    scope: 'tokens' | 'all',
-  ): Extract<Effect<T>, { kind: 'invalidate' }> | undefined {
+  private takeInvalidate(scope: 'tokens' | 'all'): Extract<Effect<T>, { kind: 'invalidate' }> | undefined {
     const index = this.effects.findIndex(
       (effect) =>
         effect.kind === 'invalidate' &&
@@ -220,10 +215,7 @@ function refreshToken(tokens: object | undefined): string | undefined {
 }
 
 async function oauthErrorCode(response: Response): Promise<string | undefined> {
-  const payload: unknown = await response
-    .clone()
-    .json()
-    .catch(() => {});
+  const payload: unknown = await response.clone().json().catch(() => undefined);
   if (typeof payload !== 'object' || payload === null || !('error' in payload)) return undefined;
   return typeof payload.error === 'string' ? payload.error : undefined;
 }

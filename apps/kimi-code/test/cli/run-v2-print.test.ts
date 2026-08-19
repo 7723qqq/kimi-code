@@ -10,7 +10,7 @@ import {
 } from '#/cli/v2/run-v2-print';
 
 function ending(turnId: number, reason: PrintTurnEnding['reason'] = 'completed'): PrintTurnEnding {
-  return { type: 'turn.ended', turnId, reason };
+  return { type: 'turn.ended', turnId, reason } as unknown as PrintTurnEnding;
 }
 
 interface ScriptedEntry {
@@ -29,7 +29,7 @@ function scriptedTurnEndings(entries: ScriptedEntry[]): PrintTurnEndings {
     next: async (_remainingMs: number, skipTurnId: number) => {
       while (queue.length > 0) {
         const entry = queue.shift()!;
-        if (entry.event.turnId === skipTurnId) continue;
+        if (entry.event['turnId'] === skipTurnId) continue;
         entry.apply?.();
         return entry.event;
       }
@@ -175,7 +175,7 @@ describe('applyPrintBackgroundPolicy', () => {
               turnId: 2,
               reason: 'failed',
               error: { code: 'provider.overloaded', message: 'try later' },
-            } as PrintTurnEnding,
+            } as unknown as PrintTurnEnding,
           },
         ]),
         skipTurnId: 1,
@@ -320,7 +320,7 @@ describe('applyPrintBackgroundPolicy', () => {
               turnId: 2,
               reason: 'failed',
               error: { code: 'provider.overloaded', message: 'try later' },
-            } as PrintTurnEnding,
+            } as unknown as PrintTurnEnding,
           },
         ]),
         skipTurnId: 1,

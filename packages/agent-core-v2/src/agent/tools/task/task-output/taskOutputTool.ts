@@ -1,37 +1,21 @@
-/**
- * `tools` domain — `TaskOutputTool` implementation (the `TaskOutput`
- * tool).
- *
- * Returns structured task metadata plus a fixed-size tail preview of the
- * task's output, read through `IAgentTaskService` (`agentTask` domain). The
- * full, never-truncated output lives on disk at `output_path`; the caller is
- * always pointed at the `Read` tool to page through the complete log, and
- * the preview also carries a banner when it has been truncated to a tail.
- *
- * For terminal tasks the output also surfaces why the task ended:
- * `stop_reason` records the concrete reason; `terminal_reason` classifies
- * timeout vs. explicit stop vs. failure for callers that need stable labels.
- *
- * Registered via the module-level `registerAgentToolService(ITaskOutputTool,
- * TaskOutputTool)` at the bottom of this file — the same "import = register"
- * pattern used by every agent tool. Bound at Agent scope.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import { IAgentTaskService } from '#/agent/task/task';
-import type { AgentTaskInfo, AgentTaskOutputSnapshot } from '#/agent/task/task';
-import { formatPlainObject } from '#/agent/task/tools/format';
-import { type AgentTaskStatus, TERMINAL_STATUSES } from '#/agent/task/types';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
 import { type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
+import { IAgentTaskService } from '#/agent/task/task';
+import type {
+  AgentTaskInfo,
+  AgentTaskOutputSnapshot,
+} from '#/agent/task/task';
+import { type AgentTaskStatus, TERMINAL_STATUSES } from '#/agent/task/types';
+import { formatPlainObject } from '#/agent/task/tools/format';
 import { ITaskOutputTool, TaskOutputInputSchema, type TaskOutputInput } from './task-output';
 import TASK_OUTPUT_DESCRIPTION from './task-output.md?raw';
 
 const OUTPUT_PREVIEW_BYTES = 32 * 1024;
+
+const PAGING_HINT_LINES = 300;
 
 function retrievalStatus(status: AgentTaskStatus): 'success' | 'not_ready' {
   return TERMINAL_STATUSES.has(status) ? 'success' : 'not_ready';
@@ -47,9 +31,19 @@ function terminalReason(info: AgentTaskInfo): 'timed_out' | 'stopped' | 'failed'
 function fullOutputHint(output: AgentTaskOutputSnapshot): string | undefined {
   if (!output.fullOutputAvailable || output.outputPath === undefined) return undefined;
   if (output.truncated) {
-    return t('toolsV2.task.outputTruncatedHint', { bytes: String(OUTPUT_PREVIEW_BYTES) });
+    return (
+      `Only the last ${String(OUTPUT_PREVIEW_BYTES)} bytes are shown above. ` +
+      'Use the Read tool with the output_path to page through the full log ' +
+      `(parameters: path, line_offset, n_lines; read about ${String(PAGING_HINT_LINES)} ` +
+      'lines per page).'
+    );
   }
-  return t('toolsV2.task.outputCompleteHint');
+  return (
+    'The preview above is the complete output. Use the Read tool with the output_path ' +
+    'if you need to re-read the full log later ' +
+    `(parameters: path, line_offset, n_lines; read about ${String(PAGING_HINT_LINES)} ` +
+    'lines per page).'
+  );
 }
 
 export class TaskOutputTool implements ITaskOutputTool {
@@ -72,7 +66,7 @@ export class TaskOutputTool implements ITaskOutputTool {
   private async execute(args: TaskOutputInput): Promise<ExecutableToolResult> {
     const current = this.tasks.getTask(args.task_id);
     if (!current) {
-      return { isError: true, output: t('toolsV2.task.notFound', { taskId: args.task_id }) };
+      return { isError: true, output: `Task not found: ${args.task_id}` };
     }
 
     const output = await this.tasks.getOutputSnapshot(args.task_id, OUTPUT_PREVIEW_BYTES);
@@ -97,11 +91,11 @@ export class TaskOutputTool implements ITaskOutputTool {
     if (output.truncated) {
       lines.push(
         output.fullOutputAvailable && output.outputPath !== undefined
-          ? t('toolsV2.task.truncatedFull', { path: output.outputPath })
-          : t('toolsV2.task.truncatedNoLog'),
+          ? `[Truncated. Full output: ${output.outputPath}]`
+          : '[Truncated. No persisted full log is available for this task.]',
       );
     }
-    lines.push('[output]', output.preview || t('toolsV2.task.noOutput'));
+    lines.push('[output]', output.preview || '[no output available]');
 
     return {
       output: lines.join('\n'),
@@ -110,7 +104,4 @@ export class TaskOutputTool implements ITaskOutputTool {
   }
 }
 
-registerAgentToolService(ITaskOutputTool, TaskOutputTool, {
-  name: 'TaskOutput',
-  domain: 'agentTask',
-});
+registerAgentToolService(ITaskOutputTool, TaskOutputTool, { name: 'TaskOutput', domain: 'agentTask' });

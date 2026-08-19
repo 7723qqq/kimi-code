@@ -1,12 +1,4 @@
-/**
- * `goal` domain — main-agent goal lifecycle contract.
- *
- * Defines the commands and snapshots used to create, inspect, update, and clear
- * the durable goal state. Bound at Agent scope; subagent callers are rejected
- * with `goal.unsupported_agent`.
- */
-import { createDecorator } from '#/_base/di/instantiation';
-
+import { createDecorator } from "#/_base/di/instantiation";
 import type {
   CreateGoalInput,
   GoalActor,
@@ -39,9 +31,6 @@ export interface IAgentGoalService {
   ): Promise<GoalSnapshot>;
   markComplete(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
   markBlocked(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
-  markBudgetLimited(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
-  usageLimitActiveGoal(input?: GoalReasonInput, actor?: GoalActor): Promise<GoalSnapshot | null>;
-  recordBlockedAttempt(): Promise<GoalSnapshot | null>;
 }
 
 export const IAgentGoalService = createDecorator<IAgentGoalService>('agentGoalService');

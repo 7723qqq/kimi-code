@@ -1,15 +1,5 @@
-/**
- * Zod → JSON Schema conversion helpers for Fastify `@fastify/swagger`.
- *
- * All server REST responses are wrapped in a uniform envelope
- * `{ code, msg, data, request_id }`. The helpers here let route modules
- * declare their OpenAPI schema by re-using the same Zod schemas that
- * already drive runtime validation — no second source of truth.
- */
-
-import { z } from 'zod';
-
 import { envelopeSchema } from '../protocol/envelope';
+import { z } from 'zod';
 
 /**
  * Convert a Zod schema to a plain JSON Schema object suitable for
@@ -64,7 +54,9 @@ function jsonSchemaForTarget(
  * Wrap a data Zod schema in the server's envelope shape and return its
  * JSON Schema representation.
  */
-export function envelopeJsonSchema(dataSchema: z.ZodTypeAny): Record<string, unknown> {
+export function envelopeJsonSchema(
+  dataSchema: z.ZodTypeAny,
+): Record<string, unknown> {
   return outputJsonSchema(envelopeSchema(dataSchema));
 }
 

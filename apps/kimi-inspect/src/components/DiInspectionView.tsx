@@ -35,14 +35,14 @@ import {
 } from '@moonshot-ai/agent-core-v2/debug/debugCascade';
 import { IDebugGraphService, type DebugGraph } from '@moonshot-ai/agent-core-v2/debug/debugGraph';
 import {
+  IDebugEventsService,
+  type DebugEventSubscriptions,
+} from '@moonshot-ai/agent-core-v2/features/debugEvents/debugEvents';
+import {
   IDebugLedgerService,
   type DebugLedgerNode,
   type DebugUnit,
 } from '@moonshot-ai/agent-core-v2/debug/debugLedger';
-import {
-  IDebugEventsService,
-  type DebugEventSubscriptions,
-} from '@moonshot-ai/agent-core-v2/features/debugEvents/debugEvents';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 
@@ -401,7 +401,9 @@ function GraphPanel() {
 // ---------------------------------------------------------------------------
 
 function EventsPanel() {
-  const query = useDiQuery('events', (klient) => klient.core(IDebugEventsService).subscriptions());
+  const query = useDiQuery('events', (klient) =>
+    klient.core(IDebugEventsService).subscriptions(),
+  );
   const gate = panelGate(query);
   if (gate !== null) return gate;
   return <DiEventsPanel data={query.data as DebugEventSubscriptions} />;

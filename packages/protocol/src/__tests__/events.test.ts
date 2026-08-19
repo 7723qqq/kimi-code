@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, it, expect } from 'vitest';
 
-import type { ToolInputDisplay } from '../display';
 import {
   agentEventSchema,
   assistantDeltaEventSchema,
@@ -13,6 +12,7 @@ import {
   toolCallStartedEventSchema,
 } from '../events';
 import type { Event } from '../events';
+import type { ToolInputDisplay } from '../display';
 
 type _AssertEventNonNever = Event extends never ? never : true;
 const _assertEvent: _AssertEventNonNever = true;
@@ -25,7 +25,9 @@ const sdkPackageName = ['@moonshot-ai', 'kimi-code-sdk'].join('/');
 
 function readPackageFiles(): string {
   const files = ['package.json', ...sourceFiles(join(packageRoot, 'src'))];
-  return files.map((file) => readFileSync(join(packageRoot, file), 'utf8')).join('\n');
+  return files
+    .map((file) => readFileSync(join(packageRoot, file), 'utf8'))
+    .join('\n');
 }
 
 function sourceFiles(dir: string): string[] {
@@ -112,10 +114,12 @@ describe('events / display re-exports', () => {
       sessionId: 'sess_1',
       turnId: 1,
       origin: { kind: 'user' },
+      promptId: 'prompt_1',
     });
 
     expect(parsed.agentId).toBe('agent_1');
     expect(parsed.sessionId).toBe('sess_1');
+    expect((parsed as { promptId?: string }).promptId).toBe('prompt_1');
   });
 
   it('validates prompt.submitted events', () => {

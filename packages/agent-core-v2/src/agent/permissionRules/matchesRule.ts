@@ -1,10 +1,7 @@
-import { t } from '@moonshot-ai/kimi-i18n';
+import picomatch from 'picomatch';
 
-import { tryNativeParsePermissionPattern } from '#/_base/native-tools';
 import { Error2, ErrorCodes } from '#/errors';
 import type { RunnableToolExecution } from '#/tool/toolContract';
-
-import { tryNativeGlobMatch } from '../../tool/native-glob-match';
 import type { PermissionRule } from './permissionRules';
 
 export interface ParsedPattern {
@@ -33,19 +30,9 @@ export interface PermissionRuleMatchInput {
 }
 
 export function parsePattern(pattern: string): ParsedPattern {
-  // Native fast-path: the Rust parser is authoritative when available. An
-  // "ERROR: ..." result (invalid pattern) deliberately falls back to the TS
-  // parser below so the existing Error2 throw semantics are preserved.
-  const native = tryNativeParsePermissionPattern(pattern);
-  if (native !== undefined) {
-    return native.argPattern === null
-      ? { toolName: native.toolName }
-      : { toolName: native.toolName, argPattern: native.argPattern };
-  }
-
   const trimmed = pattern.trim();
   if (trimmed.length === 0) {
-    throw new Error2(ErrorCodes.VALIDATION_FAILED, t('v2Errors.permissionPatternEmpty'));
+    throw new Error2(ErrorCodes.VALIDATION_FAILED, 'permission pattern: empty string');
   }
 
   const openIdx = trimmed.indexOf('(');
@@ -54,19 +41,13 @@ export function parsePattern(pattern: string): ParsedPattern {
   }
 
   if (!trimmed.endsWith(')')) {
-    throw new Error2(
-      ErrorCodes.VALIDATION_FAILED,
-      t('v2Errors.permissionPatternMissingParen', { pattern }),
-    );
+    throw new Error2(ErrorCodes.VALIDATION_FAILED, `permission pattern: missing closing paren in "${pattern}"`);
   }
 
   const toolName = trimmed.slice(0, openIdx);
   const argPattern = trimmed.slice(openIdx + 1, -1);
   if (toolName.length === 0) {
-    throw new Error2(
-      ErrorCodes.VALIDATION_FAILED,
-      t('v2Errors.permissionPatternEmptyTool', { pattern }),
-    );
+    throw new Error2(ErrorCodes.VALIDATION_FAILED, `permission pattern: empty tool name in "${pattern}"`);
   }
   if (argPattern.length === 0) {
     return { toolName };
@@ -88,7 +69,7 @@ export function matchPermissionRule({
     return undefined;
   }
 
-  if (parsed.toolName !== '*' && !tryNativeGlobMatch(toolName, parsed.toolName)) {
+  if (parsed.toolName !== '*' && !picomatch.isMatch(toolName, parsed.toolName)) {
     return undefined;
   }
 

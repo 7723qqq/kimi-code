@@ -2,8 +2,9 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { SkillSummary } from '@moonshot-ai/agent-core-v2';
 import { afterEach, describe, expect, it } from 'vitest';
+
+import type { SkillSummary } from '@moonshot-ai/agent-core-v2';
 
 import { ACP_BUILTIN_SLASH_COMMANDS } from '../src/builtin-commands';
 import { buildAcpSkillSlashCommands } from '../src/slash';
@@ -19,7 +20,8 @@ interface AvailableCommand {
 
 /** The update payload's command list, typed loosely for assertions. */
 function commandsOf(notification: unknown): readonly AvailableCommand[] {
-  const params = (notification as { params?: { update?: { availableCommands?: unknown } } }).params;
+  const params = (notification as { params?: { update?: { availableCommands?: unknown } } })
+    .params;
   return (params?.update?.availableCommands ?? []) as readonly AvailableCommand[];
 }
 
@@ -82,8 +84,6 @@ describe('acp-server skills / available commands', () => {
       client = undefined;
     }
     if (homeDir !== undefined) {
-      // maxRetries: session-store flushes / lingering handles can still hold
-      // the temp dir briefly after close — EBUSY/ENOTEMPTY on Windows.
       await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       homeDir = undefined;
     }
@@ -132,9 +132,8 @@ describe('acp-server skills / available commands', () => {
     const notification = await c.waitForSessionUpdate('available_commands_update', 10_000);
     const commands = commandsOf(notification);
     // The six ACP builtins (executed locally by the host) stay first…
-    expect(
-      commands.slice(0, ACP_BUILTIN_SLASH_COMMANDS.length).map((command) => command.name),
-    ).toEqual(ACP_BUILTIN_SLASH_COMMANDS.map((command) => command.name));
+    expect(commands.slice(0, ACP_BUILTIN_SLASH_COMMANDS.length).map((command) => command.name))
+      .toEqual(ACP_BUILTIN_SLASH_COMMANDS.map((command) => command.name));
     // …followed by the engine's builtin skills (bare command names).
     expect(commands.length).toBeGreaterThan(ACP_BUILTIN_SLASH_COMMANDS.length);
     expect(commands.some((command) => command.name === 'write-goal')).toBe(true);
@@ -252,10 +251,7 @@ describe('acp-server skills / available commands', () => {
 
     const help = c
       .sessionUpdates()
-      .map(
-        (m) =>
-          (m.params as { update?: { sessionUpdate?: string; content?: { text?: string } } }).update,
-      )
+      .map((m) => (m.params as { update?: { sessionUpdate?: string; content?: { text?: string } } }).update)
       .find((update) => update?.sessionUpdate === 'agent_message_chunk')?.content?.text;
     expect(help).toContain('/skill:acp-fixture — ACP fixture skill');
   }, 30_000);

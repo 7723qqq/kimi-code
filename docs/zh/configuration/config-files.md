@@ -40,7 +40,7 @@ model = "k3"
 max_context_size = 1048576
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
 display_name = "K3"
-support_efforts = [ "max" ]
+support_efforts = [ "low", "high", "max" ]
 default_effort = "max"
 
 [models."kimi-code/kimi-for-coding"]
@@ -103,7 +103,7 @@ timeout = 5
 | `merge_all_available_skills` | `boolean` | `true` | 是否合并所有目录中的 Agent Skills |
 | `extra_skill_dirs` | `array<string>` | — | 额外 Skill 搜索目录，叠加到默认目录之上 |
 | `extra_agent_dirs` | `array<string>` | — | 额外自定义 Agent 搜索目录，叠加到默认目录之上 |
-| `builtin_product_skills` | `boolean` | `true` | 是否向模型提供介绍 Kimi Code 自身的内置 Skills：`update-config`、`custom-theme`、`mcp-config`、`check-kimi-code-docs`、`import-from-cc-codex`。关闭后它们的名称和描述不再进入系统提示词，代价是失去这些任务的引导流程。`agent-core-v2` 引擎会读取本字段 |
+| `builtin_product_skills` | `boolean` | `true` | 是否向模型提供介绍 Kimi Code 自身的内置 Skills：`update-config`、`custom-theme`、`mcp-config`、`check-kimi-code-docs`、`import-from-cc-codex`。关闭后它们的名称和描述不再进入系统提示词，代价是失去这些任务的引导流程。默认的 `agent-core-v2` 引擎会读取本字段；设置 `KIMI_CODE_LEGACY_FLAG=1` 选择旧版引擎时会忽略 |
 | `telemetry` | `boolean` | `true` | 是否启用匿名遥测；显式设为 `false` 时关闭 |
 | `providers` | `table` | `{}` | API 供应商表 → [`providers`](#providers) |
 | `models` | `table` | — | 模型别名表 → [`models`](#models) |
@@ -125,7 +125,7 @@ timeout = 5
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `type` | `string` | 是 | 供应商类型：`kimi`、`anthropic`、`openai`、`openai_responses`、`google-genai` |
+| `type` | `string` | 是 | 供应商类型：`kimi`、`anthropic`、`openai`、`openai_responses`、`google-genai`、`vertexai` |
 | `api_key` | `string` | 否 | API 密钥，明文写在配置文件里 |
 | `base_url` | `string` | 否 | API 基础 URL |
 | `oauth` | `table` | 否 | OAuth 凭据引用（`storage`、`key` 两个字段），由登录流程自动注入，通常无需手写 |
@@ -220,7 +220,7 @@ default_model = "kimi-code/kimi-for-coding-highspeed"
 default_model = "kimi-code/kimi-for-coding-highspeed"
 [secondary_model.models]
 "kimi-code/k3" = "难题选它。擅长复杂推理、算法设计、深度调试、数学和系统性难题。"
-"kimi-code/kimi-for-coding-highspeed" = "又快又便宜。适合日常重构、代码解释、小改动、总结和批量简单任务。"
+"kimi-code/kimi-for-coding-highspeed" = "速度快但单价较高。适合日常重构、代码解释、小改动、总结等看重响应速度的任务。"
 "kimi-code/kimi-for-coding" = "均衡的编码主力。适合大多数功能开发和代码修改任务。"
 ```
 
@@ -236,22 +236,25 @@ force = true
 
 设置 `force` 后不再提供 `model` 参数（与完全未配置时一样），每次派生都绑定 `default_model`；显式传入 `model`（包括 `"primary"`）会报错。`force` 必须搭配 `default_model`，且不能与 `[secondary_model.models]` 表同时使用——表的意义在于提供选择，而 force 取消了选择。
 
-利用自然解析会落到所绑定模型的默认 effort 这一点，可以给池中不同条目配不同的 Thinking 档位：为同一个底层模型再注册一个 `[models]` 条目作为「变体」，用 [`[models."<alias>".overrides]`](#模型覆盖项) 只覆盖 `default_effort`，再把两个别名都放进模型池——main agent 挑选别名时便同时选定了档位：
+利用自然解析会落到所绑定模型的默认 effort 这一点，可以给池中不同条目配不同的 Thinking 档位：为同一个底层模型再注册一个 `[models]` 条目作为「变体」，用 [`[models."<alias>".overrides]`](#模型覆盖项) 只覆盖 `default_effort`，再把两个别名都放进模型池——main agent 挑选别名时便同时选定了档位。有两个前提：底层模型必须声明了 `support_efforts`（`managed:kimi-code` 下目前只有 k3 系列声明了档位）；且变体是独立条目，不会继承被指向条目的字段——`capabilities`、`support_efforts` 等元数据要完整照抄，否则 `default_effort` 不生效（它必须是 `support_efforts` 列表中的值）：
 
 ```toml
-# "kimi-code/kimi-for-coding-highspeed" 由 /login 提供；这里为同一模型注册一个高档位变体
-[models.kimi-for-coding-highspeed-deep]
+# "kimi-code/k3" 由 /login 提供（默认 high 档）；这里为同一模型注册一个 max 档位变体
+[models.k3-max]
 provider = "managed:kimi-code"
-model = "kimi-for-coding-highspeed"
+model = "k3"
+max_context_size = 1048576
+capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
+support_efforts = [ "low", "high", "max" ]
 
-[models.kimi-for-coding-highspeed-deep.overrides]
-default_effort = "high"
+[models.k3-max.overrides]
+default_effort = "max"
 
 [secondary_model]
-default_model = "kimi-code/kimi-for-coding-highspeed"
+default_model = "kimi-code/k3"
 [secondary_model.models]
-"kimi-code/kimi-for-coding-highspeed" = "又快又便宜。适合日常重构、代码解释、小改动、总结和批量简单任务。"
-kimi-for-coding-highspeed-deep = "同一模型的高 Thinking 档位。适合较难的子任务。"
+"kimi-code/k3" = "默认 high 档位。适合大多数实现、分析和多轮交互任务。"
+k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 ```
 
 注意 `default_effort` 是模型级默认值：一旦设置了全局 `[thinking].effort`，它对 main agent 和 subagent 都优先生效，变体的默认档位只在全局未设置时起作用。取值与回落规则同 [`[models]` 条目的 `default_effort`](#models)。
@@ -368,7 +371,7 @@ slug = "acme-dev"        # 可选
 
 身份在启动时解析一次，进程生命周期内保持不变——建立连接时它已宣告给 MCP 服务器和 provider，中途无法更换。修改本节配置在下次启动时对新会话生效；resume 的会话保留录制时的系统提示词，因为其历史轮次本就以原身份自称。同理，已完成的 MCP OAuth 授权保留其授予时的客户端注册；重置该服务器的认证即可在新身份下重新注册。
 
-本节由 `agent-core-v2` 引擎读取。
+本节由默认的 `agent-core-v2` 引擎读取。设置 `KIMI_CODE_LEGACY_FLAG=1` 后，旧版 `kimi` / `kimi -p` 路径会忽略此配置；`kimi web` 始终使用 `agent-core-v2`。
 
 ## `tools`
 
@@ -483,7 +486,7 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
 | `[notifications].enabled` | `boolean` | `true` | 是否发送桌面通知 |
 | `[notifications].notification_condition` | `string` | `unfocused` | 何时通知：`unfocused`（仅终端失去焦点时）或 `always`（总是） |
 | `[upgrade].auto_install` | `boolean` | `true` | 是否自动安装新版本 |
-| `[status_line].items` | `string[]` | `null` | 底部状态栏第一行展示哪些内置槽位及其顺序：`mode`、`goal`、`model`、`tasks`、`cwd`、`git`、`tips`。缺省（null）保持默认布局；未知 id 跳过并告警 |
+| `[status_line].items` | `string[]` | `[]` | 底部状态栏第一行展示哪些内置槽位及其顺序：`mode`、`goal`、`model`、`tasks`、`cwd`、`git`、`tips`。缺省保持默认布局；未知 id 跳过并告警 |
 | `[status_line].command` | `string` | `""` | 自定义状态栏命令。其 stdout 第一行替换状态栏第一行，stdin 会收到 JSON 快照（model、cwd、git 分支、permission 模式、plan 模式、上下文用量、session id、版本）。运行上限 300ms、每秒最多一次；失败时回退内置布局 |
 
 ```toml

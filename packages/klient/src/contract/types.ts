@@ -38,9 +38,7 @@ export function isStreamingContract(
 }
 
 /** method name → procedure */
-export type ServiceContract = Readonly<
-  Record<string, ProcedureContract | StreamingProcedureContract>
->;
+export type ServiceContract = Readonly<Record<string, ProcedureContract | StreamingProcedureContract>>;
 
 /** service wire name (decorator id string) → its methods */
 export type KlientContract = Readonly<Record<string, ServiceContract>>;

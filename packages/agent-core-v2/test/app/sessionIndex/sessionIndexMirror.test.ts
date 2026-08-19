@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -13,12 +14,7 @@ import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
-import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import {
-  drainSessionIndexMirror,
-  SessionIndexMirror,
-} from '#/app/sessionIndex/sessionIndexMirrorService';
 import {
   SESSION_INDEX_MANIFEST,
   sessionCollection,
@@ -26,14 +22,15 @@ import {
   type SessionWorkspaceCounts,
 } from '#/app/sessionIndex/sessionIndexModel';
 import {
-  drainQueryStoreDisposals,
-  MiniDbQueryStore,
-} from '#/persistence/backends/minidb/miniDbQueryStore';
+  drainSessionIndexMirror,
+  SessionIndexMirror,
+} from '#/app/sessionIndex/sessionIndexMirrorService';
+import { drainQueryStoreDisposals, MiniDbQueryStore } from '#/persistence/backends/minidb/miniDbQueryStore';
 import { IQueryStore } from '#/persistence/interface/queryStore';
 
-import { stubLog } from '../../_base/log/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubFlag } from '../flag/stubs';
+import { stubLog } from '../../_base/log/stubs';
 
 const WORKSPACE = 'wd_test';
 const GENERATION = 1;
@@ -107,12 +104,7 @@ describe('SessionIndexMirror', () => {
     mirror.record(summary('a', { title: 'first', updatedAt: 1 }));
     mirror.record(summary('a', { title: 'latest', updatedAt: 5 }));
     mirror.record(summary('b', { archived: true, updatedAt: 3 }));
-    expect(
-      mirror
-        .pending()
-        .map((s) => s.id)
-        .toSorted(),
-    ).toEqual(['a', 'b']);
+    expect(mirror.pending().map((s) => s.id).sort()).toEqual(['a', 'b']);
 
     await mirror.drain();
     expect(mirror.pending()).toEqual([]);
@@ -169,8 +161,6 @@ describe('SessionIndexMirror', () => {
       host.dispose();
     };
     queryStore = host.app.accessor.get(IQueryStore);
-    // Hang the store: every manifest read takes a second. record() must stay
-    // synchronous regardless — the user mutation path never waits.
     const real = queryStore.getCheckpoint.bind(queryStore);
     queryStore.getCheckpoint = async (source: string) => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -191,8 +181,6 @@ describe('SessionIndexMirror', () => {
     build();
     mirror.record(summary('a'));
     await mirror.drain();
-    // Nothing lost: without a published generation the entries stay queued
-    // (the running projection covers them from the authoritative documents).
     expect(mirror.pending().map((s) => s.id)).toEqual(['a']);
   });
 
@@ -212,7 +200,6 @@ describe('SessionIndexMirror', () => {
 
     mirror.record(summary('a', { updatedAt: 7 }));
     await mirror.drain();
-    // The first drain attempt failed; the entries must still be queued.
     expect(mirror.pending().map((s) => s.id)).toEqual(['a']);
 
     await mirror.drain();

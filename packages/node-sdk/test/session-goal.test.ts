@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { SDKRpcClientBase } from '#/rpc';
 import { Session } from '#/session';
+import type { SDKRpcClientBase } from '#/rpc';
 
 function makeSession() {
   const rpc = {
@@ -71,8 +71,8 @@ describe('Session goal methods', () => {
   it('keeps the goal metadata key reserved for lifecycle methods', async () => {
     const { session } = makeSession();
 
-    await expect(session.updateMetadata({ goal: { status: 'complete' } })).rejects.toMatchObject({
-      code: 'goal.metadata_reserved',
-    });
+    await expect(
+      session.updateMetadata({ goal: { status: 'complete' } }),
+    ).rejects.toMatchObject({ code: 'goal.metadata_reserved' });
   });
 });

@@ -52,7 +52,7 @@ import {
   stubToolExecutorEvents,
   type ToolExecutorEventStubs,
 } from '../../agent/toolExecutor/stubs';
-import { registerTestAgentWire, testWireScope } from '../../wire/stubs';
+import { registerTestAgentWire, registerTestEventDispatcher, testWireScope } from '../../wire/stubs';
 
 // 鈹€鈹€ Helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
@@ -134,6 +134,10 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
       log: ix.get(IAppendLogStore),
       eventBus: ix.get(IEventBus),
     });
+    // AgentSwarmService contributes the replayable `swarm` state key at
+    // construction and reads it back through `agentState`; a real
+    // AgentStateService plus a dispatcher make enter/exit drive `isActive`.
+    registerTestEventDispatcher(ix);
     ix.set(IAgentSystemReminderService, new SyncDescriptor(AgentSystemReminderService));
     // SwarmInjection (constructed with AgentSwarmService) registers a
     // context-injection provider; the veto suite only exercises the veto

@@ -1,4 +1,4 @@
-import type { RunResult, StreamEvent } from './legacy-sdk';
+import type { RunResult, StreamEvent } from "./legacy-sdk";
 
 export interface SessionConfig {
   model: string;
@@ -21,7 +21,7 @@ export interface ProjectFile {
 
 export interface FileChange {
   path: string;
-  status: 'Modified' | 'Added' | 'Deleted';
+  status: "Modified" | "Added" | "Deleted";
   additions: number;
   deletions: number;
 }
@@ -42,13 +42,13 @@ export interface WorkspaceStatus {
   workspaceRoot?: string;
 }
 
-export type ErrorPhase = 'preflight' | 'runtime';
+export type ErrorPhase = "preflight" | "runtime";
 
 export interface StreamError {
-  type: 'error';
+  type: "error";
   code: string;
   message: string;
-  detail?: string; // Raw server error message
+  detail?: string; // 原始服务器错误信息
   phase: ErrorPhase;
   /**
    * `false` marks a mid-turn warning: the turn is still running, so UIs must
@@ -59,8 +59,8 @@ export interface StreamError {
 }
 
 export type UIStreamEvent =
-  | { type: 'session_start'; sessionId: string; model?: string; _sessionId?: string }
-  | { type: 'stream_complete'; result: RunResult; _sessionId?: string }
+  | { type: "session_start"; sessionId: string; model?: string; _sessionId?: string }
+  | { type: "stream_complete"; result: RunResult; _sessionId?: string }
   | (StreamError & { _sessionId?: string })
   | (StreamEvent & { _sessionId?: string });
 
@@ -68,4 +68,4 @@ export interface LoginStatus {
   loggedIn: boolean;
 }
 
-export type { QuestionRequest, QuestionItem, QuestionOption, QuestionResponse } from './legacy-sdk';
+export type { QuestionRequest, QuestionItem, QuestionOption, QuestionResponse } from "./legacy-sdk";

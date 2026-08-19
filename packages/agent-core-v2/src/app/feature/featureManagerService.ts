@@ -1,27 +1,19 @@
-/**
- * `feature` domain — `FeatureManagerService`: the App-scope unit manager.
- *
- * See `featureManager.ts` for the domain contract. Implementation notes:
- * managed units are assembled through this unit's own `this.provide`, so
- * they anchor on its book (manager death retracts them all); the managed set
- * is keyed by unit name — a second `provideUnit` of the same name replaces
- * the previous handle (retract-then-assemble is the caller's cascade).
- */
-
 import type { CollectionView } from '#/_base/di/collection';
+import { Emitter, type Event } from '#/_base/event';
 import type {
   FiberHandle,
   FiberProvideOptions,
   ServiceClassRecipe,
   ServiceRecipe,
 } from '#/_base/di/fiber';
-import { isServiceIdentifier, type ServiceIdentifier } from '#/_base/di/instantiation';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Service } from '#/_base/di/service';
-import { Emitter, type Event } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
-
-import { IFeatureManager, type ManagedUnitInfo } from './featureManager';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { isServiceIdentifier, type ServiceIdentifier } from '#/_base/di/instantiation';
+import { Service } from '#/_base/di/service';
+import {
+  IFeatureManager,
+  type ManagedUnitInfo,
+} from './featureManager';
 import {
   FeatureServiceContribution,
   type ContributedFeatureService,
@@ -49,9 +41,7 @@ export class FeatureManagerService extends Service implements IFeatureManager {
     opts?: FiberProvideOptions,
   ): FiberHandle<T>;
   provideUnit(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     first: ServiceRecipe | ServiceIdentifier<any>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     second?: any,
     third?: FiberProvideOptions,
   ): FiberHandle {

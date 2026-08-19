@@ -1,12 +1,3 @@
-/**
- * `media` domain — daemon file-store URL and media path-tag helpers.
- *
- * Pure functions for the internal `kimi-file://` media URLs (build / parse /
- * sniff from parts) and the model-facing `<image|video|audio|file path="…">`
- * tags: mime-by-suffix tables, kind detection, and escaping. No scoped
- * service.
- */
-
 import { join } from 'node:path';
 
 import type { ContentPart } from '#/kosong/contract/message';

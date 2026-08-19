@@ -1,27 +1,16 @@
-/**
- * `contextInjector` domain — `IAgentContextInjectorService` implementation.
- *
- * Reconciles registered model-context providers against `contextMemory` at the
- * head of every loop step (before the step's request is built), so every LLM
- * request sees the freshest injections. A compaction splice re-arms the
- * new-turn flag for the next step. `reconcileWhenIdle` lets out-of-loop
- * callers (SDK RPC surfaces) refresh one provider immediately while the loop
- * is quiet. Writes reminders through `systemReminder` and reports provider
- * failures through `log`. Bound at Agent scope.
- */
-
-import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { toDisposable, type IDisposable } from "#/_base/di/lifecycle";
+import { Service } from "#/_base/di/service";
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Service } from '#/_base/di/service';
 import { ILogService } from '#/_base/log/log';
-import { isCompactionSummaryMessage } from '#/agent/contextMemory/compactionHandoff';
+
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage } from '#/agent/contextMemory/types';
+import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
+import { isCompactionSummaryMessage } from '#/agent/contextMemory/compactionHandoff';
 import { IAgentLoopService, type BeforeStepContext } from '#/agent/loop/loop';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IEventBus } from '#/app/event/eventBus';
-import { LifecycleScope } from '#/app/scopes';
-
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
   IAgentContextInjectorService,
   type ContextInjectionContent,
@@ -55,13 +44,16 @@ export class AgentContextInjectorService extends Service implements IAgentContex
       ),
     );
     this._register(
-      this.eventBus.subscribe('context.spliced', (splice) => {
+      this.eventBus.subscribe(ContextSpliced, (splice) => {
         if (isCompactionSplice(splice)) this.compactionRearmPending = true;
       }),
     );
   }
 
-  register<D = unknown>(name: string, provider: ContextInjectionProvider<D>): IDisposable {
+  register<D = unknown>(
+    name: string,
+    provider: ContextInjectionProvider<D>,
+  ): IDisposable {
     const entry: ContextInjectionEntry = {
       provider: provider as ContextInjectionProvider<unknown>,
       name,
@@ -92,9 +84,6 @@ export class AgentContextInjectorService extends Service implements IAgentContex
     const rearmed = this.takeCompactionRearm();
     await this.inject(ctx.firstStepOfTurn || rearmed);
     await next();
-    // Compaction can run inside a later handler of this same chain
-    // (full-compaction's beforeStep). Its splice always drops injection
-    // messages, so re-reconcile here — still before the step's request.
     if (this.takeCompactionRearm()) {
       await this.inject(true);
     }
@@ -138,7 +127,9 @@ export class AgentContextInjectorService extends Service implements IAgentContex
       lastInjectedAt,
       lastInjection,
       lastDisclosure:
-        lastInjection?.origin?.kind === 'injection' ? lastInjection.origin.disclosure : undefined,
+        lastInjection?.origin?.kind === 'injection'
+          ? lastInjection.origin.disclosure
+          : undefined,
       isNewTurn,
     };
   }
@@ -213,7 +204,10 @@ function isInjectionResult(
   );
 }
 
-function findInjections(history: readonly ContextMessage[], variant: string): number[] {
+function findInjections(
+  history: readonly ContextMessage[],
+  variant: string,
+): number[] {
   const positions: number[] = [];
   history.forEach((message, index) => {
     if (message.origin?.kind === 'injection' && message.origin.variant === variant) {

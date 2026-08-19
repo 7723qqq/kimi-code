@@ -1,5 +1,4 @@
 import type * as ChildProcess from 'node:child_process';
-import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -528,7 +527,7 @@ describe('runUpdatePreflight', () => {
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
-  it('native on darwin: spawns bash -c with pipefail-guarded curl|bash', async () => {
+  it('native on darwin: self-spawns the hidden downloader after an explicit install choice', async () => {
     disableAutoInstall();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
@@ -541,32 +540,37 @@ describe('runUpdatePreflight', () => {
       const { options } = captureOutput();
       await runUpdatePreflight('0.4.0', options);
       const call = mocks.spawn.mock.calls[0];
-      expect(call?.[0]).toBe('bash');
+      // Native installs self-spawn the hidden `__update_download` sub-command
+      // (no shell, no pipeline) instead of the old curl|bash dance; the
+      // explicit choice marks the stage as manual.
+      expect(call?.[0]).toBe(process.execPath);
+      expect(call?.[1]).toEqual(['__update_download', '0.5.0', '--manual']);
       expect(call?.[2]).toEqual({ stdio: 'inherit' });
-      const [flag, script] = call?.[1] as string[];
-      expect(flag).toBe('-c');
-      // pipefail must come before the pipeline so a failed `curl` is not masked
-      // by the trailing `bash` exiting 0 (see "surfaces a failed curl" below).
-      expect(script).toContain('set -o pipefail');
-      expect(script).toContain('curl -fsSL https://code.kimi.com/kimi-code/install.sh');
-      expect(script).toContain('| bash');
+      expect(mocks.promptForInstallChoice).toHaveBeenCalledTimes(1);
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
     }
   });
 
-  it('native on win32: prints manual powershell command, does not spawn', async () => {
+  it('native on win32: self-spawns the hidden downloader after an explicit install choice', async () => {
+    disableAutoInstall();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('native');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
     const originalPlatform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32' });
     try {
-      const { stdout, options } = captureOutput();
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      expect(stdout.join('')).toContain('irm https://code.kimi.com/kimi-code/install.ps1 | iex');
-      expect(promptForInstallChoice).not.toHaveBeenCalled();
-      expect(mocks.spawn).not.toHaveBeenCalled();
+      const { options } = captureOutput();
+      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
+      const call = mocks.spawn.mock.calls[0];
+      // Same self-spawn as darwin — no PowerShell `irm | iex` prompt; the
+      // native .exe downloader needs no shell even on win32.
+      expect(call?.[0]).toBe(process.execPath);
+      expect(call?.[1]).toEqual(['__update_download', '0.5.0', '--manual']);
+      expect(call?.[2]).toEqual({ stdio: 'inherit' });
+      expect(mocks.promptForInstallChoice).toHaveBeenCalledTimes(1);
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
     }
@@ -1295,21 +1299,13 @@ describe('runUpdatePreflight', () => {
 });
 
 describe('spawnForSource native', () => {
-  // No spawn mock here — we run real bash to prove the failure contract
-  // end-to-end. `curl … | bash` reports only the trailing bash's exit status,
-  // so a curl that never connects (exit 7, empty stdin → bash exits 0) is
-  // masked and the update is wrongly reported as successful. `set -o pipefail`
-  // makes the pipeline surface curl's failure. Shadowing `curl` with a shell
-  // function keeps this offline and deterministic; skipped on Windows (no bash,
-  // and native auto-install is unsupported there anyway).
-  it.skipIf(process.platform === 'win32')(
-    'surfaces a failed curl download as a non-zero exit',
-    () => {
-      const { cmd, args } = spawnForSource('native', '0.5.0', 'darwin');
-      const script = `curl() { return 7; }\n${args[1] ?? ''}`;
-      const result = spawnSync(cmd, [args[0] ?? '-c', script], { encoding: 'utf8' });
-      expect(result.error).toBeUndefined();
-      expect(result.status).toBeGreaterThan(0);
-    },
-  );
+  // Native installs self-spawn the hidden `__update_download` sub-command:
+  // the exe is already absolute (process.execPath), never goes through a
+  // shell, and the downloader owns its failure reporting — no curl|bash
+  // pipeline whose exit status could mask a failed download.
+  it('self-spawns the hidden downloader sub-command', () => {
+    const { cmd, args } = spawnForSource('native', '0.5.0', 'darwin');
+    expect(cmd).toBe(process.execPath);
+    expect(args).toEqual(['__update_download', '0.5.0']);
+  });
 });

@@ -41,10 +41,13 @@ describe('web asset cache policy', () => {
     '/sessions/active',
     '/favicon.svg',
     '/assets/application-configuration.json',
-  ])('requires revalidation for %s', async (url) => {
-    const response = await app.inject({ method: 'GET', url });
+  ])(
+    'requires revalidation for %s',
+    async (url) => {
+      const response = await app.inject({ method: 'GET', url });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.headers['cache-control']).toBe('no-cache');
-  });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-cache');
+    },
+  );
 });

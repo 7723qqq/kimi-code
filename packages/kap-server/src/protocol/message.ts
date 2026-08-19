@@ -10,9 +10,9 @@
  * file id behind a reference such as `ms://…` — forwarded on the wire when
  * the provider keys media by id.
  */
+import { z } from 'zod';
 
 import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
-import { z } from 'zod';
 
 export const messageRoleSchema = z.enum(['user', 'assistant', 'tool', 'system']);
 export type MessageRole = z.infer<typeof messageRoleSchema>;
@@ -51,6 +51,7 @@ export const imageSourceSchema = z.discriminatedUnion('kind', [
     data: z.string().min(1),
   }),
   z.object({ kind: z.literal('file'), file_id: z.string().min(1) }),
+  z.object({ kind: z.literal('session_media'), file_id: z.string().min(1) }),
 ]);
 export type ImageSource = z.infer<typeof imageSourceSchema>;
 

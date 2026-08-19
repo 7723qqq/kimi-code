@@ -6,20 +6,38 @@
  * code never sees service tokens, scope routing, or transport details.
  */
 
-import type { AuthStatus, IOAuthService } from '@moonshot-ai/agent-core-v2/app/auth/auth';
-import type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
+import type {
+  SessionListQuery,
+  SessionSummary,
+} from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
+import type { SessionMeta } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
+import type { Page } from '@moonshot-ai/agent-core-v2/persistence/interface/queryStore';
+import type {
+  Workspace,
+  WorkspaceUpdate,
+} from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
 import type {
   ConfigDiagnostic,
   ConfigInspectValue,
   ConfigTarget,
 } from '@moonshot-ai/agent-core-v2/app/config/config';
+import type { ProviderConfig } from '@moonshot-ai/agent-core-v2/kosong/provider/provider';
+import type {
+  AuthStatus,
+  IOAuthService,
+} from '@moonshot-ai/agent-core-v2/app/auth/auth';
 import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2/app/flag/flag';
-import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import type {
   FsBrowseResponse,
   FsHomeResponse,
 } from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
+import type { ModelRecord } from '@moonshot-ai/agent-core-v2/kosong/model/model';
+import type { IModelCatalog } from '@moonshot-ai/agent-core-v2/kosong/model/catalog';
 import type { IProviderDiscoveryService } from '@moonshot-ai/agent-core-v2/app/kosongConfig/discovery';
+
+import type { McpServerConfig } from '../../contract/mcp.js';
+import type { AnonymousProviderInput, GenerateEvent, GenerateInput, GenerateParams, ProviderInput } from './kosong-types.js';
 import type {
   PluginCommandDef,
   PluginInfo,
@@ -27,28 +45,7 @@ import type {
   PluginUpdateStatus,
   ReloadSummary,
 } from '@moonshot-ai/agent-core-v2/app/plugin/types';
-import type {
-  SessionListQuery,
-  SessionSummary,
-} from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
-import type {
-  Workspace,
-  WorkspaceUpdate,
-} from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
-import type { IModelCatalog } from '@moonshot-ai/agent-core-v2/kosong/model/catalog';
-import type { ModelRecord } from '@moonshot-ai/agent-core-v2/kosong/model/model';
-import type { ProviderConfig } from '@moonshot-ai/agent-core-v2/kosong/provider/provider';
-import type { Page } from '@moonshot-ai/agent-core-v2/persistence/interface/queryStore';
-import type { SessionMeta } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
-
-import type { McpServerConfig } from '../../contract/mcp.js';
-import type {
-  AnonymousProviderInput,
-  GenerateEvent,
-  GenerateInput,
-  GenerateParams,
-  ProviderInput,
-} from './kosong-types.js';
+import type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
 
 /** Low-level caller the klient factory builds: routes + validates one service call. */
 export type Caller = (service: string, method: string, args: unknown[]) => Promise<unknown>;
@@ -83,8 +80,12 @@ export type OAuthLoginCancelResponse = Awaited<ReturnType<IOAuthService['cancelL
 export type OAuthLogoutResponse = Awaited<ReturnType<IOAuthService['logout']>>;
 
 export type ModelCatalogItem = Awaited<ReturnType<IModelCatalog['listModels']>>[number];
-export type ProviderCatalogItem = Awaited<ReturnType<IModelCatalog['listProviders']>>[number];
-export type SetDefaultModelResponse = Awaited<ReturnType<IModelCatalog['setDefaultModel']>>;
+export type ProviderCatalogItem = Awaited<
+  ReturnType<IModelCatalog['listProviders']>
+>[number];
+export type SetDefaultModelResponse = Awaited<
+  ReturnType<IModelCatalog['setDefaultModel']>
+>;
 export type RefreshProviderModelsOptions = NonNullable<
   Parameters<IProviderDiscoveryService['refreshProviderModels']>[0]
 >;
@@ -128,7 +129,11 @@ export interface GlobalConfigFacade {
   getAll(): Promise<Record<string, unknown>>;
   inspect<T = unknown>(domain: string): Promise<ConfigInspectValue<T>>;
   set(input: { domain: string; patch: unknown; target?: ConfigTargetLiteral }): Promise<void>;
-  replace(input: { domain: string; value: unknown; target?: ConfigTargetLiteral }): Promise<void>;
+  replace(input: {
+    domain: string;
+    value: unknown;
+    target?: ConfigTargetLiteral;
+  }): Promise<void>;
   /**
    * Replace several domains in ONE atomic write (the engine's
    * `IConfigService.replaceSections`): a domain mapped to `undefined` is
@@ -291,10 +296,7 @@ const ENV_SCALAR_PROPERTIES = [
   'logsDir',
 ] as const;
 
-export function createGlobalFacade(
-  scoped: ScopedCaller,
-  scopedStream: ScopedStreamCaller,
-): GlobalFacade {
+export function createGlobalFacade(scoped: ScopedCaller, scopedStream: ScopedStreamCaller): GlobalFacade {
   const call: Caller = (service, method, args) => scoped({}, service, method, args);
   const streamCall = (service: string, method: string, args: unknown[]) =>
     scopedStream({}, service, method, args);
@@ -311,7 +313,7 @@ export function createGlobalFacade(
       const scalars = Object.fromEntries(
         ENV_SCALAR_PROPERTIES.map((prop, index) => [prop, values[index]]),
       );
-      const identity = values.at(-1) as { version: string };
+      const identity = values[values.length - 1] as { version: string };
       return { ...scalars, clientVersion: identity.version } as unknown as KlientEnvInfo;
     });
     return envPromise;
@@ -319,34 +321,20 @@ export function createGlobalFacade(
 
   return {
     sessions: {
-      list: (query) => call('sessionIndex', 'listRecent', [query]) as Promise<Page<SessionSummary>>,
+      list: (query) =>
+        call('sessionIndex', 'listRecent', [query]) as Promise<Page<SessionSummary>>,
       get: (id) => call('sessionIndex', 'get', [id]) as Promise<SessionSummary | undefined>,
       countActive: (workspaceIds) =>
         call('sessionIndex', 'count', [{ workspaceIds }]) as Promise<number>,
       create: async ({ workDir, additionalDirs, title, mcpServers }) => {
-        // The workspace handler owns session creation: materialize (or reuse)
-        // the handler for the root, then create under it.
-        const handler = (await scoped({}, 'workspaceLifecycleService', 'handlerFor', [
-          { root: workDir },
+        const handle = (await scoped({}, 'sessionManager', 'create', [
+          { workDir, additionalDirs, mcpServers },
         ])) as { id: string };
-        const handle = (await scoped(
-          { workspaceId: handler.id },
-          'sessionLifecycleService',
-          'create',
-          [{ workDir, additionalDirs, mcpServers }],
-        )) as { id: string };
         const scope = { sessionId: handle.id };
-        try {
-          if (title !== undefined) {
-            await scoped(scope, 'sessionMetadata', 'setTitle', [title]);
-          }
-          const meta = (await scoped(scope, 'sessionMetadata', 'read', [])) as SessionMeta;
-          return meta;
-        } catch (error) {
-          // Clean up the created session on partial failure.
-          await scoped(scope, 'sessionLifecycleService', 'delete', [handle.id]).catch(() => {});
-          throw error;
+        if (title !== undefined) {
+          await scoped(scope, 'sessionMetadata', 'setTitle', [title]);
         }
+        return scoped(scope, 'sessionMetadata', 'read', []) as Promise<SessionMeta>;
       },
     },
 
@@ -370,11 +358,7 @@ export function createGlobalFacade(
       replace: ({ domain, value, target }) =>
         // `null` is the wire encoding of "clear this domain" — JSON
         // round-trips cannot carry `undefined` (see IConfigService.replace).
-        call('configService', 'replace', [
-          domain,
-          value === undefined ? null : value,
-          target,
-        ]) as Promise<void>,
+        call('configService', 'replace', [domain, value === undefined ? null : value, target]) as Promise<void>,
       replaceSections: ({ sections, target }) =>
         call('configService', 'replaceSections', [
           Object.fromEntries(
@@ -392,7 +376,9 @@ export function createGlobalFacade(
 
     kosong: {
       listProviders: () =>
-        call('modelResolver', 'listProviders', []) as Promise<readonly ProviderCatalogItem[]>,
+        call('modelResolver', 'listProviders', []) as Promise<
+          readonly ProviderCatalogItem[]
+        >,
       getProvider: (id) =>
         call('modelResolver', 'getProvider', [id]) as Promise<ProviderCatalogItem>,
       addProvider: ((
@@ -447,17 +433,12 @@ export function createGlobalFacade(
         call('modelResolver', 'setDefaultModel', [id]) as Promise<SetDefaultModelResponse>,
 
       generate: (modelId, input, params) =>
-        streamCall('modelResolver', 'generate', [
-          modelId,
-          input,
-          params,
-        ]) as AsyncIterable<GenerateEvent>,
+        streamCall('modelResolver', 'generate', [modelId, input, params]) as AsyncIterable<GenerateEvent>,
     },
 
     auth: {
       status: (provider) => call('oauthService', 'status', [provider]) as Promise<AuthStatus>,
-      summarize: () =>
-        call('authSummaryService', 'summarize', []) as Promise<readonly AuthStatus[]>,
+      summarize: () => call('authSummaryService', 'summarize', []) as Promise<readonly AuthStatus[]>,
       ensureReady: (modelOverride) =>
         call('authSummaryService', 'ensureReady', [modelOverride]) as Promise<void>,
       startLogin: (provider) =>
@@ -469,16 +450,11 @@ export function createGlobalFacade(
       logout: (provider) =>
         call('oauthService', 'logout', [provider]) as Promise<OAuthLogoutResponse>,
       refreshProviderModels: () =>
-        call(
-          'oauthService',
-          'refreshOAuthProviderModels',
-          [],
-        ) as Promise<RefreshProviderModelsResponse>,
+        call('oauthService', 'refreshOAuthProviderModels', []) as Promise<RefreshProviderModelsResponse>,
     },
 
     flags: {
-      list: () =>
-        call('flagService', 'explainAll', []) as Promise<readonly ExperimentalFeatureState[]>,
+      list: () => call('flagService', 'explainAll', []) as Promise<readonly ExperimentalFeatureState[]>,
       enabled: (id) => call('flagService', 'enabled', [id]) as Promise<boolean>,
       enabledIds: () => call('flagService', 'enabledIds', []) as Promise<readonly string[]>,
       explain: (id) =>
@@ -503,8 +479,7 @@ export function createGlobalFacade(
     },
 
     capabilities: {
-      list: () =>
-        call('capabilityService', 'listCapabilities', []) as Promise<readonly CapabilityStatus[]>,
+      list: () => call('capabilityService', 'listCapabilities', []) as Promise<readonly CapabilityStatus[]>,
       get: (id) => call('capabilityService', 'getCapability', [id]) as Promise<CapabilityStatus>,
       install: (id) =>
         call('capabilityService', 'installCapability', [id]) as Promise<CapabilityStatus>,

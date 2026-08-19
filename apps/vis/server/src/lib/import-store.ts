@@ -92,12 +92,12 @@ export async function listImportedIds(home: string): Promise<string[]> {
   } catch {
     return [];
   }
-  const ids = entries.filter((e) => e.isDirectory() && isImportId(e.name)).map((e) => e.name);
+  const ids = entries
+    .filter((e) => e.isDirectory() && isImportId(e.name))
+    .map((e) => e.name);
   const withMtime = await Promise.all(
     ids.map(async (id) => {
-      const mtime = await stat(join(root, id))
-        .then((s) => s.mtimeMs)
-        .catch(() => 0);
+      const mtime = await stat(join(root, id)).then((s) => s.mtimeMs).catch(() => 0);
       return { id, mtime };
     }),
   );
@@ -135,19 +135,9 @@ async function readManifest(dir: string): Promise<ImportManifest | null> {
 
 /** Declared string fields of {@link ImportManifest}. `shellEnv` is free-form. */
 const MANIFEST_STRING_FIELDS = [
-  'sessionId',
-  'exportedAt',
-  'kimiCodeVersion',
-  'wireProtocolVersion',
-  'os',
-  'nodejsVersion',
-  'sessionFirstActivity',
-  'sessionLastActivity',
-  'title',
-  'workspaceDir',
-  'sessionLogPath',
-  'globalLogPath',
-  'installSource',
+  'sessionId', 'exportedAt', 'kimiCodeVersion', 'wireProtocolVersion', 'os',
+  'nodejsVersion', 'sessionFirstActivity', 'sessionLastActivity', 'title',
+  'workspaceDir', 'sessionLogPath', 'globalLogPath', 'installSource',
 ] as const;
 
 /**

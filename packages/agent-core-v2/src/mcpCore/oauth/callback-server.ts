@@ -1,14 +1,3 @@
-/**
- * `mcpCore` domain — one-shot localhost OAuth callback listener.
- *
- * `startCallbackServer()` binds 127.0.0.1 on a random free port and returns a
- * handle exposing the resulting `redirect_uri` and an awaitable
- * `waitForCode()` that resolves with `{ code, state }` from the first
- * `/callback` request. Any subsequent requests get a generic 404 and a
- * non-callback path is ignored. The server is closed automatically once a
- * code has been delivered (or `close()` is called explicitly).
- */
-
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -66,18 +55,6 @@ export async function startCallbackServer(): Promise<CallbackServer> {
     }
     if (url.pathname !== '/callback') {
       res.writeHead(404).end();
-      return;
-    }
-    // Reject cross-site requests: a browser-initiated OAuth redirect never
-    // carries an Origin header (it is a top-level navigation), while a
-    // cross-site fetch from a malicious page does. localhost / 127.0.0.1
-    // origins are allowed for same-machine tooling.
-    const origin = req.headers.origin;
-    if (origin !== undefined && !isLocalhostOrigin(origin)) {
-      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end('Forbidden');
-      settle(() => {
-        rejectCode?.(new Error(`OAuth callback rejected cross-site origin: ${origin}`));
-      });
       return;
     }
     const errorParam = url.searchParams.get('error');
@@ -167,17 +144,4 @@ export async function startCallbackServer(): Promise<CallbackServer> {
   };
 
   return { redirectUri, waitForCode, close };
-}
-
-function isLocalhostOrigin(origin: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(origin);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-  return (
-    parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1'
-  );
 }

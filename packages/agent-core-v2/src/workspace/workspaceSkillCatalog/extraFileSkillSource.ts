@@ -1,28 +1,14 @@
-/**
- * `workspaceSkillCatalog` domain — extra `ISkillSource` producer.
- *
- * Discovers user-configured extra skill directories (`extraSkillDirs`) through
- * `ISkillDiscovery`, contributing them at priority 10 (above plugin / builtin,
- * below user / workspace). Relative paths resolve against the workspace root;
- * `~` and `~/...` resolve against the bootstrap home dir. Re-fires
- * `onDidChange` when the `extraSkillDirs` config section changes so the
- * catalog re-scans THIS source only. Bound at Workspace scope so every
- * session of the handler shares one scan.
- */
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
 import {
   EXTRA_SKILL_DIRS_SECTION,
   type ExtraSkillDirsConfig,
 } from '#/app/skillCatalog/configSection';
-import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
 import { configuredRoots } from '#/app/skillCatalog/skillRoots';
+import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
 import {
   SKILL_SOURCE_PRIORITY,
   type ISkillSource,
@@ -37,7 +23,6 @@ export interface IExtraFileSkillSource extends ISkillSource {
 export const IExtraFileSkillSource: ServiceIdentifier<IExtraFileSkillSource> =
   createDecorator<IExtraFileSkillSource>('extraFileSkillSource');
 
-// NOTE: stays Disposable — its own 'config' collides with the Fiber
 export class ExtraFileSkillSource extends Disposable implements IExtraFileSkillSource {
   declare readonly _serviceBrand: undefined;
 
@@ -69,10 +54,3 @@ export class ExtraFileSkillSource extends Disposable implements IExtraFileSkillS
   }
 }
 
-registerScopedService(
-  LifecycleScope.Workspace,
-  IExtraFileSkillSource,
-  ExtraFileSkillSource,
-  ScopeActivation.OnScopeCreated,
-  'workspaceSkillCatalog',
-);

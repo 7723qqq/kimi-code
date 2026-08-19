@@ -2,28 +2,38 @@
  * In-process dispatcher — resolves a wire triple `(service, method, args)`
  * against a live engine scope and mirrors kap-server's dispatcher semantics
  * (reflection call, non-function members are property reads, `main` agent
- * auto-materialized via `ensureMainAgent`). Scope routing walks
- * `IWorkspaceLifecycleService` / `IAgentLifecycleService` exactly like the
- * server's `resolveScope`. Every argument, result, and event payload passes
+ * auto-materialized via `ensureMainAgent`). Scope routing resolves workspace
+ * instances through `IWorkspaceInstanceManager` and live sessions through the
+ * App `SessionManager`, with a fallback to the workspace-handler registry for
+ * sessions materialized through `IWorkspaceLifecycleService` (the in-process
+ * SDK path) — matching the server's `resolveScope` plus the SDK's own live
+ * session lookups. Every argument,
+ * result, and event payload passes
  * through `wireClone` (a JSON round-trip), so consumers observe
  * byte-identical data no matter whether the call crossed a socket or stayed
  * in-process — and non-serializable leaks fail early.
  *
  * Shared by the memory transport and the IPC host, which guarantees ipc and
- * memory behave identically by construction. The IPC host opts out of the
- * clone (`clone: false`): its `encodeFrame` already JSON-serializes every
- * frame, so the extra round-trip per chunk would be pure waste — the wire
- * guarantees the clone provides are already enforced at the codec boundary.
+ * memory behave identically by construction.
  */
 
 import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2/_base/di/instantiation';
-import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
-import { Readable } from 'node:stream';
+import { IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
+import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
 import { getLiveSessionById } from '@moonshot-ai/agent-core-v2/app/workspaceLifecycle/sessionLookup';
-import { IWorkspaceLifecycleService } from '@moonshot-ai/agent-core-v2/app/workspaceLifecycle/workspaceLifecycle';
 import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
 import { ensureMainAgent } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/mainAgent';
 import { ISessionInteractionService } from '@moonshot-ai/agent-core-v2/session/interaction/interaction';
+import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
+import type {
+  FileMeta,
+  GetResult,
+  SaveOptions,
+} from '@moonshot-ai/agent-core-v2/app/file/fileService';
+import { FileErrors } from '@moonshot-ai/agent-core-v2/app/file/fileService';
+import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
+
+import { Readable } from 'node:stream';
 
 import type { EventSourceRef, IDisposable, ScopeRef } from '../../core/channel.js';
 import { RPCError } from '../../core/errors.js';
@@ -42,16 +52,6 @@ export function wireClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export interface MemoryDispatcherOptions {
-  /**
-   * When `false`, skip the JSON round-trip (`wireClone`) on every value.
-   * The IPC host uses this — its codec already serializes each frame, so the
-   * clone would only double the per-chunk cost of large streaming payloads.
-   * Defaults to `true` (memory transport keeps the isolation semantics).
-   */
-  readonly clone?: boolean;
-}
-
 export interface MemoryDispatcher {
   call(scope: ScopeRef, service: string, method: string, args: unknown[]): Promise<unknown>;
   stream(scope: ScopeRef, service: string, method: string, args: unknown[]): AsyncIterable<unknown>;
@@ -65,6 +65,20 @@ export interface MemoryDispatcher {
 
 const REQUEST_INVALID = 40001;
 const NOT_FOUND = 40404;
+const PROMPT_ID_CONFLICT = 40927;
+
+/**
+ * Engine file errors cross the facade as public `RPCError`s, never as the
+ * engine's raw `Error2`. The dispatcher is shared by both transports, so
+ * memory and ipc then surface the identical `NOT_FOUND` code for a stale or
+ * expired upload id.
+ */
+function rethrowFileErrorAsRpc(error: unknown): never {
+  if (error instanceof Error2 && error.code === FileErrors.codes.FILE_NOT_FOUND) {
+    throw new RPCError(NOT_FOUND, error.message, error.details);
+  }
+  throw error;
+}
 
 type ScopeKind = 'core' | 'workspace' | 'session' | 'agent';
 
@@ -73,21 +87,26 @@ interface ResolvedScope {
   readonly like: ScopeLike;
 }
 
-export function createMemoryDispatcher(
-  root: ScopeLike,
-  options?: MemoryDispatcherOptions,
-): MemoryDispatcher {
-  const clone = <T>(value: T): T => (options?.clone === false ? value : wireClone(value));
+/** Structural view of the engine's `IFileService` used by the wire adaptation. */
+type FileServiceWireTarget = {
+  save(source: Readable, filename: string, options?: SaveOptions): Promise<FileMeta>;
+  get(fileId: string): Promise<GetResult>;
+};
+
+export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
   /** Mirrors kap-server's `resolveScope`, incl. main-agent materialization. */
   async function resolveScope(scope: ScopeRef): Promise<ResolvedScope> {
     if (scope.workspaceId !== undefined) {
-      const handler = await root.accessor
-        .get(IWorkspaceLifecycleService)
-        .handlerFor({ workspaceId: scope.workspaceId });
-      return { kind: 'workspace', like: handler };
+      const workspace = await root.accessor
+        .get(IWorkspaceInstanceManager)
+        .getOrCreate({ workspaceId: scope.workspaceId });
+      void workspace.program;
+      return { kind: 'workspace', like: root };
     }
     if (scope.sessionId === undefined) return { kind: 'core', like: root };
-    const session = getLiveSessionById(root.accessor, scope.sessionId);
+    const session =
+      root.accessor.get(ISessionManager).get(scope.sessionId) ??
+      getLiveSessionById(root.accessor, scope.sessionId);
     if (session === undefined) {
       throw new RPCError(NOT_FOUND, `session not found: ${scope.sessionId}`);
     }
@@ -119,25 +138,25 @@ export function createMemoryDispatcher(
     if (resolved.kind === 'core' && name === 'events') {
       const bus = resolved.like.accessor.get(IEventService);
       return bus.subscribe((event) => {
-        handler(clone(event));
+        handler(wireClone(event));
       });
     }
     if (resolved.kind === 'session' && name === 'interactions') {
       const interaction = resolved.like.accessor.get(ISessionInteractionService);
       return interaction.onDidChangePending(() => {
-        handler(clone(interaction.listPending()));
+        handler(wireClone(interaction.listPending()));
       });
     }
     if (resolved.kind === 'session' && name === 'interactions:resolved') {
       const interaction = resolved.like.accessor.get(ISessionInteractionService);
       return interaction.onDidResolve((resolution) => {
-        handler(clone(resolution));
+        handler(wireClone(resolution));
       });
     }
     if (resolved.kind === 'agent' && name === 'events') {
       const bus = resolved.like.accessor.get(IEventBus);
       return bus.subscribe((event) => {
-        handler(clone(event));
+        handler(wireClone(event));
       });
     }
     throw new RPCError(REQUEST_INVALID, `unknown event stream: ${name} (${resolved.kind})`);
@@ -162,7 +181,7 @@ export function createMemoryDispatcher(
     return (emitter as (listener: (data: unknown) => void) => IDisposable).call(
       instance,
       (data) => {
-        handler(clone(data));
+        handler(wireClone(data));
       },
     );
   }
@@ -171,47 +190,55 @@ export function createMemoryDispatcher(
     async call(scope, service, method, args) {
       const resolved = await resolveScope(scope);
       const instance = resolveService(resolved, service);
+      // `fileService` adapts bytes ⇄ streams: the JSON wire cannot carry
+      // `save`'s Readable source or `get`'s result stream, so both cross as
+      // base64 strings (the same kind of wire adaptation as
+      // `modelResolver.generate` in `stream`).
+      if (service === 'fileService' && method === 'save') {
+        const [data, filename, options] = args as [string, string, SaveOptions | undefined];
+        const files = instance as FileServiceWireTarget;
+        try {
+          const meta = await files.save(
+            Readable.from(Buffer.from(data, 'base64')),
+            filename,
+            options,
+          );
+          return wireClone(meta);
+        } catch (error) {
+          rethrowFileErrorAsRpc(error);
+        }
+      }
+      if (service === 'fileService' && method === 'get') {
+        const [fileId] = args as [string];
+        const files = instance as FileServiceWireTarget;
+        try {
+          const { meta, stream } = await files.get(fileId);
+          const chunks: Buffer[] = [];
+          for await (const chunk of stream()) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
+          }
+          return { meta: wireClone(meta), data: Buffer.concat(chunks).toString('base64') };
+        } catch (error) {
+          rethrowFileErrorAsRpc(error);
+        }
+      }
       const member = instance[method];
       if (member === undefined) {
         throw new RPCError(REQUEST_INVALID, `method not found: ${service}.${method}`);
       }
-      // `fileService` adapts bytes ⇄ streams: the JSON wire cannot carry
-      // `save`'s Readable source or `get`'s result stream, so both cross as
-      // base64 strings (the same kind of wire adaptation as kap-server's
-      // dispatcher). The facade encodes/decodes the caller's `Uint8Array`s.
-      if (service === 'fileService' && method === 'save') {
-        const [data, filename, options] = args;
-        const result = await (member as (...a: unknown[]) => Promise<unknown>).call(
-          instance,
-          Readable.from(Buffer.from(data as string, 'base64')),
-          filename,
-          options,
-        );
-        return clone(result);
-      }
-      if (service === 'fileService' && method === 'get') {
-        const [fileId] = args;
-        const result = await (member as (...a: unknown[]) => Promise<unknown>).call(
-          instance,
-          fileId,
-        );
-        const { meta, stream } = result as {
-          meta: { id: string; name: string; media_type: string; size: number; created_at: string; expires_at?: string };
-          stream: AsyncIterable<Uint8Array>;
-        };
-        const chunks: Uint8Array[] = [];
-        for await (const chunk of stream) chunks.push(chunk);
-        return clone({
-          meta: wireClone(meta),
-          data: Buffer.concat(chunks).toString('base64'),
-        });
-      }
       if (typeof member !== 'function') {
-        return clone(member);
+        return wireClone(member);
       }
-      const clonedArgs = args.map(clone);
-      const result = await (member as (...a: unknown[]) => unknown).apply(instance, clonedArgs);
-      return clone(result);
+      const clonedArgs = args.map(wireClone);
+      try {
+        const result = await (member as (...a: unknown[]) => unknown).apply(instance, clonedArgs);
+        return wireClone(result);
+      } catch (error) {
+        if (error instanceof Error2 && error.code === ErrorCodes.PROMPT_ID_CONFLICT) {
+          throw new RPCError(PROMPT_ID_CONFLICT, error.message, error.details);
+        }
+        throw error;
+      }
     },
 
     stream(scope, service, method, args): AsyncIterable<unknown> {
@@ -230,12 +257,13 @@ export function createMemoryDispatcher(
                 const resolved = await resolveScope(scope);
                 const catalog = resolveService(resolved, 'modelResolver');
                 const [modelId, input, params] = args;
-                const requester = (
-                  catalog as {
-                    getRequester(id: string): { request(...a: unknown[]): AsyncIterable<unknown> };
-                  }
-                ).getRequester(modelId as string);
-                const iterable = requester.request(clone(input), controller.signal, clone(params));
+                const requester = (catalog as { getRequester(id: string): { request(...a: unknown[]): AsyncIterable<unknown> } })
+                  .getRequester(modelId as string);
+                const iterable = requester.request(
+                  wireClone(input),
+                  controller.signal,
+                  wireClone(params),
+                );
                 source = iterable[Symbol.asyncIterator]();
               })();
               // `next()` observes the rejection through the awaited return;
@@ -250,7 +278,7 @@ export function createMemoryDispatcher(
                 await ensureStarted();
                 const result = await source!.next();
                 if (result.done) return { done: true, value: undefined };
-                return { done: false, value: clone(result.value) };
+                return { done: false, value: wireClone(result.value) };
               },
               async return(value?: unknown) {
                 controller.abort();
@@ -281,7 +309,7 @@ export function createMemoryDispatcher(
               if (typeof member !== 'function') {
                 throw new RPCError(REQUEST_INVALID, `not a streaming method: ${service}.${method}`);
               }
-              const clonedArgs = args.map(clone);
+              const clonedArgs = args.map(wireClone);
               const iterable = (member as (...a: unknown[]) => unknown).apply(
                 instance,
                 clonedArgs,
@@ -300,7 +328,7 @@ export function createMemoryDispatcher(
               await ensureStarted();
               const result = await source!.next();
               if (result.done) return { done: true, value: undefined };
-              return { done: false, value: clone(result.value) };
+              return { done: false, value: wireClone(result.value) };
             },
             async return(value?: unknown) {
               await source?.return?.(value);

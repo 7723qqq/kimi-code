@@ -42,13 +42,9 @@ export function installReverseRpcHandler<Req, Res>(
     const sessionId = (payload as { session_id?: string }).session_id;
     const id = (payload as Record<string, unknown>)[opts.idField] as string | undefined;
     if (!sessionId || !id) {
-      opts.logger(
-        'warn',
-        `reverse-rpc: ${opts.requestEventType} missing session_id/${opts.idField}`,
-        {
-          payload,
-        },
-      );
+      opts.logger('warn', `reverse-rpc: ${opts.requestEventType} missing session_id/${opts.idField}`, {
+        payload,
+      });
       return;
     }
     // Fire-and-forget: the WS handler is sync; we kick off the resolve and
@@ -58,9 +54,9 @@ export function installReverseRpcHandler<Req, Res>(
         const response = await opts.handler(payload);
         await opts.postResolve(sessionId, id, response);
       })
-      .catch((error) => {
+      .catch((err) => {
         opts.logger('warn', `reverse-rpc: ${opts.requestEventType} resolve failed`, {
-          error,
+          err: String(err),
           sessionId,
           id,
         });

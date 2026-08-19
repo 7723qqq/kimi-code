@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getBinDir } from '#/utils/paths';
 import { detectFdPath, getFdAssetName } from '#/utils/process/fd-detect';
+import { getBinDir } from '#/utils/paths';
 
 const mocks = vi.hoisted(() => ({
   resolveCommandPath: vi.fn(),

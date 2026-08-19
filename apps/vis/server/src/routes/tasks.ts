@@ -33,12 +33,7 @@ export function tasksRoute(home: string = KIMI_CODE_HOME): Hono {
       const tasks = await listBackgroundTasks(agent.homedir);
       for (const task of tasks) {
         const outputSizeBytes = await taskOutputSizeBytes(agent.homedir, task.taskId);
-        entries.push({
-          task,
-          agentId: agent.agentId,
-          outputSizeBytes,
-          outputExists: outputSizeBytes > 0,
-        });
+        entries.push({ task, agentId: agent.agentId, outputSizeBytes, outputExists: outputSizeBytes > 0 });
       }
     }
     // Newest first across all agents.
@@ -66,10 +61,7 @@ export function tasksRoute(home: string = KIMI_CODE_HOME): Hono {
     // Prefer the agent whose log actually has bytes; otherwise any agent's dir
     // yields the same empty window. An explicit ?agent= short-circuits the scan.
     const hinted = c.req.query('agent');
-    let dir =
-      detail.agents.find((a) => a.agentId === hinted)?.homedir ??
-      detail.agents[0]?.homedir ??
-      detail.sessionDir;
+    let dir = detail.agents.find((a) => a.agentId === hinted)?.homedir ?? detail.agents[0]?.homedir ?? detail.sessionDir;
     for (const agent of detail.agents) {
       if ((await taskOutputSizeBytes(agent.homedir, taskId)) > 0) {
         dir = agent.homedir;

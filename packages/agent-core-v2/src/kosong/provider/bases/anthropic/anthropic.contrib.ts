@@ -1,33 +1,13 @@
-/**
- * `kosong/provider` domain — side-effect module: registers the Anthropic
- * Messages base (`id: 'anthropic'`).
- *
- * The factory aggregates construction-time trait declarations and composes
- * the Anthropic hook set. No apiKey suppression is needed here: the
- * Anthropic base never reads shell API-key environment variables, so there
- * is no base env fallback to suppress.
- */
-
 import { registerProtocolBase } from '#/kosong/protocol/protocolBase';
 import { traitDefaultHeaders } from '#/kosong/protocol/protocolTrait';
-import { isUnknownCapability } from '@moonshot-ai/kosong/capability';
-import { getAnthropicModelCapability } from '@moonshot-ai/kosong/providers/capability-registry';
 
-import {
-  compactObject,
-  firstProcessEnv,
-  traitEndpoint,
-  traitProvides,
-} from '../openai/openaiHooks';
-import { AnthropicChatProvider } from './anthropic';
+import { AnthropicChatProvider, getAnthropicModelCapability } from './anthropic';
 import { composeAnthropicHooks } from './anthropicHooks';
+import { compactObject, firstProcessEnv, traitEndpoint, traitProvides } from '../openai/openaiHooks';
 
 registerProtocolBase({
   id: 'anthropic',
-  capability: (modelName) => {
-    const capability = getAnthropicModelCapability(modelName);
-    return isUnknownCapability(capability) ? undefined : capability;
-  },
+  capability: getAnthropicModelCapability,
   createChatProvider({ config, traits }) {
     const endpoint = traitEndpoint(traits);
     return new AnthropicChatProvider({

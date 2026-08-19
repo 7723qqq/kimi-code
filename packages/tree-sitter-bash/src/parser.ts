@@ -55,15 +55,7 @@ import {
   SPECIAL_VARIABLE_CHARS,
   UNSET_COMMAND_KEYWORDS,
 } from '#/grammar';
-import {
-  Lexer,
-  scanBalanced,
-  scanBalancedStatements,
-  skipBacktick,
-  skipDollar,
-  skipDoubleQuoted,
-  skipSingleQuoted,
-} from '#/lexer';
+import { Lexer, scanBalanced, scanBalancedStatements, skipBacktick, skipDollar, skipDoubleQuoted, skipSingleQuoted } from '#/lexer';
 import type { BalancedScan, HeredocBody, HeredocSpec, Token } from '#/lexer';
 import { SyntaxNodeBuilder } from '#/node';
 
@@ -245,13 +237,7 @@ export class Parser {
 
   // ---------------------------------------------------------------- helpers
 
-  private frame(
-    type: string,
-    start: number,
-    end: number,
-    children: Frame[] = [],
-    isNamed = true,
-  ): Frame {
+  private frame(type: string, start: number, end: number, children: Frame[] = [], isNamed = true): Frame {
     this.budget.tick();
     const frame: Frame = { type, start, end, isNamed, parent: null, children };
     for (const child of children) child.parent = frame;
@@ -283,9 +269,7 @@ export class Parser {
     if (token.type === 'word' || token.type === 'io_number') return true;
     if (token.type !== 'op') return false;
     const text = this.tokenText(token);
-    return (
-      text === '(' || text === '<<<' || text === '<<' || text === '<<-' || isFileRedirectOp(text)
-    );
+    return text === '(' || text === '<<<' || text === '<<' || text === '<<-' || isFileRedirectOp(text);
   }
 
   /** Peeked word token whose text equals `keyword`. */
@@ -378,20 +362,12 @@ export class Parser {
       }
       if (
         token.type === 'op' &&
-        (op === ')' ||
-          op === '&&' ||
-          op === '||' ||
-          op === '|' ||
-          op === '|&' ||
-          op === ';&' ||
-          op === ';;&')
+        (op === ')' || op === '&&' || op === '||' || op === '|' || op === '|&' || op === ';&' || op === ';;&')
       ) {
         // A binary operator or closer with no left-hand side: recover.
         this.hasError = true;
         this.lexer.next();
-        children.push(
-          this.frame('ERROR', token.start, token.end, [this.anon(op, token.start, token.end)]),
-        );
+        children.push(this.frame('ERROR', token.start, token.end, [this.anon(op, token.start, token.end)]));
         needTerminator = false;
         continue;
       }
@@ -436,19 +412,11 @@ export class Parser {
       const extras = this.skipContinuation();
       if (this.isStatementStart(this.lexer.peek())) {
         const right = this.parsePipeline();
-        left = this.frame('list', left.start, right.end, [
-          left,
-          this.anon(op, token.start, token.end),
-          ...extras,
-          right,
-        ]);
+        left = this.frame('list', left.start, right.end, [left, this.anon(op, token.start, token.end), ...extras, right]);
       } else {
         // Trailing connector (`ls &&`): keep the partial list, flag it.
         this.hasError = true;
-        left = this.frame('list', left.start, token.end, [
-          left,
-          this.anon(op, token.start, token.end),
-        ]);
+        left = this.frame('list', left.start, token.end, [left, this.anon(op, token.start, token.end)]);
         break;
       }
     }
@@ -605,11 +573,7 @@ export class Parser {
       const test = this.parseTestCommand();
       kids.push(test);
       end = test.end;
-    } else if (
-      token.type === 'word' &&
-      this.tokenText(token).startsWith('((') &&
-      PAREN_TEST_RE.test(this.tokenText(token))
-    ) {
+    } else if (token.type === 'word' && this.tokenText(token).startsWith('((') && PAREN_TEST_RE.test(this.tokenText(token))) {
       const test = this.parseParenTestCommand();
       kids.push(test);
       end = test.end;
@@ -829,11 +793,7 @@ export class Parser {
       if (values.length === 0) {
         // `for x in; do` — the reference wraps the bare `in` in ERROR.
         this.hasError = true;
-        kids.push(
-          this.frame('ERROR', inToken.start, inToken.end, [
-            this.anon('in', inToken.start, inToken.end),
-          ]),
-        );
+        kids.push(this.frame('ERROR', inToken.start, inToken.end, [this.anon('in', inToken.start, inToken.end)]));
       } else {
         kids.push(this.anon('in', inToken.start, inToken.end));
         kids.push(...values);
@@ -854,9 +814,7 @@ export class Parser {
   private parseCStyleForStatement(kwToken: Token, kids: Frame[]): Frame {
     const header = this.lexer.next();
     const closed =
-      header.end - header.start >= 4 &&
-      this.source[header.end - 2] === ')' &&
-      this.source[header.end - 1] === ')';
+      header.end - header.start >= 4 && this.source[header.end - 2] === ')' && this.source[header.end - 1] === ')';
     if (!closed) this.hasError = true;
     kids.push(this.anon('((', header.start, header.start + 2));
     const innerEnd = closed ? header.end - 2 : header.end;
@@ -1156,11 +1114,7 @@ export class Parser {
     let check = start + 1;
     if (c0 === '\\') {
       const after = this.source[start + 1];
-      if (
-        after === undefined ||
-        !(after === ' ' || after === '\t' || after === '\r' || after === '"')
-      )
-        return false;
+      if (after === undefined || !(after === ' ' || after === '\t' || after === '\r' || after === '"')) return false;
       check = start + 3; // escape pair + one unconditionally consumed char
     }
     if (check >= end) return false;
@@ -1233,15 +1187,7 @@ export class Parser {
     // glob-material check below decides).
     if (raw.length === 1) {
       if (next === ')') return !isAlpha(c0);
-      if (
-        next === '|' ||
-        next === ' ' ||
-        next === '\t' ||
-        next === '\r' ||
-        next === '\n' ||
-        next === ''
-      )
-        return true;
+      if (next === '|' || next === ' ' || next === '\t' || next === '\r' || next === '\n' || next === '') return true;
     }
     // (4) a dash in second position is consumed together with its
     // alphanumeric run BEFORE the validity check; the pattern is a word
@@ -1282,11 +1228,7 @@ export class Parser {
    * when the leading bare run does not qualify as a glob (the pattern is a
    * plain concatenation in the reference) or the shape does not fit.
    */
-  private parseExtglobBlob(
-    start: number,
-    end: number,
-    leadValidator?: (s: number, e: number) => boolean,
-  ): Frame[] | null {
+  private parseExtglobBlob(start: number, end: number, leadValidator?: (s: number, e: number) => boolean): Frame[] | null {
     // Find the first construct.
     let i = start;
     while (i < end) {
@@ -1530,9 +1472,7 @@ export class Parser {
     // The name merges adjacent word tokens (the lexer splits { } [ ] out as
     // single-character tokens): `{1..3}` or `cmd{x}` is one name.
     const [nameStart, nameEnd] = this.consumeWordRun();
-    const name = this.frame('command_name', nameStart, nameEnd, [
-      this.parseLiteral(nameStart, nameEnd),
-    ]);
+    const name = this.frame('command_name', nameStart, nameEnd, [this.parseLiteral(nameStart, nameEnd)]);
     const command = this.frame('command', start, nameEnd, [...prefix, name]);
     for (;;) {
       const token = this.lexer.peek();
@@ -1633,10 +1573,7 @@ export class Parser {
       this.lexer.next();
       valueEnd = token.end;
     }
-    const subscriptKids: Frame[] = [
-      this.frame('variable_name', start, nameEnd),
-      this.anon('[', nameEnd, indexStart),
-    ];
+    const subscriptKids: Frame[] = [this.frame('variable_name', start, nameEnd), this.anon('[', nameEnd, indexStart)];
     if (indexEnd > indexStart) {
       subscriptKids.push(this.parseLiteral(indexStart, indexEnd));
     } else {
@@ -1740,9 +1677,7 @@ export class Parser {
     }
     const op = this.tokenText(token);
     if (op === '<<' || op === '<<-') {
-      return this.noHeredoc
-        ? this.parseBrokenHeredoc(descriptor)
-        : this.parseHeredocRedirect(descriptor);
+      return this.noHeredoc ? this.parseBrokenHeredoc(descriptor) : this.parseHeredocRedirect(descriptor);
     }
     if (op === '<<<') return this.parseHerestringRedirect(descriptor);
     if (isFileRedirectOp(op)) return this.parseFileRedirect(descriptor, maxDestinations);
@@ -1756,10 +1691,7 @@ export class Parser {
    *  makes `cmd` the command_name); after the command name the redirect is
    *  greedy, matching tree-sitter-bash (`cmd > out arg` puts both words in
    *  the redirect). */
-  private parseFileRedirect(
-    descriptor: Frame | null,
-    maxDestinations = Number.POSITIVE_INFINITY,
-  ): Frame {
+  private parseFileRedirect(descriptor: Frame | null, maxDestinations = Number.POSITIVE_INFINITY): Frame {
     const opToken = this.lexer.next();
     const op = this.tokenText(opToken);
     const kids: Frame[] = [];
@@ -1829,12 +1761,7 @@ export class Parser {
     const kids: Frame[] = [];
     if (descriptor !== null) kids.push(descriptor);
     kids.push(this.anon(op, opToken.start, opToken.end));
-    const redirect = this.frame(
-      'heredoc_redirect',
-      descriptor?.start ?? opToken.start,
-      opToken.end,
-      kids,
-    );
+    const redirect = this.frame('heredoc_redirect', descriptor?.start ?? opToken.start, opToken.end, kids);
     const startToken = this.lexer.peek();
     if (startToken.type !== 'word') {
       this.hasError = true; // missing delimiter
@@ -2051,9 +1978,7 @@ export class Parser {
         // a string piece inside the concatenation.
         if (this.source[i + 1] === '"' && i === start) {
           const [translated, next] = this.parseString(i + 1, end);
-          pieces.push(
-            this.frame('translated_string', i, next, [this.anon('$', i, i + 1), translated]),
-          );
+          pieces.push(this.frame('translated_string', i, next, [this.anon('$', i, i + 1), translated]));
           i = next;
           continue;
         }
@@ -2180,12 +2105,7 @@ export class Parser {
       const ch = this.source[i]!;
       if (ch === '"') {
         const last = string.children.at(-1);
-        if (
-          whitespaceOnlyChunk(i) &&
-          last !== undefined &&
-          last.isNamed &&
-          last.type !== 'string_content'
-        ) {
+        if (whitespaceOnlyChunk(i) && last !== undefined && last.isNamed && last.type !== 'string_content') {
           // Absorbed into the closing quote (see whitespaceOnlyChunk).
           this.addKid(string, this.anon('"', chunkStart, i + 1));
         } else {
@@ -2256,10 +2176,7 @@ export class Parser {
       // \w+ rule wins for everything except the standalone 0.
       if (j === i + 2 && next === '0') {
         return [
-          this.frame('simple_expansion', i, j, [
-            this.anon('$', i, i + 1),
-            this.frame('special_variable_name', i + 1, j),
-          ]),
+          this.frame('simple_expansion', i, j, [this.anon('$', i, i + 1), this.frame('special_variable_name', i + 1, j)]),
           j,
         ];
       }
@@ -2366,11 +2283,7 @@ export class Parser {
         i = this.scanBalanced(i, end, '[', ']').end;
         continue;
       }
-      if (
-        '+-*/%<>=!&|^~?,'.includes(ch) &&
-        (isBlank(this.source[i - 1]) || isBlank(this.source[i + 1]))
-      )
-        return true;
+      if ('+-*/%<>=!&|^~?,'.includes(ch) && (isBlank(this.source[i - 1]) || isBlank(this.source[i + 1]))) return true;
       i++;
     }
     return false;
@@ -2407,17 +2320,10 @@ export class Parser {
       while (nameEnd < innerEnd && /[\w]/.test(this.source[nameEnd]!)) nameEnd++;
       // ${0} is a special_variable_name; other digits are variable_name.
       const special = nameEnd === j + 1 && this.source[j] === '0';
-      this.addKid(
-        expansion,
-        this.frame(special ? 'special_variable_name' : 'variable_name', j, nameEnd),
-      );
+      this.addKid(expansion, this.frame(special ? 'special_variable_name' : 'variable_name', j, nameEnd));
       j = nameEnd;
       hasName = true;
-    } else if (
-      j < innerEnd &&
-      (this.source[j] === '#' || this.source[j] === '!') &&
-      j + 1 === innerEnd
-    ) {
+    } else if (j < innerEnd && (this.source[j] === '#' || this.source[j] === '!') && j + 1 === innerEnd) {
       // A lone # / ! in variable position is an anonymous token in the
       // reference (`${#}`, `${!#}`, `${!##}`, `${#!}` — the length/indirect
       // operator with no name), not a special_variable_name.
@@ -2497,8 +2403,7 @@ export class Parser {
         this.addKid(expansion, this.anon('/', pos, pos + 1));
         pos++;
         if (pos < innerEnd) {
-          for (const piece of this.parseExpansionValue(pos, innerEnd))
-            this.addKid(expansion, piece);
+          for (const piece of this.parseExpansionValue(pos, innerEnd)) this.addKid(expansion, piece);
           pos = innerEnd;
         }
       }
@@ -2534,8 +2439,7 @@ export class Parser {
         this.addKid(expansion, this.anon(operator, j, j + operator.length));
         const pos = j + operator.length;
         if (pos < innerEnd) {
-          for (const piece of this.parseExpansionValue(pos, innerEnd))
-            this.addKid(expansion, piece);
+          for (const piece of this.parseExpansionValue(pos, innerEnd)) this.addKid(expansion, piece);
         }
         return innerEnd;
       }
@@ -2558,17 +2462,9 @@ export class Parser {
    *  - the replacement separator `/` ends the pattern even when escaped
    *    (a pattern ending in backslash-slash → regex keeps the backslash,
    *    then the `/` operator). */
-  private parseExpansionPattern(
-    expansion: Frame,
-    j: number,
-    innerEnd: number,
-    stop?: string,
-  ): number {
+  private parseExpansionPattern(expansion: Frame, j: number, innerEnd: number, stop?: string): number {
     let pos = j;
-    while (
-      pos < innerEnd &&
-      (this.source[pos] === ' ' || this.source[pos] === '\t' || this.source[pos] === '\r')
-    ) {
+    while (pos < innerEnd && (this.source[pos] === ' ' || this.source[pos] === '\t' || this.source[pos] === '\r')) {
       pos++;
     }
     if (pos > j && (pos >= innerEnd || (stop !== undefined && this.source[pos] === stop))) {
@@ -2677,12 +2573,7 @@ export class Parser {
       const piece = pieces[p]!;
       if (piece.type === 'word' && p + 1 < pieces.length && this.source[piece.start] !== '(') {
         let newEnd = piece.end;
-        while (
-          newEnd > piece.start &&
-          (this.source[newEnd - 1] === ' ' ||
-            this.source[newEnd - 1] === '\t' ||
-            this.source[newEnd - 1] === '\r')
-        ) {
+        while (newEnd > piece.start && (this.source[newEnd - 1] === ' ' || this.source[newEnd - 1] === '\t' || this.source[newEnd - 1] === '\r')) {
           newEnd--;
         }
         if (newEnd === piece.start) continue;
@@ -2771,9 +2662,7 @@ export class Parser {
       children.length === 1 &&
       children[0]!.type === 'redirected_statement' &&
       children[0]!.children.length > 0 &&
-      children[0]!.children.every(
-        (child) => child.type === 'file_redirect' || child.type === 'herestring_redirect',
-      )
+      children[0]!.children.every((child) => child.type === 'file_redirect' || child.type === 'herestring_redirect')
     ) {
       children = children[0]!.children;
     }
@@ -2808,9 +2697,7 @@ export class Parser {
     if (!scan.balanced) this.hasError = true;
     const innerEnd = scan.balanced ? close - 1 : close;
     const opener = this.source[i]!;
-    const substitution = this.frame('process_substitution', i, close, [
-      this.anon(`${opener}(`, i, i + 2),
-    ]);
+    const substitution = this.frame('process_substitution', i, close, [this.anon(`${opener}(`, i, i + 2)]);
     for (const child of this.parseScopedStatements(i + 2, innerEnd)) {
       this.addKid(substitution, child);
     }
@@ -2854,9 +2741,7 @@ export class Parser {
     if (!closed) this.hasError = true;
     const innerStart = Math.min(i + 3, close);
     const innerEnd = closed ? close - 2 : close;
-    const expansion = this.frame('arithmetic_expansion', i, close, [
-      this.anon('$((', i, innerStart),
-    ]);
+    const expansion = this.frame('arithmetic_expansion', i, close, [this.anon('$((', i, innerStart)]);
     this.addArithmeticChildren(expansion, innerStart, innerEnd);
     if (closed) {
       this.addKid(expansion, this.anon('))', innerEnd, close));
@@ -2872,9 +2757,7 @@ export class Parser {
     if (!closed) this.hasError = true;
     const innerStart = Math.min(i + 2, close);
     const innerEnd = closed ? close - 2 : close;
-    const expansion = this.frame('arithmetic_expansion', i, close, [
-      this.anon('((', i, innerStart),
-    ]);
+    const expansion = this.frame('arithmetic_expansion', i, close, [this.anon('((', i, innerStart)]);
     this.addArithmeticChildren(expansion, innerStart, innerEnd);
     if (closed) {
       this.addKid(expansion, this.anon('))', innerEnd, close));
@@ -2935,10 +2818,7 @@ export class Parser {
       if (operand === null) this.hasError = true;
       else kids.push(operand);
       left = this.frame('unary_expression', head.start, this.endOf(kids, head.end), kids);
-    } else if (
-      head.kind === 'op' &&
-      (head.text === '!' || head.text === '~' || head.text === '+' || head.text === '-')
-    ) {
+    } else if (head.kind === 'op' && (head.text === '!' || head.text === '~' || head.text === '+' || head.text === '-')) {
       this.exprNext(st);
       const kids: Frame[] = [this.anon(head.text, head.start, head.end)];
       const operand = this.parseExpression(st, PREC_UNARY);
@@ -2956,12 +2836,7 @@ export class Parser {
         after.kind === 'end' ||
         after.kind === 'rparen' ||
         (after.kind === 'op' &&
-          (after.text === '=' ||
-            after.text === '==' ||
-            after.text === '!=' ||
-            after.text === '=~' ||
-            after.text === '&&' ||
-            after.text === '||'));
+          (after.text === '=' || after.text === '==' || after.text === '!=' || after.text === '=~' || after.text === '&&' || after.text === '||'));
       if (demote) {
         left = this.frame('word', head.start, head.end);
       } else {
@@ -2979,11 +2854,7 @@ export class Parser {
     st.expectOperator = true;
     for (;;) {
       const token = this.exprPeek(st);
-      if (
-        token.kind === 'op' &&
-        (token.text === '++' || token.text === '--') &&
-        PREC_POSTFIX >= minPrecedence
-      ) {
+      if (token.kind === 'op' && (token.text === '++' || token.text === '--') && PREC_POSTFIX >= minPrecedence) {
         this.exprNext(st);
         left = this.frame('postfix_expression', left.start, token.end, [
           left,
@@ -3014,11 +2885,7 @@ export class Parser {
         continue;
       }
       const isTestOp = token.kind === 'testop';
-      const precedence = isTestOp
-        ? PREC_TEST
-        : token.kind === 'op'
-          ? EXPRESSION_PRECEDENCE[token.text]
-          : undefined;
+      const precedence = isTestOp ? PREC_TEST : token.kind === 'op' ? EXPRESSION_PRECEDENCE[token.text] : undefined;
       if (precedence === undefined || precedence < minPrecedence) break;
       this.exprNext(st);
       st.expectOperator = false;
@@ -3033,19 +2900,14 @@ export class Parser {
         st.expectOperator = true;
         continue;
       }
-      const rightPrecedence =
-        token.text === '**' && st.mode === 'test' ? precedence : precedence + 1;
+      const rightPrecedence = token.text === '**' && st.mode === 'test' ? precedence : precedence + 1;
       let right: Frame | null;
       // A pattern-shaped right side after ==/!= (extglob group, or glob
       // text mixed with a quote/expansion) — see tryParseTestPattern.
       if (st.mode === 'test' && (token.text === '==' || token.text === '!=')) {
         const pattern = this.tryParseTestPattern(st);
         if (pattern !== null) {
-          const kids: Frame[] = [
-            left,
-            this.anon(token.text, token.start, token.end),
-            ...pattern.frames,
-          ];
+          const kids: Frame[] = [left, this.anon(token.text, token.start, token.end), ...pattern.frames];
           left = this.frame('binary_expression', left.start, pattern.end, kids);
           st.expectOperator = true;
           continue;
@@ -3176,11 +3038,7 @@ export class Parser {
    *  inside (…) stays inside the regex token. */
   private parseTestRegex(st: ExprState): Frame[] | null {
     let i = st.pos;
-    while (
-      i < st.end &&
-      (this.source[i] === ' ' || this.source[i] === '\t' || this.source[i] === '\r')
-    )
-      i++;
+    while (i < st.end && (this.source[i] === ' ' || this.source[i] === '\t' || this.source[i] === '\r')) i++;
     st.pos = i;
     st.lookahead = null;
     if (i >= st.end) return null;
@@ -3211,8 +3069,7 @@ export class Parser {
         sinceTick = 0;
       }
       const c = this.source[j]!;
-      if (!inQuote && parenDepth === 0 && (c === ' ' || c === '\t' || c === '\r' || c === '\n'))
-        break;
+      if (!inQuote && parenDepth === 0 && (c === ' ' || c === '\t' || c === '\r' || c === '\n')) break;
       if (c === "'") {
         hasQuote = true;
         inQuote = !inQuote;
@@ -3255,11 +3112,7 @@ export class Parser {
    */
   private tryParseTestPattern(st: ExprState): { frames: Frame[]; end: number } | null {
     let i = st.pos;
-    while (
-      i < st.end &&
-      (this.source[i] === ' ' || this.source[i] === '\t' || this.source[i] === '\r')
-    )
-      i++;
+    while (i < st.end && (this.source[i] === ' ' || this.source[i] === '\t' || this.source[i] === '\r')) i++;
     if (i >= st.end) return null;
     // Find the end of the pattern: unquoted whitespace at paren depth 0.
     let depth = 0;
@@ -3292,10 +3145,7 @@ export class Parser {
         j = skipDollar(this.source, this.budget, j, st.end);
         continue;
       }
-      if (
-        (ch === '?' || ch === '*' || ch === '+' || ch === '@' || ch === '!') &&
-        this.source[j + 1] === '('
-      ) {
+      if ((ch === '?' || ch === '*' || ch === '+' || ch === '@' || ch === '!') && this.source[j + 1] === '(') {
         sawGroup = true;
       }
       if (ch === '(') {
@@ -3329,11 +3179,7 @@ export class Parser {
     // Glob text (possibly with a group) mixed with one quote/expansion:
     // extglob_pattern pieces around the construct (`@(*${x}.tar|*.sig)` →
     // extglob "@(*", expansion, extglob ".tar|*.sig)").
-    const pieces = this.parseExtglobBlob(
-      i,
-      j,
-      hasGroup ? (s, e) => this.extglobGroupAccepted(s, e) : undefined,
-    );
+    const pieces = this.parseExtglobBlob(i, j, hasGroup ? (s, e) => this.extglobGroupAccepted(s, e) : undefined);
     if (pieces === null) return null;
     st.pos = j;
     st.lookahead = null;
@@ -3489,13 +3335,7 @@ export class Parser {
         }
         if (sub.balanced) kids.push(this.anon(']', sub.end - 1, sub.end));
         st.pos = sub.end;
-        return {
-          kind: 'subst',
-          start: i,
-          end: sub.end,
-          text: this.text(i, sub.end),
-          frame: this.frame('subscript', i, sub.end, kids),
-        };
+        return { kind: 'subst', start: i, end: sub.end, text: this.text(i, sub.end), frame: this.frame('subscript', i, sub.end, kids) };
       }
       st.pos = j;
       return { kind: 'ident', start: i, end: j, text: this.text(i, j) };
@@ -3504,23 +3344,11 @@ export class Parser {
       const dollar = this.parseDollar(i, end);
       if (dollar !== null) {
         st.pos = dollar[1];
-        return {
-          kind: 'subst',
-          start: i,
-          end: dollar[1],
-          text: this.text(i, dollar[1]),
-          frame: dollar[0],
-        };
+        return { kind: 'subst', start: i, end: dollar[1], text: this.text(i, dollar[1]), frame: dollar[0] };
       }
       this.hasError = true; // bare $ inside arithmetic
       st.pos = i + 1;
-      return {
-        kind: 'subst',
-        start: i,
-        end: i + 1,
-        text: '$',
-        frame: this.frame('ERROR', i, i + 1),
-      };
+      return { kind: 'subst', start: i, end: i + 1, text: '$', frame: this.frame('ERROR', i, i + 1) };
     }
     if (ch === '"') {
       const [piece, next] = this.parseString(i, end);
@@ -3601,10 +3429,7 @@ export class Parser {
       // At operand position only a standalone `!` is the prefix operator;
       // everything else (=b, !x, !=b) is word material in the reference.
       const after = this.source[i + 1];
-      if (
-        ch === '!' &&
-        (after === undefined || after === ' ' || after === '\t' || after === '\r' || i + 1 >= end)
-      ) {
+      if (ch === '!' && (after === undefined || after === ' ' || after === '\t' || after === '\r' || i + 1 >= end)) {
         st.pos = i + 1;
         return { kind: 'op', start: i, end: i + 1, text: '!' };
       }
@@ -3620,20 +3445,9 @@ export class Parser {
       const after = this.source[j];
       if (j < end && (after === ' ' || after === '\t' || after === '\r')) {
         let k = j;
-        while (
-          k < end &&
-          (this.source[k] === ' ' || this.source[k] === '\t' || this.source[k] === '\r')
-        )
-          k++;
+        while (k < end && (this.source[k] === ' ' || this.source[k] === '\t' || this.source[k] === '\r')) k++;
         const next = this.source[k];
-        if (
-          k < end &&
-          next !== '=' &&
-          next !== ']' &&
-          next !== '&' &&
-          next !== '|' &&
-          next !== ')'
-        ) {
+        if (k < end && next !== '=' && next !== ']' && next !== '&' && next !== '|' && next !== ')') {
           st.pos = j;
           return { kind: 'testop', start: i, end: j, text: this.text(i, j) };
         }
@@ -3693,9 +3507,7 @@ export class Parser {
   private parseParenTestCommand(): Frame {
     const token = this.lexer.next();
     const closed =
-      token.end - token.start >= 4 &&
-      this.source[token.end - 2] === ')' &&
-      this.source[token.end - 1] === ')';
+      token.end - token.start >= 4 && this.source[token.end - 2] === ')' && this.source[token.end - 1] === ')';
     if (!closed) this.hasError = true;
     const kids: Frame[] = [this.anon('((', token.start, token.start + 2)];
     const innerEnd = closed ? token.end - 2 : token.end;
@@ -3732,11 +3544,7 @@ export class Parser {
     // redirected statement in the reference, not a test expression
     // (`[ ! command -v go &>/dev/null ]` → redirected_statement with a
     // negated_command inside the test_command).
-    if (
-      !double &&
-      scan.closerStart > exprStart &&
-      this.rangeHasTopLevelRedirect(exprStart, scan.closerStart)
-    ) {
+    if (!double && scan.closerStart > exprStart && this.rangeHasTopLevelRedirect(exprStart, scan.closerStart)) {
       const statements = this.parseScopedStatements(exprStart, scan.closerStart);
       kids.push(...statements);
       let end = scan.closerStart;
@@ -3782,12 +3590,7 @@ export class Parser {
       // test — other unterminated `[[` forms become an ERROR node there.
       this.hasError = true;
       let closeAt = scan.closerStart;
-      while (
-        closeAt > exprStart &&
-        (this.source[closeAt - 1] === ' ' ||
-          this.source[closeAt - 1] === '\t' ||
-          this.source[closeAt - 1] === '\r')
-      ) {
+      while (closeAt > exprStart && (this.source[closeAt - 1] === ' ' || this.source[closeAt - 1] === '\t' || this.source[closeAt - 1] === '\r')) {
         closeAt--;
       }
       kids.push(this.anon(closer, closeAt, closeAt));
@@ -3837,10 +3640,7 @@ export class Parser {
 
   /** Find the closer of a test command, skipping quotes and substitutions.
    *  Bounded by the end of the line and the lexer's range. */
-  private scanTestCloser(
-    start: number,
-    double: boolean,
-  ): { closerStart: number; afterCloser: number; found: boolean } {
+  private scanTestCloser(start: number, double: boolean): { closerStart: number; afterCloser: number; found: boolean } {
     const end = this.lexer.rangeEnd;
     let j = start;
     let sinceTick = 0;
@@ -3877,8 +3677,7 @@ export class Parser {
       }
       if (ch === ']') {
         if (double) {
-          if (this.source[j + 1] === ']')
-            return { closerStart: j, afterCloser: j + 2, found: true };
+          if (this.source[j + 1] === ']') return { closerStart: j, afterCloser: j + 2, found: true };
         } else {
           return { closerStart: j, afterCloser: j + 1, found: true };
         }

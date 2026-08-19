@@ -77,7 +77,7 @@ Error codes are grouped by band:
 List endpoints come in two styles:
 
 - **Cursor style**: `before_id` / `after_id` (mutually exclusive) plus `page_size` (1–100), responding with `{ items, has_more }`. Used by the session list, message list, transcript, and others.
-- **`page_token`**: an opaque token (bound to a fingerprint of the query conditions), used by `POST /api/v1/search` and `GET /api/v2/sessions`. Changing any query condition mid-pagination invalidates the token: v2 returns `40922`, search returns `40001`.
+- **`page_token`**: an opaque token (bound to a fingerprint of the query conditions), used by `POST /api/v1/search` and `GET /api/v2/sessions`. Changing any query condition mid-pagination invalidates the token: v2 returns `40922`, search returns `40001`. `GET /api/v2/sessions` also offers a stateless `page` page-number mode as an alternative.
 
 ## REST endpoints
 
@@ -169,9 +169,9 @@ Endpoints are grouped by resource below. A `:{action}` suffix in a path is the a
 
 | Method and path | Description |
 | --- | --- |
-| `GET /api/v1/sessions/{session_id}/approvals` | List approval requests (`status=pending` is required) |
+| `GET /api/v1/sessions/{session_id}/approvals` | List approval requests (filter with `status=pending`) |
 | `POST /api/v1/sessions/{session_id}/approvals/{approval_id}` | Resolve an approval |
-| `GET /api/v1/sessions/{session_id}/questions` | List questions (`status=pending` is required) |
+| `GET /api/v1/sessions/{session_id}/questions` | List questions |
 | `POST /api/v1/sessions/{session_id}/questions/{question_id}` | Answer a question |
 | `POST /api/v1/sessions/{session_id}/questions/{question_id}:dismiss` | Dismiss a question |
 
@@ -245,6 +245,8 @@ In-session file operations go through `POST /api/v1/sessions/{session_id}/fs:{ac
 | `POST /api/v1/search` | Cross-session full-text search; `mode` is `terms` (default) or `literal` (exact substring); `page_token` pagination |
 | `GET /api/v1/connections` | List live WebSocket connections |
 | `GET /api/v2/sessions` | Next-generation session list, see below |
+| `POST /api/v2/sessions:archive` | Batch-archive sessions, see below |
+| `POST /api/v2/sessions:restore` | Batch-restore archived sessions, see below |
 | `/api/v1/debug/*` | Reflection debug RPC; mounted only with `--debug-endpoints` on loopback, not a stable protocol |
 
 ### `GET /api/v2/sessions`
@@ -256,13 +258,38 @@ A next-generation session query for list views — filtering, sorting, and field
 | `workspace.id` | Filter by workspace; repeatable |
 | `activity.status` | Filter by activity status: `running` / `approval` / `question` / `failed` / `idle`; repeatable |
 | `meta.updated_after` | Only sessions updated after this time (epoch milliseconds) |
+| `meta.updated_before` | Only sessions updated before this time (epoch milliseconds) |
 | `meta.archived` | `true` / `false` (default) / `all` |
 | `sort` | `meta.updated_at_desc` (default) / `meta.updated_at_asc` / `meta.created_at_desc` |
 | `include` | Comma-separated extra field groups; currently only `git` (branch and PR info, deduplicated per directory and cached for 60 seconds) |
-| `page_size` | 1–100, default 50 |
+| `fields` | Comma-separated item projection; currently only `id,archived`, trimming each item to `{ id, archived }` (select-all-matching flows). Not combinable with `include=git` (`40001`) |
+| `page_size` | 1–100, default 50; up to 10000 with the `id,archived` projection |
 | `page_token` | Pagination token from the previous page |
+| `page` | Stateless 1-based page number; mutually exclusive with `page_token` (`40001` when combined) |
 
-Every response item carries the `workspace`, `meta`, and `activity` groups, plus `git` when `include=git`. The page token binds the first page's query conditions; changing them mid-pagination returns `40922`.
+Every response item carries the `workspace`, `meta`, and `activity` groups, plus `git` when `include=git` — or just `{ id, archived }` under `fields=id,archived`. Every page additionally carries `total`, the size of the filtered set. The page token binds the first page's query conditions (including the projection); changing them mid-pagination returns `40922`. `page` mode is a stateless alternative for jumping to arbitrary pages: every request is an independent snapshot, no token is minted, and `next_page_token` is always `null`.
+
+### `POST /api/v2/sessions:archive` and `POST /api/v2/sessions:restore`
+
+Batch archive/restore for session-management views. The body is `{ "ids": ["session_..."] }` — non-empty, at most 5000 unique ids (duplicates collapse). Live sessions go through the full lifecycle; cold sessions are patched on disk without being loaded.
+
+Only a body validation failure fails the whole request (`40001`). Otherwise the response is per-item: `data.results` keeps the input order with `{ id, ok }` or `{ id, ok: false, error }` (an unknown id reports `40401` in its own item), plus `succeeded` / `failed` counts.
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "results": [
+      { "id": "session_a", "ok": true },
+      { "id": "session_b", "ok": false, "error": { "code": 40401, "message": "session session_b does not exist" } }
+    ],
+    "succeeded": 1,
+    "failed": 1
+  },
+  "request_id": "req_..."
+}
+```
 
 ## WebSocket protocol
 
@@ -283,7 +310,7 @@ The only endpoint is `ws://<host>:<port>/api/v1/ws`; authentication happens at t
 }
 ```
 
-The server sends an application-level `ping` frame every `heartbeat_ms` (10s by default) and closes the connection with code 1001 after ~20s without any inbound frame — clients must answer each `ping` with a `pong` frame. Reconnection stays the client's job.
+Note that the server never sends heartbeats and never disconnects an idle connection — keepalive and reconnection are the client's job.
 
 ### Control frames
 
@@ -295,14 +322,14 @@ Clients send JSON frames `{ "type", "id"?, "payload" }`; every request frame get
 | `unsubscribe` | `{ session_ids }` | Drop session subscriptions |
 | `subscribe_v2` | `{ session_id, transcript, transcript_since? }` | Subscribe to transcript streams (the only transcript channel); `transcript` sets per-agent grades |
 | `unsubscribe_v2` | `{ session_id, agent_ids? }` | Detach transcript streams; omitting `agent_ids` means the whole session |
-| `watch_fs_add` / `watch_fs_remove` | `{ session_id, paths }` | Subscribe to / unsubscribe from file-change notifications (`event.fs.changed`) |
+| `watch_fs_add` / `watch_fs_remove` | `{ session_id, paths, recursive? }` | Subscribe to / unsubscribe from file-change notifications (`event.fs.changed`) |
 | `client_hello` | `{ client_id }` | Handshake frame; the remaining fields are legacy compatibility |
 
 ### Events
 
 Event frames look like `{ "type", "seq", "epoch"?, "volatile"?, "offset"?, "session_id"?, "timestamp", "payload" }`, where `type` is the event type itself. Two delivery scopes:
 
-- **Global events**: sent to every established connection, no subscription needed — `session.meta.updated`, `event.session.created`, `event.session.work_changed`, `event.workspace.*`, `event.config.*`.
+- **Global events**: sent to every established connection, no subscription needed — `session.meta.updated`, `event.session.created`, `event.session.work_changed`, `event.session.status_changed`, `event.workspace.*`, `event.config.*`.
 - **Session events**: sent only to connections subscribed to that session, subject to `agent_filter`. Main families:
 
 | Family | Main events |
@@ -315,7 +342,7 @@ Event frames look like `{ "type", "seq", "epoch"?, "volatile"?, "offset"?, "sess
 | Background | `task.started` / `terminated`, `shell.started` / `output` / `completed` |
 | Misc | `compaction.*`, `skill.activated`, `goal.updated`, `prompt.*`, `error`, `warning` |
 
-Events also split into durable and volatile: durable events carry a strictly increasing `seq`, are journaled, and can be replayed; volatile events (the `*.delta` family, `tool.progress`, `shell.*`, and similar) are marked `volatile: true` and never replayed. When consuming a volatile text stream, compare `offset` (the character offset accumulated within the current step — reset at each `turn.step.started`) against your locally accumulated text: below the local length means a duplicate frame; above means a gap that needs snapshot recovery.
+Events also split into durable and volatile: durable events carry a strictly increasing `seq`, are journaled, and can be replayed; volatile events (the `*.delta` family, `tool.progress`, `shell.*`, and similar) are marked `volatile: true` and never replayed. When consuming a volatile text stream, compare `offset` (the cumulative character offset within the turn) against your locally accumulated text: below the local length means a duplicate frame; above means a gap that needs snapshot recovery.
 
 ### Reconnect and recovery
 

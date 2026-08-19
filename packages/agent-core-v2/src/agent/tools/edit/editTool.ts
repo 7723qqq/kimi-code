@@ -1,42 +1,22 @@
-/**
- * `tools` domain — `EditTool` implementation, the Agent entry for exact
- * string replacement in a text file.
- *
- * Agent-scope adapter over the App-scope {@link IFileEditService} capability.
- * Keeps only the Agent-facing responsibilities: path resolution, the file
- * access declaration, the diff display, the approval rule, the no-op
- * pre-check, and mapping the domain-neutral `FileEditResult` into an
- * `ExecutableToolResult`. The actual read/edit/write is delegated to
- * {@link IFileEditService} (os-backed adapter over `IHostFileSystem`), which
- * runs the pure `TextModel` / `EditService` logic.
- *
- * Path semantics (home expansion, path class) come from the
- * `hostEnvironment` domain; the workspace and skill roots come from
- * `ISessionWorkspaceContext` / `ISessionSkillCatalog`.
- *
- * Ported from v1.
- * Bound at Agent scope; self-registers via `registerAgentToolService(...)` at module
- * load.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import { tryNativeEdit } from '#/_base/native-tools';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { IConfigService } from '#/app/config/config';
-import { IFileEditService } from '#/app/edit/fileEdit';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import {
-  extendWorkspaceWithSkillRoots,
   resolvePathAccessPath,
   type WorkspaceConfig,
 } from '#/tool/path-access';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
-import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
-import { resolveSandboxPolicy, sandboxWriteGuard } from '#/workspace/sandbox/sandbox';
+import { IFileEditService } from '#/app/edit/fileEdit';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { Runtime } from '#/runtime/runtime';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import {
+  ToolAccesses,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
 import { EditInputSchema, IEditTool, type EditInput } from './edit';
 import editDescriptionTemplate from './edit.md?raw';
@@ -49,32 +29,34 @@ export class EditTool implements IEditTool {
 
   constructor(
     @IFileEditService private readonly editor: IFileEditService,
-    @IHostEnvironment private readonly env: IHostEnvironment,
+    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
-    @IConfigService private readonly config: IConfigService,
     @ISessionSkillCatalog private readonly skillCatalog?: ISessionSkillCatalog,
   ) {}
 
-  private get workspaceConfig(): WorkspaceConfig {
-    return extendWorkspaceWithSkillRoots(
-      {
-        workspaceDir: this.workspaceCtx.workDir,
-        additionalDirs: this.workspaceCtx.additionalDirs,
-      },
-      this.skillCatalog?.catalog.getSkillRoots() ?? [],
-      this.env.pathClass,
-    );
+  private workspaceConfig(runtime: Runtime): WorkspaceConfig {
+    const view = new RuntimeWorkspaceView(runtime, {
+      workDir: this.workspaceCtx.workDir,
+      additionalDirs: [
+        ...this.workspaceCtx.additionalDirs,
+        ...(this.skillCatalog?.catalog.getSkillRoots() ?? []),
+      ],
+    });
+    return { workspaceDir: view.workDir, additionalDirs: view.additionalDirs };
   }
 
   resolveExecution(args: EditInput): ToolExecution {
+    const inspected = inspectAgentRuntime(this.runtime);
+    const env = inspected.environment;
+    const workspace = this.workspaceConfig(inspected);
     const path = resolvePathAccessPath(args.path, {
-      env: this.env,
-      workspace: this.workspaceConfig,
+      env,
+      workspace,
       operation: 'write',
     });
     return {
       accesses: ToolAccesses.readWriteFile(path),
-      description: t('toolsV2.editing', { path: args.path }),
+      description: `Editing ${args.path}`,
       display: {
         kind: 'file_io',
         operation: 'edit',
@@ -85,50 +67,33 @@ export class EditTool implements IEditTool {
       approvalRule: literalRulePattern(this.name, path),
       matchesRule: (ruleArgs) =>
         matchesPathRuleSubject(ruleArgs, path, {
-          cwd: this.workspaceConfig.workspaceDir,
-          pathClass: this.env.pathClass,
-          homeDir: this.env.homeDir,
+          cwd: workspace.workspaceDir,
+          pathClass: env.pathClass,
+          homeDir: env.homeDir,
         }),
-      execute: () => this.execution(args, path),
+      execute: async () => {
+        const lease = this.runtime.acquire(['fs']);
+        try {
+          if (lease.runtime.identity.generation !== inspected.identity.generation) {
+            return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
+          }
+          return await this.execution(args, path, lease.runtime.fs!);
+        } finally {
+          lease.dispose();
+        }
+      },
     };
   }
 
-  private async execution(args: EditInput, safePath: string): Promise<ExecutableToolResult> {
-    const sandboxError = sandboxWriteGuard(
-      resolveSandboxPolicy(this.config, this.workspaceConfig.workspaceDir),
-      safePath,
-    );
-    if (sandboxError !== undefined) {
-      return { isError: true, output: sandboxError };
-    }
-
+  private async execution(
+    args: EditInput,
+    safePath: string,
+    fs: IHostFileSystem,
+  ): Promise<ExecutableToolResult> {
     if (args.old_string === args.new_string) {
       return {
         isError: true,
-        output: t('toolsV2.editNoChanges'),
-      };
-    }
-
-    // Native fast-path: the Rust edit is authoritative when available (a
-    // native error is a final verdict, same convention as Read/Write).
-    const nativeResult = await tryNativeEdit(
-      safePath,
-      args.old_string,
-      args.new_string,
-      args.replace_all ?? false,
-    );
-    if (nativeResult !== undefined) {
-      if (!nativeResult.success) {
-        return { isError: true, output: nativeResult.error ?? t('toolsV2.editNoChanges') };
-      }
-      const nativeWord =
-        nativeResult.replacements === 1 ? t('toolsV2.occurrence') : t('toolsV2.occurrences');
-      return {
-        output: t('toolsV2.editReplaced', {
-          count: String(nativeResult.replacements),
-          occurrences: nativeWord,
-          path: args.path,
-        }),
+        output: 'No changes to make: old_string and new_string are exactly the same.',
       };
     }
 
@@ -138,19 +103,17 @@ export class EditTool implements IEditTool {
       old_string: args.old_string,
       new_string: args.new_string,
       replace_all: args.replace_all ?? false,
-    });
+    }, fs);
     if (!result.ok) {
       return { isError: true, output: result.error };
     }
-    const word = result.count === 1 ? t('toolsV2.occurrence') : t('toolsV2.occurrences');
-    return {
-      output: t('toolsV2.editReplaced', {
-        count: String(result.count),
-        occurrences: word,
-        path: args.path,
-      }),
-    };
+    const word = result.count === 1 ? 'occurrence' : 'occurrences';
+    return { output: `Replaced ${String(result.count)} ${word} in ${args.path}` };
   }
 }
 
-registerAgentToolService(IEditTool, EditTool, { name: 'Edit', domain: 'edit' });
+registerAgentToolService(IEditTool, EditTool, {
+  name: 'Edit',
+  domain: 'edit',
+  requiredRuntimeCapabilities: ['fs'],
+});

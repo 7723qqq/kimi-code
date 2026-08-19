@@ -1,22 +1,12 @@
-/**
- * Scenario: plugin session-start rendering and restored-history deduplication.
- *
- * Exercises the real agent injection and wire replay path through the shared
- * test-agent harness, with plugin contributions supplied in memory.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/app/skillCatalog/plugin-session-start.test.ts`.
- */
-
 import { describe, expect, it } from 'vitest';
 
-import type { LogContext, LogPayload } from '#/_base/log/log';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import type { LogContext, LogPayload } from '#/_base/log/log';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { EnabledPluginSessionStart } from '#/app/plugin/types';
 import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
 import type { SkillDefinition } from '#/app/skillCatalog/types';
-
 import { appService, logServices, skillServices, testAgent } from '../../harness';
 import { stubPluginService } from '../plugin/stubs';
 import { stubSkill } from './stubs';
@@ -44,7 +34,11 @@ body
 </plugin_session_start>
 </system-reminder>`;
 
-function skill(name: string, body: string, plugin?: SkillDefinition['plugin']): SkillDefinition {
+function skill(
+  name: string,
+  body: string,
+  plugin?: SkillDefinition['plugin'],
+): SkillDefinition {
   return stubSkill(name, {
     description: '',
     path: `/fake/${name}/SKILL.md`,
@@ -102,12 +96,10 @@ function lastReminder(ctx: ReturnType<typeof testAgent>): string {
 }
 
 function pluginSessionStartMessages(ctx: ReturnType<typeof testAgent>) {
-  return ctx.context
-    .get()
-    .filter(
-      (message) =>
-        message.origin?.kind === 'injection' && message.origin.variant === 'plugin_session_start',
-    );
+  return ctx.context.get().filter(
+    (message) =>
+      message.origin?.kind === 'injection' && message.origin.variant === 'plugin_session_start',
+  );
 }
 
 describe('plugin session-start dynamic injection', () => {
@@ -189,18 +181,16 @@ describe('plugin session-start dynamic injection', () => {
       skills: [skill('using-superpowers', 'body', { id: 'superpowers' })],
     });
 
-    await ctx.restore([
-      {
-        type: 'context.append_message',
-        time: 1,
-        message: {
-          role: 'user',
-          content: [{ type: 'text', text: CURRENT_PLUGIN_SESSION_START_REMINDER }],
-          toolCalls: [],
-          origin: { kind: 'injection', variant: 'plugin_session_start' },
-        },
+    await ctx.restore([{
+      type: 'context.append_message',
+      time: 1,
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: CURRENT_PLUGIN_SESSION_START_REMINDER }],
+        toolCalls: [],
+        origin: { kind: 'injection', variant: 'plugin_session_start' },
       },
-    ]);
+    }]);
 
     await injectDynamic(ctx);
 

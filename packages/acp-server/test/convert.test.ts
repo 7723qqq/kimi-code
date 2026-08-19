@@ -15,11 +15,11 @@ import { solidPng, solidPngBase64 } from './_helpers/png';
 
 describe('acpMcpServersToConfigRecord', () => {
   it('returns undefined for an absent or empty list', () => {
-    expect(acpMcpServersToConfigRecord()).toBeUndefined();
+    expect(acpMcpServersToConfigRecord(undefined)).toBeUndefined();
     expect(acpMcpServersToConfigRecord([])).toBeUndefined();
   });
 
-  it('maps stdio servers (no `type` discriminator) with env pairs as a record', () => {
+  it('rejects stdio servers that cannot declare a runtime identity', () => {
     const servers: McpServer[] = [
       {
         name: 'fs',
@@ -31,14 +31,9 @@ describe('acpMcpServersToConfigRecord', () => {
         ],
       },
     ];
-    expect(acpMcpServersToConfigRecord(servers)).toEqual({
-      fs: {
-        transport: 'stdio',
-        command: '/usr/local/bin/mcp-fs',
-        args: ['--root', '/tmp'],
-        env: { API_KEY: 'secret', DEBUG: '1' },
-      },
-    });
+    expect(() => acpMcpServersToConfigRecord(servers)).toThrow(
+      'ACP stdio MCP server fs does not declare a runtime identity',
+    );
   });
 
   it('maps http and sse servers with header pairs as a record', () => {
@@ -93,11 +88,7 @@ describe('compressPromptImageParts', () => {
   const trash: string[] = [];
 
   afterEach(async () => {
-    await Promise.all(
-      trash
-        .splice(0)
-        .map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })),
-    );
+    await Promise.all(trash.splice(0).map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })));
   });
 
   async function tempOriginalsDir(): Promise<string> {

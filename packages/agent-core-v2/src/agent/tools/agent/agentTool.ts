@@ -1,90 +1,58 @@
-/**
- * `tools` domain — `SubagentTool` implementation (the `Agent` tool).
- *
- * The LLM-facing wrapper over the `subagent` domain: translates the tool args
- * into a Profile + Model binding, creates (or resumes) an agent through
- * `IAgentLifecycleService`, drives one turn via `ISessionSubagentService.run`,
- * and mirrors the run onto the calling agent's record stream
- * (`mirrorAgentRun`). The tool also owns the JSON schema + description,
- * approval rule, background-task registration (so the LLM can see the run
- * under TaskList/TaskOutput/TaskStop when `run_in_background=true` or after
- * detach), and terminal text formatting.
- *
- * Spawn bindings use the explicit tool `model` choice first, before
- * `resolveSubagentBinding` falls back to the configured `[secondary_model.models]`
- * pool default or the caller's model; with `[secondary_model].force` set the
- * `model` parameter is not advertised and every spawn binds `default_model`.
- * The pool is gated behind the `secondary-model` experiment (via
- * `IFlagService`): while it is off the `model` parameter is stripped and
- * every spawn inherits the caller's model.
- * The selected alias is
- * resolved through the model catalog before lifecycle allocation. A resumed
- * agent keeps the model recorded in its own wire journal — with per-subagent
- * models there is no "child follows the parent's current model" invariant to
- * enforce.
- *
- * Registered via the module-level `registerAgentToolService(ISubagentTool,
- * SubagentTool)` at the bottom of this file — the same "import = register"
- * pattern used by every agent tool. The per-profile tool listings in the
- * description read the full `AgentToolContribution` collection — static
- * registrations and feature-contributed tools alike — not the runtime
- * registry, which only holds tools the caller's own Profile activated,
- * plus any dynamically registered tools. The description's catalog profile list is
- * snapshotted once the session catalog has loaded and frozen for the agent's
- * lifetime: plugin install / enable / disable / remove re-contributes
- * profiles mid-session, and a live read would rewrite the tools payload of
- * every later request — breaking the provider's prompt cache for a change a
- * live agent must not see (new profiles take effect on `/new` or `/reload`).
- * Bound at Agent scope.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { type CollectionView } from '#/_base/di/collection';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { ILogService } from '#/_base/log/log';
-import { isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import {
+  isAbortError,
+  isUserCancellation,
+  userCancellationReason,
+} from '#/_base/utils/abort';
+import { Error2, ErrorCodes, isError2 } from '#/errors';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { matchesGlobRuleSubject } from '#/tool/rule-match';
+import {
+  IAgentTaskService,
+  type RegisterAgentTaskOptions,
+} from '#/agent/task/task';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentTaskService, type RegisterAgentTaskOptions } from '#/agent/task/task';
 import {
   isToolActive as evaluateToolActive,
   resolveActiveToolNames,
 } from '#/agent/toolPolicy/evaluate';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
+import {
+  ToolAccesses,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 import {
   AgentToolContribution,
   registerAgentToolService,
 } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService, type ToolReference } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import {
   subagentAllowlistFor,
   subagentTypeNotAllowedMessage,
 } from '#/app/agentProfileCatalog/profile-shared';
-import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
+import { ILogService } from '#/_base/log/log';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
-import { Error2, ErrorCodes, isError2 } from '#/errors';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import {
-  assertSubagentDepthAllowed,
-  isSubagentMeta,
-  subagentLabels,
-  subagentParentAgentId,
-} from '#/session/agentLifecycle/subagentMetadata';
-import { ISessionProcessRunner } from '#/session/process/processRunner';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { isSubagentMeta, subagentLabels, subagentParentAgentId } from '#/session/agentLifecycle/subagentMetadata';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { Runtime } from '#/runtime/runtime';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import {
-  exposesSubagentBackends,
-  stripSubagentBackendParameter,
-} from '#/session/subagent/backend/configSection';
-import { ISubagentBackendService } from '#/session/subagent/backend/subagentBackend';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+
+import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
 import {
   buildSubagentModelDescriptions,
   exposesSubagentModelChoice,
@@ -94,18 +62,6 @@ import {
   stripSubagentModelParameter,
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
-import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import {
-  ToolAccesses,
-  type ExecutableToolContext,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-
 import {
   BACKGROUND_AGENT_UNAVAILABLE,
   DEFAULT_PROFILE_NAME,
@@ -117,29 +73,23 @@ import {
   USER_INTERRUPTED_SUBAGENT_MESSAGE,
   type SubagentToolInput,
 } from './agent';
+import { SubagentTask, type SubagentHandle } from './subagent-task';
+
 import AGENT_BACKGROUND_DISABLED_DESCRIPTION from './agent-background-disabled.md?raw';
 import AGENT_BACKGROUND_DESCRIPTION from './agent-background-enabled.md?raw';
 import AGENT_DESCRIPTION_BASE from './agent.md?raw';
-import { SubagentTask, type SubagentHandle } from './subagent-task';
 
 const SUBAGENT_TOOL_PARAMETERS = toInputJsonSchema(SubagentToolInputSchema);
 const SUBAGENT_TOOL_PARAMETERS_NO_MODEL = stripSubagentModelParameter(SUBAGENT_TOOL_PARAMETERS);
-const SUBAGENT_TOOL_PARAMETERS_NO_BACKEND = stripSubagentBackendParameter(SUBAGENT_TOOL_PARAMETERS);
-const SUBAGENT_TOOL_PARAMETERS_NO_MODEL_NO_BACKEND = stripSubagentBackendParameter(
-  SUBAGENT_TOOL_PARAMETERS_NO_MODEL,
-);
 
 export class SubagentTool implements ISubagentTool {
   declare readonly _serviceBrand: undefined;
   readonly name: string = 'Agent';
 
   get parameters(): Record<string, unknown> {
-    const modelChoice = exposesSubagentModelChoice(this.config, this.flags);
-    const backends = exposesSubagentBackends(this.flags);
-    if (modelChoice && backends) return SUBAGENT_TOOL_PARAMETERS;
-    if (modelChoice) return SUBAGENT_TOOL_PARAMETERS_NO_BACKEND;
-    if (backends) return SUBAGENT_TOOL_PARAMETERS_NO_MODEL;
-    return SUBAGENT_TOOL_PARAMETERS_NO_MODEL_NO_BACKEND;
+    return exposesSubagentModelChoice(this.config, this.flags)
+      ? SUBAGENT_TOOL_PARAMETERS
+      : SUBAGENT_TOOL_PARAMETERS_NO_MODEL;
   }
 
   private readonly callerAgentId: string;
@@ -157,14 +107,13 @@ export class SubagentTool implements ISubagentTool {
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @ISessionWorkspaceContext private readonly workspace: ISessionWorkspaceContext,
-    @ISessionProcessRunner private readonly processRunner: ISessionProcessRunner,
+    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
     @ISessionMetadata private readonly sessionMetadata: ISessionMetadata,
     @ILogService private readonly log: ILogService,
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
-    @ISubagentBackendService private readonly backends: ISubagentBackendService,
     @AgentToolContribution private readonly contributions: CollectionView<AgentToolContribution>,
   ) {
     this.callerAgentId = scopeContext.agentId;
@@ -172,13 +121,9 @@ export class SubagentTool implements ISubagentTool {
       this.toolPolicy.isToolActive('TaskList') &&
       this.toolPolicy.isToolActive('TaskOutput') &&
       this.toolPolicy.isToolActive('TaskStop');
-    void this.catalog.ready
-      .then(() => {
-        this.catalogReady = true;
-      })
-      .catch((error) => {
-        this.log.warn('agent profile catalog failed to load', { error });
-      });
+    void this.catalog.ready.then(() => {
+      this.catalogReady = true;
+    });
   }
 
   get description(): string {
@@ -195,7 +140,8 @@ export class SubagentTool implements ISubagentTool {
     const typeLines = buildProfileDescriptions(
       profiles,
       this.knownToolReferences(),
-      (profile, name, source) => this.toolPolicy.isToolActiveForProfile(profile, name, source),
+      (profile, name, source) =>
+        this.toolPolicy.isToolActiveForProfile(profile, name, source),
     );
     if (typeLines) {
       description += `\n\nAvailable agent types (pass via subagent_type):\n${typeLines}`;
@@ -214,8 +160,6 @@ export class SubagentTool implements ISubagentTool {
   private catalogProfiles(): readonly AgentProfile[] {
     if (this.frozenCatalogProfiles !== undefined) return this.frozenCatalogProfiles;
     const profiles = this.catalog.list();
-    // Freeze only on a loaded catalog — a pre-ready read could pin a partial
-    // listing for the agent's lifetime.
     if (this.catalogReady) this.frozenCatalogProfiles = profiles;
     return profiles;
   }
@@ -248,8 +192,8 @@ export class SubagentTool implements ISubagentTool {
 
     const profileNameForDisplay =
       resumeAgentId !== undefined && resumeAgentId.length > 0
-        ? (this.resumeProfileName(resumeAgentId) ?? RESUMED_LABEL)
-        : (requestedProfileName ?? DEFAULT_PROFILE_NAME);
+        ? this.resumeProfileName(resumeAgentId) ?? RESUMED_LABEL
+        : requestedProfileName ?? DEFAULT_PROFILE_NAME;
     const prefix = args.run_in_background === true ? 'Launching background' : 'Launching';
     return {
       description: `${prefix} ${profileNameForDisplay} agent: ${args.description}`,
@@ -276,10 +220,15 @@ export class SubagentTool implements ISubagentTool {
     args: SubagentToolInput,
     toolCallId: string,
     controller: AbortController,
+    runtime: Runtime,
   ): Promise<SubagentHandle> {
     const requester = this.lifecycle.get(this.callerAgentId);
     if (requester === undefined) {
-      throw new Error(t('v2Errors.callerAgentNotFound', { agentId: this.callerAgentId }));
+      throw new Error2(
+        ErrorCodes.AGENT_NOT_FOUND,
+        `Caller agent "${this.callerAgentId}" does not exist`,
+        { details: { agentId: this.callerAgentId } },
+      );
     }
 
     const resumeAgentId = args.resume?.trim();
@@ -292,7 +241,9 @@ export class SubagentTool implements ISubagentTool {
     if (isResume) {
       const target = this.lifecycle.get(resumeAgentId);
       if (target === undefined) {
-        throw new Error(t('v2Errors.subagentNotFound', { agentId: resumeAgentId }));
+        throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `Agent instance "${resumeAgentId}" does not exist`, {
+          details: { agentId: resumeAgentId },
+        });
       }
       await this.ensureOwnedIdleSubagent(resumeAgentId, target);
       agentId = target.id;
@@ -315,13 +266,15 @@ export class SubagentTool implements ISubagentTool {
       }
       const profile = this.catalog.get(requestedProfileName);
       if (profile === undefined) {
-        throw new Error(t('v2Errors.unknownAgentType', { type: requestedProfileName }));
+        throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${requestedProfileName}"`, {
+          details: { profileName: requestedProfileName },
+        });
       }
       if (own.modelAlias === undefined) {
-        throw new Error(t('v2Errors.callerAgentNoModel'));
+        throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, 'Caller agent has no model bound', {
+          details: { agentId: this.callerAgentId },
+        });
       }
-      const callerMeta = (await this.sessionMetadata.read()).agents?.[this.callerAgentId];
-      const nextDepth = assertSubagentDepthAllowed(callerMeta);
       const binding = resolveSubagentBinding(
         this.config,
         this.flags,
@@ -337,7 +290,8 @@ export class SubagentTool implements ISubagentTool {
             model: binding.model,
             thinking: binding.thinking,
           },
-          labels: subagentLabels(this.callerAgentId, { depth: nextDepth }),
+          labels: subagentLabels(this.callerAgentId),
+          runtimeId: runtime.identity.runtimeId,
         });
       } catch (error) {
         throw wrapSubagentModelError(error, binding.model, own.modelAlias);
@@ -351,7 +305,7 @@ export class SubagentTool implements ISubagentTool {
       displayModel = binding.model;
       promptText = await applyProfilePromptPrefix(profile, args.prompt, {
         cwd: this.workspace.workDir,
-        runner: this.processRunner,
+        process: runtime.process!,
         log: this.log,
       });
     }
@@ -391,41 +345,29 @@ export class SubagentTool implements ISubagentTool {
     };
   }
 
-  private async launchForBackend(
-    args: SubagentToolInput,
-    toolCallId: string,
-    controller: AbortController,
-  ): Promise<SubagentHandle> {
-    const backendName = args.backend;
-    if (backendName === undefined || backendName === 'in-process') {
-      return this.launch(args, toolCallId, controller);
-    }
-    const backend = this.backends.getBackend(backendName);
-    if (backend === undefined) {
-      throw new Error(`unknown subagent backend "${backendName}"`);
-    }
-    const run = await backend.start({
-      prompt: args.prompt,
-      cwd: this.workspace.workDir,
-      signal: controller.signal,
-    });
-    return {
-      agentId: run.id,
-      profileName: backendName,
-      completion: run.result.then((result) => ({ result: result.output })),
-    };
-  }
-
-  private async ensureOwnedIdleSubagent(agentId: string, target: IAgentScopeHandle): Promise<void> {
+  private async ensureOwnedIdleSubagent(
+    agentId: string,
+    target: IAgentScopeHandle,
+  ): Promise<void> {
     const meta = (await this.sessionMetadata.read()).agents?.[agentId];
     if (!isSubagentMeta(meta)) {
-      throw new Error(t('v2Errors.subagentNotSubagent', { agentId }));
+      throw new Error2(ErrorCodes.AGENT_NOT_A_SUBAGENT, `Agent instance "${agentId}" is not a subagent`, {
+        details: { agentId },
+      });
     }
     if (subagentParentAgentId(meta) !== this.callerAgentId) {
-      throw new Error(t('v2Errors.subagentWrongParent', { agentId }));
+      throw new Error2(
+        ErrorCodes.AGENT_NOT_OWNED,
+        `Agent instance "${agentId}" does not belong to this parent agent`,
+        { details: { agentId, callerAgentId: this.callerAgentId } },
+      );
     }
     if (target.accessor.get(IAgentLoopService).status().state === 'running') {
-      throw new Error(t('v2Errors.subagentAlreadyRunning', { agentId }));
+      throw new Error2(
+        ErrorCodes.AGENT_ALREADY_RUNNING,
+        `Agent instance "${agentId}" is already running and cannot run concurrently`,
+        { details: { agentId } },
+      );
     }
   }
 
@@ -443,19 +385,13 @@ export class SubagentTool implements ISubagentTool {
       if (isResume && requestedProfileName !== undefined) {
         return { output: RESUME_WITH_TYPE_UNAVAILABLE, isError: true };
       }
-      if (isResume && args.backend !== undefined && args.backend !== 'in-process') {
-        return {
-          output:
-            'Cannot use an external backend when resuming an existing agent. Resume by agent id only.',
-          isError: true,
-        };
-      }
 
       const allowBackground = this.canRunInBackground();
       if (runInBackground && !allowBackground) {
         return { output: BACKGROUND_AGENT_UNAVAILABLE, isError: true };
       }
       const timeoutMs = resolveSubagentTimeoutMs(this.config);
+      const runtimeLease = this.runtime.acquire(['process']);
 
       const controller = new AbortController();
       const abortBeforeRegister = (): void => {
@@ -467,7 +403,7 @@ export class SubagentTool implements ISubagentTool {
 
       let handle: SubagentHandle;
       try {
-        handle = await this.launchForBackend(args, toolCallId, controller);
+        handle = await this.launch(args, toolCallId, controller, runtimeLease.runtime);
       } catch (error) {
         signal.removeEventListener('abort', abortBeforeRegister);
         this.log.warn('subagent launch failed', {
@@ -479,6 +415,8 @@ export class SubagentTool implements ISubagentTool {
           error,
         });
         throw error;
+      } finally {
+        runtimeLease.dispose();
       }
 
       let taskId: string;
@@ -553,7 +491,11 @@ export class SubagentTool implements ISubagentTool {
   }
 }
 
-registerAgentToolService(ISubagentTool, SubagentTool, { name: 'Agent', domain: 'subagent' });
+registerAgentToolService(ISubagentTool, SubagentTool, {
+  name: 'Agent',
+  domain: 'subagent',
+  requiredRuntimeCapabilities: ['process'],
+});
 
 function buildProfileDescriptions(
   profiles: readonly AgentProfile[],
@@ -569,8 +511,7 @@ function buildProfileDescriptions(
       const details = [profile.description, profile.whenToUse].filter(
         (part): part is string => part !== undefined && part.length > 0,
       );
-      const header =
-        details.length === 0 ? `- ${profile.name}` : `- ${profile.name}: ${details.join(' ')}`;
+      const header = details.length === 0 ? `- ${profile.name}` : `- ${profile.name}: ${details.join(' ')}`;
       const activeTools = resolveActiveToolNames(profile);
       const externallyRestricted = tools.some(
         (tool) =>

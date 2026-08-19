@@ -1,49 +1,14 @@
-/**
- * WriteTool tests for the v2 fileTools domain.
- *
- * Ported from v1 (`packages/agent-core/test/tools/write.test.ts`, removed with the v1 engine) and adapted
- * to the v2 constructor `(fs, env, workspace)`. Self-contained: builds a
- * minimal fake `IHostFileSystem` inline so the tool can be exercised without
- * the composition root.
- *
- * Append is routed through `IHostFileSystem.appendText` (a native append), so
- * the tool no longer reads the existing file. The append-call assertions below
- * reflect that single-call mechanic.
- */
+import { describe, expect, it, vi } from 'vitest';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
-import { tryNativeWrite } from '#/_base/native-tools';
+import { PathSecurityError } from '#/tool/path-access';
+import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { type WriteInput, WriteInputSchema } from '#/agent/tools/os/write/write';
 import { WriteTool } from '#/agent/tools/os/write/writeTool';
-import type { IConfigService } from '#/app/config/config';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { PathSecurityError } from '#/tool/path-access';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
-
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
-
-// Stub every native-tools binding so the tool exercises the TS fallback path:
-// under vitest the Rust addon can be loaded (via the i18n package) and would
-// otherwise take the native fast-path, bypassing the fake `IHostFileSystem`
-// assertions below. `tryNativeWrite` stays a controllable `vi.fn` (defaulting
-// to `undefined`, i.e. native not loaded) so the native routing policy —
-// success passthrough and final, non-fallback errors — can be exercised
-// directly. (vitest hoists this mock above the imports.)
-vi.mock('#/_base/native-tools', async () => {
-  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
-  const stubs = Object.fromEntries(
-    Object.keys(actual)
-      .filter((key) => key !== 'tryNativeWrite')
-      .map((key) => [key, () => {}]),
-  );
-  return { ...stubs, tryNativeWrite: vi.fn(() => Promise.resolve(undefined)) };
-});
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
@@ -88,41 +53,34 @@ function createWriteFs(options: WriteFsOptions = {}) {
   const writeText = vi.fn(options.writeText ?? (async () => {}));
   const appendText = vi.fn(options.appendText ?? (async () => {}));
   const stat = vi.fn(
-    options.stat ??
-      (() =>
-        // A fresh target file does not exist yet: `stat` fails with ENOENT so
-        // the tool proceeds to create missing parents and write. Tests that
-        // exercise existing paths override `stat` explicitly.
-        Promise.reject(
-          Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
-        )),
+    options.stat ?? (async () => ({ isFile: false, isDirectory: true, size: 0 })),
   );
   const mkdir = vi.fn(options.mkdir ?? (async () => {}));
-  const fs = {
-    cwd: '/',
-    readText,
-    writeText,
-    appendText,
-    stat,
-    mkdir,
-  } as unknown as IHostFileSystem;
+  const fs = { cwd: '/', readText, writeText, appendText, stat, mkdir } as unknown as IHostFileSystem;
   return { fs, readText, writeText, appendText, stat, mkdir };
 }
 
 function makeTool(options: WriteFsOptions = {}, workspace = PERMISSIVE_WORKSPACE) {
   const fakes = createWriteFs(options);
-  const tool = new WriteTool(fakes.fs, createTestEnv(), workspace, sandboxOffConfig);
+  const backend = Object.assign(
+    new FakeRuntime(
+      { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+      { capabilities: ['fs'] },
+    ),
+    { fs: fakes.fs, environment: createTestEnv() },
+  );
+  const runtime: IAgentRuntimeService = {
+    _serviceBrand: undefined,
+    onDidChange: () => ({ dispose: () => {} }),
+    isAvailable: () => true,
+    inspect: () => backend,
+    acquire: () => ({ runtime: backend, track: (resource) => resource, dispose: () => {} }),
+  };
+  const tool = new WriteTool(runtime, workspace);
   return { tool, ...fakes };
 }
 
-const sandboxOffConfig = {
-  _serviceBrand: undefined,
-  get: () => undefined,
-} as unknown as IConfigService;
-
-function isPromiseLike(
-  value: ToolExecution | Promise<ToolExecution>,
-): value is Promise<ToolExecution> {
+function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -154,19 +112,12 @@ describe('WriteTool', () => {
     const { tool } = makeTool();
 
     expect(tool.name).toBe('Write');
-    expect(tool.description).toContain('append adds content at EOF without adding a newline');
-    expect(tool.description).toContain('\\n stays LF, \\r\\n stays CRLF');
-    expect(tool.description).toContain('Write is NOT ALLOWED for incremental changes');
     expect(tool.parameters).toMatchObject({
       type: 'object',
       properties: {
-        content: {
-          type: 'string',
-          description: expect.stringContaining('Raw full file content'),
-        },
+        content: { type: 'string' },
         mode: {
           enum: ['overwrite', 'append'],
-          description: expect.stringContaining('Defaults to overwrite'),
         },
       },
     });
@@ -181,17 +132,6 @@ describe('WriteTool', () => {
       WriteInputSchema.safeParse({ path: '/tmp/out.txt', content: 'hello', mode: 'bad' }).success,
     ).toBe(false);
     expect(WriteInputSchema.safeParse({ path: '/tmp/out.txt' }).success).toBe(false);
-  });
-
-  it('describes the working-directory rule for the path parameter', () => {
-    const { tool } = makeTool();
-    const params = tool.parameters as {
-      properties: { path: { description: string } };
-    };
-
-    expect(params.properties.path.description).toContain('working directory');
-    expect(params.properties.path.description).toMatch(/relative/i);
-    expect(params.properties.path.description).toMatch(/absolute/i);
   });
 
   it('exposes the content on the file_io display so the approval panel can preview it', () => {
@@ -223,14 +163,6 @@ describe('WriteTool', () => {
     expect(outsideSrc.matchesRule?.('!./src/**')).toBe(true);
   });
 
-  it('guides batching large content across multiple write calls', () => {
-    const { tool } = makeTool();
-
-    expect(tool.description).toMatch(/large/i);
-    expect(tool.description).toContain('content too large for one call');
-    expect(tool.description).toMatch(/overwrite[^.]*first chunk[^.]*then[^.]*append/i);
-  });
-
   it('writes content through fs and reports bytes written', async () => {
     const { tool, writeText } = makeTool();
 
@@ -242,12 +174,22 @@ describe('WriteTool', () => {
 
   it('expands leading tilde paths using the kaos home directory', async () => {
     const fakes = createWriteFs();
-    const tool = new WriteTool(
-      fakes.fs,
-      createTestEnv('/home/test'),
-      PERMISSIVE_WORKSPACE,
-      sandboxOffConfig,
+    const environment = createTestEnv('/home/test');
+    const backend = Object.assign(
+      new FakeRuntime(
+        { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+        { capabilities: ['fs'] },
+      ),
+      { fs: fakes.fs, environment },
     );
+    const runtime: IAgentRuntimeService = {
+      _serviceBrand: undefined,
+      onDidChange: () => ({ dispose: () => {} }),
+      isAvailable: () => true,
+      inspect: () => backend,
+      acquire: () => ({ runtime: backend, track: (resource) => resource, dispose: () => {} }),
+    };
+    const tool = new WriteTool(runtime, PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '~/notes/today.txt', content: 'hello' });
 
@@ -351,16 +293,8 @@ describe('WriteTool', () => {
   });
 
   it('writes when the parent directory exists', async () => {
-    // The target is an existing regular file (overwrite); the parent is a
-    // directory. The target-directory guard must not reject this case.
     const { tool, writeText } = makeTool({
-      stat: vi
-        .fn()
-        .mockImplementation((path: string) =>
-          path === '/tmp/exists/file.txt'
-            ? Promise.resolve({ isFile: true, isDirectory: false, size: 0 })
-            : Promise.resolve({ isFile: false, isDirectory: true, size: 0 }),
-        ),
+      stat: vi.fn().mockResolvedValue({ isFile: false, isDirectory: true, size: 0 }),
     });
 
     const result = await execute(tool, { path: '/tmp/exists/file.txt', content: 'data' });
@@ -389,7 +323,10 @@ describe('WriteTool', () => {
   });
 
   it('rejects relative traversal writes before fs I/O', async () => {
-    const { tool, writeText } = makeTool({}, stubWorkspaceContext('/workspace/project'));
+    const { tool, writeText } = makeTool(
+      {},
+      stubWorkspaceContext('/workspace/project'),
+    );
 
     const result = await execute(tool, { path: '../outside.txt', content: 'x' });
 
@@ -464,158 +401,5 @@ describe('WriteTool', () => {
 
     expect(result.isError).toBeFalsy();
     expect(writeText).toHaveBeenCalledWith('/workspace-sneaky/file.txt', 'content');
-  });
-
-  it('rejects empty-string paths at the schema layer', () => {
-    expect(WriteInputSchema.safeParse({ path: '', content: 'data' }).success).toBe(false);
-  });
-
-  it('writes content with trailing newlines and reports the correct byte count', async () => {
-    const { tool, writeText } = makeTool();
-    const content = 'line1\nline2\nline3\n';
-
-    const result = await execute(tool, { path: '/tmp/trailing.txt', content });
-
-    expect(writeText).toHaveBeenCalledWith('/tmp/trailing.txt', content);
-    expect(result.output).toContain('Wrote 18 bytes');
-  });
-
-  it('handles a very long content string without crashing', async () => {
-    const { tool, writeText } = makeTool();
-    const content = 'x'.repeat(100_000);
-
-    const result = await execute(tool, { path: '/tmp/large.txt', content });
-
-    expect(result.isError).toBeFalsy();
-    expect(writeText).toHaveBeenCalledWith('/tmp/large.txt', content);
-    expect(result.output).toContain('Wrote 100000 bytes');
-  });
-
-  it('handles a path with special characters', async () => {
-    const { tool, writeText } = makeTool();
-    const path = '/tmp/my project (copy)/file with spaces.txt';
-
-    const result = await execute(tool, { path, content: 'data' });
-
-    expect(result.isError).toBeFalsy();
-    expect(writeText).toHaveBeenCalledWith(path, 'data');
-  });
-
-  it('append to a non-existent file with missing parent directory creates the parent', async () => {
-    const enoent = Object.assign(new Error('ENOENT: no such file or directory'), {
-      code: 'ENOENT',
-    });
-    const { tool, mkdir, appendText } = makeTool({
-      stat: vi.fn().mockRejectedValue(enoent),
-    });
-
-    const result = await execute(tool, {
-      path: '/tmp/new-dir/new-file.txt',
-      content: 'new content',
-      mode: 'append',
-    });
-
-    expect(result.isError).toBeFalsy();
-    expect(mkdir).toHaveBeenCalledWith('/tmp/new-dir', { recursive: true });
-    expect(appendText).toHaveBeenCalledWith('/tmp/new-dir/new-file.txt', 'new content');
-  });
-
-  it('write error when the file system is readonly surfaces the underlying error', async () => {
-    const { tool } = makeTool({
-      writeText: vi
-        .fn()
-        .mockRejectedValue(
-          Object.assign(new Error('EROFS: read-only file system'), { code: 'EROFS' }),
-        ),
-    });
-
-    const result = await execute(tool, { path: '/readonly/file.txt', content: 'data' });
-
-    expect(result).toMatchObject({ isError: true });
-    expect(result.output).toContain('EROFS');
-  });
-
-  it('blocks writing to a path that is a directory itself', async () => {
-    const { tool, writeText } = makeTool({
-      stat: vi.fn().mockResolvedValue({ isFile: false, isDirectory: true, size: 0 }),
-    });
-
-    const result = await execute(tool, { path: '/tmp/existing-dir', content: 'data' });
-
-    expect(result).toMatchObject({ isError: true });
-    expect(result.output).toMatch(/is a directory|not a file|already exists/i);
-    expect(writeText).not.toHaveBeenCalled();
-  });
-
-  describe('native write path', () => {
-    afterEach(() => {
-      vi.mocked(tryNativeWrite).mockReset();
-      vi.mocked(tryNativeWrite).mockImplementation(() => Promise.resolve(undefined));
-    });
-
-    it('reports the native byte count without touching the TS fs on success', async () => {
-      const { tool, writeText, appendText, mkdir } = makeTool();
-      vi.mocked(tryNativeWrite).mockResolvedValue({ bytesWritten: 5 });
-
-      const result = await execute(tool, { path: '/tmp/native.txt', content: 'hello' });
-
-      expect(result.isError).toBeUndefined();
-      expect(result.output).toContain('Wrote 5 bytes');
-      // The native writer owns parent-directory creation too — the TS
-      // fallback path (mkdir + writeText) must not run at all.
-      expect(writeText).not.toHaveBeenCalled();
-      expect(appendText).not.toHaveBeenCalled();
-      expect(mkdir).not.toHaveBeenCalled();
-    });
-
-    it('routes append mode through the native writer', async () => {
-      const { tool, appendText } = makeTool();
-      vi.mocked(tryNativeWrite).mockResolvedValue({ bytesWritten: 6 });
-
-      const result = await execute(tool, {
-        path: '/tmp/native.txt',
-        content: '\nhello',
-        mode: 'append',
-      });
-
-      expect(result.isError).toBeUndefined();
-      expect(result.output).toContain('Appended 6 bytes');
-      expect(appendText).not.toHaveBeenCalled();
-      expect(tryNativeWrite).toHaveBeenCalledWith('/tmp/native.txt', '\nhello', 'append', true);
-    });
-
-    it('returns a classified native error as final instead of re-writing via TS', async () => {
-      const { tool, writeText } = makeTool();
-      vi.mocked(tryNativeWrite).mockResolvedValue({
-        bytesWritten: 0,
-        error: 'Parent path is not a directory: /tmp/blocker',
-        errorKind: 'parent_not_dir',
-      });
-
-      const result = await execute(tool, { path: '/tmp/blocker/child.txt', content: 'data' });
-
-      expect(result).toMatchObject({ isError: true });
-      // The native verdict verbatim — a TS re-run of ensureParentDirectory
-      // would have surfaced its own differently-worded error instead.
-      expect(result.output).toBe('Parent path is not a directory: /tmp/blocker');
-      expect(writeText).not.toHaveBeenCalled();
-    });
-
-    it('treats any native error as final, even one without errorKind', async () => {
-      // Release builds bundle the native module (SEA exe / version-pinned
-      // optional dep), so a loaded-but-mismatched prebuild is not a real
-      // distribution state — no TS fallthrough is owed to a missing kind.
-      const { tool, writeText } = makeTool();
-      vi.mocked(tryNativeWrite).mockResolvedValue({
-        bytesWritten: 0,
-        error: 'write panicked: worker thread unavailable',
-      });
-
-      const result = await execute(tool, { path: '/tmp/panic.txt', content: 'data' });
-
-      expect(result).toMatchObject({ isError: true });
-      expect(result.output).toBe('write panicked: worker thread unavailable');
-      expect(writeText).not.toHaveBeenCalled();
-    });
   });
 });

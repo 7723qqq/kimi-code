@@ -1,26 +1,5 @@
-/**
- * AgentTranscript — the L1 store for one agent.
- *
- * Contract (identical on server and client):
- *   - server: core events → ops → `apply` → `onChange` → L3 → WS
- *   - client: REST frames → `receive`; WS ops → `apply`; `onChange` → UI
- *
- * `getItems()` is a self-consistent snapshot at any moment: states held here
- * are always whole (text blocks carry their full text so far); deltas exist
- * only as ops in transit. Snapshots are copy-on-write, so a previously
- * returned array/object is never mutated by later applies.
- */
-
+import type { AgentId, AttachmentId, InteractionId, PromptId, TaskId, TodoId, TurnId } from '../model/ids';
 import type { TranscriptAttachment } from '../model/attachment';
-import type {
-  AgentId,
-  AttachmentId,
-  InteractionId,
-  PromptId,
-  TaskId,
-  TodoId,
-  TurnId,
-} from '../model/ids';
 import type { TranscriptInteraction } from '../model/interaction';
 import type { TranscriptItem } from '../model/item';
 import type { TranscriptMeta } from '../model/meta';
@@ -28,7 +7,11 @@ import type { TranscriptPrompt } from '../model/prompt';
 import type { TranscriptTask } from '../model/task';
 import type { TranscriptTodo } from '../model/todo';
 import type { TranscriptTurn } from '../model/turn';
-import { EMPTY_AGENT_STATE, applyOperation, type AgentState } from '../ops/apply';
+import {
+  EMPTY_AGENT_STATE,
+  applyOperation,
+  type AgentState,
+} from '../ops/apply';
 import type {
   AgentTranscriptSnapshot,
   AppendTarget,
@@ -66,9 +49,6 @@ export class AgentTranscript {
     for (const op of ops) {
       const result = applyOperation(state, op);
       if (result.gap) {
-        // Keep the FIRST gap: it marks the earliest divergence point, which is
-        // the correct anchor for any caller-side resync decision (later gaps
-        // are consequences of the same desync).
         gap ??= { target: (op as { target: AppendTarget }).target, ...result.gap };
         continue;
       }
@@ -88,8 +68,6 @@ export class AgentTranscript {
     this.#listeners.add(listener);
     return { dispose: () => void this.#listeners.delete(listener) };
   }
-
-  // -------------------------------------------------------------- reads
 
   getItems(): readonly TranscriptItem[] {
     return this.#state.items;
@@ -170,7 +148,6 @@ export class AgentTranscript {
             if (seen <= skip) continue;
             kept.push(entry);
           } else if (seen > skip) {
-            // Non-turn items between skipped turns belong to skipped segments.
             kept.push(entry);
           }
         }

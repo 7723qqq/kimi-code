@@ -1,29 +1,3 @@
-/**
- * `tools` domain — `IReadTool` contract.
- *
- * Public contract of Read, the model's UTF-8 text file reader. Renders a
- * text file as `<line-number>\t<content>` per line as `output`, and rides a
- * `<system>…</system>` status block on the `note` side channel (rendered to
- * the model at projection time, never to UIs) summarizing how much was read
- * (line and byte counts, truncation, and line-ending notes). Pure CRLF files
- * are displayed with LF line endings; mixed or lone carriage returns are
- * shown as `\r` so the model can reproduce them exactly.
- *
- * UTF-16 LE/BE text files (with a BOM, or recognized via the zero-byte
- * parity heuristic) are transparently transcoded to UTF-8 for display, up to
- * `TRANSCODE_MAX_BYTES`. GBK/GB18030 text is recognized as a fallback when
- * strict UTF-8 decoding fails and transcoded the same way; files that are
- * almost UTF-8 (a few malformed bytes) are shown leniently with replacements.
- * Binary, other non-UTF encodings, NUL-containing,
- * image and video files are refused; images/videos are redirected to
- * ReadMediaFile. Supports one-based
- * `line_offset` / `n_lines` pagination and a negative `line_offset` tail
- * mode, bounded by the per-call caps owned here (`MAX_LINES`,
- * `MAX_LINE_LENGTH`, `MAX_BYTES`).
- *
- * Bound at Agent scope.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -73,7 +47,5 @@ export const ReadOutputSchema = z.object({
 export type ReadInput = z.infer<typeof ReadInputSchema>;
 export type ReadOutput = z.infer<typeof ReadOutputSchema>;
 
-export interface IReadTool extends AgentTool<ReadInput> {
-  readonly _serviceBrand: undefined;
-}
+export interface IReadTool extends AgentTool<ReadInput> { readonly _serviceBrand: undefined }
 export const IReadTool = createDecorator<IReadTool>('readTool');

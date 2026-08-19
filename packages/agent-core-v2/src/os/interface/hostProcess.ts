@@ -1,20 +1,8 @@
-/**
- * `hostProcess` domain — the OS process-spawning contract.
- *
- * Defines `IHostProcessService`, the App-scope primitive used by any domain that
- * needs to spawn a child process on the host, plus the `IHostProcess` handle it
- * returns. The contract is deliberately close to Python `subprocess.Popen` /
- * `os.spawn*`: a single `spawn()` call returns a handle exposing stdin/stdout/
- * stderr, the pid, the exit code, and lifecycle methods. Bound at App scope.
- */
-
 import type { Readable, Writable } from 'node:stream';
 
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 import { Error2, type Error2Options } from '#/_base/errors/errors';
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 export interface HostProcessOptions {
   readonly cwd?: string;
@@ -36,7 +24,7 @@ export interface IHostProcess {
   readonly stderr: Readable;
   wait(): Promise<number>;
   kill(signal?: NodeJS.Signals): Promise<void>;
-  dispose(): void;
+  dispose(): void | Promise<void>;
 }
 
 export interface IHostProcessService {
@@ -60,21 +48,21 @@ export const OsProcessErrors = {
   },
   info: {
     'os.process.spawn_failed': {
-      title: t('v2Errors.processSpawnFailed'),
+      title: 'Failed to spawn process',
       retryable: false,
       public: true,
-      action: t('v2Errors.processSpawnFailedAction'),
+      action: 'Check that the command exists and is executable.',
     },
     'os.process.kill_failed': {
-      title: t('v2Errors.processKillFailed'),
+      title: 'Failed to kill process',
       retryable: false,
       public: true,
     },
     'shell.git_bash_not_found': {
-      title: t('errors.shellGitBashNotFound'),
+      title: 'Git Bash not found',
       retryable: false,
       public: true,
-      action: t('v2Errors.shellNotFoundAction'),
+      action: 'Install Git for Windows so shell commands can run under Git Bash.',
     },
   },
 } as const satisfies ErrorDomain;

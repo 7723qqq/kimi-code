@@ -1,14 +1,3 @@
-/**
- * WebSocket upgrade-time auth (port of v1 `ws-auth.e2e.test.ts`).
- *
- * `/api/v1/ws` requires a valid bearer credential at the
- * HTTP `upgrade` (matching v1's wsGatewayService): a token-less or invalid
- * upgrade is rejected with 401 before the socket completes the handshake. The
- * credential is the persistent bearer token (or, when configured, the
- * `rpcToken`); it may ride on the `Authorization` header or the
- * `kimi-code.bearer.<token>` subprotocol.
- */
-
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket, type RawData } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
-import { fixedTokenAuth } from './helpers/fixedAuth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { fixedTokenAuth } from './helpers/fixedAuth';
 
 const TOKEN = 'test-token';
 
@@ -34,11 +23,7 @@ interface ConnectOptions {
   readonly headers?: Record<string, string>;
 }
 
-/** Resolve when the socket opens and the server's first frame arrives. */
-function openConn(
-  url: string,
-  opts?: ConnectOptions,
-): Promise<{ ws: WebSocket; firstFrame: unknown }> {
+function openConn(url: string, opts?: ConnectOptions): Promise<{ ws: WebSocket; firstFrame: unknown }> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, opts?.protocols, { headers: opts?.headers });
     ws.once('message', (data) => {
@@ -52,7 +37,6 @@ function openConn(
   });
 }
 
-/** Resolve when the upgrade is rejected (error or close without ever opening). */
 function expectRejected(url: string, opts?: ConnectOptions): Promise<void> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, opts?.protocols, { headers: opts?.headers });
@@ -62,12 +46,14 @@ function expectRejected(url: string, opts?: ConnectOptions): Promise<void> {
       try {
         ws.terminate();
       } catch {
-        // ignore
       }
       if (err !== undefined) reject(err);
       else resolve();
     };
-    const t = setTimeout(() => done(new Error('connection was not rejected within timeout')), 1500);
+    const t = setTimeout(
+      () => done(new Error('connection was not rejected within timeout')),
+      1500,
+    );
     ws.once('open', () => done(new Error('connection unexpectedly opened')));
     ws.once('error', () => done());
     ws.once('close', () => done());
@@ -98,7 +84,6 @@ describe('WS upgrade auth', () => {
       try {
         ws.close();
       } catch {
-        // ignore
       }
     }
     if (server !== undefined) {

@@ -2,25 +2,17 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
-
 import { join } from 'pathe';
+import type { IHostProcess } from '#/os/interface/hostProcess';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
-import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import { TaskOutputTool } from '#/agent/tools/task/task-output/taskOutputTool';
-import type { IProcess } from '#/session/process/processRunner';
-
-import {
-  taskServices,
-  createTestAgent,
-  homeDirServices,
-  type TestAgentContext,
-} from '../../harness';
-import { executeTool, type TestExecutableToolContext } from '../../tools/fixtures/execute-tool';
+import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
+import { taskServices, createTestAgent, homeDirServices, type TestAgentContext } from '../../harness';
+import { executeTool, type TestExecutableToolContext } from '../../tools/fixtures/execute-tool';
 
 interface TaskServiceFixture {
   readonly ctx: TestAgentContext;
@@ -41,14 +33,17 @@ function createTaskService(homedir: string): TaskServiceFixture {
 
 function registerProcess(
   manager: IAgentTaskService,
-  proc: IProcess,
+  proc: IHostProcess,
   command: string,
   description: string,
 ): string {
   return manager.registerTask(new ProcessTask(proc, command, description));
 }
 
-function toolContext<Input>(toolCallId: string, args: Input): TestExecutableToolContext<Input> {
+function toolContext<Input>(
+  toolCallId: string,
+  args: Input,
+): TestExecutableToolContext<Input> {
   return {
     turnId: 0,
     toolCallId,
@@ -78,14 +73,12 @@ async function waitForTaskNotifications(
   ctx: TestAgentContext,
   manager: TaskServiceTestManager,
 ): Promise<void> {
-  const tasks = manager
-    .list(false)
-    .filter(
-      (task) =>
-        TERMINAL_STATUSES.has(task.status) &&
-        task.detached !== false &&
-        task.terminalNotificationSuppressed !== true,
-    );
+  const tasks = manager.list(false).filter(
+    (task) =>
+      TERMINAL_STATUSES.has(task.status) &&
+      task.detached !== false &&
+      task.terminalNotificationSuppressed !== true,
+  );
   if (tasks.length === 0) return;
 
   ctx.mockNextResponse({ type: 'text', text: 'notification drain ack' });
@@ -110,16 +103,17 @@ async function waitForTaskNotifications(
   }
 }
 
-function immediateProcess(exitCode: number, stdoutText = ''): IProcess {
+function immediateProcess(exitCode: number, stdoutText = ''): IHostProcess {
   return {
+    _serviceBrand: undefined,
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from(stdoutText ? [stdoutText] : []),
     stderr: Readable.from([]),
     pid: 50000 + exitCode,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as IProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as IProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IProcess['dispose'],
+    wait: vi.fn().mockResolvedValue(exitCode) as IHostProcess['wait'],
+    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
 }
 
@@ -200,7 +194,12 @@ describe('AgentTaskService — readOutput / getOutputSnapshot', () => {
   });
 
   it('readOutput returns live ring-buffer content while task is in memory', async () => {
-    const taskId = registerProcess(manager, immediateProcess(0, 'live content\n'), 'echo', 'demo');
+    const taskId = registerProcess(
+      manager,
+      immediateProcess(0, 'live content\n'),
+      'echo',
+      'demo',
+    );
 
     await waitForOutput(manager, taskId, 'live content');
 

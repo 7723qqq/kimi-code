@@ -5,12 +5,16 @@ import { join } from 'node:path';
 import { RequestError } from '@agentclientprotocol/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { IAcpConnection } from '../src/acp-fs/acpConnection';
 import { AcpHostFileSystem } from '../src/acp-fs/acpFsService';
+import type { IAcpConnection } from '../src/acp-fs/acpConnection';
 
 interface FakeClient {
   readTextFile: (params: { sessionId: string; path: string }) => Promise<{ content: string }>;
-  writeTextFile: (params: { sessionId: string; path: string; content: string }) => Promise<unknown>;
+  writeTextFile: (params: {
+    sessionId: string;
+    path: string;
+    content: string;
+  }) => Promise<unknown>;
 }
 
 function makeConnection(

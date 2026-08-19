@@ -81,7 +81,7 @@ export async function loadPluginMarketplace(
 
 async function getSourceCheckoutMarketplaceLocation(): Promise<MarketplaceLocation | undefined> {
   const marketplacePath = resolve(import.meta.dirname, '../../../../plugins/marketplace.json');
-  const info = await stat(marketplacePath).catch(() => {});
+  const info = await stat(marketplacePath).catch(() => undefined);
   if (info?.isFile() !== true) return undefined;
   return { raw: marketplacePath, kind: 'local', resolved: marketplacePath };
 }

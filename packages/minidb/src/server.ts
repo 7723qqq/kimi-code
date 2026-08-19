@@ -5,7 +5,6 @@
 
 import net from 'node:net';
 import type { Socket } from 'node:net';
-
 import { MiniDb } from './index.js';
 
 const CRLF = '\r\n';
@@ -41,7 +40,7 @@ class RespParser {
   }
 
   *feed(chunk: Buffer): Generator<Buffer[]> {
-    this.buf = this.buf.length > 0 ? Buffer.concat([this.buf, chunk]) : chunk;
+    this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk;
     if (this.buf.length > this.maxBuf) {
       // Drop the buffered oversized request before reporting: without the
       // reset every later chunk would fail with the same error and the giant
@@ -49,7 +48,7 @@ class RespParser {
       this.buf = Buffer.alloc(0);
       throw new Error(`RESP request too large (>${this.maxBuf} bytes)`);
     }
-    while (this.buf.length > 0) {
+    while (this.buf.length) {
       const parsed = this.tryParse();
       if (!parsed) break;
       yield parsed;
@@ -62,10 +61,7 @@ class RespParser {
       if (idx === -1) return null;
       const line = this.buf.subarray(0, idx).toString();
       this.buf = this.buf.subarray(idx + 2);
-      return line
-        .split(' ')
-        .filter(Boolean)
-        .map((s) => Buffer.from(s));
+      return line.split(' ').filter(Boolean).map((s) => Buffer.from(s));
     }
 
     let pos = 1;
@@ -93,8 +89,7 @@ class RespParser {
 
 async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buffer | null> {
   const cmd = args[0]!.toString().toUpperCase();
-  const S = (i: number): string | undefined =>
-    args[i] === undefined ? undefined : args[i]!.toString();
+  const S = (i: number): string | undefined => (args[i] === undefined ? undefined : args[i]!.toString());
 
   switch (cmd) {
     case 'PING':
@@ -146,9 +141,7 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
       await db.compact();
       return reply.ok();
     case 'INFO':
-      return reply.bulk(
-        `minidb_version:0.0.1${CRLF}keys:${db.size}${CRLF}compactions:${db.stats.compactions}${CRLF}`,
-      );
+      return reply.bulk(`minidb_version:0.0.1${CRLF}keys:${db.size}${CRLF}compactions:${db.stats.compactions}${CRLF}`);
     case 'QUIT':
       return null;
     default:
@@ -171,12 +164,7 @@ export interface ServerHandle {
   host: string;
 }
 
-export async function startServer({
-  dir,
-  port = 6379,
-  host = '127.0.0.1',
-  fsyncPolicy = 'everysec',
-}: ServerOptions): Promise<ServerHandle> {
+export async function startServer({ dir, port = 6379, host = '127.0.0.1', fsyncPolicy = 'everysec' }: ServerOptions): Promise<ServerHandle> {
   const db = (await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy })) as MiniDb<string>;
   const server = net.createServer((socket: Socket) => {
     const parser = new RespParser();
@@ -205,10 +193,10 @@ export async function startServer({
             let res: string | Buffer | null;
             try {
               res = await handle(db, args);
-            } catch (error) {
+            } catch (e) {
               // One failing command must not starve the replies of the
               // commands already parsed from the same chunk.
-              res = reply.err((error as Error).message);
+              res = reply.err((e as Error).message);
             }
             if (res === null) {
               socket.end();
@@ -216,10 +204,10 @@ export async function startServer({
             }
             send(res);
           }
-        } catch (error) {
+        } catch (e) {
           // Parser-level failure (e.g. oversized request): feed() has already
           // reset its buffer, so the connection can keep serving new commands.
-          send(reply.err((error as Error).message));
+          send(reply.err((e as Error).message));
         }
       });
     });

@@ -1,19 +1,8 @@
-/**
- * Scenario: workspace AGENTS.md instructions — build-time snapshot,
- * watch-driven refresh, and the `workspaceInstructions.current` state
- * registration.
- *
- * Exercises the real `WorkspaceInstructionsService` against real temp
- * instruction files with a manually-fired fs-watch stub. Run:
- * `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/workspace/workspaceInstructions/instructions.test.ts`.
- */
-
 import { mkdtempSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -103,10 +92,7 @@ describe('WorkspaceInstructionsService', () => {
         reg.define(IWorkspaceInstructionsService, WorkspaceInstructionsService);
       },
     });
-    return {
-      service: ix.get(IWorkspaceInstructionsService),
-      states: ix.get(IWorkspaceStateService),
-    };
+    return { service: ix.get(IWorkspaceInstructionsService), states: ix.get(IWorkspaceStateService) };
   }
 
   it('loads the AGENTS.md snapshot at build and projects it through the session provider', async () => {

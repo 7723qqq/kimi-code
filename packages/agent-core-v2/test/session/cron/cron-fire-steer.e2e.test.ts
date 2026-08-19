@@ -1,32 +1,16 @@
-/**
- * Cron fire steer-turn context e2e: when a scheduled cron task fires and
- * steers a NEW turn on the idle main agent, the provider request must carry
- * the full conversation context — in particular the earlier CronCreate tool
- * result (which holds the `id: <ULID>` line the model was told about).
- *
- * Wiring: testAgent harness with a scripted provider. The harness builds the
- * Session scope with a stub `IAgentLifecycleService` (no `create`), so this
- * test overrides it with a registry stub that resolves `main` to the harness
- * agent and fires `onDidCreate` the way production does — that is what binds
- * `SessionCronServiceImpl` to the main agent (cron tools + wire restore
- * hook). The cron clock is file-driven (`clock: file:...`) and ticking is
- * manual (`manualTick: true`) so the fire is deterministic.
- *
- * Run: ../../node_modules/.bin/vitest run test/session/cron/cron-fire-steer.e2e.test.ts
- */
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { ServiceIdentifier } from '#/_base/di/instantiation';
-import { type IAgentScopeHandle } from '#/_base/di/scope';
 import { Emitter, Event } from '#/_base/event';
+import type { ServiceIdentifier } from '#/_base/di/instantiation';
+import { LifecycleScope } from '#/app/scopes';
+import { type IAgentScopeHandle } from '#/_base/di/scope';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import type { CronConfig } from '#/app/cron/configSection';
-import { LifecycleScope } from '#/app/scopes';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionCronService } from '#/session/cron/sessionCronService';
 
@@ -62,7 +46,7 @@ describe('cron-fired steer turn context', () => {
     ctx = createTestAgent(sessionService(IAgentLifecycleService, lifecycleStub));
 
     const accessor = {
-      get: <T>(id: ServiceIdentifier<T>): T => ctx.get(id),
+      get: <T,>(id: ServiceIdentifier<T>): T => ctx.get(id),
     };
     mainHandle = { id: 'main', kind: LifecycleScope.Agent, accessor, dispose: () => {} };
     onDidCreate.fire(mainHandle);
@@ -112,8 +96,9 @@ describe('cron-fired steer turn context', () => {
     const fireRequest = ctx.llmCalls.at(-1)!;
 
     const lastUser = fireRequest.history.filter((m) => m.role === 'user').at(-1);
-    const lastUserText =
-      lastUser?.content.map((part) => (part.type === 'text' ? part.text : '')).join('') ?? '';
+    const lastUserText = lastUser?.content
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('') ?? '';
     expect(lastUserText).toContain('fire me');
 
     const requestToolTexts = fireRequest.history

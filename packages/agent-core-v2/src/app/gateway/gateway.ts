@@ -1,10 +1,3 @@
-/**
- * `gateway` domain — REST/WS gateways.
- *
- * Defines the public contracts of the gateway layer: the `IRestGateway` /
- * `IWSGateway` entry points. App-scoped — shared across the application.
- */
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 export interface IRestGateway {
@@ -36,4 +29,5 @@ export interface IWSGateway {
   broadcast(sessionId: string, event: unknown): void;
 }
 
-export const IWSGateway: ServiceIdentifier<IWSGateway> = createDecorator<IWSGateway>('wsGateway');
+export const IWSGateway: ServiceIdentifier<IWSGateway> =
+  createDecorator<IWSGateway>('wsGateway');

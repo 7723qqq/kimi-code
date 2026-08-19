@@ -1,28 +1,13 @@
-/**
- * `storage` domain — node-fs backend for `IAppendLogStore`.
- *
- * Sits on top of `IFileSystemStorageService` and turns a byte stream into an ordered
- * sequence of typed JSON records. Owns the concerns the storage service
- * deliberately ignores: line framing (one JSON value per line, a.k.a. JSONL),
- * batching of appends into a single durable `append`, and crash-tolerant
- * decoding (a torn final line is dropped; corruption anywhere else throws).
- * Serializes whole-log rewrites with live appends, preserves queued or
- * in-flight records across the atomic replacement, keeps ambiguous append and
- * rewrite failures sticky, keeps the shared flush pending until the
- * post-rewrite drain is durable, waits every key before a global flush reports
- * an error, and preserves per-key storage ordering while acquired buffers
- * retire and hand off to replacement owners. Bound at App scope.
- */
-
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import {
   AppendLogCorruptedError,
   IAppendLogStore,
   type AppendLogOptions,
 } from '#/persistence/interface/appendLogStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 const textEncoder = new TextEncoder();
 
@@ -37,8 +22,6 @@ interface LogState {
   ready: Promise<void>;
   retirement: Promise<void> | undefined;
   onError?: (error: unknown) => void;
-  /** Monotonic write counter; incremented on every append/rewrite. */
-  revision: number;
 }
 
 export class AppendLogStore implements IAppendLogStore {
@@ -51,7 +34,6 @@ export class AppendLogStore implements IAppendLogStore {
   append<R>(scope: string, key: string, record: R, options?: AppendLogOptions): void {
     const state = this.state(scope, key);
     state.pending.push(record);
-    state.revision++;
     if (options?.onError !== undefined && state.onError === undefined) {
       state.onError = options.onError;
     }
@@ -103,12 +85,11 @@ export class AppendLogStore implements IAppendLogStore {
   async rewrite<R>(scope: string, key: string, records: readonly R[]): Promise<void> {
     const encoded = encodeBatch(records);
     const state = this.state(scope, key);
-    state.revision++;
     state.cutoverEpoch++;
     const prior = state.flushPromise ?? state.ready;
     const priorSettled = prior.then(
-      () => {},
-      () => {},
+      () => undefined,
+      () => undefined,
     );
     const rewrite = priorSettled.then(async () => {
       try {
@@ -160,15 +141,10 @@ export class AppendLogStore implements IAppendLogStore {
         retired: false,
         ready,
         retirement: undefined,
-        revision: 0,
       };
       this.logs.set(id, state);
     }
     return state;
-  }
-
-  revision(scope: string, key: string): number {
-    return this.logs.get(logId(scope, key))?.revision ?? 0;
   }
 
   private scheduleFlush(scope: string, key: string, state: LogState): void {
@@ -195,7 +171,7 @@ export class AppendLogStore implements IAppendLogStore {
     state.refCount--;
     if (state.refCount > 0) return;
     state.retired = true;
-    state.retirement = this.settleRetiredState(scope, key, state).catch(() => {});
+    state.retirement = this.settleRetiredState(scope, key, state).catch(() => undefined);
   }
 
   private async settleRetiredState(scope: string, key: string, state: LogState): Promise<void> {

@@ -1,25 +1,4 @@
-/**
- * `tools` domain — `FetchURLTool` implementation.
- *
- * Receives the App-scope `IWebFetchService` via DI and resolves its
- * host-injected `UrlFetcher` per invocation — the service re-reads config and
- * login state on each `getUrlFetcher()` call, and composing the fetcher at
- * tool construction would both pin that state for the agent's lifetime and
- * race the identity freeze during a fast bootstrap. The default service falls
- * back to the built-in `LocalFetchURLProvider`, so `FetchURL` is always
- * available without OAuth. Bound at Agent scope; self-registers via
- * `registerAgentToolService(...)` at module load.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { HttpFetchError } from '#/app/web/tools/fetch-url-types';
-import { IWebFetchService } from '#/app/web/web';
-import { ISpillService, type SpillRef } from '#/features/spill/spill';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolResultBuilder } from '#/tool/result-builder';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
@@ -27,7 +6,11 @@ import {
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
+import { ToolResultBuilder } from '#/tool/result-builder';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
+import { IWebFetchService } from '#/app/web/web';
+import { HttpFetchError } from '#/app/web/tools/fetch-url-types';
 import { FetchURLInputSchema, IFetchURLTool, type FetchURLInput } from './fetch-url';
 import DESCRIPTION from './fetch-url.md?raw';
 
@@ -37,17 +20,13 @@ export class FetchURLTool implements IFetchURLTool {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(FetchURLInputSchema);
 
-  constructor(
-    @IWebFetchService private readonly webFetch: IWebFetchService,
-    @ISessionContext private readonly session: ISessionContext,
-    @ISpillService private readonly spill?: ISpillService,
-  ) {}
+  constructor(@IWebFetchService private readonly webFetch: IWebFetchService) {}
 
   resolveExecution(args: FetchURLInput): ToolExecution {
     const preview = args.url.length > 50 ? `${args.url.slice(0, 50)}…` : args.url;
     return {
       accesses: ToolAccesses.none(),
-      description: t('toolsV2.fetchUrl.fetching', { preview: preview }),
+      description: `Fetching: ${preview}`,
       display: { kind: 'url_fetch', url: args.url },
       approvalRule: literalRulePattern(this.name, args.url),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.url),
@@ -66,26 +45,19 @@ export class FetchURLTool implements IFetchURLTool {
 
       if (!content) {
         return {
-          output: t('toolsV2.fetchUrl.emptyBody'),
+          output: 'The response body is empty.',
           isError: false,
         };
       }
 
-      const spill = this.spill;
-      const builder = new ToolResultBuilder({
-        maxLineLength: null,
-        onTruncated:
-          spill === undefined
-            ? undefined
-            : (fullText) => this.spillSave(spill, fullText, toolCallId),
-      });
+      const builder = new ToolResultBuilder({ maxLineLength: null });
       const note =
         kind === 'passthrough'
-          ? t('toolsV2.fetchUrl.passthroughNote')
-          : t('toolsV2.fetchUrl.extractedNote');
-      const citeReminder = t('toolsV2.fetchUrl.citeReminder');
+          ? 'The returned content is the full response body, returned verbatim.'
+          : 'The returned content is the main text extracted from the page.';
+      const citeReminder =
+        'If you use it in your answer, cite this page as a markdown link, e.g. [title](url).';
       builder.write(`${note} ${citeReminder}\n\n${content}`);
-      await builder.spillFullText();
       return builder.ok();
     } catch (error) {
       if (signal.aborted) throw error;
@@ -93,23 +65,14 @@ export class FetchURLTool implements IFetchURLTool {
       if (error instanceof HttpFetchError) {
         return {
           isError: true,
-          output: t('toolsV2.fetchUrl.failedHttp', { status: String(error.status), message: msg }),
+          output: `Failed to fetch URL. Status: ${String(error.status)}. ${msg}`,
         };
       }
       return {
         isError: true,
-        output: t('toolsV2.fetchUrl.networkError', { url: args.url, message: msg }),
+        output: `Failed to fetch URL due to network error: ${args.url}. ${msg}`,
       };
     }
-  }
-
-  private spillSave(spill: ISpillService, fullText: string, toolCallId: string): Promise<SpillRef> {
-    return spill.saveText({
-      owner: { sessionId: this.session.sessionId },
-      source: { toolName: 'fetch-url', callId: toolCallId, label: 'page-content' },
-      suggestedName: 'fetch-url.txt',
-      content: fullText,
-    });
   }
 }
 

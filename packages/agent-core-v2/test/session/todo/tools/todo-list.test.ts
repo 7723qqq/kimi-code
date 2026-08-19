@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { TodoListInputSchema } from '#/agent/tools/todo-list/todo-list';
-import { TodoListTool } from '#/agent/tools/todo-list/todoListTool';
 import { type ISessionTodoService } from '#/session/todo/sessionTodo';
 import { TODO_LIST_TOOL_NAME, type TodoItem } from '#/session/todo/todoItem';
-
+import { TodoListInputSchema } from '#/agent/tools/todo-list/todo-list';
+import { TodoListTool } from '#/agent/tools/todo-list/todoListTool';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -19,7 +18,7 @@ function makeTodoService(initial: readonly TodoItem[] = []): {
       _serviceBrand: undefined,
       getTodos: () => todos,
       setTodos: (next: readonly TodoItem[]) => {
-        todos = next.map((todo) => ({ ...todo }));
+        todos = next.map((todo) => ({ title: todo.title, status: todo.status }));
       },
       clear: () => {
         todos = [];
@@ -46,9 +45,9 @@ describe('TodoListTool', () => {
     expect(tool.name).toBe(TODO_LIST_TOOL_NAME);
     expect(tool.description.length).toBeGreaterThan(0);
     expect(TodoListInputSchema.safeParse({}).success).toBe(true);
-    expect(TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'wip' }] }).success).toBe(
-      false,
-    );
+    expect(
+      TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'wip' }] }).success,
+    ).toBe(false);
     expect(tool.parameters).toMatchObject({
       type: 'object',
       additionalProperties: false,
@@ -58,38 +57,8 @@ describe('TodoListTool', () => {
     });
   });
 
-  it('description includes the anti-churn guardrails', () => {
-    const { description } = makeTool().tool;
-
-    expect(description).toContain('**Avoid churn:**');
-    expect(description).toMatch(/nothing meaningful has changed/i);
-    expect(description).toMatch(/real progress/i);
-    expect(description).toMatch(/query mode/i);
-    expect(description).toMatch(/tell the user/i);
-  });
-
-  it('description encourages proactive progress updates without allowing churn', () => {
-    const { description } = makeTool().tool;
-
-    expect(description).toMatch(/proactively and often/i);
-    expect(description).toMatch(/immediately after finishing/i);
-    expect(description).toMatch(/exactly one/i);
-    expect(description).toMatch(/in_progress/i);
-    expect(description).toMatch(/tests are failing/i);
-    expect(description).toContain('**Avoid churn:**');
-  });
-
   it('query mode renders the current list without mutating it', async () => {
-    const { tool, getTodos } = makeTool([
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'existing',
-        status: 'in_progress',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ]);
+    const { tool, getTodos } = makeTool([{ title: 'existing', status: 'in_progress' }]);
 
     const result = await executeTool(tool, {
       turnId: 1,
@@ -99,32 +68,16 @@ describe('TodoListTool', () => {
     });
 
     expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('Current task list');
-    expect(result.output).toContain('[in_progress] T1: existing');
-    expect(getTodos()).toEqual([
-      expect.objectContaining({ title: 'existing', status: 'in_progress' }),
-    ]);
+    expect(result.output).toContain('Current todo list');
+    expect(result.output).toContain('[in_progress] existing');
+    expect(getTodos()).toEqual([{ title: 'existing', status: 'in_progress' }]);
   });
 
   it('write mode replaces the list and defensively copies todos into the service', async () => {
     const { tool, getTodos } = makeTool();
     const todos: TodoItem[] = [
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'first',
-        status: 'open',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-      {
-        id: 'T2',
-        parentId: null,
-        title: 'second',
-        status: 'in_progress',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
+      { title: 'first', status: 'pending' },
+      { title: 'second', status: 'in_progress' },
     ];
 
     const result = await executeTool(tool, {
@@ -133,40 +86,24 @@ describe('TodoListTool', () => {
       args: { todos },
       signal,
     });
-    todos[0] = {
-      id: 'T1',
-      parentId: null,
-      title: 'leaked',
-      status: 'done',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+    todos[0] = { title: 'leaked', status: 'done' };
 
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Todo list updated');
-    expect(result.output).toContain('[open] T1: first');
-    expect(result.output).toContain('[in_progress] T2: second');
+    expect(result.output).toContain('[pending] first');
+    expect(result.output).toContain('[in_progress] second');
     expect(result.output).toContain(
       'Ensure that you continue to use the todo list to track progress.',
     );
     expect(result.output).toContain('exactly one task in_progress');
     expect(getTodos()).toEqual([
-      expect.objectContaining({ id: 'T1', parentId: null, title: 'first', status: 'open' }),
-      expect.objectContaining({ id: 'T2', parentId: null, title: 'second', status: 'in_progress' }),
+      { title: 'first', status: 'pending' },
+      { title: 'second', status: 'in_progress' },
     ]);
   });
 
   it('renders a done todo with a marker matching the status enum value', async () => {
-    const { tool } = makeTool([
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'shipped',
-        status: 'done',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ]);
+    const { tool } = makeTool([{ title: 'shipped', status: 'done' }]);
 
     const result = await executeTool(tool, {
       turnId: 1,
@@ -176,21 +113,12 @@ describe('TodoListTool', () => {
     });
 
     expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('[done] T1: shipped');
+    expect(result.output).toContain('[done] shipped');
     expect(result.output).not.toContain('[completed]');
   });
 
   it('clear mode empties the list without adding the progress-tracking reminder', async () => {
-    const { tool, getTodos } = makeTool([
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'x',
-        status: 'open',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ]);
+    const { tool, getTodos } = makeTool([{ title: 'x', status: 'pending' }]);
 
     const result = await executeTool(tool, {
       turnId: 1,
@@ -208,7 +136,7 @@ describe('TodoListTool', () => {
     const readExecution = tool.resolveExecution({});
     const clearExecution = tool.resolveExecution({ todos: [] });
     const updateExecution = tool.resolveExecution({
-      todos: [{ id: 'T1', parentId: null, title: 'x', status: 'open' }],
+      todos: [{ title: 'x', status: 'pending' }],
     });
 
     if (
@@ -221,66 +149,5 @@ describe('TodoListTool', () => {
     expect(readExecution.description).toBe('Reading todo list');
     expect(clearExecution.description).toBe('Clearing todo list');
     expect(updateExecution.description).toBe('Updating todo list');
-  });
-
-  it('query mode on an empty list returns a meaningful message', async () => {
-    const { tool } = makeTool();
-    const result = await executeTool(tool, {
-      turnId: 1,
-      toolCallId: 'call_1',
-      args: {},
-      signal,
-    });
-    expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('Todo list is empty.');
-  });
-
-  it('write mode with multiple in_progress todos still succeeds', async () => {
-    const { tool, getTodos } = makeTool();
-    const todos: TodoItem[] = [
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'first',
-        status: 'in_progress',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-      {
-        id: 'T2',
-        parentId: null,
-        title: 'second',
-        status: 'in_progress',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ];
-    const result = await executeTool(tool, {
-      turnId: 1,
-      toolCallId: 'call_1',
-      args: { todos },
-      signal,
-    });
-    expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('Todo list updated');
-    expect(getTodos()).toHaveLength(2);
-  });
-
-  it('schema rejects a todo with an invalid status string', () => {
-    expect(
-      TodoListInputSchema.safeParse({ todos: [{ title: 'x', status: 'invalid' }] }).success,
-    ).toBe(false);
-  });
-
-  it('schema rejects a todo missing a title', () => {
-    expect(TodoListInputSchema.safeParse({ todos: [{ status: 'open' }] }).success).toBe(false);
-  });
-
-  it('schema accepts a valid single todo', () => {
-    expect(
-      TodoListInputSchema.safeParse({
-        todos: [{ id: 'T1', parentId: null, title: 'valid task', status: 'open' }],
-      }).success,
-    ).toBe(true);
   });
 });

@@ -1,28 +1,18 @@
-/**
- * `subagent` domain — `ISessionSubagentService` implementation.
- *
- * Owns the "drive a turn on another agent" operation (`run`) and the
- * requester-side announcement surface those runs share: the
- * `onWillStartAgentTask` hook slot and the `onDidStopAgentTask` event fired
- * around each mirrored run. The service resolves the target agent from the
- * lifecycle registry and picks its summary policy from the profile catalog;
- * turn driving itself is delegated to a pure helper. Bound at Session scope.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { Emitter } from '#/_base/event';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { LifecycleScope } from '#/app/scopes';
 import { Error2, ErrorCodes } from '#/errors';
+import { LifecycleScope } from '#/app/scopes';
+import {
+  type IAgentScopeHandle,
+  ScopeActivation,
+  registerScopedService,
+} from '#/_base/di/scope';
+import { Emitter } from '#/_base/event';
+import type { AgentProfileSummaryPolicy } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { createHooks } from '#/hooks';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 
-import { runAgentTurn } from './runAgentTurn';
 import {
   type AgentRunHandle,
   type AgentRunRequest,
@@ -31,6 +21,7 @@ import {
   ISessionSubagentService,
   type RunAgentOptions,
 } from './subagent';
+import { runAgentTurn } from './runAgentTurn';
 
 export class SessionSubagentService extends Service implements ISessionSubagentService {
   declare readonly _serviceBrand: undefined;
@@ -54,7 +45,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
   run(agentId: string, request: AgentRunRequest, opts: RunAgentOptions): Promise<AgentRunHandle> {
     const handle = this.agentLifecycle.get(agentId);
     if (handle === undefined) {
-      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, t('v2Errors.agentDoesNotExist', { agentId }), {
+      throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `Agent "${agentId}" does not exist`, {
         details: { agentId },
       });
     }

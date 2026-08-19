@@ -61,11 +61,10 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
   // leave it token-less. Generate one when the caller did not supply it.
   const token = options.token ?? randomBytes(32).toString('hex');
 
-  // `clone: false`: the IPC codec (`encodeFrame`) already JSON-serializes
-  // every frame at the socket boundary, so the dispatcher's extra JSON
-  // round-trip per value would only double the cost of large streaming
-  // payloads without adding isolation the codec does not already provide.
-  const dispatcher = createMemoryDispatcher(options.scope, { clone: false });
+  // The IPC codec (`encodeFrame`) already JSON-serializes every frame at the
+  // socket boundary, so the dispatcher's wire-clone per value is the same
+  // isolation the codec provides — no extra round-trip is needed here.
+  const dispatcher = createMemoryDispatcher(options.scope);
 
   // Best-effort cleanup of a stale socket file. Only a real socket (or a
   // missing file) is removed — a regular file at the path is a caller bug

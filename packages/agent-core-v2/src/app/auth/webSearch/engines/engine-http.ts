@@ -92,7 +92,7 @@ export async function engineFetch(
       status: response.status,
       statusText: response.statusText,
       text: () => response.text(),
-      stream: () => response.body,
+      stream: () => response.body as ReadableStream<Uint8Array> | null,
       header: (name: string) => response.headers.get(name),
     };
   } finally {

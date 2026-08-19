@@ -72,15 +72,12 @@ describe('FileTokenStorage', () => {
     expect(parsed['accessToken']).toBeUndefined();
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'writes the credentials file with mode 0600',
-    async () => {
-      await storage.save('kimi-code', sampleToken());
-      const stat = statSync(join(dir, 'kimi-code.json'));
-      // eslint-disable-next-line no-bitwise
-      expect(stat.mode & 0o777).toBe(0o600);
-    },
-  );
+  it.skipIf(process.platform === 'win32')('writes the credentials file with mode 0600', async () => {
+    await storage.save('kimi-code', sampleToken());
+    const stat = statSync(join(dir, 'kimi-code.json'));
+    // eslint-disable-next-line no-bitwise
+    expect(stat.mode & 0o777).toBe(0o600);
+  });
 
   it('remove() deletes the file; load() then returns undefined', async () => {
     await storage.save('kimi-code', sampleToken());
@@ -137,17 +134,14 @@ describe('FileTokenStorage', () => {
     expect(names).toEqual(['kimi-code']);
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'creates the credentials dir with mode 0700 if missing',
-    async () => {
-      const freshDir = join(dir, 'nested', 'sub');
-      const s = new FileTokenStorage(freshDir);
-      await s.save('kimi-code', sampleToken());
-      const stat = statSync(freshDir);
-      // eslint-disable-next-line no-bitwise
-      expect(stat.mode & 0o777).toBe(0o700);
-    },
-  );
+  it.skipIf(process.platform === 'win32')('creates the credentials dir with mode 0700 if missing', async () => {
+    const freshDir = join(dir, 'nested', 'sub');
+    const s = new FileTokenStorage(freshDir);
+    await s.save('kimi-code', sampleToken());
+    const stat = statSync(freshDir);
+    // eslint-disable-next-line no-bitwise
+    expect(stat.mode & 0o777).toBe(0o700);
+  });
 
   it('refuses path-traversal names on save (B1)', async () => {
     await expect(storage.save('../../etc/passwd', sampleToken())).rejects.toThrow(

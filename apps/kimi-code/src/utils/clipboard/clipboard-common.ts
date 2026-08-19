@@ -1,5 +1,5 @@
-import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 
 import type { ClipboardModule } from './clipboard-native';
 
@@ -15,12 +15,7 @@ export type RunCommandAsync = (
   options?: RunCommandOptions,
 ) => Promise<{ stdout: Buffer; ok: boolean }>;
 
-export const SUPPORTED_IMAGE_MIME_TYPES = [
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/gif',
-] as const;
+export const SUPPORTED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
 
 export const DEFAULT_LIST_TIMEOUT_MS = 1000;
 export const DEFAULT_MAX_BUFFER_BYTES = 50 * 1024 * 1024;

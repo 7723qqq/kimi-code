@@ -11,7 +11,7 @@ import {
 } from '#/constant/app';
 import { computeUpdateStatus, loadPluginMarketplace } from '#/utils/plugin-marketplace';
 
-const REPO_ROOT = join(import.meta.dirname, '../../../..');
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 describe('computeUpdateStatus', () => {
   it('reports not-installed when the plugin is absent', () => {
@@ -297,13 +297,11 @@ describe('loadPluginMarketplace', () => {
       throw new Error('fetch failed');
     }) as unknown as typeof fetch;
 
-    await expect(
-      loadPluginMarketplace({
-        workDir: '/tmp/work',
-        source: KIMI_CODE_PLUGIN_MARKETPLACE_URL,
-        fetchImpl,
-      }),
-    ).rejects.toThrow(/fetch failed/);
+    await expect(loadPluginMarketplace({
+      workDir: '/tmp/work',
+      source: KIMI_CODE_PLUGIN_MARKETPLACE_URL,
+      fetchImpl,
+    })).rejects.toThrow(/fetch failed/);
   });
 
   it('keeps the built-in entries when the catalog is unreachable', async () => {
@@ -366,9 +364,7 @@ describe('loadPluginMarketplace', () => {
     });
 
     it('does not derive a version from a non-GitHub URL', async () => {
-      const entry = await loadEntry(
-        'https://code.kimi.com/kimi-code/plugins/curated/superpowers.zip',
-      );
+      const entry = await loadEntry('https://code.kimi.com/kimi-code/plugins/curated/superpowers.zip');
       expect(entry.version).toBeUndefined();
     });
 
@@ -591,4 +587,5 @@ describe('loadPluginMarketplace', () => {
       /Legacy aliases "managed" and "guide" are also accepted/,
     );
   });
+
 });

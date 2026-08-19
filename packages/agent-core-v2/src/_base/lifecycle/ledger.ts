@@ -1,15 +1,3 @@
-/**
- * `_base.lifecycle` — `Ledger`: an ordered book of rollbackable registrations.
- *
- * A Ledger records entries (disposers, effects, child ledgers) in registration
- * order and tears them down in strict reverse order, awaiting each entry
- * serially — never in parallel. Rollback is uninterruptible: a failing entry
- * is logged (with its label) and teardown continues. Registering into a
- * disposing/disposed ledger throws immediately.
- *
- * The Ledger knows nothing about DI; scopes and containers build on top of it.
- */
-
 import { onUnexpectedError } from '../errors/unexpectedError';
 import {
   isAsyncIterable,
@@ -174,7 +162,7 @@ export class Ledger {
         return !record.active;
       },
       dispose: (reason: TeardownReason = 'scope-close') => {
-        if (!record.active) return;
+        if (!record.active) return undefined;
         record.active = false;
         this._remove(record);
         return runGuarded(record, reason);
@@ -224,9 +212,8 @@ function runGuarded(record: EntryRecord, reason: TeardownReason): void | Promise
 
 function tagged(error: unknown, label: string): unknown {
   if (error instanceof Error) {
-    const wrapped = new Error(`[ledger:${label}] ${error.message}`, { cause: error });
-    wrapped.name = error.name;
-    return wrapped;
+    error.message = `[ledger:${label}] ${error.message}`;
+    return error;
   }
   return new Error(`[ledger:${label}] ${String(error)}`);
 }
@@ -268,9 +255,7 @@ function runDisposersReverse(
       }
       if (isPromiseLike(out)) {
         return Promise.resolve(out)
-          .catch((error: unknown) => {
-            onUnexpectedError(tagged(error, 'effect'));
-          })
+          .catch((error: unknown) => { onUnexpectedError(tagged(error, 'effect')); })
           .then(step);
       }
     }
@@ -298,9 +283,7 @@ function driveSyncEffect(iterable: Iterable<Disposer | void>): Disposer {
   } catch (error) {
     const rollback = runDisposersReverse(disposers, 'unload');
     if (isPromiseLike(rollback)) {
-      Promise.resolve(rollback).catch((error: unknown) => {
-        onUnexpectedError(error);
-      });
+      Promise.resolve(rollback).catch((error: unknown) => { onUnexpectedError(error); });
     }
     throw error;
   }

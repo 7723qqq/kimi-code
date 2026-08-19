@@ -40,17 +40,14 @@ export function configureTextBuildWorkerRuntime(entry: string | URL): TextBuildW
     next = { kind: 'packaged', path: entry };
   } else {
     if (entry.protocol !== 'file:' || !entry.pathname.endsWith('.ts')) {
-      throw new TypeError(
-        'MiniDb source text-build worker entry must be a file: URL to a .ts file',
-      );
+      throw new TypeError('MiniDb source text-build worker entry must be a file: URL to a .ts file');
     }
     assertRegularFile(fileURLToPath(entry));
     next = { kind: 'source', url: entry };
   }
 
   if (configuredEntry !== null) {
-    const current =
-      configuredEntry.kind === 'packaged' ? configuredEntry.path : configuredEntry.url.href;
+    const current = configuredEntry.kind === 'packaged' ? configuredEntry.path : configuredEntry.url.href;
     const requested = next.kind === 'packaged' ? next.path : next.url.href;
     if (current !== requested) {
       throw new Error('MiniDb text-build worker runtime is already configured');

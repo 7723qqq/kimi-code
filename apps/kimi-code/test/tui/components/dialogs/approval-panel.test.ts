@@ -46,7 +46,10 @@ function makeDialog(): {
     feedback?: string | undefined;
     selected_label?: string | undefined;
   }> = [];
-  const dialog = new ApprovalPanelComponent(makePending(), (response) => responses.push(response));
+  const dialog = new ApprovalPanelComponent(
+    makePending(),
+    (response) => responses.push(response),
+  );
   return { dialog, responses };
 }
 
@@ -211,11 +214,14 @@ describe('ApprovalPanelComponent', () => {
     expect(out).toContain(CURSOR_MARKER);
   });
 
-  it.each(['\u0003', '\u0004', '\u001B'])('shortcut %j rejects approval immediately', (key) => {
-    const { dialog, responses } = makeDialog();
-    dialog.handleInput(key);
-    expect(responses).toEqual([{ response: 'rejected' }]);
-  });
+  it.each(['\u0003', '\u0004', '\u001B'])(
+    'shortcut %j rejects approval immediately',
+    (key) => {
+      const { dialog, responses } = makeDialog();
+      dialog.handleInput(key);
+      expect(responses).toEqual([{ response: 'rejected' }]);
+    },
+  );
 
   it('renders ExitPlanMode with plan-specific header and plan-review choices', () => {
     const pending: PendingApproval = {
@@ -323,11 +329,7 @@ describe('ApprovalPanelComponent', () => {
       },
     };
     let globalToggleCalls = 0;
-    const dialog = new ApprovalPanelComponent(
-      pending,
-      () => {},
-      () => globalToggleCalls++,
-    );
+    const dialog = new ApprovalPanelComponent(pending, () => {}, () => globalToggleCalls++);
 
     dialog.handleInput('\u000F'); // Ctrl+O
 
@@ -465,12 +467,17 @@ describe('ApprovalPanelComponent', () => {
         ],
       },
     };
-    const dialog = new ApprovalPanelComponent(pending, (response) => responses.push(response));
+    const dialog = new ApprovalPanelComponent(
+      pending,
+      (response) => responses.push(response),
+    );
 
     dialog.handleInput('2');
     dialog.handleInput('n');
     dialog.handleInput('o');
     dialog.handleInput('\r');
-    expect(responses).toEqual([{ response: 'rejected', feedback: 'no', selected_label: 'Revise' }]);
+    expect(responses).toEqual([
+      { response: 'rejected', feedback: 'no', selected_label: 'Revise' },
+    ]);
   });
 });

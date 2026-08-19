@@ -25,7 +25,6 @@
 
 import fs from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
-
 import { OpTracker } from './op-tracker.js';
 
 export type FsyncPolicy = 'always' | 'everysec' | 'no';
@@ -187,8 +186,7 @@ export class WAL {
    *  batchId is -1 for frames that never entered a group (immediate
    *  rejections: closed/poisoned/sealed/invalid). */
   appendLoc(frame: Buffer): { offset: number; batchId: number; done: Promise<void> } {
-    if (this.closed)
-      return { offset: -1, batchId: -1, done: Promise.reject(new Error('WAL is closed')) };
+    if (this.closed) return { offset: -1, batchId: -1, done: Promise.reject(new Error('WAL is closed')) };
     if (this.poisoned) return { offset: -1, batchId: -1, done: Promise.reject(this.poisonError()) };
     if (this.sealed) {
       const err = new Error('WAL is sealed by a compaction rotation; retry against the new WAL');
@@ -196,11 +194,7 @@ export class WAL {
       return { offset: -1, batchId: -1, done: Promise.reject(err) };
     }
     if (!Buffer.isBuffer(frame)) {
-      return {
-        offset: -1,
-        batchId: -1,
-        done: Promise.reject(new TypeError('frame must be a Buffer')),
-      };
+      return { offset: -1, batchId: -1, done: Promise.reject(new TypeError('frame must be a Buffer')) };
     }
     const offset = this.nextOffset;
     this.nextOffset += frame.length;
@@ -216,9 +210,7 @@ export class WAL {
       }
       if (!this.flushing && !this.scheduled) {
         this.scheduled = true;
-        setImmediate(() => {
-          void this.flushBatch();
-        });
+        setImmediate(() => { void this.flushBatch(); });
       }
     });
     return { offset, batchId, done };
@@ -282,8 +274,8 @@ export class WAL {
             }
           }
         }
-      } catch (error) {
-        failure = error;
+      } catch (err) {
+        failure = err;
         if (this.stats) this.stats.walWriteErrors++;
       }
       if (!failure && this.policy === 'always') {
@@ -292,8 +284,8 @@ export class WAL {
         // like a write failure.
         try {
           await this.sync();
-        } catch (error) {
-          failure = error;
+        } catch (err) {
+          failure = err;
         }
       }
       if (failure) {
@@ -312,9 +304,7 @@ export class WAL {
       this.inflight = null;
       if (this.queue.length > 0 && !this.closed && !this.poisoned) {
         this.scheduled = true;
-        setImmediate(() => {
-          void this.flushBatch();
-        });
+        setImmediate(() => { void this.flushBatch(); });
       }
     };
     this.inflight = run();
@@ -421,12 +411,12 @@ export class WAL {
     const gen = this.writeGen;
     try {
       await this.fh.sync();
-    } catch (error) {
+    } catch (err) {
       if (this.stats) {
         this.stats.walFsyncErrors++;
-        this.stats.lastWalFsyncError = error;
+        this.stats.lastWalFsyncError = err;
       }
-      throw error;
+      throw err;
     }
     if (this.stats) this.stats.walFsyncs++;
     // Only generations issued BEFORE this fsync may be marked synced: a flush
@@ -479,8 +469,8 @@ export class WAL {
       if (!this.poisoned) {
         try {
           await this.flush();
-        } catch (error) {
-          if (!this.poisoned) throw error;
+        } catch (err) {
+          if (!this.poisoned) throw err;
         }
         if (this.fh) await this.sync();
       }

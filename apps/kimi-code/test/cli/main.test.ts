@@ -87,50 +87,52 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
   };
 });
 
-vi.mock('../../src/cli/telemetry', () => ({
+vi.mock('#/cli/telemetry', () => ({
   createCliTelemetryBootstrap: mocks.createCliTelemetryBootstrap,
   initializeCliTelemetry: mocks.initializeCliTelemetry,
 }));
 
-vi.mock('../../src/cli/sub/upgrade', () => ({
+vi.mock('#/cli/sub/upgrade', () => ({
   handleUpgrade: mocks.handleUpgrade,
 }));
 
-vi.mock('../../src/cli/commands', () => ({
+vi.mock('#/cli/commands', () => ({
   createProgram: mocks.createProgram,
 }));
 
-vi.mock('../../src/cli/version', async () => {
-  const actual = await vi.importActual<typeof import('../../src/cli/version.js')>(
-    '../../src/cli/version.js',
-  );
+vi.mock('#/cli/update/native-swap', () => ({
+  maybeRelaunchWithStagedNativeUpdate: vi.fn(() => Promise.resolve(false)),
+}));
+
+vi.mock('#/cli/version', async () => {
+  const actual = await vi.importActual<typeof import('#/cli/version')>('#/cli/version');
   return {
     ...actual,
     getVersion: mocks.getVersion,
   };
 });
 
-vi.mock('../../src/cli/options', async () => {
-  const actual = await vi.importActual<typeof OptionsModule>('../../src/cli/options.js');
+vi.mock('#/cli/options', async () => {
+  const actual = await vi.importActual<typeof OptionsModule>('#/cli/options');
   return {
     ...actual,
     validateOptions: mocks.validateOptions,
   };
 });
 
-vi.mock('../../src/cli/update/preflight', () => ({
+vi.mock('#/cli/update/preflight', () => ({
   runUpdatePreflight: mocks.runUpdatePreflight,
 }));
 
-vi.mock('../../src/cli/run-shell', () => ({
+vi.mock('#/cli/run-shell', () => ({
   runShell: mocks.runShell,
 }));
 
-vi.mock('../../src/cli/run-prompt', () => ({
+vi.mock('#/cli/run-prompt', () => ({
   runPrompt: mocks.runPrompt,
 }));
 
-vi.mock('../../src/cli/headless-exit', () => ({
+vi.mock('#/cli/headless-exit', () => ({
   finalizeHeadlessRun: mocks.finalizeHeadlessRun,
 }));
 
@@ -168,6 +170,18 @@ async function waitForAssertion(assertion: () => void): Promise<void> {
     }
   }
   throw lastError;
+}
+
+/**
+ * `main()` defers `createProgram` until the staged-native-update relaunch
+ * check settles (a microtask), so tests must wait for the call before
+ * grabbing the command action from its arguments.
+ */
+async function waitForProgramCall(): Promise<unknown[]> {
+  await waitForAssertion(() => {
+    expect(mocks.createProgram).toHaveBeenCalledTimes(1);
+  });
+  return mocks.createProgram.mock.calls[0] as unknown as unknown[];
 }
 
 async function runHandleMainCommand(opts: CLIOptions): Promise<number | null> {
@@ -296,7 +310,7 @@ describe('main entry command handling', () => {
     mocks.finalizeHeadlessRun.mockResolvedValue(void 0);
 
     main();
-    const programArgs = mocks.createProgram.mock.calls[0] as unknown as unknown[];
+    const programArgs = await waitForProgramCall();
     const mainAction = programArgs[1] as (opts: CLIOptions) => void;
     mainAction(opts);
 
@@ -323,7 +337,7 @@ describe('main entry command handling', () => {
 
     try {
       main();
-      const programArgs = mocks.createProgram.mock.calls[0] as unknown as unknown[];
+      const programArgs = await waitForProgramCall();
       const mainAction = programArgs[1] as (opts: CLIOptions) => void;
       mainAction(opts);
 
@@ -353,9 +367,12 @@ describe('main entry command handling', () => {
     expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2');
   });
 
-  it('installs crash handlers before parsing CLI arguments', () => {
+  it('installs crash handlers before parsing CLI arguments', async () => {
     main();
 
+    await waitForAssertion(() => {
+      expect(mocks.createProgram).toHaveBeenCalledTimes(1);
+    });
     expect(mocks.installCrashHandlers).toHaveBeenCalledTimes(1);
     expect(mocks.installCrashHandlers.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.createProgram.mock.invocationCallOrder[0]!,

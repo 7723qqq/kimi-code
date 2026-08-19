@@ -20,10 +20,9 @@
 //
 // Internal to the package — NOT re-exported from the root entry point.
 
-import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
-
 import { crc32 } from './crc32.ts';
 import type { ValueRef } from './store.js';
 
@@ -127,8 +126,7 @@ export class ByteReader {
   constructor(readonly buf: Buffer) {}
 
   private need(n: number): void {
-    if (this.off + n > this.buf.length)
-      throw new GenerationCorruptError('generation file truncated');
+    if (this.off + n > this.buf.length) throw new GenerationCorruptError('generation file truncated');
   }
 
   u8(): number {
@@ -220,7 +218,7 @@ export class GenFileWriter {
     version: number,
   ) {
     const w = new ByteWriter(8);
-    for (let i = 0; i < 4; i++) w.u8(magic.codePointAt(i) ?? 0);
+    for (let i = 0; i < 4; i++) w.u8(magic.charCodeAt(i));
     w.u32(version);
     const head = w.buf.subarray(0, w.off);
     this.chunks.push(Buffer.from(head));
@@ -232,9 +230,9 @@ export class GenFileWriter {
     const fh = await fs.open(path, 'w');
     try {
       return new GenFileWriter(fh, magic, version);
-    } catch (error) {
+    } catch (e) {
       await fh.close().catch(() => {});
-      throw error;
+      throw e;
     }
   }
 
@@ -251,7 +249,7 @@ export class GenFileWriter {
 
   private async flush(): Promise<void> {
     if (this.chunks.length === 0) return;
-    const bufs = this.chunks.splice(0);
+    const bufs = this.chunks.splice(0, this.chunks.length);
     this.queued = 0;
     for (const b of bufs) this.crc = crc32(b, this.crc);
     // Index-based consumption walk: a flush can carry tens of thousands of
@@ -262,15 +260,9 @@ export class GenFileWriter {
     let idx = 0;
     let off = 0;
     while (idx < bufs.length) {
-      const toWrite =
-        off > 0
-          ? [bufs[idx]!.subarray(off), ...bufs.slice(idx + 1)]
-          : idx === 0
-            ? bufs
-            : bufs.slice(idx);
+      const toWrite = off > 0 ? [bufs[idx]!.subarray(off), ...bufs.slice(idx + 1)] : idx === 0 ? bufs : bufs.slice(idx);
       const { bytesWritten } = await this.fh.writev(toWrite);
-      if (bytesWritten === 0)
-        throw new Error('generation file writev made no progress (short write)');
+      if (bytesWritten === 0) throw new Error('generation file writev made no progress (short write)');
       this.bytes += bytesWritten;
       let rem = bytesWritten;
       while (rem > 0 && idx < bufs.length) {
@@ -297,8 +289,7 @@ export class GenFileWriter {
       let written = 0;
       while (written < 4) {
         const { bytesWritten } = await this.fh.write(trailer, written);
-        if (bytesWritten === 0)
-          throw new Error('generation file write made no progress (short write)');
+        if (bytesWritten === 0) throw new Error('generation file write made no progress (short write)');
         written += bytesWritten;
       }
       this.bytes += 4;
@@ -326,43 +317,27 @@ export interface VerifiedGenerationFile {
 
 /** Read + verify one whole generation file: magic, version, and the crc
  *  trailer. Returns the payload reader and the computed integrity record. */
-export async function readGenerationFile(
-  path: string,
-  magic: string,
-  version: number,
-): Promise<VerifiedGenerationFile> {
+export async function readGenerationFile(path: string, magic: string, version: number): Promise<VerifiedGenerationFile> {
   let buf: Buffer;
   try {
     buf = await fs.readFile(path);
-  } catch (error) {
-    throw new GenerationCorruptError(
-      `generation file unreadable: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
-    );
+  } catch (e) {
+    throw new GenerationCorruptError(`generation file unreadable: ${(e as NodeJS.ErrnoException).code ?? String(e)}`);
   }
   return parseGenerationBuffer(buf, magic, version);
 }
 
 /** Pure-buffer variant of readGenerationFile (tests, in-memory verification). */
-export function parseGenerationBuffer(
-  buf: Buffer,
-  magic: string,
-  version: number,
-): VerifiedGenerationFile {
+export function parseGenerationBuffer(buf: Buffer, magic: string, version: number): VerifiedGenerationFile {
   if (buf.length < 8 + 4) throw new GenerationCorruptError('generation file too short');
   for (let i = 0; i < 4; i++) {
-    if (buf.readUInt8(i) !== magic.codePointAt(i))
-      throw new GenerationCorruptError(`bad magic (want ${magic})`);
+    if (buf.readUInt8(i) !== magic.charCodeAt(i)) throw new GenerationCorruptError(`bad magic (want ${magic})`);
   }
-  if (buf.readUInt32LE(4) !== version)
-    throw new GenerationCorruptError(`unsupported file version (want ${version})`);
+  if (buf.readUInt32LE(4) !== version) throw new GenerationCorruptError(`unsupported file version (want ${version})`);
   const stored = buf.readUInt32LE(buf.length - 4);
   const calc = crc32(buf.subarray(0, buf.length - 4));
   if (stored !== calc) throw new GenerationCorruptError('generation file crc mismatch');
-  return {
-    payload: new ByteReader(buf.subarray(8, buf.length - 4)),
-    bytes: buf.length,
-    crc32: stored,
-  };
+  return { payload: new ByteReader(buf.subarray(8, buf.length - 4)), bytes: buf.length, crc32: stored };
 }
 
 /** Read + verify a generation file AND cross-check it against the manifest's
@@ -395,18 +370,14 @@ export async function readGenerationFileCheckedAsync(
   let buf: Buffer;
   try {
     buf = await fs.readFile(path);
-  } catch (error) {
-    throw new GenerationCorruptError(
-      `generation file unreadable: ${(error as NodeJS.ErrnoException).code ?? String(error)}`,
-    );
+  } catch (e) {
+    throw new GenerationCorruptError(`generation file unreadable: ${(e as NodeJS.ErrnoException).code ?? String(e)}`);
   }
   if (buf.length < 8 + 4) throw new GenerationCorruptError('generation file too short');
   for (let i = 0; i < 4; i++) {
-    if (buf.readUInt8(i) !== magic.codePointAt(i))
-      throw new GenerationCorruptError(`bad magic (want ${magic})`);
+    if (buf.readUInt8(i) !== magic.charCodeAt(i)) throw new GenerationCorruptError(`bad magic (want ${magic})`);
   }
-  if (buf.readUInt32LE(4) !== version)
-    throw new GenerationCorruptError(`unsupported file version (want ${version})`);
+  if (buf.readUInt32LE(4) !== version) throw new GenerationCorruptError(`unsupported file version (want ${version})`);
   const stored = buf.readUInt32LE(buf.length - 4);
   let crc = 0;
   const SLICE = 1 << 20;
@@ -428,15 +399,11 @@ const yieldToLoop = (): Promise<void> => new Promise((r) => setImmediate(r));
  *  envelope of their own and are otherwise only verified lazily, per-record,
  *  at search time). One sequential read: cheap insurance that a corrupt base
  *  is discarded and rebuilt at OPEN, not discovered mid-query. */
-export function verifyFileIntegritySync(
-  path: string,
-  expected: { bytes: number; crc32: number },
-): void {
+export function verifyFileIntegritySync(path: string, expected: { bytes: number; crc32: number }): void {
   const fd = fsSync.openSync(path, 'r');
   try {
     const st = fsSync.fstatSync(fd);
-    if (st.size !== expected.bytes)
-      throw new GenerationCorruptError('file size does not match manifest record');
+    if (st.size !== expected.bytes) throw new GenerationCorruptError('file size does not match manifest record');
     let crc = 0;
     const buf = Buffer.allocUnsafe(1 << 16);
     let pos = 0;
@@ -446,8 +413,7 @@ export function verifyFileIntegritySync(
       crc = crc32(buf.subarray(0, n), crc);
       pos += n;
     }
-    if (crc >>> 0 !== expected.crc32)
-      throw new GenerationCorruptError('file crc does not match manifest record');
+    if ((crc >>> 0) !== expected.crc32) throw new GenerationCorruptError('file crc does not match manifest record');
   } finally {
     fsSync.closeSync(fd);
   }
@@ -462,15 +428,11 @@ const VERIFY_CHUNK_BYTES = 1 << 20;
  *  path): bounded 1 MiB positioned reads, a crc32 slice and an event-loop
  *  yield per chunk, so verifying a large postings file never blocks the loop
  *  for the whole pass. Identical error semantics. */
-export async function verifyFileIntegrityAsync(
-  path: string,
-  expected: { bytes: number; crc32: number },
-): Promise<void> {
+export async function verifyFileIntegrityAsync(path: string, expected: { bytes: number; crc32: number }): Promise<void> {
   const fh = await fs.open(path, 'r');
   try {
     const st = await fh.stat();
-    if (st.size !== expected.bytes)
-      throw new GenerationCorruptError('file size does not match manifest record');
+    if (st.size !== expected.bytes) throw new GenerationCorruptError('file size does not match manifest record');
     let crc = 0;
     const buf = Buffer.allocUnsafe(Math.min(VERIFY_CHUNK_BYTES, Math.max(st.size, 1)));
     let pos = 0;
@@ -481,8 +443,7 @@ export async function verifyFileIntegrityAsync(
       pos += bytesRead;
       await yieldToLoop();
     }
-    if (crc >>> 0 !== expected.crc32)
-      throw new GenerationCorruptError('file crc does not match manifest record');
+    if ((crc >>> 0) !== expected.crc32) throw new GenerationCorruptError('file crc does not match manifest record');
   } finally {
     await fh.close().catch(() => {});
   }
@@ -561,9 +522,9 @@ export async function writeStoreImage(
     }
     const info = await w.finish();
     return { ...info, count };
-  } catch (error) {
+  } catch (e) {
     await w.abort();
-    throw error;
+    throw e;
   }
 }
 
@@ -593,10 +554,7 @@ export function* readStoreImage(r: ByteReader): Generator<StoreImageRecord> {
     } else if (tag === TAG_SNAPSHOT_LOC || tag === TAG_WAL_LOC) {
       const off = r.u64();
       const len = r.u32();
-      ref = {
-        kind: 'disk',
-        loc: { file: tag === TAG_SNAPSHOT_LOC ? 'snapshot' : 'wal', off, len },
-      };
+      ref = { kind: 'disk', loc: { file: tag === TAG_SNAPSHOT_LOC ? 'snapshot' : 'wal', off, len } };
     } else {
       throw new GenerationCorruptError(`store image: unknown value tag ${tag}`);
     }
@@ -615,10 +573,7 @@ export interface DtImageColumn {
   entries: { ms: number; key: string }[];
 }
 
-export async function writeDtIndexImage(
-  path: string,
-  cols: DtImageColumn[],
-): Promise<{ bytes: number; crc32: number }> {
+export async function writeDtIndexImage(path: string, cols: DtImageColumn[]): Promise<{ bytes: number; crc32: number }> {
   const w = await GenFileWriter.open(path, DT_MAGIC, DT_VERSION);
   try {
     await w.writeRecord((b) => b.u32(cols.length));
@@ -635,9 +590,9 @@ export async function writeDtIndexImage(
       }
     }
     return await w.finish();
-  } catch (error) {
+  } catch (e) {
     await w.abort();
-    throw error;
+    throw e;
   }
 }
 
@@ -708,9 +663,9 @@ export async function writeSecondaryIndexImage(
       }
     }
     return await w.finish();
-  } catch (error) {
+  } catch (e) {
     await w.abort();
-    throw error;
+    throw e;
   }
 }
 
@@ -723,8 +678,7 @@ export function readSecondaryIndexImage(r: ByteReader): SecondaryImageIndex[] {
     const typeTag = r.u8();
     const flags = r.u8();
     const type = typeTag === 2 ? 'range' : typeTag === 1 ? 'equality' : null;
-    if (type === null)
-      throw new GenerationCorruptError(`secondary image: unknown index type ${typeTag}`);
+    if (type === null) throw new GenerationCorruptError(`secondary image: unknown index type ${typeTag}`);
     let equality: SecondaryImageIndex['equality'] = null;
     let range: SecondaryImageIndex['range'] = null;
     if (type === 'equality') {
@@ -742,15 +696,7 @@ export function readSecondaryIndexImage(r: ByteReader): SecondaryImageIndex[] {
       const n = r.u64();
       for (let j = 0; j < n; j++) range.push({ value: r.f64(), pk: r.key() });
     }
-    out.push({
-      name,
-      field,
-      type,
-      unique: (flags & 1) !== 0,
-      sparse: (flags & 2) !== 0,
-      equality,
-      range,
-    });
+    out.push({ name, field, type, unique: (flags & 1) !== 0, sparse: (flags & 2) !== 0, equality, range });
   }
   if (!r.done) throw new GenerationCorruptError('secondary index image: trailing bytes');
   return out;
@@ -759,10 +705,7 @@ export function readSecondaryIndexImage(r: ByteReader): SecondaryImageIndex[] {
 /** Sliced variant of readSecondaryIndexImage (stage 6): identical result,
  *  with event-loop yields every `yieldEvery` parsed entries so a large image
  *  never parses in one synchronous run. */
-export async function readSecondaryIndexImageAsync(
-  r: ByteReader,
-  yieldEvery = 32768,
-): Promise<SecondaryImageIndex[]> {
+export async function readSecondaryIndexImageAsync(r: ByteReader, yieldEvery = 32768): Promise<SecondaryImageIndex[]> {
   const count = r.u32();
   const out: SecondaryImageIndex[] = [];
   let n = 0;
@@ -775,8 +718,7 @@ export async function readSecondaryIndexImageAsync(
     const typeTag = r.u8();
     const flags = r.u8();
     const type = typeTag === 2 ? 'range' : typeTag === 1 ? 'equality' : null;
-    if (type === null)
-      throw new GenerationCorruptError(`secondary image: unknown index type ${typeTag}`);
+    if (type === null) throw new GenerationCorruptError(`secondary image: unknown index type ${typeTag}`);
     let equality: SecondaryImageIndex['equality'] = null;
     let range: SecondaryImageIndex['range'] = null;
     if (type === 'equality') {
@@ -800,15 +742,7 @@ export async function readSecondaryIndexImageAsync(
         await tick();
       }
     }
-    out.push({
-      name,
-      field,
-      type,
-      unique: (flags & 1) !== 0,
-      sparse: (flags & 2) !== 0,
-      equality,
-      range,
-    });
+    out.push({ name, field, type, unique: (flags & 1) !== 0, sparse: (flags & 2) !== 0, equality, range });
   }
   if (!r.done) throw new GenerationCorruptError('secondary index image: trailing bytes');
   return out;
@@ -891,9 +825,9 @@ export async function writeCompoundIndexImage(
       }
     }
     return await w.finish();
-  } catch (error) {
+  } catch (e) {
     await w.abort();
-    throw error;
+    throw e;
   }
 }
 
@@ -906,8 +840,7 @@ export function readCompoundIndexImage(r: ByteReader): CompoundImageIndex[] {
     const orderBy = r.text();
     const ot = r.u8();
     const orderType = ot === 2 ? 'string' : ot === 1 ? 'number' : null;
-    if (orderType === null)
-      throw new GenerationCorruptError(`compound image: unknown order type ${ot}`);
+    if (orderType === null) throw new GenerationCorruptError(`compound image: unknown order type ${ot}`);
     const groupCount = r.u64();
     const groups: CompoundImageIndex['groups'] = [];
     for (let g = 0; g < groupCount; g++) {
@@ -928,10 +861,7 @@ export function readCompoundIndexImage(r: ByteReader): CompoundImageIndex[] {
 
 /** Sliced variant of readCompoundIndexImage (stage 6): identical result, with
  *  event-loop yields every `yieldEvery` parsed entries. */
-export async function readCompoundIndexImageAsync(
-  r: ByteReader,
-  yieldEvery = 32768,
-): Promise<CompoundImageIndex[]> {
+export async function readCompoundIndexImageAsync(r: ByteReader, yieldEvery = 32768): Promise<CompoundImageIndex[]> {
   const count = r.u32();
   const out: CompoundImageIndex[] = [];
   let n = 0;
@@ -944,8 +874,7 @@ export async function readCompoundIndexImageAsync(
     const orderBy = r.text();
     const ot = r.u8();
     const orderType = ot === 2 ? 'string' : ot === 1 ? 'number' : null;
-    if (orderType === null)
-      throw new GenerationCorruptError(`compound image: unknown order type ${ot}`);
+    if (orderType === null) throw new GenerationCorruptError(`compound image: unknown order type ${ot}`);
     const groupCount = r.u64();
     const groups: CompoundImageIndex['groups'] = [];
     for (let g = 0; g < groupCount; g++) {
@@ -994,9 +923,9 @@ export async function writeTextDictionaryImage(
       });
     }
     return await w.finish();
-  } catch (error) {
+  } catch (e) {
     await w.abort();
-    throw error;
+    throw e;
   }
 }
 
@@ -1009,10 +938,7 @@ export function readTextDictionaryImage(r: ByteReader): TextDictImageEntry[] {
 /** Sliced variant (stage 6): identical result, with event-loop yields every
  *  `yieldEvery` entries so a million-term dictionary never parses in one
  *  synchronous run. */
-export async function readTextDictionaryImageAsync(
-  r: ByteReader,
-  yieldEvery = 65536,
-): Promise<TextDictImageEntry[]> {
+export async function readTextDictionaryImageAsync(r: ByteReader, yieldEvery = 65536): Promise<TextDictImageEntry[]> {
   const out: TextDictImageEntry[] = [];
   let n = 0;
   while (!r.done) {
@@ -1036,10 +962,7 @@ export interface TextDocsImage {
   delta: { term: string; docs: { docID: number; freq: number }[] }[];
 }
 
-export async function writeTextDocsImage(
-  path: string,
-  image: TextDocsImage,
-): Promise<{ bytes: number; crc32: number }> {
+export async function writeTextDocsImage(path: string, image: TextDocsImage): Promise<{ bytes: number; crc32: number }> {
   const w = await GenFileWriter.open(path, TEXT_DOCS_MAGIC, TEXT_DOCS_VERSION);
   try {
     await w.writeRecord((b) => {
@@ -1074,9 +997,9 @@ export async function writeTextDocsImage(
       }
     }
     return await w.finish();
-  } catch (error) {
+  } catch (e) {
     await w.abort();
-    throw error;
+    throw e;
   }
 }
 
@@ -1117,10 +1040,7 @@ export function readTextDocsImage(r: ByteReader): TextDocsImage {
 /** Sliced variant of readTextDocsImage (stage 6): identical result, with
  *  event-loop yields every `yieldEvery` parsed entries so a large doc table
  *  or delta never parses in one synchronous run. */
-export async function readTextDocsImageAsync(
-  r: ByteReader,
-  yieldEvery = 32768,
-): Promise<TextDocsImage> {
+export async function readTextDocsImageAsync(r: ByteReader, yieldEvery = 32768): Promise<TextDocsImage> {
   const docCount = r.u64();
   const liveCount = r.u64();
   const removedCount = r.u64();

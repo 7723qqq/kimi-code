@@ -1,11 +1,3 @@
-/**
- * The `fs:open` / `fs:open_in` / `fs:reveal` request schemas — the only fs
- * wire shapes the engine does not own (the `workspaceFs` domain in
- * agent-core-v2 holds the rest). Also home of `fsOpenInAppIdSchema`,
- * referenced by the
- * `/v1/meta` capabilities document.
- */
-
 import { z } from 'zod';
 
 export const fsOpenRequestSchema = z.object({
@@ -29,7 +21,13 @@ export const fsRevealResponseSchema = z.object({
 });
 export type FsRevealResponse = z.infer<typeof fsRevealResponseSchema>;
 
-export const fsOpenInAppIdSchema = z.enum(['finder', 'cursor', 'vscode', 'iterm', 'terminal']);
+export const fsOpenInAppIdSchema = z.enum([
+  'finder',
+  'cursor',
+  'vscode',
+  'iterm',
+  'terminal',
+]);
 export type FsOpenInAppId = z.infer<typeof fsOpenInAppIdSchema>;
 
 export const fsOpenInRequestSchema = z.object({

@@ -2,8 +2,7 @@ import { type SpawnOptionsWithoutStdio } from 'node:child_process';
 
 import { z } from 'zod';
 
-import type { IHostProcessService } from '#/os/interface/hostProcess';
-import { type IHostProcess } from '#/os/interface/hostProcess';
+import { type IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 
 import type { HookResult } from './types';
 
@@ -12,12 +11,6 @@ export interface RunHookOptions {
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly signal?: AbortSignal;
-  /**
-   * When true, execution failures (spawn error, timeout, wait error) resolve
-   * to `block` instead of `allow`. Permission-gating hooks (PreToolUse /
-   * PermissionRequest) should pass this: a hook that crashed must not
-   * silently weaken the gate. Notification hooks keep fail-open semantics.
-   */
   readonly failClosed?: boolean;
 }
 
@@ -37,14 +30,17 @@ export function buildHookSpawnOptions(options: {
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
 const KILL_GRACE_MS = 100;
-const OptionalStringSchema = z.preprocess((value) => {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-    return String(value);
-  }
-  return undefined;
-}, z.string().optional());
+const OptionalStringSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+      return String(value);
+    }
+    return undefined;
+  },
+  z.string().optional(),
+);
 const HookSpecificOutputSchema = z.preprocess(
   (value) => (isRecord(value) ? value : undefined),
   z
@@ -115,11 +111,11 @@ export async function runHook(
     const stderrDone = new Promise<void>((done) => proc.stderr.once('end', done));
     void Promise.all([proc.wait(), stdoutDone, stderrDone]).then(
       ([code]) => {
-        proc.dispose();
+        void proc.dispose();
         settle(resultFromExitCode(code, stdout, stderr));
       },
       (error) => {
-        proc.dispose();
+        void proc.dispose();
         // Permission hooks fail closed: an errored hook must not silently
         // weaken the gate.
         if (options.failClosed === true) {
@@ -147,8 +143,6 @@ export async function runHook(
 
     const onAbort = (): void => {
       killProcess(proc);
-      // Abort means the operation itself is being cancelled; there is no
-      // gate to weaken, so keep allow semantics here.
       settle(allowResult({ stdout, stderr }));
     };
 
@@ -254,6 +248,18 @@ function allowResult(input: {
   };
 }
 
+function killProcess(proc: IHostProcess): void {
+  void proc.kill('SIGTERM');
+  const killTimer = setTimeout(() => {
+    void proc.kill('SIGKILL');
+  }, KILL_GRACE_MS);
+  killTimer.unref();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function blockResult(
   reason: string,
   stdout: string | undefined,
@@ -266,18 +272,6 @@ function blockResult(
     stdout,
     stderr,
   };
-}
-
-function killProcess(proc: IHostProcess): void {
-  void proc.kill('SIGTERM');
-  const killTimer = setTimeout(() => {
-    void proc.kill('SIGKILL');
-  }, KILL_GRACE_MS);
-  killTimer.unref();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function errorMessage(error: unknown): string {

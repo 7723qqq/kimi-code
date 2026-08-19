@@ -23,10 +23,9 @@ import { dirname, join } from 'node:path';
 
 import type { ILogger } from '@moonshot-ai/agent-core-v2/_base/log/log';
 import { atomicWrite } from '@moonshot-ai/agent-core-v2/_base/utils/fs';
-import type { PluginMcpServerRuntimeConfig } from '@moonshot-ai/agent-core-v2/app/plugin/types';
 import type { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import { McpConnectionManager as McpConnectionManagerValue } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
-import type { McpOAuthService } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
+import type { McpOAuthService, McpOAuthTokenState } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
 import { canonicalMcpOAuthResource } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
 
 import {
@@ -339,10 +338,16 @@ export function configuredMcpAuthState(
 
 export function legacyGlobalMcpAuthState(
   server: AppMcpServerInspection,
-  credentialPresent: boolean,
+  tokenState: McpOAuthTokenState,
 ): GlobalMcpServerAuthState {
   if (server.authStatus !== 'unavailable') return server.authStatus;
-  if (credentialPresent) return 'oauth-authorized';
+  if (tokenState.hasTokens) {
+    // An expired grant with a refresh token recovers on the next connect;
+    // without one the credential is dead and must be re-created.
+    return !tokenState.expired || tokenState.hasRefreshToken
+      ? 'oauth-authorized'
+      : 'oauth-expired';
+  }
   return server.config.transport !== 'stdio' && server.config.auth === 'oauth'
     ? 'oauth-required'
     : 'not-applicable';
@@ -377,6 +382,19 @@ export function sanitizeAppMcpServerConfig(config: McpServerConfig): AppMcpServe
   }
   const { headers, ...safe } = config;
   return headers === undefined ? safe : { ...safe, headerKeys: Object.keys(headers).toSorted() };
+}
+
+/**
+ * A plugin-contributed MCP server as consumed by the auth-status catalog.
+ * The engine exposes plugin MCP servers as a name → config record; the SDK
+ * wraps each entry with its plugin identity.
+ */
+export interface PluginMcpServerRuntimeConfig {
+  readonly pluginId: string;
+  readonly serverName: string;
+  readonly runtimeName: string;
+  readonly config: McpServerConfig;
+  readonly enabled: boolean;
 }
 
 export function appMcpServerDescriptors(
@@ -485,7 +503,13 @@ export async function inspectAppMcpServerDescriptors(
         };
       }
       if (entry?.status === 'needs-auth') {
-        return { ...server, authStatus: 'oauth-required', checkedAt };
+        // Stored credentials exist but the server still challenges: the
+        // grant is dead (revoked/expired without refresh) — re-login.
+        return {
+          ...server,
+          authStatus: credentialPresent.get(server.serverId) ? 'oauth-expired' : 'oauth-required',
+          checkedAt,
+        };
       }
       return {
         ...server,

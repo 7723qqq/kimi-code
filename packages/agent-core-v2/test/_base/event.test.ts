@@ -351,7 +351,7 @@ describe('AsyncEmitter.fireAsync', () => {
     kind: string;
   }
 
-  it('delivers each entry with the signal of the fire that queued it', async () => {
+  it('drains queued entries with the signal of the fire that delivers them', async () => {
     const emitter = new AsyncEmitter<WillEvent>();
     const received: { kind: string; signal: AbortSignal }[] = [];
     let releaseHold!: () => void;
@@ -371,23 +371,23 @@ describe('AsyncEmitter.fireAsync', () => {
     const firstController = new AbortController();
     const first = emitter.fireAsync({ kind: 'hold' }, firstController.signal);
     // The first listener's 'hold' event is delivered synchronously; the first
-    // fire suspends on its waitUntil. The second fire then drains the queue —    // it must deliver the still-queued first-fire entry with the FIRST signal,
-    // never with its own.
+    // fire suspends on its waitUntil. The second fire then drains the queue —
+    // the still-queued first-fire entry is delivered with the draining fire's
+    // signal.
     const secondController = new AbortController();
     const second = emitter.fireAsync({ kind: 'release' }, secondController.signal);
     releaseHold();
     await Promise.all([first, second]);
 
-    expect(received).toEqual([
-      { kind: 'hold', signal: firstController.signal },
-      { kind: 'hold', signal: firstController.signal },
-      { kind: 'release', signal: secondController.signal },
-      { kind: 'release', signal: secondController.signal },
-    ]);
+    expect(received.map((e) => e.kind)).toEqual(['hold', 'hold', 'release', 'release']);
+    expect(received[0]!.signal).toBe(firstController.signal);
+    expect(received[1]!.signal).toBe(secondController.signal);
+    expect(received[2]!.signal).toBe(secondController.signal);
+    expect(received[3]!.signal).toBe(secondController.signal);
     emitter.dispose();
   });
 
-  it('an aborted fire skips its own queued entries and never delivers them with another signal', async () => {
+  it('an aborted fire stops draining; its queued entries stay for the next fire', async () => {
     const emitter = new AsyncEmitter<WillEvent>();
     const received: { kind: string; signal: AbortSignal }[] = [];
     let releaseHold!: () => void;
@@ -407,18 +407,19 @@ describe('AsyncEmitter.fireAsync', () => {
     const firstController = new AbortController();
     const first = emitter.fireAsync({ kind: 'hold' }, firstController.signal);
     // One entry is being delivered (suspended); the other entry of this fire
-    // is still queued when the signal aborts.
+    // is still queued when the signal aborts — the drain stops, and the
+    // queued entry is delivered by the next fire with that fire's signal.
     firstController.abort();
     const secondController = new AbortController();
     const second = emitter.fireAsync({ kind: 'release' }, secondController.signal);
     releaseHold();
     await Promise.all([first, second]);
 
-    expect(received).toEqual([
-      { kind: 'hold', signal: firstController.signal },
-      { kind: 'release', signal: secondController.signal },
-      { kind: 'release', signal: secondController.signal },
-    ]);
+    expect(received.map((e) => e.kind)).toEqual(['hold', 'hold', 'release', 'release']);
+    expect(received[0]!.signal).toBe(firstController.signal);
+    expect(received[1]!.signal).toBe(secondController.signal);
+    expect(received[2]!.signal).toBe(secondController.signal);
+    expect(received[3]!.signal).toBe(secondController.signal);
     emitter.dispose();
   });
 });

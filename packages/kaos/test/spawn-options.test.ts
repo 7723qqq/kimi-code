@@ -11,18 +11,18 @@ import { buildLocalSpawnOptions } from '#/local';
 
 describe('buildLocalSpawnOptions (Windows console-window regression)', () => {
   it('sets windowsHide:true on Windows so commands do not flash a console', () => {
-    const options = buildLocalSpawnOptions(true, 'C:\\repo');
+    const options = buildLocalSpawnOptions(true, 'C:\\repo', undefined);
     expect(options.windowsHide).toBe(true);
   });
 
   it('sets windowsHide:true on POSIX too (it is ignored there, kept unconditional)', () => {
-    const options = buildLocalSpawnOptions(false, '/repo');
+    const options = buildLocalSpawnOptions(false, '/repo', undefined);
     expect(options.windowsHide).toBe(true);
   });
 
   it('keeps detached platform-conditional (POSIX tree-kill vs Windows taskkill /T)', () => {
-    expect(buildLocalSpawnOptions(true, 'C:\\repo').detached).toBe(false);
-    expect(buildLocalSpawnOptions(false, '/repo').detached).toBe(true);
+    expect(buildLocalSpawnOptions(true, 'C:\\repo', undefined).detached).toBe(false);
+    expect(buildLocalSpawnOptions(false, '/repo', undefined).detached).toBe(true);
   });
 
   it('pipes stdin/stdout/stderr and forwards cwd + env', () => {

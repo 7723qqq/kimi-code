@@ -1,4 +1,4 @@
-import type { ImageLimits } from '@moonshot-ai/agent-core-v2';
+import type { ImageLimits } from './image-limits';
 import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
 import type { Kaos } from '@moonshot-ai/kaos';
 

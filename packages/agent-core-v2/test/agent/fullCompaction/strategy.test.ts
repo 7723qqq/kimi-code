@@ -1,8 +1,11 @@
+import { type Message } from '#/kosong/contract/message';
 import { describe, expect, it } from 'vitest';
 
-import { DefaultCompactionStrategy, DEFAULT_COMPACTION_CONFIG } from '#/agent/fullCompaction/strategy';
-import { type Message } from '#/kosong/contract/message';
 import { estimateTokensForMessages } from '#/kosong/contract/tokens';
+import {
+  DEFAULT_COMPACTION_CONFIG,
+  DefaultCompactionStrategy,
+} from '#/agent/fullCompaction/strategy';
 
 describe('DefaultCompactionStrategy', () => {
   it('keeps an oversized trailing user message as recent', () => {
@@ -46,7 +49,11 @@ describe('DefaultCompactionStrategy', () => {
     expect(strategy.computeCompactCount([textMessage('user', 'only pending')], 'auto')).toBe(0);
     expect(
       strategy.computeCompactCount(
-        [textMessage('user', 'a'), textMessage('user', 'b'), textMessage('user', 'c')],
+        [
+          textMessage('user', 'a'),
+          textMessage('user', 'b'),
+          textMessage('user', 'c'),
+        ],
         'auto',
       ),
     ).toBe(0);
@@ -143,9 +150,6 @@ describe('DefaultCompactionStrategy', () => {
       textMessage('assistant', 'pending assistant'),
     ];
 
-    // Message sizes are invisible: exactly the last `maxRecentMessages`
-    // messages stay recent and the compacted prefix is never shrunk to fit
-    // the window — the real estimator would shrink it from 4 to 2 here.
     expect(zeroed.computeCompactCount(messages, 'auto')).toBe(4);
     expect(testCompactionStrategy(1_000).computeCompactCount(messages, 'auto')).toBe(2);
   });
@@ -177,10 +181,6 @@ describe('DefaultCompactionStrategy', () => {
   });
 
   it('treats an Infinity maxRecentUserMessages like an unreachable u32 cap', () => {
-    // Regression: Infinity crossed the napi boundary as 0, which made the
-    // Rust recency loop break on its first iteration and return a wrong
-    // split point. The TS projection encodes Infinity as u32::MAX — both
-    // must behave identically on representative inputs.
     const base = { ...DEFAULT_COMPACTION_CONFIG };
     const messages: Message[] = [
       textMessage('user', 'old user'),
@@ -208,17 +208,11 @@ describe('DefaultCompactionStrategy', () => {
       maxRecentUserMessages: 0xffffffff,
     }).computeCompactCount(messages, 'auto');
 
-    // With DEFAULT maxRecentMessages=4 the loop breaks once bestN is set,
-    // so 6 is the correct result for this config — the point is that both
-    // projections agree.
     expect(infinity).toBe(6);
     expect(maxU32).toBe(infinity);
   });
 
   it('keeps a non-finite maxSize on the TS-equivalent path instead of corrupting the native budget', () => {
-    // maxSize has no u32 representation; the projection maps it to 0, which
-    // makes both the Rust and TS window-fit paths return the input count.
-    // The call must not throw and must match the TS-only behavior.
     const strategy = new DefaultCompactionStrategy(() => Number.POSITIVE_INFINITY, {
       ...DEFAULT_COMPACTION_CONFIG,
     });

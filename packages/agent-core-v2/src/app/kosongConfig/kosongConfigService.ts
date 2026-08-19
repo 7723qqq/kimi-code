@@ -1,54 +1,25 @@
-/**
- * `kosongConfig` domain — `IKosongConfigService` implementation.
- *
- * The two-way persistence bridge between `IConfigService` and kosong's
- * in-memory provider/model registries.
- *
- * Both sync directions are idempotent by deep comparison, which is what
- * makes the loop terminate without any reentrancy flags:
- *
- *  - config → kosong: the registries' writes are silent when the value is
- *    equal, so a config-originated push never echoes back as a persist.
- *  - kosong → config: the persist handlers skip the write when the config
- *    value already matches the registry state (the case for every
- *    config-originated push), so a persist never echoes back as a sync.
- *  - env-pinned pointers: a registry-originated default-pointer write lands
- *    in the user layer even when an effective overlay pins the section
- *    (`KIMI_MODEL_NAME` → `defaultModel`); the bridge then re-asserts the
- *    pinned effective value into the registry, so a registry read can never
- *    diverge from the effective config view.
- *
- * Persists are serialized through a promise chain so rapid mutation bursts
- * reach the disk in event order, and each persist is hooked into the
- * registry's change event through `waitUntil` — so an awaited registry
- * mutation (`providers.set(...)`, `models.setDefaultModel(...)`, ...) only
- * resolves once the write has actually landed in config. A failed persist is
- * retried with backoff before the failure is logged; the mutation's caller is
- * never rejected (the in-memory change stands either way).
- */
-
 import { Disposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { retryBackoffDelays, sleepForRetry } from '#/_base/utils/retry';
+
 import { type ConfigSectionChangedEvent, IConfigService } from '#/app/config/config';
 import { describeUnknownError } from '#/app/config/configPure';
 import { deepEqual } from '#/app/config/sectionDiff';
-import { LifecycleScope } from '#/app/scopes';
 import { IModelService, type ModelsSection } from '#/kosong/model/model';
 import { IProviderService, type ProvidersSection } from '#/kosong/provider/provider';
 
+import { IKosongConfigService } from './kosongConfig';
 import {
   DEFAULT_MODEL_SECTION,
   DEFAULT_PROVIDER_SECTION,
   MODELS_SECTION,
   PROVIDERS_SECTION,
 } from './configSection';
-import { IKosongConfigService } from './kosongConfig';
 
 const PERSIST_MAX_ATTEMPTS = 3;
 
-// NOTE: stays Disposable — its own 'config' collides with the Fiber
 export class KosongConfigService extends Disposable implements IKosongConfigService {
   declare readonly _serviceBrand: undefined;
 
@@ -85,10 +56,7 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
     this._register(
       this.providers.onDidChangeProviders((e) => {
         if (
-          deepEqual(
-            this.config.get<ProvidersSection>(PROVIDERS_SECTION) ?? {},
-            this.providers.list(),
-          )
+          deepEqual(this.config.get<ProvidersSection>(PROVIDERS_SECTION) ?? {}, this.providers.list())
         ) {
           return;
         }
@@ -171,7 +139,9 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
           .setDefaultProvider(effective)
           .catch((error) => this.logPersistFailure(error));
       } else if (domain === DEFAULT_MODEL_SECTION) {
-        void this.models.setDefaultModel(effective).catch((error) => this.logPersistFailure(error));
+        void this.models
+          .setDefaultModel(effective)
+          .catch((error) => this.logPersistFailure(error));
       }
     });
   }
@@ -191,9 +161,7 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
   }
 
   private enqueue(task: () => Promise<void>): Promise<void> {
-    this.persistChain = this.persistChain
-      .then(task)
-      .catch((error) => this.logPersistFailure(error));
+    this.persistChain = this.persistChain.then(task).catch((error) => this.logPersistFailure(error));
     return this.persistChain;
   }
 

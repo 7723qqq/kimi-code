@@ -1,36 +1,25 @@
-import type { DomainEvent } from '@moonshot-ai/agent-core-v2';
+import type { Event2 } from '@moonshot-ai/agent-core-v2';
 import type { ContentPart } from '@moonshot-ai/kosong';
-import type { ToolInputDisplay } from '@moonshot-ai/protocol';
+import type { Event as ProtocolEvent, ToolInputDisplay } from '@moonshot-ai/protocol';
 
 export type { ToolInputDisplay } from '@moonshot-ai/protocol';
 export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@moonshot-ai/protocol';
 
-// Event union plus shared fields/payloads used across event families.
-//
-// The SDK event channel now carries the v2 engine's native `DomainEvent`
-// union. The per-agent bus in agent-core-v2 does not stamp events with the
-// owning session/agent ids (the bus is per-agent, so the consumer knows both),
-// so the SDK re-adds that stamping on top — consumers rely on
-// `event.sessionId` / `event.agentId` for session filtering and subagent
-// routing, and the v1 `Event` union they used before carried them directly.
-export type DomainEventWithStamps = DomainEvent & { sessionId: string; agentId: string };
+// The SDK event stream carries the v1-protocol event shapes: the protocol
+// package's `AgentEvent` discriminated union stamped with the owning
+// session/agent ids (`Event`). The v2 engine's per-agent bus does not stamp
+// events (the bus is per-agent, so the consumer knows both), so the v2 client
+// re-adds that stamping on top when it forwards engine events into the SDK
+// stream — consumers rely on `event.sessionId` / `event.agentId` for session
+// filtering and subagent routing.
+export type Event = ProtocolEvent;
 
-/**
- * The one engine fact the v2 engine publishes on the process-global
- * `IEventService` (not a per-agent bus) that the SDK stream carries: the
- * prompt-metadata path. Kept as an explicit member of the SDK `Event` union so
- * hosts can keep switching on it.
- */
-export interface SessionMetaUpdatedEvent {
-  readonly type: 'session.meta.updated';
-  readonly sessionId: string;
-  readonly agentId: string;
-  readonly title?: string | undefined;
-  readonly patch?: Record<string, unknown> | undefined;
-}
+// Engine-side event shape (agent-core-v2's `Event2` instances as forwarded by
+// the v2 client). Kept separate from the SDK `Event` stream: engine events are
+// class instances whose payload fields are only known at runtime.
+export type DomainEvent = Event2<Record<string, unknown>>;
 
-export type Event = DomainEventWithStamps | SessionMetaUpdatedEvent;
-export type { DomainEvent } from '@moonshot-ai/agent-core-v2';
+export type { SessionMetaUpdatedEvent } from '@moonshot-ai/protocol';
 
 // Approval / question reverse-RPC payloads. These keep the legacy wire shapes
 // the SDK exposes to hosts through `setApprovalHandler` / `setQuestionHandler`

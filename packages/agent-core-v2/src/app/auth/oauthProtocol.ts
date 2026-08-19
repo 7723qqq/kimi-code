@@ -1,13 +1,3 @@
-/**
- * `auth` domain — the v1 OAuth wire DTO schemas.
- *
- * Request/response shapes of the v1 `/oauth/*` endpoints plus the managed
- * OAuth provider model-refresh response, defined as zod schemas so the
- * transports validate against a shared contract. New endpoints use the
- * camelCase domain contract owned by the oauth package (re-exported below);
- * legacy snake_case schemas stay local.
- */
-
 import { z } from 'zod';
 
 import { isoDateTimeSchema } from '#/_base/utils/isoDateTime';

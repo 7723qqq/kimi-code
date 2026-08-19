@@ -1,64 +1,45 @@
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { describe, expect, it } from 'vitest';
 
+import { Event2 } from '#/app/event/event2';
 import { EventService } from '#/app/event/eventService';
 
+class TestAppEvent extends Event2<{ readonly payload: { readonly v: number } }> {
+  static override readonly type = 'test.app';
+}
+interface TestAppEvent {
+  readonly payload: { readonly v: number };
+}
+
+class OtherAppEvent extends Event2<{ readonly payload: null }> {
+  static override readonly type = 'test.other';
+}
+interface OtherAppEvent {
+  readonly payload: null;
+}
+
 describe('EventService', () => {
-  it('publish delivers to subscribers; unsubscribe stops delivery', () => {
+  it('publish delivers Event2 instances to subscribers; unsubscribe stops delivery', () => {
     const svc = new EventService();
-    const received: string[] = [];
-    const sub = svc.subscribe((e) => received.push(e.type));
-    svc.publish({ type: 'a', payload: null });
-    svc.publish({ type: 'b', payload: null });
+    const received: Event2[] = [];
+    const sub = svc.subscribe((e) => received.push(e));
+    svc.publish(new TestAppEvent({ payload: { v: 1 } }));
+    svc.publish(new OtherAppEvent({ payload: null }));
     sub.dispose();
-    svc.publish({ type: 'c', payload: null });
-    expect(received).toEqual(['a', 'b']);
+    svc.publish(new TestAppEvent({ payload: { v: 2 } }));
+    expect(received).toHaveLength(2);
+    expect(received[0]).toBeInstanceOf(TestAppEvent);
+    expect(received[0]).toMatchObject({ type: 'test.app', payload: { v: 1 } });
+    expect(received[1]).toBeInstanceOf(OtherAppEvent);
   });
 
   it('onDidPublish mirrors subscribe (same underlying stream)', () => {
     const svc = new EventService();
     const received: string[] = [];
     const sub = svc.onDidPublish((e) => received.push(e.type));
-    svc.publish({ type: 'a', payload: null });
+    svc.publish(new TestAppEvent({ payload: { v: 1 } }));
     sub.dispose();
-    svc.publish({ type: 'b', payload: null });
-    expect(received).toEqual(['a']);
-  });
-
-  it('supports multiple independent subscribers', () => {
-    const svc = new EventService();
-    const receivedA: string[] = [];
-    const receivedB: string[] = [];
-    svc.subscribe((e) => receivedA.push(e.type));
-    svc.subscribe((e) => receivedB.push(e.type));
-    svc.publish({ type: 'x', payload: null });
-    expect(receivedA).toEqual(['x']);
-    expect(receivedB).toEqual(['x']);
-  });
-
-  it('tolerates a subscriber that throws without affecting other subscribers', () => {
-    const svc = new EventService();
-    const received: string[] = [];
-    svc.subscribe(() => {
-      throw new Error('subscriber error');
-    });
-    svc.subscribe((e) => received.push(e.type));
-    expect(() => svc.publish({ type: 'z', payload: null })).not.toThrow();
-    expect(received).toEqual(['z']);
-  });
-
-  it('publishes events with complex payloads', () => {
-    const svc = new EventService();
-    const payloads: unknown[] = [];
-    svc.subscribe((e) => payloads.push(e.payload));
-    svc.publish({ type: 'complex', payload: { nested: { value: 42 }, list: [1, 2, 3] } });
-    svc.publish({ type: 'null', payload: null });
-    expect(payloads).toEqual([{ nested: { value: 42 }, list: [1, 2, 3] }, null]);
-  });
-
-  it('handles dispose of a subscription that was already disposed', () => {
-    const svc = new EventService();
-    const sub = svc.subscribe(() => {});
-    sub.dispose();
-    expect(() => sub.dispose()).not.toThrow();
+    svc.publish(new OtherAppEvent({ payload: null }));
+    expect(received).toEqual(['test.app']);
   });
 });

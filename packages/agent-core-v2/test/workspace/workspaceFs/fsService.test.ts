@@ -1,4 +1,4 @@
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -9,22 +9,26 @@ import {
   registerScopedService,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
-import type { IGitService } from '#/app/git/git';
+import { IGitService } from '#/app/git/git';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService, type TelemetryProperties } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { type HostDirEntry, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { ISessionProcessRunner, type IProcess } from '#/session/process/processRunner';
+import { IHostProcessService, type IHostProcess } from '#/os/interface/hostProcess';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import { IWorkspaceFsService } from '#/workspace/workspaceFs/fs';
 import { WorkspaceFsService } from '#/workspace/workspaceFs/fsService';
 import { IWorkspaceGitService } from '#/workspace/workspaceGit/workspaceGit';
+import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
-// `resolve('/repo')` binds the current drive root on Windows, so the fake fs
-// keys and the service's resolved paths only agree when both are normalized.
+// The service resolves workspace paths through the runtime's POSIX path API,
+// while `join` produces backslash separators on Windows — normalize the fake
+// fs keys so both sides agree on every platform.
 const norm = (p: string): string => p.replaceAll('\\', '/');
-const WORK_DIR = norm(resolve('/repo'));
+const WORK_DIR = '/repo';
 
 function stubWorkspaceContext(): IWorkspaceContext {
   return {
@@ -34,8 +38,6 @@ function stubWorkspaceContext(): IWorkspaceContext {
     source: 'local',
     meta: { id: 'w', root: WORK_DIR, name: 'proj', createdAt: 1, lastOpenedAt: 1 },
     persistenceScope: 'sessions/w',
-    osBackendId: 'local',
-    persistenceBackendId: 'local',
   };
 }
 
@@ -248,8 +250,9 @@ function fakeFs(
   };
 }
 
-function fakeProcess(stdout: string, stderr: string, exitCode: number): IProcess {
+function fakeProcess(stdout: string, stderr: string, exitCode: number): IHostProcess {
   return {
+    _serviceBrand: undefined,
     stdin: new Writable({
       write(_c, _e, cb) {
         cb();
@@ -261,7 +264,7 @@ function fakeProcess(stdout: string, stderr: string, exitCode: number): IProcess
     exitCode,
     wait: () => Promise.resolve(exitCode),
     kill: () => Promise.resolve(),
-    dispose: () => {},
+    dispose: () => undefined,
   };
 }
 
@@ -271,18 +274,18 @@ type RunHandler = (args: readonly string[]) => {
   exitCode: number;
 };
 
-function fakeRunner(handler: RunHandler): ISessionProcessRunner {
+function fakeRunner(handler: RunHandler): IHostProcessService {
   return {
     _serviceBrand: undefined,
-    exec: async (args) => {
-      const r = handler(args);
+    spawn: async (command, args) => {
+      const r = handler([command, ...(args ?? [])]);
       return fakeProcess(r.stdout, r.stderr ?? '', r.exitCode);
     },
   };
 }
 
 function makeStreamingProcess(lines: readonly string[]): {
-  proc: IProcess;
+  proc: IHostProcess;
   wasKilled: () => boolean;
   yieldedLines: () => number;
 } {
@@ -301,7 +304,8 @@ function makeStreamingProcess(lines: readonly string[]): {
     }
     resolveWait(0);
   }
-  const proc: IProcess = {
+  const proc: IHostProcess = {
+    _serviceBrand: undefined,
     stdin: new Writable({
       write(_c, _e, cb) {
         cb();
@@ -316,7 +320,7 @@ function makeStreamingProcess(lines: readonly string[]): {
       killed = true;
       resolveWait(0);
     },
-    dispose: () => {},
+    dispose: () => undefined,
   };
   return { proc, wasKilled: () => killed, yieldedLines: () => yielded };
 }
@@ -346,7 +350,7 @@ function telemetryStub(
 beforeEach(() => {
   _clearScopedRegistryForTests();
   registerScopedService(
-    LifecycleScope.Workspace,
+    'program',
     IWorkspaceFsService,
     WorkspaceFsService,
     ScopeActivation.OnDemand,
@@ -384,15 +388,37 @@ function makeSession(
   events: Array<{ event: string; properties: Record<string, unknown> }> = [],
   git: IGitService = defaultGitStub(),
   symlinks: readonly string[] = [],
-  runner?: ISessionProcessRunner,
+  runner?: IHostProcessService,
   symlinkTargets: Record<string, string> = {},
 ): IWorkspaceFsService {
-  host = createScopedTestHost();
-  const workspace = host.child(LifecycleScope.Workspace, 'w1', [
+  host = createScopedTestHost([
+    stubPair(IHostEnvironment, {
+      _serviceBrand: undefined,
+      osKind: 'Linux',
+      osArch: 'x64',
+      osVersion: 'test',
+      shellName: 'bash',
+      shellPath: '/bin/bash',
+      pathClass: 'posix',
+      homeDir: '/home/test',
+      ready: Promise.resolve(),
+    }),
+  ]);
+  const runtime = new FakeRuntime(
+    { workspaceId: 'w', runtimeId: 'local', generation: 'test' },
+    { capabilities: ['process'] },
+  );
+  Object.defineProperty(runtime, 'process', { value: runner ?? fakeRunner(handler) });
+  host.app.instantiation.provide(IRuntimeResolver, {
+    _serviceBrand: undefined,
+    inspect: () => runtime,
+    acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
+  });
+  const workspace = host.child('program', 'w1', [
     stubPair(IWorkspaceContext, stubWorkspaceContext()),
     stubPair(IWorkspaceDirs, stubWorkspaceDirs()),
     stubPair(IHostFileSystem, fakeFs(files, symlinks, symlinkTargets)),
-    stubPair(ISessionProcessRunner, runner ?? fakeRunner(handler)),
+    stubPair(IHostProcessService, runner ?? fakeRunner(handler)),
     stubPair(ITelemetryService, telemetryStub(events)),
     stubPair(IWorkspaceGitService, workspaceGitStub(git)),
   ]);
@@ -470,7 +496,7 @@ describe('WorkspaceFsService.diff', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.cwd).toBe(WORK_DIR);
     expect(calls[0]?.rel).toBe('src/a.ts');
-    expect(calls[0]?.abs).toBe(resolve(WORK_DIR, 'src/a.ts'));
+    expect(calls[0]?.abs).toBe(`${WORK_DIR}/src/a.ts`);
     expect(result.diff).toContain('+new');
     expect(result.truncated).toBe(false);
   });
@@ -537,6 +563,391 @@ describe('WorkspaceFsService.search', () => {
     );
     const result = await fs.search({ query: '', limit: 50, follow_gitignore: true });
     expect(result.items.map((i) => i.path)).toEqual(['kept.ts']);
+  });
+});
+
+describe('WorkspaceFsService.suggest', () => {
+  function rgLinesHandler(lines: readonly string[], captured?: string[][]): RunHandler {
+    return (args) => {
+      captured?.push([...args]);
+      if (args[0] === 'rg' && args[1] === '--version') {
+        return { stdout: 'ripgrep 15.0.0', exitCode: 0 };
+      }
+      if (args[0] === 'rg' && args.includes('--files')) {
+        return { stdout: lines.map((l) => `${l}\n`).join(''), exitCode: 0 };
+      }
+      return { stdout: '', exitCode: 0 };
+    };
+  }
+
+  function rgMissingHandler(args: readonly string[]): { stdout: string; exitCode: number } {
+    if (args[0] === 'rg' && args[1] === '--version') return { stdout: '', exitCode: 1 };
+    return { stdout: '', exitCode: 0 };
+  }
+
+  it('matches path segments in order and ranks the matched directory first', async () => {
+    const fs = makeSession(
+      {},
+      rgLinesHandler(['apps/desktop/package.json', 'apps/mobile/app.ts', 'src/api/index.ts']),
+    );
+    const result = await fs.suggest({
+      query: 'apps/de',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(result.items[0]).toMatchObject({
+      path: 'apps/desktop',
+      name: 'desktop',
+      kind: 'directory',
+    });
+    expect(result.items.map((i) => i.path)).toContain('apps/desktop/package.json');
+  });
+
+  it('allows skipping segments when consuming the query', async () => {
+    const fs = makeSession({}, rgLinesHandler(['apps/desktop/package.json', 'src/api/index.ts']));
+    const result = await fs.suggest({
+      query: 'ap/de',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(result.items[0]?.path).toBe('apps/desktop');
+    expect(result.items.map((i) => i.path)).toContain('src/api/index.ts');
+  });
+
+  it('matches a file several segments deep', async () => {
+    const fs = makeSession({}, rgLinesHandler(['apps/desktop/package.json']));
+    const result = await fs.suggest({
+      query: 'apps/pack',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(result.items.map((i) => i.path)).toContain('apps/desktop/package.json');
+  });
+
+  it('ignores an empty last query segment', async () => {
+    const fs = makeSession({}, rgLinesHandler(['apps/desktop/package.json', 'src/app.ts']));
+    const result = await fs.suggest({
+      query: 'apps/',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(result.items[0]?.path).toBe('apps');
+  });
+
+  it('returns an empty list when a path-form query has no match', async () => {
+    const fs = makeSession({}, rgLinesHandler(['apps/desktop/package.json']));
+    const result = await fs.suggest({
+      query: 'zzz/qqq',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(result.items).toEqual([]);
+    expect(result.truncated).toBe(false);
+  });
+
+  it('matches basenames across the whole workspace in name mode', async () => {
+    const fs = makeSession({}, rgLinesHandler(['docs/README.md', 'src/app.ts']));
+    const result = await fs.suggest({
+      query: 'readme',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(result.items.map((i) => i.path)).toEqual(['docs/README.md']);
+    expect(result.items[0]).toMatchObject({ name: 'README.md', kind: 'file' });
+    expect(result.items[0]?.match_positions).toEqual([5, 6, 7, 8, 9, 10]);
+  });
+
+  it('ranks a shallow prefix hit before a deeper one and varies scores', async () => {
+    const fs = makeSession({}, rgLinesHandler(['apps/index.ts', 'src/deep/api.ts']));
+    const result = await fs.suggest({
+      query: 'a',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    const paths = result.items.map((i) => i.path);
+    expect(paths).toContain('apps');
+    expect(paths.indexOf('apps')).toBeLessThan(paths.indexOf('src/deep/api.ts'));
+    expect(new Set(result.items.map((i) => i.score)).size).toBeGreaterThan(1);
+  });
+
+  it('ranks an exact short hit before weaker longer or deeper hits', async () => {
+    const fs = makeSession({}, rgLinesHandler(['apps/x.ts', 'xapps/y.ts']));
+    const result = await fs.suggest({
+      query: 'apps',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(result.items[0]?.path).toBe('apps');
+  });
+
+  it('passes gitignore and hidden flags to rg', async () => {
+    const captured: string[][] = [];
+    const fs = makeSession({}, rgLinesHandler([], captured));
+    await fs.suggest({ query: 'x', limit: 50, follow_gitignore: true, show_hidden: true });
+    const filesArgs = captured.find((a) => a.includes('--files'))!;
+    expect(filesArgs).toContain('--no-require-git');
+    expect(filesArgs).toContain('--hidden');
+    expect(filesArgs).not.toContain('--no-ignore');
+    expect(filesArgs).toContain('!.git/**');
+  });
+
+  it('passes --no-ignore to rg when follow_gitignore is false', async () => {
+    const captured: string[][] = [];
+    const fs = makeSession({}, rgLinesHandler([], captured));
+    await fs.suggest({ query: 'x', limit: 50, follow_gitignore: false, show_hidden: false });
+    const filesArgs = captured.find((a) => a.includes('--files'))!;
+    expect(filesArgs).toContain('--no-ignore');
+    expect(filesArgs).not.toContain('--no-require-git');
+    expect(filesArgs).not.toContain('--hidden');
+  });
+
+  it('hides dot-prefixed entries at any depth unless show_hidden is set', async () => {
+    const fs = makeSession({}, rgLinesHandler(['visible.ts', '.env.ts', 'sub/.secret/x.ts']));
+    const off = await fs.suggest({
+      query: 'ts',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(off.items.map((i) => i.path)).toEqual(['visible.ts']);
+    const on = await fs.suggest({
+      query: 'ts',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: true,
+    });
+    expect(on.items.map((i) => i.path)).toContain('.env.ts');
+    expect(on.items.map((i) => i.path)).toContain('sub/.secret/x.ts');
+  });
+
+  it('never returns VCS metadata entries even with show_hidden', async () => {
+    const fs = makeSession({}, rgLinesHandler(['.git/x.ts', 'src/.jj/y.ts', 'ok.ts']));
+    const result = await fs.suggest({
+      query: 'ts',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: true,
+    });
+    expect(result.items.map((i) => i.path)).toEqual(['ok.ts']);
+  });
+
+  it('lists root entries for an empty query and never lists VCS dirs', async () => {
+    const fs = makeSession(
+      { 'kept.ts': '', '.hidden.ts': '', '.git/config': '' },
+      emptyHandler,
+      [],
+      defaultGitStub(),
+      ['link'],
+    );
+    const shown = await fs.suggest({
+      query: '',
+      limit: 50,
+      follow_gitignore: false,
+      show_hidden: true,
+    });
+    const paths = shown.items.map((i) => i.path);
+    expect(paths).toContain('.hidden.ts');
+    expect(paths).toContain('kept.ts');
+    expect(paths).not.toContain('.git');
+    expect(shown.items.find((i) => i.path === 'link')?.kind).toBe('symlink');
+
+    const hidden = await fs.suggest({
+      query: '',
+      limit: 50,
+      follow_gitignore: false,
+      show_hidden: false,
+    });
+    expect(hidden.items.map((i) => i.path)).not.toContain('.hidden.ts');
+  });
+
+  it('truncates at the limit and reports it', async () => {
+    const fs = makeSession({}, rgLinesHandler(['a1.ts', 'a2.ts', 'a3.ts', 'a4.ts']));
+    const result = await fs.suggest({
+      query: 'a',
+      limit: 2,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(result.items).toHaveLength(2);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('applies include_globs and exclude_globs after matching', async () => {
+    const fs = makeSession({}, rgLinesHandler(['src/a.ts', 'src/a.md', 'dist/a.ts']));
+    const included = await fs.suggest({
+      query: 'a',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+      include_globs: ['**/*.ts'],
+    });
+    expect(included.items.map((i) => i.path)).toContain('src/a.ts');
+    expect(included.items.map((i) => i.path)).not.toContain('src/a.md');
+    const excluded = await fs.suggest({
+      query: 'a',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+      exclude_globs: ['dist/**'],
+    });
+    expect(excluded.items.map((i) => i.path)).not.toContain('dist/a.ts');
+  });
+
+  it('falls back to the node walk when rg is unavailable', async () => {
+    const events: Array<{ event: string; properties: Record<string, unknown> }> = [];
+    const fs = makeSession(
+      {
+        'src/foo.ts': '',
+        'src/nested/bar.ts': '',
+        '.gitignore': 'ignored.ts\n',
+        'ignored.ts': '',
+      },
+      rgMissingHandler,
+      events,
+      defaultGitStub(),
+      ['src/link'],
+    );
+    const result = await fs.suggest({
+      query: 'foo',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(result.items.map((i) => i.path)).toContain('src/foo.ts');
+    expect(events).toContainEqual({
+      event: 'fs_suggest_node_fallback',
+      properties: { reason: 'rg_missing' },
+    });
+
+    const pathResult = await fs.suggest({
+      query: 'src/nested',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(pathResult.items.map((i) => i.path)).toContain('src/nested/bar.ts');
+
+    const linkResult = await fs.suggest({
+      query: 'link',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(linkResult.items.find((i) => i.path === 'src/link')?.kind).toBe('symlink');
+    expect(linkResult.items.some((i) => i.path.startsWith('src/link/'))).toBe(false);
+
+    const ignored = await fs.suggest({
+      query: 'ignored',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(ignored.items.map((i) => i.path)).not.toContain('ignored.ts');
+  });
+
+  it('hides dot entries in the fallback walk unless show_hidden is set', async () => {
+    const fs = makeSession({ '.secret.ts': '', 'plain.ts': '' }, rgMissingHandler);
+    const off = await fs.suggest({
+      query: 'ts',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(off.items.map((i) => i.path)).toEqual(['plain.ts']);
+    const on = await fs.suggest({
+      query: 'ts',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: true,
+    });
+    expect(on.items.map((i) => i.path)).toContain('.secret.ts');
+  });
+
+  it('falls back to the node walk when rg fails to spawn', async () => {
+    const events: Array<{ event: string; properties: Record<string, unknown> }> = [];
+    const runner: IHostProcessService = {
+      _serviceBrand: undefined,
+      spawn: async (command, args) => {
+        const all = [command, ...(args ?? [])];
+        if (all[0] === 'rg' && all[1] === '--version') {
+          return fakeProcess('ripgrep 15.0.0', '', 0);
+        }
+        throw new Error('spawn EAGAIN');
+      },
+    };
+    const fs = makeSession(
+      { 'src/foo.ts': '' },
+      emptyHandler,
+      events,
+      defaultGitStub(),
+      [],
+      runner,
+    );
+    const result = await fs.suggest({
+      query: 'foo',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(result.items.map((i) => i.path)).toContain('src/foo.ts');
+    expect(events).toContainEqual({
+      event: 'fs_suggest_node_fallback',
+      properties: { reason: 'rg_error' },
+    });
+  });
+
+  it('falls back to the node walk when rg exits with an error status', async () => {
+    const events: Array<{ event: string; properties: Record<string, unknown> }> = [];
+    const runner: IHostProcessService = {
+      _serviceBrand: undefined,
+      spawn: async (command, args) => {
+        const all = [command, ...(args ?? [])];
+        if (all[0] === 'rg' && all[1] === '--version') {
+          return fakeProcess('ripgrep 15.0.0', '', 0);
+        }
+        return fakeProcess('', 'permission denied', 2);
+      },
+    };
+    const fs = makeSession(
+      { 'src/foo.ts': '' },
+      emptyHandler,
+      events,
+      defaultGitStub(),
+      [],
+      runner,
+    );
+    const result = await fs.suggest({
+      query: 'foo',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+    expect(result.items.map((i) => i.path)).toContain('src/foo.ts');
+    expect(events).toContainEqual({
+      event: 'fs_suggest_node_fallback',
+      properties: { reason: 'rg_error' },
+    });
+  });
+
+  it('filters the root listing before applying the limit', async () => {
+    const fs = makeSession({ 'aaa/x.ts': '', 'y.ts': '', 'z.ts': '' }, emptyHandler);
+    const result = await fs.suggest({
+      query: '',
+      limit: 1,
+      follow_gitignore: true,
+      show_hidden: false,
+      include_globs: ['**/*.ts'],
+    });
+    expect(result.items.map((i) => i.path)).toEqual(['y.ts']);
+    expect(result.truncated).toBe(true);
   });
 });
 
@@ -625,10 +1036,11 @@ describe('WorkspaceFsService.grep', () => {
     lines.push(JSON.stringify({ type: 'end', data: { path: { text: 'big.ts' } } }));
 
     let streaming: ReturnType<typeof makeStreamingProcess> | undefined;
-    const runner: ISessionProcessRunner = {
+    const runner: IHostProcessService = {
       _serviceBrand: undefined,
-      exec: async (args) => {
-        if (args[0] === 'rg' && args[1] === '--version') {
+      spawn: async (command, args) => {
+        const allArgs = [command, ...(args ?? [])];
+        if (allArgs[0] === 'rg' && allArgs[1] === '--version') {
           return fakeProcess('ripgrep 14.1.0', '', 0);
         }
         streaming = makeStreamingProcess(lines);
@@ -665,7 +1077,7 @@ describe('WorkspaceFsService.list', () => {
       sort: 'name_asc',
       include_git_status: false,
     });
-    const names = result.items.map((i) => i.name).toSorted();
+    const names = result.items.map((i) => i.name).sort();
     expect(names).toEqual(['README.md', 'src']);
     expect(result.items.find((i) => i.name === 'src')?.kind).toBe('directory');
   });
@@ -681,10 +1093,7 @@ describe('WorkspaceFsService.list', () => {
       sort: 'name_asc',
       include_git_status: false,
     });
-    expect(result.children_by_path?.['src']?.map((i) => i.name).toSorted()).toEqual([
-      'a.ts',
-      'sub',
-    ]);
+    expect(result.children_by_path?.['src']?.map((i) => i.name).sort()).toEqual(['a.ts', 'sub']);
   });
 
   it('rejects paths that escape the workspace', async () => {
@@ -721,30 +1130,6 @@ describe('WorkspaceFsService.read', () => {
     expect(result.truncated).toBe(false);
   });
 
-  it('reads UTF-8 Chinese log content as text instead of throwing fs.is_binary', async () => {
-    const log = '2026-08-16 INFO 启动完成 ✅\n2026-08-16 INFO 处理请求 🚀 成功\n'.repeat(50);
-    const fs = makeSession({ 'app.log': log }, emptyHandler);
-    const result = await fs.read({
-      path: 'app.log',
-      offset: 0,
-      length: 1024 * 1024,
-      encoding: 'utf-8',
-    });
-    expect(result.content).toBe(log);
-    expect(result.encoding).toBe('utf-8');
-    expect(result.is_binary).toBe(false);
-    expect(result.mime).toBe('text/plain');
-    expect(result.truncated).toBe(false);
-  });
-
-  it('returns utf-8 rather than base64 for UTF-8 Chinese text in auto mode', async () => {
-    const fs = makeSession({ 'app.log': '中文日志 ✅\n' }, emptyHandler);
-    const result = await fs.read({ path: 'app.log', offset: 0, length: 1024, encoding: 'auto' });
-    expect(result.content).toBe('中文日志 ✅\n');
-    expect(result.encoding).toBe('utf-8');
-    expect(result.is_binary).toBe(false);
-  });
-
   it('honors offset and length and sets truncated', async () => {
     const fs = makeSession({ 'a.txt': 'hello world' }, emptyHandler);
     const result = await fs.read({ path: 'a.txt', offset: 0, length: 5, encoding: 'utf-8' });
@@ -753,15 +1138,15 @@ describe('WorkspaceFsService.read', () => {
   });
 
   it('returns base64 for binary content in auto mode', async () => {
-    const fs = makeSession({ 'bin.dat': 'abc\u0000def' }, emptyHandler);
+    const fs = makeSession({ 'bin.dat': 'abc\x00def' }, emptyHandler);
     const result = await fs.read({ path: 'bin.dat', offset: 0, length: 1024, encoding: 'auto' });
     expect(result.encoding).toBe('base64');
     expect(result.is_binary).toBe(true);
-    expect(result.content).toBe(Buffer.from('abc\u0000def').toString('base64'));
+    expect(result.content).toBe(Buffer.from('abc\x00def').toString('base64'));
   });
 
   it('throws fs.is_binary for binary content in utf-8 mode', async () => {
-    const fs = makeSession({ 'bin.dat': 'abc\u0000def' }, emptyHandler);
+    const fs = makeSession({ 'bin.dat': 'abc\x00def' }, emptyHandler);
     await expect(
       fs.read({ path: 'bin.dat', offset: 0, length: 1024, encoding: 'utf-8' }),
     ).rejects.toMatchObject({ code: 'fs.is_binary' });
@@ -819,6 +1204,30 @@ describe('WorkspaceFsService.read', () => {
     expect(result.encoding).toBe('base64');
     expect(result.is_binary).toBe(true);
     expect(result.content).toBe(utf16.toString('base64'));
+  });
+
+  it('reads UTF-8 Chinese log content as text instead of throwing fs.is_binary', async () => {
+    const log = '2026-08-16 INFO 启动完成 ✅\n2026-08-16 INFO 处理请求 🚀 成功\n'.repeat(50);
+    const fs = makeSession({ 'app.log': log }, emptyHandler);
+    const result = await fs.read({
+      path: 'app.log',
+      offset: 0,
+      length: 1024 * 1024,
+      encoding: 'utf-8',
+    });
+    expect(result.content).toBe(log);
+    expect(result.encoding).toBe('utf-8');
+    expect(result.is_binary).toBe(false);
+    expect(result.mime).toBe('text/plain');
+    expect(result.truncated).toBe(false);
+  });
+
+  it('returns utf-8 rather than base64 for UTF-8 Chinese text in auto mode', async () => {
+    const fs = makeSession({ 'app.log': '中文日志 ✅\n' }, emptyHandler);
+    const result = await fs.read({ path: 'app.log', offset: 0, length: 1024, encoding: 'auto' });
+    expect(result.content).toBe('中文日志 ✅\n');
+    expect(result.encoding).toBe('utf-8');
+    expect(result.is_binary).toBe(false);
   });
 
   it('throws fs.is_directory for a directory', async () => {
@@ -893,7 +1302,7 @@ describe('WorkspaceFsService.resolvePath', () => {
     const res = await fs.resolvePath('src/a.ts');
     expect(res.relative).toBe('src/a.ts');
     expect(res.isDirectory).toBe(false);
-    expect(norm(res.absolute)).toContain('src/a.ts');
+    expect(res.absolute).toContain('src/a.ts');
   });
 });
 
@@ -905,6 +1314,12 @@ describe('WorkspaceFsService.resolveDownload', () => {
     expect(res.mime).toBe('text/plain');
     expect(res.etag).toBeTypeOf('string');
     expect(res.modifiedAt).toBeInstanceOf(Date);
+  });
+
+  it('resolves a UTF-8 Chinese log as text/plain', async () => {
+    const fs = makeSession({ 'app.log': '启动完成 ✅ 中文日志内容\n'.repeat(20) }, emptyHandler);
+    const res = await fs.resolveDownload('app.log');
+    expect(res.mime).toBe('text/plain');
   });
 
   it('throws fs.is_directory for a directory', async () => {

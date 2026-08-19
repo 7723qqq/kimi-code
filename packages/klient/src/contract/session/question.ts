@@ -25,7 +25,10 @@ export const questionItemSchema = z.object({
 });
 
 /** `QuestionAnswers = Record<string, string | true>`. */
-export const questionAnswersSchema = z.record(z.string(), z.union([z.string(), z.literal(true)]));
+export const questionAnswersSchema = z.record(
+  z.string(),
+  z.union([z.string(), z.literal(true)]),
+);
 
 export const questionResponseSchema = z.object({
   answers: questionAnswersSchema,

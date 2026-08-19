@@ -1,21 +1,18 @@
-/**
- * `toolRegistry` domain — `IAgentToolRegistryService` implementation.
- *
- * The per-agent tool table (`tools`) stays a plain instance field: its values
- * hold `ExecutableTool` class instances, not plain data, so it is not
- * registered into `agentState` (`IAgentStateService`). Bound at Agent scope.
- */
-
-import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { toDisposable, type IDisposable } from "#/_base/di/lifecycle";
 import { LifecycleScope } from '#/app/scopes';
-import type { ExecutableTool, ToolDisclosure, ToolInfo, ToolSource } from '#/tool/toolContract';
-
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import type {
+  ExecutableTool,
+  ToolDisclosure,
+  ToolInfo,
+  ToolSource,
+} from '#/tool/toolContract';
 import {
   IAgentToolRegistryService,
   type ToolReference,
   type ToolRegistrationOptions,
 } from './toolRegistry';
+
 import './builtinToolAssemblyService';
 
 interface ToolEntry {
@@ -42,9 +39,6 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
   }
 
   list(): readonly ToolInfo[] {
-    // Re-read tool descriptions on every call: tool descriptions can change
-    // dynamically (e.g. the Agent tool reflects the profile catalog), so a
-    // cached list would serve stale contract data to the LLM.
     return [...this.tools.values()]
       .map(({ tool, source, disclosure }) => ({
         name: tool.name,
@@ -54,18 +48,6 @@ export class AgentToolRegistryService implements IAgentToolRegistryService {
         disclosure,
       }))
       .toSorted((a, b) => a.name.localeCompare(b.name));
-  }
-
-  resolveInfo(name: string): ToolInfo | undefined {
-    const entry = this.tools.get(name);
-    if (entry === undefined) return undefined;
-    return {
-      name: entry.tool.name,
-      description: entry.tool.description,
-      parameters: entry.tool.parameters,
-      source: entry.source,
-      disclosure: entry.disclosure,
-    };
   }
 
   listReferences(): readonly ToolReference[] {

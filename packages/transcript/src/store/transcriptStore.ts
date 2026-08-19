@@ -1,13 +1,3 @@
-/**
- * TranscriptStore — the session-level root.
- *
- * Owns one AgentTranscript per agent, created lazily. Per-agent granularity
- * subscriptions are a transport (L3) concern and deliberately absent here;
- * this layer only guarantees that an agent's transcript exists on demand and
- * that roster changes are observable (so the server can fan out, and clients
- * can render an agent picker).
- */
-
 import type { AgentId } from '../model/ids';
 import { AgentTranscript, type Disposable } from './agentTranscript';
 
@@ -28,7 +18,7 @@ export class TranscriptStore {
   readonly #descriptors = new Map<AgentId, AgentDescriptor>();
   readonly #rosterListeners = new Set<RosterListener>();
 
-  constructor(readonly sessionId: string) {}
+  constructor(readonly sessionId: string) { }
 
   /** Lazily create (or fetch) the transcript for an agent. */
   ensureAgent(agentId: AgentId, descriptor?: AgentDescriptor): AgentTranscript {
@@ -84,11 +74,6 @@ export class TranscriptStore {
   }
 }
 
-/**
- * Structural equality over the all-primitive descriptor fields, so an
- * unchanged descriptor arriving as a fresh object (polling / repeated ensure)
- * doesn't emit a spurious roster broadcast.
- */
 function descriptorEquals(a: AgentDescriptor | undefined, b: AgentDescriptor): boolean {
   if (a === undefined) return false;
   return (

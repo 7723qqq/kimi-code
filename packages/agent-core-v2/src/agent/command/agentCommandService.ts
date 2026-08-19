@@ -1,23 +1,12 @@
-/**
- * `command` domain — `IAgentCommandService` implementation.
- *
- * The fold over the `CommandContribution` collection (`command`): `list()`
- * dedupes the live records by name (a later record shadows an earlier one of
- * the same name), and `run` invokes the contribution's callback inside an
- * `invokeFunction` so its `ctx.get` resolves through the agent container.
- * Unknown names fail with a coded `REQUEST_INVALID` error. Bound at Agent
- * scope; constructed on demand — nothing pushes to a command registry, every
- * consumer pulls.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import { type CollectionRecord, type CollectionView } from '#/_base/di/collection';
-import { IInstantiationService, type ServiceIdentifier } from '#/_base/di/instantiation';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
+import { type CollectionRecord, type CollectionView } from '#/_base/di/collection';
+import {
+  IInstantiationService,
+  type ServiceIdentifier,
+} from '#/_base/di/instantiation';
+import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2, ErrorCodes } from '#/errors';
 
 import { IAgentCommandService, type AgentCommandInfo } from './agentCommand';
@@ -52,7 +41,7 @@ export class AgentCommandService extends Service implements IAgentCommandService
   async run(name: string, args = ''): Promise<void> {
     const record = this.find(name);
     if (record === undefined) {
-      throw new Error2(ErrorCodes.REQUEST_INVALID, t('v2Errors.unknownCommand', { name }));
+      throw new Error2(ErrorCodes.REQUEST_INVALID, `Unknown command "${name}"`);
     }
     await this.instantiationService.invokeFunction((accessor) =>
       record.value.run({ args, get: <T>(id: ServiceIdentifier<T>): T => accessor.get(id) }),

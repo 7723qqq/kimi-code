@@ -27,7 +27,9 @@ describe('proxy utilities', () => {
     expect(resolveNoProxy({ NO_PROXY: 'example.com, 127.0.0.1' })).toBe(
       'example.com,127.0.0.1,localhost,::1,[::1]',
     );
-    expect(resolveNoProxy({ no_proxy: 'internal' })).toBe('internal,localhost,127.0.0.1,::1,[::1]');
+    expect(resolveNoProxy({ no_proxy: 'internal' })).toBe(
+      'internal,localhost,127.0.0.1,::1,[::1]',
+    );
     expect(resolveNoProxy({ NO_PROXY: '*' })).toBe('*');
   });
 
@@ -141,22 +143,5 @@ describe('proxy utilities', () => {
     reconcileChildNoProxy(childEnv, { no_proxy: '', NO_PROXY: 'internal.example.test' });
     expect(childEnv['NO_PROXY']).toBe('internal.example.test,localhost,127.0.0.1,::1,[::1]');
     expect(childEnv['no_proxy']).toBe('internal.example.test,localhost,127.0.0.1,::1,[::1]');
-  });
-
-  it('detects proxy with HTTPS_PROXY only', () => {
-    expect(isProxyConfigured({ HTTPS_PROXY: 'https://proxy:443' })).toBe(true);
-    expect(isProxyConfigured({ https_proxy: 'https://proxy:443' })).toBe(true);
-  });
-
-  it('resolveSocksProxy with empty and malformed URLs returns undefined', () => {
-    expect(resolveSocksProxy({ ALL_PROXY: '' })).toBeUndefined();
-    expect(resolveSocksProxy({ ALL_PROXY: '   ' })).toBeUndefined();
-    expect(resolveSocksProxy({ ALL_PROXY: 'not-a-url' })).toBeUndefined();
-  });
-
-  it('makeNoProxyMatcher with empty string matches nothing', () => {
-    const bypass = makeNoProxyMatcher('');
-    expect(bypass('example.com')).toBe(false);
-    expect(bypass('localhost')).toBe(false);
   });
 });

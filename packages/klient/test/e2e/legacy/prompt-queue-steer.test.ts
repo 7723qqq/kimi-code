@@ -44,9 +44,10 @@ async function daemonReachable(): Promise<boolean> {
 
 async function debugPromptsReachable(): Promise<boolean> {
   try {
-    const res = await fetchWithReport(`${BASE_URL}${API_PREFIX}/debug/prompts/debug_probe/state`, {
-      signal: AbortSignal.timeout(500),
-    });
+    const res = await fetchWithReport(
+      `${BASE_URL}${API_PREFIX}/debug/prompts/debug_probe/state`,
+      { signal: AbortSignal.timeout(500) },
+    );
     return res.ok;
   } catch {
     return false;
@@ -54,7 +55,7 @@ async function debugPromptsReachable(): Promise<boolean> {
 }
 
 const reachable = await daemonReachable();
-const debugReachable = reachable && (await debugPromptsReachable());
+const debugReachable = reachable && await debugPromptsReachable();
 const describeLive = debugReachable ? describe : describe.skip;
 
 const created: Array<{ client: DaemonClient; sid: string; promptIds: string[] }> = [];
@@ -124,14 +125,13 @@ describeLive('prompt queue + steer (live server required)', () => {
       const listedBefore = await client.listPrompts(session.id);
       log('prompt list before steer', listedBefore);
       expect(listedBefore.active?.prompt_id).toBe(active.prompt_id);
-      expect(listedBefore.queued.map((prompt) => prompt.prompt_id)).toEqual([queued.prompt_id]);
+      expect(listedBefore.queued.map((prompt) => prompt.prompt_id)).toEqual([
+        queued.prompt_id,
+      ]);
 
-      const steerFramePromise = client.waitForFrame(
-        isPromptSteeredFor(session.id, queued.prompt_id),
-        {
-          timeoutMs: SHORT_TIMEOUT_MS,
-        },
-      );
+      const steerFramePromise = client.waitForFrame(isPromptSteeredFor(session.id, queued.prompt_id), {
+        timeoutMs: SHORT_TIMEOUT_MS,
+      });
       const steer = await client.steerPrompt(session.id, queued.prompt_id);
       log('steer response', steer);
       expect(steer).toEqual({ steered: true, prompt_ids: [queued.prompt_id] });
@@ -187,7 +187,7 @@ async function injectActivePrompt(
       body: JSON.stringify(body),
     },
   );
-  const envelope = (await res.json()) as {
+  const envelope = await res.json() as {
     code: number;
     msg: string;
     data: { prompt_id: string };

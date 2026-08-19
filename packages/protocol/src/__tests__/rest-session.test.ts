@@ -55,9 +55,9 @@ describe('exportSessionRequestSchema', () => {
   });
 
   it('rejects fields that the server owns', () => {
-    expect(exportSessionRequestSchema.safeParse({ outputPath: '/tmp/export.zip' }).success).toBe(
-      false,
-    );
+    expect(
+      exportSessionRequestSchema.safeParse({ outputPath: '/tmp/export.zip' }).success,
+    ).toBe(false);
   });
 });
 
@@ -85,7 +85,9 @@ describe('createSessionRequestSchema', () => {
   });
 
   it('rejects metadata without cwd', () => {
-    expect(createSessionRequestSchema.safeParse({ metadata: {} } as unknown).success).toBe(false);
+    expect(
+      createSessionRequestSchema.safeParse({ metadata: {} } as unknown).success,
+    ).toBe(false);
   });
 
   it('rejects extra unknown agent_config keys via partial schema (zod is permissive but the partial holds known keys)', () => {
@@ -204,9 +206,9 @@ describe('getSessionProfileResponseSchema', () => {
 
 describe('updateSessionProfileRequestSchema', () => {
   it('accepts a metadata patch (without cwd)', () => {
-    expect(updateSessionProfileRequestSchema.parse({ metadata: { custom_field: 'x' } })).toEqual({
-      metadata: { custom_field: 'x' },
-    });
+    expect(
+      updateSessionProfileRequestSchema.parse({ metadata: { custom_field: 'x' } }),
+    ).toEqual({ metadata: { custom_field: 'x' } });
   });
 
   it('accepts an empty POST body (no-op)', () => {

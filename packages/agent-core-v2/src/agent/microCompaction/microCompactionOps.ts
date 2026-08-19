@@ -1,27 +1,31 @@
 /**
- * `microCompaction` domain — wire Model (`MicroCompactionModel`) and the
- * wire-protocol Ops `micro_compaction.apply` (`microCompactionApply`) /
- * `micro_compaction.clamp` (`microCompactionClamp`) for the cache-miss
+ * `microCompaction` domain — the Agent-scope state (`microCompactionKey`) and
+ * the durable wire events `micro_compaction.apply` (`MicroCompactionApplied`) /
+ * `micro_compaction.clamp` (`MicroCompactionClamped`) for the cache-miss
  * tool-result truncation cutoff.
  *
  * The cutoff is a plain index into the conversation history: messages before
  * it (excluding the `keepRecentMessages` tail) have their oversized tool
  * results replaced by a marker in the outgoing request. It lives on the wire
- * so a `micro_compaction.apply` record restores the cutoff on resume — the op
- * type and payload shape match the v1 record of the same name — and
+ * so a `micro_compaction.apply` record restores the cutoff on resume — the
+ * event type and payload shape match the v1 record of the same name — and
  * `micro_compaction.clamp` keeps it from pointing past the history after an
  * undo (v1 lowered the in-memory cutoff at the same point; the clamp is
- * persisted so replay applies it too). Cross-model reducers zero the cutoff
- * on `context.clear` / `context.apply_compaction`, on both dispatch and
- * restore, matching v1's reset-on-clear/compaction behavior. Every Op's
- * `apply` is a pure transform that returns a NEW reference on change and the
- * SAME reference on a no-op, so the wire's reference-equality gate stays
- * quiet. Scope-agnostic.
+ * persisted so replay applies it too). Folds zero the cutoff on
+ * `context.clear` / `context.apply_compaction`, matching v1's reset-on-clear/
+ * compaction behavior. Every fold is a pure transform of the immer draft, so
+ * the dispatcher's patch gate stays quiet on no-ops. Scope-agnostic.
  */
 
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
-import { defineModel } from '#/wire/model';
+import {
+  ContextApplyCompaction,
+  ContextClear,
+} from '#/agent/contextMemory/contextEvents';
+import { Event2 } from '#/app/event/event2';
+import { defineState } from '#/state/state';
 
 export interface MicroCompactionState {
   readonly cutoff: number;
@@ -29,33 +33,37 @@ export interface MicroCompactionState {
 
 const ZERO_STATE: MicroCompactionState = Object.freeze({ cutoff: 0 });
 
-export const MicroCompactionModel = defineModel<MicroCompactionState>(
-  'microCompaction',
-  () => ZERO_STATE,
-  {
-    reducers: {
-      'context.clear': () => ZERO_STATE,
-      'context.apply_compaction': () => ZERO_STATE,
-    },
-  },
-);
+const microCompactionApplySchema = z.object({ cutoff: z.number().nonnegative() });
 
-declare module '#/wire/types' {
-  interface PersistedOpMap {
-    'micro_compaction.apply': typeof microCompactionApply;
-    'micro_compaction.clamp': typeof microCompactionClamp;
-  }
+export class MicroCompactionApplied extends Event2<z.infer<typeof microCompactionApplySchema>> {
+  static override readonly type = 'micro_compaction.apply';
+  static override readonly durable = true;
+  static override readonly schema = microCompactionApplySchema;
 }
+export interface MicroCompactionApplied extends z.infer<typeof microCompactionApplySchema> {}
 
-export const microCompactionApply = MicroCompactionModel.defineOp('micro_compaction.apply', {
-  schema: z.object({ cutoff: z.number().nonnegative() }),
-  apply: (state, p) => (state.cutoff === p.cutoff ? state : { cutoff: p.cutoff }),
-});
+const microCompactionClampSchema = z.object({ maxCutoff: z.number().nonnegative() });
 
-export const microCompactionClamp = MicroCompactionModel.defineOp('micro_compaction.clamp', {
-  schema: z.object({ maxCutoff: z.number().nonnegative() }),
-  apply: (state, p) => {
-    const cutoff = Math.min(state.cutoff, p.maxCutoff);
-    return cutoff === state.cutoff ? state : { cutoff };
-  },
-});
+export class MicroCompactionClamped extends Event2<z.infer<typeof microCompactionClampSchema>> {
+  static override readonly type = 'micro_compaction.clamp';
+  static override readonly durable = true;
+  static override readonly schema = microCompactionClampSchema;
+}
+export interface MicroCompactionClamped extends z.infer<typeof microCompactionClampSchema> {}
+
+export const microCompactionKey = defineState('microCompaction', (): MicroCompactionState => {
+  return ZERO_STATE;
+})
+  .replayable({ schema: z.custom<MicroCompactionState>() })
+  .on(MicroCompactionApplied, (s, e) => {
+    s.cutoff = e.cutoff;
+  })
+  .on(MicroCompactionClamped, (s, e) => {
+    s.cutoff = Math.min(s.cutoff, e.maxCutoff);
+  })
+  .on(ContextClear, (s) => {
+    s.cutoff = 0;
+  })
+  .on(ContextApplyCompaction, (s) => {
+    s.cutoff = 0;
+  });

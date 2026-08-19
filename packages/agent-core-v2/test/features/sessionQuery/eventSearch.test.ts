@@ -144,7 +144,7 @@ describe('SessionEventIndex', () => {
         })(),
     };
     const bootstrapStub = { scope: () => 'sessions' };
-    const index = new SessionEventIndex(bootstrapStub as never, logStub as never);
+    const index = new SessionEventIndex(bootstrapStub as never, logStub as never, { size: () => 0 } as never);
 
     const events = await index.eventsOf('ws', 's1');
     expect(events).toHaveLength(2); // metadata skipped
@@ -167,7 +167,8 @@ describe('SessionEventIndex', () => {
       },
     };
     const bootstrapStub = { scope: () => 'sessions' };
-    const index = new SessionEventIndex(bootstrapStub as never, logStub as never);
+    const storageStub = { size: () => revision };
+    const index = new SessionEventIndex(bootstrapStub as never, logStub as never, storageStub as never);
 
     await index.eventsOf('ws', 's1');
     await index.eventsOf('ws', 's1');
@@ -190,7 +191,7 @@ describe('SessionEventIndex', () => {
       },
     };
     const bootstrapStub = { scope: () => 'sessions' };
-    const index = new SessionEventIndex(bootstrapStub as never, logStub as never);
+    const index = new SessionEventIndex(bootstrapStub as never, logStub as never, { size: () => 0 } as never);
     await index.eventsOf('ws', 's1');
     index.invalidate('s1');
     await index.eventsOf('ws', 's1');

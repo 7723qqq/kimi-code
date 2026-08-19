@@ -17,9 +17,12 @@ async function main() {
   await verifyInputs(options);
   for (const file of options.files) {
     console.log(`Publishing verified package ${file}...`);
-    runLocalCli('@vscode/vsce', 'vsce', ['publish', '--packagePath', file, '--skip-duplicate'], {
-      cwd: extensionRoot,
-    });
+    runLocalCli(
+      '@vscode/vsce',
+      'vsce',
+      ['publish', '--packagePath', file, '--skip-duplicate'],
+      { cwd: extensionRoot },
+    );
   }
 }
 
@@ -35,9 +38,7 @@ async function verifyInputs(options) {
 
 if (isMainModule(import.meta.url)) {
   main().catch((error) => {
-    console.error(
-      `Marketplace publish failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`Marketplace publish failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 }

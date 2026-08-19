@@ -1,23 +1,3 @@
-/**
- * `kosong/provider` domain — OpenAI Responses API wire base.
- *
- * Speaks the Responses wire format: `input` items, `instructions`,
- * `reasoning` blocks with encrypted content, and the native
- * `prompt_cache_key` field (a cache key is encoded directly — no hook
- * needed). Per-turn intents are encoded inline in the fixed contract order;
- * the base's only hook surface is the trait-composed `convertError` option,
- * consulted with each raw failure exactly once — the SDK error on HTTP
- * paths, the raw event on in-stream error paths — before the base's own
- * classification (already-converted errors crossing an outer catch pass
- * through without re-consulting). The developer-role model detection lives
- * here.
- *
- * The SDK client is built with `maxRetries: 0`: the SDK's internal backoff
- * sleep never observes the turn's AbortSignal, so rate-limit / server /
- * connection retry is owned by the engine's step-retry layer (observable and
- * cancellable), never by the SDK.
- */
-
 import OpenAI from 'openai';
 
 import { Error2 } from '#/_base/errors/errors';
@@ -50,23 +30,24 @@ import type { TokenUsage } from '#/kosong/contract/usage';
 import { ProtocolErrors } from '#/kosong/protocol/errors';
 
 import {
-  mergeRequestHeaders,
-  requireProviderApiKey,
-  resolveAuthBackedClient,
-} from '@moonshot-ai/kosong/providers/request-auth';
-import {
-  normalizeToolCallIdsForProvider,
-  sanitizeOpenAIResponsesCallId,
-} from '@moonshot-ai/kosong/providers/tool-call-id';
-import {
   convertOpenAIError,
+  hasModelPrefix,
   isMediaPart,
   isOpenAIInsufficientQuotaCode,
+  isOpenAIReasoningModel,
+  OPENAI_REASONING_CAPABILITY,
+  OPENAI_VISION_TOOL_CAPABILITY,
+  OPENAI_VISION_TOOL_PREFIXES,
   TOOL_RESULT_MEDIA_PLACEHOLDER,
   TOOL_RESULT_MEDIA_PROMPT,
   type ToolMessageConversion,
-} from '@moonshot-ai/kosong/providers/openai-common';
-import { usesOpenAIResponsesDeveloperRole } from '@moonshot-ai/kosong/providers/capability-registry';
+} from './openai-common';
+import {
+  mergeRequestHeaders,
+  requireProviderApiKey,
+  resolveAuthBackedClient,
+} from '../request-auth';
+import { normalizeToolCallIdsForProvider, sanitizeOpenAIResponsesCallId } from '../tool-call-id';
 
 function normalizeResponsesFinishReason(
   status: string | null | undefined,
@@ -379,6 +360,7 @@ export interface OpenAIResponsesOptions {
   model: string;
   maxOutputTokens?: number | undefined;
   offEffort?: string | undefined;
+  thinkingEffort?: ThinkingEffort | undefined;
   httpClient?: unknown;
   defaultHeaders?: Record<string, string>;
   toolMessageConversion?: ToolMessageConversion | undefined;
@@ -515,6 +497,29 @@ function mapAudioUrlToInputItem(url: string): unknown {
     return { type: 'input_file', file_url: url };
   }
   return null;
+}
+
+const OPENAI_RESPONSES_DEVELOPER_ROLE_MODELS = new Set([
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'gpt-4.1-nano',
+  'gpt-5-codex',
+  'o1',
+  'o1-mini',
+  'o1-pro',
+  'o3',
+  'o3-mini',
+  'o3-pro',
+  'o4-mini',
+]);
+
+export function usesOpenAIResponsesDeveloperRole(modelName: string): boolean {
+  const normalized = modelName.toLowerCase();
+  if (OPENAI_RESPONSES_DEVELOPER_ROLE_MODELS.has(normalized)) return true;
+  for (const cataloguedModel of OPENAI_RESPONSES_DEVELOPER_ROLE_MODELS) {
+    if (normalized.startsWith(cataloguedModel + '-')) return true;
+  }
+  return false;
 }
 
 function convertMessage(
@@ -713,21 +718,10 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
   private _extractUsage(usage: RawObject): void {
     const inputTokens = readNumberField(usage, 'input_tokens') ?? 0;
     const outputTokens = readNumberField(usage, 'output_tokens') ?? 0;
-    let cached = 0;
-    let miss: number | undefined;
-    // DeepSeek proprietary: prompt_cache_hit_tokens / prompt_cache_miss_tokens
-    // (top-level, alongside input_tokens / output_tokens).
-    const hit = readNumberField(usage, 'prompt_cache_hit_tokens');
-    if (hit !== undefined) {
-      cached = hit;
-      const deepSeekMiss = readNumberField(usage, 'prompt_cache_miss_tokens');
-      if (deepSeekMiss !== undefined) miss = deepSeekMiss;
-    } else {
-      const details = readObjectField(usage, 'input_tokens_details');
-      cached = details ? (readNumberField(details, 'cached_tokens') ?? 0) : 0;
-    }
+    const details = readObjectField(usage, 'input_tokens_details');
+    const cached = details ? (readNumberField(details, 'cached_tokens') ?? 0) : 0;
     this._usage = {
-      inputOther: miss ?? inputTokens - cached,
+      inputOther: inputTokens - cached,
       output: outputTokens,
       inputCacheRead: cached,
       inputCacheCreation: 0,
@@ -1024,15 +1018,14 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   private readonly _apiKey: string | undefined;
   private readonly _baseUrl: string | undefined;
   private readonly _defaultHeaders: Record<string, string> | undefined;
+  private readonly _thinkingEffort: ThinkingEffort | undefined;
   private readonly _offEffort: string | undefined;
   private readonly _generationKwargs: OpenAIResponsesGenerationKwargs;
   private readonly _toolMessageConversion: ToolMessageConversion;
   private readonly _client: OpenAI | undefined;
   private readonly _httpClient: unknown;
   private readonly _clientFactory: ((auth: ProviderRequestAuth) => OpenAI) | undefined;
-  private readonly _convertErrorHook:
-    | ((error: unknown) => ChatProviderError | undefined)
-    | undefined;
+  private readonly _convertErrorHook: ((error: unknown) => ChatProviderError | undefined) | undefined;
 
   constructor(options: OpenAIResponsesOptions) {
     const apiKey = options.apiKey ?? process.env['OPENAI_API_KEY'];
@@ -1041,6 +1034,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     this._defaultHeaders = options.defaultHeaders;
     this._model = options.model;
     this._stream = true;
+    this._thinkingEffort = options.thinkingEffort;
     this._offEffort = options.offEffort;
     this._generationKwargs = {};
     this._toolMessageConversion = options.toolMessageConversion ?? null;
@@ -1060,7 +1054,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return null;
+    return this._thinkingEffort ?? null;
   }
 
   get maxCompletionTokens(): number | undefined {
@@ -1095,7 +1089,9 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
       kwargs = { ...kwargs, top_p: options.sampling.topP };
     }
 
-    const thinking = options?.thinking;
+    const thinking =
+      options?.thinking ??
+      (this._thinkingEffort !== undefined ? { effort: this._thinkingEffort } : undefined);
     if (thinking !== undefined) {
       const effort =
         thinking.effort === 'off'
@@ -1119,7 +1115,6 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     }
 
     const reasoningEffort = kwargs['reasoning_effort'] as string | undefined;
-    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
     delete kwargs['reasoning_effort'];
 
     if (reasoningEffort !== undefined) {
@@ -1132,7 +1127,6 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
 
     for (const key of Object.keys(kwargs)) {
       if (kwargs[key] === undefined) {
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
         delete kwargs[key];
       }
     }
@@ -1203,4 +1197,15 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
     }
     return new OpenAI(clientOpts as ConstructorParameters<typeof OpenAI>[0]);
   }
+}
+
+export function getOpenAIResponsesModelCapability(modelName: string) {
+  const normalized = modelName.toLowerCase();
+  if (isOpenAIReasoningModel(normalized)) {
+    return OPENAI_REASONING_CAPABILITY;
+  }
+  if (hasModelPrefix(normalized, OPENAI_VISION_TOOL_PREFIXES)) {
+    return OPENAI_VISION_TOOL_CAPABILITY;
+  }
+  return undefined;
 }

@@ -1,12 +1,3 @@
-/**
- * Scenario: filesystem-backed skill discovery across ordered roots.
- *
- * Verifies real SKILL.md parsing, collision handling, nested bundles, and
- * diagnostics through the ISkillDiscovery contract with only logging stubbed.
- * Run with `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/app/skillCatalog/fileSkillDiscovery.test.ts`.
- */
-
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
@@ -232,7 +223,10 @@ describe('FileSkillDiscovery', () => {
   });
 
   it('ignores node_modules and dot directories while walking', async () => {
-    await writeSkill('skills/node_modules/hidden/SKILL.md', 'name: hidden\ndescription: hidden');
+    await writeSkill(
+      'skills/node_modules/hidden/SKILL.md',
+      'name: hidden\ndescription: hidden',
+    );
 
     const result = await discover([skillRoot('skills')]);
 

@@ -711,13 +711,7 @@ export class SubAgentEventHandler {
 }
 
 function isSubagentLifecycleEvent(event: Event): event is SubagentLifecycleEvent {
-  return (
-    event.type === 'subagent.spawned' ||
-    event.type === 'subagent.started' ||
-    event.type === 'subagent.suspended' ||
-    event.type === 'subagent.completed' ||
-    event.type === 'subagent.failed'
-  );
+  return event.type.startsWith('subagent.');
 }
 
 function isUserCancelledSubagentError(error: string): boolean {

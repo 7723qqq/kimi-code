@@ -1,62 +1,25 @@
-/**
- * `tools` domain — `ReadTool` implementation.
- *
- * Streams the file through `IHostFileSystem.readLines`, enforces the
- * line/byte budgets from the contract, normalizes line endings for display
- * (pure CRLF shown as LF, mixed or lone carriage returns made visible as
- * `\r`), refuses binary / media files up front, and composes the `<system>`
- * finish note on the `note` side channel. UTF-16 LE/BE text (with a BOM or
- * the zero-byte parity heuristic) is decoded whole via `readBytes` and
- * transcoded to UTF-8, bounded by `TRANSCODE_MAX_BYTES`. When strict UTF-8
- * streaming decoding fails mid-file, the reader falls back to whole-file
- * GBK/GB18030 transcoding, then to lenient UTF-8 (malformed bytes replaced
- * with U+FFFD) gated on the replacement ratio, before refusing the file.
- *
- * Path safety goes through the shared path access resolver used by
- * Read/Write/Edit. Read access flows through the os `hostFs` domain
- * (`IHostFileSystem`); path semantics (home expansion, path class) come from
- * the `hostEnvironment` domain; the workspace and skill roots come from
- * `ISessionWorkspaceContext` / `ISessionSkillCatalog`.
- *
- * Ported from v1. The
- * optional `scanTextFile` / `readLineRange` / `readTailLines` fast-paths are
- * intentionally dropped: `IHostFileSystem` streams through `readLines` only.
- * Bound at Agent scope; self-registers via `registerAgentToolService(...)` at module
- * load.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { unwrapErrorCause } from '#/_base/errors/errors';
-import { tryNativeRead } from '#/_base/native-tools';
-import {
-  decodeUtf8Lenient,
-  decodeUtfText,
-  detectLegacyTextEncoding,
-  detectTextEncoding,
-  type UtfTextEncoding,
-} from '#/_base/text/encoding';
-import {
-  makeCarriageReturnsVisible,
-  splitLinesKeepingTerminator,
-  type LineEndingStyle,
-} from '#/_base/text/line-endings';
-import { renderPrompt } from '#/_base/utils/render-prompt';
-import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import {
-  extendWorkspaceWithSkillRoots,
+  ToolAccesses,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import {
   resolvePathAccessPath,
   type WorkspaceConfig,
 } from '#/tool/path-access';
+import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
-import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
-
+import { makeCarriageReturnsVisible, splitLinesKeepingTerminator, type LineEndingStyle } from '#/_base/text/line-endings';
+import { decodeUtfText, detectTextEncoding, type UtfTextEncoding } from '#/_base/text/encoding';
+import { renderPrompt } from '#/_base/utils/render-prompt';
 import {
   IReadTool,
   MAX_BYTES,
@@ -73,22 +36,6 @@ interface LineEndingFlags {
   hasLf: boolean;
   hasLoneCr: boolean;
 }
-
-/**
- * Encodings the Read tool can display: the UTF family from the shared
- * detector, plus the fallback encodings produced by `readWithFallbackEncoding`
- * (GBK/GB18030 transcoded whole, or UTF-8 decoded leniently with malformed
- * bytes replaced).
- */
-type ReadDisplayEncoding = UtfTextEncoding | 'gbk' | 'utf-8-lenient';
-
-/**
- * Max share of the file's bytes that may be replaced by U+FFFD in the lenient
- * UTF-8 fallback before the file is refused as binary/unknown-encoding. Must
- * stay above `MIN_GBK_UTF8_REPLACEMENT_RATIO` so files that passed the GBK
- * gate (i.e. lenient ratio below it) are always acceptable here.
- */
-const MAX_LENIENT_REPLACEMENT_RATIO = 0.25;
 
 interface ReadLineEntry {
   readonly lineNo: number;
@@ -109,7 +56,7 @@ interface FinishReadResultInput {
   readonly startLine: number;
   readonly totalLines: number;
   readonly requestedLines: number;
-  readonly detectedEncoding?: ReadDisplayEncoding;
+  readonly detectedEncoding?: UtfTextEncoding;
 }
 
 function truncateLine(line: string, maxLength: number): string {
@@ -218,16 +165,12 @@ function containsNulByte(text: string): boolean {
   return text.includes('\u0000');
 }
 
-function encodingDisplayName(encoding: ReadDisplayEncoding): string {
+function encodingDisplayName(encoding: UtfTextEncoding): string {
   switch (encoding) {
     case 'utf-16le':
       return 'UTF-16 LE';
     case 'utf-16be':
       return 'UTF-16 BE';
-    case 'gbk':
-      return 'GBK/GB18030';
-    case 'utf-8-lenient':
-      return 'UTF-8';
     default:
       return 'UTF-8';
   }
@@ -247,9 +190,9 @@ function notReadableFileOutput(path: string): string {
 
 function notUtf8DecodableFileOutput(path: string): string {
   return (
-    `"${path}" is not valid UTF-8, UTF-16, or GBK/GB18030 text. ` +
-    'Only UTF-8, UTF-16 and GBK/GB18030 text files can be read; ' +
-    'for other encodings, convert the file to UTF-8 first (e.g. `iconv` via Bash).'
+    `"${path}" is not valid UTF-8 or UTF-16 text. ` +
+    'Only UTF-8 and UTF-16 text files can be read; ' +
+    'for other encodings (e.g. GBK), convert the file to UTF-8 first (e.g. `iconv` via Bash).'
   );
 }
 
@@ -265,105 +208,69 @@ export class ReadTool implements IReadTool {
   readonly description = READ_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ReadInputSchema);
   constructor(
-    @IHostFileSystem private readonly fs: IHostFileSystem,
-    @IHostEnvironment private readonly env: IHostEnvironment,
+    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
-    @ISessionSkillCatalog private readonly skillCatalog?: ISessionSkillCatalog,
+    @ISessionSkillCatalog private readonly skillCatalog: ISessionSkillCatalog,
   ) {}
 
-  private get workspaceConfig(): WorkspaceConfig {
-    return extendWorkspaceWithSkillRoots(
-      {
-        workspaceDir: this.workspaceCtx.workDir,
-        additionalDirs: this.workspaceCtx.additionalDirs,
-      },
-      this.skillCatalog?.catalog.getSkillRoots() ?? [],
-      this.env.pathClass,
-    );
+  private workspaceConfig(view: RuntimeWorkspaceView): WorkspaceConfig {
+    return { workspaceDir: view.workDir, additionalDirs: view.additionalDirs };
   }
 
   resolveExecution(args: ReadInput): ToolExecution {
+    const inspected = inspectAgentRuntime(this.runtime);
+    const view = new RuntimeWorkspaceView(inspected, {
+      workDir: this.workspaceCtx.workDir,
+      additionalDirs: [...this.workspaceCtx.additionalDirs, ...this.skillCatalog.catalog.getSkillRoots()],
+    });
+    const env = { _serviceBrand: undefined, ...inspected.environment, ready: Promise.resolve() };
+    const workspace = this.workspaceConfig(view);
     const path = resolvePathAccessPath(args.path, {
-      env: this.env,
-      workspace: this.workspaceConfig,
+      env,
+      workspace,
       operation: 'read',
     });
     return {
       accesses: ToolAccesses.readFile(path),
-      description: t('toolsV2.reading', { path: args.path }),
+      description: `Reading ${args.path}`,
       display: { kind: 'file_io', operation: 'read', path },
       approvalRule: literalRulePattern(this.name, path),
       matchesRule: (ruleArgs) =>
         matchesPathRuleSubject(ruleArgs, path, {
-          cwd: this.workspaceConfig.workspaceDir,
-          pathClass: this.env.pathClass,
-          homeDir: this.env.homeDir,
+          cwd: workspace.workspaceDir,
+          pathClass: env.pathClass,
+          homeDir: env.homeDir,
         }),
-      execute: () => this.execution(args, path),
+      execute: async () => {
+        const lease = this.runtime.acquire(['fs']);
+        try {
+          if (lease.runtime.identity.generation !== inspected.identity.generation) {
+            return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
+          }
+          return await this.execution(lease.runtime.fs!, args, path);
+        } finally {
+          lease.dispose();
+        }
+      },
     };
   }
 
-  private async execution(args: ReadInput, safePath: string): Promise<ExecutableToolResult> {
-    let stat: Awaited<ReturnType<IHostFileSystem['stat']>> | undefined;
+  private async execution(fs: IHostFileSystem, args: ReadInput, safePath: string): Promise<ExecutableToolResult> {
     try {
-      const lineOffset = args.line_offset ?? 1;
-      const requestedLines = args.n_lines ?? MAX_LINES;
-      const effectiveLimit = Math.min(requestedLines, MAX_LINES);
-
-      // ── Native fast-path ─────────────────────────────────────────────
-      // The native reader owns the full capability set: line counting,
-      // offsets, limits, CRLF handling, UTF-16 LE/BE transcoding, and the
-      // GBK/GB18030 + lenient-UTF-8 fallback chain all run in Rust — ~5x
-      // faster than the async line iterator and with no capability gap.
-      // It is tried FIRST: the native reader performs every preflight
-      // itself (existence, file type, media redirect, encoding detection),
-      // so the TS stat + header sniff below runs only on the fallback path
-      // instead of duplicating that I/O on every call. Any native error is
-      // a final verdict — re-running the TS reader would only mask native
-      // bugs. (Release builds bundle the native module in the SEA binary
-      // and npm installs pin it as a versioned optional dependency, so a
-      // loaded-but-mismatched prebuild is not a real distribution state.)
-      // The TS implementation below is a fallback for hosts where the
-      // native module is not loaded at all.
-      const nativeResult = await tryNativeRead(safePath, {
-        lineOffset: lineOffset,
-        nLines: effectiveLimit,
-      });
-      if (nativeResult && !nativeResult.error) {
-        // Split the native output: content before <system> is output,
-        // the <system>...</system> block is the note. The block may be
-        // preceded by a newline (normal reads) or start the content
-        // directly (empty output, e.g. offset past EOF).
-        const systemIdx = nativeResult.content.lastIndexOf('\n<system>');
-        if (systemIdx >= 0) {
-          const output = nativeResult.content.slice(0, systemIdx);
-          const note = nativeResult.content.slice(systemIdx + 1); // includes <system>...</system>
-          return { output, note };
-        }
-        if (nativeResult.content.startsWith('<system>')) {
-          return { output: '', note: nativeResult.content };
-        }
-        // If no <system> tag (e.g. empty file), use content as-is
-        return { output: nativeResult.content };
-      }
-      if (nativeResult && nativeResult.error) {
-        return { isError: true, output: nativeResult.error };
-      }
-      // Native not loaded — run the TS implementation below.
-
+      let stat: Awaited<ReturnType<IHostFileSystem['stat']>>;
       try {
-        stat = await this.fs.stat(safePath);
+        stat = await fs.stat(safePath);
       } catch (error) {
         if (isFileNotFoundError(error)) {
           return { isError: true, output: `"${args.path}" does not exist.` };
         }
         throw error;
       }
-      if (stat === undefined || !stat.isFile) {
+      if (!stat.isFile) {
         return { isError: true, output: `"${args.path}" is not a file.` };
       }
 
-      const header = await this.fs.readBytes(safePath, MEDIA_SNIFF_BYTES);
+      const header = await fs.readBytes(safePath, MEDIA_SNIFF_BYTES);
       const fileType = detectFileType(safePath, header);
       if (fileType.kind === 'image' || fileType.kind === 'video') {
         return {
@@ -372,15 +279,10 @@ export class ReadTool implements IReadTool {
         };
       }
 
-      // A BOM marks UTF-16 even when the header carries no NUL bytes (e.g.
-      // CJK-only content reads as printable ASCII), so detect the encoding
-      // before falling through to the strict UTF-8 text path.
       const detection = detectTextEncoding(header);
       let lines: AsyncIterable<string>;
       let detectedEncoding: UtfTextEncoding | undefined;
       if (!detection.seemsBinary && detection.encoding !== 'utf-8') {
-        // UTF-16 LE/BE text (BOM or zero-byte parity heuristic): decode the
-        // whole file and transcode to UTF-8 for display.
         if (stat.size > TRANSCODE_MAX_BYTES) {
           return {
             isError: true,
@@ -390,7 +292,7 @@ export class ReadTool implements IReadTool {
               'Convert it to UTF-8 first (e.g. `iconv` via Bash).',
           };
         }
-        const decoded = decodeUtfText(await this.fs.readBytes(safePath), detection.encoding);
+        const decoded = decodeUtfText(await fs.readBytes(safePath), detection.encoding);
         detectedEncoding = detection.encoding;
         lines = decodedLines(splitLinesKeepingTerminator(decoded));
       } else if (fileType.kind === 'unknown') {
@@ -399,8 +301,12 @@ export class ReadTool implements IReadTool {
           output: notReadableFileOutput(args.path),
         };
       } else {
-        lines = this.fs.readLines(safePath, { errors: 'strict' });
+        lines = fs.readLines(safePath, { errors: 'strict' });
       }
+
+      const lineOffset = args.line_offset ?? 1;
+      const requestedLines = args.n_lines ?? MAX_LINES;
+      const effectiveLimit = Math.min(requestedLines, MAX_LINES);
 
       if (lineOffset < 0) {
         return await this.readTail(
@@ -421,9 +327,7 @@ export class ReadTool implements IReadTool {
         detectedEncoding,
       );
     } catch (error) {
-      if (isTextDecodeError(error) && stat !== undefined) {
-        const fallback = await this.readWithFallbackEncoding(args, safePath, stat.size);
-        if (fallback !== undefined) return fallback;
+      if (isTextDecodeError(error)) {
         return { isError: true, output: notUtf8DecodableFileOutput(args.path) };
       }
       return {
@@ -433,58 +337,13 @@ export class ReadTool implements IReadTool {
     }
   }
 
-  /**
-   * Fallback path when strict UTF-8 streaming decoding fails mid-file. Tries
-   * GBK/GB18030 (whole-file transcode, the common case for legacy Chinese
-   * text), then a lenient UTF-8 decode gated on the replacement ratio, and
-   * returns `undefined` when neither applies so the caller can refuse.
-   */
-  private async readWithFallbackEncoding(
-    args: ReadInput,
-    safePath: string,
-    fileSize: number,
-  ): Promise<ExecutableToolResult | undefined> {
-    if (fileSize > TRANSCODE_MAX_BYTES) return undefined;
-
-    const bytes = await this.fs.readBytes(safePath);
-    const legacy = detectLegacyTextEncoding(bytes);
-    if (legacy !== null) {
-      return this.readDecodedText(
-        args,
-        new TextDecoder('gbk', { fatal: false }).decode(bytes),
-        legacy,
-      );
-    }
-
-    const lenient = decodeUtf8Lenient(bytes);
-    if (bytes.length > 0 && lenient.replacedCount / bytes.length <= MAX_LENIENT_REPLACEMENT_RATIO) {
-      return this.readDecodedText(args, lenient.text, 'utf-8-lenient');
-    }
-    return undefined;
-  }
-
-  private async readDecodedText(
-    args: ReadInput,
-    text: string,
-    encoding: 'gbk' | 'utf-8-lenient',
-  ): Promise<ExecutableToolResult> {
-    const lineOffset = args.line_offset ?? 1;
-    const requestedLines = args.n_lines ?? MAX_LINES;
-    const effectiveLimit = Math.min(requestedLines, MAX_LINES);
-    const lines = decodedLines(splitLinesKeepingTerminator(text));
-    if (lineOffset < 0) {
-      return this.readTail(args.path, lines, lineOffset, effectiveLimit, requestedLines, encoding);
-    }
-    return this.readForward(args.path, lines, lineOffset, effectiveLimit, requestedLines, encoding);
-  }
-
   private async readForward(
     displayPath: string,
     lines: AsyncIterable<string>,
     lineOffset: number,
     effectiveLimit: number,
     requestedLines: number,
-    detectedEncoding?: ReadDisplayEncoding,
+    detectedEncoding?: UtfTextEncoding,
   ): Promise<ExecutableToolResult> {
     const selectedEntries: ReadLineEntry[] = [];
     const flags: LineEndingFlags = { hasCrLf: false, hasLf: false, hasLoneCr: false };
@@ -543,7 +402,7 @@ export class ReadTool implements IReadTool {
     lineOffset: number,
     effectiveLimit: number,
     requestedLines: number,
-    detectedEncoding?: ReadDisplayEncoding,
+    detectedEncoding?: UtfTextEncoding,
   ): Promise<ExecutableToolResult> {
     const tailCount = Math.abs(lineOffset);
     const entries: ReadLineEntry[] = [];
@@ -581,7 +440,7 @@ export class ReadTool implements IReadTool {
     effectiveLimit: number;
     totalLines: number;
     requestedLines: number;
-    detectedEncoding?: ReadDisplayEncoding;
+    detectedEncoding?: UtfTextEncoding;
   }): ExecutableToolResult {
     const lineEndingStyle = lineEndingStyleFromFlags(input.lineEndingFlags);
     let renderedCandidates = input.entries.slice(0, input.effectiveLimit).map((entry) => {
@@ -664,15 +523,7 @@ export class ReadTool implements IReadTool {
         'Mixed or lone carriage-return line endings are shown as \\r. Use exact \\r\\n or \\r escapes in Edit.old_string for those lines.',
       );
     }
-    if (input.detectedEncoding === 'gbk') {
-      parts.push(
-        "Detected GBK/GB18030 encoding; content transcoded to UTF-8 for display. Edit and Write expect UTF-8 — convert the file's encoding first (e.g. `iconv` via Bash).",
-      );
-    } else if (input.detectedEncoding === 'utf-8-lenient') {
-      parts.push(
-        'Some bytes were not valid UTF-8 and were replaced with U+FFFD; content shown best-effort.',
-      );
-    } else if (input.detectedEncoding !== undefined) {
+    if (input.detectedEncoding !== undefined) {
       parts.push(
         `Detected file encoding: ${encodingDisplayName(input.detectedEncoding)}; content transcoded to UTF-8 for display. Edit and Write expect UTF-8 — convert the file's encoding first (e.g. \`iconv\` via Bash).`,
       );
@@ -681,4 +532,8 @@ export class ReadTool implements IReadTool {
   }
 }
 
-registerAgentToolService(IReadTool, ReadTool, { name: 'Read', domain: 'os/backends' });
+registerAgentToolService(IReadTool, ReadTool, {
+  name: 'Read',
+  domain: 'os/backends',
+  requiredRuntimeCapabilities: ['fs'],
+});

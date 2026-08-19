@@ -28,29 +28,37 @@ describe('acp-server session/close', () => {
     return client;
   }
 
-  it('advertises the close capability and closes a live session', async () => {
-    const c = await boot();
-    const init = (await c.send('initialize', { protocolVersion: 1, clientCapabilities: {} })) as {
-      agentCapabilities?: { sessionCapabilities?: { close?: unknown } };
-    };
-    expect(init.agentCapabilities?.sessionCapabilities?.close).toBeDefined();
+  it(
+    'advertises the close capability and closes a live session',
+    async () => {
+      const c = await boot();
+      const init = (await c.send('initialize', { protocolVersion: 1, clientCapabilities: {} })) as {
+        agentCapabilities?: { sessionCapabilities?: { close?: unknown } };
+      };
+      expect(init.agentCapabilities?.sessionCapabilities?.close).toBeDefined();
 
-    const created = (await c.send('session/new', { cwd: homeDir, mcpServers: [] })) as {
-      sessionId: string;
-    };
-    await c.send('session/close', { sessionId: created.sessionId });
+      const created = (await c.send('session/new', { cwd: homeDir, mcpServers: [] })) as {
+        sessionId: string;
+      };
+      await c.send('session/close', { sessionId: created.sessionId });
 
-    // After close the server no longer routes the session — a follow-up
-    // prompt must surface invalid_params for the now-unknown sessionId.
-    await expect(
-      c.send('session/prompt', { sessionId: created.sessionId, prompt: [] }),
-    ).rejects.toThrow();
-    await c.close();
-    await expect(c.close()).resolves.toBeUndefined();
-  }, 30_000);
+      // After close the server no longer routes the session — a follow-up
+      // prompt must surface invalid_params for the now-unknown sessionId.
+      await expect(
+        c.send('session/prompt', { sessionId: created.sessionId, prompt: [] }),
+      ).rejects.toThrow();
+      await c.close();
+      await expect(c.close()).resolves.toBeUndefined();
+    },
+    30_000,
+  );
 
-  it('closing an unknown sessionId is a best-effort no-op', async () => {
-    const c = await boot();
-    await expect(c.send('session/close', { sessionId: 'does-not-exist' })).resolves.toEqual({});
-  }, 30_000);
+  it(
+    'closing an unknown sessionId is a best-effort no-op',
+    async () => {
+      const c = await boot();
+      await expect(c.send('session/close', { sessionId: 'does-not-exist' })).resolves.toEqual({});
+    },
+    30_000,
+  );
 });

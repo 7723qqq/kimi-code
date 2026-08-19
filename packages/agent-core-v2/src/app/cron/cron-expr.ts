@@ -1,27 +1,5 @@
-/**
- * 5-field cron expression parsing and "next fire time" computation, in
- * local time. Self-contained — no external cron library is used because
- * upstream `claude-code` mirrors the same semantics and we need exact
- * lock-step behaviour with their implementation.
- *
- * Two flavours of correctness we care about:
- *
- *   1. **Semantics.** Standard 5 fields (minute hour day-of-month month
- *      day-of-week). Day-of-month and day-of-week combine with cron's
- *      OR rule when both are restricted (POSIX/Vixie tradition). dow
- *      accepts 0..7 with 7 folded to 0 (Sunday).
- *
- *   2. **Termination.** Computing `next` for a legal-but-never-fires
- *      expression like `0 0 31 2 *` must not spin. We bound the search
- *      at a fixed window (5 years by default) and return `null` past
- *      that.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { Error2, ErrorCodes } from '#/errors';
 
-/** A parsed cron expression. Opaque to callers — pass it back into {@link computeNextCronRun}. */
 export interface ParsedCronExpression {
   readonly raw: string;
   readonly minutes: ReadonlySet<number>;
@@ -43,13 +21,13 @@ const MS_PER_MINUTE = 60_000;
 
 export function parseCronExpression(expr: string): ParsedCronExpression {
   if (typeof expr !== 'string') {
-    throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, t('v2Errors.cronExpressionMustBeString'), {
+    throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, 'cron expression must be a string', {
       details: { received: typeof expr },
     });
   }
   const trimmed = expr.trim();
   if (trimmed === '') {
-    throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, t('v2Errors.cronExpressionEmpty'));
+    throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, 'cron expression is empty');
   }
   const fields = trimmed.split(/\s+/);
   if (fields.length !== 5) {
@@ -110,7 +88,9 @@ function parseField(field: string, min: number, max: number, name: string): Set<
     addTerm(out, term, min, max, name);
   }
   if (out.size === 0) {
-    throw new Error(t('toolsV2.cron.matchesNone', { name }));
+    throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, `cron ${name} field matches no values`, {
+      details: { field: name },
+    });
   }
   return out;
 }
@@ -136,13 +116,9 @@ function addTerm(out: Set<number>, term: string, min: number, max: number, name:
     rangePart = term.slice(0, slash);
     const stepStr = term.slice(slash + 1);
     if (stepStr === '') {
-      throw new Error2(
-        ErrorCodes.CRON_EXPRESSION_INVALID,
-        t('v2Errors.cronStepEmpty', { name, term }),
-        {
-          details: { field: name, term },
-        },
-      );
+      throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, `cron ${name} step is empty in "${term}"`, {
+        details: { field: name, term },
+      });
     }
     const parsedStep = parseCronInt(stepStr, name, 'step');
     if (parsedStep <= 0) {
@@ -342,7 +318,12 @@ export function cronToHuman(expr: ParsedCronExpression): string {
     }
   }
 
-  if (expr.minutes.size === 1 && expr.hours.size === 1 && allDom && allMonth) {
+  if (
+    expr.minutes.size === 1 &&
+    expr.hours.size === 1 &&
+    allDom &&
+    allMonth
+  ) {
     const h = [...expr.hours][0]!;
     const m = [...expr.minutes][0]!;
     if (allDow) return `at ${pad(h)}:${pad(m)} every day`;

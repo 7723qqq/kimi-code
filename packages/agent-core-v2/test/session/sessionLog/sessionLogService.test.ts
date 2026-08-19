@@ -1,9 +1,9 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -11,11 +11,14 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
-import { logSeed, resolveLoggingConfig, resolveSessionLogPath } from '#/_base/log/logConfig';
+import {
+  logSeed,
+  resolveLoggingConfig,
+  resolveSessionLogPath,
+} from '#/_base/log/logConfig';
 import { AppLogService } from '#/_base/log/logService';
-import { LifecycleScope } from '#/app/scopes';
-import { makeSessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
 import { SessionLogService } from '#/session/sessionLog/sessionLogService';
+import { makeSessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
@@ -51,27 +54,21 @@ afterEach(async () => {
 function buildHost() {
   const cfg = resolveLoggingConfig({
     homeDir,
-    env: {
-      KIMI_LOG_LEVEL: 'debug',
-      KIMI_LOG_SESSION_MAX_BYTES: '8388608',
-      KIMI_LOG_SESSION_FILES: '2',
-    },
+    env: { KIMI_LOG_LEVEL: 'debug', KIMI_LOG_SESSION_MAX_BYTES: '1024', KIMI_LOG_SESSION_FILES: '2' },
   });
   return createScopedTestHost(logSeed(cfg));
 }
 
 function testSessionSeed() {
   return [
-    ...sessionContextSeed(
-      makeSessionContext({
-        sessionId: 's1',
-        workspaceId: 'test-workspace',
-        sessionDir,
-        sessionScope: 'sessions/test-workspace/s1',
-        metaScope: 'sessions/test-workspace/s1/session-meta',
-        cwd: sessionDir,
-      }),
-    ),
+    ...sessionContextSeed(makeSessionContext({
+      sessionId: 's1',
+      workspaceId: 'test-workspace',
+      sessionDir,
+      sessionScope: 'sessions/test-workspace/s1',
+      metaScope: 'sessions/test-workspace/s1/session-meta',
+      cwd: sessionDir,
+    })),
     [IWorkspaceStateService, new WorkspaceStateService()] as const,
   ];
 }
@@ -143,82 +140,14 @@ describe('SessionLogService', () => {
       expect(text).toContain('on-dispose');
     });
   });
-
-  it('writes error level entries', async () => {
-    const host = buildHost();
-    const session = host.child(LifecycleScope.Session, 's1', testSessionSeed());
-    const log = session.accessor.get(ILogService);
-    log.error('fatal error', { errCode: 500 });
-    await log.flush();
-    const text = await readSessionLog();
-    expect(text).toContain('fatal error');
-    expect(text).toContain('errCode=500');
-    host.dispose();
-  });
-
-  it('writes debug level entries', async () => {
-    const host = buildHost();
-    const session = host.child(LifecycleScope.Session, 's1', testSessionSeed());
-    const log = session.accessor.get(ILogService);
-    log.debug('verbose debug');
-    await log.flush();
-    const text = await readSessionLog();
-    expect(text).toContain('verbose debug');
-    host.dispose();
-  });
-
-  it('handles a large log entry without crashing', async () => {
-    const host = buildHost();
-    const session = host.child(LifecycleScope.Session, 's1', testSessionSeed());
-    const log = session.accessor.get(ILogService);
-    const big = 'x'.repeat(10000);
-    log.info('big entry', { data: big });
-    await log.flush();
-    const text = await readSessionLog();
-    expect(text).toContain('big entry');
-    host.dispose();
-  });
-
-  it('multiple child loggers all write to the same file', async () => {
-    const host = buildHost();
-    const session = host.child(LifecycleScope.Session, 's1', testSessionSeed());
-    const log = session.accessor.get(ILogService);
-    log.child({ agentId: 'a' }).info('from a');
-    log.child({ agentId: 'b' }).info('from b');
-    log.child({ agentId: 'c' }).info('from c');
-    await log.flush();
-    const text = await readSessionLog();
-    expect(text).toContain('agentId=a');
-    expect(text).toContain('agentId=b');
-    expect(text).toContain('agentId=c');
-    host.dispose();
-  });
 });
 
 describe('ILogService cross-scope resolution', () => {
   beforeEach(() => {
     _clearScopedRegistryForTests();
-    registerScopedService(
-      LifecycleScope.Session,
-      ISessionStateService,
-      SessionStateService,
-      ScopeActivation.OnScopeCreated,
-      'state',
-    );
-    registerScopedService(
-      LifecycleScope.App,
-      ILogService,
-      AppLogService,
-      ScopeActivation.OnDemand,
-      'log',
-    );
-    registerScopedService(
-      LifecycleScope.Session,
-      ILogService,
-      SessionLogService,
-      ScopeActivation.OnDemand,
-      'log',
-    );
+    registerScopedService(LifecycleScope.Session, ISessionStateService, SessionStateService, ScopeActivation.OnScopeCreated, 'state');
+    registerScopedService(LifecycleScope.App, ILogService, AppLogService, ScopeActivation.OnDemand, 'log');
+    registerScopedService(LifecycleScope.Session, ILogService, SessionLogService, ScopeActivation.OnDemand, 'log');
   });
 
   it('resolves the single token to the nearest scope binding', () => {

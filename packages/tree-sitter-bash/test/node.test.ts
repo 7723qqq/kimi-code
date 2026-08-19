@@ -14,26 +14,13 @@ const SOURCE = 'echo foo; echo bar';
  *           └─ word "bar"
  */
 function buildTree() {
-  const program = createNode({
-    type: 'program',
-    source: SOURCE,
-    startIndex: 0,
-    endIndex: SOURCE.length,
-  });
-  const cmd1 = program.addChild(
-    createNode({ type: 'command', source: SOURCE, startIndex: 0, endIndex: 8 }),
-  );
-  const name1 = cmd1.addChild(
-    createNode({ type: 'command_name', source: SOURCE, startIndex: 0, endIndex: 4 }),
-  );
+  const program = createNode({ type: 'program', source: SOURCE, startIndex: 0, endIndex: SOURCE.length });
+  const cmd1 = program.addChild(createNode({ type: 'command', source: SOURCE, startIndex: 0, endIndex: 8 }));
+  const name1 = cmd1.addChild(createNode({ type: 'command_name', source: SOURCE, startIndex: 0, endIndex: 4 }));
   name1.addChild(createNode({ type: 'word', source: SOURCE, startIndex: 0, endIndex: 4 }));
   cmd1.addChild(createNode({ type: 'word', source: SOURCE, startIndex: 5, endIndex: 8 }));
-  program.addChild(
-    createNode({ type: ';', source: SOURCE, startIndex: 8, endIndex: 9, isNamed: false }),
-  );
-  const cmd2 = program.addChild(
-    createNode({ type: 'command', source: SOURCE, startIndex: 10, endIndex: 18 }),
-  );
+  program.addChild(createNode({ type: ';', source: SOURCE, startIndex: 8, endIndex: 9, isNamed: false }));
+  const cmd2 = program.addChild(createNode({ type: 'command', source: SOURCE, startIndex: 10, endIndex: 18 }));
   cmd2.addChild(createNode({ type: 'word', source: SOURCE, startIndex: 15, endIndex: 18 }));
   return program;
 }
@@ -49,30 +36,14 @@ describe('createNode', () => {
   });
 
   it('rejects out-of-range offsets', () => {
-    expect(() => createNode({ type: 'word', source: SOURCE, startIndex: -1, endIndex: 2 })).toThrow(
-      RangeError,
-    );
-    expect(() => createNode({ type: 'word', source: SOURCE, startIndex: 3, endIndex: 2 })).toThrow(
-      RangeError,
-    );
-    expect(() =>
-      createNode({ type: 'word', source: SOURCE, startIndex: 0, endIndex: 100 }),
-    ).toThrow(RangeError);
+    expect(() => createNode({ type: 'word', source: SOURCE, startIndex: -1, endIndex: 2 })).toThrow(RangeError);
+    expect(() => createNode({ type: 'word', source: SOURCE, startIndex: 3, endIndex: 2 })).toThrow(RangeError);
+    expect(() => createNode({ type: 'word', source: SOURCE, startIndex: 0, endIndex: 100 })).toThrow(RangeError);
   });
 
   it('rejects attaching a child that already has a parent', () => {
-    const a = createNode({
-      type: 'program',
-      source: SOURCE,
-      startIndex: 0,
-      endIndex: SOURCE.length,
-    });
-    const b = createNode({
-      type: 'program',
-      source: SOURCE,
-      startIndex: 0,
-      endIndex: SOURCE.length,
-    });
+    const a = createNode({ type: 'program', source: SOURCE, startIndex: 0, endIndex: SOURCE.length });
+    const b = createNode({ type: 'program', source: SOURCE, startIndex: 0, endIndex: SOURCE.length });
     const child = createNode({ type: 'word', source: SOURCE, startIndex: 0, endIndex: 4 });
     a.addChild(child);
     expect(() => b.addChild(child)).toThrow(/already has a parent/);
@@ -88,12 +59,12 @@ describe('createNode', () => {
   it('rejects overlapping or out-of-order siblings', () => {
     const parent = createNode({ type: 'command', source: SOURCE, startIndex: 0, endIndex: 8 });
     parent.addChild(createNode({ type: 'word', source: SOURCE, startIndex: 2, endIndex: 5 }));
-    expect(() =>
-      parent.addChild(createNode({ type: 'word', source: SOURCE, startIndex: 4, endIndex: 7 })),
-    ).toThrow(RangeError);
-    expect(() =>
-      parent.addChild(createNode({ type: 'word', source: SOURCE, startIndex: 0, endIndex: 2 })),
-    ).toThrow(RangeError);
+    expect(() => parent.addChild(createNode({ type: 'word', source: SOURCE, startIndex: 4, endIndex: 7 }))).toThrow(
+      RangeError,
+    );
+    expect(() => parent.addChild(createNode({ type: 'word', source: SOURCE, startIndex: 0, endIndex: 2 }))).toThrow(
+      RangeError,
+    );
     // Adjacent (start == previous end) is fine.
     parent.addChild(createNode({ type: 'word', source: SOURCE, startIndex: 5, endIndex: 8 }));
     expect(parent.children).toHaveLength(2);

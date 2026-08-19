@@ -1,13 +1,3 @@
-/**
- * `swarm` domain — `IAgentSwarmTool` contract (the `AgentSwarm` tool).
- *
- * Public contract of the `AgentSwarm` collaboration tool: the input zod
- * schema the model-facing parameters are derived from, the tool-owned
- * constants the schema is built around (prompt template placeholder, maximum
- * subagent count), and the `IAgentSwarmTool` DI decorator used to resolve the
- * implementation through the container. Bound at Agent scope.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -18,7 +8,11 @@ export const MAX_AGENT_SWARM_SUBAGENTS = 128;
 
 export const AgentSwarmToolInputSchema = z
   .object({
-    description: z.string().trim().min(1).describe('Short description for the whole swarm.'),
+    description: z
+      .string()
+      .trim()
+      .min(1)
+      .describe('Short description for the whole swarm.'),
     subagent_type: z
       .string()
       .trim()
@@ -59,7 +53,5 @@ export const AgentSwarmToolInputSchema = z
 
 export type AgentSwarmToolInput = z.infer<typeof AgentSwarmToolInputSchema>;
 
-export interface IAgentSwarmTool extends AgentTool<AgentSwarmToolInput> {
-  readonly _serviceBrand: undefined;
-}
+export interface IAgentSwarmTool extends AgentTool<AgentSwarmToolInput> { readonly _serviceBrand: undefined }
 export const IAgentSwarmTool = createDecorator<IAgentSwarmTool>('agentSwarmTool');

@@ -1,12 +1,9 @@
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { createDecorator } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { Error2, isError2, type Error2Options } from '#/_base/errors/errors';
-import type { Hooks } from '#/hooks';
 import type { FinishReason } from '#/kosong/contract/provider';
 import type { TokenUsage } from '#/kosong/contract/usage';
-
+import type { Hooks } from '#/hooks';
 import { LoopErrors } from './errors';
 import type { StepRequest } from './stepRequest';
 
@@ -22,7 +19,8 @@ export class LoopError extends Error2 {
 export function createMaxStepsExceededError(maxSteps: number, message?: string): LoopError {
   return new LoopError(
     LoopErrors.codes.LOOP_MAX_STEPS_EXCEEDED,
-    message ?? t('v2Loop.maxStepsExceeded', { maxSteps: String(maxSteps) }),
+    message ??
+      `Turn exceeded maxSteps=${maxSteps}. If max_steps_per_turn is too small, raise it in config.toml (loop_control.max_steps_per_turn), or run "/update-config" to update it, then "/reload".`,
     { details: { maxSteps } },
   );
 }

@@ -1,16 +1,3 @@
-/**
- * `app/kosongConfig` envOverlay tests — the `KIMI_MODEL_*` effective overlay:
- *
- *  - with `KIMI_MODEL_NAME` set it synthesizes the reserved env model +
- *    provider entries and selects the model; without it only the
- *    `modelOverrides` knobs apply;
- *  - the env provider's default `baseUrl` comes from the provider-definition
- *    registry (`resolveProviderEndpoint` against the same env the overlay
- *    reads): the Kimi chain yields `KIMI_BASE_URL` →
- *    `https://api.moonshot.ai/v1`;
- *  - `strip` keeps the synthesized values out of `config.toml`.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { ENV_MODEL_PROVIDER_KEY } from '#/app/kosongConfig/configSection';
@@ -21,11 +8,7 @@ import { ENV_MODEL_ALIAS_KEY, kimiModelEnvOverlay } from '#/app/kosongConfig/env
 type Env = Record<string, string>;
 
 function apply(effective: Record<string, unknown>, env: Env): readonly string[] {
-  return kimiModelEnvOverlay.apply(
-    effective,
-    (name) => env[name],
-    (_domain, value) => value,
-  );
+  return kimiModelEnvOverlay.apply(effective, (name) => env[name], (_domain, value) => value);
 }
 
 describe('kimiModelEnvOverlay.apply', () => {
@@ -55,7 +38,9 @@ describe('kimiModelEnvOverlay.apply', () => {
   it('synthesizes the env model, selects it, and defaults the provider through the registry', () => {
     const effective: Record<string, unknown> = {};
     const changed = apply(effective, { KIMI_MODEL_NAME: 'kimi-k2-custom' });
-    expect(changed).toEqual(expect.arrayContaining(['models', 'providers', 'defaultModel']));
+    expect(changed).toEqual(
+      expect.arrayContaining(['models', 'providers', 'defaultModel']),
+    );
     expect((effective['models'] as Record<string, unknown>)[ENV_MODEL_ALIAS_KEY]).toEqual({
       provider: ENV_MODEL_PROVIDER_KEY,
       model: 'kimi-k2-custom',
@@ -117,9 +102,9 @@ describe('kimiModelEnvOverlay.apply', () => {
       adaptiveThinking: true,
     });
 
-    expect(() =>
-      apply({}, { KIMI_MODEL_NAME: 'm', KIMI_MODEL_MAX_CONTEXT_SIZE: 'abc' }),
-    ).toThrowError(/KIMI_MODEL_MAX_CONTEXT_SIZE must be a positive integer/);
+    expect(() => apply({}, { KIMI_MODEL_NAME: 'm', KIMI_MODEL_MAX_CONTEXT_SIZE: 'abc' })).toThrowError(
+      /KIMI_MODEL_MAX_CONTEXT_SIZE must be a positive integer/,
+    );
     expect(() => apply({}, { KIMI_MODEL_TEMPERATURE: 'hot' })).toThrowError(
       /KIMI_MODEL_TEMPERATURE must be a number/,
     );

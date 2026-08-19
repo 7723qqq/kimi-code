@@ -1,40 +1,28 @@
-/**
- * Scenario: agent-profile loaders + session catalog — the Contribution /
- * Registry / Catalog extension point end to end. Exercises the real loader
- * services (builtin / user / plugin / workspace / extra / explicit), the
- * App-scope `AgentProfileRegistryService` fold, and the Session-scope
- * `SessionAgentProfileCatalogService` — the loaders and the fold are resolved
- * through one DI container (the `this.provide` collection-contribution path
- * requires container-constructed units) against real temp directories:
- * source-priority merge, the builtin-override rule, explicit fatal semantics,
- * config / plugin-reload / fs-watch driven reloads, and SYSTEM.md interplay.
- * Run:
- * `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/workspace/workspaceAgentProfileLoader/agentProfileLoader.test.ts`.
- */
-
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { Emitter, Event } from '#/_base/event';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
-import { Emitter, Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { EXTRA_AGENT_DIRS_SECTION } from '#/workspace/workspaceAgentProfileLoader/configSection';
+import { UserAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoaderService';
+import type { PluginAgentRoot, ReloadSummary } from '#/app/plugin/types';
 import {
   DEFAULT_AGENT_PROFILE_NAME,
   normalizeAgentProfile,
   type AgentProfile,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { AGENT_PROFILE_SOURCE_PRIORITY } from '#/app/agentProfileCatalog/agentProfileContribution';
 import { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
 import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { BuiltinAgentProfileLoaderService } from '#/app/agentProfileCatalog/builtinAgentProfileLoaderService';
+import { AGENT_PROFILE_SOURCE_PRIORITY } from '#/app/agentProfileCatalog/agentProfileContribution';
 import {
   _clearAgentProfileContributionsForTests,
   registerAgentProfile,
@@ -42,30 +30,27 @@ import {
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IPluginService } from '#/app/plugin/plugin';
-import type { PluginAgentRoot, ReloadSummary } from '#/app/plugin/types';
+import { PluginAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoaderService';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { HostFsWatchService } from '#/os/backends/node-local/hostFsWatchService';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   IHostFsWatchService,
   type HostFsChange,
   type IHostFsWatchHandle,
 } from '#/os/interface/hostFsWatch';
-import type { ISessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
 import { SessionAgentProfileCatalogService } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalogService';
-import { EXTRA_AGENT_DIRS_SECTION } from '#/workspace/workspaceAgentProfileLoader/configSection';
-import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
+import type { ISessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
 import { ExplicitAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoaderService';
-import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
 import { ExtraAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoaderService';
-import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
-import { PluginAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoaderService';
-import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
-import { UserAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoaderService';
-import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
 import { WorkspaceAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoaderService';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
+import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
+import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
+import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 
@@ -118,8 +103,6 @@ function workspaceContextStub(workDir: string): IWorkspaceContext {
     source: 'local',
     meta: { id: 'wd_test', root: workDir, name: 'test', createdAt: 0, lastOpenedAt: 0 },
     persistenceScope: 'sessions/wd_test',
-    osBackendId: 'local',
-    persistenceBackendId: 'local',
   };
 }
 
@@ -211,7 +194,6 @@ function pluginStub(
     enabledSessionStarts: async () => [],
     enabledSystemPrompts: async () => [],
     enabledMcpServers: async () => ({}),
-    mcpServers: async () => [],
     enabledHooks: async () => [],
     hasLoadedSnapshot: () => true,
   };
@@ -367,16 +349,8 @@ describe('agent profile loaders + session catalog', () => {
 
   it('merges user and workspace agents; workspace wins on name collision', async () => {
     await withFixture(async (fixture) => {
-      await writeAgent(
-        join(fixture.homeDir, 'agents'),
-        'shared.md',
-        agentMd('shared', 'from user'),
-      );
-      await writeAgent(
-        join(fixture.homeDir, 'agents'),
-        'user-only.md',
-        agentMd('user-only', 'user agent'),
-      );
+      await writeAgent(join(fixture.homeDir, 'agents'), 'shared.md', agentMd('shared', 'from user'));
+      await writeAgent(join(fixture.homeDir, 'agents'), 'user-only.md', agentMd('user-only', 'user agent'));
       await writeAgent(
         join(fixture.workDir, '.kimi-code', 'agents'),
         'shared.md',
@@ -400,16 +374,8 @@ describe('agent profile loaders + session catalog', () => {
 
   it('orders sources user < extra < workspace < explicit', async () => {
     await withFixture(async (fixture) => {
-      await writeAgent(
-        join(fixture.homeDir, 'agents'),
-        'shared.md',
-        agentMd('shared', 'from user'),
-      );
-      await writeAgent(
-        join(fixture.homeDir, 'agents'),
-        'user-extra.md',
-        agentMd('user-extra', 'from user'),
-      );
+      await writeAgent(join(fixture.homeDir, 'agents'), 'shared.md', agentMd('shared', 'from user'));
+      await writeAgent(join(fixture.homeDir, 'agents'), 'user-extra.md', agentMd('user-extra', 'from user'));
       await writeAgent(fixture.extraDir, 'shared.md', agentMd('shared', 'from extra'));
       await writeAgent(fixture.extraDir, 'user-extra.md', agentMd('user-extra', 'from extra'));
       await writeAgent(
@@ -441,11 +407,7 @@ describe('agent profile loaders + session catalog', () => {
       const pluginAgentsDir = join(fixture.extraDir, 'plugin-agents');
       await writeAgent(pluginAgentsDir, 'shared.md', agentMd('shared', 'from plugin'));
       await writeAgent(pluginAgentsDir, 'plugin-only.md', agentMd('plugin-only', 'from plugin'));
-      await writeAgent(
-        join(fixture.homeDir, 'agents'),
-        'shared.md',
-        agentMd('shared', 'from user'),
-      );
+      await writeAgent(join(fixture.homeDir, 'agents'), 'shared.md', agentMd('shared', 'from user'));
       await withStack(
         fixture,
         { pluginAgentRoots: [{ path: pluginAgentsDir, source: 'plugin' }] },
@@ -487,7 +449,11 @@ describe('agent profile loaders + session catalog', () => {
 
   it('fails ready when an explicit agent file is invalid', async () => {
     await withFixture(async (fixture) => {
-      const bad = await writeAgent(fixture.workDir, 'bad.md', '---\nname: bad\n---\n\nbody\n');
+      const bad = await writeAgent(
+        fixture.workDir,
+        'bad.md',
+        '---\nname: bad\n---\n\nbody\n',
+      );
       await withStack(fixture, { explicitFiles: [bad] }, async (stack) => {
         await expect(stack.explicitLoader.ready).rejects.toThrow(/description/i);
       });
@@ -510,7 +476,11 @@ describe('agent profile loaders + session catalog', () => {
 
   it('recovers ready after a reload fixes a previously fatal explicit file', async () => {
     await withFixture(async (fixture) => {
-      const bad = await writeAgent(fixture.workDir, 'bad.md', '---\nname: bad\n---\n\nbody\n');
+      const bad = await writeAgent(
+        fixture.workDir,
+        'bad.md',
+        '---\nname: bad\n---\n\nbody\n',
+      );
       await withStack(fixture, { explicitFiles: [bad] }, async (stack) => {
         await expect(stack.explicitLoader.ready).rejects.toThrow(/description/i);
 
@@ -562,11 +532,7 @@ describe('agent profile loaders + session catalog', () => {
         'bad.md',
         '---\nname: bad\n---\n\nbody\n',
       );
-      await writeAgent(
-        join(fixture.workDir, '.kimi-code', 'agents'),
-        'good.md',
-        agentMd('good', 'valid'),
-      );
+      await writeAgent(join(fixture.workDir, '.kimi-code', 'agents'), 'good.md', agentMd('good', 'valid'));
       await withStack(fixture, undefined, async (stack) => {
         await stack.ready();
 
@@ -812,9 +778,7 @@ describe('agent profile loaders + session catalog', () => {
       await withStack(fixture, undefined, async (stack) => {
         await stack.ready();
 
-        const bySourceId = new Map(
-          stack.registry.entries().map((entry) => [entry.sourceId, entry]),
-        );
+        const bySourceId = new Map(stack.registry.entries().map((entry) => [entry.sourceId, entry]));
         expect([...bySourceId.keys()].toSorted()).toEqual([
           'builtin',
           'explicit',

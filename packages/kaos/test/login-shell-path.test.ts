@@ -24,14 +24,13 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import {
   applyLoginShellPath,
   type LoginShellPathDeps,
   mergeLoginShellPath,
   probeLoginShellPath,
 } from '#/login-shell-path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface StubOpts {
   readonly platform?: string;
@@ -210,10 +209,7 @@ describe.skipIf(process.platform === 'win32')('LocalKaos login-shell PATH enrich
     // Stands in for the user's login shell: whatever flags it is invoked
     // with, it reports an environment whose PATH carries an entry the
     // kimi-code process does not have.
-    await writeFile(
-      stubShell,
-      `#!/bin/sh\necho "HOME=$HOME"\necho "PATH=${extraDir}:/usr/bin:/bin"\n`,
-    );
+    await writeFile(stubShell, `#!/bin/sh\necho "HOME=$HOME"\necho "PATH=${extraDir}:/usr/bin:/bin"\n`);
     await chmod(stubShell, 0o755);
     process.env['SHELL'] = stubShell;
 

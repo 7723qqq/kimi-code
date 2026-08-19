@@ -1,22 +1,3 @@
-/**
- * `kosong/provider` domain — the provider configuration contract.
- *
- * A Provider is the "endpoint + model-enumeration mechanism" boundary: it
- * carries the concrete `baseUrl`, any custom HTTP headers, and — through
- * `modelSource` — declares how the runtime should discover the Models it
- * serves (static list from `[models.*]`, `/v1/models` discovery, or an
- * OAuth-managed catalog).
- *
- * `ProviderType` is deliberately free-form text: vendor identity is NOT
- * enumerated at the type level. Validation happens at resolve time against
- * the provider-definition registry, which is what allows external packages
- * to register new vendors without touching this contract.
- *
- * Owns the `ProviderConfig` / `OAuthRef` types and the in-memory provider
- * registry contract; App-scoped. Kosong has no persistence — it defines
- * types only.
- */
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event, IWaitUntil } from '#/_base/event';
 
@@ -42,14 +23,6 @@ export interface ProviderConfig {
   oauth?: OAuthRef;
   env?: Record<string, string>;
   source?: Record<string, unknown>;
-  /**
-   * Whether the session-affinity cache key is emitted on the wire
-   * (`prompt_cache_key` on OpenAI-compatible transports, `metadata.user_id`
-   * on Anthropic). Defaults to true (the upstream behavior). Set to false
-   * for endpoints that reject the field with 400 (e.g. some third-party
-   * relays such as TokenRhythm answer `unknown request field`).
-   */
-  cacheKey?: boolean;
 }
 
 export type ProvidersSection = Record<string, ProviderConfig>;

@@ -72,9 +72,7 @@ describe('PlanBoxComponent', () => {
   it('wraps the basename in an OSC 8 hyperlink targeting file://', () => {
     const box = new PlanBoxComponent('# Hello', theme, darkColors.success, '/tmp/plan.md');
     const top = box.render(60)[0]!;
-    expect(top).toContain(
-      `${ESC}]8;;${pathToFileURL('/tmp/plan.md').href}${BEL}plan.md${ESC}]8;;${BEL}`,
-    );
+    expect(top).toContain(`${ESC}]8;;${pathToFileURL('/tmp/plan.md').href}${BEL}plan.md${ESC}]8;;${BEL}`);
     // After stripping OSC + CSI, visible width must respect the requested render width.
     expect(strip(top).length).toBeLessThanOrEqual(60);
   });

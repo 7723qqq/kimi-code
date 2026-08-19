@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { normalize } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -16,6 +15,10 @@ import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
+import { IRuntimeResolver, IWorkspaceInstanceManager, type WorkspaceInstanceChange } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { Event } from '#/_base/event';
+import type { Runtime } from '#/runtime/runtime';
+import { normalize } from 'pathe';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
@@ -40,10 +43,21 @@ describe('GitService', () => {
     git(repo, 'config', 'user.name', 'Test');
     git(repo, 'config', 'commit.gpgsign', 'false');
     disposables = new DisposableStore();
+    const process = new HostProcessService();
+    const runtime = { process } as unknown as Runtime;
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.define(IHostProcessService, HostProcessService);
         reg.define(IHostFileSystem, HostFileSystem);
+        reg.defineInstance(IRuntimeResolver, {
+          _serviceBrand: undefined,
+          inspect: () => runtime,
+          acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
+        });
+        reg.definePartialInstance(IWorkspaceInstanceManager, {
+          findByRoot: () => ({ id: 'workspace-1' } as never),
+          onDidChange: Event.None as Event<WorkspaceInstanceChange>,
+        });
         reg.define(IGitService, GitService);
       },
     });

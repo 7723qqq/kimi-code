@@ -1,20 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { retryBackoffDelays } from '#/_base/utils/retry';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { ContinuationStepRequest } from '#/agent/loop/stepRequest';
-import { IEventBus } from '#/app/event/eventBus';
 import {
   APIConnectionError,
   APIProviderRateLimitError,
   APIStatusError,
-  ChatProviderError,
-  VideoUploadUnsupportedError,
 } from '#/kosong/contract/errors';
 import { emptyUsage } from '#/kosong/contract/usage';
+import { IEventBus } from '#/app/event/eventBus';
+import { retryBackoffDelays } from '#/_base/utils/retry';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { ContinuationStepRequest } from '#/agent/loop/stepRequest';
+import { TurnStarted } from '#/agent/loop/turnEvents';
+import { TurnStepRetrying } from '#/agent/stepRetry/stepRetryService';
 
 import { createTestAgent, llmGenerateServices, type TestAgentContext } from '../../harness';
-import { nextTurnMessage } from '../loop/helpers';
 
 const realSetTimeout = globalThis.setTimeout;
 
@@ -35,7 +34,7 @@ describe('stepRetry plugin', () => {
   }
 
   async function runTurn(turnId: number, signal?: AbortSignal) {
-    ctx.get(IEventBus).publish({ type: 'turn.started', turnId, origin: { kind: 'user' } });
+    void ctx.dispatcher.dispatch(new TurnStarted({ turnId, origin: { kind: 'user' } }));
     const loop = ctx.get(IAgentLoopService);
     loop.enqueue(new ContinuationStepRequest());
     const resultPromise = loop.run({ turnId, signal });
@@ -151,7 +150,7 @@ describe('stepRetry plugin', () => {
       }),
     );
 
-    ctx.get(IEventBus).publish({ type: 'turn.started', turnId: 1, origin: { kind: 'user' } });
+    void ctx.dispatcher.dispatch(new TurnStarted({ turnId: 1, origin: { kind: 'user' } }));
     const loop = ctx.get(IAgentLoopService);
     loop.enqueue(new ContinuationStepRequest());
     const result = await loop.run({ turnId: 1 });
@@ -181,78 +180,6 @@ describe('stepRetry plugin', () => {
     expect(rpcEvents('turn.step.retrying')).toEqual([]);
   });
 
-  it('retries a bare ChatProviderError as a transient fallback', async () => {
-    vi.useFakeTimers();
-    let calls = 0;
-    ctx = createTestAgent(
-      llmGenerateServices(async () => {
-        calls += 1;
-        if (calls === 1) throw new ChatProviderError('upstream failure');
-        return {
-          id: 'fallback-response',
-          message: {
-            role: 'assistant',
-            content: [{ type: 'text', text: 'recovered' }],
-            toolCalls: [],
-          },
-          usage: emptyUsage(),
-          finishReason: 'completed',
-          rawFinishReason: 'stop',
-        };
-      }),
-    );
-
-    const result = await runTurn(1);
-
-    expect(result.type).toBe('completed');
-    expect(calls).toBe(2);
-    expect(rpcEvents('turn.step.retrying')).toHaveLength(1);
-  });
-
-  it('does not retry a VideoUploadUnsupportedError', async () => {
-    vi.useFakeTimers();
-    let calls = 0;
-    ctx = createTestAgent(
-      llmGenerateServices(async () => {
-        calls += 1;
-        throw new VideoUploadUnsupportedError('provider has no video upload hook');
-      }),
-    );
-
-    const result = await runTurn(1);
-
-    expect(result.type).toBe('failed');
-    expect(calls).toBe(1);
-    expect(rpcEvents('turn.step.retrying')).toEqual([]);
-  });
-
-  it('retries a 5xx server status error', async () => {
-    vi.useFakeTimers();
-    let calls = 0;
-    ctx = createTestAgent(
-      llmGenerateServices(async () => {
-        calls += 1;
-        if (calls === 1) throw new APIStatusError(503, 'server busy');
-        return {
-          id: 'recovered-response',
-          message: {
-            role: 'assistant',
-            content: [{ type: 'text', text: 'recovered' }],
-            toolCalls: [],
-          },
-          usage: emptyUsage(),
-          finishReason: 'completed',
-          rawFinishReason: 'stop',
-        };
-      }),
-    );
-
-    const result = await runTurn(1);
-
-    expect(result.type).toBe('completed');
-    expect(calls).toBe(2);
-  });
-
   it('cancels the turn when aborted during the backoff wait', async () => {
     vi.useFakeTimers();
     const controller = new AbortController();
@@ -261,7 +188,7 @@ describe('stepRetry plugin', () => {
         throw new APIConnectionError('terminated');
       }),
     );
-    ctx.get(IEventBus).subscribe('turn.step.retrying', () => {
+    ctx.get(IEventBus).subscribe(TurnStepRetrying, () => {
       controller.abort(new Error('stop'));
     });
 
@@ -270,43 +197,15 @@ describe('stepRetry plugin', () => {
     expect(result.type).toBe('cancelled');
   });
 
-  it('attributes the turn as cancelled when the step is aborted during the backoff wait', async () => {
-    vi.useFakeTimers();
-    ctx = createTestAgent(
-      llmGenerateServices(async () => {
-        throw new APIConnectionError('terminated');
-      }),
-    );
-    const loop = ctx.get(IAgentLoopService);
-    const { step, turn } = await loop.enqueue(nextTurnMessage('hello')).assigned;
-    let onRetrying!: () => void;
-    const retrying = new Promise<void>((resolve) => {
-      onRetrying = resolve;
-    });
-    const subscription = ctx.get(IEventBus).subscribe('turn.step.retrying', () => onRetrying());
-    await retrying;
-
-    expect(step.cancel(new Error('skip this step'))).toBe(true);
-    await vi.runAllTimersAsync();
-    const result = await turn.result;
-    subscription.dispose();
-
-    expect(result).toMatchObject({ type: 'cancelled' });
-    await expect(step.result).resolves.toMatchObject({ type: 'cancelled' });
-  });
-
   it('honors loop_control.max_attempts_per_step', async () => {
     vi.useFakeTimers();
     let calls = 0;
-    ctx = createTestAgent(
-      llmGenerateServices(async () => {
-        calls += 1;
-        throw new APIConnectionError('terminated');
-      }),
-      {
-        initialConfig: { loopControl: { maxAttemptsPerStep: 1 } },
-      },
-    );
+    ctx = createTestAgent(llmGenerateServices(async () => {
+      calls += 1;
+      throw new APIConnectionError('terminated');
+    }), {
+      initialConfig: { loopControl: { maxAttemptsPerStep: 1 } },
+    });
 
     const result = await runTurn(1);
 

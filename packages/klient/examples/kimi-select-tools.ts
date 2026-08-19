@@ -50,13 +50,16 @@
  *                                 the actual wire Context of each request.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
+
+import type { AddressInfo } from 'node:net';
+
 import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
-import { renderLoadableToolsAnnouncement } from '@moonshot-ai/agent-core-v2/agent/toolSelect/dynamicTools';
 import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
+import { renderLoadableToolsAnnouncement } from '@moonshot-ai/agent-core-v2/agent/toolSelect/dynamicTools';
 import { UNKNOWN_CAPABILITY } from '@moonshot-ai/agent-core-v2/kosong/contract/capability';
 import type { Message } from '@moonshot-ai/agent-core-v2/kosong/contract/message';
 import type { Tool } from '@moonshot-ai/agent-core-v2/kosong/contract/tool';
@@ -69,8 +72,6 @@ import type {
 import { ModelRequesterImpl } from '@moonshot-ai/agent-core-v2/kosong/model/modelRequesterImpl';
 import { IProtocolAdapterRegistry } from '@moonshot-ai/agent-core-v2/kosong/protocol/protocol';
 import { ProtocolAdapterRegistry } from '@moonshot-ai/agent-core-v2/kosong/provider/protocolAdapterRegistry';
-
-import { EXAMPLE_CLIENT_IDENTITY } from './identity.js';
 
 function assert(cond: boolean, message: string): asserts cond {
   if (!cond) throw new Error(`assertion failed: ${message}`);
@@ -187,7 +188,9 @@ const toolDeclarationMessage = (tools: readonly Tool[]): Message => ({
 
 const announcementMessage = (names: readonly string[]): Message => ({
   role: 'system',
-  content: [{ type: 'text', text: renderLoadableToolsAnnouncement(names, []) }],
+  content: [
+    { type: 'text', text: renderLoadableToolsAnnouncement(names, []) },
+  ],
   toolCalls: [],
 });
 
@@ -256,7 +259,8 @@ interface WireBody {
 
 async function probeWireEncoding(): Promise<void> {
   console.log('\n=== part A: wire-encoding boundary (local stub) ===');
-  let handler: (req: IncomingMessage, res: ServerResponse) => void = (_req, res) => writePong(res);
+  let handler: (req: IncomingMessage, res: ServerResponse) => void = (_req, res) =>
+    writePong(res);
   let lastBody: WireBody | undefined;
 
   const server = createServer((req, res) => {
@@ -363,12 +367,7 @@ async function probeWireEncoding(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 type Step1Outcome =
-  | {
-      readonly kind: 'selected';
-      readonly names: readonly string[];
-      readonly callId: string;
-      readonly argumentsJson: string;
-    }
+  | { readonly kind: 'selected'; readonly names: readonly string[]; readonly callId: string; readonly argumentsJson: string }
   | { readonly kind: 'no-call'; readonly text: string }
   | { readonly kind: 'error'; readonly message: string };
 
@@ -411,7 +410,10 @@ async function step1Select(requester: ModelRequester, scenario: Scenario): Promi
       collect(requester, {
         systemPrompt: SYSTEM_PROMPT,
         tools: [SELECT_TOOLS],
-        messages: [announcementMessage(COMPUTER_USE_NAMES), userMessage(scenario.prompt)],
+        messages: [
+          announcementMessage(COMPUTER_USE_NAMES),
+          userMessage(scenario.prompt),
+        ],
       }),
       60_000,
       'step1',
@@ -430,17 +432,13 @@ async function step1Select(requester: ModelRequester, scenario: Scenario): Promi
     let names: string[] = [];
     try {
       const parsed = JSON.parse(call.arguments ?? '{}') as { names?: unknown };
-      if (Array.isArray(parsed.names))
-        names = parsed.names.filter((n): n is string => typeof n === 'string');
+      if (Array.isArray(parsed.names)) names = parsed.names.filter((n): n is string => typeof n === 'string');
     } catch {
       // keep names empty — reported below
     }
     return { kind: 'selected', names, callId: call.id, argumentsJson: call.arguments ?? '' };
   } catch (error) {
-    return {
-      kind: 'error',
-      message: error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error),
-    };
+    return { kind: 'error', message: error instanceof Error ? error.message.split('\n')[0] ?? '' : String(error) };
   }
 }
 
@@ -450,12 +448,11 @@ async function step2UseLoadedTool(
   scenario: Scenario,
 ): Promise<Step2Outcome> {
   const validNames = step1.names.filter((n) => COMPUTER_USE_NAMES.includes(n));
-  const loadName = validNames.includes(scenario.expectTool) ? scenario.expectTool : validNames[0];
+  const loadName = validNames.includes(scenario.expectTool)
+    ? scenario.expectTool
+    : validNames[0];
   if (loadName === undefined) {
-    return {
-      kind: 'other',
-      description: `selected names not in announced list: [${step1.names.join(', ')}]`,
-    };
+    return { kind: 'other', description: `selected names not in announced list: [${step1.names.join(', ')}]` };
   }
   const loadedTool = COMPUTER_USE_TOOLS.find((t) => t.name === loadName)!;
   const messages = (withDeclaration: boolean): ModelRequestInput => ({
@@ -502,7 +499,7 @@ async function step2UseLoadedTool(
           : `answered text: ${result.text.slice(0, 80)}`,
     };
   } catch (error) {
-    const message = error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error);
+    const message = error instanceof Error ? error.message.split('\n')[0] ?? '' : String(error);
     // Differential: retry the SAME request minus the schema-injection message.
     // If it then succeeds, the backend rejects the dynamic-schema wire shape
     // specifically; if it fails too, the problem is elsewhere in the flow.
@@ -513,10 +510,7 @@ async function step2UseLoadedTool(
         message: `${message} (isolation: same request WITHOUT the tools-in-message injection succeeds — backend rejects the dynamic-schema wire shape)`,
       };
     } catch {
-      return {
-        kind: 'error',
-        message: `${message} (isolation: also fails without the injection — not caused by the declaration message)`,
-      };
+      return { kind: 'error', message: `${message} (isolation: also fails without the injection — not caused by the declaration message)` };
     }
   }
 }
@@ -563,19 +557,13 @@ async function probeLiveKimiProviders(): Promise<void> {
           } else {
             row = `PARTIAL  select=[${step1.names.join(', ')}] but step2 error: ${step2.message}`;
           }
-          console.log(
-            `[${m.model}] ${scenario.expectTool}  ${elapsed}  declared=${String(declared)}  ${row}`,
-          );
+          console.log(`[${m.model}] ${scenario.expectTool}  ${elapsed}  declared=${String(declared)}  ${row}`);
         } else if (step1.kind === 'no-call') {
           row = `FAIL  no select_tools call: ${step1.text}`;
-          console.log(
-            `[${m.model}] ${scenario.expectTool}  ${String(Date.now() - startedAt)}ms  declared=${String(declared)}  ${row}`,
-          );
+          console.log(`[${m.model}] ${scenario.expectTool}  ${String(Date.now() - startedAt)}ms  declared=${String(declared)}  ${row}`);
         } else {
           row = `ERROR  ${step1.message}`;
-          console.log(
-            `[${m.model}] ${scenario.expectTool}  ${String(Date.now() - startedAt)}ms  declared=${String(declared)}  ${row}`,
-          );
+          console.log(`[${m.model}] ${scenario.expectTool}  ${String(Date.now() - startedAt)}ms  declared=${String(declared)}  ${row}`);
         }
         summary.push(`${m.model.padEnd(40)} ${scenario.expectTool.padEnd(22)} ${row}`);
       }
@@ -628,11 +616,7 @@ function describeWireBody(raw: Buffer): string[] {
     }
     if (m.tool_call_id !== undefined) parts.push(`tool_call_id=${m.tool_call_id}`);
     const content =
-      typeof m.content === 'string'
-        ? m.content
-        : m.content === undefined
-          ? ''
-          : JSON.stringify(m.content);
+      typeof m.content === 'string' ? m.content : m.content === undefined ? '' : JSON.stringify(m.content);
     if (content.length > 0) parts.push(`content=${content.slice(0, 60).replaceAll('\n', ' ')}…`);
     lines.push(`    ${parts.join('  ')}`);
   }
@@ -677,9 +661,7 @@ async function probeTappedContext(): Promise<void> {
           void (async () => {
             const raw = Buffer.concat(chunks);
             tapCount += 1;
-            console.log(
-              `\n[${m.model}] ── request #${String(tapCount)} → ${upstream}${req.url ?? ''}`,
-            );
+            console.log(`\n[${m.model}] ── request #${String(tapCount)} → ${upstream}${req.url ?? ''}`);
             for (const line of describeWireBody(raw)) console.log(line);
             const headers = { ...(req.headers as Record<string, string>) };
             delete headers['host'];
@@ -692,11 +674,7 @@ async function probeTappedContext(): Promise<void> {
             });
             const passthrough: Record<string, string> = {};
             response.headers.forEach((value, key) => {
-              if (
-                key !== 'content-length' &&
-                key !== 'content-encoding' &&
-                key !== 'transfer-encoding'
-              ) {
+              if (key !== 'content-length' && key !== 'content-encoding' && key !== 'transfer-encoding') {
                 passthrough[key] = value;
               }
             });

@@ -132,13 +132,13 @@ base_url = "https://your-gateway.example"
 
 ## `vertexai`
 
-Runs on the same implementation as `google-genai`; the `type` value is free-form and does not switch behavior by itself. The Vertex AI access path is enabled when the provider's `env` defines `GOOGLE_CLOUD_PROJECT` plus `GOOGLE_CLOUD_LOCATION` (or uses a `*-aiplatform.googleapis.com` base URL).
+Shares the same implementation as `google-genai`; setting `type = "vertexai"` switches to the Vertex AI access path.
 
 Authentication follows the standard Google Cloud ADC flow (`gcloud auth application-default login` or a `GOOGLE_APPLICATION_CREDENTIALS` service account JSON) — this part is unrelated to Kimi Code. **The project ID and region must be written in the `[providers.vertexai.env]` sub-table** — simply `export GOOGLE_CLOUD_PROJECT` in the shell will not be read by the CLI.
 
 ```toml
 [providers.vertexai]
-type = "google-genai"
+type = "vertexai"
 
 [providers.vertexai.env]
 GOOGLE_CLOUD_PROJECT = "my-gcp-project"

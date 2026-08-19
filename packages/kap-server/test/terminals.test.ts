@@ -10,21 +10,13 @@ import {
   type TerminalProcess,
   type TerminalSpawnOptions,
 } from '@moonshot-ai/agent-core-v2';
+import { ErrorCode } from '../src/protocol/error-codes';
 import type { Terminal } from '@moonshot-ai/agent-core-v2/os/interface/terminal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { ErrorCode } from '../src/protocol/error-codes';
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-
-// --- Fake PTY service -------------------------------------------------------
-//
-// `startServer` bootstraps the real `HostTerminalService` (backed by node-pty).
-// Registering this fake at App scope AFTER those imports overrides it —
-// `buildCollection` applies scoped registrations in import order and the last
-// `set` for a given (scope, id) wins. Every spawned process is pushed into the
-// module-level collectors below so tests can inspect cwd / kill state.
+import { authHeaders } from './helpers/auth';
 
 class FakeTerminalProcess implements TerminalProcess {
   private readonly dataListeners = new Set<(data: string) => void>();
@@ -83,8 +75,6 @@ registerScopedService(
   ScopeActivation.OnDemand,
   'terminal-test',
 );
-
-// --- Test harness -----------------------------------------------------------
 
 interface Envelope<T> {
   code: number;
@@ -157,10 +147,11 @@ describe('server-v2 /api/v1/sessions/{sid}/terminals', () => {
   }
 
   async function post<T>(path: string, body: unknown): Promise<Envelope<T>> {
+    const requestBody = path.endsWith('/terminals') ? { runtime_id: 'local', ...(body as object) } : body;
     const res = await fetch(`${base}${path}`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-      body: JSON.stringify(body),
+      body: JSON.stringify(requestBody),
     } as never);
     return (await res.json()) as Envelope<T>;
   }
@@ -179,9 +170,8 @@ describe('server-v2 /api/v1/sessions/{sid}/terminals', () => {
       const sidA = await createSession(rootA);
       const sidB = await createSession(rootB);
 
-      const termA = (
-        await post<Terminal>(`/api/v1/sessions/${sidA}/terminals`, { cols: 100, rows: 30 })
-      ).data;
+      const termA = (await post<Terminal>(`/api/v1/sessions/${sidA}/terminals`, { cols: 100, rows: 30 }))
+        .data;
       const termB = (await post<Terminal>(`/api/v1/sessions/${sidB}/terminals`, {})).data;
 
       expect(termA.session_id).toBe(sidA);
@@ -189,7 +179,6 @@ describe('server-v2 /api/v1/sessions/{sid}/terminals', () => {
       expect(termA.rows).toBe(30);
       expect(termA.status).toBe('running');
       expect(termB.session_id).toBe(sidB);
-      // Each session resolves cwd against its own workspace workDir.
       expect(spawnOptions.map((o) => o.cwd)).toEqual([resolve(rootA), resolve(rootB)]);
 
       const listA = (await get<{ items: Terminal[] }>(`/api/v1/sessions/${sidA}/terminals`)).data;

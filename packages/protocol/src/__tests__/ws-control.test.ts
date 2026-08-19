@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
 
-import { createAsyncApiDocument } from '../asyncapi';
 import {
   abortMessageSchema,
   abortAckMessageSchema,
@@ -42,6 +40,8 @@ import {
   wsErrorMessageSchema,
   wsEventEnvelopeSchema,
 } from '../ws-control';
+import { createAsyncApiDocument } from '../asyncapi';
+import { z } from 'zod';
 
 const TS = '2026-06-04T10:30:00.000Z';
 
@@ -170,7 +170,7 @@ describe('ws-control — §3.1 server_hello', () => {
     expect(result.success).toBe(true);
   });
 
-  it('parses a server_hello without heartbeat_ms (older servers omit it)', () => {
+  it('parses a server_hello without heartbeat_ms (no server heartbeat)', () => {
     const result = serverHelloMessageSchema.safeParse({
       type: 'server_hello',
       timestamp: TS,

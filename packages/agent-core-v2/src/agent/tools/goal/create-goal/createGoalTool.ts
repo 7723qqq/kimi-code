@@ -1,31 +1,20 @@
-/**
- * `tools` domain — `ICreateGoalTool` implementation.
- *
- * Resolves a CreateGoal call against the goal service (`goal`): guards
- * against the current goal changing between resolution and execution, then
- * creates the goal and returns its serialized snapshot. The approval display
- * carries a `goal_start` card unless the permission mode (`permissionMode`)
- * is `auto`. Registered for the main agent only, mirroring v1's
- * `agent.type === 'main'` gate. Bound at Agent scope.
- */
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
-import { t } from '@moonshot-ai/kimi-i18n';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { type ToolExecution } from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
 import { IAgentGoalService } from '#/agent/goal/goal';
 import { goalForModel } from '#/agent/goal/tools/serialize';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { type ToolExecution } from '#/tool/toolContract';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
+import DESCRIPTION from './create-goal.md?raw';
 import {
   CreateGoalToolInputSchema,
   ICreateGoalTool,
   type CreateGoalToolInput,
 } from './create-goal';
-import DESCRIPTION from './create-goal.md?raw';
 
 export class CreateGoalTool implements ICreateGoalTool {
   declare readonly _serviceBrand: undefined;
@@ -41,7 +30,7 @@ export class CreateGoalTool implements ICreateGoalTool {
   resolveExecution(args: CreateGoalToolInput): ToolExecution {
     const goalAtResolution = this.goal.getGoal().goal;
     return {
-      description: t('toolsV2.goal.creating'),
+      description: 'Creating a goal',
       display: this.resolveGoalStartDisplay(args),
       approvalRule: this.name,
       execute: async ({ turnId }) => {
@@ -50,18 +39,7 @@ export class CreateGoalTool implements ICreateGoalTool {
           currentGoal?.goalId !== goalAtResolution?.goalId &&
           (currentGoal === null || !this.goal.isGoalToolTarget(turnId, currentGoal.goalId))
         ) {
-          return { output: t('toolsV2.goal.notCreatedStale') };
-        }
-        // Reject missing or placeholder completion criteria at the tool boundary
-        // so the model is forced to provide a concrete, verifiable check.
-        const criterion = args.completionCriterion?.trim();
-        if (!criterion || criterion.length < 10) {
-          return {
-            output:
-              'Completion criterion is required and must be at least 10 characters. ' +
-              'Provide a concrete, verifiable check — e.g. what test to run, what command should succeed, ' +
-              "what condition must hold. If the user's request is vague, ask them via AskUserQuestion first.",
-          };
+          return { output: 'Goal not created: the current goal changed.' };
         }
         const snapshot = await this.goal.createGoal(
           {

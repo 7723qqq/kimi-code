@@ -1,6 +1,7 @@
-import { createDecorator } from '#/_base/di/instantiation';
-import { type IDisposable } from '#/_base/di/lifecycle';
 import type { Tool as KosongTool } from '#/kosong/contract/tool';
+
+import { createDecorator } from "#/_base/di/instantiation";
+import { type IDisposable } from "#/_base/di/lifecycle";
 import type { McpServerEntry } from '#/mcpCore/connection-manager';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
@@ -22,11 +23,6 @@ export interface IAgentMcpService {
   resolved(name: string): McpResolvedServer | undefined;
   getRemoteServerUrl(name: string): string | undefined;
   reconnect(name: string, signal?: AbortSignal): Promise<void>;
-  /**
-   * Mark a server in ``pending-approval`` state (stdio server sourced
-   * from ``<repoRoot>/.mcp.json``) as trusted and start connecting it.
-   */
-  approveServer(name: string): Promise<void>;
   onStatusChange(listener: (entry: McpServerEntry) => void): IDisposable;
 }
 

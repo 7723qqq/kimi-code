@@ -1,16 +1,3 @@
-/**
- * `tools` domain — `IGrepTool` contract.
- *
- * Public contract of Grep, content search backed by the Rust native grep
- * engine with ripgrep as the fallback. Supports glob/type filtering, context
- * lines, output modes, pagination, multiline, and case-insensitive search.
- * Hidden files are searched, but VCS metadata and sensitive files (such as
- * `.env`) are always filtered out.
- *
- * Owns the `GrepInput` / `GrepOutput` zod schemas and the Agent-scope service
- * identifier. Bound at Agent scope.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -116,7 +103,5 @@ export const GrepOutputSchema = z.object({
 export type GrepInput = z.infer<typeof GrepInputSchema>;
 export type GrepOutput = z.infer<typeof GrepOutputSchema>;
 
-export interface IGrepTool extends AgentTool<GrepInput> {
-  readonly _serviceBrand: undefined;
-}
+export interface IGrepTool extends AgentTool<GrepInput> { readonly _serviceBrand: undefined }
 export const IGrepTool = createDecorator<IGrepTool>('grepTool');

@@ -1,10 +1,3 @@
-/**
- * Abort-signal helpers — user-cancellation errors, abortable promises, signal
- * linking, and deadline abort signals.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
 export function abortError(message = 'Aborted'): Error {
   const error = new Error(message);
   error.name = 'AbortError';
@@ -19,7 +12,7 @@ export class UserCancellationError extends Error {
   readonly userCancelled = true;
 
   constructor() {
-    super(t('toolsV2.abort.abortedByUser'));
+    super('Aborted by the user');
     this.name = 'AbortError';
   }
 }

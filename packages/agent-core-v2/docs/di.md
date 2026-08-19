@@ -21,7 +21,7 @@
 
 ## 场景 1：加一个全局服务（不依赖任何人）
 
-> 你要做的：进程级只有一个、谁都能用的基础能力，比如日志、遥测。参考 [`log`](../src/_base/log/log.ts)。
+> 你要做的：进程级只有一个、谁都能用的基础能力，比如日志、遥测。参考 [`log`](../src/log/log.ts)。
 
 这一步引入四块：**接口 / 身份 / 实现 / 注册**。
 
@@ -74,15 +74,21 @@ registerScopedService(
 
 绑定在哪一层是这个类的**固有属性**，在注册点决定，不在调用点决定。
 
-### 1.4 在包入口导出，让注册生效
+### 1.4 通过 barrel 导出，让注册生效
 
 ```ts
-// src/index.ts（包入口，按叶子文件逐个导出；无 <domain>/index.ts barrel）
-export * from '#/greet/greet';
-export * from '#/greet/greetService';   // export 这一行即触发上面的 registerScopedService
+// greet/index.ts
+export * from './greet';
+export * from './greetService';   // import 这一行即触发上面的 registerScopedService
 ```
 
-于是「import 这个包」=「加载全部注册」。**没有中心装配文件，也没有域 barrel**：绑定散落在各自域的实现文件里，靠 import 副作用收集，`src/index.ts` 对每个叶子文件单独 `export * from '#/<domain>/<file>'`（见 `#/app/flag/*` 的写法）。注册默认使用 `ScopeActivation.OnScopeCreated`，创建对应 Scope 时就构造真实实例；只有明确声明 `ScopeActivation.OnDemand` 的服务才推迟到首次 `get()`（见场景 5）。
+再在包入口 [`src/index.ts`](../src/index.ts) 加一行：
+
+```ts
+export * from './greet/index';
+```
+
+于是「import 这个包」=「加载全部注册」。**没有中心装配文件**：绑定散落在各自域的实现文件里，靠 import 副作用收集。注册默认使用 `ScopeActivation.OnScopeCreated`，创建对应 Scope 时就构造真实实例；只有明确声明 `ScopeActivation.OnDemand` 的服务才推迟到首次 `get()`（见场景 5）。
 
 至此，任何人都能 `accessor.get(IGreeter)` 拿到这个全局唯一的服务。
 
@@ -132,7 +138,7 @@ const meta = accessor.get(ISessionMetadata);   // 类型是 ISessionMetadata
 
 ## 场景 3：你的服务不是全局一份
 
-> 你要做的：每个会话一份、或每个 agent 一份。参考 [`sessionMetadata`](../src/session/sessionMetadata/sessionMetadata.ts)、[`agentLoop`](../src/agent/loop/loop.ts)。
+> 你要做的：每个会话一份、或每个 agent 一份。参考 [`sessionMetadata`](../src/session/sessionMetadata/sessionMetadata.ts)、[`turn`](../src/turn/turn.ts)。
 
 这一步引入：**`LifecycleScope` 四层生命周期** 与 **父子 scope 的可见性**。
 
@@ -235,17 +241,17 @@ registerScopedService(
   'log',
 );
 
-// 按需：首次 get(IDebugGraphService) 时构造真实实例（真实例子：src/debug/debugGraphService.ts）
+// 按需：首次 get(IScopeRegistry) 时构造真实实例
 registerScopedService(
   LifecycleScope.App,
-  IDebugGraphService,
-  DebugGraphService,
+  IScopeRegistry,
+  ScopeRegistry,
   ScopeActivation.OnDemand,
-  'debug',
+  'gateway',
 );
 ```
 
-`ScopeActivation.OnScopeCreated` 是第四个参数的默认值。创建 Scope 时，容器会构造采用此模式的全部服务，并先构造它们的依赖。任何一个构造器失败，该服务会留下 sticky `Failed` 状态（Scope 创建本身不失败）；之后 `get()` 会重抛当时的构造错误，`update()` 可重新加载。普通服务以及必须在 Scope ready 时生效的构造器副作用都使用此模式。
+`ScopeActivation.OnScopeCreated` 是第四个参数的默认值。创建 Scope 时，容器会构造采用此模式的全部服务，并先构造它们的依赖。任何一个构造器失败，整个 Scope 创建失败。普通服务以及必须在 Scope ready 时生效的构造器副作用都使用此模式。
 
 `ScopeActivation.OnDemand` 只保存描述符，不会在 Scope 创建时构造服务。第一次 `get()` 会直接构造并缓存真实实例，后续 `get()` 返回同一实例。只有确实需要等到服务被请求时才执行构造器，才使用此模式。
 
@@ -257,7 +263,7 @@ registerScopedService(
 
 ## 场景 6：在普通函数里临时用服务
 
-> 你要做的：你不想写一个新类，只是在一个函数里临时拿一个服务用一下。或你要给外部提供一个 `ServicesAccessor`。参考 [`gatewayService.ts`](../src/app/gateway/gatewayService.ts)。
+> 你要做的：你不想写一个新类，只是在一个函数里临时拿一个服务用一下。或你要给外部提供一个 `ServicesAccessor`。参考 [`gatewayService.ts`](../src/gateway/gatewayService.ts)。
 
 这一步引入：**`IInstantiationService.invokeFunction`** 与 **`ServicesAccessor`**。
 
@@ -300,31 +306,37 @@ const runner = instantiation.createInstance(TurnRunner, 'hello', 1);
 
 ## 场景 8：你的服务要派生子容器 / 子 scope
 
-> 你要做的：你的服务负责「拉起一个新会话 / 新 agent」，需要为它造一个子 scope。参考 `RestGateway`（[`gatewayService.ts`](../src/app/gateway/gatewayService.ts)）。
+> 你要做的：你的服务负责「拉起一个新会话 / 新 agent」，需要为它造一个子 scope。参考 `ScopeRegistry`（[`gatewayService.ts`](../src/gateway/gatewayService.ts)）。
 
 这一步引入：**注入 `IInstantiationService` 本身** 与 **`createChild`**。
 
 每个容器都把自己绑定成 `IInstantiationService`，所以你可以像注入别的服务一样注入它：
 
 ```ts
-// 手动控制 ServiceCollection 时的核心三步（完整封装见 createScopedChildHandle，
-// src/_base/di/scope.ts——它还筛本层描述符并执行 Scope 激活）
-const collection = new ServiceCollection();
-const child = instantiation.createChild(collection);   // 派生子容器
-const accessor: ServicesAccessor = {
-  get: <T>(id: ServiceIdentifier<T>): T => child.invokeFunction((a) => a.get(id)),
-};
-const handle: IScopeHandle = {
-  id: sessionId,
-  kind: LifecycleScope.Session,
-  accessor,
-  dispose: () => child.dispose(),
-};
+export class ScopeRegistry implements IScopeRegistry {
+  declare readonly _serviceBrand: undefined;
+
+  constructor(@IInstantiationService private readonly instantiation: IInstantiationService) {}
+
+  createSession(opts: CreateSessionOptions): Promise<IScopeHandle> {
+    const collection = new ServiceCollection();
+    for (const entry of getScopedServiceDescriptors(LifecycleScope.Session)) {
+      collection.set(entry.id, entry.descriptor);   // 收集 Session 这一层的描述符
+    }
+    const child = this.instantiation.createChild(collection);   // 派生子容器
+    const accessor: ServicesAccessor = {
+      get: <T>(id: ServiceIdentifier<T>): T => child.invokeFunction((a) => a.get(id)),
+    };
+    const handle: IScopeHandle = { id: opts.sessionId, kind: LifecycleScope.Session, accessor };
+    this.sessions.set(opts.sessionId, handle);
+    return Promise.resolve(handle);
+  }
+}
 ```
 
 关键点：
 
-- `getScopedServiceDescriptors(scope)` 能拿回注册在某一层的所有描述符（`createScopedChildHandle` 就用它筛出本层描述符，见 [`scope.ts`](../src/_base/di/scope.ts)）。
+- `getScopedServiceDescriptors(scope)` 能拿回注册在某一层的所有描述符，装进一个 `ServiceCollection`。
 - `instantiation.createChild(collection)` 造一个子容器，它的父指针指向当前容器——于是子容器能向上解析到 App 的服务（场景 3 的可见性规则）。
 - 给外部暴露时，用 `invokeFunction` 把子容器包成 `ServicesAccessor`（场景 6）。
 
@@ -410,6 +422,6 @@ A 创建中要 B，B 创建中又要 A——容器会抛 `CyclicDependencyError`
 
 1. **契约**：`src/<domain>/<domain>.ts` 写接口（带 `_serviceBrand`）+ `createDecorator` 身份。
 2. **实现**：`src/<domain>/<domain>Service.ts` 写类，`@IX` 声明依赖，文件顶层 `registerScopedService(scope, IX, Impl, activation, '<domain>')`；第四个参数是 activation，第五个参数是 domain。
-3. **导出（无 barrel）**：包内没有 `<domain>/index.ts` barrel——`src/index.ts` 按叶子文件逐个 `export * from '#/<domain>/<file>'`（契约与实现各一行，见 `#/app/flag/*` 的写法）。
-4. **注册副作用**：实现文件顶层的 `registerScopedService` 调用靠 `src/index.ts` 中的 `import '#/<domain>/<fileService>'` 触发（`#/app/flag/*` 即同时有 `import` 与 `export *`）。
+3. **barrel**：`src/<domain>/index.ts` re-export 契约和实现。
+4. **入口**：`src/index.ts` 加一行 `export * from './<domain>/index';`。
 5. **测试**：`test/<domain>/` 用 `TestInstantiationService` 或 `createScopedTestHost`，按接口解析。

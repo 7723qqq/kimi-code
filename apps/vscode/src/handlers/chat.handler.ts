@@ -1,16 +1,16 @@
-import { isKimiError } from '@moonshot-ai/kimi-code-sdk';
-import * as vscode from 'vscode';
+import * as vscode from "vscode";
+import { isKimiError } from "@moonshot-ai/kimi-code-sdk";
 
-import { Events, Methods } from '../../shared/bridge';
-import { getUserMessage } from '../../shared/errors';
-import type { ApprovalResponse, ContentPart } from '../../shared/legacy-sdk';
-import type { ErrorPhase } from '../../shared/types';
-import { VSCodeSettings } from '../config/vscode-settings';
-import { normalizeEffort } from '../runtime/kimi-runtime';
-import type { SessionRuntime } from '../runtime/session-runtime';
-import { isWorkspacePathContained, relativeWorkspacePath } from '../utils/workspace-path';
-import { parseHostSlashCommand, runHostSlashCommand } from './slash-command';
-import type { Handler } from './types';
+import { Events, Methods } from "../../shared/bridge";
+import type { ApprovalResponse, ContentPart } from "../../shared/legacy-sdk";
+import { getUserMessage } from "../../shared/errors";
+import type { ErrorPhase } from "../../shared/types";
+import { VSCodeSettings } from "../config/vscode-settings";
+import { normalizeEffort } from "../runtime/kimi-runtime";
+import type { SessionRuntime } from "../runtime/session-runtime";
+import { isWorkspacePathContained, relativeWorkspacePath } from "../utils/workspace-path";
+import { parseHostSlashCommand, runHostSlashCommand } from "./slash-command";
+import type { Handler } from "./types";
 
 interface StreamChatParams {
   content: string | ContentPart[];
@@ -36,56 +36,47 @@ const injectedEditorContextSessions = new Map<string, string>();
 
 async function buildSystemContext(sessionId: string, ctx: Parameters<Handler>[1]): Promise<string> {
   const mode = VSCodeSettings.editorContext;
-  if (mode === 'never') return '';
+  if (mode === "never") return "";
 
   const editor = vscode.window.activeTextEditor;
-  if (
-    !editor ||
-    !ctx.workDirUri ||
-    !(await isWorkspacePathContained(ctx.workDirUri, editor.document.uri))
-  ) {
-    return '';
+  if (!editor || !ctx.workDirUri || !(await isWorkspacePathContained(ctx.workDirUri, editor.document.uri))) {
+    return "";
   }
 
   const document = editor.document;
   const relativePath = relativeWorkspacePath(ctx.workDirUri, document.uri);
-  if (relativePath === undefined) return '';
+  if (relativePath === undefined) return "";
   const lastPath = injectedEditorContextSessions.get(sessionId);
-  if (mode === 'onConversationStart' && lastPath !== undefined) return '';
-  if (mode === 'onFileChange' && lastPath === relativePath) return '';
+  if (mode === "onConversationStart" && lastPath !== undefined) return "";
+  if (mode === "onFileChange" && lastPath === relativePath) return "";
 
   injectedEditorContextSessions.set(sessionId, relativePath);
   const selection = editor.selection;
   const selectionInfo = selection.isEmpty
-    ? ''
+    ? ""
     : ` (L${selection.start.line + 1}-${selection.end.line + 1} selected)`;
-  const unsavedInfo = document.isDirty ? ', unsaved' : '';
+  const unsavedInfo = document.isDirty ? ", unsaved" : "";
   return `<system>Editor context (use only if relevant to user's query): ${relativePath}:${selection.active.line + 1}${selectionInfo}${unsavedInfo}.</system>\n`;
 }
 
-function prependSystemContext(
-  content: string | ContentPart[],
-  context: string,
-): string | ContentPart[] {
+function prependSystemContext(content: string | ContentPart[], context: string): string | ContentPart[] {
   if (!context) return content;
-  if (typeof content === 'string') return `${content}\n${context}`;
+  if (typeof content === "string") return `${content}\n${context}`;
 
-  const index = content.findIndex((part) => part.type === 'text');
-  if (index < 0) return [{ type: 'text', text: context }, ...content];
+  const index = content.findIndex((part) => part.type === "text");
+  if (index < 0) return [{ type: "text", text: context }, ...content];
   const copy = [...content];
-  const text = copy[index] as Extract<ContentPart, { type: 'text' }>;
-  copy[index] = { type: 'text', text: context + text.text };
+  const text = copy[index] as Extract<ContentPart, { type: "text" }>;
+  copy[index] = { type: "text", text: context + text.text };
   return copy;
 }
 
 const streamChat: Handler<StreamChatParams, { done: boolean }> = async (params, ctx) => {
   if (!ctx.workDir) {
-    emitPreflightError(ctx, 'NO_WORKSPACE', 'Please open a folder to start.');
-    void vscode.window
-      .showWarningMessage('Kimi: Please open a folder first.', 'Open Folder')
-      .then((action) => {
-        if (action) void vscode.commands.executeCommand('vscode.openFolder');
-      });
+    emitPreflightError(ctx, "NO_WORKSPACE", "Please open a folder to start.");
+    void vscode.window.showWarningMessage("Kimi: Please open a folder first.", "Open Folder").then((action) => {
+      if (action) void vscode.commands.executeCommand("vscode.openFolder");
+    });
     return { done: false };
   }
 
@@ -93,7 +84,7 @@ const streamChat: Handler<StreamChatParams, { done: boolean }> = async (params, 
     try {
       await ctx.saveAllDirty();
     } catch (error) {
-      emitCaughtError(ctx, error, 'preflight');
+      emitCaughtError(ctx, error, "preflight");
       return { done: false };
     }
   }
@@ -102,11 +93,11 @@ const streamChat: Handler<StreamChatParams, { done: boolean }> = async (params, 
   try {
     runtime = await ctx.getOrCreateSession(
       params.model,
-      params.effort ?? (params.thinking === true ? 'on' : 'off'),
+      params.effort ?? (params.thinking === true ? "on" : "off"),
       params.sessionId,
     );
   } catch (error) {
-    emitCaughtError(ctx, error, 'preflight');
+    emitCaughtError(ctx, error, "preflight");
     return { done: false };
   }
 
@@ -120,7 +111,7 @@ const streamChat: Handler<StreamChatParams, { done: boolean }> = async (params, 
       await runtime.session.setModel(params.model);
       model = params.model;
     }
-    const effort = normalizeEffort(params.effort ?? (params.thinking === true ? 'on' : 'off'));
+    const effort = normalizeEffort(params.effort ?? (params.thinking === true ? "on" : "off"));
     if (status.thinkingEffort !== effort) {
       await runtime.session.setThinking(effort);
     }
@@ -129,7 +120,7 @@ const streamChat: Handler<StreamChatParams, { done: boolean }> = async (params, 
     }
     runtime.announceSessionStart(model);
   } catch (error) {
-    emitCaughtError(ctx, error, 'preflight', runtime.id);
+    emitCaughtError(ctx, error, "preflight", runtime.id);
     return { done: false };
   }
 
@@ -138,7 +129,7 @@ const streamChat: Handler<StreamChatParams, { done: boolean }> = async (params, 
     try {
       return { done: await runHostSlashCommand(runtime, slash, ctx) };
     } catch (error) {
-      emitCaughtError(ctx, error, 'runtime', runtime.id);
+      emitCaughtError(ctx, error, "runtime", runtime.id);
       return { done: false };
     }
   }
@@ -146,9 +137,9 @@ const streamChat: Handler<StreamChatParams, { done: boolean }> = async (params, 
   const systemContext = await buildSystemContext(runtime.id, ctx);
   try {
     const result = await runtime.prompt(prependSystemContext(params.content, systemContext));
-    return { done: result.status === 'finished' };
+    return { done: result.status === "finished" };
   } catch (error) {
-    emitCaughtError(ctx, error, 'runtime', runtime.id);
+    emitCaughtError(ctx, error, "runtime", runtime.id);
     return { done: false };
   }
 };
@@ -168,24 +159,18 @@ const respondApproval: Handler<RespondApprovalParams, { ok: boolean }> = async (
 
 const respondQuestion: Handler<RespondQuestionParams, { ok: boolean }> = async (params, ctx) => {
   const id = params.questionRequestId;
-  if (!id) throw new Error('Missing questionRequestId');
+  if (!id) throw new Error("Missing questionRequestId");
   return { ok: ctx.getSession()?.respondQuestion(id, params.answers) ?? false };
 };
 
-const setPlanMode: Handler<{ enabled: boolean }, { ok: boolean; planMode: boolean }> = async (
-  params,
-  ctx,
-) => {
+const setPlanMode: Handler<{ enabled: boolean }, { ok: boolean; planMode: boolean }> = async (params, ctx) => {
   const runtime = ctx.getSession();
   if (runtime === undefined) return { ok: false, planMode: false };
   await runtime.session.setPlanMode(params.enabled);
   return { ok: true, planMode: params.enabled };
 };
 
-const steerChat: Handler<{ content: string | ContentPart[] }, { ok: boolean }> = async (
-  params,
-  ctx,
-) => {
+const steerChat: Handler<{ content: string | ContentPart[] }, { ok: boolean }> = async (params, ctx) => {
   const runtime = ctx.getSession();
   if (runtime === undefined || !runtime.isBusy) return { ok: false };
   await runtime.steer(params.content);
@@ -216,13 +201,13 @@ function emitCaughtError(
   phase: ErrorPhase,
   sessionId?: string,
 ): void {
-  const code = isKimiError(error) ? error.code : 'internal';
+  const code = isKimiError(error) ? error.code : "internal";
   const detail = error instanceof Error ? error.message : String(error);
   ctx.logError(`Chat ${phase} request failed`, error);
   ctx.broadcast(
     Events.StreamEvent,
     {
-      type: 'error',
+      type: "error",
       code,
       message: getUserMessage(code, detail),
       detail,
@@ -236,7 +221,7 @@ function emitCaughtError(
 function emitPreflightError(ctx: Parameters<Handler>[1], code: string, message: string): void {
   ctx.broadcast(
     Events.StreamEvent,
-    { type: 'error', code, message, phase: 'preflight' },
+    { type: "error", code, message, phase: "preflight" },
     ctx.webviewId,
   );
 }

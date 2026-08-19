@@ -1,20 +1,3 @@
-/**
- * `hostFs` domain — error codes, `HostFsError`, and the `toHostFsError`
- * boundary translator.
- *
- * Every `IHostFileSystem` backend translates raw OS failures (Node
- * `ErrnoException`, and whatever a future non-Node backend throws) into a
- * `HostFsError` at its boundary, so consumers branch on a stable `code`
- * (`os.fs.*`) instead of platform errnos. `toHostFsError` is a pure function
- * shared by all backends; it is idempotent — an error that is already a
- * `HostFsError` passes through untouched.
- *
- * `os.fs.unavailable` covers non-errno resource failures (fs.watch unsupported,
- * fd exhaustion, …); `os.fs.unknown` is the fallback for unrecognized errnos.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 import { Error2, type Error2Options } from '#/_base/errors/errors';
 
@@ -32,43 +15,43 @@ export const OsFsErrors = {
   retryable: ['os.fs.unavailable', 'os.fs.unknown'],
   info: {
     'os.fs.not_found': {
-      title: t('v2Errors.pathNotFound'),
+      title: 'Path not found',
       retryable: false,
       public: true,
     },
     'os.fs.is_directory': {
-      title: t('v2Errors.pathIsDirectory'),
+      title: 'Path is a directory',
       retryable: false,
       public: true,
     },
     'os.fs.not_directory': {
-      title: t('v2Errors.pathNotDirectory'),
+      title: 'Path is not a directory',
       retryable: false,
       public: true,
     },
     'os.fs.already_exists': {
-      title: t('v2Errors.pathAlreadyExists'),
+      title: 'Path already exists',
       retryable: false,
       public: true,
     },
     'os.fs.permission_denied': {
-      title: t('v2Errors.permissionDenied'),
+      title: 'Permission denied',
       retryable: false,
       public: true,
-      action: t('v2Errors.permissionDeniedAction'),
+      action: 'Check the file permissions of the target path.',
     },
     'os.fs.not_empty': {
-      title: t('v2Errors.directoryNotEmpty'),
+      title: 'Directory not empty',
       retryable: false,
       public: true,
     },
     'os.fs.unavailable': {
-      title: t('v2Errors.fsUnavailable'),
+      title: 'Filesystem unavailable',
       retryable: true,
       public: true,
     },
     'os.fs.unknown': {
-      title: t('v2Errors.fsError'),
+      title: 'Filesystem error',
       retryable: true,
       public: true,
     },
@@ -87,14 +70,14 @@ export class HostFsError extends Error2 {
 }
 
 const REASONS: Record<HostFsErrorCode, string> = {
-  'os.fs.not_found': t('v2Fs.pathNotFound'),
-  'os.fs.is_directory': t('v2Fs.pathIsDirectory'),
-  'os.fs.not_directory': t('v2Fs.pathNotDirectory'),
-  'os.fs.already_exists': t('v2Fs.pathAlreadyExists'),
-  'os.fs.permission_denied': t('v2Fs.permissionDenied'),
-  'os.fs.not_empty': t('v2Fs.directoryNotEmpty'),
-  'os.fs.unavailable': t('v2Fs.fsUnavailable'),
-  'os.fs.unknown': t('v2Fs.fsError'),
+  'os.fs.not_found': 'path does not exist',
+  'os.fs.is_directory': 'path is a directory',
+  'os.fs.not_directory': 'a path component is not a directory',
+  'os.fs.already_exists': 'path already exists',
+  'os.fs.permission_denied': 'permission denied',
+  'os.fs.not_empty': 'directory is not empty',
+  'os.fs.unavailable': 'filesystem resource unavailable',
+  'os.fs.unknown': 'unrecognized filesystem error',
 };
 
 function readErrno(error: unknown): string | undefined {
@@ -134,7 +117,7 @@ export function toHostFsError(error: unknown, ctx: { path: string; op: string })
   if (error instanceof HostFsError) return error;
   const errno = readErrno(error);
   const code = mapErrno(errno);
-  return new HostFsError(code, t('v2Fs.opFailed', { op: ctx.op, reason: REASONS[code] }), {
+  return new HostFsError(code, `${ctx.op} failed: ${REASONS[code]}`, {
     details: { path: ctx.path, op: ctx.op, errno, syscall: readSyscall(error) },
     cause: error,
   });

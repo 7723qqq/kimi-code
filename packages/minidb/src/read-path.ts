@@ -7,13 +7,13 @@
 // the store / value reader / dt index / memory guard (LRU touch) are
 // injected, never the MiniDb class itself.
 
+import { canonRange, fromKStr, toKStr } from './value-codec.js';
+import type { Store } from './store.js';
+import type { ValueReader } from './value-reader.js';
 import type { DtIndex, DtRangeEntry } from './dt-index.js';
 import type { MemoryGuard } from './memory-guard.js';
 import type { RangeOptions } from './skiplist.js';
-import type { Store } from './store.js';
 import type { DocRecord, ScanEntry } from './types.js';
-import { canonRange, fromKStr, toKStr } from './value-codec.js';
-import type { ValueReader } from './value-reader.js';
 
 /** The owner-injected surface the read path needs (see the header). */
 export interface ReadPathDeps<V> {
@@ -29,11 +29,7 @@ export interface ReadPathDeps<V> {
 export class ReadPath<V> {
   constructor(private readonly deps: ReadPathDeps<V>) {}
 
-  *liveRecords(): Generator<{
-    key: Buffer;
-    value: V | undefined;
-    dt: Record<string, number> | null;
-  }> {
+  *liveRecords(): Generator<{ key: Buffer; value: V | undefined; dt: Record<string, number> | null }> {
     for (const { key, value, dt } of this.deps.store().entries()) {
       yield { key, value: this.deps.decode(value), dt };
     }
@@ -134,10 +130,7 @@ export class ReadPath<V> {
     return this.deps.dt.columns();
   }
 
-  dtRange(
-    col: string,
-    opts: RangeOptions<number> & { limit?: number } = {},
-  ): (ScanEntry<V> & { dtValue: number })[] {
+  dtRange(col: string, opts: RangeOptions<number> & { limit?: number } = {}): (ScanEntry<V> & { dtValue: number })[] {
     this.deps.ensureOpen();
     const rows = this.deps.dt.range(col, { ...opts, count: opts.limit ?? opts.count });
     const out: (ScanEntry<V> & { dtValue: number })[] = [];
@@ -145,12 +138,7 @@ export class ReadPath<V> {
       const value = this.deps.store().get(key);
       if (value === undefined) continue;
       const r = this.deps.store().map.get(key);
-      out.push({
-        key: fromKStr(key),
-        value: this.deps.decode(value)!,
-        dt: r?.dt ?? undefined,
-        dtValue,
-      });
+      out.push({ key: fromKStr(key), value: this.deps.decode(value)!, dt: r?.dt ?? undefined, dtValue });
     }
     return out;
   }

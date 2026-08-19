@@ -1,23 +1,3 @@
-/**
- * `kosong/provider` domain — Google GenAI (Gemini) wire base.
- *
- * Speaks the Gemini generateContent wire format (and Vertex AI through the
- * same SDK options). This base carries no hook surface today — per-turn
- * intents are encoded inline; a cache key has no native field here and is
- * silently dropped, which is the intended "dialect decides whether to encode
- * an intent" behavior.
- *
- * The local `createAbortError` copy is DELIBERATELY not deduplicated: this
- * module's abort plumbing (abortPromise racing,
- * per-chunk checks, the catch guard that rethrows DOMException aborts before
- * error conversion) is self-contained by design.
- *
- * Error conversion recovers the server-directed retry delay from the wire
- * body: the SDK's `ApiError` drops response headers, so the
- * `google.rpc.RetryInfo` detail inside the stringified error body is the
- * only carrier of that wait time.
- */
-
 import { ApiError as GoogleApiError, GoogleGenAI as GenAIClient } from '@google/genai';
 
 import {
@@ -40,11 +20,8 @@ import type {
 import type { Tool } from '#/kosong/contract/tool';
 import type { TokenUsage } from '#/kosong/contract/usage';
 
-import { mergeConsecutiveUserMessages } from '@moonshot-ai/kosong/providers/merge-user-messages';
-import {
-  requireProviderApiKey,
-  resolveAuthBackedClient,
-} from '@moonshot-ai/kosong/providers/request-auth';
+import { mergeConsecutiveUserMessages } from '../merge-user-messages';
+import { requireProviderApiKey, resolveAuthBackedClient } from '../request-auth';
 
 function normalizeGoogleGenAIFinishReason(raw: unknown): {
   finishReason: FinishReason | null;
@@ -93,6 +70,7 @@ export interface GoogleGenAIOptions {
   project?: string | undefined;
   location?: string | undefined;
   stream?: boolean | undefined;
+  thinkingEffort?: ThinkingEffort | undefined;
   defaultHeaders?: Record<string, string>;
   clientFactory?: (auth: ProviderRequestAuth) => GenAIClient;
 }
@@ -140,9 +118,7 @@ function applyResponseFormat(
 ): void {
   if (format === undefined) return;
   config['responseMimeType'] = 'application/json';
-  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
   delete config['responseSchema'];
-  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
   delete config['responseJsonSchema'];
   if (format.type === 'json_schema') {
     config['responseJsonSchema'] = format.jsonSchema.schema;
@@ -206,10 +182,7 @@ function convertMediaUrl(
     else if (pathname.endsWith('.mp3') || pathname.endsWith('.mpeg')) mimeType = 'audio/mpeg';
     else if (pathname.endsWith('.wav')) mimeType = 'audio/wav';
     else if (pathname.endsWith('.ogg')) mimeType = 'audio/ogg';
-  } catch {
-    // Malformed URLs keep the caller-provided fallback mime type; the provider
-    // will surface the invalid URL on the request itself.
-  }
+  } catch {}
   return { fileData: { fileUri: url, mimeType } };
 }
 
@@ -450,7 +423,17 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
     isToolResultOnly: (content) =>
       content.parts.length > 0 &&
       content.parts.every((part) => part.functionResponse !== undefined),
-    merge: (last, next) => ({ ...last, parts: [...last.parts, ...next.parts] }),
+    merge: (last, next) => {
+      const lastStartsWithFunctionResponse =
+        last.parts[0]?.functionResponse !== undefined;
+      const nextHasFunctionResponse = next.parts.some(
+        (part) => part.functionResponse !== undefined,
+      );
+      if (lastStartsWithFunctionResponse && !nextHasFunctionResponse) {
+        return { ...next, parts: [...next.parts, ...last.parts] };
+      }
+      return { ...last, parts: [...last.parts, ...next.parts] };
+    },
   });
 }
 
@@ -566,19 +549,13 @@ export class GoogleGenAIStreamedMessage implements StreamedMessage {
     if (usageMetadata === undefined) {
       return;
     }
-    const usage: TokenUsage = this._usage ?? {
-      inputOther: 0,
-      output: 0,
-      inputCacheRead: 0,
-      inputCacheCreation: 0,
-    };
+    const usage: TokenUsage =
+      this._usage ?? { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 };
     const promptTokenCount = usageMetadata['promptTokenCount'];
     const cachedContentTokenCount = usageMetadata['cachedContentTokenCount'];
     if (typeof promptTokenCount === 'number') {
       const cached =
-        typeof cachedContentTokenCount === 'number'
-          ? cachedContentTokenCount
-          : usage.inputCacheRead;
+        typeof cachedContentTokenCount === 'number' ? cachedContentTokenCount : usage.inputCacheRead;
       usage.inputOther = Math.max(promptTokenCount - cached, 0);
     }
     if (typeof cachedContentTokenCount === 'number') {
@@ -707,6 +684,7 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   private readonly _baseUrl: string | undefined;
   private readonly _project: string | undefined;
   private readonly _location: string | undefined;
+  private readonly _thinkingEffort: ThinkingEffort | undefined;
   private readonly _defaultHeaders: Record<string, string> | undefined;
   private readonly _clientFactory: ((auth: ProviderRequestAuth) => GenAIClient) | undefined;
 
@@ -714,6 +692,7 @@ export class GoogleGenAIChatProvider implements ChatProvider {
     this._model = options.model;
     this._vertexai = options.vertexai ?? false;
     this._stream = options.stream ?? true;
+    this._thinkingEffort = options.thinkingEffort;
     this._generationKwargs = {};
 
     const apiKey = options.apiKey ?? process.env['GOOGLE_API_KEY'];
@@ -754,7 +733,7 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return null;
+    return this._thinkingEffort ?? null;
   }
 
   get maxCompletionTokens(): number | undefined {
@@ -782,7 +761,9 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       kwargs = { ...kwargs, topP: options.sampling.topP };
     }
 
-    const thinking = options?.thinking;
+    const thinking =
+      options?.thinking ??
+      (this._thinkingEffort !== undefined ? { effort: this._thinkingEffort } : undefined);
     if (thinking !== undefined) {
       kwargs = { ...kwargs, thinkingConfig: this._encodeThinking(thinking.effort) };
     }
@@ -902,4 +883,44 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       },
     );
   }
+}
+
+const GEMINI_CATALOGUED_PREFIXES = [
+  'gemini-1.5-pro',
+  'gemini-1.5-flash',
+  'gemini-2.0-flash',
+  'gemini-2.0-pro',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+] as const;
+
+const GEMINI_MULTIMODAL_TOOL_CAPABILITY = Object.freeze({
+  image_in: true,
+  video_in: true,
+  audio_in: true,
+  thinking: false,
+  tool_use: true,
+  max_context_tokens: 0,
+});
+
+const GEMINI_THINKING_MULTIMODAL_TOOL_CAPABILITY = Object.freeze({
+  image_in: true,
+  video_in: true,
+  audio_in: true,
+  thinking: true,
+  tool_use: true,
+  max_context_tokens: 0,
+});
+
+export function getGoogleGenAIModelCapability(modelName: string) {
+  const normalized = modelName.toLowerCase();
+  if (!normalized.startsWith('gemini-')) return undefined;
+  if (!GEMINI_CATALOGUED_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+    return undefined;
+  }
+
+  if (normalized.startsWith('gemini-2.5-') || normalized.includes('thinking')) {
+    return GEMINI_THINKING_MULTIMODAL_TOOL_CAPABILITY;
+  }
+  return GEMINI_MULTIMODAL_TOOL_CAPABILITY;
 }

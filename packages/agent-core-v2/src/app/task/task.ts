@@ -1,21 +1,6 @@
-/**
- * `task` domain — managed concurrent execution primitive.
- *
- * Two creation modes:
- *
- *   - `run(fn)` — active execution: wraps an async function with
- *     `AbortSignal`, output stream, state machine, and disposal.
- *   - `defer()` — passive wait: the caller controls when the handle
- *     settles via `resolve` / `reject`.
- *
- * Consumers that need to track handles across turns compose on top of these
- * primitives; `ITaskService` itself is stateless beyond the set of live
- * handles.
- */
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { IDisposable } from '#/_base/di/lifecycle';
 import type { Event } from '#/_base/event';
+import type { IDisposable } from '#/_base/di/lifecycle';
 
 export type TaskState = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 

@@ -1,48 +1,21 @@
-/**
- * `kosongConfig` bridge tests — `KosongConfigService`, the two-way sync
- * between `IConfigService` (persistence) and kosong's in-memory
- * provider/model registries:
- *
- *  - startup hydration: after `config.ready` the registries are loaded from
- *    the effective config view (records + default pointers) and become
- *    `ready` themselves;
- *  - kosong → config: registry mutations (`set` / `setDefaultModel` / ...)
- *    persist through `config.replace`, serialized in event order; an awaited
- *    mutation only resolves after the persist has landed, and a failed
- *    persist is retried with backoff before being logged;
- *  - config → kosong: section writes (`config.set` / `config.replace`) land
- *    in the registries;
- *  - loop termination: equal writes are silent on the registry side and the
- *    persist handlers skip writes when config already matches, so neither
- *    direction echoes back into the other;
- *  - deleting the default provider clears the pointer and persists the
- *    cleared pointer.
- *
- * The bridge is instantiated directly with the real registries, the shared
- * `StubConfigService`, and a stub log — no DI involved.
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ILogService } from '#/_base/log/log';
-import { type LogPayload } from '#/_base/log/log';
+import { ILogService, type LogPayload } from '#/_base/log/log';
 import {
   DEFAULT_MODEL_SECTION,
   DEFAULT_PROVIDER_SECTION,
   MODELS_SECTION,
   PROVIDERS_SECTION,
 } from '#/app/kosongConfig/configSection';
-import { KosongConfigService } from '#/app/kosongConfig/kosongConfigService';
 import { type ModelRecord } from '#/kosong/model/model';
 import { ModelService } from '#/kosong/model/modelService';
 import { type ProviderConfig } from '#/kosong/provider/provider';
 import { ProviderService } from '#/kosong/provider/providerService';
 
 import { StubConfigService } from '../../kosong/stubs';
+import { KosongConfigService } from '#/app/kosongConfig/kosongConfigService';
 
-function stubLogService(): ILogService & {
-  warnings: Array<{ message: string; payload?: LogPayload }>;
-} {
+function stubLogService(): ILogService & { warnings: Array<{ message: string; payload?: LogPayload }> } {
   const warnings: Array<{ message: string; payload?: LogPayload }> = [];
   return {
     warnings,
@@ -297,9 +270,9 @@ describe('KosongConfigService loop termination', () => {
       await flush();
 
       expect(events).toEqual(['providers', 'defaultProvider']);
-      expect(replaceSpy.mock.calls.filter(([domain]) => domain === PROVIDERS_SECTION)).toHaveLength(
-        1,
-      );
+      expect(
+        replaceSpy.mock.calls.filter(([domain]) => domain === PROVIDERS_SECTION),
+      ).toHaveLength(1);
       expect(
         replaceSpy.mock.calls.filter(([domain]) => domain === DEFAULT_PROVIDER_SECTION),
       ).toHaveLength(1);

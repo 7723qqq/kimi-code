@@ -1,16 +1,17 @@
 import { describe, it, expect } from 'vitest';
-
-import {
-  resolveBlobRefUrl,
-  isSafeBlobHash,
-  rehydrateWireEntries,
-} from '../../src/lib/blob-resolver';
+import { resolveBlobRefUrl, isSafeBlobHash, rehydrateWireEntries } from '../../src/lib/blob-resolver';
 
 describe('blob-resolver', () => {
   describe('resolveBlobRefUrl', () => {
     it('converts a well-formed blobref into a relative route by default', () => {
-      const url = resolveBlobRefUrl('blobref:image/png;abc123def456', 'sess-1', 'main');
-      expect(url).toBe('/api/sessions/sess-1/blobs/abc123def456?agent=main&mime=image%2Fpng');
+      const url = resolveBlobRefUrl(
+        'blobref:image/png;abc123def456',
+        'sess-1',
+        'main',
+      );
+      expect(url).toBe(
+        '/api/sessions/sess-1/blobs/abc123def456?agent=main&mime=image%2Fpng',
+      );
     });
 
     it('returns an absolute URL when baseUrl is provided', () => {
@@ -35,8 +36,12 @@ describe('blob-resolver', () => {
     });
 
     it('returns malformed blobrefs unchanged', () => {
-      expect(resolveBlobRefUrl('blobref:nosemicolon', 's', 'a')).toBe('blobref:nosemicolon');
-      expect(resolveBlobRefUrl('blobref:image/png;', 's', 'a')).toBe('blobref:image/png;');
+      expect(resolveBlobRefUrl('blobref:nosemicolon', 's', 'a')).toBe(
+        'blobref:nosemicolon',
+      );
+      expect(resolveBlobRefUrl('blobref:image/png;', 's', 'a')).toBe(
+        'blobref:image/png;',
+      );
     });
   });
 
@@ -76,7 +81,9 @@ describe('blob-resolver', () => {
       expect((entries[0]!.data as any).input[0].imageUrl.url).toBe(
         '/api/sessions/sess-1/blobs/hashA?agent=main&mime=image%2Fpng',
       );
-      expect((entries[0]!.raw as any).input[0].imageUrl.url).toBe('blobref:image/png;hashA');
+      expect((entries[0]!.raw as any).input[0].imageUrl.url).toBe(
+        'blobref:image/png;hashA',
+      );
     });
 
     it('handles audio_url, video_url, and nested tool result parts', () => {

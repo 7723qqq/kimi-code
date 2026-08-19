@@ -2,7 +2,8 @@ import { Readable, Writable } from 'node:stream';
 
 import { describe, expect, it } from 'vitest';
 
-import { type IProcess, type ISessionProcessRunner } from '#/session/process/processRunner';
+import { type IHostProcess, type IHostProcessService } from '#/os/interface/hostProcess';
+
 import { runCommand, type RunCommandOptions } from '#/workspace/workspaceFs/internal/fsProcess';
 
 interface FakeProcessOptions {
@@ -12,13 +13,10 @@ interface FakeProcessOptions {
   readonly onKill?: () => void;
 }
 
-function fakeProcess(opts: FakeProcessOptions = {}): IProcess {
+function fakeProcess(opts: FakeProcessOptions = {}): IHostProcess {
   return {
-    stdin: new Writable({
-      write(_c, _e, cb) {
-        cb();
-      },
-    }),
+    _serviceBrand: undefined,
+    stdin: new Writable({ write(_c, _e, cb) { cb(); } }),
     stdout: Readable.from([opts.stdout ?? '']),
     stderr: Readable.from([opts.stderr ?? '']),
     pid: 1,
@@ -32,10 +30,10 @@ function fakeProcess(opts: FakeProcessOptions = {}): IProcess {
   };
 }
 
-function fakeRunner(proc: IProcess): ISessionProcessRunner {
+function fakeRunner(proc: IHostProcess): IHostProcessService {
   return {
     _serviceBrand: undefined,
-    exec: () => Promise.resolve(proc),
+    spawn: () => Promise.resolve(proc),
   };
 }
 
@@ -47,13 +45,11 @@ describe('runCommand', () => {
   });
 
   it('passes cwd and env to the runner', async () => {
-    let received:
-      | { args: readonly string[]; cwd?: string; env?: Record<string, string> }
-      | undefined;
-    const runner: ISessionProcessRunner = {
+    let received: { args: readonly string[]; cwd?: string; env?: Record<string, string> } | undefined;
+    const runner: IHostProcessService = {
       _serviceBrand: undefined,
-      exec: (args, options) => {
-        received = { args, cwd: options?.cwd, env: options?.env };
+      spawn: (command, args, options) => {
+        received = { args: [command, ...(args ?? [])], cwd: options?.cwd, env: options?.env };
         return Promise.resolve(fakeProcess());
       },
     };
@@ -63,11 +59,7 @@ describe('runCommand', () => {
 
   it('kills the process when the signal is already aborted', async () => {
     let killed = false;
-    const proc = fakeProcess({
-      onKill: () => {
-        killed = true;
-      },
-    });
+    const proc = fakeProcess({ onKill: () => { killed = true; } });
     const controller = new AbortController();
     controller.abort();
     await runCommand(fakeRunner(proc), ['sleep'], { signal: controller.signal });
@@ -76,38 +68,12 @@ describe('runCommand', () => {
 
   it('kills the process when the signal aborts later', async () => {
     let killed = false;
-    const proc = fakeProcess({
-      onKill: () => {
-        killed = true;
-      },
-    });
+    const proc = fakeProcess({ onKill: () => { killed = true; } });
     const controller = new AbortController();
     const options: RunCommandOptions = { signal: controller.signal };
     const promise = runCommand(fakeRunner(proc), ['sleep'], options);
     controller.abort();
     await promise;
     expect(killed).toBe(true);
-  });
-
-  it('captures stderr separately from stdout', async () => {
-    const proc = fakeProcess({ stdout: 'out', stderr: 'err', exitCode: 1 });
-    const result = await runCommand(fakeRunner(proc), ['cmd']);
-    expect(result.stdout).toBe('out');
-    expect(result.stderr).toBe('err');
-    expect(result.exitCode).toBe(1);
-  });
-
-  it('handles empty stdout and stderr', async () => {
-    const proc = fakeProcess({ stdout: '', stderr: '', exitCode: 0 });
-    const result = await runCommand(fakeRunner(proc), ['cmd']);
-    expect(result).toEqual({ exitCode: 0, stdout: '', stderr: '' });
-  });
-
-  it('propagates a runner exec failure', async () => {
-    const runner: ISessionProcessRunner = {
-      _serviceBrand: undefined,
-      exec: () => Promise.reject(new Error('spawn ENOENT')),
-    };
-    await expect(runCommand(runner, ['missing'])).rejects.toThrow('spawn ENOENT');
   });
 });

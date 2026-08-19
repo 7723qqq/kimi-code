@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { mkdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { runLocalCli } from './local-cli.mjs';
@@ -135,9 +135,7 @@ function loadVscePack() {
 
 if (isMainModule(import.meta.url)) {
   main().catch((error) => {
-    console.error(
-      `VSIX packaging failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`VSIX packaging failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 }

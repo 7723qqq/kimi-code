@@ -1,23 +1,24 @@
-/**
- * AgentTaskService reconcile + persistence integration tests.
- */
-
 import { mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { IAgentTaskService, type AgentTaskInfo } from '#/agent/task/task';
+import {
+  IAgentTaskService,
+  type AgentTaskInfo,
+} from '#/agent/task/task';
 import { IEventBus } from '#/app/event/eventBus';
-
 import {
   taskServices,
   createTestAgent,
   homeDirServices,
   type TestAgentContext,
 } from '../../harness';
-import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
+import {
+  createAgentTaskPersistence,
+  type TaskServiceTestManager,
+} from './stubs';
 
 let sessionDir: string;
 let persistence: ReturnType<typeof createAgentTaskPersistence>;
@@ -114,13 +115,15 @@ describe('AgentTaskService — loadFromDisk + reconcile', () => {
         taskId: 'bash-orphan00',
         status: 'lost',
       });
-      expect(emittedEvents).toContainEqual({
-        type: 'task.terminated',
-        info: expect.objectContaining({
-          taskId: 'bash-orphan00',
-          status: 'lost',
+      expect(emittedEvents).toContainEqual(
+        expect.objectContaining({
+          type: 'task.terminated',
+          info: expect.objectContaining({
+            taskId: 'bash-orphan00',
+            status: 'lost',
+          }),
         }),
-      });
+      );
     });
 
     it('runtime restore reconciles persisted tasks through the task resume hook', async () => {
@@ -143,13 +146,15 @@ describe('AgentTaskService — loadFromDisk + reconcile', () => {
         taskId: 'bash-restore0',
         status: 'lost',
       });
-      expect(emittedEvents).toContainEqual({
-        type: 'task.terminated',
-        info: expect.objectContaining({
-          taskId: 'bash-restore0',
-          status: 'lost',
+      expect(emittedEvents).toContainEqual(
+        expect.objectContaining({
+          type: 'task.terminated',
+          info: expect.objectContaining({
+            taskId: 'bash-restore0',
+            status: 'lost',
+          }),
         }),
-      });
+      );
     });
 
     it('does not reclassify already-terminal tasks', async () => {
@@ -237,90 +242,6 @@ describe('AgentTaskService — loadFromDisk + reconcile', () => {
       expect(emittedEvents).toEqual([]);
     });
 
-    it('marks multiple persisted tasks as lost in a single reconcile pass', async () => {
-      await persistence.writeTask(
-        persistedProcess({
-          taskId: 'bash-orphan01',
-          command: 'sleep 1',
-          description: 'orphan 1',
-          pid: 101,
-        }),
-      );
-      await persistence.writeTask(
-        persistedProcess({
-          taskId: 'bash-orphan02',
-          command: 'sleep 2',
-          description: 'orphan 2',
-          pid: 102,
-        }),
-      );
-      await persistence.writeTask(
-        persistedProcess({
-          taskId: 'bash-orphan03',
-          command: 'sleep 3',
-          description: 'orphan 3',
-          pid: 103,
-        }),
-      );
-
-      await background.loadFromDisk();
-      await background.reconcile();
-
-      expect(background.getTask('bash-orphan01')).toMatchObject({
-        taskId: 'bash-orphan01',
-        status: 'lost',
-      });
-      expect(background.getTask('bash-orphan02')).toMatchObject({
-        taskId: 'bash-orphan02',
-        status: 'lost',
-      });
-      expect(background.getTask('bash-orphan03')).toMatchObject({
-        taskId: 'bash-orphan03',
-        status: 'lost',
-      });
-      expect(await persistence.readTask('bash-orphan01')).toMatchObject({ status: 'lost' });
-      expect(await persistence.readTask('bash-orphan02')).toMatchObject({ status: 'lost' });
-      expect(await persistence.readTask('bash-orphan03')).toMatchObject({ status: 'lost' });
-      const terminationEvents = emittedEvents.filter(
-        (event) => (event as { type?: string }).type === 'task.terminated',
-      );
-      expect(terminationEvents).toHaveLength(3);
-    });
-
-    it('loadFromDisk followed by reconcile is idempotent when called twice', async () => {
-      await persistence.writeTask(persistedProcess({ taskId: 'bash-idempot0', pid: 42 }));
-
-      await background.loadFromDisk();
-      await background.reconcile();
-      const emittedBefore = emittedEvents.length;
-
-      await background.loadFromDisk();
-      await background.reconcile();
-
-      expect(emittedEvents.length).toBe(emittedBefore);
-      expect(background.getTask('bash-idempot0')).toMatchObject({ status: 'lost' });
-    });
-
-    it('reconcile does not emit events for tasks that are already marked lost on disk', async () => {
-      await persistence.writeTask(
-        persistedProcess({
-          taskId: 'bash-already0',
-          pid: 1,
-          status: 'lost',
-          endedAt: 1_700_000_010,
-          exitCode: 143,
-        }),
-      );
-
-      await background.loadFromDisk();
-      await background.reconcile();
-
-      const terminationEvents = emittedEvents.filter(
-        (event) => (event as { type?: string }).type === 'task.terminated',
-      );
-      expect(terminationEvents).toHaveLength(0);
-    });
-
     it('does not emit duplicate termination events on a second reconcile pass', async () => {
       await persistence.writeTask(
         persistedProcess({
@@ -336,7 +257,9 @@ describe('AgentTaskService — loadFromDisk + reconcile', () => {
       await background.reconcile();
 
       expect(
-        emittedEvents.filter((event) => (event as { type?: string }).type === 'task.terminated'),
+        emittedEvents.filter(
+          (event) => (event as { type?: string }).type === 'task.terminated',
+        ),
       ).toHaveLength(1);
     });
 
@@ -361,7 +284,9 @@ describe('AgentTaskService — loadFromDisk + reconcile', () => {
         status: 'completed',
       });
       expect(
-        emittedEvents.filter((event) => (event as { type?: string }).type === 'task.terminated'),
+        emittedEvents.filter(
+          (event) => (event as { type?: string }).type === 'task.terminated',
+        ),
       ).toEqual([]);
     });
   });

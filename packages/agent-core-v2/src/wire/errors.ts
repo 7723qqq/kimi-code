@@ -1,46 +1,25 @@
-/**
- * `wire` domain — error codes, the `WireError` base class, and the domain
- * registration.
- *
- * Aggregates the wire domain's coded errors: `DuplicateOpError` and
- * `CycleError` stay co-located with their throw sites but extend
- * `WireError`; `wire.unknown_record` is constructed here for replay-time
- * reporting of records whose Op type is absent from the wire runtime's
- * folded op registry (unknown or withdrawn vocabulary — see
- * `wireContribution.ts`).
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 import { Error2, type Error2Options } from '#/_base/errors/errors';
 
 export const WireErrors = {
   codes: {
     WIRE_DUPLICATE_OP: 'wire.duplicate_op',
-    WIRE_CYCLE: 'wire.cycle',
     WIRE_UNKNOWN_RECORD: 'wire.unknown_record',
     WIRE_MIGRATION_MISSING: 'wire.migration_missing',
     RECORDS_WRITE_FAILED: 'records.write_failed',
   },
   info: {
     'wire.duplicate_op': {
-      title: t('v2Errors.wireDuplicateOp'),
+      title: 'Duplicate wire op type',
       retryable: false,
       public: true,
-      action: t('v2Errors.wireDuplicateOpAction'),
-    },
-    'wire.cycle': {
-      title: t('v2Errors.wireCycle'),
-      retryable: false,
-      public: true,
-      action: t('v2Errors.wireCycleAction'),
+      action: 'Two ops registered the same type; rename one of them. This is a build-time error.',
     },
     'wire.unknown_record': {
-      title: t('v2Errors.wireUnknownRecord'),
+      title: 'Unknown wire record',
       retryable: false,
       public: true,
-      action: t('v2Errors.wireUnknownRecordAction'),
+      action: 'The record was written by a newer version; upgrade or drop it.',
     },
     'wire.migration_missing': {
       title: 'Wire migration missing',
@@ -49,7 +28,7 @@ export const WireErrors = {
       action: 'The wire file predates the supported migration chain; start a new session.',
     },
     'records.write_failed': {
-      title: t('v2Errors.wireWriteFailed'),
+      title: 'Wire journal write failed',
       retryable: false,
       public: true,
     },

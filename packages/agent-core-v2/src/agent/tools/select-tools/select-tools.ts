@@ -1,12 +1,3 @@
-/**
- * `tools` domain — `ISelectToolsTool` contract (the `select_tools` tool).
- *
- * Public contract of `select_tools`, the load-by-exact-name primitive of
- * progressive tool disclosure: the model-facing `SelectToolsInputSchema` /
- * `SelectToolsInput` and the `ISelectToolsTool` DI decorator. Bound at
- * Agent scope.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -23,7 +14,5 @@ export const SelectToolsInputSchema = z
 
 export type SelectToolsInput = z.infer<typeof SelectToolsInputSchema>;
 
-export interface ISelectToolsTool extends AgentTool<SelectToolsInput> {
-  readonly _serviceBrand: undefined;
-}
+export interface ISelectToolsTool extends AgentTool<SelectToolsInput> { readonly _serviceBrand: undefined }
 export const ISelectToolsTool = createDecorator<ISelectToolsTool>('selectToolsTool');

@@ -5,21 +5,25 @@
  * `interactions:resolved`).
  */
 
+import { z } from 'zod';
+
 import type {
   Interaction,
   InteractionResolution,
 } from '@moonshot-ai/agent-core-v2/session/interaction/interaction';
 import type { SessionMetadataChangedEvent } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
-import { z } from 'zod';
 
 import type { EventRegistration } from '../types.js';
-import { interactionResolutionSchema, interactionSchema } from './interaction.js';
+import {
+  interactionResolutionSchema,
+  interactionSchema,
+} from './interaction.js';
 import { sessionMetadataChangedEventSchema } from './metadata.js';
 
 /**
- * Scope-stream registration (`kind: 'stream'`) — matches the `stream`
- * variant of `EventRegistration` in `../types.js`; `src/core/events/hub.ts`
- * switches on `kind`.
+ * Scope-stream registration (`kind: 'stream'`). Declared structurally here
+ * until `EventRegistration` in `../types.js` gains the `stream` variant;
+ * compatible with `src/core/events/hub.ts`, which already switches on it.
  */
 interface StreamEventRegistration {
   readonly kind: 'stream';

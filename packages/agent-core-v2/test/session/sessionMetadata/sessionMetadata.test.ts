@@ -6,18 +6,18 @@ import { ServiceCollection } from '#/_base/di/serviceCollection';
 import { TestInstantiationService } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { SessionMetadata } from '#/session/sessionMetadata/sessionMetadataService';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
-import { stubLog } from '../../_base/log/stubs';
 import { stubSessionIndexMirror } from '../../app/sessionIndex/stubs';
+import { stubLog } from '../../_base/log/stubs';
 
 const META_SCOPE = 'sessions/wd_test/s1/session-meta';
 
@@ -143,8 +143,6 @@ describe('SessionMetadata', () => {
     const meta = ix.get(ISessionMetadata);
     const before = (await meta.read()).updatedAt;
     await new Promise((r) => setTimeout(r, 2));
-    // A genuinely NEW agent (resume materializing a cold session's main
-    // agent, or a runtime subagent) is not content activity.
     await meta.registerAgent('main', { homedir: '/tmp/h', type: 'main' });
 
     const next = await meta.read();
@@ -189,7 +187,6 @@ describe('SessionMetadata', () => {
 
     const meta = ix.get(ISessionMetadata);
     await meta.ready;
-    // A resume loads silently; only mutations reach the mirror.
     expect(mirror.recorded).toEqual([]);
 
     await meta.update({ title: 'x' });
@@ -200,8 +197,6 @@ describe('SessionMetadata', () => {
 
   it('persists the authoritative document before recording to the mirror', async () => {
     const store = ix.get(IAtomicDocumentStore);
-    // Read the persisted document back from inside record(): at that point
-    // the mutation must already be durable.
     const persistedAtRecord: Promise<Record<string, unknown> | undefined>[] = [];
     const baseRecord = mirror.record;
     mirror.record = (summary) => {
@@ -210,7 +205,7 @@ describe('SessionMetadata', () => {
     };
 
     const meta = ix.get(ISessionMetadata);
-    await meta.ready; // first-time creation records too
+    await meta.ready;
     await meta.update({ title: 'durable-first' });
 
     expect(persistedAtRecord).toHaveLength(2);
@@ -225,13 +220,10 @@ describe('SessionMetadata', () => {
     };
 
     const meta = ix.get(ISessionMetadata);
-    // The creation-time record throws inside load(); the load must survive.
     await meta.ready;
     await meta.update({ title: 'still fine' });
     expect(await meta.read()).toMatchObject({ title: 'still fine' });
 
-    // The mutation reached the authoritative document: a fresh instance reads
-    // it back even though every mirror record failed.
     const fresh = createFreshMetadata(ix);
     expect(await fresh.read()).toMatchObject({ title: 'still fine' });
   });
@@ -315,8 +307,6 @@ describe('SessionMetadata', () => {
       archived: true,
     });
     const persisted = await store.get<Record<string, unknown>>(META_SCOPE, 'state.json');
-    // The v1-readable marker is double-written (derived from titleKind);
-    // only the pre-`isCustomTitle` legacy field is stripped.
     expect(persisted).toMatchObject({ isCustomTitle: true });
     expect(persisted).not.toHaveProperty('customTitle');
   });
@@ -350,11 +340,6 @@ describe('SessionMetadata', () => {
   });
 
   it('honors a legacy writer custom marker over the stale titleKind it left behind', async () => {
-    // The mixed-version round trip: v2 persists a replaceable title, then a
-    // released v1 build renames the session — its writer spreads the original
-    // document, so `isCustomTitle: true` lands next to the stale
-    // `titleKind: 'replaceable'`. The explicit custom marker must win, or the
-    // next auto generation would overwrite the user's title.
     const store = ix.get(IAtomicDocumentStore);
     await store.set(META_SCOPE, 'state.json', {
       id: 's1',
@@ -375,7 +360,6 @@ describe('SessionMetadata', () => {
       titleKind: 'custom',
     });
 
-    // The heal persists the upgraded state — v1 keeps reading it as custom.
     const persisted = await store.get<Record<string, unknown>>(META_SCOPE, 'state.json');
     expect(persisted).toMatchObject({ titleKind: 'custom', isCustomTitle: true });
 
@@ -384,7 +368,6 @@ describe('SessionMetadata', () => {
       title: '用户手工标题',
       titleKind: 'custom',
     });
-    // A generated title must not replace the upgraded custom title.
     await expect(fresh.setGeneratedTitleIfUncustomized('generated title')).resolves.toBe(false);
   });
 
@@ -393,19 +376,17 @@ describe('SessionMetadata', () => {
     const meta = ix.get(ISessionMetadata);
 
     await meta.setGeneratedTitleIfUncustomized('generated title');
-    await expect(
-      store.get<Record<string, unknown>>(META_SCOPE, 'state.json'),
-    ).resolves.toMatchObject({ titleKind: 'generated', isCustomTitle: false });
+    await expect(store.get<Record<string, unknown>>(META_SCOPE, 'state.json')).resolves.toMatchObject(
+      { titleKind: 'generated', isCustomTitle: false },
+    );
 
     await meta.setTitle('user title');
-    await expect(
-      store.get<Record<string, unknown>>(META_SCOPE, 'state.json'),
-    ).resolves.toMatchObject({ titleKind: 'custom', isCustomTitle: true });
+    await expect(store.get<Record<string, unknown>>(META_SCOPE, 'state.json')).resolves.toMatchObject(
+      { titleKind: 'custom', isCustomTitle: true },
+    );
   });
 
   it('does not downgrade a modern titleKind on a legacy false marker', async () => {
-    // The double-written pair as this build persists it: the `false` marker
-    // is informational and must not demote the generated state.
     const store = ix.get(IAtomicDocumentStore);
     await store.set(META_SCOPE, 'state.json', {
       id: 's1',
@@ -428,7 +409,6 @@ describe('SessionMetadata', () => {
   });
 
   it.each([
-    // [document title fields, expected titleKind] — the mixed-version matrix.
     [{ isCustomTitle: true, titleKind: 'generated' as const }, 'custom'],
     [{ isCustomTitle: true, titleKind: 'replaceable' as const }, 'custom'],
     [{ isCustomTitle: true }, 'custom'],
@@ -478,8 +458,6 @@ describe('SessionMetadata', () => {
     const fresh = createFreshMetadata(ix);
     await fresh.ready;
 
-    // The first load already healed the document; the second load sees a
-    // consistent pair and must not write again.
     expect(setSpy).not.toHaveBeenCalled();
     expect((await fresh.read()).titleKind).toBe('custom');
   });
@@ -568,7 +546,7 @@ describe('SessionMetadata', () => {
       }),
     ]);
 
-    expect(Object.keys((await meta.read()).agents ?? {}).toSorted()).toEqual([
+    expect(Object.keys((await meta.read()).agents ?? {}).sort()).toEqual([
       'agent-0',
       'agent-1',
     ]);
@@ -650,14 +628,12 @@ describe('SessionMetadata', () => {
 
     const next = await meta.read();
     expect(next.agents?.['main']?.labels).toEqual({ swarmItem: 'src/a.ts' });
-    // Agent registration is structural, not content activity — listings stay.
     expect(next.updatedAt).toBe(before);
   });
 
   it('records the fresh summary into the session index mirror on update', async () => {
     const meta = ix.get(ISessionMetadata);
     await meta.ready;
-    // First-time creation is recorded (a new session must list immediately).
     expect(mirror.recorded).toHaveLength(1);
 
     await meta.update({ title: 'mirrored' });
@@ -686,7 +662,6 @@ describe('SessionMetadata', () => {
 
     const meta = ix.get(ISessionMetadata);
     await meta.ready;
-    // A resume loads silently; only mutations reach the mirror.
     expect(mirror.recorded).toEqual([]);
 
     await meta.setArchived(true);

@@ -1,55 +1,47 @@
-/**
- * `permissionPolicy` domain — `IAgentPermissionPolicyService` implementation.
- *
- * Runs the static, ordered permission chain: every node adjudicates the *risk*
- * of a tool call (mode posture, user rules, session approval memory, sensitive
- * paths, intrinsic tool risk, workspace write trust, fallback). Bound at
- * Agent scope.
- */
-
-import { IInstantiationService } from '#/_base/di/instantiation';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Service } from '#/_base/di/service';
+import { IInstantiationService } from "#/_base/di/instantiation";
+import { Service } from "#/_base/di/service";
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { AutoModeApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/auto-mode-approve';
 import { AutoModeAskUserQuestionDenyPermissionPolicyService } from '#/agent/permissionPolicy/policies/auto-mode-ask-user-question-deny';
 import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';
 import { FallbackAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/fallback-ask';
 import { GitControlPathAccessAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/git-control-path-access-ask';
 import { GitCwdWriteApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/git-cwd-write-approve';
-import { GuardianReviewPermissionPolicyService } from '#/agent/permissionPolicy/policies/guardian-review';
 import { SensitiveFileAccessAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/sensitive-file-access-ask';
 import { SessionApprovalHistoryPermissionPolicyService } from '#/agent/permissionPolicy/policies/session-approval-history';
 import { UserConfiguredAllowPermissionPolicyService } from '#/agent/permissionPolicy/policies/user-configured-allow';
 import { UserConfiguredAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/user-configured-ask';
 import { UserConfiguredDenyPermissionPolicyService } from '#/agent/permissionPolicy/policies/user-configured-deny';
 import { YoloModeApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/yolo-mode-approve';
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import {
+  IAgentPermissionPolicyService,
+  type PermissionPolicyEvaluation,
+} from './permissionPolicy';
+import type { PermissionPolicy } from "./types";
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
-import { IAgentPermissionPolicyService, type PermissionPolicyEvaluation } from './permissionPolicy';
-import type { PermissionPolicy } from './types';
-
-export class AgentPermissionPolicyService extends Service implements IAgentPermissionPolicyService {
+export class AgentPermissionPolicyService
+  extends Service
+  implements IAgentPermissionPolicyService
+{
   declare readonly _serviceBrand: undefined;
 
   private readonly policies: readonly PermissionPolicy[];
 
-  constructor(@IInstantiationService private readonly instantiation: IInstantiationService) {
+  constructor(
+    @IInstantiationService private readonly instantiation: IInstantiationService,
+  ) {
     super();
     this.policies = [
       this.instantiation.createInstance(AutoModeAskUserQuestionDenyPermissionPolicyService),
       this.instantiation.createInstance(UserConfiguredDenyPermissionPolicyService),
+      this.instantiation.createInstance(AutoModeApprovePermissionPolicyService),
       this.instantiation.createInstance(SessionApprovalHistoryPermissionPolicyService),
       this.instantiation.createInstance(UserConfiguredAskPermissionPolicyService),
       this.instantiation.createInstance(UserConfiguredAllowPermissionPolicyService),
       this.instantiation.createInstance(SensitiveFileAccessAskPermissionPolicyService),
       this.instantiation.createInstance(GitControlPathAccessAskPermissionPolicyService),
-      // Auto mode's blanket approve must come AFTER the sensitive-file and
-      // git-control gates: otherwise auto mode would silently write to
-      // `.git/`, `~/.aws`, etc. — weaker protection than yolo mode, which
-      // sits behind those same gates.
-      this.instantiation.createInstance(AutoModeApprovePermissionPolicyService),
-      this.instantiation.createInstance(GuardianReviewPermissionPolicyService),
       this.instantiation.createInstance(YoloModeApprovePermissionPolicyService),
       this.instantiation.createInstance(DefaultToolApprovePermissionPolicyService),
       this.instantiation.createInstance(GitCwdWriteApprovePermissionPolicyService),

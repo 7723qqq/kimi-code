@@ -19,7 +19,6 @@ import { describe, expect, it } from 'vitest';
 
 import { parse } from '#/parse';
 import type { ParseOptions, ParseResult } from '#/parse';
-
 import { assertTreeIntegrity, parseFixtureFile } from './helpers/differential';
 
 const PKG_ROOT = path.resolve(import.meta.dirname, '..');
@@ -54,91 +53,17 @@ function checkContract(source: string, options?: ParseOptions): ParseResult {
 }
 
 const TOKEN_POOL = [
-  'echo',
-  'ls',
-  'foo',
-  'bar',
-  'x',
-  'A=1',
-  'if',
-  'then',
-  'fi',
-  'while',
-  'do',
-  'done',
-  'for',
-  'in',
-  'case',
-  'esac',
-  '&&',
-  '||',
-  '|',
-  '|&',
-  ';',
-  '&',
-  ';;',
-  ';&',
-  '(',
-  ')',
-  '{',
-  '}',
-  '>',
-  '>>',
-  '<',
-  '>&1',
-  '2>',
-  '&>',
-  '<<EOF',
-  '<<<',
-  '$x',
-  '${v}',
-  '${v:-d}',
-  '$(cmd)',
-  '`cmd`',
-  '$((1+2))',
-  '[[',
-  ']]',
-  '[',
-  ']',
-  '==',
-  '=~',
-  '-f',
-  '-z',
-  '"str"',
-  "'raw'",
-  '$"t"',
-  "$'a'",
-  '*',
-  '?',
-  '[a-z]',
-  '@(a|b)',
-  '\\\\',
-  '\\n',
-  '\n',
-  '#c',
-  'function',
-  'return',
-  '${v#p}',
-  '${v/p/r}',
-  '${v[@]}',
-  '!<',
-  '>(p)',
-  '<(p)',
-  '$#',
-  '$?',
-  '0x1F',
-  '..',
-  '<<-',
-  '>&-',
-  'abc_def',
+  'echo', 'ls', 'foo', 'bar', 'x', 'A=1', 'if', 'then', 'fi', 'while', 'do', 'done', 'for', 'in', 'case', 'esac',
+  '&&', '||', '|', '|&', ';', '&', ';;', ';&', '(', ')', '{', '}', '>', '>>', '<', '>&1', '2>', '&>', '<<EOF',
+  '<<<', '$x', '${v}', '${v:-d}', '$(cmd)', '`cmd`', '$((1+2))', '[[', ']]', '[', ']', '==', '=~', '-f', '-z',
+  '"str"', "'raw'", '$"t"', "$'a'", '*', '?', '[a-z]', '@(a|b)', '\\\\', '\\n', '\n', '#c', 'function', 'return',
+  '${v#p}', '${v/p/r}', '${v[@]}', '!<', '>(p)', '<(p)', '$#', '$?', '0x1F', '..', '<<-', '>&-', 'abc_def',
 ] as const;
 
 function fixtureSources(): string[] {
   const dir = path.join(PKG_ROOT, 'test/fixtures/differential');
   const out: string[] = [];
-  for (const file of readdirSync(dir)
-    .filter((f) => f.endsWith('.txt'))
-    .toSorted()) {
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.txt')).toSorted()) {
     for (const sample of parseFixtureFile(file, readFileSync(path.join(dir, file), 'utf8'))) {
       out.push(sample.source);
     }

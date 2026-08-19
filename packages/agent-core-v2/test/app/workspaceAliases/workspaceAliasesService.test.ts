@@ -1,9 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
+import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -11,22 +11,21 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { LifecycleScope } from '#/app/scopes';
-import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
-import { IWorkspaceService } from '#/app/workspace/workspace';
-import {
-  IWorkspacePersistence,
-  type PersistedWorkspaceEntry,
-} from '#/app/workspace/workspacePersistence';
-import { WorkspaceService } from '#/app/workspace/workspaceService';
-import { IWorkspaceAliases } from '#/app/workspaceAliases/workspaceAliases';
-import { WorkspaceAliasesService } from '#/app/workspaceAliases/workspaceAliasesService';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IWorkspaceService } from '#/app/workspace/workspace';
+import { WorkspaceService } from '#/app/workspace/workspaceService';
+import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
+import {
+  IWorkspacePersistence,
+  type PersistedWorkspaceEntry,
+} from '#/app/workspace/workspacePersistence';
+import { IWorkspaceAliases } from '#/app/workspaceAliases/workspaceAliases';
+import { WorkspaceAliasesService } from '#/app/workspaceAliases/workspaceAliasesService';
 
 interface SessionIndexLine {
   readonly sessionId: string;

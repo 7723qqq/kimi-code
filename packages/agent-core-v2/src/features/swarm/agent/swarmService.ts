@@ -1,60 +1,41 @@
-/**
- * `swarm` domain — `IAgentSwarmService` implementation.
- *
- * Tracks swarm-mode enter/exit in the `wire` `SwarmModel` (mutated only through
- * the `swarm_mode.enter` / `swarm_mode.exit` Ops, read through `wire.getModel`),
- * derives `agent.status.updated` from the Ops' `toEvent`, announces the mode
- * through the `swarm_mode` context-injection provider (`SwarmInjection`),
- * mirrors replayable trailing-enter removal through `contextMemory`, and
- * auto-exits on turn end via `turn`. Bound at Agent scope — contributed into
- * every Agent scope by `SwarmFeature` (`features/swarm/swarmFeature`). The
- * service also
- * guards AgentSwarm batch exclusivity through an `onBeforeExecuteTool` veto
- * listener: an AgentSwarm call must be the only tool call in its batch;
- * anything else is vetoed with a `toolApproval.formatDenyMessage`-formatted
- * reason. A second veto listener denies the `Agent` tool while swarm mode is
- * active — the enter-reminder is a soft constraint; this veto is the hard
- * enforcement that prevents a single-shot Agent call from slipping through.
- * Solitary-tool exclusivity (an `AgentSwarm` or `Team` call must be
- * the only tool call in its batch, mirroring v1's
- * `agent-swarm-exclusive-deny` policy) is enforced by the first veto listener.
- */
-
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import { IInstantiationService } from '#/_base/di/instantiation';
 import { Service } from '#/_base/di/service';
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { TurnEnded } from '#/agent/loop/turnOps';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IEventBus } from '#/app/event/eventBus';
-import { IWireService } from '#/wire/wire';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import { swarmEnter, swarmExit, SwarmModel } from '../swarmOps';
 import { SwarmInjection } from './injection/swarmInjection';
-import type { IAgentSwarmService } from './swarm';
-import { type SwarmModeTrigger } from './swarm';
+import { IAgentSwarmService, type SwarmModeTrigger } from './swarm';
+import { SwarmModeEnter, SwarmModeExit, swarmKey } from '../swarmOps';
 
 export class AgentSwarmService extends Service implements IAgentSwarmService {
   declare readonly _serviceBrand: undefined;
 
   constructor(
-    @IWireService private readonly wire: IWireService,
+    @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IInstantiationService instantiation: IInstantiationService,
     @IEventBus eventBus: IEventBus,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
+    @IAgentStateService private readonly agentState: IAgentStateService,
   ) {
     super();
+    this.agentState.contributeState(swarmKey);
     this._register(
       instantiation.createInstance(SwarmInjection, {
-        getTrigger: () => this.wire.getModel(SwarmModel),
+        getTrigger: () => this.agentState.get(swarmKey),
       }),
     );
     this._register(
-      eventBus.subscribe('turn.ended', () => {
+      eventBus.subscribe(TurnEnded, () => {
         if (this.shouldAutoExit) {
           this.exit();
         }
@@ -62,26 +43,26 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
     );
     this._register(
       toolExecutor.onBeforeExecuteTool((event) => {
-        const solitaryTools = new Set(['AgentSwarm', 'Team']);
-        const solitaryCount = event.toolCalls.filter((toolCall) =>
-          solitaryTools.has(toolCall.name),
+        const agentSwarmCount = event.toolCalls.filter(
+          (toolCall) => toolCall.name === 'AgentSwarm',
         ).length;
-        if (solitaryCount === 0 || (solitaryCount === 1 && event.toolCalls.length === 1)) {
+        if (agentSwarmCount === 0 || (agentSwarmCount === 1 && event.toolCalls.length === 1)) {
           return;
         }
         event.veto(
           denyToolExecution(
             this.toolApproval.formatDenyMessage(
-              solitaryCount > 1
-                ? event.toolCalls.length > solitaryCount
-                  ? t('toolsV2.swarm.solitaryMultipleDeniedMixed')
-                  : t('toolsV2.swarm.solitaryMultipleDenied')
-                : t('toolsV2.swarm.solitaryMixedDenied'),
+              agentSwarmCount > 1
+                ? multipleAgentSwarmDeniedMessage(event.toolCalls.length > agentSwarmCount)
+                : mixedAgentSwarmDeniedMessage(),
             ),
           ),
         );
       }),
     );
+    // Hard enforcement counterpart to the soft enter-reminder constraint:
+    // while swarm mode is active, a single-shot `Agent` call is denied — the
+    // `AgentSwarm` tool is the supported dispatch path.
     this._register(
       toolExecutor.onBeforeExecuteTool((event) => {
         if (!this.isActive) return;
@@ -94,25 +75,43 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
   }
 
   enter(trigger: SwarmModeTrigger): void {
-    if (this.wire.getModel(SwarmModel) !== null) return;
-    this.wire.dispatch(swarmEnter({ trigger }));
+    if (this.agentState.get(swarmKey) !== null) return;
+    void this.dispatcher.dispatch(new SwarmModeEnter({ trigger }));
   }
 
   exit(): void {
-    if (this.wire.getModel(SwarmModel) === null) return;
+    if (this.agentState.get(swarmKey) === null) return;
     const history = this.context.get();
-    this.wire.dispatch(swarmExit({}));
+    void this.dispatcher.dispatch(new SwarmModeExit({}));
     this.context.publishTrailingRemoval(history);
   }
 
   get isActive(): boolean {
-    return this.wire.getModel(SwarmModel) !== null;
+    return this.agentState.get(swarmKey) !== null;
   }
 
   private get shouldAutoExit(): boolean {
-    const trigger = this.wire.getModel(SwarmModel);
+    const trigger = this.agentState.get(swarmKey);
     return trigger === 'task' || trigger === 'tool';
   }
+}
+
+function multipleAgentSwarmDeniedMessage(hasOtherToolCalls: boolean): string {
+  const suffix = hasOtherToolCalls
+    ? ' AgentSwarm also must not be combined with other tools in the same response.'
+    : '';
+  return (
+    'AgentSwarm must be called one swarm at a time. Multiple AgentSwarm calls are not forbidden, ' +
+    'but issue them sequentially: call one AgentSwarm, wait for its result, then call the next; ' +
+    `or merge the work into a single AgentSwarm when one swarm can cover it.${suffix}`
+  );
+}
+
+function mixedAgentSwarmDeniedMessage(): string {
+  return (
+    'AgentSwarm must be the only tool call in a model response. Retry with a single AgentSwarm ' +
+    'call by itself, then call any other tools after it returns.'
+  );
 }
 
 function agentDeniedInSwarmModeMessage(): string {

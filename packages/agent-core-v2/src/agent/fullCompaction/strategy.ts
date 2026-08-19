@@ -1,14 +1,7 @@
-import {
-  tryNativeComputeCompactCount,
-  tryNativeReduceCompactOnOverflow,
-  type NativeCompactionConfigMeta,
-  type NativeCompactionMessageMeta,
-} from '#/_base/native-tools';
-import type { ProfileModelContext } from '#/agent/profile/profile';
 import type { Message } from '#/kosong/contract/message';
-import { estimateTokensForMessage } from '#/kosong/contract/tokens';
-
+import type { ProfileModelContext } from '#/agent/profile/profile';
 import type { CompactionSource } from './types';
+import { estimateTokensForMessage } from '#/kosong/contract/tokens';
 
 export interface CompactionConfig {
   triggerRatio: number;
@@ -48,7 +41,7 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
   constructor(
     private readonly context: () => ProfileModelContext,
     private readonly estimateMessage: (message: Message) => number = estimateTokensForMessage,
-  ) {}
+  ) { }
 
   shouldCompact(usedSize: number): boolean {
     return this.delegate().shouldCompact(usedSize);
@@ -89,9 +82,7 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
 
   private windowDelegate(): DefaultCompactionStrategy {
     return new DefaultCompactionStrategy(
-      () =>
-        this.context().modelCapabilities.max_input_tokens ??
-        this.context().modelCapabilities.max_context_tokens,
+      () => this.context().modelCapabilities.max_input_tokens ?? this.context().modelCapabilities.max_context_tokens,
       DEFAULT_COMPACTION_CONFIG,
       this.estimateMessage,
     );
@@ -110,12 +101,13 @@ export class RuntimeCompactionStrategy implements CompactionStrategy {
   }
 }
 
+
 export class DefaultCompactionStrategy implements CompactionStrategy {
   constructor(
     protected readonly maxSizeProvider: () => number,
     protected readonly config: CompactionConfig = DEFAULT_COMPACTION_CONFIG,
     protected readonly estimateMessage: (message: Message) => number = estimateTokensForMessage,
-  ) {}
+  ) { }
 
   protected get maxSize(): number {
     return this.maxSizeProvider();
@@ -124,35 +116,25 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   shouldCompact(usedSize: number): boolean {
     if (this.maxSize <= 0) return false;
     return (
-      usedSize >= this.maxSize * this.config.triggerRatio || this.shouldUseReservedContext(usedSize)
+      usedSize >= this.maxSize * this.config.triggerRatio ||
+      this.shouldUseReservedContext(usedSize)
     );
   }
 
   shouldBlock(usedSize: number): boolean {
     if (this.maxSize <= 0) return false;
     return (
-      usedSize >= this.maxSize * this.config.blockRatio || this.shouldUseReservedContext(usedSize)
+      usedSize >= this.maxSize * this.config.blockRatio ||
+      this.shouldUseReservedContext(usedSize)
     );
   }
 
   private shouldUseReservedContext(usedSize: number): boolean {
     const reservedSize = this.config.reservedContextSize;
-    return (
-      reservedSize > 0 && reservedSize < this.maxSize && usedSize + reservedSize >= this.maxSize
-    );
+    return reservedSize > 0 && reservedSize < this.maxSize && usedSize + reservedSize >= this.maxSize;
   }
 
   computeCompactCount(messages: readonly Message[], source: CompactionSource): number {
-    // Native fast-path: the Rust compaction engine is a line-for-line port
-    // of this algorithm (same split-safety guards). Message tokens are
-    // projected with the same estimator the TS path uses, so results are
-    // identical; the TS algorithm below remains the fallback.
-    const native = tryNativeComputeCompactCount(
-      toCompactionMeta(messages, this.estimateMessage),
-      toNativeCompactionConfig(this.maxSize, this.config),
-      source === 'manual',
-    );
-    if (native !== undefined) return native;
 
     if (source === 'manual') {
       for (let i = messages.length - 1; i > 0; i--) {
@@ -162,6 +144,7 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
       }
       return 0;
     }
+
 
     let recentMessages = 1;
     let recentUserMessages = 0;
@@ -181,10 +164,9 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
         bestN = splitIndex + 1;
       }
 
-      const reachesMax =
-        recentMessages >= this.config.maxRecentMessages ||
-        recentUserMessages >= this.config.maxRecentUserMessages ||
-        recentSize >= this.maxSize * this.config.maxRecentSizeRatio;
+      const reachesMax = recentMessages >= this.config.maxRecentMessages
+        || recentUserMessages >= this.config.maxRecentUserMessages
+        || recentSize >= this.maxSize * this.config.maxRecentSizeRatio;
       if (reachesMax && bestN !== undefined) {
         break;
       }
@@ -194,12 +176,6 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
   }
 
   reduceCompactOnOverflow(messages: readonly Message[]): number {
-    const native = tryNativeReduceCompactOnOverflow(
-      toCompactionMeta(messages, this.estimateMessage),
-      toNativeCompactionConfig(this.maxSize, this.config),
-    );
-    if (native !== undefined) return native;
-
     const minReducedSize = Math.max(
       1,
       Math.ceil(this.maxSize * this.config.minOverflowReductionRatio),
@@ -219,7 +195,10 @@ export class DefaultCompactionStrategy implements CompactionStrategy {
     return bestN ?? messages.length;
   }
 
-  private fitCompactCountToWindow(messages: readonly Message[], compactedCount: number): number {
+  private fitCompactCountToWindow(
+    messages: readonly Message[],
+    compactedCount: number,
+  ): number {
     if (this.maxSize <= 0 || compactedCount <= 0) {
       return compactedCount;
     }
@@ -284,36 +263,4 @@ function prefixEndsWithOpenToolExchange(messages: readonly Message[], index: num
     return message.role === 'assistant' && message.toolCalls.length > toolResultCount;
   }
   return false;
-}
-
-function toCompactionMeta(
-  messages: readonly Message[],
-  estimateMessage: (message: Message) => number,
-): NativeCompactionMessageMeta[] {
-  return messages.map((message) => ({
-    role: message.role,
-    toolCallsCount: message.toolCalls.length,
-    tokens: estimateMessage(message),
-  }));
-}
-
-function toNativeCompactionConfig(
-  maxSize: number,
-  config: CompactionConfig,
-): NativeCompactionConfigMeta {
-  return {
-    // A non-finite maxSize has no u32 representation; 0 makes both the
-    // Rust and TS fit paths return the input count unchanged.
-    maxSize: Number.isFinite(maxSize) ? maxSize : 0,
-    maxRecentMessages:
-      config.maxRecentMessages === Infinity ? 0xffffffff : config.maxRecentMessages,
-    // napi u32 cannot represent Infinity ("unlimited recent user
-    // messages"); encode it as u32::MAX, which no real message count can
-    // reach. A broken value here makes the Rust loop break on its first
-    // iteration and return the wrong split point.
-    maxRecentUserMessages:
-      config.maxRecentUserMessages === Infinity ? 0xffffffff : config.maxRecentUserMessages,
-    maxRecentSizeRatio: config.maxRecentSizeRatio,
-    minOverflowReductionRatio: config.minOverflowReductionRatio,
-  };
 }

@@ -1,15 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — app-scope OAuth + auth summary contracts.
- *
- * Defines the public contracts of authentication: the `AuthStatus` model, the
- * `IOAuthService` used to drive device-code login / logout / flow inspection,
- * to resolve a per-provider `BearerTokenProvider`, and to refresh a managed
- * OAuth provider's server-side model configuration, the `IOAuthToolkit`
- * device-code client that `IOAuthService` delegates the OAuth protocol to, and
- * the `IAuthSummaryService` used to summarize auth state and provide the
- * prompt auth-readiness gate. App-scoped — shared across the application.
- */
-
 import type {
   AuthManagedUserInfoResult,
   AuthManagedUsageResult,
@@ -19,10 +7,9 @@ import type {
   KimiOAuthLogoutResult,
   KimiOAuthTokenRef,
 } from '@moonshot-ai/kimi-code-oauth';
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Error2 } from '#/_base/errors/errors';
+
 import type { OAuthRef } from '#/kosong/provider/provider';
 
 import { AuthErrors } from './errors';
@@ -92,9 +79,11 @@ export const IAuthSummaryService: ServiceIdentifier<IAuthSummaryService> =
 
 export class AuthProvisioningRequiredError extends Error2 {
   constructor() {
-    super(AuthErrors.codes.AUTH_PROVISIONING_REQUIRED, t('v2Auth.noProvider'), {
-      name: 'AuthProvisioningRequiredError',
-    });
+    super(
+      AuthErrors.codes.AUTH_PROVISIONING_REQUIRED,
+      'no provider configured; complete onboarding via /login or the providers endpoint',
+      { name: 'AuthProvisioningRequiredError' },
+    );
   }
 }
 
@@ -104,7 +93,7 @@ export class AuthTokenMissingError extends Error2 {
   constructor(providerId: string) {
     super(
       AuthErrors.codes.AUTH_TOKEN_MISSING,
-      t('v2Auth.loginRequired', { providerKey: providerId }),
+      `provider ${providerId} has no credential configured`,
       { details: { provider_id: providerId }, name: 'AuthTokenMissingError' },
     );
     this.providerId = providerId;
@@ -119,10 +108,16 @@ export class AuthModelNotResolvedError extends Error2 {
     const details: Record<string, unknown> = {};
     if (modelId !== undefined) details['model_id'] = modelId;
     if (providerId !== undefined) details['provider_id'] = providerId;
-    super(AuthErrors.codes.AUTH_MODEL_NOT_RESOLVED, t('v2Errors.authModelNotResolved'), {
-      details: Object.keys(details).length === 0 ? undefined : details,
-      name: 'AuthModelNotResolvedError',
-    });
+    super(
+      AuthErrors.codes.AUTH_MODEL_NOT_RESOLVED,
+      modelId === undefined
+        ? 'no default model configured'
+        : `model ${modelId} does not resolve to a configured provider`,
+      {
+        details: Object.keys(details).length === 0 ? undefined : details,
+        name: 'AuthModelNotResolvedError',
+      },
+    );
     this.modelId = modelId;
     this.providerId = providerId;
   }

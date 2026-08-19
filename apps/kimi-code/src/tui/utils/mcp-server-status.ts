@@ -15,7 +15,6 @@ function mcpStartupStatusPriority(status: McpServerStatusSnapshot['status']): nu
     case 'needs-auth':
       return 1;
     case 'pending':
-    case 'pending-approval':
       return 2;
     case 'connected':
       return 3;
@@ -53,7 +52,6 @@ export function formatMcpStartupStatusSummary(servers: readonly McpServerStatusS
         needsAuth++;
         break;
       case 'pending':
-      case 'pending-approval':
         connecting++;
         break;
       case 'connected':

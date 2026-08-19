@@ -1,21 +1,12 @@
-/**
- * `hostFolderBrowser` domain — `IHostFolderBrowser` implementation.
- *
- * Browses the real local filesystem through `node:fs/promises` and derives
- * `recent_roots` from the process-wide `IWorkspaceService`. Bound at App
- * scope. Preserves the legacy wire behaviour: realpath resolution,
- * directory-only entries, dot-last sorting, and `parent` resolution.
- */
-
 import { readdir, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import type { FsBrowseEntry, FsBrowseResponse, FsHomeResponse } from './hostFolderBrowser';
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IWorkspaceService } from '#/app/workspace/workspace';
 
-import type { FsBrowseEntry, FsBrowseResponse, FsHomeResponse } from './hostFolderBrowser';
 import {
   HostFolderNotAbsoluteError,
   HostFolderNotFoundError,
@@ -38,15 +29,15 @@ export class HostFolderBrowser implements IHostFolderBrowser {
     let realTarget: string;
     try {
       realTarget = await realpath(target);
-    } catch (error) {
-      throw mapFsError(error, target);
+    } catch (err) {
+      throw mapFsError(err, target);
     }
 
     let dirents;
     try {
       dirents = await readdir(realTarget, { withFileTypes: true });
-    } catch (error) {
-      throw mapFsError(error, realTarget);
+    } catch (err) {
+      throw mapFsError(err, realTarget);
     }
 
     const entries: FsBrowseEntry[] = dirents

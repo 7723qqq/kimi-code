@@ -1,31 +1,20 @@
-/**
- * Scenario: workspace MCP config — the initial file+plugin merge (file wins
- * name collisions) and watch/plugin-reload-driven reconciliation published
- * as already-diffed change events.
- *
- * Exercises the real `WorkspaceMcpConfigService` against real temp config
- * files with a manually-fired fs-watch stub. Run:
- * `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/workspace/workspaceMcpConfig/workspaceMcpConfig.test.ts`.
- */
-
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import type { McpServerConfig } from '#/mcpCore/config-schema';
+import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { ReloadSummary } from '#/app/plugin/types';
-import type { McpServerConfig } from '#/mcpCore/config-schema';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
@@ -35,14 +24,14 @@ import {
 } from '#/os/interface/hostFsWatch';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import {
+  IWorkspaceTrust,
+  type WorkspaceTrustChange,
+} from '#/workspace/workspaceTrust/workspaceTrust';
+import {
   IWorkspaceMcpConfigService,
   type McpServersChange,
 } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
 import { WorkspaceMcpConfigService } from '#/workspace/workspaceMcpConfig/workspaceMcpConfigService';
-import {
-  IWorkspaceTrust,
-  type WorkspaceTrustChange,
-} from '#/workspace/workspaceTrust/workspaceTrust';
 
 import { stubLog } from '../../_base/log/stubs';
 
@@ -109,8 +98,8 @@ describe('WorkspaceMcpConfigService', () => {
         reg.defineInstance(ILogService, stubLog());
         reg.definePartialInstance(IConfigService, {
           ready: Promise.resolve(),
-          get: <T = unknown>(domain: string): T =>
-            (domain === MCP_SECTION ? mcpSection : undefined) as T,
+          get: (<T = unknown>(domain: string): T =>
+            (domain === MCP_SECTION ? mcpSection : undefined) as T),
         });
         reg.defineInstance(IHostFsWatchService, fsWatchStub());
         reg.defineInstance(IHostFileSystem, new HostFileSystem());
@@ -136,10 +125,7 @@ describe('WorkspaceMcpConfigService', () => {
   }
 
   it('merges file and plugin servers in the initial resolve (file wins name collisions)', async () => {
-    await writeProjectConfig({
-      shared: stdioConfig('file-version'),
-      fileOnly: stdioConfig('file'),
-    });
+    await writeProjectConfig({ shared: stdioConfig('file-version'), fileOnly: stdioConfig('file') });
     pluginServers = { shared: stdioConfig('plugin-version'), pluginOnly: stdioConfig('plugin') };
 
     const service = createService();
@@ -223,7 +209,9 @@ describe('WorkspaceMcpConfigService', () => {
 
     await vi.waitFor(
       () => {
-        expect(changes).toEqual([{ upsert: { beta: stdioConfig('beta') }, remove: ['alpha'] }]);
+        expect(changes).toEqual([
+          { upsert: { beta: stdioConfig('beta') }, remove: ['alpha'] },
+        ]);
       },
       { timeout: 10000, interval: 50 },
     );

@@ -16,8 +16,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -64,9 +64,6 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-model-catalog-'));
-    // Disable the background refresh scheduler so its startup refresh never
-    // races the route-level assertions below (it shares the IProviderDiscoveryService
-    // binding that the stub tests override).
     process.env['KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START'] = '0';
     process.env['KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS'] = '0';
   });
@@ -201,7 +198,6 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       has_api_key: true,
       status: 'connected',
       models: ['k2', 'turbo'],
-      // The single GET reveals the stored key; the list above never does.
       api_key: 'sk-test',
     });
 
@@ -303,7 +299,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       startLogin: async () => {
         throw new Error('unused');
       },
-      getFlow: () => {},
+      getFlow: () => undefined,
       cancelLogin: async () => {
         throw new Error('unused');
       },
@@ -314,8 +310,8 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       refreshOAuthProviderModels,
       getManagedUsage: async () => ({ kind: 'error' as const, message: 'unused' }),
       getManagedUserInfo: async () => ({ kind: 'error' as const, message: 'unused' }),
-      resolveTokenProvider: () => {},
-      getCachedAccessToken: async () => {},
+      resolveTokenProvider: () => undefined,
+      getCachedAccessToken: async () => undefined,
     };
   }
 
@@ -356,9 +352,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       unchanged: ['moonshot-cn'],
       failed: [],
     }));
-    const seeds = [
-      [IProviderDiscoveryService, discoveryStub(refreshProviderModels)],
-    ] as unknown as ScopeSeed;
+    const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
     const { status, body } = await postJson('/api/v1/providers:refresh', {});
@@ -373,9 +367,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       unchanged: [],
       failed: [],
     }));
-    const seeds = [
-      [IProviderDiscoveryService, discoveryStub(refreshProviderModels)],
-    ] as unknown as ScopeSeed;
+    const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
     const { status, body } = await postJson('/api/v1/providers/managed%3Akimi-code:refresh', {});
@@ -390,9 +382,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       unchanged: [],
       failed: [],
     }));
-    const seeds = [
-      [IProviderDiscoveryService, discoveryStub(refreshProviderModels)],
-    ] as unknown as ScopeSeed;
+    const seeds = [[IProviderDiscoveryService, discoveryStub(refreshProviderModels)]] as unknown as ScopeSeed;
     await boot(CATALOG_TOML, seeds);
 
     const { body } = await postJson('/api/v1/providers/foo:bogus', {});

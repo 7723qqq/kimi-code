@@ -1,29 +1,6 @@
-/**
- * `contextMemory` domain helper — derives the v1-compatible full-compaction
- * handoff shape for live rewrites, wire replay, and snapshot reducers.
- *
- * Token budgeting runs through an injectable {@link TokenEstimate}: the live
- * path (`AgentContextMemoryService.applyCompaction`) passes the estimator
- * from `IAgentTokenCountingService` (the raw heuristics — the
- * `[token_counting]` strategy never gates internal estimates); the pure
- * wire-replay / reducer paths keep the same heuristics — their estimate
- * fallback only fires when a record lacks `tokensAfter`, so the measured
- * chain is unaffected.
- */
-
-import {
-  tryNativeSelectCompactionUserMessages,
-  tryNativeTruncateTextToTokensFromEnd,
-  type NativeCompactionUserSelection,
-} from '#/_base/native-tools';
-import { wrapSystemReminder } from '#/agent/systemReminder/systemReminder';
+import { estimateTokens, estimateTokensForMessage, estimateTokensForMessages } from '#/kosong/contract/tokens';
 import type { ContentPart } from '#/kosong/contract/message';
-import {
-  estimateTokens,
-  estimateTokensForMessage,
-  estimateTokensForMessages,
-} from '#/kosong/contract/tokens';
-
+import { wrapSystemReminder } from '#/agent/systemReminder/systemReminder';
 import summaryPrefixTemplate from './compaction-summary-prefix.md?raw';
 import type { ContextMessage, PromptOrigin } from './types';
 
@@ -34,7 +11,6 @@ export const COMPACTION_ELISION_VARIANT = 'compaction_elision';
 
 type MessageLike = ContextMessage;
 
-/** Injectable token-count estimates; see the file header for who passes what. */
 export interface TokenEstimate {
   readonly text: (text: string) => number;
   readonly message: (message: MessageLike) => number;
@@ -61,15 +37,7 @@ export interface ContextCompactionShapeInput {
   readonly compactedCount: number;
   readonly tokensBefore: number;
   readonly tokensAfter?: number;
-  /** Measured output tokens of the compaction LLM exchange — the REAL size of
-   *  the generated summary. Preferred over the summary-text estimate in the
-   *  `tokensAfter` fallback when present. */
   readonly summaryOutputTokens?: number;
-  /** Estimated fixed request overhead (system prompt + non-deferred tool
-   *  schemas) surviving the compaction; counted into the `tokensAfter`
-   *  fallback so the result stays on the same full-request basis as the
-   *  measured exchange anchors. Live path only — replay reads the persisted
-   *  `tokensAfter` verbatim. */
   readonly requestOverheadTokens?: number;
   readonly keptUserMessageCount?: number;
   readonly keptHeadUserMessageCount?: number;
@@ -122,10 +90,9 @@ export function buildContextCompactionShape(
   const elisionMessage = selection.elided
     ? createCompactionElisionMessage(selection.omittedTokens)
     : undefined;
-  const keptMessages =
-    elisionMessage === undefined
-      ? [...selection.head, ...selection.tail]
-      : [...selection.head, elisionMessage, ...selection.tail];
+  const keptMessages = elisionMessage === undefined
+    ? [...selection.head, ...selection.tail]
+    : [...selection.head, elisionMessage, ...selection.tail];
   const contextSummary = input.contextSummary ?? input.summary;
   const tokensAfter =
     input.tokensAfter ??
@@ -249,30 +216,6 @@ export function selectCompactionUserMessages<T extends MessageLike>(
   headTokens: number = COMPACT_USER_MESSAGE_HEAD_TOKENS,
   estimateMessage: (message: T) => number = estimateTokensForMessage,
 ): CompactionUserSelection<T> {
-  // Native fast-path: the Rust selection is a line-for-line port of the TS
-  // algorithm. It returns indices + truncation hints; the messages are
-  // rebuilt below with the same estimator. Any invariant violation falls
-  // back to the TS implementation instead of producing a wrong selection.
-  const native = tryNativeSelectCompactionUserMessages(
-    messages.map((message) => ({
-      role: message.role,
-      text: extractText(message.content),
-      tokens: estimateMessage(message),
-    })),
-    maxTokens,
-    headTokens,
-  );
-  if (native !== undefined) {
-    const rebuilt = rebuildFromNativeSelection(
-      messages,
-      native,
-      maxTokens,
-      headTokens,
-      estimateMessage,
-    );
-    if (rebuilt !== undefined) return rebuilt;
-  }
-
   let totalTokens = 0;
   for (const message of messages) {
     totalTokens += estimateMessage(message);
@@ -332,93 +275,6 @@ export function selectCompactionUserMessages<T extends MessageLike>(
   return { head, tail, elided: true, omittedTokens: Math.max(0, totalTokens - keptTokens) };
 }
 
-function rebuildFromNativeSelection<T extends MessageLike>(
-  messages: readonly T[],
-  native: NativeCompactionUserSelection,
-  maxTokens: number,
-  headTokens: number,
-  estimateMessage: (message: T) => number,
-): CompactionUserSelection<T> | undefined {
-  const inRange = (i: number): boolean => i >= 0 && i < messages.length;
-  if (!native.headIndices.every(inRange) || !native.tailIndices.every(inRange)) {
-    return undefined;
-  }
-
-  if (!native.elided) {
-    const tail = native.tailIndices.map((i) => messages[i]!);
-    return { head: [], tail, elided: false, omittedTokens: 0 };
-  }
-
-  const headBudget = Math.min(Math.max(headTokens, 0), maxTokens);
-  const tailBudget = maxTokens - headBudget;
-
-  // Tail rebuild: native.tailIndices is oldest->newest after its reverse.
-  // The oldest selected tail message is the boundary (truncated when
-  // tailTruncateChars is present); its dropped beginning is a head
-  // candidate at the same index.
-  const tail = native.tailIndices.map((i) => messages[i]!);
-  const tailBoundaryIndex = native.tailIndices[0];
-  let tailBoundaryDroppedPrefix: T | null = null;
-  if (native.tailTruncateChars !== null && tail.length > 0) {
-    const boundary = tail[0]!;
-    let boundaryTokens = 0;
-    for (let i = 1; i < tail.length; i++) {
-      boundaryTokens += estimateMessage(tail[i]!);
-    }
-    const tailRemaining = Math.max(0, tailBudget - boundaryTokens);
-    const fullText = extractText(boundary.content);
-    const keptSuffix = truncateTextToTokensFromEnd(fullText, tailRemaining);
-    tail[0] = replaceMessageText(boundary, keptSuffix);
-    const droppedPrefix = fullText.slice(0, fullText.length - keptSuffix.length);
-    if (droppedPrefix.length > 0) {
-      tailBoundaryDroppedPrefix = replaceMessageText(boundary, droppedPrefix);
-    }
-  }
-
-  // Head rebuild: native.headIndices is ascending; the last entry is the
-  // boundary (either the dropped-prefix message or a head-truncated one).
-  const head: T[] = [];
-  for (let h = 0; h < native.headIndices.length; h++) {
-    const idx = native.headIndices[h]!;
-    const message = messages[idx]!;
-    const isLast = h === native.headIndices.length - 1;
-    if (!isLast) {
-      head.push(message);
-      continue;
-    }
-    const droppedPrefixBoundary =
-      tailBoundaryDroppedPrefix !== null && idx === tailBoundaryIndex
-        ? tailBoundaryDroppedPrefix
-        : null;
-    const baseText =
-      droppedPrefixBoundary !== null
-        ? extractText(droppedPrefixBoundary.content)
-        : extractText(message.content);
-    if (native.headTruncateChars === null && droppedPrefixBoundary === null) {
-      head.push(message);
-      continue;
-    }
-    let headTokensUsed = 0;
-    for (const m of head) {
-      headTokensUsed += estimateMessage(m);
-    }
-    const headRemaining = Math.max(0, headBudget - headTokensUsed);
-    const kept = truncateTextToTokens(baseText, headRemaining);
-    if (kept.length === 0) {
-      // Native skips empty truncations; mirror that by dropping the boundary.
-      break;
-    }
-    head.push(replaceMessageText(message, kept));
-  }
-
-  let keptTokens = 0;
-  for (const message of head) keptTokens += estimateMessage(message);
-  for (const message of tail) keptTokens += estimateMessage(message);
-  let totalTokens = 0;
-  for (const message of messages) totalTokens += estimateMessage(message);
-  return { head, tail, elided: true, omittedTokens: Math.max(0, totalTokens - keptTokens) };
-}
-
 function usesLegacyTailShape(input: ContextCompactionShapeInput): boolean {
   return input.legacyTail === true;
 }
@@ -452,16 +308,14 @@ function truncateTextToTokens(text: string, maxTokens: number): string {
 
 function truncateTextToTokensFromEnd(text: string, maxTokens: number): string {
   if (maxTokens <= 0) return '';
-  const native = tryNativeTruncateTextToTokensFromEnd(text, maxTokens);
-  if (native !== undefined) return native;
   let asciiCount = 0;
   let nonAsciiCount = 0;
   let start = text.length;
   for (let i = text.length - 1; i >= 0; i--) {
     let isAscii = false;
-    const code = text.codePointAt(i) ?? 0;
+    const code = text.charCodeAt(i);
     if (code >= 0xdc00 && code <= 0xdfff && i > 0) {
-      const high = text.codePointAt(i - 1) ?? 0;
+      const high = text.charCodeAt(i - 1);
       if (high >= 0xd800 && high <= 0xdbff) {
         i--;
       }

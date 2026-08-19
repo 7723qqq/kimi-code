@@ -1,28 +1,21 @@
-/**
- * Scenario: progressive tool disclosure shapes the provider-visible tool view,
- * dynamic history, selection results, executor interception, and announcements.
- *
- * Responsibilities: assert the gate contract, profile-active filtering,
- * loadable/loaded MCP settlement, and the select_tools built-in behavior.
- * Wiring: real toolSelect, registry, announcement sidecar, system reminder,
- * and hook slots with fake loop/context memory/profile/flag/event services;
- * executor tests use the real executor with telemetry and truncation stubs.
- * Run: ../../node_modules/.bin/vitest run test/toolSelect/toolSelectService.test.ts
- */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import {
-  createServices,
-  type ServiceRegistration,
-  type TestInstantiationService,
-} from '#/_base/di/test';
+import { createServices, type ServiceRegistration, type TestInstantiationService } from '#/_base/di/test';
+import { OrderedHookSlot } from '#/hooks';
+import { IEventBus } from '#/app/event/eventBus';
+import type { Event2, Event2Class } from '#/app/event/event2';
+import { IFlagService } from '#/app/flag/flag';
+import type { ModelCapability } from '#/kosong/contract/capability';
+import type { ToolCall } from '#/kosong/contract/message';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
+import type { UndoCut } from '#/agent/contextMemory/contextOps';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { AgentContextInjectorService } from '#/agent/contextInjector/contextInjectorService';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { UndoCut } from '#/agent/contextMemory/contextOps';
-import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
-import type { ContextMessage } from '#/agent/contextMemory/types';
+import { CompactionCompleted } from '#/agent/fullCompaction/compactionOps';
 import {
   IAgentLoopService,
   type AfterStepContext,
@@ -32,24 +25,23 @@ import {
   type StepEnqueueOptions,
   type Turn,
 } from '#/agent/loop/loop';
+import { TurnStarted } from '#/agent/loop/turnEvents';
 import type { StepRequest } from '#/agent/loop/stepRequest';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { AgentSystemReminderService } from '#/agent/systemReminder/systemReminderService';
-import {
-  IAgentToolExecutorService,
-  type ToolExecutionResult,
-} from '#/agent/toolExecutor/toolExecutor';
+import type {
+  ExecutableTool,
+  ToolDisclosure,
+  ToolExecution,
+} from '#/tool/toolContract';
+import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { SelectToolsTool } from '#/agent/tools/select-tools/selectToolsTool';
-import {
-  DYNAMIC_TOOL_SCHEMA_VARIANT,
-  LOADABLE_TOOLS_VARIANT,
-} from '#/agent/toolSelect/dynamicTools';
+import { DYNAMIC_TOOL_SCHEMA_VARIANT, LOADABLE_TOOLS_VARIANT } from '#/agent/toolSelect/dynamicTools';
 import { TOOL_SELECT_FLAG_ID } from '#/agent/toolSelect/flag';
 import { IAgentToolSelectService, SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
@@ -57,15 +49,10 @@ import { AgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSele
 import { IAgentToolSelectSchemasService } from '#/agent/toolSelect/toolSelectSchemas';
 import { AgentToolSelectSchemasService } from '#/agent/toolSelect/toolSelectSchemasService';
 import { AgentToolSelectService } from '#/agent/toolSelect/toolSelectService';
-import { IEventBus, type DomainEvent } from '#/app/event/eventBus';
-import { IFlagService } from '#/app/flag/flag';
+import { SelectToolsTool } from '#/agent/tools/select-tools/selectToolsTool';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { OrderedHookSlot } from '#/hooks';
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ToolCall } from '#/kosong/contract/message';
-import type { ExecutableTool, ToolDisclosure, ToolExecution } from '#/tool/toolContract';
 import { IWireService } from '#/wire/wire';
-
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { registerLogServices } from '../../_base/log/stubs';
 import { recordingTelemetry } from '../../app/telemetry/stubs';
 import { registerStateServices } from '../../state/stubs';
@@ -101,12 +88,10 @@ beforeEach(() => {
 
 afterEach(() => disposables.dispose());
 
-function makeCapabilities(
-  overrides: {
-    readonly tool_use?: boolean;
-    readonly dynamically_loaded_tools?: boolean;
-  } = {},
-): ModelCapability {
+function makeCapabilities(overrides: {
+  readonly tool_use?: boolean;
+  readonly dynamically_loaded_tools?: boolean;
+} = {}): ModelCapability {
   return {
     image_in: false,
     video_in: false,
@@ -184,39 +169,37 @@ class EchoTool implements ExecutableTool<Record<string, unknown>> {
 
 class RecordingEventBus implements IEventBus {
   readonly _serviceBrand = undefined;
-  private readonly typedHandlers = new Map<string, Array<(event: DomainEvent) => void>>();
-  private readonly allHandlers: Array<(event: DomainEvent) => void> = [];
-  readonly published: DomainEvent[] = [];
+  private readonly typedHandlers = new Map<string, Array<(event: Event2) => void>>();
+  private readonly allHandlers: Array<(event: Event2) => void> = [];
+  readonly published: Event2[] = [];
 
-  publish(event: DomainEvent): void {
+  publish(event: Event2): void {
     this.published.push(event);
     for (const handler of this.allHandlers) handler(event);
     for (const handler of this.typedHandlers.get(event.type) ?? []) handler(event);
   }
 
   subscribe(
-    typeOrHandler: string | ((event: DomainEvent) => void),
-    maybeHandler?: (event: DomainEvent) => void,
+    typeOrHandler: string | Event2Class | ((event: Event2) => void),
+    maybeHandler?: (event: Event2) => void,
   ) {
-    if (typeof typeOrHandler === 'function') {
-      this.allHandlers.push(typeOrHandler);
+    if (typeof typeOrHandler === 'function' && !('type' in typeOrHandler)) {
+      const handler = typeOrHandler as (event: Event2) => void;
+      this.allHandlers.push(handler);
       return toDisposable(() => {
-        const index = this.allHandlers.indexOf(typeOrHandler);
+        const index = this.allHandlers.indexOf(handler);
         if (index >= 0) this.allHandlers.splice(index, 1);
       });
     }
-    const list = this.typedHandlers.get(typeOrHandler) ?? [];
+    const type = typeof typeOrHandler === 'string' ? typeOrHandler : (typeOrHandler as Event2Class).type;
+    const list = this.typedHandlers.get(type) ?? [];
     const handler = maybeHandler!;
     list.push(handler);
-    this.typedHandlers.set(typeOrHandler, list);
+    this.typedHandlers.set(type, list);
     return toDisposable(() => {
       const index = list.indexOf(handler);
       if (index >= 0) list.splice(index, 1);
     });
-  }
-
-  emit(type: string, payload: Record<string, unknown> = {}): void {
-    this.publish({ type, ...payload } as DomainEvent);
   }
 }
 
@@ -263,7 +246,6 @@ class FakeLoopService implements IAgentLoopService {
 
 class FakeContextMemory implements IAgentContextMemoryService {
   readonly _serviceBrand = undefined;
-  readonly contextTokenEstimate = 0;
   readonly history: ContextMessage[] = [];
   readonly appended: ContextMessage[] = [];
 
@@ -336,13 +318,18 @@ function registerSharedServices(
   reg.definePartialInstance(IAgentToolPolicyService, {
     isToolActive: (name: string) => activeToolNames === undefined || activeToolNames.has(name),
     isToolActiveForDisclosure: () => disclosureToolActive,
-    createToolActiveChecker: () => (name: string) =>
-      activeToolNames === undefined || activeToolNames.has(name),
   });
   reg.definePartialInstance(IFlagService, {
     enabled: (id: string) => (id === TOOL_SELECT_FLAG_ID ? flagEnabled : false),
   });
   reg.defineInstance(IWireService, stubWire());
+  reg.defineInstance(IEventDispatcher, {
+    _serviceBrand: undefined,
+    hooks: { onDidRestore: new OrderedHookSlot() },
+    dispatch: async (event: Event2) => {
+      eventBus.publish(event);
+    },
+  } as unknown as IEventDispatcher);
   reg.define(IAgentContextInjectorService, AgentContextInjectorService);
   reg.define(IAgentToolRegistryService, AgentToolRegistryService);
   reg.define(IAgentToolSelectService, AgentToolSelectService);
@@ -391,10 +378,7 @@ function createExecutorHarness(): ExecutorHarness {
     additionalServices: (reg) => {
       registerSharedServices(reg, contextMemory, loop, eventBus);
       reg.defineInstance(ITelemetryService, recordingTelemetry([]));
-      reg.defineInstance(
-        IAgentScopeContext,
-        makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
-      );
+      reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
       registerToolResultTruncationServices(reg);
     },
@@ -422,7 +406,11 @@ function registerBuiltin(h: Harness, tool: EchoTool): void {
   disposables.add(h.registry.register(tool, { source: 'builtin' }));
 }
 
-function registerUser(h: Harness, tool: EchoTool, disclosure?: ToolDisclosure): IDisposable {
+function registerUser(
+  h: Harness,
+  tool: EchoTool,
+  disclosure?: ToolDisclosure,
+): IDisposable {
   const registration = h.registry.register(tool, { source: 'user', disclosure });
   disposables.add(registration);
   return registration;
@@ -451,19 +439,20 @@ async function announce(h: Harness, step = 1): Promise<string | undefined> {
 }
 
 async function announceAfterCompaction(h: Harness): Promise<string | undefined> {
-  h.eventBus.publish({
-    type: 'context.spliced',
-    start: 0,
-    deleteCount: 1,
-    messages: [
-      {
-        role: 'user',
-        content: [{ type: 'text', text: 'Compacted summary.' }],
-        toolCalls: [],
-        origin: { kind: 'compaction_summary' },
-      },
-    ],
-  });
+  h.eventBus.publish(
+    new ContextSpliced({
+      start: 0,
+      deleteCount: 1,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'Compacted summary.' }],
+          toolCalls: [],
+          origin: { kind: 'compaction_summary' },
+        },
+      ],
+    }),
+  );
   return announce(h, 99);
 }
 
@@ -657,7 +646,10 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
     activeToolNames = new Set([MCP_ALPHA]);
 
     const shaped = h.sut.shapeTools(h.registry.list());
-    expect(shaped.map((entry) => entry.name)).toEqual([MCP_ALPHA, SELECT_TOOLS_TOOL_NAME]);
+    expect(shaped.map((entry) => entry.name)).toEqual([
+      MCP_ALPHA,
+      SELECT_TOOLS_TOOL_NAME,
+    ]);
   });
 
   it('hides select_tools when an explicit policy disables disclosure', () => {
@@ -707,7 +699,9 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
       alreadyAvailable: [],
       unknown: [USER_DEFERRED],
     });
-    expect(h.contextMemory.get()[0]?.tools?.map((tool) => tool.name)).toEqual([USER_DEFERRED]);
+    expect(h.contextMemory.get()[0]?.tools?.map((tool) => tool.name)).toEqual([
+      USER_DEFERRED,
+    ]);
   });
 
   it('shapeHistory removes a deferred schema after re-registering the user tool inline', () => {
@@ -720,7 +714,9 @@ describe('AgentToolSelectService view shaping (gate open)', () => {
     const inline = h.sut
       .shapeTools(h.registry.list())
       .find((entry) => entry.name === USER_DEFERRED);
-    expect(inline).toEqual(expect.objectContaining({ name: USER_DEFERRED, disclosure: undefined }));
+    expect(inline).toEqual(
+      expect.objectContaining({ name: USER_DEFERRED, disclosure: undefined }),
+    );
     expect(inline?.deferred).toBeUndefined();
     expect(h.sut.load([USER_DEFERRED])).toEqual({
       toLoad: [],
@@ -822,7 +818,11 @@ describe('AgentToolSelectService.load', () => {
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
 
     h.sut.load([MCP_ALPHA]);
-    h.eventBus.emit('compaction.completed');
+    h.eventBus.publish(
+      new CompactionCompleted({
+        result: { summary: '', compactedCount: 0, tokensBefore: 0, tokensAfter: 0 },
+      }),
+    );
     expect(h.sut.load([MCP_ALPHA]).toLoad).toEqual([MCP_ALPHA]);
   });
 
@@ -831,7 +831,7 @@ describe('AgentToolSelectService.load', () => {
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
 
     h.sut.load([MCP_ALPHA]);
-    h.eventBus.emit('context.spliced', { start: 0, deleteCount: 2, messages: [] });
+    h.eventBus.publish(new ContextSpliced({ start: 0, deleteCount: 2, messages: [] }));
     expect(h.sut.load([MCP_ALPHA]).toLoad).toEqual([MCP_ALPHA]);
   });
 
@@ -840,11 +840,13 @@ describe('AgentToolSelectService.load', () => {
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
 
     h.sut.load([MCP_ALPHA]);
-    h.eventBus.emit('context.spliced', {
-      start: 0,
-      deleteCount: 2,
-      messages: [userMessage('Compacted summary.')],
-    });
+    h.eventBus.publish(
+      new ContextSpliced({
+        start: 0,
+        deleteCount: 2,
+        messages: [userMessage('Compacted summary.')],
+      }),
+    );
 
     expect(h.sut.load([MCP_ALPHA]).alreadyAvailable).toEqual([MCP_ALPHA]);
     const declared = await declareSchemas(h);
@@ -864,7 +866,7 @@ describe('AgentToolSelectService.load', () => {
     expect(h.sut.load([MCP_BETA]).alreadyAvailable).toEqual([MCP_BETA]);
 
     h.contextMemory.history.splice(1, 1);
-    h.eventBus.emit('context.spliced', { start: 1, deleteCount: 2, messages: [] });
+    h.eventBus.publish(new ContextSpliced({ start: 1, deleteCount: 2, messages: [] }));
 
     expect(h.sut.load([MCP_ALPHA]).alreadyAvailable).toEqual([MCP_ALPHA]);
     expect(h.sut.load([MCP_BETA]).toLoad).toEqual([MCP_BETA]);
@@ -875,7 +877,9 @@ describe('AgentToolSelectService.load', () => {
     registerMcp(h, new StubMcpTool(MCP_ALPHA));
 
     h.sut.load([MCP_ALPHA]);
-    h.eventBus.emit('context.spliced', { start: 3, deleteCount: 0, messages: [userMessage('x')] });
+    h.eventBus.publish(
+      new ContextSpliced({ start: 3, deleteCount: 0, messages: [userMessage('x')] }),
+    );
     expect(h.sut.load([MCP_ALPHA]).alreadyAvailable).toEqual([MCP_ALPHA]);
   });
 
@@ -968,7 +972,8 @@ describe('AgentToolSelectService executor interception', () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]!.result).toEqual({
-      output: `Tool "${MCP_ALPHA}" was loaded but is no longer active. Ask the user to enable it before calling it again.`,
+      output:
+        `Tool "${MCP_ALPHA}" was loaded but is no longer active. Ask the user to enable it before calling it again.`,
       isError: true,
       stopTurn: false,
     });
@@ -1066,7 +1071,7 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
     registerMcp(h, new StubMcpTool(MCP_GAMMA));
     expect(await announce(h, 2)).toBeUndefined();
 
-    h.eventBus.emit('turn.started');
+    h.eventBus.publish(new TurnStarted({ turnId: 99, origin: { kind: 'user' } }));
     const diff = await announce(h);
     expect(diff).toContain(`<tools_added>\n${MCP_GAMMA}\n</tools_added>`);
   });
@@ -1081,7 +1086,7 @@ describe('AgentToolSelectService loadable-tools announcements', () => {
 
     betaRegistration.dispose();
     registerMcp(h, new StubMcpTool(MCP_GAMMA));
-    h.eventBus.emit('turn.started');
+    h.eventBus.publish(new TurnStarted({ turnId: 99, origin: { kind: 'user' } }));
 
     const diff = await announce(h);
     expect(diff).toContain(`<tools_added>\n${MCP_GAMMA}\n</tools_added>`);

@@ -1,50 +1,13 @@
-/**
- * `tools` domain — `ICronCreateTool` implementation.
- *
- * CronCreateTool — schedule a prompt to be re-injected into this session
- * at a future wall-clock time, either once (`recurring: false`) or on a
- * cron cadence (`recurring: true`, the default).
- *
- * Tasks live in `ISessionCronService` (Session scope) and are persisted
- * through the App-scoped `ICronTaskPersistence` under the project's cron
- * scope, so resuming the same session reloads them and the
- * scheduler picks up where it left off (fires that fell during downtime
- * are collapsed into a single delivery with `coalescedCount`). Tasks do
- * NOT carry over into a brand-new session.
- *
- * The tool itself is pure validation + bookkeeping; the firing /
- * coalesce / jitter / persistence is delegated to `ISessionCronService`.
- * This file only knows how to:
- *
- *   1. validate the request (killswitch, cron parse, 5-year window,
- *      session cap, byte-length cap);
- *   2. add it to the service (which writes through to the store);
- *   3. report back the post-jitter `nextFireAt` and a human-readable
- *      schedule for the model's benefit;
- *   4. emit `cron_scheduled` telemetry through the service (the tool
- *      does **not** reach into `ITelemetryService` directly).
- *
- * Collaborators: `ISessionCronService` for task storage,
- * scheduling state and telemetry emission, `IAgentScopeContext` for the
- * emitting agent id, and the App-scope cron helpers for
- * expression parsing and timestamp formatting. Bound at Agent scope.
- */
+import { LifecycleScope } from '#/app/scopes';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import {
-  computeNextCronRun,
-  cronToHuman,
-  hasFireWithinYears,
-  parseCronExpression,
-  type ParsedCronExpression,
-} from '#/app/cron/cron-expr';
-import { formatLocalIsoWithOffset } from '#/app/cron/format';
-import { LifecycleScope } from '#/app/scopes';
-import { ISessionCronService } from '#/session/cron/sessionCronService';
+import type { ToolExecution } from '#/tool/toolContract';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern } from '#/tool/rule-match';
-import type { ToolExecution } from '#/tool/toolContract';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { ISessionCronService } from '#/session/cron/sessionCronService';
+import { computeNextCronRun, cronToHuman, hasFireWithinYears, parseCronExpression, type ParsedCronExpression } from '#/app/cron/cron-expr';
+import { formatLocalIsoWithOffset } from '#/app/cron/format';
 
 import {
   ICronCreateTool,
@@ -63,7 +26,9 @@ export class CronCreateTool implements ICronCreateTool {
 
   readonly name = 'CronCreate' as const;
   readonly description = CRON_CREATE_DESCRIPTION;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(CronCreateInputSchema);
+  readonly parameters: Record<string, unknown> = toInputJsonSchema(
+    CronCreateInputSchema,
+  );
 
   constructor(
     @ISessionCronService private readonly cron: ISessionCronService,
@@ -83,10 +48,12 @@ export class CronCreateTool implements ICronCreateTool {
     let parsed: ParsedCronExpression;
     try {
       parsed = parseCronExpression(normalizedCron);
-    } catch (error) {
+    } catch (err) {
       return {
         isError: true,
-        output: `Invalid cron expression: ${error instanceof Error ? error.message : String(error)}`,
+        output: `Invalid cron expression: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       };
     }
 
@@ -103,7 +70,9 @@ export class CronCreateTool implements ICronCreateTool {
     if (this.cron.list().length >= MAX_CRON_JOBS_PER_SESSION) {
       return {
         isError: true,
-        output: `Cron job cap reached (max ${String(MAX_CRON_JOBS_PER_SESSION)} per session).`,
+        output: `Cron job cap reached (max ${String(
+          MAX_CRON_JOBS_PER_SESSION,
+        )} per session).`,
       };
     }
 
@@ -111,7 +80,9 @@ export class CronCreateTool implements ICronCreateTool {
     if (byteLen > MAX_PROMPT_BYTES) {
       return {
         isError: true,
-        output: `Prompt exceeds ${String(MAX_PROMPT_BYTES)} bytes (got ${String(byteLen)}).`,
+        output: `Prompt exceeds ${String(
+          MAX_PROMPT_BYTES,
+        )} bytes (got ${String(byteLen)}).`,
       };
     }
 
@@ -119,7 +90,10 @@ export class CronCreateTool implements ICronCreateTool {
 
     if (!recurring) {
       const firstFire = computeNextCronRun(parsed, nowAtPrepare);
-      if (firstFire !== null && firstFire - nowAtPrepare > ONE_SHOT_MAX_FUTURE_MS) {
+      if (
+        firstFire !== null &&
+        firstFire - nowAtPrepare > ONE_SHOT_MAX_FUTURE_MS
+      ) {
         return {
           isError: true,
           output: `One-shot cron ${JSON.stringify(
@@ -149,7 +123,9 @@ export class CronCreateTool implements ICronCreateTool {
         if (this.cron.list().length >= MAX_CRON_JOBS_PER_SESSION) {
           return {
             isError: true,
-            output: `Cron job cap reached (max ${String(MAX_CRON_JOBS_PER_SESSION)} per session).`,
+            output: `Cron job cap reached (max ${String(
+              MAX_CRON_JOBS_PER_SESSION,
+            )} per session).`,
           };
         }
 
@@ -190,7 +166,9 @@ function formatOutput(o: CronCreateOutput): string {
     `cron: ${o.cron}`,
     `humanSchedule: ${o.humanSchedule}`,
     `recurring: ${String(o.recurring)}`,
-    `nextFireAt: ${o.nextFireAt === null ? 'null' : formatLocalIsoWithOffset(o.nextFireAt)}`,
+    `nextFireAt: ${
+      o.nextFireAt === null ? 'null' : formatLocalIsoWithOffset(o.nextFireAt)
+    }`,
   ];
   return lines.join('\n');
 }

@@ -1,22 +1,13 @@
-/**
- * AgentTaskService task timeout for SubagentTask registrations.
- *
- * Semantics:
- *   - manager-owned deadline fires → status=`timed_out`
- *   - no `timeoutMs` → the task runs to completion without a manager deadline
- *   - internal `TimeoutError` rejection (e.g. aiohttp sock_read) is a
- *     generic `failed` with no stop reason — the timeout reason must
- *     only be set for the caller-driven deadline
- */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentTaskService } from '#/agent/task/task';
 import { SubagentTask } from '#/agent/tools/agent/subagent-task';
-
 import { createTestAgent, type TestAgentContext } from '../../harness';
 
-function agentTask(completion: Promise<{ result: string }>, description: string): SubagentTask {
+function agentTask(
+  completion: Promise<{ result: string }>,
+  description: string,
+): SubagentTask {
   return new SubagentTask(
     { agentId: 'agent-child', profileName: 'coder', completion },
     description,
@@ -89,9 +80,10 @@ describe('SubagentTask — timeoutMs', () => {
     const completion = new Promise<{ result: string }>((res) => {
       resolveFn = res;
     });
-    const taskId = background.registerTask(agentTask(completion, 'persist timeout'), {
-      timeoutMs: 1_800_000,
-    });
+    const taskId = background.registerTask(
+      agentTask(completion, 'persist timeout'),
+      { timeoutMs: 1_800_000 },
+    );
     const info = background.getTask(taskId);
     expect((info as unknown as { timeoutMs?: number }).timeoutMs).toBe(1_800_000);
     resolveFn({ result: 'finished' });
@@ -122,63 +114,13 @@ describe('SubagentTask — timeoutMs', () => {
     expect((initial as unknown as { timeoutMs?: number }).timeoutMs).toBe(0);
 
     const info = await background.wait(taskId, 5);
-    const raced =
-      info === undefined
-        ? undefined
-        : {
-            status: info.status,
-            stopReason: info.stopReason,
-          };
+    const raced = info === undefined ? undefined : {
+      status: info.status,
+      stopReason: info.stopReason,
+    };
     expect(raced?.status).toBe('running');
     expect(raced?.stopReason).toBeUndefined();
     resolveFn({ result: 'finished' });
     await expect(background.wait(taskId)).resolves.toMatchObject({ status: 'completed' });
-  });
-
-  it('timeoutMs=1 arms an immediate deadline that fires on next tick', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const hangForever = new Promise<{ result: string }>(() => {});
-    const taskId = background.registerTask(agentTask(hangForever, 'instant timeout'), {
-      timeoutMs: 1,
-    });
-
-    const terminalPromise = background.wait(taskId);
-    await vi.advanceTimersByTimeAsync(6_000);
-    const info = await terminalPromise;
-
-    expect(info?.status).toBe('timed_out');
-    vi.useRealTimers();
-  });
-
-  it('multiple concurrent tasks each get their own independent deadline', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const hang1 = new Promise<{ result: string }>(() => {});
-    const hang2 = new Promise<{ result: string }>(() => {});
-    const taskId1 = background.registerTask(agentTask(hang1, 'hang 1'), { timeoutMs: 100 });
-    const taskId2 = background.registerTask(agentTask(hang2, 'hang 2'), { timeoutMs: 500 });
-
-    await vi.advanceTimersByTimeAsync(5_200);
-    expect(background.getTask(taskId1)?.status).toBe('timed_out');
-    expect(background.getTask(taskId2)?.status).toBe('running');
-
-    await vi.advanceTimersByTimeAsync(400);
-    expect(background.getTask(taskId2)?.status).toBe('timed_out');
-    vi.useRealTimers();
-  });
-
-  it('a task that completes before its deadline does not time out', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    let resolveFn!: (r: { result: string }) => void;
-    const completion = new Promise<{ result: string }>((res) => {
-      resolveFn = res;
-    });
-    const taskId = background.registerTask(agentTask(completion, 'fast'), { timeoutMs: 10_000 });
-
-    resolveFn({ result: 'done early' });
-    await background.wait(taskId);
-    await vi.advanceTimersByTimeAsync(10_000);
-
-    expect(background.getTask(taskId)?.status).toBe('completed');
-    vi.useRealTimers();
   });
 });

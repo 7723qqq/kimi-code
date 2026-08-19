@@ -1,35 +1,20 @@
-/**
- * `tools` domain — `AskUserQuestionTool` implementation (the
- * `AskUserQuestion` tool).
- *
- * The LLM calls this tool when it needs structured input from the user
- * (multiple-choice, preference selection, disambiguation). The tool delegates
- * to `ISessionQuestionService` (the Session-scoped question service backed by
- * the `interaction` kernel), which owns the actual UI interaction. Requests
- * record the owning agent (`IAgentScopeContext.agentId`) on the interaction
- * origin, so question events and transcript frames route to the asking
- * agent's surfaces instead of falling back to 'main' (a subagent's question
- * must not land there). Answers and dismissals are tracked through
- * `ITelemetryService`; `background: true` registers a
- * `QuestionBackgroundTask` on
- * `IAgentTaskService` so the call returns immediately with a `task_id`.
- *
- * Registered via the module-level `registerAgentToolService(IAskUserQuestionTool,
- * AskUserQuestionTool)` at the bottom of this file — the same "import =
- * register" pattern used by every agent tool. Bound at Agent scope.
- */
-
-import type { z } from 'zod';
+import { z } from 'zod';
 
 import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
-import { ILogService } from '#/_base/log/log';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { isAbortError } from '#/_base/utils/abort';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import type { QuestionAnsweredEvent, QuestionDismissedEvent } from '#/app/telemetry/events';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { QuestionAnsweredEvent, QuestionDismissedEvent } from '#/app/telemetry/events';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+
 import { ISessionQuestionService } from '#/session/question/question';
 import type {
   QuestionAnswers,
@@ -37,13 +22,6 @@ import type {
   QuestionResponse,
   QuestionResult,
 } from '#/session/question/question';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
-
 import {
   AskUserQuestionInputSchemaWithBackground,
   IAskUserQuestionTool,
@@ -69,7 +47,6 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-    @ILogService private readonly log: ILogService,
   ) {
     this.description = `${DESCRIPTION}- Set background=true when you can keep working without the answer. This starts a background question task and returns a task_id immediately. The answer arrives automatically in a later turn — you do not need to poll, sleep, or check on it. Continue with other work; never fabricate or predict the answer.`;
     this.parameters = toInputJsonSchema(this.inputSchema());
@@ -124,8 +101,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     try {
       taskId = this.tasks.registerTask(
         new QuestionBackgroundTask(
-          (taskSignal) =>
-            this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal, trace }),
+          (taskSignal) => this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal, trace }),
           description,
           { questionCount: args.questions.length, toolCallId },
         ),
@@ -209,13 +185,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
         };
       }
 
-      // Only an explicit dismissal (a `null` question result) maps to
-      // `dismissed`; any other failure must surface to the model as an error.
-      this.log.warn('question request failed', { toolCallId, error });
-      return {
-        isError: true,
-        output: error instanceof Error ? error.message : String(error),
-      };
+      return dismissedQuestionResult();
     }
   }
 }
@@ -242,10 +212,9 @@ function dismissedQuestionResult(): ExecutableToolResult {
   };
 }
 
-function normalizeQuestionResult(result: QuestionResult): {
-  readonly answers: QuestionAnswers;
-  readonly method?: QuestionAnswerMethod | undefined;
-} | null {
+function normalizeQuestionResult(
+  result: QuestionResult,
+): { readonly answers: QuestionAnswers; readonly method?: QuestionAnswerMethod | undefined } | null {
   if (result === null) return null;
   if (isQuestionResponse(result)) {
     return {

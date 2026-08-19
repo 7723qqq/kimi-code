@@ -1,10 +1,3 @@
-/**
- * `plugin` domain — resolves GitHub plugin sources without the REST API.
- *
- * Selects release or ref tarballs and resolves movable refs to commit SHAs
- * through GitHub's Atom feed so installs and update checks use exact content.
- */
-
 import { Error2, ErrorCodes } from '#/errors';
 
 import type { GithubRef } from './source';
@@ -100,10 +93,7 @@ export async function resolveGithubSource(
   };
 }
 
-async function tryResolveLatestReleaseTag(
-  owner: string,
-  repo: string,
-): Promise<string | undefined> {
+async function tryResolveLatestReleaseTag(owner: string, repo: string): Promise<string | undefined> {
   const url = `https://github.com/${owner}/${repo}/releases/latest`;
   const resp = await fetch(url, {
     redirect: 'manual',

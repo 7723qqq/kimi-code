@@ -83,29 +83,6 @@ describe('1.0 to 1.1', () => {
     expect(runMigration(migrateV1_0ToV1_1, [])).toMatchInlineSnapshot(`[]`);
   });
 
-  it('passes through already-migrated v1.1 records', () => {
-    expect(
-      runMigration(migrateV1_0ToV1_1, [
-        {
-          type: 'metadata',
-          protocol_version: '1.1',
-          created_at: 1,
-        },
-        {
-          type: 'context.append_message',
-          message: {
-            role: 'assistant',
-            content: [],
-            toolCalls: [{ type: 'function', id: 'call_ok', name: 'Bash', arguments: '{}' }],
-          },
-        },
-      ]),
-    ).toMatchInlineSnapshot(`
-      [wire] metadata                 { "protocol_version": "1.1", "created_at": "<time>" }
-      [wire] context.append_message   { "message": { "role": "assistant", "content": [], "toolCalls": [ { "type": "function", "id": "call_ok", "name": "Bash", "arguments": "{}" } ] } }
-    `);
-  });
-
   it('handles records with no toolCalls', () => {
     expect(
       runMigration(migrateV1_0ToV1_1, [

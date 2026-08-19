@@ -1,12 +1,3 @@
-/**
- * `skillCatalog` domain — concrete in-memory skill catalog.
- *
- * Owns registered skill lookup, plugin-scoped skill lookup, prompt rendering,
- * and model-facing skill listings for `skill`, plus the skipped-skill /
- * scanned-root diagnostics accumulated from discovery results. It is not a
- * scoped service.
- */
-
 import { escapeXmlAttr, escapeXmlTags } from '#/_base/utils/xml-escape';
 
 import type {
@@ -147,7 +138,11 @@ interface SkillExpandContext {
   readonly argumentNames?: readonly string[];
 }
 
-function expandSkillParameters(body: string, rawArgs: string, context: SkillExpandContext): string {
+function expandSkillParameters(
+  body: string,
+  rawArgs: string,
+  context: SkillExpandContext,
+): string {
   const tokens = tokenizeArgs(rawArgs);
   let content = body;
 
@@ -185,7 +180,8 @@ function expandSkillParameters(body: string, rawArgs: string, context: SkillExpa
 
 function skillArgumentNames(metadata: SkillMetadata): readonly string[] {
   const value = metadata.arguments;
-  const isValidName = (name: string): boolean => name.trim() !== '' && !/^\d+$/.test(name);
+  const isValidName = (name: string): boolean =>
+    name.trim() !== '' && !/^\d+$/.test(name);
   if (typeof value === 'string') return value.split(/\s+/).filter(isValidName);
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && isValidName(item));
@@ -283,5 +279,5 @@ function tokenizeArgs(raw: string): string[] {
 }
 
 function escapeRegExp(value: string): string {
-  return value.replaceAll(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 }

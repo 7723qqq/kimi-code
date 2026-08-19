@@ -149,11 +149,9 @@ describe('persistent dependency graph (L2 substrate)', () => {
     ix.provide(IBar, new SyncDescriptor(Bar));
     ix.invokeFunction((a) => a.get(IBar));
 
-    const tokens = (refs: readonly { token: unknown }[]): unknown[] => refs.map((ref) => ref.token);
-    expect(tokens(ix.dependencyGraph.affectedSet([{ scope: ix, token: IFoo }]))).toEqual([
-      IFoo,
-      IBar,
-    ]);
+    const tokens = (refs: readonly { token: unknown }[]): unknown[] =>
+      refs.map((ref) => ref.token);
+    expect(tokens(ix.dependencyGraph.affectedSet([{ scope: ix, token: IFoo }]))).toEqual([IFoo, IBar]);
     expect(tokens(ix.dependencyGraph.affectedSet([{ scope: ix, token: IBar }]))).toEqual([IBar]);
     ix.dispose();
   });
@@ -165,7 +163,8 @@ describe('persistent dependency graph (L2 substrate)', () => {
     ix.invokeFunction((a) => a.get(IBar));
 
     const affected = ix.dependencyGraph.affectedSet([{ scope: ix, token: IFoo }]);
-    const tokens = (refs: readonly { token: unknown }[]): unknown[] => refs.map((ref) => ref.token);
+    const tokens = (refs: readonly { token: unknown }[]): unknown[] =>
+      refs.map((ref) => ref.token);
     expect(tokens(ix.dependencyGraph.reverseTopoOrder(affected))).toEqual([IBar, IFoo]);
     expect(tokens(ix.dependencyGraph.topoOrder(affected))).toEqual([IFoo, IBar]);
     ix.dispose();

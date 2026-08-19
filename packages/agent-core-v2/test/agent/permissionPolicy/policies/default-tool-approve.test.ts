@@ -1,8 +1,8 @@
+import type { ToolCall } from '#/kosong/contract/message';
 import { describe, expect, it } from 'vitest';
 
-import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
-import type { ToolCall } from '#/kosong/contract/message';
+import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';
 import { ToolAccesses } from '#/tool/toolContract';
 
 const signal = new AbortController().signal;
@@ -68,27 +68,6 @@ describe('DefaultToolApprovePermissionPolicyService', () => {
     ['GetGoal', {}],
     ['SetGoalBudget', { tokenBudget: 1000 }],
     ['UpdateGoal', { status: 'complete' }],
-    ['GitHubGetRepo', { owner: 'octo', repo: 'hello' }],
-    ['GitHubListBranches', { owner: 'octo', repo: 'hello' }],
-    ['GitHubListCommits', { owner: 'octo', repo: 'hello' }],
-    ['GitHubGetCommit', { owner: 'octo', repo: 'hello', ref: 'main' }],
-    ['GitHubGetFileContents', { owner: 'octo', repo: 'hello', path: 'README.md' }],
-    ['GitHubListIssues', { owner: 'octo', repo: 'hello' }],
-    ['GitHubGetIssue', { owner: 'octo', repo: 'hello', issueNumber: 1 }],
-    ['GitHubListIssueComments', { owner: 'octo', repo: 'hello', issueNumber: 1 }],
-    ['GitHubListPRs', { owner: 'octo', repo: 'hello' }],
-    ['GitHubGetPR', { owner: 'octo', repo: 'hello', pullNumber: 1 }],
-    ['GitHubGetPRDiff', { owner: 'octo', repo: 'hello', pullNumber: 1 }],
-    ['GitHubGetPRFiles', { owner: 'octo', repo: 'hello', pullNumber: 1 }],
-    ['GitHubListPRReviewComments', { owner: 'octo', repo: 'hello', pullNumber: 1 }],
-    ['GitHubSearchCode', { q: 'language:ts' }],
-    ['GitHubSearchRepos', { q: 'stars:>100' }],
-    ['GitHubSearchIssues', { q: 'is:pr' }],
-    ['GitHubListWorkflowRuns', { owner: 'octo', repo: 'hello' }],
-    ['GitHubGetWorkflowRun', { owner: 'octo', repo: 'hello', runId: 1 }],
-    ['GitHubListReleases', { owner: 'octo', repo: 'hello' }],
-    ['GitHubGetLatestRelease', { owner: 'octo', repo: 'hello' }],
-    ['GitHubGetMe', {}],
   ] as const)('approves %s', (toolName, args) => {
     expect(policy.evaluate(policyContext(toolName, args))).toEqual({ kind: 'approve' });
   });
@@ -100,32 +79,13 @@ describe('DefaultToolApprovePermissionPolicyService', () => {
     ['Custom', { value: 1 }],
     ['CronCreate', { cron: '*/5 * * * *', prompt: 'ping' }],
     ['CronDelete', { id: 'job_1' }],
-    [
-      'GitHubCreateOrUpdateFile',
-      { owner: 'octo', repo: 'hello', path: 'a.ts', message: 'm', content: 'x' },
-    ],
-    ['GitHubCreateIssue', { owner: 'octo', repo: 'hello', title: 't' }],
-    ['GitHubUpdateIssue', { owner: 'octo', repo: 'hello', issueNumber: 1, title: 't' }],
-    ['GitHubAddIssueComment', { owner: 'octo', repo: 'hello', issueNumber: 1, body: 'b' }],
-    ['GitHubCreatePR', { owner: 'octo', repo: 'hello', title: 't', head: 'h', base: 'main' }],
-    ['GitHubUpdatePR', { owner: 'octo', repo: 'hello', pullNumber: 1, title: 't' }],
-    ['GitHubMergePR', { owner: 'octo', repo: 'hello', pullNumber: 1 }],
-    ['GitHubCreatePRReview', { owner: 'octo', repo: 'hello', pullNumber: 1, event: 'APPROVE' }],
   ] as const)('does not approve %s', (toolName, args) => {
-    expect(policy.evaluate(policyContext(toolName, args))).toBeUndefined();
+    expect(
+      policy.evaluate(policyContext(toolName, args)),
+    ).toBeUndefined();
   });
 
   it('does not approve an unknown tool name', () => {
     expect(policy.evaluate(policyContext('UnknownTool', {}))).toBeUndefined();
-  });
-
-  it('approves Goal tools (GetGoal, SetGoalBudget, UpdateGoal)', () => {
-    expect(policy.evaluate(policyContext('GetGoal', {}))).toEqual({ kind: 'approve' });
-    expect(policy.evaluate(policyContext('SetGoalBudget', { tokenBudget: 1000 }))).toEqual({
-      kind: 'approve',
-    });
-    expect(policy.evaluate(policyContext('UpdateGoal', { status: 'complete' }))).toEqual({
-      kind: 'approve',
-    });
   });
 });

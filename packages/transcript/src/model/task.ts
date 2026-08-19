@@ -1,17 +1,15 @@
-/**
- * Execution entities that frames reference by id (`taskId`).
- *
- * Tasks live (and are rendered) globally per agent transcript — they never
- * participate in turn pagination. Streaming output rides on the shared
- * `append` op with `target: 'task'`.
- */
-
 import type { AgentId, TaskId } from './ids';
 import type { StepUsage } from './turn';
 
 export type TaskKind = 'shell' | 'subagent' | 'tool' | 'other';
 
-export type TaskState = 'running' | 'completed' | 'failed' | 'timed_out' | 'killed' | 'lost';
+export type TaskState =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'timed_out'
+  | 'killed'
+  | 'lost';
 
 export interface TranscriptTask {
   readonly taskId: TaskId;

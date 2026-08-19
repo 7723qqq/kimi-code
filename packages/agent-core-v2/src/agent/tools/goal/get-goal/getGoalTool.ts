@@ -1,22 +1,13 @@
-/**
- * `tools` domain — `IGetGoalTool` implementation.
- *
- * Reads the current goal snapshot from the goal service (`goal`) and returns
- * it serialized for the model, so the model can decide whether to continue,
- * report completion via UpdateGoal, report a blocker, or respect a pause.
- * Registered for the main agent only, mirroring v1's `agent.type === 'main'`
- * gate. Bound at Agent scope.
- */
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { type ToolExecution } from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
 import { IAgentGoalService } from '#/agent/goal/goal';
 import { goalResultForModel } from '#/agent/goal/tools/serialize';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { type ToolExecution } from '#/tool/toolContract';
 
-import { GetGoalToolInputSchema, IGetGoalTool, type GetGoalToolInput } from './get-goal';
 import DESCRIPTION from './get-goal.md?raw';
+import { GetGoalToolInputSchema, IGetGoalTool, type GetGoalToolInput } from './get-goal';
 
 export class GetGoalTool implements IGetGoalTool {
   declare readonly _serviceBrand: undefined;

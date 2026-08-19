@@ -1,11 +1,3 @@
-/**
- * `skillCatalog` domain — SKILL.md parsing primitives.
- *
- * Parses a SKILL.md (frontmatter + body) into a `SkillDefinition` and extracts
- * flowchart blocks. Pure functions with no IO: callers read bytes however they
- * like and pass the decoded text in.
- */
-
 import path from 'pathe';
 
 import { Error2 } from '#/_base/errors/errors';
@@ -122,7 +114,8 @@ export function parseD2Flowchart(markdown: string): string | undefined {
 
 export function skillArgumentNames(metadata: SkillMetadata): readonly string[] {
   const value = metadata.arguments;
-  const isValidName = (name: string): boolean => name.trim() !== '' && !/^\d+$/.test(name);
+  const isValidName = (name: string): boolean =>
+    name.trim() !== '' && !/^\d+$/.test(name);
   if (typeof value === 'string') return value.split(/\s+/).filter(isValidName);
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string' && isValidName(item));

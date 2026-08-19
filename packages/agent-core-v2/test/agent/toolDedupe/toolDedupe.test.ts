@@ -2,51 +2,34 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { AgentStateService } from '#/agent/state/agentStateService';
-import { IAgentToolDedupeService, type ToolDedupeResult } from '#/agent/toolDedupe/toolDedupe';
-import {
-  AgentToolDedupeService,
-  __testing as toolDedupeTesting,
-} from '#/agent/toolDedupe/toolDedupeService';
-import {
-  IAgentToolExecutorService,
-  type ToolExecutionResult,
-} from '#/agent/toolExecutor/toolExecutor';
-import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
-import type {
-  ToolDidExecuteContext,
-  ResolvedToolExecutionHookContext,
-  BeforeExecuteDecision,
-} from '#/agent/toolExecutor/toolHooks';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { type ToolCall } from '#/kosong/contract/message';
 import { emptyUsage } from '#/kosong/contract/usage';
-import type { ISessionProcessRunner } from '#/session/process/processRunner';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import type {
-  ExecutableTool,
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-  ToolResult,
-} from '#/tool/toolContract';
-
+import type { IHostProcessService } from '#/os/interface/hostProcess';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import type { ExecutableTool, ExecutableToolContext, ExecutableToolResult, ToolExecution, ToolResult } from '#/tool/toolContract';
+import type { ToolDidExecuteContext, ResolvedToolExecutionHookContext, BeforeExecuteDecision } from '#/agent/toolExecutor/toolHooks';
+import { IAgentToolDedupeService, type ToolDedupeResult } from '#/agent/toolDedupe/toolDedupe';
+import { AgentToolDedupeService, __testing as toolDedupeTesting } from '#/agent/toolDedupe/toolDedupeService';
+import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
+import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { registerLogServices } from '../../_base/log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
-import { createTestAgent, execEnvServices, telemetryServices } from '../../harness';
-import { createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
-import { registerTestAgentWireServices } from '../../wire/stubs';
 import { stubLoopWithHooks } from '../loop/stubs';
 import { stubToolExecutorEvents } from '../toolExecutor/stubs';
 import { registerToolResultTruncationServices } from '../toolResultTruncation/stubs';
+import { registerTestAgentWireServices } from '../../wire/stubs';
+import { createTestAgent, execEnvServices, telemetryServices } from '../../harness';
+import { createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 
 const { REMINDER_TEXT_1, REMINDER_TEXT_3, makeReminderText2 } = toolDedupeTesting;
 const ZERO_USAGE = emptyUsage();
@@ -162,9 +145,7 @@ class EchoTool implements ExecutableTool<Record<string, unknown>> {
 
   constructor(
     readonly name = 'Echo',
-    private readonly resultFor: (args: Record<string, unknown>) => ExecutableToolResult = (
-      args,
-    ) => ({
+    private readonly resultFor: (args: Record<string, unknown>) => ExecutableToolResult = (args) => ({
       output: typeof args['text'] === 'string' ? args['text'] : '',
     }),
   ) {}
@@ -905,19 +886,7 @@ describe('AgentToolDedupeService', () => {
       const actions = telemetryEvents
         .filter((e) => e.event === 'tool_call_repeat')
         .map((e) => e.properties?.['action']);
-      expect(actions).toEqual([
-        'none',
-        'r1',
-        'r1',
-        'r2',
-        'r2',
-        'r2',
-        'r3',
-        'r3',
-        'r3',
-        'r3',
-        'stop',
-      ]);
+      expect(actions).toEqual(['none', 'r1', 'r1', 'r2', 'r2', 'r2', 'r3', 'r3', 'r3', 'r3', 'stop']);
     });
 
     it('does not double-register a call that already went through onBeforeExecuteTool', async () => {
@@ -961,28 +930,17 @@ describe('AgentToolDedupeService', () => {
     }
 
     function malformedBashCallWithId(id: string, variant: number): ToolCall {
-      return {
-        type: 'function',
-        id,
-        name: 'Bash',
-        arguments: `{"command_${String(variant)}: "ls"`,
-      };
+      return { type: 'function', id, name: 'Bash', arguments: `{"command_${String(variant)}: "ls"` };
     }
 
     function rejectedBashAgent(records: TelemetryRecord[]): {
       readonly ctx: ReturnType<typeof createTestAgent>;
       readonly exec: ReturnType<typeof vi.fn>;
     } {
-      const exec = vi
-        .fn<ISessionProcessRunner['exec']>()
-        .mockRejectedValue(new Error('Bash should not execute'));
+      const exec = vi.fn<IHostProcessService['spawn']>().mockRejectedValue(new Error('Bash should not execute'));
       const ctx = createTestAgent(
         telemetryServices(recordingTelemetry(records)),
-        execEnvServices({
-          processRunner: createFakeProcessRunner({
-            exec: exec as unknown as ISessionProcessRunner['exec'],
-          }),
-        }),
+        execEnvServices({ processRunner: createFakeProcessRunner({ spawn: exec as unknown as IHostProcessService['spawn'] }) }),
       );
       ctx.get(IAgentProfileService).update({ activeToolNames: ['Bash'] });
       records.length = 0;
@@ -1006,19 +964,7 @@ describe('AgentToolDedupeService', () => {
       const actions = records
         .filter((entry) => entry.event === 'tool_call_repeat')
         .map((entry) => entry.properties?.['action']);
-      expect(actions).toEqual([
-        'none',
-        'r1',
-        'r1',
-        'r2',
-        'r2',
-        'r2',
-        'r3',
-        'r3',
-        'r3',
-        'r3',
-        'stop',
-      ]);
+      expect(actions).toEqual(['none', 'r1', 'r1', 'r2', 'r2', 'r2', 'r3', 'r3', 'r3', 'r3', 'stop']);
     });
 
     it('does not force-stop when the malformed argument text keeps changing', async () => {

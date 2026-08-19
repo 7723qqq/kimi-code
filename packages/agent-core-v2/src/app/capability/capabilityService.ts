@@ -1,31 +1,19 @@
-/**
- * `capability` domain (L3) — `ICapabilityService` implementation.
- *
- * Holds the closed registry of built-in capability entries and serializes
- * install runs per entry. Install progress lives in memory only; clients poll
- * it or subscribe to `onDidChangeInstall` (fired on every transition), and a
- * failed attempt leaves its error in the progress state until the next
- * attempt starts and logs the failure through `log`. Listing degrades a
- * single entry's failing detection to a failed step on that entry instead of
- * rejecting the whole list. Bound at App scope.
- */
-
 import { homedir } from 'node:os';
 
-import { Disposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { Error2 } from '#/errors';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IPluginService } from '#/app/plugin/plugin';
-import { LifecycleScope } from '#/app/scopes';
-import { Error2 } from '#/errors';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { ICapabilityService } from './capability';
+import { CapabilityErrors } from './errors';
 import { createKimiCuEntry } from './entries/kimiCu';
 import { createKimiWebbridgeEntry } from './entries/kimiWebbridge';
-import { CapabilityErrors } from './errors';
 import type {
   CapabilityEntry,
   CapabilityId,
@@ -113,8 +101,7 @@ export class CapabilityService extends Disposable implements ICapabilityService 
       throw new Error2(
         CapabilityErrors.codes.CAPABILITY_INSTALL_IN_PROGRESS,
         `Capability "${entry.id}" is already being installed`,
-        { details: { id: entry.id } },
-      );
+        { details: { id: entry.id } });
     }
 
     this.runningInstalls.add(entry.id);

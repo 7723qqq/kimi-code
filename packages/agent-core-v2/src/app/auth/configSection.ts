@@ -1,29 +1,5 @@
-/**
- * `auth` domain — `services` config-section schema, TOML transforms, and
- * env bindings.
- *
- * Owns the `[services]` configuration section (`moonshot_search` /
- * `moonshot_fetch`), mirroring v1's `ServicesConfigSchema`: the schema, and the
- * snake_case ↔ camelCase TOML transforms (including the nested `oauth` and
- * `custom_headers` normalization, with `custom_headers` record keys preserved
- * verbatim). Both entries' `base_url` / `api_key` are env-overridable
- * (`KIMI_WEB_SEARCH_*` / `KIMI_WEB_FETCH_*`, env wins over the file). Its
- * effective overlay treats an env base URL as a new credential boundary and
- * prevents persisted API keys, OAuth refs, or custom headers from crossing
- * into that endpoint; the composed `stripEnv` keeps env-derived values from
- * being persisted.
- * Self-registered at module load via `registerConfigSection`, so the
- * `config` domain never imports this domain's types.
- *
- * The `auth` domain owns this section because its OAuth login/logout flows
- * provision and clear it, and its `WebSearchProviderService`
- * consumes `moonshot_search`; the `web` domain reads `moonshot_fetch` from the
- * same section. Bound at App scope.
- */
-
 import { z } from 'zod';
 
-import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
 import {
   type ConfigEffectiveOverlay,
   type ConfigStripEnv,
@@ -42,6 +18,7 @@ import {
   snakeToCamel,
   transformPlainObject,
 } from '#/app/config/toml';
+import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
 import type { OAuthRef } from '#/kosong/provider/provider';
 
 export const SERVICES_SECTION = 'services';
@@ -94,10 +71,13 @@ const moonshotFetchEnvBindings = envBindings(MoonshotServiceConfigSchema, {
   apiKey: { env: WEB_FETCH_API_KEY_ENV, parse: nonBlankEnv },
 });
 
-export const servicesEnvBindings: EnvBindings<ServicesConfig> = envBindings(ServicesConfigSchema, {
-  moonshotSearch: moonshotSearchEnvBindings,
-  moonshotFetch: moonshotFetchEnvBindings,
-});
+export const servicesEnvBindings: EnvBindings<ServicesConfig> = envBindings(
+  ServicesConfigSchema,
+  {
+    moonshotSearch: moonshotSearchEnvBindings,
+    moonshotFetch: moonshotFetchEnvBindings,
+  },
+);
 
 const servicesCredentialEnvOverlay: ConfigEffectiveOverlay = {
   apply(effective, getEnv, validate) {

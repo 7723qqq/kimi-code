@@ -1,30 +1,7 @@
-/**
- * `tool` domain — foundational tool model contract.
- *
- * Owns the tool model shared by every tool domain: the static metadata
- * (`ToolSource` / `ToolDefinition` / `ToolInfo`), the `ExecutableTool`
- * contract every tool implements (`resolveExecution` → `ToolExecution` →
- * `execute(ctx)`), the `ExecutableToolContext` it runs against, the raw and
- * finalized results (`ExecutableToolResult` / `ToolResult`), the streaming
- * `ToolUpdate`, and the `AgentTool` service interface every DI-registered
- * agent tool implements. Also owns the `ToolAccesses`
- * resource-access declarations an execution emits so the host scheduler can
- * run non-conflicting calls concurrently (together with their conflict
- * semantics), and the `isMcpToolName` name predicate. The `stopTurn` /
- * `stopBatchAfterThis` fields are internal loop-control hints stripped
- * before persistence. No scoped service.
- */
-
-import type { ToolInputDisplay } from '@moonshot-ai/protocol';
-
-import {
-  tryNativeIsMcpToolName,
-  tryNativeToolAccessesConflict,
-  type NativeToolAccessMeta,
-} from '#/_base/native-tools';
 import type { ContentPart, ToolCall } from '#/kosong/contract/message';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
 import type { Tool } from '#/kosong/contract/tool';
+import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import type { ToolInputDisplay } from '@moonshot-ai/protocol';
 
 export type ExecutableToolOutput = string | ContentPart[];
 
@@ -88,13 +65,6 @@ export interface RunnableToolExecution {
   readonly stopBatchAfterThis?: boolean | undefined;
   readonly approvalRule: string;
   readonly matchesRule?: ((ruleArgs: string) => boolean) | undefined;
-  /**
-   * Optional per-call execution budget in milliseconds. When set, the
-   * executor arms a deadline over the execution's abort signal and reports
-   * a 'timed out' error result if the budget elapses before the tool
-   * settles (ported from deepseek-harness guard/timeout-policy, MIT).
-   */
-  readonly timeoutMs?: number | undefined;
   readonly execute: (ctx: ExecutableToolContext) => Promise<ExecutableToolResult>;
 }
 
@@ -193,29 +163,11 @@ export const ToolAccesses = {
   },
 
   conflict(left: ToolAccesses, right: ToolAccesses): boolean {
-    // Native fast-path: the Rust conflict engine is authoritative when
-    // available (same semantics: all-vs-anything, write ops only, path
-    // overlap with recursive containment).
-    const native = tryNativeToolAccessesConflict(
-      left.map(toNativeToolAccessMeta),
-      right.map(toNativeToolAccessMeta),
-    );
-    if (native !== undefined) return native;
     return left.some((leftAccess) =>
       right.some((rightAccess) => resourceAccessesConflict(leftAccess, rightAccess)),
     );
   },
 };
-
-function toNativeToolAccessMeta(access: ToolResourceAccess): NativeToolAccessMeta {
-  if (access.kind === 'all') return { kind: 'all' };
-  return {
-    kind: 'file',
-    operation: access.operation,
-    path: access.path,
-    recursive: access.recursive,
-  };
-}
 
 function resourceAccessesConflict(left: ToolResourceAccess, right: ToolResourceAccess): boolean {
   if (left.kind === 'all' || right.kind === 'all') return true;
@@ -266,7 +218,5 @@ function normalizePath(path: string): string {
 const MCP_NAME_PREFIX = 'mcp__';
 
 export function isMcpToolName(name: string): boolean {
-  const native = tryNativeIsMcpToolName(name);
-  if (native !== undefined) return native;
   return name.startsWith(MCP_NAME_PREFIX);
 }

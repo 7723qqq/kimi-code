@@ -1,14 +1,22 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 export interface McpAuthStatusServer {
   readonly authToken: string;
+  readonly refreshToken: string;
   readonly plainUrl: string;
   readonly oauthUrl: string;
   readonly unavailableUrl: string;
   requestCount(pathname: string): number;
   close(): Promise<void>;
 }
+
+/** The one refresh token the `/token` endpoint honors. */
+const REFRESH_TOKEN = 'valid-test-refresh-token';
 
 export async function startMcpAuthStatusServer(): Promise<McpAuthStatusServer> {
   const authToken = 'valid-test-access-token';
@@ -30,6 +38,7 @@ export async function startMcpAuthStatusServer(): Promise<McpAuthStatusServer> {
   baseUrl = `http://127.0.0.1:${port}`;
   return {
     authToken,
+    refreshToken: REFRESH_TOKEN,
     plainUrl: `${baseUrl}/plain`,
     oauthUrl: `${baseUrl}/oauth`,
     unavailableUrl: `${baseUrl}/unavailable`,
@@ -53,6 +62,28 @@ async function handleRequest(
   const url = new URL(request.url ?? '/', baseUrl);
   if (url.pathname === '/unavailable') {
     response.writeHead(503).end('Temporarily unavailable');
+    return;
+  }
+  if (url.pathname === '/token' && request.method === 'POST') {
+    // Token endpoint: a valid refresh grant rotates into a fresh access
+    // token; anything else is rejected, so probes of stale credentials still
+    // land on needs-auth.
+    const rawBody = await readBody(request);
+    const params = new URLSearchParams(rawBody);
+    if (
+      params.get('grant_type') === 'refresh_token' &&
+      params.get('refresh_token') === REFRESH_TOKEN
+    ) {
+      sendJson(response, {
+        access_token: authToken,
+        token_type: 'Bearer',
+        expires_in: 3600,
+        refresh_token: REFRESH_TOKEN,
+      });
+      return;
+    }
+    response.writeHead(400, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: 'invalid_grant' }));
     return;
   }
   if (url.pathname === '/.well-known/oauth-protected-resource') {
@@ -116,6 +147,14 @@ async function handleRequest(
   sendJson(response, { jsonrpc: '2.0', id: message.id, result });
 }
 
+async function readBody(request: AsyncIterable<unknown>): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk as Uint8Array));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 async function readJson(request: AsyncIterable<unknown>): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
@@ -124,7 +163,11 @@ async function readJson(request: AsyncIterable<unknown>): Promise<Record<string,
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
 }
 
-function sendJson(response: ServerResponse, body: unknown, status = 200): void {
+function sendJson(
+  response: ServerResponse,
+  body: unknown,
+  status = 200,
+): void {
   response.writeHead(status, { 'content-type': 'application/json' });
   response.end(JSON.stringify(body));
 }

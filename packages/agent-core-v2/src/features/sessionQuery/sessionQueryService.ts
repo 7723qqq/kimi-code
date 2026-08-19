@@ -20,6 +20,7 @@ import {
 import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
 import { Error2 } from '#/errors';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import { SessionSearchCursor } from './cursor';
 import { SessionQueryErrors } from './errors';
@@ -106,9 +107,10 @@ export class SessionQueryService extends Service implements ISessionQueryService
     @IWorkspaceLifecycleService private readonly lifecycle: IWorkspaceLifecycleService,
     @IBootstrapService bootstrap: IBootstrapService,
     @IAppendLogStore log: IAppendLogStore,
+    @IFileSystemStorageService storage: IFileSystemStorageService,
   ) {
     super();
-    this.events = new SessionEventIndex(bootstrap, log);
+    this.events = new SessionEventIndex(bootstrap, log, storage);
   }
 
   async listSessions(filters: readonly SessionResultFilter[] = []): Promise<SessionRecord[]> {

@@ -4,14 +4,20 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  handleReloadCommand,
+  handleReloadTuiCommand,
+} from '#/tui/commands/reload';
+import { currentTheme } from '#/tui/theme';
 import type { SlashCommandHost } from '#/tui/commands';
 import {
   isExperimentalFlagEnabled,
   setExperimentalFeatures,
 } from '#/tui/commands/experimental-flags';
-import { handleReloadCommand, handleReloadTuiCommand } from '#/tui/commands/reload';
-import { currentTheme } from '#/tui/theme';
-import { createMarkdownOptions, setMarkdownRenderLatex } from '#/tui/utils/markdown-options';
+import {
+  createMarkdownOptions,
+  setMarkdownRenderLatex,
+} from '#/tui/utils/markdown-options';
 
 const tempDirs: string[] = [];
 const originalKimiCodeHome = process.env['KIMI_CODE_HOME'];
@@ -59,7 +65,10 @@ auto_install = false
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
     });
-    expect(host.showStatus).toHaveBeenCalledWith('TUI config reloaded.', 'success');
+    expect(host.showStatus).toHaveBeenCalledWith(
+      'TUI config reloaded.',
+      'success',
+    );
   });
 
   it('reloads the active session, refreshes runtime config, and applies tui.toml', async () => {
@@ -72,7 +81,10 @@ auto_install = false
     expect(session.reloadSession).toHaveBeenCalledWith({
       forcePluginSessionStartReminder: true,
     });
-    expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(session, 'Session reloaded.');
+    expect(host.reloadCurrentSessionView).toHaveBeenCalledWith(
+      session,
+      'Session reloaded.',
+    );
     expect(host.harness.getConfig).toHaveBeenCalledWith({ reload: true });
     expect(host.harness.getExperimentalFeatures).toHaveBeenCalledOnce();
     expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledOnce();
@@ -159,10 +171,7 @@ auto_install = false
 });
 
 async function writeTuiConfig(text: string): Promise<void> {
-  const dir = join(
-    tmpdir(),
-    `kimi-tui-reload-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
+  const dir = join(tmpdir(), `kimi-tui-reload-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   tempDirs.push(dir);
   await mkdir(dir, { recursive: true });
   process.env['KIMI_CODE_HOME'] = dir;

@@ -1,30 +1,21 @@
-/**
- * `plugin` domain — manages installed plugin state and consumption metadata.
- *
- * Installs, reloads, persists, and summarizes plugins, counting loadable
- * plugin skills through skill discovery.
- */
-
 import { cp, mkdir, mkdtemp, realpath, rename, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { t } from '@moonshot-ai/kimi-i18n';
-
+import { BugIndicatingError, Error2, ErrorCodes, PluginErrors } from '#/errors';
 import type { HookDef } from '#/agent/externalHooks/types';
+import type { McpServerConfig } from '#/mcpCore/config-schema';
+import type { PluginAgentRoot } from './types';
 import { discoverFileSkills } from '#/app/skillCatalog/fileSkillDiscovery';
 import type { SkillDiscoveryResult } from '#/app/skillCatalog/skillDiscovery';
 import type { SkillRoot } from '#/app/skillCatalog/types';
-import { BugIndicatingError, Error2, ErrorCodes, PluginErrors } from '#/errors';
-import type { McpServerConfig } from '#/mcpCore/config-schema';
 
 import { downloadZip, extractZip } from './archive';
 import { loadPluginCommand } from './commands';
 import { resolveGithubCommitSha, resolveGithubSource } from './github-resolver';
-import { parseManifest, type ParsedManifestResult } from './manifest';
 import { resolveInstallSource } from './source';
+import { parseManifest, type ParsedManifestResult } from './manifest';
 import { readInstalled, writeInstalled, type InstalledRecord } from './store';
-import type { PluginAgentRoot } from './types';
 import {
   normalizePluginId,
   type EnabledPluginSessionStart,
@@ -34,7 +25,6 @@ import {
   type PluginGithubMetadata,
   type PluginInfo,
   type PluginMcpServerInfo,
-  type PluginMcpServerRuntimeConfig,
   type PluginRecord,
   type PluginSource,
   type PluginSummary,
@@ -54,7 +44,9 @@ interface ManagedPluginCopy {
 
 export class PluginManager {
   private readonly kimiHomeDir: string;
-  private readonly discoverSkills: (roots: readonly SkillRoot[]) => Promise<SkillDiscoveryResult>;
+  private readonly discoverSkills: (
+    roots: readonly SkillRoot[],
+  ) => Promise<SkillDiscoveryResult>;
   private records = new Map<string, PluginRecord>();
 
   constructor(options: PluginManagerOptions) {
@@ -125,13 +117,12 @@ export class PluginManager {
 
       const parsed = await parseManifest(sourceRoot);
       if (parsed.manifest === undefined) {
-        const msg =
-          parsed.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no manifest';
+        const msg = parsed.diagnostics.find((d) => d.severity === 'error')?.message ?? 'no manifest';
         throw new Error2(
           ErrorCodes.PLUGIN_LOAD_FAILED,
           sourceType === 'local-path'
-            ? t('toolsV2.plugin.cannotInstallLocal', { path: sourceRoot, message: msg })
-            : t('toolsV2.plugin.cannotInstallRemote', { source: originalSource, message: msg }),
+            ? `Cannot install plugin at ${sourceRoot}: ${msg}`
+            : `Cannot install plugin from ${originalSource}: ${msg}`,
           { details: { sourceType } },
         );
       }
@@ -160,7 +151,7 @@ export class PluginManager {
       await this.persist(next);
       this.records = next;
       if (managedCopy.previousRoot !== undefined) {
-        await rm(managedCopy.previousRoot, { recursive: true, force: true }).catch(() => {});
+        await rm(managedCopy.previousRoot, { recursive: true, force: true }).catch(() => undefined);
       }
       managedCopy = undefined;
       return record;
@@ -206,7 +197,11 @@ export class PluginManager {
     const current = this.records.get(key);
     if (current === undefined) throw pluginNotFound(id);
     if (current.manifest?.mcpServers?.[server] === undefined) {
-      throw new Error(t('toolsV2.plugin.noMcpServer', { id, server }));
+      throw new Error2(
+        ErrorCodes.MCP_SERVER_NOT_FOUND,
+        `Plugin "${id}" does not declare MCP server "${server}"`,
+        { details: { id, server } },
+      );
     }
     const currentMcpServers = current.capabilities?.mcpServers ?? {};
     const nextCapabilities: PluginCapabilityState = {
@@ -247,7 +242,7 @@ export class PluginManager {
         try {
           return await checkGithubUpdate(record);
         } catch {
-          return;
+          return undefined;
         }
       }),
     );
@@ -376,29 +371,6 @@ export class PluginManager {
     return out;
   }
 
-  mcpServers(): readonly PluginMcpServerRuntimeConfig[] {
-    const out: PluginMcpServerRuntimeConfig[] = [];
-    for (const record of this.records.values()) {
-      if (record.state !== 'ok' || record.manifest === undefined) continue;
-      for (const [serverName, config] of Object.entries(record.manifest.mcpServers ?? {})) {
-        const enabled = record.enabled && isMcpServerEnabled(record, serverName, config);
-        const runtimeName = pluginMcpRuntimeName(record.id, serverName);
-        out.push({
-          pluginId: record.id,
-          serverName,
-          runtimeName,
-          enabled,
-          config: withPluginMcpRuntime(
-            withMcpServerEnabled(config, enabled),
-            record.root,
-            this.kimiHomeDir,
-          ),
-        });
-      }
-    }
-    return out;
-  }
-
   summaries(): readonly PluginSummary[] {
     return this.list().map((record) => recordToSummary(record));
   }
@@ -516,31 +488,9 @@ function explicitGithubRef(record: PluginRecord): PluginGithubMetadata['ref'] | 
 }
 
 function pluginNotFound(id: string): Error2 {
-  return new Error2(PluginErrors.codes.PLUGIN_NOT_FOUND, t('toolsV2.plugin.notFound', { id }), {
+  return new Error2(PluginErrors.codes.PLUGIN_NOT_FOUND, `Plugin "${id}" is not installed`, {
     details: { id },
   });
-}
-
-async function normalizeInstallRoot(rootPath: string): Promise<string> {
-  const trimmed = rootPath.trim();
-  if (!path.isAbsolute(trimmed)) {
-    throw new Error(t('toolsV2.plugin.rootNotAbsolute', { path: rootPath }));
-  }
-  let resolved: string;
-  try {
-    resolved = await realpath(trimmed);
-  } catch (error) {
-    throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `Plugin root does not exist: ${trimmed}`, {
-      cause: error,
-      details: { path: trimmed },
-    });
-  }
-  if (!(await stat(resolved)).isDirectory()) {
-    throw new Error2(ErrorCodes.VALIDATION_FAILED, `Plugin root is not a directory: ${trimmed}`, {
-      details: { path: trimmed },
-    });
-  }
-  return resolved;
 }
 
 /**
@@ -563,6 +513,32 @@ async function assertManagedPluginRoot(root: string, kimiHomeDir: string): Promi
       `Refusing to remove plugin root outside the managed directory: ${rootReal}`,
     );
   }
+}
+
+async function normalizeInstallRoot(rootPath: string): Promise<string> {
+  const trimmed = rootPath.trim();
+  if (!path.isAbsolute(trimmed)) {
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      `Plugin root must be an absolute path (got "${rootPath}")`,
+      { details: { path: rootPath } },
+    );
+  }
+  let resolved: string;
+  try {
+    resolved = await realpath(trimmed);
+  } catch (error) {
+    throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `Plugin root does not exist: ${trimmed}`, {
+      cause: error,
+      details: { path: trimmed },
+    });
+  }
+  if (!(await stat(resolved)).isDirectory()) {
+    throw new Error2(ErrorCodes.VALIDATION_FAILED, `Plugin root is not a directory: ${trimmed}`, {
+      details: { path: trimmed },
+    });
+  }
+  return resolved;
 }
 
 async function copyPluginToManagedRoot(
@@ -631,7 +607,11 @@ async function recordFrom(input: {
     originalSource: input.originalSource,
     capabilities: input.capabilities,
     github: input.github,
-    skillCount: await countDiscoveredPluginSkills(input.id, parsed.manifest, input.discoverSkills),
+    skillCount: await countDiscoveredPluginSkills(
+      input.id,
+      parsed.manifest,
+      input.discoverSkills,
+    ),
     manifest: parsed.manifest,
     manifestKind: parsed.manifestKind,
     manifestPath: parsed.manifestPath,

@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-
 import { api } from '../api';
 
 /**
@@ -16,7 +15,11 @@ import { api } from '../api';
  * requests the full reconstructed history for debugging. Both modes are
  * cached independently (the mode is part of the React Query key).
  */
-export function useContext(sessionId: string, agentId: string, mode: 'model' | 'full' = 'model') {
+export function useContext(
+  sessionId: string,
+  agentId: string,
+  mode: 'model' | 'full' = 'model',
+) {
   return useQuery({
     queryKey: ['context', sessionId, agentId, mode] as const,
     queryFn: () => api.getContext(sessionId, agentId, mode),

@@ -64,7 +64,10 @@ export function createAsyncApiDocument(
       sendServerMessages: {
         action: 'send',
         channel: { $ref: `#/channels/${CHANNEL_ID}` },
-        messages: [...operationMessageRefs('server_to_client'), ...ackMessageRefs()],
+        messages: [
+          ...operationMessageRefs('server_to_client'),
+          ...ackMessageRefs(),
+        ],
       },
     },
     components: {
@@ -93,15 +96,15 @@ function buildMessages(): Record<string, unknown> {
 function operationMessageRefs(
   direction: WsOperationDefinition['direction'],
 ): Array<{ $ref: string }> {
-  return ASYNCAPI_OPERATIONS.filter((operation) => operation.direction === direction).map(
-    (operation) => ({ $ref: `#/components/messages/${messageId(operation.type)}` }),
-  );
+  return ASYNCAPI_OPERATIONS
+    .filter((operation) => operation.direction === direction)
+    .map((operation) => ({ $ref: `#/components/messages/${messageId(operation.type)}` }));
 }
 
 function ackMessageRefs(): Array<{ $ref: string }> {
-  return ASYNCAPI_OPERATIONS.filter((operation) => operation.ackSchema !== undefined).map(
-    (operation) => ({ $ref: `#/components/messages/${messageId(operation.type)}_ack` }),
-  );
+  return ASYNCAPI_OPERATIONS
+    .filter((operation) => operation.ackSchema !== undefined)
+    .map((operation) => ({ $ref: `#/components/messages/${messageId(operation.type)}_ack` }));
 }
 
 function asyncApiMessage(
@@ -129,7 +132,7 @@ function jsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
 }
 
 function messageId(type: string): string {
-  return type.replaceAll(/[^A-Za-z0-9]+/g, '_').replaceAll(/^_+|_+$/g, '');
+  return type.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
 function titleFromName(name: string): string {

@@ -1,15 +1,3 @@
-/**
- * Scenario: SYSTEM.md prompt-override profile — file tolerance (missing /
- * empty / unreadable → no profile), synthesized profile shape (default name +
- * override opt-in, description/tools inherited from the builtin default), and
- * template rendering through the shared variable table (`${skills}` gating,
- * `${base_prompt}`, `${plugin_sections}`, `${additional_dirs_info}`). Pure
- * logic against real temp dirs plus a targeted fake fs for the read-failure
- * path.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/app/agentFileCatalog/systemFile.test.ts`.
- */
-
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
@@ -21,13 +9,13 @@ import {
   normalizeAgentProfile,
   type AgentProfile,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import {
   SYSTEM_MD_FILENAME,
   loadSystemMdProfile,
 } from '#/workspace/workspaceAgentProfileLoader/internal/systemFile';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 
 const hostFs = new HostFileSystem();
 

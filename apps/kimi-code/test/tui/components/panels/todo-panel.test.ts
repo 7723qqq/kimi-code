@@ -199,7 +199,11 @@ describe('selectVisibleTodos', () => {
   const T = (title: string, status: TodoItem['status']): TodoItem => ({ title, status });
 
   it('returns all items unchanged when count <= 5', () => {
-    const todos: TodoItem[] = [T('a', 'done'), T('b', 'in_progress'), T('c', 'pending')];
+    const todos: TodoItem[] = [
+      T('a', 'done'),
+      T('b', 'in_progress'),
+      T('c', 'pending'),
+    ];
     const { rows, hidden } = selectVisibleTodos(todos);
     expect(rows).toEqual(todos);
     expect(hidden).toBe(0);
@@ -332,7 +336,9 @@ describe('selectVisibleTodos', () => {
   });
 
   it('more than 5 in_progress: caps at 5 keeping the earliest', () => {
-    const todos: TodoItem[] = Array.from({ length: 7 }, (_, i) => T(`ip${i}`, 'in_progress'));
+    const todos: TodoItem[] = Array.from({ length: 7 }, (_, i) =>
+      T(`ip${i}`, 'in_progress'),
+    );
     const { rows, hidden } = selectVisibleTodos(todos);
     expect(rows.map((r) => r.title)).toEqual(['ip0', 'ip1', 'ip2', 'ip3', 'ip4']);
     expect(hidden).toBe(2);

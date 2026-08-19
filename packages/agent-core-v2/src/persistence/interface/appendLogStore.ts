@@ -1,28 +1,6 @@
-/**
- * `persistence/interface` — `IAppendLogStore` contract.
- *
- * The append-log access-pattern store: turns a byte stream into an ordered
- * sequence of typed JSON records on top of `IFileSystemStorageService`. Owns the
- * concerns the storage service deliberately ignores: line framing, batching,
- * and crash-tolerant decoding. Acquired handles share a keyed buffer; its final
- * owner release starts a flush and retires that buffer once the flush settles,
- * before a replacement buffer starts storage I/O for the same key. `rewrite`
- * takes ownership at its call boundary: `records` replaces the history already
- * durable before that cutover, while appends still queued or in flight remain
- * a live tail that is drained after the atomic replacement. Callers must not
- * also include those outstanding appends in `records`. An ambiguous append or
- * rewrite failure remains sticky for that acquired buffer generation so a
- * later flush cannot duplicate data by guessing whether storage committed it.
- * A valid explicit `rewrite` is the recovery boundary: a successful atomic
- * replacement clears that failure before the preserved live tail drains.
- * `flush` and `close` wait for every keyed buffer to settle before reporting
- * the first failure in stable key insertion order.
- *
- * This file ships the interface, error class, and DI token only.
- */
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { type IDisposable } from '#/_base/di/lifecycle';
+
 import { StorageError, StorageErrors } from '#/persistence/interface/storage';
 
 export class AppendLogCorruptedError extends StorageError {
@@ -52,13 +30,6 @@ export interface IAppendLogStore {
   flush(): Promise<void>;
   close(): Promise<void>;
   acquire(scope: string, key: string): IDisposable;
-  /**
-   * Monotonic write counter for a log: every `append`/`rewrite` increments it.
-   * Lets readers cheaply detect "the log changed since I last read" without
-   * re-reading the whole file — e.g. cache the folded result of a log and
-   * reuse it while this value is unchanged.
-   */
-  revision(scope: string, key: string): number;
 }
 
 export const IAppendLogStore: ServiceIdentifier<IAppendLogStore> =

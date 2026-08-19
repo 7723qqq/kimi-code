@@ -40,7 +40,7 @@ model = "k3"
 max_context_size = 1048576
 capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
 display_name = "K3"
-support_efforts = [ "max" ]
+support_efforts = [ "low", "high", "max" ]
 default_effort = "max"
 
 [models."kimi-code/kimi-for-coding"]
@@ -103,7 +103,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `merge_all_available_skills` | `boolean` | `true` | Whether to merge Agent Skills from all available directories |
 | `extra_skill_dirs` | `array<string>` | — | Extra skill search directories, layered on top of the default directories |
 | `extra_agent_dirs` | `array<string>` | — | Extra custom agent search directories, layered on top of the default directories |
-| `builtin_product_skills` | `boolean` | `true` | Whether the built-in skills that document Kimi Code itself are offered to the model: `update-config`, `custom-theme`, `mcp-config`, `check-kimi-code-docs`, and `import-from-cc-codex`. Turning them off trims their names and descriptions from the system prompt, at the cost of the guided flows for those tasks. Read by the `agent-core-v2` engine |
+| `builtin_product_skills` | `boolean` | `true` | Whether the built-in skills that document Kimi Code itself are offered to the model: `update-config`, `custom-theme`, `mcp-config`, `check-kimi-code-docs`, and `import-from-cc-codex`. Turning them off trims their names and descriptions from the system prompt, at the cost of the guided flows for those tasks. Read by the default `agent-core-v2` engine; ignored when `KIMI_CODE_LEGACY_FLAG=1` selects the legacy engine |
 | `telemetry` | `boolean` | `true` | Whether anonymous telemetry is enabled; disabled only when explicitly set to `false` |
 | `providers` | `table` | `{}` | API provider table → [`providers`](#providers) |
 | `models` | `table` | — | Model alias table → [`models`](#models) |
@@ -125,7 +125,7 @@ Each entry in the `providers` table defines an API provider, keyed by a unique n
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `type` | `string` | Yes | Provider type: `kimi`, `anthropic`, `openai`, `openai_responses`, `google-genai` |
+| `type` | `string` | Yes | Provider type: `kimi`, `anthropic`, `openai`, `openai_responses`, `google-genai`, `vertexai` |
 | `api_key` | `string` | No | API key, written in plain text in the config file |
 | `base_url` | `string` | No | API base URL |
 | `oauth` | `table` | No | OAuth credential reference (`storage` and `key` fields); injected automatically by the login flow — normally no need to write this by hand |
@@ -220,7 +220,7 @@ A configured pool — an explicit `[secondary_model.models]` table or a lone `de
 default_model = "kimi-code/kimi-for-coding-highspeed"
 [secondary_model.models]
 "kimi-code/k3" = "Pick this for hard problems. Strong at complex reasoning, algorithm design, deep debugging, math, and systematic challenges."
-"kimi-code/kimi-for-coding-highspeed" = "Fast and cheap. Good for daily refactoring, code explanation, small edits, summaries, and simple batch tasks."
+"kimi-code/kimi-for-coding-highspeed" = "Fast but priced higher. Good for latency-sensitive tasks: daily refactoring, code explanation, small edits, and summaries."
 "kimi-code/kimi-for-coding" = "A balanced coding workhorse. Good for most feature development and code-change tasks."
 ```
 
@@ -236,23 +236,26 @@ force = true
 
 With `force` set, the `model` parameter is not advertised (just like when nothing is configured) and every spawn binds `default_model`; an explicit `model` argument, `"primary"` included, is rejected with an error. `force` requires `default_model` and cannot be combined with a `[secondary_model.models]` table — the table exists to offer a choice, and force removes it.
 
-Because natural resolution lands on the bound model's default effort, different pool entries can carry different thinking levels: register a second `[models]` entry as a "variant" of the same underlying model, override only its `default_effort` via [`[models."<alias>".overrides]`](#model-overrides), and list both aliases in the pool — the main agent picks the thinking level together with the alias:
+Because natural resolution lands on the bound model's default effort, different pool entries can carry different thinking levels: register a second `[models]` entry as a "variant" of the same underlying model, override only its `default_effort` via [`[models."<alias>".overrides]`](#model-overrides), and list both aliases in the pool — the main agent picks the thinking level together with the alias. Two prerequisites: the underlying model must declare `support_efforts` (under `managed:kimi-code` only the k3 family currently declares effort levels), and the variant is a standalone entry that does not inherit fields from the entry it points at — copy `capabilities`, `support_efforts`, and the other metadata over in full, otherwise `default_effort` has no effect (it must be a member of `support_efforts`):
 
 ```toml
-# "kimi-code/kimi-for-coding-highspeed" is provisioned by /login; this
-# registers a higher-effort variant of the same model
-[models.kimi-for-coding-highspeed-deep]
+# "kimi-code/k3" is provisioned by /login (default: high); this registers
+# a max-effort variant of the same model
+[models.k3-max]
 provider = "managed:kimi-code"
-model = "kimi-for-coding-highspeed"
+model = "k3"
+max_context_size = 1048576
+capabilities = [ "thinking", "always_thinking", "image_in", "video_in", "tool_use" ]
+support_efforts = [ "low", "high", "max" ]
 
-[models.kimi-for-coding-highspeed-deep.overrides]
-default_effort = "high"
+[models.k3-max.overrides]
+default_effort = "max"
 
 [secondary_model]
-default_model = "kimi-code/kimi-for-coding-highspeed"
+default_model = "kimi-code/k3"
 [secondary_model.models]
-"kimi-code/kimi-for-coding-highspeed" = "Fast and cheap. Good for daily refactoring, code explanation, small edits, summaries, and simple batch tasks."
-kimi-for-coding-highspeed-deep = "The same model at a high thinking level. Good for harder subtasks."
+"kimi-code/k3" = "Default high effort. Good for most implementation, analysis, and multi-turn interaction tasks."
+k3-max = "The same model at max thinking effort. Good for the hardest subtasks."
 ```
 
 Note that `default_effort` stays a model-level default: once a global `[thinking].effort` is set, it wins for the main agent and subagents alike, and the variant's default only applies when no global effort is set. Value and fallback rules follow the [`[models]` entry's `default_effort`](#models).
@@ -369,7 +372,7 @@ A name that contains no ASCII letters or digits (for example a purely Chinese na
 
 The identity is resolved once at startup and holds for the life of the process — it is announced to MCP servers and providers when connections are made, so it cannot change midway. Edits to this section take effect on the next start, for new sessions: a resumed session keeps the system prompt it was recorded with, since its past turns already speak under that identity. Likewise, an MCP OAuth authorization keeps the client registration it was granted under; reset that server's authentication to register under the new identity.
 
-This section is read by the `agent-core-v2` engine.
+This section is read by the default `agent-core-v2` engine. It is ignored by the legacy `kimi` / `kimi -p` path selected with `KIMI_CODE_LEGACY_FLAG=1`; `kimi web` always uses `agent-core-v2`.
 
 ## `tools`
 
@@ -484,7 +487,7 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | `[notifications].enabled` | `boolean` | `true` | Whether desktop notifications are sent |
 | `[notifications].notification_condition` | `string` | `unfocused` | When to notify: `unfocused` (only when the terminal is not focused) or `always` |
 | `[upgrade].auto_install` | `boolean` | `true` | Whether new versions are installed automatically |
-| `[status_line].items` | `string[]` | `null` | Built-in slots to show on the first footer line and their order: `mode`, `goal`, `model`, `tasks`, `cwd`, `git`, `tips`. Unset (null) keeps the default layout; unknown ids are skipped with a warning |
+| `[status_line].items` | `string[]` | `[]` | Built-in slots to show on the first footer line and their order: `mode`, `goal`, `model`, `tasks`, `cwd`, `git`, `tips`. Unset keeps the default layout; unknown ids are skipped with a warning |
 | `[status_line].command` | `string` | `""` | Custom status line command. Its first stdout line replaces the first footer line, with a JSON snapshot (model, cwd, git branch, permission mode, plan mode, context usage, session id, version) passed on stdin. Runs are capped at 300ms and throttled to once per second; failures fall back to the built-in layout |
 
 ```toml

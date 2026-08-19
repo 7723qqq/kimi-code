@@ -1,15 +1,9 @@
-/**
- * `CapabilityService` — registry semantics, readiness computation, and
- * install orchestration (progress transitions, serialized runs, coded
- * errors). Entries are fakes; entry internals are covered per-entry.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { isError2 } from '#/_base/errors/errors';
 import type { ILogService, LogPayload } from '#/_base/log/log';
-import { CapabilityService } from '#/app/capability/capabilityService';
 import { CapabilityErrors } from '#/app/capability/errors';
+import { CapabilityService } from '#/app/capability/capabilityService';
 import type {
   CapabilityDetectResult,
   CapabilityEntry,
@@ -31,7 +25,10 @@ function fakeEntry(overrides: {
     displayName: overrides.id,
     description: 'fake',
     supported: overrides.supported ?? true,
-    detect: () => Promise.resolve(overrides.detect ?? { steps: [{ id: 'plugin', state: 'ok' }] }),
+    detect: () =>
+      Promise.resolve(
+        overrides.detect ?? { steps: [{ id: 'plugin', state: 'ok' }] },
+      ),
     install: overrides.install ?? (() => Promise.resolve(undefined)),
   };
 }
@@ -40,7 +37,6 @@ function fakeService(
   entries: readonly CapabilityEntry[],
   log: ILogService = stubLog(),
 ): CapabilityService {
-  // bootstrap / hostProcess are unused when entries are injected.
   return new CapabilityService(
     undefined as never,
     undefined as never,
@@ -96,7 +92,6 @@ describe('CapabilityService', () => {
       fakeEntry({ id: 'kimi-webbridge', detect: { steps: [{ id: 'daemon', state: 'ok' }] } }),
     ]);
 
-    // One entry's broken probe must not take down the whole list.
     const list = await service.listCapabilities();
     expect(list.find((c) => c.id === 'kimi-webbridge')?.state).toBe('ready');
     const cu = list.find((c) => c.id === 'kimi-cu');
@@ -198,7 +193,6 @@ describe('CapabilityService', () => {
     expect(during.install).toEqual({ running: true, step: 'download', percent: 42 });
 
     release?.();
-    // Wait for the background install to settle.
     for (let i = 0; i < 50; i += 1) {
       const status = await service.getCapability('kimi-cu');
       if (!status.install.running) {
@@ -243,10 +237,7 @@ describe('CapabilityService', () => {
     }
 
     expect(seen[0]).toEqual({ id: 'kimi-cu', install: { running: true } });
-    expect(seen).toContainEqual({
-      id: 'kimi-cu',
-      install: { running: true, step: 'download', percent: 42 },
-    });
+    expect(seen).toContainEqual({ id: 'kimi-cu', install: { running: true, step: 'download', percent: 42 } });
     expect(seen.at(-1)).toEqual({ id: 'kimi-cu', install: { running: false } });
   });
 
@@ -273,7 +264,9 @@ describe('CapabilityService', () => {
         id: 'kimi-cu',
         install: () => {
           attempts += 1;
-          return attempts === 1 ? Promise.reject(new Error('boom')) : Promise.resolve(undefined);
+          return attempts === 1
+            ? Promise.reject(new Error('boom'))
+            : Promise.resolve(undefined);
         },
       }),
     ]);
@@ -286,7 +279,6 @@ describe('CapabilityService', () => {
     const failed = await service.getCapability('kimi-cu');
     expect(failed.install).toEqual({ running: false, error: 'boom' });
 
-    // Retry clears the error.
     await service.installCapability('kimi-cu');
     for (let i = 0; i < 50; i += 1) {
       const status = await service.getCapability('kimi-cu');

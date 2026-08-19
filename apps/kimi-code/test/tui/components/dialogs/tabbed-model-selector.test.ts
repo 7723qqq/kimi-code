@@ -89,7 +89,7 @@ describe('TabbedModelSelectorComponent', () => {
     }
   });
 
-  it("opens on the All tab by default (showing every provider's models)", () => {
+  it('opens on the All tab by default (showing every provider\'s models)', () => {
     const out = strip(make().component.render(120).join('\n'));
     expect(out).toContain('Kimi K2');
     expect(out).toContain('GPT-5');

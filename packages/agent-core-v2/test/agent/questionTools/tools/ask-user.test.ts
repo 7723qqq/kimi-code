@@ -1,31 +1,21 @@
-/**
- * AskUserQuestionTool unit tests — ported from v1
- * `packages/agent-core/test/tools/ask-user.test.ts` (removed with the v1
- * engine) and adapted to the v2 DI
- * constructor (`ISessionQuestionService` / `ITelemetryService` stubs instead
- * of a fake `Agent`).
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
-import { type ILogService } from '#/_base/log/log';
-import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { IAgentTaskService } from '#/agent/task/task';
 import {
   AskUserQuestionInputSchema,
   type AskUserQuestionInput,
 } from '#/agent/tools/ask-user-question/ask-user-question';
 import { AskUserQuestionTool } from '#/agent/tools/ask-user-question/askUserQuestionTool';
-import type { QuestionBackgroundTask } from '#/agent/tools/ask-user-question/question-background-task';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type {
   ISessionQuestionService,
   QuestionRequest,
   QuestionResult,
 } from '#/session/question/question';
-
+import type { QuestionBackgroundTask } from '#/agent/tools/ask-user-question/question-background-task';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
@@ -78,16 +68,8 @@ function makeTool(
   );
   const tasks = { registerTask, getTask } as unknown as IAgentTaskService;
   const scopeContext = { agentId: 'main' } as unknown as IAgentScopeContext;
-  const log = { warn: vi.fn() } as unknown as ILogService;
-  const tool = new AskUserQuestionTool(question, telemetry, tasks, scopeContext, log);
-  return {
-    tool,
-    request,
-    telemetryTrack,
-    registerTask,
-    getTask,
-    lastRegisteredTask: () => lastTask,
-  };
+  const tool = new AskUserQuestionTool(question, telemetry, tasks, scopeContext);
+  return { tool, request, telemetryTrack, registerTask, getTask, lastRegisteredTask: () => lastTask };
 }
 
 describe('AskUserQuestionTool', () => {
@@ -95,7 +77,6 @@ describe('AskUserQuestionTool', () => {
     const { tool } = makeTool();
 
     expect(tool.name).toBe('AskUserQuestion');
-    expect(tool.description).toContain('structured options');
     expect(tool.parameters).toMatchObject({
       type: 'object',
       properties: { questions: { type: 'array' } },
@@ -111,25 +92,10 @@ describe('AskUserQuestionTool', () => {
     ).toBe(false);
   });
 
-  it('documents the answers shape and the uniqueness requirement to the model', () => {
-    const { tool } = makeTool();
-
-    expect(tool.description).toContain('must be unique across the call');
-    expect(tool.description).toContain('keyed by question text');
-  });
-
-  it('exposes background question controls (v1-aligned)', () => {
-    const { tool } = makeTool();
-    const paramsJson = JSON.stringify(tool.parameters);
-
-    expect(tool.description).toContain('Set background=true');
-    expect(tool.description).toContain('task_id');
-    expect(paramsJson).toContain('background');
-    expect(paramsJson).toContain('TaskOutput');
-  });
-
   it('rejects empty question text and empty option labels at the schema layer', () => {
-    expect(AskUserQuestionInputSchema.safeParse(input({ question: '' })).success).toBe(false);
+    expect(
+      AskUserQuestionInputSchema.safeParse(input({ question: '' })).success,
+    ).toBe(false);
     expect(
       AskUserQuestionInputSchema.safeParse(
         input({
@@ -183,7 +149,10 @@ describe('AskUserQuestionTool', () => {
 
   it('allows the same option label to appear in different questions', async () => {
     const args: AskUserQuestionInput = {
-      questions: [input().questions[0]!, input({ question: 'Which cache?' }).questions[0]!],
+      questions: [
+        input().questions[0]!,
+        input({ question: 'Which cache?' }).questions[0]!,
+      ],
     };
     expect(AskUserQuestionInputSchema.safeParse(args).success).toBe(true);
 
@@ -198,41 +167,14 @@ describe('AskUserQuestionTool', () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
-  it('describes the no-Other rule on options and the Recommended hint on label', () => {
-    const { tool } = makeTool();
-    const params = tool.parameters as {
-      properties: {
-        questions: {
-          items: {
-            properties: {
-              options: {
-                description?: string;
-                items: { properties: { label: { description?: string } } };
-              };
-            };
-          };
-        };
-      };
-    };
-
-    const optionsSchema = params.properties.questions.items.properties.options;
-    expect(optionsSchema.description).toContain("Do NOT include an 'Other' option");
-    expect(optionsSchema.description).toContain('the system adds one automatically');
-
-    const labelSchema = optionsSchema.items.properties.label;
-    expect(labelSchema.description).toContain("append '(Recommended)'");
-  });
-
   it('builds the v1-aligned schema including an optional background flag', () => {
     const { tool } = makeTool();
     const params = tool.parameters as {
-      properties: { background?: { type?: string; default?: boolean; description?: string } };
+      properties: { background?: { type?: string; default?: boolean } };
     };
 
-    expect(tool.description).toContain('Set background=true');
     expect(params.properties.background?.type).toBe('boolean');
     expect(params.properties.background?.default).toBe(false);
-    expect(params.properties.background?.description).toContain('task_id');
   });
 
   it('dispatches questions through the session question service', async () => {
@@ -363,7 +305,7 @@ describe('AskUserQuestionTool', () => {
     expect(telemetryTrack).toHaveBeenCalledWith('question_dismissed', { trace_id: undefined });
   });
 
-  it('surfaces question service failures as errors instead of dismissals', async () => {
+  it('resolves question service error responses as dismissed answers', async () => {
     const { tool } = makeTool({
       request: async () => {
         throw new Error2(CoreErrors.codes.INTERNAL, 'question broker error');
@@ -377,9 +319,14 @@ describe('AskUserQuestionTool', () => {
       signal,
     });
 
-    expect(result).toMatchObject({ isError: true });
-    expect(result.output).toContain('question broker error');
-    expect(result.output).not.toContain('dismissed');
+    expect(result).toMatchObject({ isError: false });
+    expect(result.output).toContain('dismissed');
+    expect(typeof result.output).toBe('string');
+    const output = typeof result.output === 'string' ? result.output : '';
+    expect(JSON.parse(output)).toEqual({
+      answers: {},
+      note: 'User dismissed the question without answering.',
+    });
     expect(result.output).not.toContain('Do NOT call this tool again');
   });
 
@@ -414,7 +361,10 @@ describe('AskUserQuestionTool', () => {
   it('returns a distinct hard error when the host signals unsupported', async () => {
     const { tool } = makeTool({
       request: async () => {
-        throw new Error2(CoreErrors.codes.NOT_IMPLEMENTED, 'Client does not support questions');
+        throw new Error2(
+          CoreErrors.codes.NOT_IMPLEMENTED,
+          'Client does not support questions',
+        );
       },
     });
 
@@ -516,49 +466,6 @@ describe('AskUserQuestionTool', () => {
       await run;
 
       expect(settlements).toEqual([{ status: 'killed' }]);
-    });
-
-    it('tracks individual question answer counts correctly', async () => {
-      const { tool, telemetryTrack } = makeTool({
-        request: async () => ({ answers: { Postgres: true } }) as QuestionResult,
-      });
-
-      const result = await executeTool(tool, {
-        turnId: 0,
-        toolCallId: 'call_no_answers',
-        args: input(),
-        signal,
-      });
-
-      expect(result.isError).toBe(false);
-      expect(telemetryTrack).toHaveBeenCalledWith('question_answered', {
-        answered: 1,
-        trace_id: undefined,
-      });
-    });
-
-    it('rejects questions with labels exceeding 100 characters', async () => {
-      const longLabel = 'a'.repeat(200);
-      expect(
-        AskUserQuestionInputSchema.safeParse(
-          input({
-            options: [
-              { label: longLabel, description: 'Very long label' },
-              { label: 'B', description: 'Normal' },
-            ],
-          }),
-        ).success,
-      ).toBe(false);
-    });
-
-    it('rejects questions with more than 10 options', async () => {
-      const manyOptions = Array.from({ length: 15 }, (_, i) => ({
-        label: `Option ${String(i)}`,
-        description: `Description ${String(i)}`,
-      }));
-      expect(AskUserQuestionInputSchema.safeParse(input({ options: manyOptions })).success).toBe(
-        false,
-      );
     });
   });
 });

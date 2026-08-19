@@ -1,7 +1,3 @@
-/**
- * `di` domain — `LinkedList` with O(1) push/removal for parked event listeners.
- */
-
 class Node<E> {
   static readonly Undefined = new Node<unknown>(undefined);
 
@@ -58,12 +54,6 @@ export class LinkedList<E> {
     const node = this._first as Node<E>;
     this._remove(node);
     return node.element;
-  }
-
-  clear(): void {
-    this._first = Node.Undefined;
-    this._last = Node.Undefined;
-    this._size = 0;
   }
 
   private _remove(node: Node<E>): void {

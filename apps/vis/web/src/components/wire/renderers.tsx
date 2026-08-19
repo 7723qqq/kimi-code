@@ -615,6 +615,18 @@ export const WIRE_RENDERERS: RendererMap = {
     headline: () => ({ main: <Dim>{t('wireRenderer.swarmExited')}</Dim> }),
   },
 
+  'tower_mode.enter': {
+    tone: 'subagent',
+    label: 'tower↻',
+    headline: () => ({ main: <Dim>{t('wireRenderer.towerEntered')}</Dim> }),
+  },
+
+  'tower_mode.exit': {
+    tone: 'subagent',
+    label: 'tower✓',
+    headline: () => ({ main: <Dim>{t('wireRenderer.towerExited')}</Dim> }),
+  },
+
   'goal.create': {
     tone: 'lifecycle',
     label: 'goal+',

@@ -1,32 +1,15 @@
-/**
- * `kosong/model` domain — the `IModelCatalog.inspect` payload and its
- * assembly.
- *
- * The inspection is a *god object* for one configured model: the raw config
- * layers (`[models.*]` record + effective record, `[providers.*]` config +
- * provider-definition facts) beside the
- * resolved runtime view — plus `sources`, a dot-path → provenance map that
- * answers "where did this value come from" (`config` / `override` /
- * `builtin` / `env` / `synthesized` / `none`).
- *
- * Everything here is on-demand: `ModelCatalog.entry` captures a
- * `ResolutionTraceCollector` while resolving (reference-only, no copies), and
- * `assembleModelInspection` builds the god object — including secret
- * redaction — only when `inspect` is called. The trace and the resolved
- * Model come from the SAME resolution pass, so the inspection can never
- * drift from what `get` served (same config generation, same cache entry).
- */
-
 import { parseKimiCodeCustomHeaders } from '@moonshot-ai/kimi-code-oauth';
 
 import { BugIndicatingError } from '#/_base/errors/errors';
+
 import type { ModelCapability } from '#/kosong/contract/capability';
 import type { InspectionSource, ResolutionTrace } from '#/kosong/contract/inspection';
 import type { Protocol, ProtocolProviderOptions } from '#/kosong/protocol/protocol';
 
-import type { AnthropicModelProfile } from '@moonshot-ai/kosong/providers/anthropic-profile';
+import type { AnthropicModelProfile } from '../provider/bases/anthropic/anthropic-profile';
 import type { ProviderConfig } from '../provider/provider';
 import { getProviderDefinition } from '../provider/providerDefinition';
+
 import type { ModelRecord } from './model';
 import type { ResolvedModelAuthMaterial } from './model.types';
 
@@ -128,10 +111,7 @@ export function redactSecrets<T>(value: T): T {
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value)) {
-      out[key] =
-        typeof item === 'string' && SECRET_KEY_RE.test(key)
-          ? maskSecret(item)
-          : redactSecrets(item);
+      out[key] = typeof item === 'string' && SECRET_KEY_RE.test(key) ? maskSecret(item) : redactSecrets(item);
     }
     return out as T;
   }
@@ -211,10 +191,7 @@ export function attributeProviderOptions(
   for (const key of Object.keys(options)) {
     const path = `resolved.providerOptions.${key}`;
     if (key === 'vertexai') {
-      trace.record(path, {
-        kind: 'env',
-        detail: 'provider env bag supplies both vertex coordinates',
-      });
+      trace.record(path, { kind: 'env', detail: 'provider env bag supplies both vertex coordinates' });
       continue;
     }
     if (key === 'project') {
@@ -313,10 +290,7 @@ export function assembleModelInspection(args: {
   const wireNameField = effective.name !== undefined ? 'name' : 'model';
   sources.set(
     'resolved.wireName',
-    sources.get(`model.effective.${wireNameField}`) ?? {
-      kind: 'config',
-      detail: '[models.*] section',
-    },
+    sources.get(`model.effective.${wireNameField}`) ?? { kind: 'config', detail: '[models.*] section' },
   );
   sources.set('resolved.alwaysThinking', {
     kind: 'synthesized',
@@ -419,7 +393,7 @@ export function assembleModelInspection(args: {
       supportEfforts: model.supportEfforts,
       defaultEffort: model.defaultEffort,
       alwaysThinking: model.alwaysThinking,
-      headers: redactSecrets(model.headers),
+      headers: model.headers,
       providerOptions: model.providerOptions,
     },
     sources: Object.fromEntries(sources),
@@ -497,7 +471,7 @@ function attributeHeaders(
     getProviderDefinition(providerConfig.type)?.hostHeaders === 'full';
   const hostLayer: Readonly<Record<string, string>> = forwardsAll
     ? rawHost
-    : (trace.captured<Readonly<Record<string, string>>>(TRACE.thirdPartyHeaders) ?? {});
+    : trace.captured<Readonly<Record<string, string>>>(TRACE.thirdPartyHeaders) ?? {};
   const customLayer = providerConfig?.customHeaders ?? {};
   for (const key of Object.keys(model.headers)) {
     const path = `resolved.headers.${key}`;

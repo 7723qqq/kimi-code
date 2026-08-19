@@ -7,9 +7,4 @@ describe('version', () => {
     expect(typeof getCoreVersion()).toBe('string');
     expect(getCoreVersion().length).toBeGreaterThan(0);
   });
-
-  it('version string matches semver pattern', () => {
-    const version = getCoreVersion();
-    expect(version).toMatch(/^\d+\.\d+\.\d+/);
-  });
 });

@@ -1,18 +1,9 @@
-/**
- * `cron` domain — `ISessionCronService` contract.
- *
- * Session-level scheduling engine for cron tasks. Owns the live task set
- * (filtered from `ICronTaskPersistence` by `sessionId` tag), the polling timer,
- * and the fire/coalesce/jitter logic. On fire, borrows the main agent's
- * `IAgentPromptService` via `IAgentLifecycleService` handle to steer a new
- * turn. Bound at Session scope.
- */
+import type { ContentPart } from '#/kosong/contract/message';
 
 import { createDecorator } from '#/_base/di/instantiation';
 import type { Turn } from '#/agent/loop/loop';
-import type { ParsedCronExpression } from '#/app/cron/cron-expr';
 import type { CronTask, CronTaskInit } from '#/app/cron/cronTask';
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ParsedCronExpression } from '#/app/cron/cron-expr';
 
 export interface CronLoadOptions {
   readonly replace?: boolean;

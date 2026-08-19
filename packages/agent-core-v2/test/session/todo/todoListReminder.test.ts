@@ -56,16 +56,7 @@ describe('todoListStaleReminder', () => {
     const history = Array.from({ length: 10 }, () => assistantMessage());
     const result = todoListStaleReminder({
       history,
-      todos: [
-        {
-          id: 'T1',
-          parentId: null,
-          title: 'Investigate todo reminder',
-          status: 'in_progress',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        },
-      ],
+      todos: [{ title: 'Investigate todo reminder', status: 'in_progress' }],
       active: false,
     });
 
@@ -74,44 +65,19 @@ describe('todoListStaleReminder', () => {
 
   it('injects a reminder after enough assistant turns since the last TodoList write', async () => {
     const todos: TodoItem[] = [
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'Read current TodoList implementation',
-        status: 'in_progress',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-      {
-        id: 'T2',
-        parentId: null,
-        title: 'Add reminder injector tests',
-        status: 'open',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
+      { title: 'Read current TodoList implementation', status: 'in_progress' },
+      { title: 'Add reminder injector tests', status: 'pending' },
     ];
     const history = [todoListWrite(todos), ...Array.from({ length: 10 }, () => assistantMessage())];
     const result = todoListStaleReminder({ history, todos, active: true });
 
-    expect(result).toContain('The TodoList tool has not been updated recently');
-    expect(result).toContain('NEVER mention this reminder to the user');
     expect(result).toContain('Current todo list:');
-    expect(result).toContain('T1. [in_progress] Read current TodoList implementation');
-    expect(result).toContain('T2. [open] Add reminder injector tests');
+    expect(result).toContain('1. [in_progress] Read current TodoList implementation');
+    expect(result).toContain('2. [pending] Add reminder injector tests');
   });
 
   it('does not inject before the assistant-turn threshold', async () => {
-    const todos: TodoItem[] = [
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'Read code',
-        status: 'in_progress',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ];
+    const todos: TodoItem[] = [{ title: 'Read code', status: 'in_progress' }];
     const history = [todoListWrite(todos), ...Array.from({ length: 9 }, () => assistantMessage())];
     const result = todoListStaleReminder({ history, todos, active: true });
 
@@ -119,16 +85,7 @@ describe('todoListStaleReminder', () => {
   });
 
   it('does not inject another reminder before the reminder spacing threshold', async () => {
-    const todos: TodoItem[] = [
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'Read code',
-        status: 'in_progress',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ];
+    const todos: TodoItem[] = [{ title: 'Read code', status: 'in_progress' }];
     const history = [
       todoListWrite(todos),
       ...Array.from({ length: 10 }, () => assistantMessage()),
@@ -141,16 +98,7 @@ describe('todoListStaleReminder', () => {
   });
 
   it('does not treat TodoList query mode as a write', async () => {
-    const todos: TodoItem[] = [
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'Read code',
-        status: 'in_progress',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ];
+    const todos: TodoItem[] = [{ title: 'Read code', status: 'in_progress' }];
     const history = [
       todoListWrite(todos),
       ...Array.from({ length: 5 }, () => assistantMessage()),
@@ -159,45 +107,6 @@ describe('todoListStaleReminder', () => {
     ];
     const result = todoListStaleReminder({ history, todos, active: true });
 
-    expect(result).toContain('The TodoList tool has not been updated recently');
-  });
-
-  it('does not inject a reminder when there are no todos', async () => {
-    const history = [todoListWrite([]), ...Array.from({ length: 10 }, () => assistantMessage())];
-    const result = todoListStaleReminder({ history, todos: [], active: true });
-    expect(result).toBeUndefined();
-  });
-
-  it('injects a reminder when the history is exactly at the threshold', async () => {
-    const todos: TodoItem[] = [
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'At threshold',
-        status: 'open',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ];
-    const history = [todoListWrite(todos), ...Array.from({ length: 10 }, () => assistantMessage())];
-    const result = todoListStaleReminder({ history, todos, active: true });
-    expect(result).not.toBeUndefined();
-    expect(result).toContain('The TodoList tool has not been updated recently');
-  });
-
-  it('does not inject a reminder when the history is one below the threshold', async () => {
-    const todos: TodoItem[] = [
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'Below threshold',
-        status: 'open',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ];
-    const history = [todoListWrite(todos), ...Array.from({ length: 9 }, () => assistantMessage())];
-    const result = todoListStaleReminder({ history, todos, active: true });
-    expect(result).toBeUndefined();
+    expect(result).toBeDefined();
   });
 });

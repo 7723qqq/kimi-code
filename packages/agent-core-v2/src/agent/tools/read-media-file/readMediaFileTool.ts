@@ -1,63 +1,25 @@
-/**
- * `tools` domain — `ReadMediaFileTool` implementation.
- *
- * Reads image/video files as multi-modal content.
- *
- * Returns a 3-part wrap as `output`:
- * `[TextPart('<image|video path="…">'), ImageContent|VideoContent,
- *   TextPart('</image|video>')]`
- * plus a `note` side channel (rendered to the model, never to UIs), and
- * adapts its description and per-call behavior to the model's
- * `image_in` / `video_in` capability.
- *
- * The note — this tool wraps it in a `<system>` block as its own wording
- * choice — summarizes mime type, byte size and (for images) original pixel
- * dimensions, states exactly how the image was delivered (untouched,
- * downsampled, cropped, or native resolution) so compression is never
- * silent, guides the model to derive absolute coordinates from the original
- * size, and reminds it to re-read any media it generates or edits.
- *
- * Images support two opt-in delivery controls: `region` cuts a rectangle
- * (original-image pixel coordinates) out of the file so fine detail survives
- * at full fidelity, and `full_resolution` skips the default downscale when
- * the payload fits the per-image byte budget (refusing explicitly when it
- * does not, instead of silently degrading). Explicit region/native reads
- * refuse before loading a source that exceeds the safe decode allocation.
- * Default image reads also fail closed when compression cannot meet the
- * configured byte and longest-edge delivery budgets: the original bytes are
- * not emitted, and the tool result tells the model to create and re-read a
- * smaller copy.
- *
- * Path safety: goes through the shared path access resolver used by
- * Read/Write/Edit.
- *
- * Videos are delivered through the provider's upload channel when one is
- * bound, falling back to an inline base64 part when the channel exists but
- * fails at runtime (no files endpoint, network/server failure) — a failed
- * upload must not turn the whole read into an error. The same fallback
- * covers providers with no upload hook at all, as long as their protocol
- * converts `video_url` (`inlineVideoSupported`, computed from the model's
- * protocol at registration); when the wire would drop the inline payload
- * anyway (the OpenAI family), the by-design no-hook error
- * (`VideoUploadUnsupportedError`) surfaces instead. Auth rejections
- * (`provider.auth_error` / 401 / 403) always surface, because they drive
- * credential refresh rather than mask a bad token.
- *
- * Registration is capability-gated: this tool is
- * only registered when the active model supports image or video input.
- *
- * This tool is a deliberate exception to the `registerAgentToolService` contribution
- * table: its constructor depends on runtime model capabilities (capability
- * profile, video uploader, protocol flags), so it cannot be a static
- * Agent-scope Service and is instead instantiated
- * whenever the bound model changes. It still satisfies the `AgentTool`
- * contract.
- */
+import type { ModelCapability } from '#/kosong/contract/capability';
+import type { ContentPart } from '#/kosong/contract/message';
+import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
+import { inlineVideoPart, isVideoUploadAuthError } from '#/agent/media/videoUpload';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
 
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import { renderPrompt } from '#/_base/utils/render-prompt';
-import { MEDIA_SNIFF_BYTES, detectFileType, sniffImageDimensions } from '#/agent/media/file-type';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
+import { inspectAgentRuntime, type IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import {
+  ToolAccesses,
+  type AgentTool,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
+import {
+  MEDIA_SNIFF_BYTES,
+  detectFileType,
+  sniffImageDimensions,
+} from '#/agent/media/file-type';
 import {
   IMAGE_BYTE_BUDGET,
   MAX_IMAGE_DECODE_BYTES,
@@ -73,23 +35,9 @@ import {
   buildImageConversionGuidance,
   isModelAcceptedImageMime,
 } from '#/agent/media/image-format-policy';
-import { inlineVideoPart, isVideoUploadAuthError } from '#/agent/media/videoUpload';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ModelCapability } from '#/kosong/contract/capability';
-import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
-import type { ContentPart } from '#/kosong/contract/message';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
-import {
-  ToolAccesses,
-  type AgentTool,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-
+import { renderPrompt } from '#/_base/utils/render-prompt';
 import {
   MAX_MEDIA_BYTES,
   MAX_MEDIA_MEGABYTES,
@@ -232,8 +180,7 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
   private readonly compressTelemetry: ImageCompressionTelemetry | undefined;
   private readonly inlineVideoSupported: boolean;
   constructor(
-    private readonly fs: IHostFileSystem,
-    private readonly env: IHostEnvironment,
+    private readonly runtime: IAgentRuntimeService,
     private readonly workspace: WorkspaceConfig,
     private readonly capabilities: ModelCapability,
     private readonly videoUploader?: VideoUploader,
@@ -267,11 +214,18 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
 
   resolveExecution(args: ReadMediaFileInput): ToolExecution {
     if (!args.path) {
-      return { isError: true, output: t('toolsV2.readMedia.pathEmpty') };
+      return { isError: true, output: 'File path cannot be empty.' };
     }
+    const inspected = inspectAgentRuntime(this.runtime);
+    const env = inspected.environment;
+    const view = new RuntimeWorkspaceView(inspected, {
+      workDir: this.workspace.workspaceDir,
+      additionalDirs: this.workspace.additionalDirs,
+    });
+    const workspace = { workspaceDir: view.workDir, additionalDirs: view.additionalDirs };
     const path = resolvePathAccessPath(args.path, {
-      env: this.env,
-      workspace: this.workspace,
+      env,
+      workspace,
       operation: 'read',
     });
     return {
@@ -282,23 +236,35 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
       matchesRule: (ruleArgs) =>
         matchesPathRuleSubject(ruleArgs, path, {
           cwd: this.workspace.workspaceDir,
-          pathClass: this.env.pathClass,
-          homeDir: this.env.homeDir,
+          pathClass: env.pathClass,
+          homeDir: env.homeDir,
         }),
-      execute: () => this.execution(args, path),
+      execute: async () => {
+        const lease = this.runtime.acquire(['fs']);
+        try {
+          if (lease.runtime.identity.generation !== inspected.identity.generation) {
+            return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
+          }
+          return await this.execution(args, path, lease.runtime.fs!, env);
+        } finally {
+          lease.dispose();
+        }
+      },
     };
   }
 
   private async execution(
     args: ReadMediaFileInput,
     safePath: string,
+    fs: IHostFileSystem,
+    env: HostEnvironmentInfo,
   ): Promise<ExecutableToolResult> {
     if (!args.path) {
-      return { isError: true, output: t('toolsV2.readMedia.pathEmpty') };
+      return { isError: true, output: 'File path cannot be empty.' };
     }
 
     try {
-      const header = await this.fs.readBytes(safePath, MEDIA_SNIFF_BYTES);
+      const header = await fs.readBytes(safePath, MEDIA_SNIFF_BYTES);
       const fileType = detectFileType(safePath, header, 'media');
 
       if (fileType.kind === 'text') {
@@ -327,7 +293,7 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
       if (fileType.kind === 'image' && !isModelAcceptedImageMime(fileType.mimeType)) {
         return {
           isError: true,
-          output: buildImageConversionGuidance(args.path, fileType.mimeType, this.env.osKind),
+          output: buildImageConversionGuidance(args.path, fileType.mimeType, env.osKind),
         };
       }
       if (fileType.kind === 'video' && !this.capabilities.video_in) {
@@ -339,7 +305,7 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
         };
       }
 
-      const stat = await this.fs.stat(safePath);
+      const stat = await fs.stat(safePath);
       if (stat.size === 0) {
         return { isError: true, output: `"${args.path}" is empty.` };
       }
@@ -352,10 +318,7 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
         };
       }
 
-      if (
-        fileType.kind === 'video' &&
-        (args.region !== undefined || args.full_resolution === true)
-      ) {
+      if (fileType.kind === 'video' && (args.region !== undefined || args.full_resolution === true)) {
         return {
           isError: true,
           output: 'region and full_resolution apply only to image files.',
@@ -405,7 +368,7 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
         };
       }
 
-      const data = Buffer.from(await this.fs.readBytes(safePath));
+      const data = Buffer.from(await fs.readBytes(safePath));
       let dimensions = fileType.kind === 'image' ? sniffImageDimensions(data) : null;
       let mediaPart: ContentPart;
       let delivery: ImageDelivery | undefined;
@@ -416,13 +379,7 @@ export class ReadMediaFileTool implements AgentTool<ReadMediaFileInput> {
             telemetry: this.compressTelemetry,
           });
           if (!outcome.ok) {
-            return {
-              isError: true,
-              output: t('toolsV2.readMedia.cannotReadRegion', {
-                path: args.path,
-                error: outcome.error,
-              }),
-            };
+            return { isError: true, output: `Cannot read region from "${args.path}": ${outcome.error}` };
           }
           const base64 = Buffer.from(outcome.data).toString('base64');
           mediaPart = {

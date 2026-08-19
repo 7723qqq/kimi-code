@@ -1,36 +1,16 @@
-/**
- * Scenario (v1 `tool-select.e2e.test.ts` headline parity): progressive tool
- * disclosure converges the provider-visible table for MCP and opted-in user
- * tools, keeps it byte-stable across loads, makes a loaded tool dispatchable
- * the next step, and self-heals the loaded-ledger across undo.
- *
- * Responsibilities: assert v1 contract at the provider wire, not via service
- * internals: the manifest announcement reaches the model, `select_tools`
- * loads a schema into the next request, the top-level table never changes
- * across loads, the record carries the disclosure gate (v1 recorder parity,
- * F2), and a tail-slicing undo re-enables re-injection (F1). Wiring:
- * testAgent harness with scripted provider, real toolSelect / executor /
- * projector / announcer services; harness builds the Agent scope without
- * `AgentLifecycleService.create`, so the eager-instantiation production
- * would do (agentLifecycleService create) is forced here the same way.
- * The flag env is stubbed before `createTestAgent` snapshots it into
- * bootstrap, and module imports register the flag / tool contributions the
- * way `src/index.ts` does in production.
- * Run: ../../node_modules/.bin/vitest run test/toolSelect/toolSelect.e2e.test.ts
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentConversationUndoService } from '#/agent/undo/undo';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import type { ExecutableTool, ToolExecution } from '#/tool/toolContract';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentToolSelectAnnouncementsService } from '#/agent/toolSelect/toolSelectAnnouncements';
 import { IAgentToolSelectSchemasService } from '#/agent/toolSelect/toolSelectSchemas';
-import { IAgentConversationUndoService } from '#/agent/undo/undo';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
-import type { ExecutableTool, ToolExecution } from '#/tool/toolContract';
 import '#/agent/tools/select-tools/selectToolsTool';
 
 import { createTestAgent, type TestAgentContext } from '../../harness';
@@ -48,7 +28,10 @@ const DISCLOSURE_CAPABILITIES = {
   dynamically_loaded_tools: true,
 } as const;
 
-type WireEvent = Extract<TestAgentContext['allEvents'][number], { readonly type: '[wire]' }>;
+type WireEvent = Extract<
+  TestAgentContext['allEvents'][number],
+  { readonly type: '[wire]' }
+>;
 
 class StubMcpTool implements ExecutableTool<Record<string, unknown>> {
   readonly description: string;
@@ -160,8 +143,8 @@ describe('progressive tool disclosure end-to-end', () => {
     }
 
     const secondWire = ctx.llmCalls[1]!;
-    const schemaMessages = secondWire.history.filter((message) =>
-      message.tools?.some((tool) => tool.name === MCP_ALPHA),
+    const schemaMessages = secondWire.history.filter(
+      (message) => message.tools?.some((tool) => tool.name === MCP_ALPHA),
     );
     expect(schemaMessages).toHaveLength(1);
 
@@ -217,7 +200,9 @@ describe('progressive tool disclosure end-to-end', () => {
     expect(historyText(ctx.get(IAgentContextMemoryService).get())).toContain(
       `Loaded: ${DASHBOARD_TOOL}`,
     );
-    expect(historyText(ctx.get(IAgentContextMemoryService).get())).toContain('dashboard-created');
+    expect(historyText(ctx.get(IAgentContextMemoryService).get())).toContain(
+      'dashboard-created',
+    );
   });
 
   it('re-injects a selected schema after undo slices the tail of the loaded exchange', async () => {
@@ -235,9 +220,9 @@ describe('progressive tool disclosure end-to-end', () => {
 
     await ctx.get(IAgentConversationUndoService).undo(1);
     const afterUndo = ctx.get(IAgentContextMemoryService).get();
-    expect(
-      afterUndo.some((message) => message.tools?.some((tool) => tool.name === MCP_ALPHA)),
-    ).toBe(false);
+    expect(afterUndo.some((message) => message.tools?.some((tool) => tool.name === MCP_ALPHA))).toBe(
+      false,
+    );
 
     ctx.mockNextResponse(selectToolsCall('call_select_2', [MCP_ALPHA]));
     ctx.mockNextResponse({ type: 'text', text: 'reloaded' });

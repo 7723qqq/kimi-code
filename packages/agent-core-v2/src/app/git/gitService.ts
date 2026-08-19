@@ -1,22 +1,10 @@
-/**
- * `git` domain — `IGitService` implementation.
- *
- * Runs `git status` / `git diff` (and `gh pr view`) against a repository on
- * the local disk, and discovers the enclosing git work tree of a directory
- * (`findWorkTree`). Process spawning goes through the App-scope
- * `IHostProcessService`, and the single path-existence probe in `diff` goes
- * through `IHostFileSystem`; no Node platform API is imported directly. Bound
- * at App scope — it owns no Session dependency, so the caller supplies an
- * absolute `cwd` and already-confined repo-relative paths.
- */
-
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import type { FsDiffResponse, FsGitStatusResponse, FsPullRequest } from './git';
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IHostProcessService } from '#/os/interface/hostProcess';
+import { IRuntimeResolver, IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
-import type { FsDiffResponse, FsGitStatusResponse, FsPullRequest } from './git';
 import { IGitService } from './git';
 import { parseNumstat, parsePorcelain, parsePullRequest } from './gitParsers';
 import { findGitWorkTree, type GitWorkTree } from './workTree';
@@ -35,17 +23,15 @@ export class GitService implements IGitService {
   >();
 
   constructor(
-    @IHostProcessService private readonly hostProcess: IHostProcessService,
+    @IRuntimeResolver private readonly resolver: IRuntimeResolver,
+    @IWorkspaceInstanceManager private readonly workspaces: IWorkspaceInstanceManager,
     @IHostFileSystem private readonly fs: IHostFileSystem,
   ) {}
 
   async status(cwd: string, pathFilter?: ReadonlySet<string>): Promise<FsGitStatusResponse> {
     const inside = await this.runCommand('git', ['rev-parse', '--is-inside-work-tree'], cwd);
     if (inside.exitCode !== 0 || inside.stdout.trim() !== 'true') {
-      throw this.gitUnavailable(
-        cwd,
-        inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`,
-      );
+      throw this.gitUnavailable(cwd, inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`);
     }
 
     const porc = await this.runCommand('git', ['status', '--porcelain=v1', '--branch'], cwd);
@@ -61,11 +47,7 @@ export class GitService implements IGitService {
     if (dirty) {
       const head = await this.runCommand('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], cwd);
       if (head.exitCode === 0) {
-        const numstat = await this.runCommand(
-          'git',
-          ['diff', '--no-color', '--numstat', 'HEAD', '--'],
-          cwd,
-        );
+        const numstat = await this.runCommand('git', ['diff', '--no-color', '--numstat', 'HEAD', '--'], cwd);
         if (numstat.exitCode === 0) {
           const stats = parseNumstat(numstat.stdout);
           result.additions = stats.additions;
@@ -81,22 +63,12 @@ export class GitService implements IGitService {
   async diff(cwd: string, relPath: string, absPath: string): Promise<FsDiffResponse> {
     const inside = await this.runCommand('git', ['rev-parse', '--is-inside-work-tree'], cwd);
     if (inside.exitCode !== 0 || inside.stdout.trim() !== 'true') {
-      throw this.gitUnavailable(
-        cwd,
-        inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`,
-      );
+      throw this.gitUnavailable(cwd, inside.stderr.trim() || `git rev-parse exit ${inside.exitCode}`);
     }
 
-    const statusRes = await this.runCommand(
-      'git',
-      ['status', '--porcelain=v1', '--', relPath],
-      cwd,
-    );
+    const statusRes = await this.runCommand('git', ['status', '--porcelain=v1', '--', relPath], cwd);
     if (statusRes.exitCode !== 0) {
-      throw this.gitUnavailable(
-        cwd,
-        statusRes.stderr.trim() || `git status exit ${statusRes.exitCode}`,
-      );
+      throw this.gitUnavailable(cwd, statusRes.stderr.trim() || `git status exit ${statusRes.exitCode}`);
     }
     const untracked = statusRes.stdout.startsWith('??');
 
@@ -152,10 +124,15 @@ export class GitService implements IGitService {
       return cached.value;
     }
 
-    const res = await this.runCommand('gh', ['pr', 'view', '--json', 'number,url,state'], cwd, {
-      env: { GH_NO_UPDATE_NOTIFIER: '1', GH_PROMPT_DISABLED: '1' },
-      timeoutMs: PR_SPAWN_TIMEOUT_MS,
-    });
+    const res = await this.runCommand(
+      'gh',
+      ['pr', 'view', '--json', 'number,url,state'],
+      cwd,
+      {
+        env: { GH_NO_UPDATE_NOTIFIER: '1', GH_PROMPT_DISABLED: '1' },
+        timeoutMs: PR_SPAWN_TIMEOUT_MS,
+      },
+    );
     const value = res.exitCode === 0 ? parsePullRequest(res.stdout) : null;
     this.pullRequestCache.set(cwd, { value, fetchedAt: now });
     return value;
@@ -167,10 +144,14 @@ export class GitService implements IGitService {
     cwd: string,
     options: RunOptions = {},
   ): Promise<RunResult> {
-    const spawned = await this.hostProcess.spawn(cmd, args, { cwd, env: options.env }).then(
-      (proc) => ({ ok: true as const, proc }),
-      () => ({ ok: false as const }),
-    );
+    const workspaceId = this.resolveWorkspaceId(cwd);
+    const lease = this.resolver.acquire({ workspaceId, runtimeId: 'local' }, ['process']);
+    const spawned = await lease.runtime.process!
+      .spawn(cmd, args, { cwd, env: options.env })
+      .then(
+        (proc) => ({ ok: true as const, proc }),
+        () => ({ ok: false as const }),
+      );
     if (!spawned.ok) {
       return { exitCode: -1, stdout: '', stderr: '' };
     }
@@ -194,12 +175,10 @@ export class GitService implements IGitService {
         timer.unref?.();
       });
       const result = await Promise.race([
-        work.then(([stdout, stderr, exitCode]) => ({
-          kind: 'done' as const,
-          stdout,
-          stderr,
-          exitCode,
-        })),
+        work.then(
+          ([stdout, stderr, exitCode]) =>
+            ({ kind: 'done' as const, stdout, stderr, exitCode }),
+        ),
         timeout.then((kind) => ({ kind })),
       ]);
       if (result.kind === 'done') {
@@ -212,8 +191,17 @@ export class GitService implements IGitService {
       return { exitCode: -1, stdout, stderr };
     } finally {
       if (timer !== undefined) clearTimeout(timer);
-      proc.dispose();
+      void proc.dispose();
+      lease.dispose();
     }
+  }
+
+  private resolveWorkspaceId(cwd: string): string {
+    const workspace = this.workspaces.findByRoot(cwd);
+    if (workspace === undefined) {
+      throw new Error(`workspace for root ${cwd} is not materialized`);
+    }
+    return workspace.id;
   }
 
   private gitUnavailable(cwd: string, detail: string): Error2 {
@@ -244,10 +232,4 @@ async function collect(stream: AsyncIterable<Uint8Array | string>): Promise<stri
   return out;
 }
 
-registerScopedService(
-  LifecycleScope.App,
-  IGitService,
-  GitService,
-  ScopeActivation.OnScopeCreated,
-  'git',
-);
+registerScopedService(LifecycleScope.App, IGitService, GitService, ScopeActivation.OnScopeCreated, 'git');

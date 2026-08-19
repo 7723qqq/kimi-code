@@ -71,10 +71,9 @@ describe('fsBrowseResponseSchema', () => {
 
 describe('fsHomeResponseSchema', () => {
   it('round-trips an empty recent_roots list', () => {
-    expect(fsHomeResponseSchema.parse({ home: '/Users/foo', recent_roots: [] })).toEqual({
-      home: '/Users/foo',
-      recent_roots: [],
-    });
+    expect(
+      fsHomeResponseSchema.parse({ home: '/Users/foo', recent_roots: [] }),
+    ).toEqual({ home: '/Users/foo', recent_roots: [] });
   });
 
   it('round-trips a populated recent_roots list', () => {

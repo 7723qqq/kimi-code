@@ -1,17 +1,4 @@
-/**
- * `hostEnvironment` domain — `IHostEnvironment` implementation.
- *
- * Kicks off the OS / shell probe (`probeHostEnvironmentFromNode`) and the
- * login-shell PATH enrichment (`applyLoginShellPathFromNode`) at construction
- * time; the sync fields become populated once `ready` resolves. Reads before
- * `ready` throws with a clear message so misuse fails loudly instead of
- * returning stale zeros. A failed probe is translated at this boundary — when
- * no supported Windows shell can be located it becomes `HostProcessError`
- * (`shell.git_bash_not_found`) — and surfaces identically from `ready` and
- * from sync field reads, while an internal no-op handler keeps the rejection
- * from ever becoming an unhandledRejection during App-scope construction.
- * Bound at App scope.
- */
+import { LifecycleScope } from '#/app/scopes';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { BugIndicatingError } from '#/_base/errors/errors';
@@ -20,9 +7,7 @@ import {
   ProbeShellNotFoundError,
 } from '#/_base/execEnv/environmentProbe';
 import { applyLoginShellPathFromNode } from '#/_base/execEnv/loginShellPath';
-import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
-import { SHELL_SECTION, type ShellConfig } from '#/os/configSection';
+
 import {
   type HostEnvironmentInfo,
   IHostEnvironment,
@@ -39,13 +24,11 @@ export class HostEnvironmentService implements IHostEnvironment {
   private _probeError?: Error;
   readonly ready: Promise<void>;
 
-  constructor(@IConfigService private readonly config: IConfigService) {
+  constructor() {
     this.ready = Promise.all([
-      this.config.ready
-        .then(() => probeHostEnvironmentFromNode(this.shellPreference()))
-        .then((info) => {
-          this._info = info;
-        }),
+      probeHostEnvironmentFromNode().then((info) => {
+        this._info = info;
+      }),
       applyLoginShellPathFromNode(),
     ])
       .then(() => {})
@@ -55,16 +38,6 @@ export class HostEnvironmentService implements IHostEnvironment {
         throw translated;
       });
     this.ready.catch(() => {});
-  }
-
-  private shellPreference(): string | undefined {
-    try {
-      const section = this.config.get<ShellConfig | undefined>(SHELL_SECTION);
-      return section?.preference;
-    } catch {
-      // Config may not be loaded yet; the probe falls back to `auto`.
-      return undefined;
-    }
   }
 
   private require(field: keyof HostEnvironmentInfo): never | HostEnvironmentInfo[typeof field] {
@@ -81,10 +54,11 @@ export class HostEnvironmentService implements IHostEnvironment {
 
   private toHostProcessError(error: unknown): Error {
     if (error instanceof ProbeShellNotFoundError) {
-      return new HostProcessError(OsProcessErrors.codes.SHELL_GIT_BASH_NOT_FOUND, error.message, {
-        details: { checkedPaths: error.checked },
-        cause: error,
-      });
+      return new HostProcessError(
+        OsProcessErrors.codes.SHELL_GIT_BASH_NOT_FOUND,
+        error.message,
+        { details: { checkedPaths: error.checked }, cause: error },
+      );
     }
     return error instanceof Error ? error : new Error(String(error));
   }

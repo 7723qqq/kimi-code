@@ -1,27 +1,12 @@
-/**
- * `kosong/provider` domain — side-effect module: registers the OpenAI
- * Responses base (`id: 'openai_responses'`).
- *
- * The factory aggregates the endpoint, applies `provides` under explicit
- * config, composes headers — and passes `apiKey ?? ''` to suppress the
- * base's `OPENAI_API_KEY` environment fallback once a trait declared an
- * endpoint.
- */
-
 import { registerProtocolBase } from '#/kosong/protocol/protocolBase';
 import { traitConvertError, traitDefaultHeaders } from '#/kosong/protocol/protocolTrait';
-import { isUnknownCapability } from '@moonshot-ai/kosong/capability';
-import { getOpenAIResponsesModelCapability } from '@moonshot-ai/kosong/providers/capability-registry';
 
-import { OpenAIResponsesChatProvider } from './openai-responses';
+import { getOpenAIResponsesModelCapability, OpenAIResponsesChatProvider } from './openai-responses';
 import { compactObject, firstProcessEnv, traitEndpoint, traitProvides } from './openaiHooks';
 
 registerProtocolBase({
   id: 'openai_responses',
-  capability: (modelName) => {
-    const capability = getOpenAIResponsesModelCapability(modelName);
-    return isUnknownCapability(capability) ? undefined : capability;
-  },
+  capability: getOpenAIResponsesModelCapability,
   createChatProvider({ config, traits }) {
     const endpoint = traitEndpoint(traits);
     return new OpenAIResponsesChatProvider({

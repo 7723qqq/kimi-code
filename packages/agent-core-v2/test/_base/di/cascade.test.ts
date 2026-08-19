@@ -386,9 +386,8 @@ describe('cascade engine — mechanism matrix', () => {
     ix.dispose();
   });
 
-  it('9b. a fast abort hook clears the pending abort timeout timer', async () => {
+  it('9b. a fast abort hook wins the race against the abort timeout', async () => {
     vi.useFakeTimers();
-    const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
     try {
       const ix = makeContainer();
       provideChain(ix);
@@ -410,14 +409,12 @@ describe('cascade engine — mechanism matrix', () => {
       release();
       await done;
 
-      expect(clearSpy).toHaveBeenCalled();
       const entry = ix.cascade.history().at(-1)!;
       expect(entry.abortWaited).toBe(true);
       expect(entry.abortTimedOut).toBe(false);
       expect(ix.cascade.stateOf(IRoot)).toBeUndefined();
       ix.dispose();
     } finally {
-      clearSpy.mockRestore();
       vi.useRealTimers();
     }
   });

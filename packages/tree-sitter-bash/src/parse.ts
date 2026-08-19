@@ -39,15 +39,8 @@ export function parse(source: string, options: ParseOptions = {}): ParseResult {
     if (error instanceof Aborted) return { ok: false, reason: 'aborted' };
     // Last-resort guard for parser bugs: degrade to an ERROR root instead of
     // throwing into the caller (see the file header for why).
-    const root = new SyntaxNodeBuilder({
-      type: 'program',
-      source,
-      startIndex: 0,
-      endIndex: source.length,
-    });
-    root.addChild(
-      new SyntaxNodeBuilder({ type: 'ERROR', source, startIndex: 0, endIndex: source.length }),
-    );
+    const root = new SyntaxNodeBuilder({ type: 'program', source, startIndex: 0, endIndex: source.length });
+    root.addChild(new SyntaxNodeBuilder({ type: 'ERROR', source, startIndex: 0, endIndex: source.length }));
     return { ok: true, rootNode: root, hasError: true };
   }
 }

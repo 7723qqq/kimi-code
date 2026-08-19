@@ -1,26 +1,3 @@
-/**
- * `_base` text helpers — UTF text encoding detection and decoding.
- *
- * Detection algorithm derived from VS Code
- * `src/vs/workbench/services/textfile/common/encoding.ts`
- * (MIT License, Copyright (c) Microsoft Corporation): BOM sniffing plus a
- * zero-byte parity heuristic that recognizes BOM-less UTF-16 LE/BE, so text
- * files saved as UTF-16 (e.g. Windows Notepad `.txt`) can be transcoded to
- * UTF-8 instead of being refused as binary.
- *
- * The parity heuristic deliberately deviates from VS Code in one way: VS
- * Code requires *every* byte pair to conform (a single CJK character, whose
- * UTF-16 unit carries no zero byte, falsifies the pattern and the file is
- * deemed binary). Here, zero bytes must instead appear at least twice and at
- * exactly one parity — odd indices mean UTF-16 LE (`0xAA 0x00`), even
- * indices mean UTF-16 BE (`0x00 0xAA`) — which tolerates mixed Latin/CJK
- * content while still rejecting real binaries (zeros at both parities, or
- * an isolated zero byte). Legacy 8-bit encodings (GBK, Big5, Shift-JIS, …)
- * are never guessed — a wrong silent guess is worse than a clear refusal.
- *
- * Pure functions over bytes; no io happens here.
- */
-
 export type UtfTextEncoding = 'utf-8' | 'utf-16le' | 'utf-16be';
 
 export interface TextClassification {
@@ -46,12 +23,6 @@ export interface TextEncodingDetection {
 /** Number of leading bytes inspected for the zero-byte heuristic. */
 export const ENCODING_DETECTION_SAMPLE_BYTES = 512;
 
-/**
- * Minimum zero bytes (at a single parity) before the BOM-less UTF-16
- * heuristic commits. One isolated zero byte is too ambiguous — a short
- * binary blob like `"plain prefix" + 00 01` would otherwise masquerade as
- * UTF-16 BE.
- */
 const MIN_ZERO_BYTES_FOR_UTF16 = 2;
 
 const UTF16BE_BOM = [0xfe, 0xff] as const;
@@ -59,7 +30,6 @@ const UTF16LE_BOM = [0xff, 0xfe] as const;
 const UTF8_BOM = [0xef, 0xbb, 0xbf] as const;
 
 function sniffTextEncoding(sample: Uint8Array): TextEncodingDetection {
-  // Always trust a BOM first.
   if (sample.length >= 2) {
     const b0 = sample[0]!;
     const b1 = sample[1]!;
@@ -74,10 +44,6 @@ function sniffTextEncoding(sample: Uint8Array): TextEncodingDetection {
     }
   }
 
-  // BOM-less UTF-16: zero bytes cluster at one parity — odd indices for LE
-  // (`0xAA 0x00`), even for BE (`0x00 0xAA`). CJK units carry no zero byte,
-  // so only the *placement* of zeros is checked, not their density. Zeros
-  // at both parities, or fewer than the ambiguity threshold, mean binary.
   let zerosAtOdd = 0;
   let zerosAtEven = 0;
   const limit = Math.min(sample.length, ENCODING_DETECTION_SAMPLE_BYTES);
@@ -167,62 +133,3 @@ export function detectTextEncoding(sample: Uint8Array): TextEncodingDetection {
 export function decodeUtfText(bytes: Uint8Array, encoding: UtfTextEncoding): string {
   return new TextDecoder(encoding, { fatal: false }).decode(bytes);
 }
-
-const CJK_UNIFIED_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/;
-
-/**
- * Min share of the file's bytes replaced by U+FFFD in a *lenient UTF-8*
- * decode before the GBK hypothesis is trusted. A real GBK file is almost
- * never valid UTF-8 — its lenient UTF-8 decode shows a high replacement
- * ratio — whereas a UTF-8 payload with a small malformed tail decodes to
- * GBK with zero replacements but stays (mostly) valid UTF-8. Gating on this
- * ratio keeps the two apart.
- */
-const MIN_GBK_UTF8_REPLACEMENT_RATIO = 0.15;
-
-/**
- * Detect a legacy 8-bit encoding (GBK / GB18030) from bytes that already
- * failed strict UTF-8 decoding.
- *
- * Heuristic: decode the whole payload with the GBK decoder; GBK maps nearly
- * every byte, so a *real* GBK text decodes with zero U+FFFD replacement
- * characters, whereas UTF-8 content misinterpreted as GBK usually trips
- * unmappable byte pairs (e.g. `0xFF`) and yields replacements. Requiring at
- * least one CJK unified ideograph rules out pure ASCII, and requiring a
- * non-trivial lenient-UTF-8 replacement ratio rules out UTF-8 payloads with
- * only a small malformed tail.
- *
- * Returns `'gbk'` on a confident match, `null` otherwise. Pure function over
- * bytes; no io happens here.
- */
-export function detectLegacyTextEncoding(bytes: Uint8Array): 'gbk' | null {
-  if (bytes.length === 0) return null;
-  const decoded = new TextDecoder('gbk', { fatal: false }).decode(bytes);
-  if (decoded.includes('\uFFFD')) return null;
-  if (!CJK_UNIFIED_RE.test(decoded)) return null;
-  const lenient = decodeUtf8Lenient(bytes);
-  if (lenient.replacedCount / bytes.length < MIN_GBK_UTF8_REPLACEMENT_RATIO) return null;
-  return 'gbk';
-}
-
-export interface LenientUtf8Decode {
-  /** Decoded text; malformed sequences replaced with U+FFFD. */
-  readonly text: string;
-  /** Number of replacement characters introduced by malformed sequences. */
-  readonly replacedCount: number;
-}
-
-/**
- * Decode bytes as UTF-8 without failing: malformed sequences become U+FFFD.
- * Use only as a fallback after strict UTF-8 (and legacy-encoding) detection
- * has failed, and gate the result on a replacement ratio.
- */
-export function decodeUtf8Lenient(bytes: Uint8Array): LenientUtf8Decode {
-  const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-  let replacedCount = 0;
-  for (const ch of text) {
-    if (ch === '\uFFFD') replacedCount += 1;
-  }
-  return { text, replacedCount };
-}
-

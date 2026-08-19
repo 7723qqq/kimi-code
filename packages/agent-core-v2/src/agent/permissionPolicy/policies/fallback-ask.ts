@@ -1,4 +1,7 @@
-import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
+import type {
+  PermissionPolicy,
+  PermissionPolicyResult,
+} from '#/agent/permissionPolicy/types';
 
 export class FallbackAskPermissionPolicyService implements PermissionPolicy {
   readonly name = 'fallback-ask';

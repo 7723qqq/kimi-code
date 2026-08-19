@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
 
 import { ErrorCode } from '../error-codes';
 import { CursorQuery, cursorQuerySchema, pageResponseSchema } from '../pagination';
+import { z } from 'zod';
 
 describe('pagination — CursorQuery', () => {
   it('alias and schema are the same object', () => {

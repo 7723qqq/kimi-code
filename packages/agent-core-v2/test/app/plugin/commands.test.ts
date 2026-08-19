@@ -4,7 +4,11 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { expandCommandArguments, loadPluginCommand, parseCommandText } from '#/app/plugin/commands';
+import {
+  expandCommandArguments,
+  loadPluginCommand,
+  parseCommandText,
+} from '#/app/plugin/commands';
 
 describe('plugin command parser', () => {
   let dir: string;
@@ -58,9 +62,7 @@ describe('plugin command parser', () => {
       description: 'Deploy',
       body: 'Body',
     });
-    await expect(
-      loadPluginCommand({ commandPath: join(dir, 'missing.md'), pluginId: 'demo' }),
-    ).resolves.toBeUndefined();
+    await expect(loadPluginCommand({ commandPath: join(dir, 'missing.md'), pluginId: 'demo' })).resolves.toBeUndefined();
   });
 
   it('expands $ARGUMENTS and appends args when no placeholder exists', () => {

@@ -1,18 +1,3 @@
-/**
- * `features` domain — the `Feature` base class: one self-contained built-in
- * capability (plan, mcp, …) authored as a single App-scope unit recipe.
- *
- * A subclass declares its contributions inside its constructor through the
- * `contribute*` helpers — thin compositions over the unit capabilities and
- * the existing collection seams: config sections (`config`), per-scope
- * service materialization (`ScopeUnits` — the kernel folds one live unit per
- * present and future scope of that kind), agent tools (`toolRegistry`), and
- * agent profiles (`agentProfileCatalog`). Everything a Feature provides hangs
- * on its own book, so retracting the Feature unit withdraws every
- * contribution across the scope tree (连坐). Recipes declare a stable
- * `static readonly name`; the assembly keys managed units by it.
- */
-
 import { type CollectionToken } from '#/_base/di/collection';
 import {
   ScopeUnits,
@@ -25,6 +10,15 @@ import { ScopeActivation, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { toDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import {
+  AgentProfileContribution,
+  AGENT_PROFILE_SOURCE_PRIORITY,
+} from '#/app/agentProfileCatalog/agentProfileContribution';
+import { FeatureServiceContribution } from '#/app/feature/featureServiceContribution';
+import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import type { ConfigSchema, RegisterSectionOptions } from '#/app/config/config';
+import { ConfigSectionContribution } from '#/app/config/configSectionContributions';
+import { LifecycleScope } from '#/app/scopes';
+import {
   CommandContribution,
   type CommandContribution as CommandContributionPayload,
 } from '#/agent/command/commandContribution';
@@ -34,15 +28,6 @@ import {
   type AgentToolCtor,
   type AnyAgentTool,
 } from '#/agent/toolRegistry/toolContribution';
-import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import {
-  AgentProfileContribution,
-  AGENT_PROFILE_SOURCE_PRIORITY,
-} from '#/app/agentProfileCatalog/agentProfileContribution';
-import type { ConfigSchema, RegisterSectionOptions } from '#/app/config/config';
-import { ConfigSectionContribution } from '#/app/config/configSectionContributions';
-import { FeatureServiceContribution } from '#/app/feature/featureServiceContribution';
-import { LifecycleScope } from '#/app/scopes';
 
 export abstract class Feature extends Service {
   contribute<T>(token: CollectionToken<T>, value: T): FiberHandle {

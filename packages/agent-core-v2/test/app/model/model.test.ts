@@ -1,16 +1,8 @@
-/**
- * `model` domain tests — covers `effectiveModelConfig`, the `models` config
- * section registration + TOML transforms (now owned by the app/kosongConfig
- * persistence wrapper), and the `KIMI_MODEL_*` env overlay.
- *
- * The registry itself (`ModelService`) is a pure in-memory store covered by
- * `test/kosong/model/modelService.test.ts`; persistence through the config
- * bridge is covered by `test/app/kosongConfig/kosongConfigService.test.ts`.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { ConfigRegistry } from '#/app/config/configService';
+import { ErrorCodes, Error2 } from '#/errors';
+import { kimiModelEnvOverlay, ENV_MODEL_ALIAS_KEY } from '#/app/kosongConfig/envOverlay';
 import {
   ENV_MODEL_PROVIDER_KEY,
   MODELS_SECTION,
@@ -18,10 +10,9 @@ import {
   modelsFromToml,
   modelsToToml,
 } from '#/app/kosongConfig/configSection';
-import { kimiModelEnvOverlay, ENV_MODEL_ALIAS_KEY } from '#/app/kosongConfig/envOverlay';
-import { ErrorCodes, Error2 } from '#/errors';
 import { type ModelRecord } from '#/kosong/model/model';
 import { effectiveModelConfig } from '#/kosong/model/modelAuth';
+
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 import '#/kosong/provider/providers/standard.contrib';
 
@@ -443,7 +434,9 @@ describe('kimiModelEnvOverlay', () => {
     });
 
     expect(changed).toEqual(['models', 'providers', 'defaultModel', 'modelOverrides']);
-    expect((effective['models'] as Record<string, unknown>)[ENV_MODEL_ALIAS_KEY]).toEqual({
+    expect(
+      (effective['models'] as Record<string, unknown>)[ENV_MODEL_ALIAS_KEY],
+    ).toEqual({
       provider: ENV_MODEL_PROVIDER_KEY,
       model: 'env-model',
       maxContextSize: 1000000,

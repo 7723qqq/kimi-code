@@ -1,60 +1,27 @@
-/**
- * `loop` domain — `IAgentLoopService` implementation.
- *
- * Owns a FIFO of Turn jobs, each with its own `StepRequestQueue`. Admission
- * reserves a stable Turn handle immediately; the head job alone books the
- * agent's work span with the session lifecycle, records `turn.prompt`,
- * publishes `turn.started`, and drains its Steps. Ending unbooks the work span,
- * then publishes `turn.ended` and pumps the next queued Turn. Requests without
- * an active Turn remain in the Loop-owned pending-input queue and bind to the
- * next admitted Turn.
- *
- * The run drains the queue one batch per step: each batch's driver request
- * (plus any mergeable requests folded into it) materializes its context
- * messages, then one LLM step runs (`onWillBeginStep` → streamed request → content
- * parts → tool execution → `step.end` → `onDidFinishStep`). The loop itself never
- * enqueues — it only runs requests and dispatches errors. A failed step is
- * dispatched to the registered error handlers (first match wins); a handler
- * that claims and catches the error has already enqueued the turn's
- * continuation itself, so the loop only learns caught-or-not, while an
- * unclaimed or uncaught error fails the turn. Emits `turn.*` / delta
- * events through `event`, persists loop events through `contextMemory`, and
- * reads the step budget from `config`. The plain-data loop state
- * (`nextReservedTurnId`, `lastRequestTraceId`, `disposing`) is registered
- * into `agentState` (`IAgentStateService`) and read/written through it;
- * `pendingTurns` and `activeTurnJob` stay plain fields because a `TurnJob`
- * holds resources (`AbortController`, controlled promises, a
- * `StepRequestQueue`) that must not be snapshotted, alongside the mechanism
- * resources (`standaloneStepQueue`, `pendingAssignments`, `errorHandlers`,
- * `settleWaiters`, `activeRequestTrace`). Bound at Agent scope.
- */
-
 import { randomUUID } from 'node:crypto';
 
 import { createControlledPromise } from '@antfu/utils';
-import { t } from '@moonshot-ai/kimi-i18n';
 
 import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { defineState } from '#/state/state';
+import { abortError, isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { toErrorMessage } from '#/_base/errors/errorMessage';
-import { defineState } from '#/_base/state/stateRegistry';
-import {
-  abortError,
-  isAbortError,
-  isUserCancellation,
-  userCancellationReason,
-} from '#/_base/utils/abort';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
-import {
-  IAgentLLMRequesterService,
-  type AgentLLMRequestFinish,
-} from '#/agent/llmRequester/llmRequester';
-import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentLLMRequesterService, type AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
+import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IConfigService } from '#/app/config/config';
-import { IEventBus } from '#/app/event/eventBus';
-import { LifecycleScope } from '#/app/scopes';
+import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
+import { type FinishReason } from '#/kosong/contract/provider';
+import { mergeInPlace, type ContentPart, type StreamedMessagePart } from '#/kosong/contract/message';
+import { type TokenUsage } from '#/kosong/contract/usage';
+import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
+import { OrderedHookSlot } from '#/hooks';
+
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import type {
   TurnEndedEvent as TurnEndedTelemetryEvent,
@@ -62,26 +29,7 @@ import type {
   TurnStartedEvent as TurnStartedTelemetryEvent,
 } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import {
-  BugIndicatingError,
-  ErrorCodes,
-  Error2,
-  isError2,
-  onUnexpectedError,
-  toKimiErrorPayload,
-} from '#/errors';
-import { OrderedHookSlot } from '#/hooks';
-import {
-  mergeInPlace,
-  type ContentPart,
-  type StreamedMessagePart,
-} from '#/kosong/contract/message';
-import { type FinishReason } from '#/kosong/contract/provider';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
-import { type TokenUsage } from '#/kosong/contract/usage';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import { IWireService } from '#/wire/wire';
-
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
 import {
   createMaxStepsExceededError,
@@ -101,20 +49,27 @@ import {
   type Turn,
   type TurnResult,
 } from './loop';
-import { type StepRequest, type TurnSeed } from './stepRequest';
+import {
+  type StepRequest,
+  type TurnSeed,
+} from './stepRequest';
 import { StepRequestQueue, type StepRequestBatch } from './stepRequestQueue';
-import { isDisplayablePromptOrigin, turnPromptText, type TurnInterruptReason } from './turnEvents';
-import { cancelTurn, endTurn, promptTurn, TurnModel } from './turnOps';
+import {
+  AssistantDelta,
+  isDisplayablePromptOrigin,
+  ThinkingDelta,
+  ToolCallDelta,
+  turnPromptText,
+  TurnStarted,
+  TurnStepCompleted,
+  TurnStepInterrupted,
+  TurnStepStarted,
+  type TurnInterruptReason,
+} from './turnEvents';
+import { TurnCancel, TurnEnded, turnKey, TurnPrompt } from './turnOps';
 
 export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error';
 
-const DEFAULT_MAX_STEPS = 100;
-const ABSOLUTE_MAX_STEPS = 200;
-// Safety net for `maxStepsPerTurn: 0` (unbounded turns): cap how many
-// consecutive loop iterations may end in a recovery `continue` without a step
-// completing. Guards against a broken error handler that keeps "handling" the
-// same failure without consuming the queue or enqueuing progress.
-const MAX_CONSECUTIVE_LOOP_RECOVERIES = 1000;
 export const loopNextReservedTurnIdKey = defineState<number | undefined>(
   'loop.nextReservedTurnId',
   () => undefined as number | undefined,
@@ -125,7 +80,6 @@ export const loopLastRequestTraceIdKey = defineState<string | undefined>(
 );
 export const loopDisposingKey = defineState<boolean>('loop.disposing', () => false);
 
-// NOTE: stays Disposable — its own 'config' collides with the Fiber
 export class AgentLoopService extends Disposable implements IAgentLoopService {
   declare readonly _serviceBrand: undefined;
 
@@ -135,10 +89,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   };
 
   private readonly standaloneStepQueue = new StepRequestQueue();
-  private readonly pendingAssignments = new Map<
-    StepRequest,
-    ReturnType<typeof createControlledPromise<import('./loop').StepAssignment>>
-  >();
+  private readonly pendingAssignments = new Map<StepRequest, ReturnType<typeof createControlledPromise<import('./loop').StepAssignment>>>();
   private readonly errorHandlers: LoopErrorHandler[] = [];
   private readonly pendingTurns: TurnJob[] = [];
   private readonly heldAdmissions: HeldAdmission[] = [];
@@ -150,18 +101,18 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
-    @IEventBus private readonly eventBus: IEventBus,
     @IAgentToolExecutorService private readonly toolExecutor: IAgentToolExecutorService,
     @IConfigService private readonly config: IConfigService,
-    @IWireService private readonly wire: IWireService,
+    @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
     @IAgentStateService private readonly states: IAgentStateService,
   ) {
     super();
-    this.states.register(loopNextReservedTurnIdKey);
-    this.states.register(loopLastRequestTraceIdKey);
-    this.states.register(loopDisposingKey);
+    this.states.contributeState(turnKey);
+    this.states.contributeState(loopNextReservedTurnIdKey);
+    this.states.contributeState(loopLastRequestTraceIdKey);
+    this.states.contributeState(loopDisposingKey);
   }
 
   private get nextReservedTurnId(): number | undefined {
@@ -209,7 +160,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   enqueue(request: StepRequest, options?: StepEnqueueOptions): EnqueueReceipt {
     if (this.disposing) throw abortError('Agent loop disposed');
     const assignment = createControlledPromise<import('./loop').StepAssignment>();
-    void assignment.catch(() => {});
+    void assignment.catch(() => undefined);
     this.pendingAssignments.set(request, assignment);
 
     if (this.quiescenceDepth > 0) {
@@ -239,7 +190,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         break;
       case 'activeTurnOnly':
         if (active === undefined) {
-          const error = new BugIndicatingError(t('v2Errors.internal'));
+          const error = new BugIndicatingError(`Step request "${request.kind}" requires an active turn`);
           this.rejectAssignment(request, error);
           throw error;
         }
@@ -251,7 +202,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private createAndQueueTurn(request: StepRequest): void {
     const seed = request.turnSeed;
     if (seed === undefined) {
-      const error = new BugIndicatingError(t('v2Errors.internal'));
+      const error = new BugIndicatingError(`Step request "${request.kind}" cannot start a turn without turnSeed`);
       this.rejectAssignment(request, error);
       throw error;
     }
@@ -291,7 +242,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   tryAcquireQuiescence(): IDisposable | undefined {
     if (this.disposing) throw abortError('Agent loop disposed');
-    if (this.quiescenceDepth > 0 || this.activeTurnJob !== undefined || this.hasPendingRequests()) {
+    if (
+      this.quiescenceDepth > 0 ||
+      this.activeTurnJob !== undefined ||
+      this.hasPendingRequests()
+    ) {
       return undefined;
     }
     this.quiescenceDepth += 1;
@@ -319,8 +274,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const job = this.activeTurnJob;
     if (job === undefined || (turnId !== undefined && job.turn.id !== turnId)) return false;
     if (job.controller.signal.aborted) return true;
-    this.wire.dispatch(
-      cancelTurn({ turnId: job.turn.id, target: 'active', reason: cancelReasonFor(cancellation) }),
+    void this.dispatcher.dispatch(
+      new TurnCancel({ turnId: job.turn.id, target: 'active', reason: cancelReasonFor(cancellation) }),
     );
     job.controller.abort(cancellation);
     return true;
@@ -329,12 +284,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private cancelQueuedTurn(turnId: number, cancellation: unknown): boolean {
     const index = this.pendingTurns.findIndex((job) => job.turn.id === turnId);
     if (index < 0) return false;
-    const job = this.pendingTurns[index];
+    const [job] = this.pendingTurns.splice(index, 1);
     if (job === undefined || job.turn.state !== 'queued') return false;
-    this.pendingTurns.splice(index, 1);
-    this.wire.dispatch(
-      cancelTurn({ turnId, target: 'queued', reason: cancelReasonFor(cancellation) }),
-    );
+    void this.dispatcher.dispatch(new TurnCancel({ turnId, target: 'queued', reason: cancelReasonFor(cancellation) }));
     for (const step of job.steps.values()) step.cancel(cancellation);
     job.controller.abort(cancellation);
     job.turn.state = 'cancelled';
@@ -371,9 +323,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       this.activeTurnJob !== undefined ||
       this.pendingTurns.length > 0 ||
       this.heldAdmissions.length > 0
-    )
-      return;
-    this.nextReservedTurnId = undefined;
+    ) return;
     if (this.settleWaiters.length === 0) return;
     const waiters = this.settleWaiters.splice(0);
     for (const resolve of waiters) resolve();
@@ -386,7 +336,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const result = createControlledPromise<TurnResult>();
     const queue = new StepRequestQueue();
     const steps = new Map<string, MutableStep>();
-    void ready.catch(() => {});
+    void ready.catch(() => undefined);
     const turn: MutableTurn = {
       id,
       state: 'queued',
@@ -402,7 +352,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   }
 
   private reserveTurnId(): number {
-    const modelNextId = this.wire.getModel(TurnModel).nextTurnId;
+    const modelNextId = this.states.get(turnKey).nextTurnId;
     const id = Math.max(modelNextId, this.nextReservedTurnId ?? modelNextId);
     this.nextReservedTurnId = id + 1;
     return id;
@@ -452,13 +402,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private enqueueStep(job: TurnJob, request: StepRequest, options?: StepEnqueueOptions): Step {
     const existing = job.steps.get(request.id);
-    // Only a live (queued/running) step may be reused. A terminal step
-    // (completed/failed/cancelled) must not be flipped back to `queued` — that
-    // would silently discard the original result and double-settle the old
-    // result promise. Retrying after a failure creates a fresh step (and thus a
-    // fresh result) so the retry outcome is actually delivered.
-    if (existing !== undefined && (existing.state === 'queued' || existing.state === 'running')) {
+    if (existing !== undefined && existing.state !== 'cancelled') {
       job.queue.enqueue(request, options?.at ?? 'tail');
+      existing.state = 'queued';
       return existing;
     }
     const controller = new AbortController();
@@ -478,20 +424,13 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     return step;
   }
 
-  private cancelStep(
-    job: TurnJob,
-    step: MutableStep,
-    request: StepRequest,
-    reason?: unknown,
-  ): boolean {
-    if (step.state === 'completed' || step.state === 'failed' || step.state === 'cancelled')
-      return false;
+  private cancelStep(job: TurnJob, step: MutableStep, request: StepRequest, reason?: unknown): boolean {
+    if (step.state === 'completed' || step.state === 'failed' || step.state === 'cancelled') return false;
     const cancellation = reason ?? userCancellationReason();
     step.state = 'cancelled';
     request.abort();
     step.controller?.abort(cancellation);
     step.resultControl?.resolve({ type: 'cancelled', reason: cancellation });
-    this.rejectAssignment(request, cancellation);
     return true;
   }
 
@@ -507,15 +446,16 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private startTurn(job: TurnJob): void {
     const origin = job.seed.origin;
-    this.wire.dispatch(promptTurn({ input: job.seed.input, origin }));
+    void this.dispatcher.dispatch(new TurnPrompt({ input: job.seed.input, origin }));
     job.turn.state = 'running';
     this.activeTurnJob = job;
-    this.eventBus.publish({
-      type: 'turn.started',
-      turnId: job.turn.id,
-      origin,
-      prompt: isDisplayablePromptOrigin(origin) ? turnPromptText(job.seed.input) : undefined,
-    });
+    void this.dispatcher.dispatch(
+      new TurnStarted({
+        turnId: job.turn.id,
+        origin,
+        prompt: isDisplayablePromptOrigin(origin) ? turnPromptText(job.seed.input, origin) : undefined,
+      }),
+    );
     void this.runTurn(job.turn, job.ready).then(job.result.resolve, job.result.reject);
   }
 
@@ -543,81 +483,57 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       result = await this.run({
         turnId: turn.id,
         signal: turn.signal,
-        onStarted: () => {
-          ready.resolve();
-        },
+        onStarted: () => ready.resolve(),
       });
+      return result;
     } catch (error) {
       result = this.resultFromTurnError(turn, error);
-    }
-    const traceId =
-      result?.type === 'completed' ? this.lastRequestTraceId : this.activeRequestTrace?.traceId;
-    try {
+      return result;
+    } finally {
       this.settleTurnReady(ready, result);
       this.releaseActiveTurn(turn, result);
-      try {
-        if (result !== undefined) {
-          const error = result.type === 'failed' ? toKimiErrorPayload(result.error) : undefined;
-          const interruptReason =
-            result.type === 'completed' ? undefined : interruptReasonFor(result);
-          const durationMs = Date.now() - startedAt;
-          this.wire.dispatch(endTurn({ turnId: turn.id, reason: result.type, error, durationMs }));
-          this.eventBus.publish({
-            type: 'turn.ended',
-            turnId: turn.id,
-            reason: result.type,
-            error,
-            durationMs,
-            interruptReason,
-          });
-          if (error !== undefined) this.eventBus.publish({ type: 'error', ...error });
-          if (interruptReason !== undefined) {
-            const interrupted: TurnInterruptedEvent = {
-              turn_id: turn.id,
-              at_step: result.steps,
-              mode,
-              interrupt_reason: interruptReason,
-              provider_type,
-              protocol,
-              thinking_effort: thinkingEffort,
-              trace_id: traceId,
-            };
-            turnTelemetry.track2('turn_interrupted', interrupted);
-          }
+      const traceId =
+        result?.type === 'completed'
+          ? this.lastRequestTraceId
+          : this.activeRequestTrace?.traceId;
+      if (result !== undefined) {
+        const error = result.type === 'failed' ? toKimiErrorPayload(result.error) : undefined;
+        const interruptReason =
+          result.type === 'completed' ? undefined : interruptReasonFor(result);
+        const durationMs = Date.now() - startedAt;
+        void this.dispatcher.dispatch(
+          new TurnEnded({ turnId: turn.id, reason: result.type, error, durationMs, interruptReason }),
+        );
+        if (error !== undefined) void this.dispatcher.dispatch(new AgentErrorEvent(error));
+        if (interruptReason !== undefined) {
+          const interrupted: TurnInterruptedEvent = {
+            turn_id: turn.id,
+            at_step: result.steps,
+            mode,
+            interrupt_reason: interruptReason,
+            provider_type,
+            protocol,
+            thinking_effort: thinkingEffort,
+            trace_id: traceId,
+          };
+          turnTelemetry.track2('turn_interrupted', interrupted);
         }
-      } catch (error) {
-        onUnexpectedError(error);
-        // A failed endTurn persist must not escape the turn teardown: it
-        // would reject the turn result and skip pumpTurns, leaving the
-        // queue stuck. Settle the turn as failed instead.
-        result = { type: 'failed', error, steps: result?.steps ?? 0 };
-        (turn as MutableTurn).state = 'failed';
       }
-    } finally {
-      try {
-        const ended: TurnEndedTelemetryEvent = {
-          turn_id: turn.id,
-          reason: result?.type ?? 'failed',
-          duration_ms: Date.now() - startedAt,
-          mode,
-          provider_type,
-          protocol,
-          thinking_effort: thinkingEffort,
-          trace_id: traceId,
-        };
-        turnTelemetry.track2('turn_ended', ended);
-      } catch (error) {
-        onUnexpectedError(error);
-      }
+      const ended: TurnEndedTelemetryEvent = {
+        turn_id: turn.id,
+        reason: result?.type ?? 'failed',
+        duration_ms: Date.now() - startedAt,
+        mode,
+        provider_type,
+        protocol,
+        thinking_effort: thinkingEffort,
+        trace_id: traceId,
+      };
+      turnTelemetry.track2('turn_ended', ended);
       this.activeRequestTrace = undefined;
       this.lastRequestTraceId = undefined;
-      try {
-        this.pumpTurns();
-      } catch (error) {
-        onUnexpectedError(error);
-      }
+      this.pumpTurns();
     }
-    return result;
   }
 
   private resultFromTurnError(turn: Turn, error: unknown): TurnResult {
@@ -631,15 +547,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     result: TurnResult | undefined,
   ): void {
     if (result?.type === 'failed') {
-      ready.reject(
-        result.error instanceof Error
-          ? result.error
-          : new Error2(ErrorCodes.INTERNAL, String(result.error)),
-      );
+      ready.reject(result.error);
     } else if (result?.type === 'cancelled') {
       ready.reject(result.reason instanceof Error ? result.reason : abortError('Turn cancelled'));
     } else {
-      ready.resolve();
+      ready.reject(new Error2(ErrorCodes.INTERNAL, 'Turn ended before first step'));
     }
   }
 
@@ -648,21 +560,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const job = this.activeTurnJob?.turn === turn ? this.activeTurnJob : undefined;
     if (job === undefined) return;
     const reason = result?.type === 'cancelled' ? result.reason : abortError('Turn ended');
-    // Agent-scoped requests (turnScoped: false, e.g. task notifications) that
-    // are still queued carry into the next turn instead of being dropped:
-    // move them to the standalone queue. Their step ended with this turn, so
-    // settle it as cancelled — the request itself keeps its `pending` state.
-    for (const request of job.queue.drain()) {
-      if (request.aborted || request.turnScoped) continue;
-      if (request.admission === 'activeTurnOnly') continue;
-      const step = job.steps.get(request.id);
-      if (step !== undefined) {
-        job.steps.delete(request.id);
-        step.state = 'cancelled';
-        step.resultControl?.resolve({ type: 'cancelled', reason });
-      }
-      this.standaloneStepQueue.enqueue(request);
-    }
     for (const step of job.steps.values()) {
       if (step.state === 'queued' || step.state === 'running') step.cancel(reason);
     }
@@ -675,9 +572,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     options: LoopErrorHandlerRegistrationOptions = {},
   ): IDisposable {
     if (options.before !== undefined && options.after !== undefined) {
-      throw new BugIndicatingError(
-        'Loop error handler registration cannot specify both before and after',
-      );
+      throw new BugIndicatingError('Loop error handler registration cannot specify both before and after');
     }
     this.deleteErrorHandler(handler.id);
     const target = options.before ?? options.after;
@@ -705,7 +600,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   async run(options: LoopRunOptions): Promise<LoopRunResult> {
     const runtime = this.createLoopRuntime(options);
-    let consecutiveRecoveries = 0;
     try {
       while (true) {
         try {
@@ -722,16 +616,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             options.onStarted,
           );
           const completed = this.completeLoopStep(runtime, result);
-          consecutiveRecoveries = 0;
           if (completed !== undefined) return completed;
         } catch (error) {
           const disposition = await this.handleLoopStepError(runtime, error);
           if (disposition.type === 'return') return disposition.result;
-          // A recovery `continue`: the step did not complete this iteration.
-          consecutiveRecoveries++;
-          if (consecutiveRecoveries > MAX_CONSECUTIVE_LOOP_RECOVERIES) {
-            return { type: 'failed', error, steps: runtime.steps };
-          }
         }
       }
     } finally {
@@ -764,23 +652,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         },
       };
     }
-    const maxSteps = Math.min(
-      this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn ?? DEFAULT_MAX_STEPS,
-      ABSOLUTE_MAX_STEPS,
-    );
-    if (maxSteps > 0 && runtime.steps >= maxSteps) {
+    const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
+    if (maxSteps !== undefined && maxSteps > 0 && runtime.steps >= maxSteps) {
       throw createMaxStepsExceededError(maxSteps);
     }
-    const batch = runtime.queue.takeNextBatch();
-    if (batch === undefined) {
-      return {
-        result: {
-          type: 'completed',
-          steps: runtime.steps,
-          truncated: runtime.lastStopReason === 'truncated',
-        },
-      };
-    }
+    const batch = runtime.queue.takeNextBatch()!;
     const mutableStep = runtime.job?.steps.get(batch.driver.id);
     if (mutableStep !== undefined) {
       mutableStep.state = 'running';
@@ -792,10 +668,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       uuid: randomUUID(),
       batch,
       mutableStep,
-      signal:
-        mutableStep?.controller === undefined
-          ? runtime.turnSignal
-          : AbortSignal.any([runtime.turnSignal, mutableStep.controller.signal]),
+      signal: mutableStep?.controller === undefined
+        ? runtime.turnSignal
+        : AbortSignal.any([runtime.turnSignal, mutableStep.controller.signal]),
     };
     this.materializeBatch(batch);
     return { step };
@@ -813,17 +688,13 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     runtime.current = undefined;
     runtime.lastStopReason = result.stopReason;
     if (result.stopReason === 'filtered') {
-      throw new Error2(ErrorCodes.PROVIDER_FILTERED, t('v2Loop.providerSafetyBlocked'), {
+      throw new Error2(ErrorCodes.PROVIDER_FILTERED, 'Provider safety policy blocked the response.', {
         name: 'ProviderFilteredError',
         details: { finishReason: 'filtered' },
       });
     }
     if (!result.hookStopTurn) return undefined;
-    return {
-      type: 'completed',
-      steps: runtime.steps,
-      truncated: result.stopReason === 'truncated',
-    };
+    return { type: 'completed', steps: runtime.steps, truncated: result.stopReason === 'truncated' };
   }
 
   private async handleLoopStepError(
@@ -833,23 +704,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const cancellation = this.handleLoopCancellation(runtime, error);
     if (cancellation !== undefined) return cancellation;
     const recovery = await this.tryRecoverLoopError(runtime, error);
-    if (recovery !== undefined) return recovery;
-    // The step may have been individually cancelled while an error handler
-    // (e.g. stepRetry's backoff wait) was still recovering. The step result is
-    // already `cancelled` in that case, so attribute the turn as cancelled
-    // instead of reporting the stale provider failure.
-    const currentStep = runtime.current?.mutableStep;
-    if (currentStep?.state === 'cancelled') {
-      const reason = currentStep.signal.reason ?? error;
-      this.emitStepInterrupted(
-        runtime.turnId,
-        runtime.current?.number,
-        'aborted',
-        isUserCancellation(reason) ? undefined : toErrorMessage(reason),
-      );
-      return { type: 'return', result: { type: 'cancelled', reason, steps: runtime.steps } };
-    }
-    return this.failLoopStep(runtime, error);
+    return recovery ?? this.failLoopStep(runtime, error);
   }
 
   private handleLoopCancellation(
@@ -857,8 +712,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     error: unknown,
   ): LoopErrorDisposition | undefined {
     const step = runtime.current?.mutableStep;
-    if (!isAbortError(error) && !runtime.turnSignal.aborted && step?.signal.aborted !== true)
-      return undefined;
+    if (!isAbortError(error) && !runtime.turnSignal.aborted && step?.signal.aborted !== true) return undefined;
     const reason = runtime.turnSignal.reason ?? step?.signal.reason ?? error;
     this.emitStepInterrupted(
       runtime.turnId,
@@ -889,16 +743,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       retry: (request, options) => {
         if (runtime.job !== undefined) return this.enqueueStep(runtime.job, request, options);
         runtime.queue.enqueue(request, options?.at ?? 'tail');
-        return (
-          current?.mutableStep ?? {
-            id: request.id,
-            turnId: runtime.turnId,
-            state: 'queued',
-            signal: runtime.turnSignal,
-            result: Promise.resolve({ type: 'completed' }),
-            cancel: () => request.abort(),
-          }
-        );
+        return current?.mutableStep ?? {
+          id: request.id,
+          turnId: runtime.turnId,
+          state: 'queued',
+          signal: runtime.turnSignal,
+          result: Promise.resolve({ type: 'completed' }),
+          cancel: () => request.abort(),
+        };
       },
     };
     const handler = this.errorHandlers.find((entry) => entry.match(context));
@@ -910,37 +762,15 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       }
       return undefined;
     } catch (handlerError) {
-      return (
-        this.handleLoopCancellation(runtime, handlerError) ??
-        this.failLoopStep(runtime, handlerError)
-      );
+      return this.handleLoopCancellation(runtime, handlerError) ?? this.failLoopStep(runtime, handlerError);
     }
   }
 
   private failLoopStep(runtime: LoopRuntime, error: unknown): LoopErrorDisposition {
     const reason: LoopInterruptReason = isMaxStepsExceededError(error) ? 'max_steps' : 'error';
     const interruptedError =
-      isError2(error) && error.code === ErrorCodes.INTERNAL && error.cause !== undefined
-        ? error.cause
-        : error;
-    this.emitStepInterrupted(
-      runtime.turnId,
-      runtime.current?.number,
-      reason,
-      toErrorMessage(interruptedError),
-    );
-    const mutableStep = runtime.current?.mutableStep;
-    if (
-      mutableStep !== undefined &&
-      mutableStep.state !== 'completed' &&
-      mutableStep.state !== 'failed' &&
-      mutableStep.state !== 'cancelled'
-    ) {
-      // Settle the step as failed (symmetric with `cancelStep`) so its result
-      // promise resolves instead of hanging for the rest of the turn.
-      mutableStep.state = 'failed';
-      mutableStep.resultControl?.resolve({ type: 'failed', error });
-    }
+      isError2(error) && error.code === ErrorCodes.INTERNAL && error.cause !== undefined ? error.cause : error;
+    this.emitStepInterrupted(runtime.turnId, runtime.current?.number, reason, toErrorMessage(interruptedError));
     return { type: 'return', result: { type: 'failed', error, steps: runtime.steps } };
   }
 
@@ -1017,12 +847,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     onStarted: ((step: number) => void) | undefined,
   ): () => void {
     signal.throwIfAborted();
-    this.eventBus.publish({
-      type: 'turn.step.started',
-      turnId,
-      step: currentStep,
-      stepId: stepUuid,
-    });
+    void this.dispatcher.dispatch(new TurnStepStarted({ turnId, step: currentStep, stepId: stepUuid }));
     this.context.appendLoopEvent({
       type: 'step.begin',
       uuid: stepUuid,
@@ -1087,70 +912,38 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (response.message.toolCalls.length === 0) {
       return finishReason === 'tool_calls' ? 'other' : finishReason;
     }
-
     const toolCallUuids = new Map<string, string>();
-    const toolCallEvents: Array<{
-      toolCallId: string;
-      name: string;
-      args?: unknown;
-      display?: ToolInputDisplay;
-    }> = [];
-    const toolResultEvents: Array<{
-      toolCallId: string;
-      output: string | ReadonlyArray<import('#/app/llmProtocol/message').ContentPart>;
-      isError?: boolean;
-      note?: string;
-    }> = [];
     let stopTurn = false;
     for await (const toolResult of this.toolExecutor.execute(response.message.toolCalls, {
       signal,
       turnId,
       trace,
-      onToolCall: ({ toolCallId, name, args, display }) => {
+      onToolCall: ({ toolCallId, name, args }) => {
         const callUuid = randomUUID();
         toolCallUuids.set(toolCallId, callUuid);
-        toolCallEvents.push({ toolCallId, name, args, display });
+        const extras = response.message.toolCalls.find((t) => t.id === toolCallId)?.extras;
+        this.context.appendLoopEvent({
+          type: 'tool.call',
+          uuid: callUuid,
+          turnId: String(turnId),
+          step: currentStep,
+          stepUuid,
+          toolCallId,
+          name,
+          args,
+          extras,
+        });
       },
     })) {
       const { result } = toolResult;
-      toolResultEvents.push({
+      this.context.appendLoopEvent({
+        type: 'tool.result',
+        parentUuid: toolCallUuids.get(toolResult.toolCallId) ?? randomUUID(),
         toolCallId: toolResult.toolCallId,
-        output: result.output,
-        isError: result.isError,
-        note: result.note,
+        result: { output: result.output, isError: result.isError, note: result.note },
       });
       if (result.stopTurn === true) stopTurn = true;
     }
-
-    // Batch dispatch all tool call events
-    for (const event of toolCallEvents) {
-      const callUuid = toolCallUuids.get(event.toolCallId) ?? randomUUID();
-      this.context.appendLoopEvent({
-        type: 'tool.call',
-        uuid: callUuid,
-        turnId: String(turnId),
-        step: currentStep,
-        stepUuid,
-        toolCallId: event.toolCallId,
-        name: event.name,
-        args: event.args,
-        display: event.display,
-      });
-    }
-
-    // Batch dispatch all tool result events
-    for (const event of toolResultEvents) {
-      this.context.appendLoopEvent({
-        type: 'tool.result',
-        parentUuid: toolCallUuids.get(event.toolCallId) ?? randomUUID(),
-        toolCallId: event.toolCallId,
-        result: { output: event.output, isError: event.isError, note: event.note },
-      });
-    }
-    // A user cancel must win over a natural stop (e.g. a goal budget
-    // stopTurn): if the turn was aborted while tools ran, surface the abort
-    // so the loop reports `cancelled` instead of a misleading `completed`.
-    signal.throwIfAborted();
     finishReason = stopTurn ? 'completed' : 'tool_calls';
     return finishReason;
   }
@@ -1216,12 +1009,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       await this.hooks.onDidFinishStep.run(context);
     } catch (error) {
       if (isAbortError(error) || signal.aborted) throw error;
-      const payload = toKimiErrorPayload(error);
-      this.eventBus.publish({
-        type: 'error',
-        ...payload,
-        details: { ...payload.details, hook: 'onDidFinishStep' },
-      });
     }
     return context.stopTurn;
   }
@@ -1234,22 +1021,23 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     finishReason: string,
     response: AgentLLMRequestFinish,
   ): void {
-    this.eventBus.publish({
-      type: 'turn.step.completed',
-      turnId,
-      step,
-      stepId,
-      usage,
-      finishReason,
-      llmFirstTokenLatencyMs: response.timing?.firstTokenLatencyMs,
-      llmStreamDurationMs: response.timing?.streamDurationMs,
-      llmRequestBuildMs: response.timing?.requestBuildMs,
-      llmServerFirstTokenMs: response.timing?.serverFirstTokenMs,
-      llmServerDecodeMs: response.timing?.serverDecodeMs,
-      llmClientConsumeMs: response.timing?.clientConsumeMs,
-      providerFinishReason: response.providerFinishReason,
-      rawFinishReason: response.rawFinishReason,
-    });
+    void this.dispatcher.dispatch(
+      new TurnStepCompleted({
+        turnId,
+        step,
+        stepId,
+        usage,
+        finishReason,
+        llmFirstTokenLatencyMs: response.timing?.firstTokenLatencyMs,
+        llmStreamDurationMs: response.timing?.streamDurationMs,
+        llmRequestBuildMs: response.timing?.requestBuildMs,
+        llmServerFirstTokenMs: response.timing?.serverFirstTokenMs,
+        llmServerDecodeMs: response.timing?.serverDecodeMs,
+        llmClientConsumeMs: response.timing?.clientConsumeMs,
+        providerFinishReason: response.providerFinishReason,
+        rawFinishReason: response.rawFinishReason,
+      }),
+    );
   }
 
   private emitStepInterrupted(
@@ -1259,13 +1047,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     message?: string,
   ): void {
     if (activeStep === undefined) return;
-    this.eventBus.publish({
-      type: 'turn.step.interrupted',
-      turnId,
-      step: activeStep,
-      reason,
-      message,
-    });
+    void this.dispatcher.dispatch(
+      new TurnStepInterrupted({
+        turnId,
+        step: activeStep,
+        reason,
+        message,
+      }),
+    );
   }
 
   private createStreamPartHandler(
@@ -1288,12 +1077,12 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           case 'text':
             onResponseEvent();
             accumulate(part);
-            this.eventBus.publish({ type: 'assistant.delta', turnId, delta: part.text });
+            void this.dispatcher.dispatch(new AssistantDelta({ turnId, delta: part.text }));
             return;
           case 'think':
             onResponseEvent();
             accumulate(part);
-            this.eventBus.publish({ type: 'thinking.delta', turnId, delta: part.think });
+            void this.dispatcher.dispatch(new ThinkingDelta({ turnId, delta: part.think }));
             return;
           case 'image_url':
           case 'audio_url':
@@ -1303,13 +1092,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             onResponseEvent();
             forceContentPartBoundary = true;
             callsByIndex.set(part._streamIndex, { id: part.id, name: part.name });
-            this.eventBus.publish({
-              type: 'tool.call.delta',
-              turnId,
-              toolCallId: part.id,
-              name: part.name,
-              argumentsPart: part.arguments ?? undefined,
-            });
+            void this.dispatcher.dispatch(
+              new ToolCallDelta({
+                turnId,
+                toolCallId: part.id,
+                name: part.name,
+                argumentsPart: part.arguments ?? undefined,
+              }),
+            );
             return;
           }
           case 'tool_call_part': {
@@ -1317,13 +1107,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             const toolCall = callsByIndex.get(part.index);
             if (toolCall === undefined) return;
             onResponseEvent();
-            this.eventBus.publish({
-              type: 'tool.call.delta',
-              turnId,
-              toolCallId: toolCall.id,
-              name: toolCall.name,
-              argumentsPart: part.argumentsPart,
-            });
+            void this.dispatcher.dispatch(
+              new ToolCallDelta({
+                turnId,
+                toolCallId: toolCall.id,
+                name: toolCall.name,
+                argumentsPart: part.argumentsPart,
+              }),
+            );
             return;
           }
           default: {

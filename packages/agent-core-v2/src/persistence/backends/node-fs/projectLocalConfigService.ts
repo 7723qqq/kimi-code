@@ -1,25 +1,13 @@
-/**
- * `FileProjectLocalConfigService` — node-fs backend for `IProjectLocalConfigService`.
- *
- * Discovers project roots, parses and writes project-local
- * `.kimi-code/local.toml`, resolves additional directories with
- * v1-compatible OS-home expansion through `bootstrap`, and accesses the local
- * filesystem through `hostFs`. Works purely by path (project-root discovery
- * via the nearest `.git` ancestor); it never touches the workspace catalog or
- * a `workspaceId`. Bound at App scope.
- */
-
 import { dirname, isAbsolute, join, normalize, resolve } from 'pathe';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { z } from 'zod';
-
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
   IProjectLocalConfigService,
   type ProjectAdditionalDirsLoadResult,
 } from '#/app/projectLocalConfig/projectLocalConfig';
-import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { StorageError, StorageErrors, toStorageIoError } from '#/persistence/interface/storage';
@@ -141,7 +129,10 @@ export class FileProjectLocalConfigService implements IProjectLocalConfigService
     }
 
     if (!isPlainObject(raw)) {
-      throw new Error2(ErrorCodes.CONFIG_INVALID, `Invalid project local config in ${configPath}`);
+      throw new Error2(
+        ErrorCodes.CONFIG_INVALID,
+        `Invalid project local config in ${configPath}`,
+      );
     }
 
     return { raw: cloneRecord(raw), parsed: parseProjectLocalToml(raw) };
@@ -177,7 +168,10 @@ export class FileProjectLocalConfigService implements IProjectLocalConfigService
     return resolvedDirs;
   }
 
-  private async resolveAdditionalDir(baseDir: string, additionalDir: string): Promise<string> {
+  private async resolveAdditionalDir(
+    baseDir: string,
+    additionalDir: string,
+  ): Promise<string> {
     const normalizedInput = normalizeAdditionalDirInput(additionalDir);
     const resolvedDir = this.resolvePath(baseDir, normalizedInput);
     await this.assertDirectory(resolvedDir);

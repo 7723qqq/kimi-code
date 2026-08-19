@@ -34,12 +34,11 @@ describe('kimiCodeFeedbackUrl', () => {
 
 describe('fetchSubmitFeedback', () => {
   it('POSTs JSON body with bearer auth and returns feedback_id on 200', async () => {
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ feedback_id: 3 }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ feedback_id: 3 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -67,20 +66,15 @@ describe('fetchSubmitFeedback', () => {
   it('returns an error when the server omits feedback_id', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(
-        async () =>
-          new Response(JSON.stringify({ ok: true }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
+      vi.fn(async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
       ),
     );
 
-    const result = await fetchSubmitFeedback(
-      'https://api.example/feedback',
-      'access-token',
-      SAMPLE_BODY,
-    );
+    const result = await fetchSubmitFeedback('https://api.example/feedback', 'access-token', SAMPLE_BODY);
 
     expect(result).toEqual({
       kind: 'error',
@@ -89,12 +83,11 @@ describe('fetchSubmitFeedback', () => {
   });
 
   it('preserves the kimi-code- version prefix in the request body', async () => {
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ feedback_id: 3 }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ feedback_id: 3 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     vi.stubGlobal('fetch', fetchMock);
 

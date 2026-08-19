@@ -1,7 +1,7 @@
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { LocalKaos } from '#/local';

@@ -100,7 +100,7 @@ if (String(pb) !== '[id nil]') {
       const path = value ? ObjC.unwrap(value) : '';
       if (path) out.push(path);
     }
-  } catch (error) { /* best-effort: no file URLs on clipboard */ }
+  } catch (error) {}
 
   if (out.length === 0) {
     try {
@@ -112,7 +112,7 @@ if (String(pb) !== '[id nil]') {
       } else if (files) {
         out.push(String(files));
       }
-    } catch (error) { /* best-effort: no file URLs on clipboard */ }
+    } catch (error) {}
   }
 }
 out.join('\n');
@@ -234,11 +234,7 @@ function readMediaFromText(text: string): ClipboardMedia | null {
   return readMediaFromPaths(parseClipboardPaths(text));
 }
 
-function runCommand(
-  command: string,
-  args: string[],
-  options?: RunCommandOptions,
-): { stdout: Buffer; ok: boolean } {
+function runCommand(command: string, args: string[], options?: RunCommandOptions): { stdout: Buffer; ok: boolean } {
   return runCommandBase(command, args, {
     timeoutMs: options?.timeoutMs ?? DEFAULT_READ_TIMEOUT_MS,
     env: options?.env,

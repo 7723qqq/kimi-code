@@ -25,6 +25,7 @@ import {
   type EditorKeyboardHost,
 } from '#/tui/controllers/editor-keyboard';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
+import { extractMediaAttachments, resolveOriginalCaptions } from '#/tui/utils/image-placeholder';
 import { parseImageMeta } from '#/utils/image/image-mime';
 
 // vitest hoists vi.mock/vi.hoisted above the imports above, so the mock still
@@ -84,6 +85,11 @@ function createPasteHarness(
       const handler = editor['onPasteImage'];
       if (handler === undefined) throw new Error('onPasteImage handler not installed');
       await (handler as () => Promise<boolean>)();
+      // Ingestion (compression, daemon upload) runs in the background after
+      // the handler settles — wait for it so assertions see the final
+      // attachment, not the placeholder-time snapshot.
+      const att = store.get(1);
+      if (att !== undefined && att.pending !== undefined) await att.pending;
     },
   };
 }
@@ -187,14 +193,29 @@ describe('clipboard image paste compression', () => {
 
     const att = store.get(1);
     if (att?.kind !== 'image') throw new Error('expected image attachment');
+    // Paste time keeps the original in memory — the session (and its
+    // media-originals dir) may not exist yet, so nothing is written yet.
     expect(att.original).toBeDefined();
     expect(att.original?.width).toBe(3600);
     expect(att.original?.height).toBe(1800);
     expect(att.original?.byteLength).toBe(big.length);
     expect(att.original?.mime).toBe('image/png');
+    expect(att.original?.path).toBeUndefined();
+
+    // Dispatch-time caption resolution persists it and authors the caption.
+    const extracted = extractMediaAttachments(att.placeholder, store);
+    const resolved = resolveOriginalCaptions(
+      extracted.parts,
+      extracted.imageAttachmentIds,
+      store,
+      undefined,
+    );
+    const caption = resolved[0];
+    if (caption?.type !== 'text') throw new Error('expected leading caption text');
+    expect(caption.text).toContain('Image compressed');
+    expect(att.original?.path).not.toBeNull();
 
     // The original bytes are readable back from the persisted path.
-    expect(att.original?.path).not.toBeNull();
     const persisted = await readFile(att.original!.path!);
     expect(new Uint8Array(persisted)).toEqual(big);
     await unlink(att.original!.path!).catch(() => undefined);
@@ -210,6 +231,15 @@ describe('clipboard image paste compression', () => {
 
     const att = store.get(1);
     if (att?.kind !== 'image') throw new Error('expected image attachment');
+    // The original is written by dispatch-time caption resolution, into the
+    // session's media-originals dir (not the shared temp dir).
+    const extracted = extractMediaAttachments(att.placeholder, store);
+    resolveOriginalCaptions(
+      extracted.parts,
+      extracted.imageAttachmentIds,
+      store,
+      join(sessionDir, 'media-originals'),
+    );
     expect(att.original?.path).not.toBeNull();
     expect(att.original!.path!.startsWith(join(sessionDir, 'media-originals'))).toBe(true);
     const persisted = await readFile(att.original!.path!);

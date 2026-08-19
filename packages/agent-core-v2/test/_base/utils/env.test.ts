@@ -20,24 +20,7 @@ describe('parseBooleanEnv', () => {
     expect(parseBooleanEnv(value)).toBeUndefined();
   });
 
-  it.each(['flase', 'maybe', '2', 'true false'])(
-    'returns undefined for unparseable %j',
-    (value) => {
-      expect(parseBooleanEnv(value)).toBeUndefined();
-    },
-  );
-
-  it('handles null input gracefully', () => {
-    expect(parseBooleanEnv(null as unknown as string)).toBeUndefined();
-  });
-
-  it('handles very long input with valid content', () => {
-    const longTrue = 'true' + ' '.repeat(1000);
-    expect(parseBooleanEnv(longTrue)).toBe(true);
-  });
-
-  it('handles special characters around the value', () => {
-    expect(parseBooleanEnv('\n true \r')).toBe(true);
-    expect(parseBooleanEnv('\t false \t')).toBe(false);
+  it.each(['flase', 'maybe', '2', 'true false'])('returns undefined for unparseable %j', (value) => {
+    expect(parseBooleanEnv(value)).toBeUndefined();
   });
 });

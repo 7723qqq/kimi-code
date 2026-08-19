@@ -166,6 +166,9 @@ importers:
       pathe:
         specifier: ^2.0.3
         version: 2.0.3
+      postject:
+        specifier: 1.0.0-alpha.6
+        version: 1.0.0-alpha.6
       semver:
         specifier: ^7.7.4
         version: 7.7.4
@@ -538,6 +541,9 @@ importers:
       '@modelcontextprotocol/core':
         specifier: ^2.0.0
         version: 2.0.0
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
       '@moonshot-ai/kimi-code-oauth':
         specifier: workspace:^
         version: link:../oauth
@@ -571,6 +577,9 @@ importers:
       ignore:
         specifier: ^5.3.2
         version: 5.3.2
+      immer:
+        specifier: ^11.1.0
+        version: 11.1.11
       jimp:
         specifier: ^1.6.1
         version: 1.6.1
@@ -6430,10 +6439,6 @@ packages:
 
   has-tostringtag@1.0.2:
     resolution: {integrity: sha512-NqADB8VjPFLM2V0VvHUewwwsw0ZWBaIdgo+ieHtK3hasLz4qeCRjYcqfB6AQrBggRKppKF8L52/VqdVsO47Dlw==}
-    engines: {node: '>= 0.4'}
-
-  hasown@2.0.3:
-    resolution: {integrity: sha512-ej4AhfhfL2Q2zpMmLo7U1Uv9+PyhIZpgQLGT1F9miIGmiCJIoCgSmczFdrc97mWT4kVY72KA+WnnhJ5pghSvSg==}
     engines: {node: '>= 0.4'}
 
   hasown@2.0.4:
@@ -15377,10 +15382,6 @@ snapshots:
     dependencies:
       has-symbols: 1.1.0
 
-  hasown@2.0.3:
-    dependencies:
-      function-bind: 1.1.2
-
   hasown@2.0.4:
     dependencies:
       function-bind: 1.1.2
@@ -15632,7 +15633,7 @@ snapshots:
 
   is-core-module@2.16.2:
     dependencies:
-      hasown: 2.0.3
+      hasown: 2.0.4
 
   is-decimal@2.0.1: {}
 

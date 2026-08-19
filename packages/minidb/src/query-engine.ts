@@ -7,14 +7,14 @@
 // sink) is injected through QueryEngineDeps, so this module never imports the
 // MiniDb class itself.
 
-import type { DtIndex } from './dt-index.js';
-import type { IndexManager } from './index-manager.js';
 import { getPath, match, project } from './query.js';
-import type { RangeOptions } from './skiplist.js';
-import type { Store } from './store.js';
-import type { TextIndex } from './text-index/index.js';
-import type { QueryOptions, ScanEntry, ValueCodecName } from './types.js';
 import { canonRange, fromKStr, toKStr } from './value-codec.js';
+import type { Store } from './store.js';
+import type { IndexManager } from './index-manager.js';
+import type { DtIndex } from './dt-index.js';
+import type { TextIndex } from './text-index/index.js';
+import type { RangeOptions } from './skiplist.js';
+import type { QueryOptions, ScanEntry, ValueCodecName } from './types.js';
 
 /** The owner-injected surface the query engine needs (see the header). The
  *  index managers and the text map are stable references owned by MiniDb;
@@ -68,9 +68,9 @@ export class QueryEngine<V> {
 
   private candidateKeysForPredicate(field: string, cond: unknown): Set<string> | null {
     const indexes = this.deps.indexes;
-    if (this.deps.codecName() !== 'json' || indexes.indexes.size === 0) return null;
+    if (this.deps.codecName() !== 'json' || !indexes.indexes.size) return null;
     const fieldIndexes = indexes.list().filter((i) => i.field === field);
-    if (fieldIndexes.length === 0) return null;
+    if (!fieldIndexes.length) return null;
 
     const isOpObj = cond !== null && typeof cond === 'object' && !(cond instanceof RegExp);
     const ops = isOpObj ? (cond as Record<string, unknown>) : null;
@@ -90,8 +90,7 @@ export class QueryEngine<V> {
 
     const rangeIndex = fieldIndexes.find((i) => i.type === 'range');
     if (rangeIndex && ops) {
-      const opts: { min?: number; max?: number; minExclusive?: boolean; maxExclusive?: boolean } =
-        {};
+      const opts: { min?: number; max?: number; minExclusive?: boolean; maxExclusive?: boolean } = {};
       if (typeof ops['$gte'] === 'number') opts.min = ops['$gte'];
       if (typeof ops['$gt'] === 'number') {
         opts.min = ops['$gt'];
@@ -134,14 +133,13 @@ export class QueryEngine<V> {
   private cheapEqChecks(filter?: Record<string, unknown>): { name: string; value: unknown }[] {
     const out: { name: string; value: unknown }[] = [];
     const indexes = this.deps.indexes;
-    if (!filter || typeof filter !== 'object' || indexes.indexes.size === 0) return out;
+    if (!filter || typeof filter !== 'object' || !indexes.indexes.size) return out;
     for (const { field, cond } of this.indexPredicates(filter)) {
       const idx = indexes.list().find((i) => i.field === field && i.type === 'equality');
       if (!idx) continue;
       if (cond !== null && typeof cond === 'object' && !(cond instanceof RegExp)) {
         const ops = cond as Record<string, unknown>;
-        if (Object.keys(ops).length === 1 && '$eq' in ops)
-          out.push({ name: idx.name, value: ops['$eq'] });
+        if (Object.keys(ops).length === 1 && '$eq' in ops) out.push({ name: idx.name, value: ops['$eq'] });
       } else {
         out.push({ name: idx.name, value: cond });
       }
@@ -244,8 +242,7 @@ export class QueryEngine<V> {
       } else {
         const opts: RangeOptions<string> = {};
         for (const b of ['gte', 'gt', 'lte', 'lt'] as const)
-          if ((q.key as Record<string, unknown>)[b] !== undefined)
-            opts[b] = (q.key as Record<string, unknown>)[b] as string;
+          if ((q.key as Record<string, unknown>)[b] !== undefined) opts[b] = (q.key as Record<string, unknown>)[b] as string;
         keys = this.deps.store().rawKeys(canonRange(opts));
       }
     }
@@ -323,18 +320,10 @@ export class QueryEngine<V> {
       });
     }
 
-    const sliced = early
-      ? docs
-      : skip || limit !== Infinity
-        ? docs.slice(skip, skip + limit)
-        : docs;
+    const sliced = early ? docs : skip || limit !== Infinity ? docs.slice(skip, skip + limit) : docs;
 
     if (q.project) {
-      return sliced.map((d) => ({
-        key: fromKStr(d.key),
-        value: project(d.value, q.project) as V,
-        dt: d.dt,
-      }));
+      return sliced.map((d) => ({ key: fromKStr(d.key), value: project(d.value, q.project) as V, dt: d.dt }));
     }
     return sliced.map((d) => ({ ...d, key: fromKStr(d.key) }));
   }
@@ -358,8 +347,7 @@ export class QueryEngine<V> {
       } else {
         const opts: RangeOptions<string> = {};
         for (const b of ['gte', 'gt', 'lte', 'lt'] as const)
-          if ((q.key as Record<string, unknown>)[b] !== undefined)
-            opts[b] = (q.key as Record<string, unknown>)[b] as string;
+          if ((q.key as Record<string, unknown>)[b] !== undefined) opts[b] = (q.key as Record<string, unknown>)[b] as string;
         keys = this.deps.store().rawKeys(canonRange(opts));
       }
     }
@@ -375,10 +363,7 @@ export class QueryEngine<V> {
     if (q.text) {
       const ti = this.deps.text.get(q.text.index);
       if (!ti) throw new Error(`no such text index: ${q.text.index}`);
-      const hits = await ti.searchAsync(q.text.q, {
-        op: q.text.op,
-        limit: q.text.limit ?? 1_000_000,
-      });
+      const hits = await ti.searchAsync(q.text.q, { op: q.text.op, limit: q.text.limit ?? 1_000_000 });
       textOrder = hits;
       const set = new Set(hits.map((h) => h.key));
       keys = keys === null ? hits.map((h) => h.key) : filterKeys(keys, (k) => set.has(k));
@@ -435,18 +420,10 @@ export class QueryEngine<V> {
       });
     }
 
-    const sliced = early
-      ? docs
-      : skip || limit !== Infinity
-        ? docs.slice(skip, skip + limit)
-        : docs;
+    const sliced = early ? docs : skip || limit !== Infinity ? docs.slice(skip, skip + limit) : docs;
 
     if (q.project) {
-      return sliced.map((d) => ({
-        key: fromKStr(d.key),
-        value: project(d.value, q.project) as V,
-        dt: d.dt,
-      }));
+      return sliced.map((d) => ({ key: fromKStr(d.key), value: project(d.value, q.project) as V, dt: d.dt }));
     }
     return sliced.map((d) => ({ ...d, key: fromKStr(d.key) }));
   }

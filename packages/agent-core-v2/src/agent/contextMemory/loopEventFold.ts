@@ -1,47 +1,8 @@
-/**
- * `contextMemory` loop-event fold — reduction of `context.append_loop_event`
- * records into folded `ContextMessage`s.
- *
- * The agent loop streams a turn as `context.append_loop_event` records
- * (`step.begin` / `content.part` / `tool.call` / `tool.result` / `step.end`)
- * and never writes a folded assistant message, keeping the on-disk shape
- * byte-compatible with v1. This fold turns them into assistant / tool
- * messages — at live dispatch time and again when `WireService.restore`
- * restores an Agent. Without it, restore would skip those records (no Op is
- * registered for the type) and the restored `ContextModel` — and every
- * consumer built on it — would show only the user prompts.
- *
- * Semantics mirror the v1 fold exactly:
- *   - `step.begin`  → open an assistant message (`partial: true`); first settle
- *                     the step left open by a failed attempt
- *   - `content.part`→ append to the open assistant's content
- *   - `tool.call`   → append to the open assistant's `toolCalls`, mark pending
- *   - `tool.result` → push a `tool` message (with the v1 output
- *                     wrapping), clear its pending id
- *   - `step.end`    → settle the assistant
- * "Settle" closes any tool exchange left open (interrupted result messages),
- * then drops the partial assistant when nothing sendable was recorded (no
- * tool calls; every content part vacuous — an output-free assistant only
- * trips provider message validation) and seals it (`partial: undefined`)
- * when it carries output. v1 never produced
- * `step.begin` without `step.end` (its retries stayed inside one request), so
- * the drop/seal rule is the v2 extension that makes loop-level retries — a
- * retried attempt is its own `step.begin` — replay to the same history the
- * live loop folded.
- * A `context.append_message` reduced while a tool exchange is still open is
- * deferred and flushed once the exchange closes, so strict-provider
- * assistant↔tool adjacency is preserved.
- *
- * The fold is stateful across records within one replay. State is carried in a
- * `WeakMap` keyed by each evolving state array, so the public
- * `wire.getModel(ContextModel)` view stays a plain `ContextMessage[]` and
- * concurrent replays of different agent scopes never share fold state.
- */
+import { isDraft, original } from 'immer';
 
-import { createToolMessage, type ContentPart, type ToolCall } from '#/kosong/contract/message';
 import type { FinishReason } from '#/kosong/contract/provider';
+import { createToolMessage, type ContentPart, type ToolCall } from '#/kosong/contract/message';
 import type { TokenUsage } from '#/kosong/contract/usage';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import type { ContextMessage } from './types';
 import { isVacuousContentPart } from './vacuousContent';
@@ -88,7 +49,6 @@ export type LoopRecordedEvent =
       readonly name: string;
       readonly args?: unknown;
       readonly extras?: Record<string, unknown>;
-      readonly display?: ToolInputDisplay | undefined;
       readonly uuid?: string;
       readonly turnId?: string;
       readonly step?: number;
@@ -113,10 +73,11 @@ interface FoldCtx {
 const foldCtxMap = new WeakMap<object, FoldCtx>();
 
 function ctxOf(state: readonly ContextMessage[]): FoldCtx {
-  let ctx = foldCtxMap.get(state);
+  const key = (isDraft(state) ? original(state as any) : state) as object;
+  let ctx = foldCtxMap.get(key);
   if (ctx === undefined) {
     ctx = { openStepUuid: undefined, pending: new Set(), deferred: [] };
-    foldCtxMap.set(state, ctx);
+    foldCtxMap.set(key, ctx);
   }
   return ctx;
 }
@@ -146,12 +107,7 @@ export function foldLoopEvent(
   switch (event.type) {
     case 'step.begin': {
       const settled = settleOpenStep(state, ctx);
-      const assistant: ContextMessage = {
-        role: 'assistant',
-        content: [],
-        toolCalls: [],
-        partial: true,
-      };
+      const assistant: ContextMessage = { role: 'assistant', content: [], toolCalls: [], partial: true };
       ctx.openStepUuid = event.uuid;
       return bind([...settled, assistant], ctx);
     }
@@ -161,13 +117,10 @@ export function foldLoopEvent(
       return bind(flushDeferred(s, ctx), ctx);
     }
     case 'content.part':
-      return bind(
-        appendToOpenAssistant(state, (message) => ({
-          ...message,
-          content: [...message.content, event.part],
-        })),
-        ctx,
-      );
+      return bind(appendToOpenAssistant(state, (message) => ({
+        ...message,
+        content: [...message.content, event.part],
+      })), ctx);
     case 'tool.call': {
       const call: ToolCall = {
         type: 'function',
@@ -177,21 +130,10 @@ export function foldLoopEvent(
         ...(event.extras !== undefined ? { extras: event.extras } : {}),
       };
       ctx.pending.add(event.toolCallId);
-      return bind(
-        appendToOpenAssistant(state, (message) => ({
-          ...message,
-          toolCalls: [...message.toolCalls, call],
-          ...(event.display === undefined
-            ? {}
-            : {
-                toolCallDisplays: {
-                  ...message.toolCallDisplays,
-                  [event.toolCallId]: event.display,
-                },
-              }),
-        })),
-        ctx,
-      );
+      return bind(appendToOpenAssistant(state, (message) => ({
+        ...message,
+        toolCalls: [...message.toolCalls, call],
+      })), ctx);
     }
     case 'tool.result': {
       if (!ctx.pending.has(event.toolCallId)) return state;
@@ -225,7 +167,10 @@ function appendToOpenAssistant(
   return next;
 }
 
-function settleOpenStep(state: readonly ContextMessage[], ctx: FoldCtx): readonly ContextMessage[] {
+function settleOpenStep(
+  state: readonly ContextMessage[],
+  ctx: FoldCtx,
+): readonly ContextMessage[] {
   const closed = closePending(state, ctx);
   const index = findOpenAssistantIndex(closed);
   if (index === -1) return closed;

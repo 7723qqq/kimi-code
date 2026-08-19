@@ -8,10 +8,13 @@
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join as pathJoin } from 'node:path';
 
 import { join } from 'pathe';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Each test boots a full v2 engine (DI container, fs watchers, minidb); on
+// Windows cold starts routinely exceed vitest's 5s default.
+vi.setConfig({ testTimeout: 30_000 });
 
 import { createKimiHarness } from '#/index';
 import type { KimiError, KimiHarness } from '#/index';
@@ -29,9 +32,26 @@ const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
 const tempDirs: string[] = [];
 
+/**
+ * Windows keeps file handles open briefly after an engine disposes (child
+ * processes, watchers), so a recursive `rm` right after can fail with
+ * ENOTEMPTY. Retry with a short backoff before giving up.
+ */
+async function rmRetry(path: string, attempts = 5): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      await rm(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === attempts - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+}
+
 afterEach(async () => {
   for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
+    await rmRetry(dir);
   }
 });
 
@@ -446,7 +466,7 @@ describe('KimiHarness.createSession transport link', () => {
       const summaries = await harness.listSessions({ workDir });
       const summary = summaries.find((item) => item.id === session.id);
       expect(summary?.sessionDir).not.toBe(join(homeDir, 'sessions', session.id));
-      expect(summary?.sessionDir).toContain(pathJoin(homeDir, 'sessions'));
+      expect(summary?.sessionDir).toContain(join(homeDir, 'sessions'));
       expect(existsSync(join(summary!.sessionDir, 'state.json'))).toBe(true);
 
       const summariesById = await harness.listSessions({ sessionId: session.id });

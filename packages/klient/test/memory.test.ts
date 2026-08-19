@@ -2,10 +2,10 @@ import { rm } from 'node:fs/promises';
 
 import { describe, expect, it } from 'vitest';
 
-import { RPCError } from '../src/core/errors.js';
-import { createMemoryDispatcher } from '../src/transports/memory/dispatcher.js';
-import { createKlient } from '../src/transports/memory/index.js';
 import { defineKlientConformance } from './helpers/conformance.js';
+import { createKlient } from '../src/transports/memory/index.js';
+import { createMemoryDispatcher } from '../src/transports/memory/dispatcher.js';
+import { RPCError } from '../src/core/errors.js';
 import { makeEngine } from './helpers/engine.js';
 
 defineKlientConformance('memory', async () => {

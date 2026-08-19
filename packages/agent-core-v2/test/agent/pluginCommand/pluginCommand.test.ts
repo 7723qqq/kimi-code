@@ -1,25 +1,15 @@
-/**
- * Scenario: `IAgentPluginCommandService.activate` drives a user-slash plugin
- * command into the prompt pipeline.
- *
- * Pins the activation flow: definition lookup (unknown commands reject with
- * `request.invalid`), argument expansion, the `plugin_command.activated`
- * domain event, the enqueued user message, and the main-agent prompt-metadata
- * update. Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/agent/pluginCommand/pluginCommand.test.ts`.
- */
-
 import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-  IAgentPluginCommandService,
-  type PluginCommandActivatedEvent,
-} from '#/agent/pluginCommand/pluginCommand';
 import { IEventBus } from '#/app/event/eventBus';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { PluginCommandDef } from '#/app/plugin/types';
 import { ErrorCodes } from '#/errors';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+
+import {
+  IAgentPluginCommandService,
+  PluginCommandActivated,
+} from '#/agent/pluginCommand/pluginCommand';
 
 import { appService, createTestAgent, type TestAgentContext } from '../../harness';
 
@@ -52,7 +42,6 @@ function pluginServiceStub(commands: readonly PluginCommandDef[]): IPluginServic
     enabledSessionStarts: async () => [],
     enabledSystemPrompts: async () => [],
     enabledMcpServers: async () => ({}),
-    mcpServers: async () => [],
     enabledHooks: async () => [],
     hasLoadedSnapshot: () => true,
   };
@@ -70,17 +59,19 @@ describe('AgentPluginCommandService', () => {
   });
 
   function agentWithDeployCommand(): TestAgentContext {
-    return createTestAgent(appService(IPluginService, pluginServiceStub([DEPLOY_COMMAND])));
+    return createTestAgent(
+      appService(IPluginService, pluginServiceStub([DEPLOY_COMMAND])),
+    );
   }
 
   it('publishes the activation event, enqueues the expanded body, and updates metadata', async () => {
     ctx = agentWithDeployCommand();
     ctx.mockNextResponse({ type: 'text', text: 'deployed' });
 
-    const events: PluginCommandActivatedEvent[] = [];
+    const events: PluginCommandActivated[] = [];
     const sub = ctx
       .get(IEventBus)
-      .subscribe('plugin_command.activated', (event) => events.push(event));
+      .subscribe(PluginCommandActivated, (event) => events.push(event));
 
     await ctx
       .get(IAgentPluginCommandService)
@@ -110,7 +101,9 @@ describe('AgentPluginCommandService', () => {
     ctx = agentWithDeployCommand();
 
     await expect(
-      ctx.get(IAgentPluginCommandService).activate({ pluginId: 'demo', commandName: 'missing' }),
+      ctx
+        .get(IAgentPluginCommandService)
+        .activate({ pluginId: 'demo', commandName: 'missing' }),
     ).rejects.toMatchObject({ code: ErrorCodes.REQUEST_INVALID });
   });
 });

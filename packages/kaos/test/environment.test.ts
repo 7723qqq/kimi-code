@@ -19,7 +19,12 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { detectEnvironment, type Environment, type OsKind, type ShellName } from '#/environment';
+import {
+  detectEnvironment,
+  type Environment,
+  type OsKind,
+  type ShellName,
+} from '#/environment';
 import { KaosShellNotFoundError } from '#/errors';
 
 interface StubOpts {
@@ -43,8 +48,7 @@ function stubDeps(opts: StubOpts): Parameters<typeof detectEnvironment>[0] {
     isFile: async (path: string) => existing.has(path),
     execFileText:
       opts.execFileText ??
-      (async (file: string, args: readonly string[]) =>
-        opts.execFileResults?.[execFileKey(file, args)]),
+      (async (file: string, args: readonly string[]) => opts.execFileResults?.[execFileKey(file, args)]),
   };
 }
 

@@ -98,35 +98,8 @@ const SCAN_TICK_INTERVAL = 2048;
  */
 const MAX_SCAN_DEPTH = 1024;
 
-const CONTROL_OPERATORS = [
-  '&>>',
-  '&>',
-  '&&',
-  '&',
-  '|&',
-  '||',
-  '|',
-  ';;&',
-  ';;',
-  ';&',
-  ';',
-  '(',
-  ')',
-] as const;
-const REDIRECT_OPERATORS = [
-  '<<-',
-  '<<<',
-  '<<',
-  '<&-',
-  '<&',
-  '<>',
-  '<',
-  '>&-',
-  '>&',
-  '>>',
-  '>|',
-  '>',
-] as const;
+const CONTROL_OPERATORS = ['&>>', '&>', '&&', '&', '|&', '||', '|', ';;&', ';;', ';&', ';', '(', ')'] as const;
+const REDIRECT_OPERATORS = ['<<-', '<<<', '<<', '<&-', '<&', '<>', '<', '>&-', '>&', '>>', '>|', '>'] as const;
 
 function isWordChar(ch: string | undefined): boolean {
   return ch !== undefined && /[\w]/.test(ch);
@@ -146,13 +119,7 @@ function isDigitAt(source: string, i: number): boolean {
  *  string is unterminated. Substitution-aware: $(...), ${...} and `...`
  *  inside the string may themselves contain quotes. `depth` tracks the
  *  scanBalanced ↔ skipDoubleQuoted recursion (see MAX_SCAN_DEPTH). */
-export function skipDoubleQuoted(
-  source: string,
-  budget: ParseBudget,
-  i: number,
-  end: number,
-  depth = 0,
-): number {
+export function skipDoubleQuoted(source: string, budget: ParseBudget, i: number, end: number, depth = 0): number {
   if (depth >= MAX_SCAN_DEPTH) return end;
   let j = i + 1;
   let sinceTick = 0;
@@ -188,12 +155,7 @@ export function skipDoubleQuoted(
 }
 
 /** Skip a '...' region starting at `i`. No escapes exist in raw strings. */
-export function skipSingleQuoted(
-  source: string,
-  _budget: ParseBudget,
-  i: number,
-  end: number,
-): number {
+export function skipSingleQuoted(source: string, _budget: ParseBudget, i: number, end: number): number {
   const close = source.indexOf("'", i + 1);
   if (close === -1 || close >= end) return end;
   return close + 1;
@@ -275,15 +237,7 @@ export function scanBalanced(
 
 /** Words after which a `case` word opens a case_statement (statement
  *  position) rather than being an ordinary argument. */
-const CASE_ENABLING_WORDS: ReadonlySet<string> = new Set([
-  'if',
-  'then',
-  'elif',
-  'else',
-  'while',
-  'until',
-  'do',
-]);
+const CASE_ENABLING_WORDS: ReadonlySet<string> = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do']);
 
 /**
  * Case-aware variant of scanBalanced for `(` … `)` regions that may hold

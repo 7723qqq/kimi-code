@@ -16,7 +16,12 @@ export const toolDescriptorSchema = z.object({
 });
 export type ToolDescriptor = z.infer<typeof toolDescriptorSchema>;
 
-export const mcpServerStatusSchema = z.enum(['connected', 'connecting', 'disconnected', 'error']);
+export const mcpServerStatusSchema = z.enum([
+  'connected',
+  'connecting',
+  'disconnected',
+  'error',
+]);
 export type McpServerStatus = z.infer<typeof mcpServerStatusSchema>;
 
 export const mcpServerTransportSchema = z.enum(['stdio', 'http', 'sse']);

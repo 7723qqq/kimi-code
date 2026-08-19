@@ -47,9 +47,7 @@ describe('translateProviderError', () => {
   });
 
   it('maps context-overflow status errors to context.overflow', () => {
-    const error = translateProviderError(
-      new APIContextOverflowError(400, 'context length exceeded'),
-    );
+    const error = translateProviderError(new APIContextOverflowError(400, 'context length exceeded'));
     expect(error.code).toBe('context.overflow');
   });
 
@@ -95,9 +93,7 @@ describe('translateProviderError', () => {
   });
 
   it('maps other empty responses to provider.api_error', () => {
-    expect(translateProviderError(new APIEmptyResponseError('empty')).code).toBe(
-      'provider.api_error',
-    );
+    expect(translateProviderError(new APIEmptyResponseError('empty')).code).toBe('provider.api_error');
   });
 
   it('maps a plain ChatProviderError to provider.api_error', () => {
@@ -150,9 +146,7 @@ describe('translateProviderError', () => {
 
     it('does not affect 429 / 401 code mapping, only the message', () => {
       const html = '<html><head><title>429 Too Many Requests</title></head></html>';
-      expect(translateProviderError(new APIStatusError(429, html)).code).toBe(
-        'provider.rate_limit',
-      );
+      expect(translateProviderError(new APIStatusError(429, html)).code).toBe('provider.rate_limit');
       expect(translateProviderError(new APIStatusError(401, 'Unauthorized')).code).toBe(
         'provider.auth_error',
       );

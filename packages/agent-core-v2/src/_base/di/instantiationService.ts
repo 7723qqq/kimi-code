@@ -1,11 +1,4 @@
-/**
- * `di` domain — `InstantiationService` container (instantiation, child scopes, cycle detection).
- */
-
-import { onUnexpectedError } from '../errors/unexpectedError';
-import { Emitter } from '../event';
-import type { Disposer } from '../lifecycle/disposer';
-import { Ledger, type LedgerEntry } from '../lifecycle/ledger';
+import { SyncDescriptor } from './descriptors';
 import { CascadeEngine, CascadeTree, type CascadeChange, type CascadeHost } from './cascadeEngine';
 import {
   CollectionStore,
@@ -14,7 +7,6 @@ import {
   type CollectionViewImpl,
 } from './collection';
 import { DependencyGraph } from './dependencyGraph';
-import { SyncDescriptor } from './descriptors';
 import { CascadeConflictError, CyclicDependencyError } from './errors';
 import {
   bindServiceUnit,
@@ -39,9 +31,12 @@ import {
   type ServicesAccessor,
 } from './instantiation';
 import { isDisposable, type DisposableStore, type IDisposable } from './lifecycle';
+import { onUnexpectedError } from '../errors/unexpectedError';
+import { Emitter } from '../event';
+import { Ledger, type LedgerEntry } from '../lifecycle/ledger';
+import type { Disposer } from '../lifecycle/disposer';
 import { ServiceCollection } from './serviceCollection';
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const enum TraceType {
   None = 0,
   Creation = 1,
@@ -52,17 +47,12 @@ const enum TraceType {
 export class Trace {
   static readonly all = new Set<string>();
 
-  private static readonly _None = new (class extends Trace {
-    constructor() {
-      super(TraceType.None, null);
-    }
-    override stop() {}
-    override branch() {
-      return this;
-    }
-  })();
+  private static readonly _None = new class extends Trace {
+    constructor() { super(TraceType.None, null); }
+    override stop() { }
+    override branch() { return this; }
+  };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   static traceInvocation(_enableTracing: boolean, fn: any): Trace {
     return !_enableTracing
       ? Trace._None
@@ -72,22 +62,19 @@ export class Trace {
         );
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   static traceCreation(_enableTracing: boolean, ctor: any): Trace {
     return !_enableTracing ? Trace._None : new Trace(TraceType.Creation, ctor.name);
   }
 
   private static _totals: number = 0;
   private readonly _start: number = Date.now();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly _dep: [ServiceIdentifier<any>, boolean, Trace?][] = [];
 
   private constructor(
     readonly type: TraceType,
-    readonly name: string | null,
-  ) {}
+    readonly name: string | null
+  ) { }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   branch(id: ServiceIdentifier<any>, first: boolean): Trace {
     const child = new Trace(TraceType.Branch, id.toString());
     this._dep.push([id, first, child]);
@@ -128,11 +115,7 @@ export class Trace {
       Trace.all.add(lines.join('\n'));
     }
   }
-}
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-interface LiveRefInternal<T> extends LiveRef<T> {
-  _reattach(book: Ledger): void;
 }
 
 export class InstantiationService implements IInstantiationService {
@@ -157,7 +140,6 @@ export class InstantiationService implements IInstantiationService {
   private readonly _instanceEntries = new Map<unknown, LedgerEntry>();
 
   private readonly _provideEntries = new Map<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ServiceIdentifier<any>,
     { readonly entry: LedgerEntry; readonly core: TokenProvideCore }
   >();
@@ -166,17 +148,14 @@ export class InstantiationService implements IInstantiationService {
 
   protected readonly _children = new Set<InstantiationService>();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly _inProgress: ServiceIdentifier<any>[] = [];
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly _activeInstantiations = new Set<ServiceIdentifier<any>>();
 
   private readonly _collectionStore: CollectionStore;
 
   private readonly _collectionViews = new Map<
     CollectionToken<unknown>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     CollectionViewImpl<any>
   >();
 
@@ -193,7 +172,7 @@ export class InstantiationService implements IInstantiationService {
     protected readonly _enableTracing: boolean = false,
   ) {
     this._parent = parent;
-    this._globalGraph = _enableTracing ? (parent?._globalGraph ?? new Graph((e) => e)) : undefined;
+    this._globalGraph = _enableTracing ? parent?._globalGraph ?? new Graph(e => e) : undefined;
     this._services.set(IInstantiationServiceDecorator, this);
     this._tree = parent?._tree ?? new CascadeTree(new DependencyGraph());
     this._collectionStore =
@@ -209,7 +188,10 @@ export class InstantiationService implements IInstantiationService {
       materialize: (token) => {
         this._cascadeResolving = true;
         try {
-          return this._getOrCreateServiceInstance(token, Trace.traceCreation(false, CascadeEngine));
+          return this._getOrCreateServiceInstance(
+            token,
+            Trace.traceCreation(false, CascadeEngine),
+          );
         } finally {
           this._cascadeResolving = false;
         }
@@ -228,7 +210,7 @@ export class InstantiationService implements IInstantiationService {
       },
       recipeOf: (token) => {
         const entry = this._services.entry(token);
-        if (entry === undefined) return;
+        if (entry === undefined) return undefined;
         return entry.value instanceof SyncDescriptor ? entry.value : entry.recipe;
       },
       dependenciesOf: (recipe) =>
@@ -245,7 +227,6 @@ export class InstantiationService implements IInstantiationService {
     return (this._parent?.cascadeDepth ?? -1) + 1;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _ownerOf(id: ServiceIdentifier<any>): InstantiationService | undefined {
     if (this._services.has(id)) {
       return this;
@@ -289,12 +270,9 @@ export class InstantiationService implements IInstantiationService {
   ): ProvideHandle {
     this._assertNotDisposed();
     const core = this._provideCore(id, instanceOrDescriptor, options);
-    const entry = this._ledger.register(
-      () => {
-        void core.dispose();
-      },
-      `provide:${String(id)}`,
-    );
+    const entry = this._ledger.register(() => {
+      void core.dispose();
+    }, `provide:${String(id)}`);
     this._provideEntries.set(id, { entry, core });
     return {
       get uid(): number {
@@ -326,14 +304,11 @@ export class InstantiationService implements IInstantiationService {
       if (uid === undefined) {
         continue;
       }
-      const entry = this._ledger.register(
-        () => {
-          if (this._services.uidOf(id) === uid) {
-            void this._unprovideCore(id);
-          }
-        },
-        `provide:${String(id)}`,
-      );
+      const entry = this._ledger.register(() => {
+        if (this._services.uidOf(id) === uid) {
+          void this._unprovideCore(id);
+        }
+      }, `provide:${String(id)}`);
       this._provideEntries.set(id, {
         entry,
         core: {
@@ -442,7 +417,6 @@ export class InstantiationService implements IInstantiationService {
     void this._unprovideCore(id);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _releaseProvideEntry(id: ServiceIdentifier<any>): void {
     const prev = this._provideEntries.get(id);
     if (prev !== undefined) {
@@ -518,8 +492,7 @@ export class InstantiationService implements IInstantiationService {
       mintUid: () => ++this._root()._nextUnitUid,
       provideToken: (id, descriptor, options) => this._provideCore(id, descriptor, options),
       provideTokenInstance: <T>(id: ServiceIdentifier<T>, instance: T) =>
-        this._provideCore(id, instance),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this._provideCore(id, instance, undefined),
       tokenState: (id: ServiceIdentifier<any>) => {
         const owner = this._ownerOf(id) ?? this;
         return owner.cascade.stateOf(id);
@@ -541,7 +514,6 @@ export class InstantiationService implements IInstantiationService {
       materializedInstance: <T>(id: ServiceIdentifier<T>): T | undefined =>
         this._materializedInstanceOf(id),
       liveRef: <T>(id: ServiceIdentifier<T>): LiveRef<T> => this._liveRef(id),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       recordInstanceEdge: (node: object | undefined, id: ServiceIdentifier<any>) => {
         if (node === undefined) {
           return;
@@ -567,7 +539,6 @@ export class InstantiationService implements IInstantiationService {
           providerBook,
           value,
         ),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       constructService: <T>(ctor: new (...args: any[]) => T, config: unknown): T => {
         return this._createInstance(ctor, [], Trace.traceCreation(this._enableTracing, ctor), {
           config,
@@ -585,7 +556,7 @@ export class InstantiationService implements IInstantiationService {
     return this._parent?._materializedInstanceOf(id);
   }
 
-  private _liveRef<T>(id: ServiceIdentifier<T>): LiveRefInternal<T> {
+  private _liveRef<T>(id: ServiceIdentifier<T>): LiveRef<T> {
     const change = new Emitter<void>();
     const chain: InstantiationService[] = [this];
     for (let c = this._parent; c !== undefined; c = c._parent) {
@@ -596,26 +567,18 @@ export class InstantiationService implements IInstantiationService {
         change.fire();
       }),
     );
-    const disposer = (): void => {
+    this._ledger.register(() => {
       for (const subscription of subscriptions) {
         subscription.dispose();
       }
       change.dispose();
-    };
-    let entry = this._ledger.register(disposer, `ref:${String(id)}`);
+    }, `ref:${String(id)}`);
     const current = (): T | undefined => this._materializedInstanceOf(id);
-    const ref: LiveRefInternal<T> = {
+    const ref: LiveRef<T> = {
       get current(): T | undefined {
         return current();
       },
       onDidChange: change.event,
-      // Anchor the subscriptions to the instance's own book when the instance
-      // is a service unit: the ref then stays alive exactly as long as the
-      // instance does, instead of hanging on the container ledger.
-      _reattach: (book: Ledger): void => {
-        entry.release();
-        entry = book.register(disposer, `ref:${String(id)}`);
-      },
     };
     return ref;
   }
@@ -631,20 +594,20 @@ export class InstantiationService implements IInstantiationService {
 
   private _scopePath(): string {
     const labels: string[] = [this.debugLabel ?? `#${this._tree.seqOf(this)}`];
-    for (let c: InstantiationService | undefined = this._parent; c !== undefined; c = c._parent) {
+    for (
+      let c: InstantiationService | undefined = this._parent;
+      c !== undefined;
+      c = c._parent
+    ) {
       labels.unshift(c.debugLabel ?? `#${this._tree.seqOf(c)}`);
     }
     return labels.join('/');
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   createInstance<T>(descriptor: SyncDescriptor<T>, ...rest: any[]): T;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   createInstance<T>(ctor: new (...args: any[]) => T, ...rest: any[]): T;
   createInstance<T>(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ctorOrDescriptor: SyncDescriptor<T> | (new (...args: any[]) => T),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ...rest: any[]
   ): T {
     this._assertNotDisposed();
@@ -668,7 +631,9 @@ export class InstantiationService implements IInstantiationService {
   createChild(services: ServiceCollection, store?: DisposableStore): IInstantiationService {
     this._assertNotDisposed();
     if (!(services instanceof ServiceCollection)) {
-      throw new TypeError('createChild requires a ServiceCollection instance (got something else)');
+      throw new TypeError(
+        'createChild requires a ServiceCollection instance (got something else)',
+      );
     }
     const child = this._createChildService(services);
     this._children.add(child);
@@ -711,43 +676,29 @@ export class InstantiationService implements IInstantiationService {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private _createInstance<T>(
-    ctor: any,
-    args: unknown[],
-    _trace: Trace,
-    unit?: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      id?: ServiceIdentifier<any>;
-      config?: unknown;
-    },
-  ): T {
-    const serviceDependencies = _util
-      .getServiceDependencies(ctor)
-      .toSorted((a, b) => a.index - b.index);
+  private _createInstance<T>(ctor: any, args: unknown[], _trace: Trace, unit?: {
+    id?: ServiceIdentifier<any>;
+    config?: unknown;
+  }): T {
+    const serviceDependencies = _util.getServiceDependencies(ctor).toSorted((a, b) => a.index - b.index);
     const serviceArgs: unknown[] = [];
-    const pendingRefs: LiveRefInternal<unknown>[] = [];
     for (const dependency of serviceDependencies) {
       const kind = dependency.kind ?? 'instance';
       if (kind === 'collection') {
-        serviceArgs.push(
-          this._collectionView(dependency.id as unknown as CollectionToken<unknown>),
-        );
+        serviceArgs.push(this._collectionView(dependency.id as unknown as CollectionToken<unknown>));
         continue;
       }
       if (kind === 'ref') {
-        const liveRef = this._liveRef(dependency.id);
-        pendingRefs.push(liveRef);
-        serviceArgs.push(liveRef);
+        serviceArgs.push(this._liveRef(dependency.id));
         continue;
       }
-      const service = this._getOrCreateServiceInstance(dependency.id, _trace);
-      if (!service) {
-        this._throwIfStrict(
-          `[createInstance] ${ctor.name} depends on UNKNOWN service ${String(dependency.id)}.`,
-          false,
-        );
-      }
+        const service = this._getOrCreateServiceInstance(dependency.id, _trace);
+        if (!service) {
+          this._throwIfStrict(
+            `[createInstance] ${ctor.name} depends on UNKNOWN service ${String(dependency.id)}.`,
+            false,
+          );
+        }
       serviceArgs.push(service);
     }
 
@@ -755,7 +706,6 @@ export class InstantiationService implements IInstantiationService {
       serviceDependencies.length > 0 ? serviceDependencies[0]!.index : args.length;
 
     if (args.length !== firstServiceArgPos) {
-      // eslint-disable-next-line no-console
       globalThis.console.trace(
         `[createInstance] First service dependency of ${(ctor as { name?: string }).name} at position ${firstServiceArgPos + 1} conflicts with ${args.length} static arguments`,
       );
@@ -780,16 +730,9 @@ export class InstantiationService implements IInstantiationService {
     pushConstructionFrame(frame);
     let instance: T;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       instance = Reflect.construct<unknown[], T>(ctor as new (...args: any[]) => T, finalArgs);
     } finally {
       popConstructionFrame();
-    }
-    if (pendingRefs.length > 0) {
-      const book = (instance as UnitInternals).unitBook;
-      for (const liveRef of pendingRefs) {
-        liveRef._reattach(book);
-      }
     }
     bindServiceUnit(instance as UnitInternals & IDisposable, frame);
     return instance;
@@ -845,9 +788,8 @@ export class InstantiationService implements IInstantiationService {
     desc: SyncDescriptor<T>,
     _trace: Trace,
   ): T {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     type Triple = { id: ServiceIdentifier<any>; desc: SyncDescriptor<any>; _trace: Trace };
-    const graph = new Graph<Triple>((data) => data.id.toString());
+    const graph = new Graph<Triple>(data => data.id.toString());
 
     let cycleCount = 0;
     const stack: Triple[] = [{ id, desc, _trace }];
@@ -918,7 +860,6 @@ export class InstantiationService implements IInstantiationService {
 
   private _createServiceInstanceWithOwner<T>(
     id: ServiceIdentifier<T>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ctor: any,
     args: ReadonlyArray<unknown> = [],
     _trace: Trace,
@@ -927,14 +868,18 @@ export class InstantiationService implements IInstantiationService {
       return this._createServiceInstance(id, ctor, args, _trace);
     }
     if (this._parent) {
-      return this._parent._createServiceInstanceWithOwner(id, ctor, args, _trace);
+      return this._parent._createServiceInstanceWithOwner(
+        id,
+        ctor,
+        args,
+        _trace,
+      );
     }
     throw new Error(`illegalState - creating UNKNOWN service instance ${ctor.name}`);
   }
 
   private _createServiceInstance<T>(
     id: ServiceIdentifier<T>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ctor: any,
     args: ReadonlyArray<unknown> = [],
     _trace: Trace,
@@ -969,18 +914,15 @@ export class InstantiationService implements IInstantiationService {
           );
         }
       }
-      const entry = this._ledger.register(
-        () => {
-          this._instanceEntries.delete(result);
-          this.dependencyGraph.removeInstance(result as object);
-          if (isDisposable(result)) {
-            const out = result.dispose() as unknown as void | Promise<void>;
-            return out;
-          }
-          return;
-        },
-        `service:${String(id)}`,
-      );
+      const entry = this._ledger.register(() => {
+        this._instanceEntries.delete(result);
+        this.dependencyGraph.removeInstance(result as object);
+        if (isDisposable(result)) {
+          const out = result.dispose() as unknown as void | Promise<void>;
+          return out;
+        }
+        return undefined;
+      }, `service:${String(id)}`);
       this._instanceEntries.set(result, entry);
       this.cascade.observedMaterialization(id);
       return result;
@@ -998,13 +940,14 @@ export class InstantiationService implements IInstantiationService {
     } else if (this._parent) {
       this._parent._setCreatedServiceInstance(id, instance);
     } else {
-      throw new Error(`illegal state - setting UNKNOWN service instance '${String(id)}'`);
+      throw new Error(
+        `illegal state - setting UNKNOWN service instance '${String(id)}'`,
+      );
     }
   }
 
   private _getServiceInstanceOrDescriptor<T>(
     id: ServiceIdentifier<T>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ): T | SyncDescriptor<T> | undefined {
     const instanceOrDesc = this._services.get(id);
     if (instanceOrDesc === undefined && this._parent) {
@@ -1015,7 +958,6 @@ export class InstantiationService implements IInstantiationService {
 
   private _throwIfStrict(msg: string, printWarning: boolean): void {
     if (printWarning) {
-      // eslint-disable-next-line no-console
       globalThis.console.warn(msg);
     }
     if (this._strict) {

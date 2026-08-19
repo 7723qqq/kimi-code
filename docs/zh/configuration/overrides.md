@@ -68,6 +68,7 @@ Kimi Code CLI 有三个地方可以影响运行参数：配置文件、命令行
 - `--output-format` 只能配合 `-p` 使用
 - `--prompt` 不能同时用 `--yolo` 或 `--plan`
 - `--continue` 和 `--session` 不能同时用
+- 非 prompt 模式下，`--yolo` 和 `--plan` 不能配合 `--continue` 或 `--session`
 
 ::: tip
 `--skills-dir` 是一次性替换，只影响本次启动。如需长期追加搜索目录，在 `config.toml` 里写 `extra_skill_dirs`（详见 [Agent Skills](../customization/skills.md)）。

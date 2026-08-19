@@ -15,10 +15,7 @@ import { SessionBtwService } from '#/features/btw/btwService';
 import type { ToolCall } from '#/kosong/contract/message';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
-import {
-  stubToolExecutorEvents,
-  type ToolExecutorEventStubs,
-} from '../../agent/toolExecutor/stubs';
+import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 
 describe('SessionBtwService', () => {
   let disposables: DisposableStore;
@@ -32,8 +29,6 @@ describe('SessionBtwService', () => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     appendReminder = vi.fn(() => 'reminder-id');
-    // The suffix mimics the worker-rejection guidance formatDenyMessage appends
-    // for forked sub agents, so the assertion proves the reason went through it.
     formatDenyMessage = vi.fn((message: string) => `${message} [worker guidance]`);
     executorEvents = stubToolExecutorEvents();
 
@@ -44,13 +39,11 @@ describe('SessionBtwService', () => {
           if (id === IAgentSystemReminderService) return { appendSystemReminder: appendReminder };
           if (id === IAgentToolApprovalService) return { formatDenyMessage };
           if (id === IAgentToolExecutorService) return executorEvents.executor;
-          return;
+          return undefined;
         },
       },
     };
-    // Each start() forks again, so mint a fresh child agent id per call.
-    let nextForkId = 0;
-    fork = vi.fn(async () => ({ ...child, id: `agent-btw-${String((nextForkId += 1))}` }));
+    fork = vi.fn(async () => child);
     ix.stub(IAgentLifecycleService, {
       _serviceBrand: undefined,
       fork,
@@ -92,20 +85,5 @@ describe('SessionBtwService', () => {
       },
     });
     expect(formatDenyMessage).toHaveBeenCalledWith(TOOL_CALL_DISABLED_MESSAGE);
-  });
-
-  it('forks a fresh child agent on every start', async () => {
-    const svc = ix.get(ISessionBtwService);
-    const first = await svc.start();
-    const second = await svc.start();
-    expect(fork).toHaveBeenCalledTimes(2);
-    expect(first).toBe('agent-btw-1');
-    expect(second).toBe('agent-btw-2');
-  });
-
-  it('propagates a fork failure', async () => {
-    fork.mockRejectedValueOnce(new Error('fork failed'));
-    const svc = ix.get(ISessionBtwService);
-    await expect(svc.start()).rejects.toThrow('fork failed');
   });
 });

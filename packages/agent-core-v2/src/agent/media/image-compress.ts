@@ -1,46 +1,5 @@
-/**
- * `media` domain — image compression for model ingestion.
- *
- * Shrink oversized images before they reach the model.
- *
- * A multimodal request carries each image as a base64 data URL; an unbounded
- * screenshot or photo wastes context tokens and can blow past the provider's
- * per-image byte ceiling. This module downsamples and re-encodes such images
- * so they fit a pixel + byte budget, while leaving already-small images
- * untouched — the common case is a fast, codec-free pass-through.
- *
- * Design notes:
- *  - The Rust native codec (`kimi-native-tools`) is tried first for the
- *    decode→resize→encode pipeline. When it is unavailable (its wrapper
- *    returns `undefined`), a lazy jimp pipeline takes over, decoding WebP
- *    through a wasm decoder (see ./webp-decode). Both codec paths are only
- *    paid for when an image actually needs work, so startup and the fast
- *    path stay cheap.
- *  - Best effort: any decode/encode failure returns the original bytes
- *    unchanged (`changed: false`). Callers must verify that this unchanged
- *    result satisfies their delivery limits before forwarding it.
- *  - Format gate first: content-part lists pass through
- *    {@link gateImageFormatParts} before any compression, so images outside
- *    the provider-accepted set are never decoded or forwarded — one
- *    unsupported image in the session history would make every subsequent
- *    request fail.
- *  - PNG, JPEG, and (non-animated) WebP are re-encoded; WebP re-encodes
- *    through the PNG/JPEG ladder after a wasm decode. GIF and animated WebP
- *    are passed through to preserve animation. Formats outside the
- *    provider-accepted set never reach this module from the content-part
- *    paths (the format gate drops them first); direct callers get a
- *    passthrough.
- *  - Compression must never be silent to the model: results carry the
- *    original dimensions, {@link buildImageCompressionCaption} renders the
- *    shared "what was compressed, where is the original" note every ingestion
- *    point can place next to the image, and {@link cropImageForModel} lets a
- *    caller read a region of the original back at full fidelity.
- */
-
-import type { StrictPropertyCheck, TelemetryEventName, TelemetryEventPayload } from '#/app/telemetry/events';
 import type { ContentPart } from '#/kosong/contract/message';
 
-import { tryNativeCompressImage, tryNativeCropImage } from '../../_base/native-tools';
 import { sniffImageDimensions } from './file-type';
 import {
   buildMalformedImageNotice,
@@ -53,8 +12,7 @@ import {
   resolveEffectiveImageMime,
   unsupportedImageMimeFromUrl,
 } from './image-format-policy';
-import { isAnimatedWebp } from './webp-animated';
-import { decodeWebp } from './webp-decode';
+import { decodeWebp, isAnimatedWebp } from './webp-decode';
 
 export const MAX_IMAGE_EDGE_PX = 2000;
 
@@ -64,18 +22,8 @@ export function setConfiguredMaxImageEdgePx(value: number | undefined): void {
   configuredMaxImageEdgePx = value !== undefined && isPositiveInt(value) ? value : undefined;
 }
 
-export const MAX_IMAGE_EDGE_ENV = 'KIMI_IMAGE_MAX_EDGE_PX';
-
-export function maxImageEdgeFromEnv(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): number | undefined {
-  return positiveIntFromEnv(env, MAX_IMAGE_EDGE_ENV);
-}
-
-export function resolveMaxImageEdgePx(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): number {
-  return maxImageEdgeFromEnv(env) ?? configuredMaxImageEdgePx ?? MAX_IMAGE_EDGE_PX;
+export function resolveMaxImageEdgePx(): number {
+  return configuredMaxImageEdgePx ?? MAX_IMAGE_EDGE_PX;
 }
 
 export const IMAGE_BYTE_BUDGET = 3.75 * 1024 * 1024;
@@ -85,35 +33,16 @@ export const READ_IMAGE_BYTE_BUDGET = 256 * 1024;
 let configuredReadImageByteBudget: number | undefined;
 
 export function setConfiguredReadImageByteBudget(value: number | undefined): void {
-  configuredReadImageByteBudget = value !== undefined && isPositiveInt(value) ? value : undefined;
+  configuredReadImageByteBudget =
+    value !== undefined && isPositiveInt(value) ? value : undefined;
 }
 
-export const READ_IMAGE_BYTE_BUDGET_ENV = 'KIMI_IMAGE_READ_BYTE_BUDGET';
-
-export function readImageByteBudgetFromEnv(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): number | undefined {
-  return positiveIntFromEnv(env, READ_IMAGE_BYTE_BUDGET_ENV);
-}
-
-export function resolveReadImageByteBudget(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): number {
-  return readImageByteBudgetFromEnv(env) ?? configuredReadImageByteBudget ?? READ_IMAGE_BYTE_BUDGET;
+export function resolveReadImageByteBudget(): number {
+  return configuredReadImageByteBudget ?? READ_IMAGE_BYTE_BUDGET;
 }
 
 function isPositiveInt(value: number): boolean {
   return Number.isInteger(value) && value > 0;
-}
-
-function positiveIntFromEnv(
-  env: Readonly<Record<string, string | undefined>>,
-  name: string,
-): number | undefined {
-  const raw = env[name]?.trim();
-  if (raw === undefined || raw.length === 0 || !/^\d+$/.test(raw)) return undefined;
-  const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 const JPEG_QUALITY_STEPS = [80, 60, 40, 20] as const;
 
@@ -135,9 +64,9 @@ export interface CompressImageOptions {
 }
 
 export interface ImageCompressionTelemetryClient {
-  track2<K extends TelemetryEventName, E extends TelemetryEventPayload<K> = never>(
-    event: K,
-    properties?: StrictPropertyCheck<TelemetryEventPayload<K>, E>,
+  track(
+    event: string,
+    properties?: Readonly<Record<string, string | number | boolean | null | undefined>>,
   ): void;
 }
 
@@ -218,29 +147,6 @@ export async function compressImageForModel(
   }
   if (bytes.length > maxDecodeBytes) return finish('passthrough_guard', passthrough());
 
-  // Try the Rust native codec first.
-  const nativeResult = await tryNativeCompressImage(bytes, normalizedMime, {
-    maxEdge,
-    byteBudget,
-    fallbackEdges: FALLBACK_EDGES_PX,
-    jpegQualitySteps: JPEG_QUALITY_STEPS,
-  });
-  if (nativeResult !== undefined) {
-    if (!nativeResult.changed) return finish('passthrough_unhelpful', passthrough());
-    return finish('compressed', {
-      data: nativeResult.data,
-      mimeType: nativeResult.mimeType,
-      width: nativeResult.width,
-      height: nativeResult.height,
-      originalWidth: nativeResult.originalWidth,
-      originalHeight: nativeResult.originalHeight,
-      changed: true,
-      originalByteLength: bytes.length,
-      finalByteLength: nativeResult.finalByteLength,
-    });
-  }
-
-  // The native codec is unavailable — fall back to the lazy jimp pipeline.
   try {
     const image = await decodeToJimp(bytes, normalizedMime);
     const preferLossless = normalizedMime !== 'image/jpeg';
@@ -425,11 +331,7 @@ export async function compressImageContentParts(
     if (part.type === 'image_url') {
       const parsed = parseImageDataUrl(part.imageUrl.url);
       if (parsed !== null) {
-        const result = await compressBase64ForModel(
-          parsed.base64,
-          parsed.mimeType,
-          compressOptions,
-        );
+        const result = await compressBase64ForModel(parsed.base64, parsed.mimeType, compressOptions);
         if (result.changed) {
           if (annotate !== undefined) {
             let originalPath: string | null = null;
@@ -543,7 +445,9 @@ export async function cropImageForModel(
   if (normalizedMime === 'image/webp' && isAnimatedWebp(bytes)) {
     return fail('unsupported_format', 'Cropping is not supported for animated WebP images.');
   }
-  if (![region.x, region.y, region.width, region.height].every((value) => Number.isFinite(value))) {
+  if (
+    ![region.x, region.y, region.width, region.height].every((value) => Number.isFinite(value))
+  ) {
     return fail(
       'region_invalid',
       `Region coordinates must be finite numbers; got x=${String(region.x)}, ` +
@@ -561,44 +465,6 @@ export async function cropImageForModel(
     return fail('too_large', 'The image is too large to decode for cropping.');
   }
 
-  // Try the Rust native codec first.
-  const nativeOutcome = await tryNativeCropImage(
-    bytes,
-    normalizedMime,
-    { x: region.x, y: region.y, width: region.width, height: region.height },
-    {
-      maxEdge,
-      byteBudget,
-      skipResize: options.skipResize ?? false,
-      fallbackEdges: FALLBACK_EDGES_PX,
-      jpegQualitySteps: JPEG_QUALITY_STEPS,
-    },
-  );
-  if (nativeOutcome !== undefined) {
-    if (!nativeOutcome.ok) {
-      return fail(nativeOutcome.errorKind as CropErrorKind, nativeOutcome.error);
-    }
-    return succeed({
-      ok: true,
-      data: nativeOutcome.data,
-      mimeType: nativeOutcome.mimeType,
-      width: nativeOutcome.width,
-      height: nativeOutcome.height,
-      originalWidth: nativeOutcome.originalWidth,
-      originalHeight: nativeOutcome.originalHeight,
-      region: {
-        x: nativeOutcome.regionX,
-        y: nativeOutcome.regionY,
-        width: nativeOutcome.regionWidth,
-        height: nativeOutcome.regionHeight,
-      },
-      resized: nativeOutcome.resized,
-      originalByteLength: bytes.length,
-      finalByteLength: nativeOutcome.finalByteLength,
-    });
-  }
-
-  // The native codec is unavailable — fall back to the lazy jimp pipeline.
   try {
     const image = await decodeToJimp(bytes, normalizedMime);
     const originalWidth = image.width;
@@ -606,14 +472,7 @@ export async function cropImageForModel(
 
     const x = Math.floor(region.x);
     const y = Math.floor(region.y);
-    if (
-      x < 0 ||
-      y < 0 ||
-      x >= originalWidth ||
-      y >= originalHeight ||
-      region.width < 1 ||
-      region.height < 1
-    ) {
+    if (x < 0 || y < 0 || x >= originalWidth || y >= originalHeight || region.width < 1 || region.height < 1) {
       return fail(
         'out_of_bounds',
         `Region (x=${String(region.x)}, y=${String(region.y)}, width=${String(region.width)}, ` +
@@ -871,7 +730,7 @@ function reportCompressEvent(
 ): void {
   if (telemetry === undefined) return;
   try {
-    telemetry.client.track2('image_compress', {
+    telemetry.client.track('image_compress', {
       source: telemetry.source,
       outcome: input.outcome,
       input_mime: input.inputMime,
@@ -885,7 +744,8 @@ function reportCompressEvent(
       exif_transposed: input.exifTransposed,
       duration_ms: Date.now() - input.startedAt,
     });
-  } catch {}
+  } catch {
+  }
 }
 
 function reportCropEvent(
@@ -900,23 +760,22 @@ function reportCropEvent(
   if (telemetry === undefined) return;
   try {
     const { result } = input;
-    const originalPixels = result === undefined ? 0 : result.originalWidth * result.originalHeight;
-    telemetry.client.track2('image_crop', {
+    const originalPixels =
+      result === undefined ? 0 : result.originalWidth * result.originalHeight;
+    telemetry.client.track('image_crop', {
       source: telemetry.source,
       ok: input.ok,
-      ...(input.errorKind === undefined ? {} : { error_kind: input.errorKind }),
-      ...(result === undefined
-        ? {}
-        : {
-            resized: result.resized,
-            original_width: result.originalWidth,
-            original_height: result.originalHeight,
-            final_bytes: result.finalByteLength,
-          }),
-      ...(result !== undefined && originalPixels > 0
-        ? { region_area_ratio: (result.region.width * result.region.height) / originalPixels }
-        : {}),
+      error_kind: input.errorKind,
+      resized: result?.resized,
+      original_width: result?.originalWidth,
+      original_height: result?.originalHeight,
+      region_area_ratio:
+        result === undefined || originalPixels === 0
+          ? undefined
+          : (result.region.width * result.region.height) / originalPixels,
+      final_bytes: result?.finalByteLength,
       duration_ms: Date.now() - input.startedAt,
     });
-  } catch {}
+  } catch {
+  }
 }

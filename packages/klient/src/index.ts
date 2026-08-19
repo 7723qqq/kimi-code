@@ -6,7 +6,12 @@
  * bytes.
  */
 
-export type { EventSourceRef, IDisposable, KlientChannel, ScopeRef } from './core/channel.js';
+export type {
+  EventSourceRef,
+  IDisposable,
+  KlientChannel,
+  ScopeRef,
+} from './core/channel.js';
 export { RPCError } from './core/errors.js';
 export { KlientValidationError, type ValidationPhase } from './core/validation.js';
 export {
@@ -21,9 +26,11 @@ export type { Caller, ScopedCaller, ScopedStreamCaller } from './core/facade/glo
 
 export type {
   ConfigTargetLiteral,
+  FileDownload,
   GlobalAuthFacade,
   GlobalConfigFacade,
   GlobalFacade,
+  GlobalFilesFacade,
   GlobalFlagsFacade,
   GlobalHostFsFacade,
   GlobalKosongFacade,
@@ -68,6 +75,8 @@ export type {
   McpServerEntry,
   PlanData,
   PromptLaunchResult,
+  PromptWithSkillsInput,
+  PromptWithSkillsResult,
   SetModelResult,
   ShellCommandResult,
   ThinkingLevel,
@@ -106,6 +115,7 @@ export type {
   FsBrowseResponse,
   FsHomeResponse,
 } from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+export type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 export type {
   PluginCommandDef,
   PluginInfo,

@@ -1,14 +1,16 @@
-import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { IModelCatalog } from '@moonshot-ai/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
+import { IModelCatalog, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
+import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/node-local/hostFsService';
+import { FakeRuntime } from '@moonshot-ai/agent-core-v2/runtime/fakeRuntime';
 import { ErrorCode } from '../src/protocol/error-codes';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -31,8 +33,6 @@ interface FsEntryWire {
 describe('server-v2 /api/v1 fs routes', () => {
   let server: RunningServer | undefined;
   let home: string | undefined;
-  /** Session work dir — kept separate from the server homeDir so the server's
-   *  own state (session storage under homeDir) does not pollute `fs:list`. */
   let work: string | undefined;
   let base: string;
 
@@ -80,8 +80,6 @@ describe('server-v2 /api/v1 fs routes', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      // maxRetries: the async query-store shard writer can still be flushing
-      // after close (ENOTEMPTY on macOS) — same retry pattern as sessions.test.ts.
       await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       home = undefined;
     }
@@ -102,14 +100,27 @@ describe('server-v2 /api/v1 fs routes', () => {
     return body.data.id;
   }
 
-  async function postFs<T>(id: string, action: string, body: unknown): Promise<Envelope<T>> {
+  async function postFs<T>(id: string, action: string, body: unknown, runtimeId = 'local'): Promise<Envelope<T>> {
     const res = await fetch(`${base}/api/v1/sessions/${id}/fs:${action}`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-      body: JSON.stringify(body),
+      body: JSON.stringify({ runtime_id: runtimeId, ...(body as object) }),
     } as never);
     return (await res.json()) as Envelope<T>;
   }
+
+  it('defaults fs actions to the local runtime when runtime_id is omitted', async () => {
+    await writeFile(join(work!, 'a.txt'), 'hello');
+    const id = await createSession();
+    const res = await fetch(`${base}/api/v1/sessions/${id}/fs:stat`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ path: 'a.txt' }),
+    } as never);
+    const body = (await res.json()) as Envelope<FsEntryWire>;
+    expect(body.code).toBe(0);
+    expect(body.data.name).toBe('a.txt');
+  });
 
   it('fs:stat returns a file entry with the protocol shape', async () => {
     await writeFile(join(work!, 'a.txt'), 'hello');
@@ -132,13 +143,54 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:read returns utf-8 content', async () => {
     await writeFile(join(work!, 'a.txt'), 'hello world');
     const id = await createSession();
-    const body = await postFs<{ content: string; encoding: string; size: number }>(id, 'read', {
-      path: 'a.txt',
-    });
+    const body = await postFs<{ content: string; encoding: string; size: number }>(
+      id,
+      'read',
+      { path: 'a.txt' },
+    );
     expect(body.code).toBe(0);
     expect(body.data.content).toBe('hello world');
     expect(body.data.encoding).toBe('utf-8');
     expect(body.data.size).toBe(11);
+  });
+
+  it('fs:read uses the selected non-local runtime and mapped workspace root', async () => {
+    await writeFile(join(work!, 'selected.txt'), 'local');
+    const remote = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-remote-'));
+    await writeFile(join(remote, 'selected.txt'), 'remote');
+    const id = await createSession();
+    const provider = await server!.core.accessor.get(IWorkspaceInstanceManager).addProvider({
+      id: 'remote-test-provider',
+      imports: { root: [], imports: [], local: [] },
+      attach: async (context, host) => {
+        const runtime = Object.assign(
+          new FakeRuntime(
+            { workspaceId: context.id, runtimeId: 'remote-test', generation: 'remote-generation' },
+            {
+              capabilities: ['fs'],
+              pathClass: 'win32',
+              mapWorkspaceRoots: () => ({ workDir: remote, additionalDirs: [] }),
+            },
+          ),
+          { fs: new HostFileSystem() },
+        );
+        const registration = host.registerRuntime(runtime);
+        return { dispose: () => registration.remove() };
+      },
+    });
+    try {
+      const body = await postFs<{ content: string }>(
+        id,
+        'read',
+        { path: 'selected.txt' },
+        'remote-test',
+      );
+      expect(body.code).toBe(0);
+      expect(body.data.content).toBe('remote');
+    } finally {
+      await provider.dispose();
+      await rm(remote, { recursive: true, force: true });
+    }
   });
 
   it('fs:read maps a directory to FS_IS_DIRECTORY', async () => {
@@ -147,23 +199,21 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.code).toBe(ErrorCode.FS_IS_DIRECTORY);
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'fs:read maps a permission-denied host error to FS_PERMISSION_DENIED',
-    async () => {
-      // Root bypasses permission checks, so EACCES never triggers there.
-      if (process.getuid?.() === 0) return;
-      const file = join(work!, 'locked.txt');
-      await writeFile(file, 'secret');
-      await chmod(file, 0o000);
-      try {
-        const id = await createSession();
-        const body = await postFs<null>(id, 'read', { path: 'locked.txt' });
-        expect(body.code).toBe(ErrorCode.FS_PERMISSION_DENIED);
-      } finally {
-        await chmod(file, 0o644);
-      }
-    },
-  );
+  it('fs:read maps a permission-denied host error to FS_PERMISSION_DENIED', async () => {
+    // chmod permission bits are not honored on Windows, so the read succeeds.
+    if (process.platform === 'win32') return;
+    if (process.getuid?.() === 0) return;
+    const file = join(work!, 'locked.txt');
+    await writeFile(file, 'secret');
+    await chmod(file, 0o000);
+    try {
+      const id = await createSession();
+      const body = await postFs<null>(id, 'read', { path: 'locked.txt' });
+      expect(body.code).toBe(ErrorCode.FS_PERMISSION_DENIED);
+    } finally {
+      await chmod(file, 0o644);
+    }
+  });
 
   it('fs:list returns items', async () => {
     await writeFile(join(work!, 'a.txt'), '');
@@ -171,7 +221,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     const id = await createSession();
     const body = await postFs<{ items: FsEntryWire[]; truncated: boolean }>(id, 'list', {});
     expect(body.code).toBe(0);
-    const names = body.data.items.map((i) => i.name).toSorted();
+    const names = body.data.items.map((i) => i.name).sort();
     expect(names).toEqual(['a.txt', 'b.txt']);
     expect(body.data.truncated).toBe(false);
   });
@@ -189,9 +239,11 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:stat_many returns null for missing paths', async () => {
     await writeFile(join(work!, 'a.txt'), 'hi');
     const id = await createSession();
-    const body = await postFs<{ entries: Record<string, FsEntryWire | null> }>(id, 'stat_many', {
-      paths: ['a.txt', 'missing.txt'],
-    });
+    const body = await postFs<{ entries: Record<string, FsEntryWire | null> }>(
+      id,
+      'stat_many',
+      { paths: ['a.txt', 'missing.txt'] },
+    );
     expect(body.code).toBe(0);
     expect(body.data.entries['a.txt']?.kind).toBe('file');
     expect(body.data.entries['missing.txt']).toBeNull();
@@ -201,17 +253,17 @@ describe('server-v2 /api/v1 fs routes', () => {
     await writeFile(join(work!, 'alpha.ts'), '');
     await writeFile(join(work!, 'beta.ts'), '');
     const id = await createSession();
-    const body = await postFs<{ items: { path: string }[]; truncated: boolean }>(id, 'search', {
-      query: 'alpha',
-    });
+    const body = await postFs<{ items: { path: string }[]; truncated: boolean }>(
+      id,
+      'search',
+      { query: 'alpha' },
+    );
     expect(body.code).toBe(0);
     expect(body.data.items.map((i) => i.path)).toContain('alpha.ts');
   });
 
   it('fs:search resolves a registered workspace id when no session exists', async () => {
     await writeFile(join(work!, 'gamma.ts'), '');
-    // Register the workspace without creating any session (the kimi-web
-    // new-session draft addresses the workspace directly).
     const res = await fetch(`${base}/api/v1/workspaces`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
@@ -247,9 +299,11 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:grep finds matching lines', async () => {
     await writeFile(join(work!, 'a.txt'), 'hello world\nfoo bar\n');
     const id = await createSession();
-    const body = await postFs<{ files: { path: string; matches: unknown[] }[] }>(id, 'grep', {
-      pattern: 'hello',
-    });
+    const body = await postFs<{ files: { path: string; matches: unknown[] }[] }>(
+      id,
+      'grep',
+      { pattern: 'hello' },
+    );
     expect(body.code).toBe(0);
     expect(body.data.files.length).toBeGreaterThanOrEqual(1);
   });
@@ -287,7 +341,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       const body = await postFs<null>(id, 'read', { path: 'docs/secret.txt' });
       expect(body.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
 
-      const res = await fetch(`${base}/api/v1/sessions/${id}/fs/docs/secret.txt:download`, {
+      const res = await fetch(`${base}/api/v1/sessions/${id}/fs/docs/secret.txt:download?runtime_id=local`, {
         headers: authHeaders(server as RunningServer),
       } as never);
       const downloadBody = (await res.json()) as Envelope<null>;
@@ -324,7 +378,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     await writeFile(join(work!, 'a.txt'), 'download-me');
     const id = await createSession();
 
-    const res = await fetch(`${base}/api/v1/sessions/${id}/fs/a.txt:download`, {
+    const res = await fetch(`${base}/api/v1/sessions/${id}/fs/a.txt:download?runtime_id=local`, {
       headers: authHeaders(server as RunningServer),
     } as never);
     expect(res.status).toBe(200);
@@ -333,21 +387,49 @@ describe('server-v2 /api/v1 fs routes', () => {
     const etag = res.headers.get('etag');
     expect(etag).toBeTruthy();
 
-    const cached = await fetch(`${base}/api/v1/sessions/${id}/fs/a.txt:download`, {
+    const cached = await fetch(`${base}/api/v1/sessions/${id}/fs/a.txt:download?runtime_id=local`, {
       headers: authHeaders(server as RunningServer, { 'if-none-match': etag as string }),
     } as never);
     expect(cached.status).toBe(304);
   });
 
-  // -------------------------------------------------------------------------
-  // POST /api/v1/workspace/fs:search — session-less workspace file search.
-  // -------------------------------------------------------------------------
+  it('GET fs/{path}:download defaults to the local runtime when runtime_id is omitted', async () => {
+    await writeFile(join(work!, 'b.txt'), 'compat-download');
+    const id = await createSession();
+
+    const res = await fetch(`${base}/api/v1/sessions/${id}/fs/b.txt:download`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('compat-download');
+  });
+
+  it('GET fs/{path}:download untracks the stream from the runtime generation after completion', async () => {
+    await writeFile(join(work!, 'c.txt'), 'tracked-download');
+    const id = await createSession();
+    const instance = server!.core.accessor.get(IWorkspaceInstanceManager).findByRoot(work!);
+    expect(instance).toBeDefined();
+    const generations = (instance!.runtimes as unknown as {
+      currentGenerations: Map<string, { resources: Set<unknown> }>;
+    }).currentGenerations;
+    const resources = generations.get('local')!.resources;
+    const baseline = resources.size;
+
+    for (let i = 0; i < 2; i += 1) {
+      const res = await fetch(`${base}/api/v1/sessions/${id}/fs/c.txt:download?runtime_id=local`, {
+        headers: authHeaders(server as RunningServer),
+      } as never);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe('tracked-download');
+      await vi.waitFor(() => expect(resources.size).toBe(baseline));
+    }
+  });
 
   async function postWorkspaceSearch<T>(body: unknown): Promise<Envelope<T>> {
     const res = await fetch(`${base}/api/v1/workspace/fs:search`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
-      body: JSON.stringify(body),
+      body: JSON.stringify({ runtime_id: 'local', ...(body as object) }),
     } as never);
     return (await res.json()) as Envelope<T>;
   }
@@ -390,6 +472,18 @@ describe('server-v2 /api/v1 fs routes', () => {
     expect(body.data.items.map((i) => i.path)).toContain('eta.ts');
   });
 
+  it('workspace fs:search defaults to the local runtime when runtime_id is omitted', async () => {
+    await writeFile(join(work!, 'theta.ts'), '');
+    const res = await fetch(`${base}/api/v1/workspace/fs:search`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ workspace: work, query: 'theta' }),
+    } as never);
+    const body = (await res.json()) as Envelope<{ items: { path: string }[]; truncated: boolean }>;
+    expect(body.code).toBe(0);
+    expect(body.data.items.map((i) => i.path)).toContain('theta.ts');
+  });
+
   it('workspace fs:search maps an unknown ref to WORKSPACE_NOT_FOUND', async () => {
     const body = await postWorkspaceSearch<null>({ workspace: 'does-not-exist', query: 'x' });
     expect(body.code).toBe(ErrorCode.WORKSPACE_NOT_FOUND);
@@ -397,6 +491,136 @@ describe('server-v2 /api/v1 fs routes', () => {
 
   it('workspace fs:search rejects a missing workspace field with VALIDATION_FAILED', async () => {
     const body = await postWorkspaceSearch<null>({ query: 'x' });
+    expect(body.code).toBe(ErrorCode.VALIDATION_FAILED);
+  });
+
+  interface SuggestItemWire {
+    path: string;
+    name: string;
+    kind: string;
+    score: number;
+    match_positions: number[];
+  }
+
+  async function postWorkspaceSuggest<T>(body: unknown): Promise<Envelope<T>> {
+    const res = await fetch(`${base}/api/v1/workspace/fs:suggest`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ runtime_id: 'local', ...(body as object) }),
+    } as never);
+    return (await res.json()) as Envelope<T>;
+  }
+
+  it('workspace fs:suggest finds files by registered workspace id', async () => {
+    await writeFile(join(work!, 'epsilon.ts'), '');
+    const res = await fetch(`${base}/api/v1/workspaces`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ root: work }),
+    } as never);
+    const created = (await res.json()) as Envelope<{ id: string }>;
+    expect(created.code).toBe(0);
+
+    const body = await postWorkspaceSuggest<{ items: SuggestItemWire[]; truncated: boolean }>({
+      workspace: created.data.id,
+      query: 'epsilon',
+    });
+    expect(body.code).toBe(0);
+    expect(body.data.items.map((i) => i.path)).toContain('epsilon.ts');
+  });
+
+  it('workspace fs:suggest finds files by absolute root path', async () => {
+    await writeFile(join(work!, 'zeta.ts'), '');
+    const body = await postWorkspaceSuggest<{ items: SuggestItemWire[]; truncated: boolean }>({
+      workspace: work,
+      query: 'zeta',
+    });
+    expect(body.code).toBe(0);
+    expect(body.data.items.map((i) => i.path)).toContain('zeta.ts');
+  });
+
+  it('workspace fs:suggest lists top-level entries for an empty query', async () => {
+    await writeFile(join(work!, 'eta.ts'), '');
+    const body = await postWorkspaceSuggest<{ items: SuggestItemWire[]; truncated: boolean }>({
+      workspace: work,
+      query: '',
+    });
+    expect(body.code).toBe(0);
+    expect(body.data.items.map((i) => i.path)).toContain('eta.ts');
+  });
+
+  it('workspace fs:suggest matches path segments and returns scored items', async () => {
+    await mkdir(join(work!, 'apps'));
+    await mkdir(join(work!, 'apps', 'desktop'));
+    await writeFile(join(work!, 'apps', 'desktop', 'package.json'), '{}');
+    const body = await postWorkspaceSuggest<{ items: SuggestItemWire[]; truncated: boolean }>({
+      workspace: work,
+      query: 'apps/de',
+    });
+    expect(body.code).toBe(0);
+    expect(body.data.items.length).toBeGreaterThan(0);
+    expect(body.data.items[0]?.path).toBe('apps/desktop');
+    expect(body.data.items[0]?.kind).toBe('directory');
+    expect(body.data.items.map((i) => i.path)).toContain('apps/desktop/package.json');
+    for (const item of body.data.items) {
+      expect(item.score).toBeGreaterThan(0);
+      expect(item.score).toBeLessThanOrEqual(1);
+      expect(Array.isArray(item.match_positions)).toBe(true);
+    }
+  });
+
+  it('workspace fs:suggest returns an empty list when a path-form query has no match', async () => {
+    const body = await postWorkspaceSuggest<{ items: SuggestItemWire[]; truncated: boolean }>({
+      workspace: work,
+      query: 'zzz/qqq',
+    });
+    expect(body.code).toBe(0);
+    expect(body.data.items).toEqual([]);
+    expect(body.data.truncated).toBe(false);
+  });
+
+  it('workspace fs:suggest hides dotfiles by default and shows them with show_hidden', async () => {
+    await writeFile(join(work!, '.theta.ts'), '');
+    const hidden = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
+      workspace: work,
+      query: 'theta',
+    });
+    expect(hidden.code).toBe(0);
+    expect(hidden.data.items.map((i) => i.path)).not.toContain('.theta.ts');
+
+    const shown = await postWorkspaceSuggest<{ items: SuggestItemWire[] }>({
+      workspace: work,
+      query: 'theta',
+      show_hidden: true,
+    });
+    expect(shown.code).toBe(0);
+    expect(shown.data.items.map((i) => i.path)).toContain('.theta.ts');
+  });
+
+  it('workspace fs:suggest defaults to the local runtime when runtime_id is omitted', async () => {
+    await writeFile(join(work!, 'iota.ts'), '');
+    const res = await fetch(`${base}/api/v1/workspace/fs:suggest`, {
+      method: 'POST',
+      headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
+      body: JSON.stringify({ workspace: work, query: 'iota' }),
+    } as never);
+    const body = (await res.json()) as Envelope<{ items: SuggestItemWire[]; truncated: boolean }>;
+    expect(body.code).toBe(0);
+    expect(body.data.items.map((i) => i.path)).toContain('iota.ts');
+  });
+
+  it('workspace fs:suggest maps an unknown ref to WORKSPACE_NOT_FOUND', async () => {
+    const body = await postWorkspaceSuggest<null>({ workspace: 'does-not-exist', query: 'x' });
+    expect(body.code).toBe(ErrorCode.WORKSPACE_NOT_FOUND);
+  });
+
+  it('workspace fs:suggest rejects a missing workspace field with VALIDATION_FAILED', async () => {
+    const body = await postWorkspaceSuggest<null>({ query: 'x' });
+    expect(body.code).toBe(ErrorCode.VALIDATION_FAILED);
+  });
+
+  it('workspace fs:suggest rejects a missing query field with VALIDATION_FAILED', async () => {
+    const body = await postWorkspaceSuggest<null>({ workspace: work });
     expect(body.code).toBe(ErrorCode.VALIDATION_FAILED);
   });
 });

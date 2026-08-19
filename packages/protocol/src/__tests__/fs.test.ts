@@ -12,6 +12,7 @@ import {
   fsGrepMatchSchema,
   fsKindSchema,
   fsSearchHitSchema,
+  fsSuggestItemSchema,
   type FsChangeEntry,
   type FsChangeEvent,
   type FsEntry,
@@ -19,6 +20,7 @@ import {
   type FsGrepFileHit,
   type FsGrepMatch,
   type FsSearchHit,
+  type FsSuggestItem,
 } from '../fs';
 
 describe('fsKindSchema', () => {
@@ -138,11 +140,38 @@ describe('fsSearchHitSchema (W11.1 / Chain 11)', () => {
   });
 
   it('rejects negative match positions', () => {
-    expect(fsSearchHitSchema.safeParse({ ...hit, match_positions: [-1] }).success).toBe(false);
+    expect(
+      fsSearchHitSchema.safeParse({ ...hit, match_positions: [-1] }).success,
+    ).toBe(false);
   });
 
   it('accepts an empty match_positions list', () => {
     expect(fsSearchHitSchema.parse({ ...hit, match_positions: [] }).match_positions).toEqual([]);
+  });
+});
+
+describe('fsSuggestItemSchema', () => {
+  const item: FsSuggestItem = {
+    path: 'apps/desktop',
+    name: 'desktop',
+    kind: 'directory',
+    score: 0.87,
+    match_positions: [5, 6],
+  };
+
+  it('round-trips a populated item', () => {
+    expect(fsSuggestItemSchema.parse(item)).toEqual(item);
+  });
+
+  it('rejects score outside 0..1', () => {
+    expect(fsSuggestItemSchema.safeParse({ ...item, score: 1.5 }).success).toBe(false);
+    expect(fsSuggestItemSchema.safeParse({ ...item, score: -0.1 }).success).toBe(false);
+  });
+
+  it('rejects negative match positions', () => {
+    expect(
+      fsSuggestItemSchema.safeParse({ ...item, match_positions: [-1] }).success,
+    ).toBe(false);
   });
 });
 
@@ -219,7 +248,9 @@ describe('fsGitStatusEntrySchema (W11.2 / Chain 12)', () => {
   });
 
   it('rejects an unknown status', () => {
-    expect(fsGitStatusEntrySchema.safeParse({ ...entry, status: 'staged' }).success).toBe(false);
+    expect(
+      fsGitStatusEntrySchema.safeParse({ ...entry, status: 'staged' }).success,
+    ).toBe(false);
   });
 });
 
@@ -235,9 +266,12 @@ describe('fsChangeKindSchema (W12 / Chain 14)', () => {
 });
 
 describe('fsChangeActionSchema (W12 / Chain 14)', () => {
-  it.each(['created', 'modified', 'deleted'] as const)('accepts %s', (a) => {
-    expect(fsChangeActionSchema.parse(a)).toBe(a);
-  });
+  it.each(['created', 'modified', 'deleted'] as const)(
+    'accepts %s',
+    (a) => {
+      expect(fsChangeActionSchema.parse(a)).toBe(a);
+    },
+  );
 
   it('rejects chokidar raw event names (must collapse before wire)', () => {
     for (const raw of ['add', 'change', 'unlink', 'addDir', 'unlinkDir']) {
@@ -318,6 +352,8 @@ describe('fsChangeEventSchema (W12 / Chain 14)', () => {
   });
 
   it('rejects a missing coalesced_window_ms (always echoed)', () => {
-    expect(fsChangeEventSchema.safeParse({ changes: [] }).success).toBe(false);
+    expect(
+      fsChangeEventSchema.safeParse({ changes: [] }).success,
+    ).toBe(false);
   });
 });

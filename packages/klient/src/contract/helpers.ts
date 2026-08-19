@@ -23,7 +23,9 @@ export const maybe = <T extends z.ZodType>(schema: T) =>
  * `void` method results arrive as `null` over HTTP (JSON has no `undefined`)
  * and as `undefined` in-process — accept both and normalize to `undefined`.
  */
-export const noResult = z.union([z.void(), z.null()]).transform(() => undefined);
+export const noResult = z
+  .union([z.void(), z.null()])
+  .transform(() => undefined);
 
 /** Engine `{ added, removed, changed }` change-set events. */
 export const stringDeltaSchema = z.object({

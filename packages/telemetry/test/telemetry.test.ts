@@ -1204,7 +1204,10 @@ describe('crash handler', () => {
     emitCrash(new DOMException('The operation was aborted.', 'AbortError'));
     emitCrash(Object.assign(new Error('aborted'), { name: 'AbortError' }));
     emitCrash(new DOMException('The operation was aborted.', 'AbortError'), 'unhandledRejection');
-    emitCrash(Object.assign(new Error('aborted'), { name: 'AbortError' }), 'unhandledRejection');
+    emitCrash(
+      Object.assign(new Error('aborted'), { name: 'AbortError' }),
+      'unhandledRejection',
+    );
 
     expect(transport.saved).toHaveLength(0);
   });
@@ -1222,7 +1225,7 @@ function numberProperty(
 ): number {
   const value = properties[key];
   if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new TypeError(`Expected property ${key} to be a finite number, got ${String(value)}`);
+    throw new Error(`Expected property ${key} to be a finite number, got ${String(value)}`);
   }
   return value;
 }

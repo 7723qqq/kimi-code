@@ -49,9 +49,7 @@ export class ParseBudget {
   tick(): void {
     this.nodeCount++;
     if (this.nodeCount > this.maxNodes) {
-      throw new Aborted(
-        `parse aborted: node budget exceeded (${this.nodeCount} > ${this.maxNodes})`,
-      );
+      throw new Aborted(`parse aborted: node budget exceeded (${this.nodeCount} > ${this.maxNodes})`);
     }
     if (Date.now() >= this.deadline) {
       throw new Aborted(`parse aborted: timeout`);

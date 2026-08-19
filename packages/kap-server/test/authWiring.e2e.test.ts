@@ -1,12 +1,3 @@
-/**
- * Production auth wiring end-to-end (port of v1 `auth-wiring.e2e.test.ts`).
- *
- * Boots `startServer` with NO auth override so the REAL persistent-token auth
- * is built (`<homeDir>/server.token`, mode 0600). The token is read back from
- * disk — exactly what the CLI does — and exercised against a gated HTTP route
- * and the `/api/v1/ws` upgrade path.
- */
-
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,10 +15,7 @@ function rawToString(data: RawData): string {
   return Buffer.from(data as ArrayBuffer).toString('utf8');
 }
 
-function openConn(
-  url: string,
-  protocols: string[],
-): Promise<{ ws: WebSocket; firstFrame: unknown }> {
+function openConn(url: string, protocols: string[]): Promise<{ ws: WebSocket; firstFrame: unknown }> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, protocols);
     ws.once('message', (data) => {
@@ -50,12 +38,14 @@ function expectRejected(url: string): Promise<void> {
       try {
         ws.terminate();
       } catch {
-        // ignore
       }
       if (err === undefined) resolve();
       else reject(err);
     };
-    const t = setTimeout(() => done(new Error('connection was not rejected within timeout')), 1500);
+    const t = setTimeout(
+      () => done(new Error('connection was not rejected within timeout')),
+      1500,
+    );
     ws.once('open', () => done(new Error('connection unexpectedly opened')));
     ws.once('error', () => done());
     ws.once('close', () => done());
@@ -70,13 +60,7 @@ describe('production auth wiring', () => {
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-auth-wiring-'));
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
+    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     base = `http://127.0.0.1:${server.port}`;
   });
 
@@ -85,7 +69,6 @@ describe('production auth wiring', () => {
       try {
         ws.close();
       } catch {
-        // ignore
       }
     }
     if (server !== undefined) {
@@ -98,22 +81,18 @@ describe('production auth wiring', () => {
     }
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'writes a 0600 token file at boot and keeps it on close',
-    async () => {
-      const p = join(home as string, 'server.token');
-      const info = await stat(p);
-      expect(info.mode & 0o777).toBe(0o600);
-      const token = (await readFile(p, 'utf8')).trim();
-      expect(token.length).toBeGreaterThan(0);
+  it.skipIf(process.platform === 'win32')('writes a 0600 token file at boot and keeps it on close', async () => {
+    const p = join(home as string, 'server.token');
+    const info = await stat(p);
+    expect(info.mode & 0o777).toBe(0o600);
+    const token = (await readFile(p, 'utf8')).trim();
+    expect(token.length).toBeGreaterThan(0);
 
-      await (server as RunningServer).close();
-      server = undefined;
-      // Persistent token: the file survives shutdown so the next start reuses it.
-      const after = await stat(p);
-      expect(after.mode & 0o777).toBe(0o600);
-    },
-  );
+    await (server as RunningServer).close();
+    server = undefined;
+    const after = await stat(p);
+    expect(after.mode & 0o777).toBe(0o600);
+  });
 
   it('gates HTTP: 200 with the token, 401 without', async () => {
     const token = (await readFile(join(home as string, 'server.token'), 'utf8')).trim();

@@ -1,40 +1,41 @@
-/**
- * Scenario: on-demand managed chat_title generation through the session-scoped
- * service, including OAuth failures, title-state transitions, request headers,
- * and races.
- * Wiring: the real title service with contract fakes; only fetch crosses the
- * external boundary. Run with `pnpm --filter @moonshot-ai/agent-core-v2 exec
- * vitest run test/session/sessionTitle/sessionTitleService.test.ts`.
- */
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { OAuthConnectionError, OAuthUnauthorizedError } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { IOAuthService } from '#/app/auth/auth';
-import { type DomainEvent, IEventService } from '#/app/event/event';
 import { IFlagService } from '#/app/flag/flag';
-import { LifecycleScope } from '#/app/scopes';
+import { IEventService } from '#/app/event/event';
+import type { Event2 } from '#/app/event/event2';
 import { IHostRequestHeaders } from '#/kosong/model/hostRequestHeaders';
-import { IProviderService, type OAuthRef, type ProviderConfig } from '#/kosong/provider/provider';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import {
+  IProviderService,
+  type OAuthRef,
+  type ProviderConfig,
+} from '#/kosong/provider/provider';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import {
+  IAgentLifecycleService,
+  MAIN_AGENT_ID,
+} from '#/session/agentLifecycle/agentLifecycle';
+import {
+  IAgentTitlePromptSource,
+  type TitleDigestExcerpt,
+  type TitleTurnExcerpt,
+} from '#/session/sessionTitle/agentTitlePromptSource';
+import { ISessionTitleService } from '#/session/sessionTitle/sessionTitle';
+import { SessionTitleService } from '#/session/sessionTitle/sessionTitleService';
 import {
   ISessionMetadata,
   type SessionMeta,
   type SessionMetaPatch,
   type SessionMetadataChangedEvent,
 } from '#/session/sessionMetadata/sessionMetadata';
-import type { IAgentTitlePromptSource } from '#/session/sessionTitle/agentTitlePromptSource';
-import {
-  type TitleDigestExcerpt,
-  type TitleTurnExcerpt,
-} from '#/session/sessionTitle/agentTitlePromptSource';
-import { ISessionTitleService } from '#/session/sessionTitle/sessionTitle';
-import { SessionTitleService } from '#/session/sessionTitle/sessionTitleService';
+import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 
 import { registerLogServices } from '../../_base/log/stubs';
@@ -49,16 +50,16 @@ const MANAGED_PROVIDER: ProviderConfig = {
 
 class FakeEventService implements IEventService {
   declare readonly _serviceBrand: undefined;
-  private readonly emitter = new Emitter<DomainEvent>();
+  private readonly emitter = new Emitter<Event2>();
   readonly onDidPublish = this.emitter.event;
-  readonly published: DomainEvent[] = [];
+  readonly published: Event2[] = [];
 
-  publish(event: DomainEvent): void {
+  publish(event: Event2): void {
     this.published.push(event);
     this.emitter.fire(event);
   }
 
-  subscribe(handler: (event: DomainEvent) => void): IDisposable {
+  subscribe(handler: (event: Event2) => void): IDisposable {
     return this.emitter.event(handler);
   }
 }
@@ -194,7 +195,7 @@ describe('SessionTitleService', () => {
           id: MAIN_AGENT_ID,
           kind: LifecycleScope.Agent,
           accessor: { get: <T>() => promptSource as T },
-          dispose: () => {},
+          dispose: () => undefined,
         };
         reg.definePartialInstance(IAgentLifecycleService, {
           get: () => mainAgent,
@@ -263,9 +264,9 @@ describe('SessionTitleService', () => {
     );
 
     const rebroadcast = events.published.find(
-      (event) =>
+      (event): event is SessionMetaUpdated =>
         event.type === 'session.meta.updated' &&
-        (event.payload as { patch?: { title?: string } }).patch?.title === '生成的标题',
+        (event as SessionMetaUpdated).payload.patch.title === '生成的标题',
     );
     expect(rebroadcast).toBeDefined();
   });
@@ -343,9 +344,9 @@ describe('SessionTitleService', () => {
     await metadata.setGeneratedTitleIfUncustomized('已生成的标题');
     titlePrompts = ['hello'];
 
-    await expect(ix.get(ISessionTitleService).generateTitle({ force: true })).resolves.toBe(
-      '生成的标题',
-    );
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ force: true }),
+    ).resolves.toBe('生成的标题');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(metadata.meta.title).toBe('生成的标题');
     expect(metadata.meta.titleKind).toBe('generated');
@@ -355,9 +356,9 @@ describe('SessionTitleService', () => {
     await metadata.setTitle('user 取的标题');
     titlePrompts = ['hello'];
 
-    await expect(ix.get(ISessionTitleService).generateTitle({ force: true })).resolves.toBe(
-      '生成的标题',
-    );
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ force: true }),
+    ).resolves.toBe('生成的标题');
     expect(metadata.meta.title).toBe('生成的标题');
     expect(metadata.meta.titleKind).toBe('generated');
   });
@@ -413,9 +414,9 @@ describe('SessionTitleService', () => {
   it('digest composes head and tail segments, tolerating a missing reply', async () => {
     digestExcerpt = { firstUser: '开场', lastUser: '最新追问', assistant: '当前进展' };
 
-    await expect(ix.get(ISessionTitleService).generateTitle({ source: 'digest' })).resolves.toBe(
-      '生成的标题',
-    );
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
+    ).resolves.toBe('生成的标题');
 
     let [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init?.body as string)).toEqual({

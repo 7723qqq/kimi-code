@@ -1,23 +1,14 @@
-/**
- * `plan` domain — `IEnterPlanModeTool` implementation.
- *
- * Enters plan mode through the plan service (`plan`), reporting an error when
- * plan mode is already active, and tracks the `plan_enter_resolved`
- * `auto_approved` outcome (`telemetry`). The result message walks the model
- * through the plan-mode workflow, including the plan file path when the host
- * provides one. Bound at Agent scope.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
+import type { ToolExecution } from '#/tool/toolContract';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentPlanService } from '#/features/plan/plan';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ToolExecution } from '#/tool/toolContract';
 
-import type { IEnterPlanModeTool } from './enter-plan-mode';
-import { EnterPlanModeInputSchema, type EnterPlanModeInput } from './enter-plan-mode';
 import DESCRIPTION from './enter-plan-mode.md?raw';
+import {
+  EnterPlanModeInputSchema,
+  IEnterPlanModeTool,
+  type EnterPlanModeInput,
+} from './enter-plan-mode';
 
 export class EnterPlanModeTool implements IEnterPlanModeTool {
   declare readonly _serviceBrand: undefined;
@@ -39,16 +30,15 @@ export class EnterPlanModeTool implements IEnterPlanModeTool {
         if (before !== null) {
           return {
             isError: true,
-            output: t('toolsV2.planMode.alreadyActive'),
+            output: 'Plan mode is already active. Use ExitPlanMode when the plan is ready.',
           };
         }
 
         try {
           await this.planMode.enter();
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : t('toolsV2.planMode.enterFailed');
-          return { isError: true, output: t('toolsV2.planMode.enterFailedDetail', { message }) };
+          const message = error instanceof Error ? error.message : 'Failed to enter plan mode.';
+          return { isError: true, output: `Failed to enter plan mode: ${message}` };
         }
 
         this.telemetry.track2('plan_enter_resolved', {

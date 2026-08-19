@@ -51,27 +51,19 @@ describe('requestLogging', () => {
   it('logs the envelope code instead of the HTTP status code', async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-request-log-'));
     const { logger, lines } = captureLogger();
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logger,
-    });
+    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logger });
 
     const res = await fetch(`http://127.0.0.1:${String(server.port)}/api/v1/healthz`);
     expect(res.status).toBe(200);
     expect(((await res.json()) as { code: number }).code).toBe(0);
 
-    // Let the post-response `onResponse` hook flush its log line.
     await new Promise((resolve) => setImmediate(resolve));
 
     const completed = parseEntries(lines).filter((entry) => entry['msg'] === 'request completed');
     expect(completed.length).toBeGreaterThanOrEqual(1);
-    const entry = completed.at(-1);
+    const entry = completed[completed.length - 1];
     assert(entry !== undefined);
 
-    // The access line carries the envelope `code`, not the HTTP status code.
     expect(entry['code']).toBe(0);
     expect(entry).not.toHaveProperty('statusCode');
     expect(entry['res']).toBeUndefined();

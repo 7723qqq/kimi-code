@@ -7,7 +7,11 @@ import { describe, it, expect } from 'vitest';
 
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
-import { extractMediaAttachments, rewriteMediaPlaceholders } from '#/tui/utils/image-placeholder';
+import {
+  extractMediaAttachments,
+  resolveOriginalCaptions,
+  rewriteMediaPlaceholders,
+} from '#/tui/utils/image-placeholder';
 import { getCacheDir } from '#/utils/paths';
 
 function storeWith(
@@ -183,15 +187,25 @@ describe('extractMediaAttachments', () => {
       mime: 'image/png',
     });
 
-    const r = extractMediaAttachments(`look ${att.placeholder}`, store);
+    // Extraction never authors captions; dispatch-time resolution does, once
+    // the session (and its media-originals dir) is known.
+    const extracted = extractMediaAttachments(`look ${att.placeholder}`, store);
+    const parts = resolveOriginalCaptions(
+      extracted.parts,
+      extracted.imageAttachmentIds,
+      store,
+      undefined,
+    );
 
-    expect(r.parts).toHaveLength(2);
-    const caption = r.parts[0];
+    expect(parts).toHaveLength(3);
+    // Leading text survives; the caption is authored before the image part.
+    expect(parts[0]).toEqual({ type: 'text', text: 'look ' });
+    const caption = parts[1];
     if (caption?.type !== 'text') throw new Error('expected leading text part');
     expect(caption.text).toContain('Image compressed');
     expect(caption.text).toContain('2600x2600');
     expect(caption.text).toContain('/tmp/kimi-code-original-images/abc.png');
-    expect(r.parts[1]).toEqual({
+    expect(parts[2]).toEqual({
       type: 'image_url',
       imageUrl: { url: 'data:image/png;base64,AQID' },
     });
@@ -207,9 +221,15 @@ describe('extractMediaAttachments', () => {
       mime: 'image/png',
     });
 
-    const r = extractMediaAttachments(att.placeholder, store);
+    const extracted = extractMediaAttachments(att.placeholder, store);
+    const parts = resolveOriginalCaptions(
+      extracted.parts,
+      extracted.imageAttachmentIds,
+      store,
+      undefined,
+    );
 
-    const caption = r.parts[0];
+    const caption = parts[0];
     if (caption?.type !== 'text') throw new Error('expected leading text part');
     expect(caption.text).toMatch(/not preserved/i);
   });

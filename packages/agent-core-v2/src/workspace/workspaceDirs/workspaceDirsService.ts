@@ -1,31 +1,10 @@
-/**
- * `workspaceDirs` domain — `IWorkspaceDirs` implementation.
- *
- * Holds the handler-shared additional-directory set as
- * `fileDirs ∪ ephemeralDirs`: `fileDirs` is the project-local
- * `.kimi-code/local.toml` set (loaded once per handler through
- * `projectLocalConfig`, reloaded debounced when the fs watch sees the file
- * change — including writes from OTHER processes), `ephemeralDirs` is the
- * in-memory union of non-persisted `addDir` calls and caller-provided dirs
- * from session create/resume options (it dies with the handler). Every
- * mutation serializes on one tail queue; the change event fires only when
- * the combined list actually changed. The set reaches every session of the
- * handler through the `ISessionWorkspaceInfo` seed (`sessionInfo()`), a
- * live read view over this service. The plain-data state (`fileDirs`,
- * `ephemeralDirs`) is registered into `workspaceState`
- * (`IWorkspaceStateService`) and read/written through it. Bound at
- * Workspace scope.
- */
-
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Service } from '#/_base/di/service';
+import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { defineState } from '#/_base/state/stateRegistry';
-import { subtreeWatchFilter } from '#/_base/utils/paths';
+import { defineState } from '#/state/state';
 import { TimeoutTimer } from '#/_base/utils/timer';
+import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
-import { LifecycleScope } from '#/app/scopes';
 import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
 import type { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
@@ -48,7 +27,7 @@ export const workspaceDirsEphemeralDirsKey = defineState<readonly string[]>(
   () => [],
 );
 
-export class WorkspaceDirsService extends Service implements IWorkspaceDirs {
+export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
   declare readonly _serviceBrand: undefined;
 
   private projectRoot: string;
@@ -67,16 +46,12 @@ export class WorkspaceDirsService extends Service implements IWorkspaceDirs {
     @IWorkspaceStateService private readonly states: IWorkspaceStateService,
   ) {
     super();
-    this.states.register(workspaceDirsFileDirsKey);
-    this.states.register(workspaceDirsEphemeralDirsKey);
+    this.states.contributeState(workspaceDirsFileDirsKey);
+    this.states.contributeState(workspaceDirsEphemeralDirsKey);
     this.projectRoot = workspace.cwd;
     this.configPath = '';
     this.ready = this.enqueue(() => this.reloadFromDisk());
-    void this.ready
-      .then(() => this.watchLocalToml())
-      .catch((error) => {
-        this.log.warn(`workspace dirs load failed: ${String(error)}`);
-      });
+    void this.ready.then(() => this.watchLocalToml());
   }
 
   private get fileDirs(): readonly string[] {
@@ -129,7 +104,10 @@ export class WorkspaceDirsService extends Service implements IWorkspaceDirs {
     const persist = input.persist ?? true;
 
     if (persist) {
-      const persisted = await this.localConfig.appendAdditionalDir(this.workspace.cwd, input.path);
+      const persisted = await this.localConfig.appendAdditionalDir(
+        this.workspace.cwd,
+        input.path,
+      );
       this.projectRoot = persisted.projectRoot;
       this.configPath = persisted.configPath;
       const changed = this.setFileDirs(persisted.additionalDirs);
@@ -147,7 +125,9 @@ export class WorkspaceDirsService extends Service implements IWorkspaceDirs {
     const onDisk = await this.localConfig.readAdditionalDirs(this.workspace.cwd);
     this.projectRoot = onDisk.projectRoot;
     this.configPath = onDisk.configPath;
-    const resolved = await this.localConfig.resolveAdditionalDirs(this.workspace.cwd, [input.path]);
+    const resolved = await this.localConfig.resolveAdditionalDirs(this.workspace.cwd, [
+      input.path,
+    ]);
     const changed = this.unionEphemeral(resolved);
     if (changed) {
       this.onDidChangeEmitter.fire();
@@ -205,8 +185,8 @@ export class WorkspaceDirsService extends Service implements IWorkspaceDirs {
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
     const run = this.mutationTail.then(work, work);
     this.mutationTail = run.then(
-      () => {},
-      () => {},
+      () => undefined,
+      () => undefined,
     );
     return run;
   }
@@ -216,10 +196,3 @@ function sameStringList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
-registerScopedService(
-  LifecycleScope.Workspace,
-  IWorkspaceDirs,
-  WorkspaceDirsService,
-  ScopeActivation.OnScopeCreated,
-  'workspaceDirs',
-);

@@ -1,34 +1,4 @@
-/**
- * `di` domain — the L3 unit layer: the `Fiber` capability contract, unit
- * recipes, and the construction protocol that binds them to a container.
- *
- * A unit recipe comes in three shapes — a class extending `Service`
- * (`service.ts`), a function `(fiber, config) => cleanup`, or an object with
- * `apply(fiber, config)` — carrying optional statics (`name` / `inject` /
- * `Config`; `Config` is a standard-schema that must validate
- * synchronously). A materialized unit receives a `Fiber` facade exposing the
- * five capabilities: `provide` (token-bound units, anonymous sub-units, and
- * collection records), `effect` (ledger-anchored side effects), `on` (event
- * subscriptions), `get` (declared-dependency resolution) and `ref` (live
- * references). Every capability returns a `FiberHandle` — a thenable that
- * settles once the unit is active, and carries `update` / `dispose`.
- *
- * `FiberRuntime` never touches the container directly: it delegates to a
- * `FiberHost` (implemented by the instantiation service) and anchors every
- * teardown into the unit's `Ledger`, so provider death withdraws everything
- * the unit provided. `get` is restricted to the recipe's declared
- * dependencies (constructor parameters for class recipes, the `inject`
- * static for function/object recipes).
- *
- * The construction protocol bridges class recipes and the container: the
- * container pushes a `ConstructionFrame`, the `Service` base buffers
- * capability calls made inside the constructor as `BufferedOp`s (answered
- * with `PendingFiberHandle`s), and `bindServiceUnit` flushes the buffer
- * against the freshly bound runtime once construction finishes — 构造期只写
- * 不读. `ScopeUnits(kind)` mints the per-scope-kind materialization
- * collection token folded by `scopeUnits.ts`.
- */
-
+import type { IDisposable } from './lifecycle';
 import type { Emitter } from '../event';
 import { isPromiseLike, type EffectBody } from '../lifecycle/disposer';
 import { Ledger, type LedgerEntry } from '../lifecycle/ledger';
@@ -46,7 +16,6 @@ import {
   type LiveRef,
   type ServiceIdentifier,
 } from './instantiation';
-import type { IDisposable } from './lifecycle';
 
 export enum FiberState {
   Pending = 0,
@@ -64,33 +33,30 @@ export interface ConfigSchema {
 
 export interface RecipeStatics {
   readonly name?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly inject?: readonly ServiceIdentifier<any>[];
   readonly Config?: ConfigSchema;
 }
 
 export type ServiceClassRecipe =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (new (...args: any[]) => unknown) & RecipeStatics;
 
 export type ServiceFunctionRecipe = ((
   fiber: Fiber,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   config?: any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ) => any) &
   RecipeStatics;
 
 export type ServiceObjectRecipe = {
   apply(
     fiber: Fiber,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     config?: any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ): any;
 } & RecipeStatics;
 
-export type ServiceRecipe = ServiceClassRecipe | ServiceFunctionRecipe | ServiceObjectRecipe;
+export type ServiceRecipe =
+  | ServiceClassRecipe
+  | ServiceFunctionRecipe
+  | ServiceObjectRecipe;
 
 export interface FiberProvideOptions {
   readonly config?: unknown;
@@ -113,7 +79,6 @@ export interface Fiber {
 
   effect(body: EffectBody, label?: string): FiberHandle;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   on(event: string | Emitter<any>, handler: (e: any) => void): FiberHandle;
 
   get<T>(id: ServiceIdentifier<T>): T;
@@ -143,10 +108,8 @@ export class ServiceRecipeError extends Error {
 }
 
 export interface ConstructionFrame {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly ctor: new (...args: any[]) => any;
   readonly config: unknown;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly token: ServiceIdentifier<any> | undefined;
   readonly host: FiberHost;
 }
@@ -167,13 +130,15 @@ export function currentConstruction(): ConstructionFrame | undefined {
 
 export const SERVICE_MARK = Symbol('serviceUnit');
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function isServiceRecipe(ctor: any): ctor is ServiceClassRecipe {
   return typeof ctor === 'function' && ctor.prototype?.[SERVICE_MARK] === true;
 }
 
 export function isClassRecipe(recipe: unknown): recipe is ServiceClassRecipe {
-  return typeof recipe === 'function' && Object.prototype.hasOwnProperty.call(recipe, 'prototype');
+  return (
+    typeof recipe === 'function' &&
+    Object.prototype.hasOwnProperty.call(recipe, 'prototype')
+  );
 }
 
 export type BufferedOp = (runtime: Fiber) => void;
@@ -195,15 +160,12 @@ export interface FiberHost {
     },
   ): TokenProvideCore;
   provideTokenInstance<T>(id: ServiceIdentifier<T>, instance: T): TokenProvideCore;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tokenState(id: ServiceIdentifier<any>): string | undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   updateToken(id: ServiceIdentifier<any>, config: unknown, hasConfig: boolean): Promise<void>;
   resolveTokenWhenAvailable<T>(id: ServiceIdentifier<T>): Promise<T>;
   resolveInstance<T>(id: ServiceIdentifier<T>): T;
   materializedInstance<T>(id: ServiceIdentifier<T>): T | undefined;
   liveRef<T>(id: ServiceIdentifier<T>): LiveRef<T>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   recordInstanceEdge(node: object | undefined, id: ServiceIdentifier<any>): void;
   collectionView<T>(token: CollectionToken<T>): CollectionView<T>;
   addCollectionRecord<T>(
@@ -212,7 +174,6 @@ export interface FiberHost {
     providerBook: Ledger,
     value: T,
   ): () => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   constructService<T>(ctor: new (...args: any[]) => T, config: unknown): T;
 }
 
@@ -225,7 +186,6 @@ export interface TokenProvideCore {
 export type FiberEventResolver = (
   host: FiberHost,
   event: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   handler: (e: any) => void,
 ) => IDisposable;
 
@@ -235,15 +195,11 @@ export function setFiberEventResolver(resolver: FiberEventResolver | undefined):
   _eventResolver = resolver;
 }
 
-export function bindServiceUnit(
-  instance: UnitInternals & IDisposable,
-  frame: ConstructionFrame,
-): void {
+export function bindServiceUnit(instance: UnitInternals & IDisposable, frame: ConstructionFrame): void {
   const buffer = instance.takeUnitBuffer();
   if (buffer === null) {
     return;
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ctor = (instance as any).constructor as ServiceClassRecipe;
   const runtime = new FiberRuntime(
     frame.host,
@@ -313,9 +269,7 @@ export class FiberRuntime implements Fiber {
     private readonly _book: Ledger,
     readonly name: string,
     readonly config: unknown,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private readonly _token: ServiceIdentifier<any> | undefined,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private readonly _declared: ReadonlySet<ServiceIdentifier<any>>,
     private readonly _edgeNode: object | undefined,
   ) {}
@@ -336,9 +290,7 @@ export class FiberRuntime implements Fiber {
   provide(recipe: ServiceRecipe, opts?: FiberProvideOptions): FiberHandle;
   provide<T>(token: CollectionToken<T>, value: T): FiberHandle;
   provide(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     first: ServiceIdentifier<any> | ServiceRecipe | CollectionToken<any>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     second?: any,
     third?: FiberProvideOptions,
   ): FiberHandle {
@@ -359,10 +311,7 @@ export class FiberRuntime implements Fiber {
       }
       return this._provideTokenInstance(first, second);
     }
-    return this._provideAnonymous(
-      first as ServiceRecipe,
-      second as FiberProvideOptions | undefined,
-    );
+    return this._provideAnonymous(first as ServiceRecipe, second as FiberProvideOptions | undefined);
   }
 
   effect(body: EffectBody, label?: string): FiberHandle {
@@ -384,7 +333,6 @@ export class FiberRuntime implements Fiber {
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   on(event: string | Emitter<any>, handler: (e: any) => void): FiberHandle {
     let subscription: IDisposable;
     if (typeof event === 'string') {
@@ -399,8 +347,7 @@ export class FiberRuntime implements Fiber {
     } else {
       throw new FiberProtocolError(`unsupported event source for unit '${this.name}'`);
     }
-    const label =
-      typeof event === 'string' ? `on:${event}` : `on:${event.constructor?.name ?? 'emitter'}`;
+    const label = typeof event === 'string' ? `on:${event}` : `on:${event.constructor?.name ?? 'emitter'}`;
     const entry = this._book.register(() => {
       subscription.dispose();
     }, label);
@@ -444,7 +391,6 @@ export class FiberRuntime implements Fiber {
     const config = validateConfig(recipe.Config, opts?.config, name);
     const core = this._host.provideToken(
       id,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       new SyncDescriptor<T>(recipe as new (...args: any[]) => T),
       {
         activation: opts?.activation === ScopeActivation.OnDemand ? 'ondemand' : 'eager',
@@ -488,20 +434,14 @@ export class FiberRuntime implements Fiber {
     });
   }
 
-  private _provideAnonymous(
-    recipe: ServiceRecipe,
-    opts: FiberProvideOptions | undefined,
-  ): FiberHandle {
+  private _provideAnonymous(recipe: ServiceRecipe, opts: FiberProvideOptions | undefined): FiberHandle {
     if (isClassRecipe(recipe)) {
       return this._provideAnonymousClass(recipe, opts);
     }
     return this._provideFunction(recipe, opts);
   }
 
-  private _provideAnonymousClass(
-    recipe: ServiceClassRecipe,
-    opts: FiberProvideOptions | undefined,
-  ): FiberHandle {
+  private _provideAnonymousClass(recipe: ServiceClassRecipe, opts: FiberProvideOptions | undefined): FiberHandle {
     const name = recipeName(recipe);
     let config = validateConfig(recipe.Config, opts?.config, name);
     let state = FiberState.Activating;
@@ -524,9 +464,7 @@ export class FiberRuntime implements Fiber {
       failure = error;
       throw error;
     }
-    for (const dependency of _util.getInstanceDependencies(
-      recipe as unknown as _util.DI_TARGET_OBJ,
-    )) {
+    for (const dependency of _util.getInstanceDependencies(recipe as unknown as _util.DI_TARGET_OBJ)) {
       this._host.recordInstanceEdge(this._edgeNode, dependency.id);
     }
     return new BasicFiberHandle({
@@ -555,10 +493,7 @@ export class FiberRuntime implements Fiber {
     });
   }
 
-  private _provideFunction(
-    recipe: ServiceFunctionRecipe | ServiceObjectRecipe,
-    opts: FiberProvideOptions | undefined,
-  ): FiberHandle {
+  private _provideFunction(recipe: ServiceFunctionRecipe | ServiceObjectRecipe, opts: FiberProvideOptions | undefined): FiberHandle {
     const name = recipeName(recipe);
     const config = validateConfig(recipe.Config, opts?.config, name);
     const book = new Ledger(`unit:${name}`);
@@ -668,11 +603,7 @@ class BasicFiberHandle<T> implements FiberHandle<T> {
     onfulfilled?: ((value: FiberHandle<T>) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
   ): PromiseLike<TResult1 | TResult2> {
-    return thenSettle(
-      this._parts.whenActive().then(() => settledView(this)),
-      onfulfilled,
-      onrejected,
-    );
+    return thenSettle(this._parts.whenActive().then(() => settledView(this)), onfulfilled, onrejected);
   }
 }
 

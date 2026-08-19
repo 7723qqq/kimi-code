@@ -1,33 +1,4 @@
-/**
- * `/capabilities` REST routes — built-in product capabilities (kimi-cu,
- * kimi-webbridge): layered readiness detection + idempotent install.
- *
- *   GET  /capabilities                          data: {capabilities: CapabilityStatus[]}
- *   GET  /capabilities/{capability_id}          data: CapabilityStatus
- *   POST /capabilities/{capability_id}:install  data: CapabilityStatus (install running)
- *
- * The route surface is a thin projection of the App-scope `ICapabilityService`
- * (`agent-core-v2/app/capability`): the closed registry lives there, install
- * sources are fixed official CDN URLs, and progress is polled through these
- * reads (no WS events in v1).
- *
- * **Action suffix**: `:install` is the only action — the `POST` path uses the
- * shared `parseActionSuffix` helper (bare ids are rejected).
- *
- * **Error mapping**:
- *   - unknown capability id        → envelope `code: 40418 capability.not_found`
- *   - install on wrong platform    → `40925 capability.unsupported`
- *   - install already running      → `40924 capability.install_in_progress`
- *   - malformed `{tail}`           → `40001 validation.failed`
- *   - other errors                 → `50001` via the global error handler
- */
-
-import {
-  CapabilityErrors,
-  ICapabilityService,
-  isError2,
-  type Scope,
-} from '@moonshot-ai/agent-core-v2';
+import { CapabilityErrors, ICapabilityService, isError2, type Scope } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -64,7 +35,6 @@ const capabilityTailParamsSchema = z.object({
 });
 
 export function registerCapabilitiesRoutes(app: CapabilitiesRouteHost, core: Scope): void {
-  // GET /capabilities -----------------------------------------------------
   const listRoute = defineRoute(
     {
       method: 'GET',
@@ -86,7 +56,6 @@ export function registerCapabilitiesRoutes(app: CapabilitiesRouteHost, core: Sco
     listRoute.handler as Parameters<CapabilitiesRouteHost['get']>[2],
   );
 
-  // GET /capabilities/{capability_id} --------------------------------------
   const getRoute = defineRoute(
     {
       method: 'GET',
@@ -117,7 +86,6 @@ export function registerCapabilitiesRoutes(app: CapabilitiesRouteHost, core: Sco
     getRoute.handler as Parameters<CapabilitiesRouteHost['get']>[2],
   );
 
-  // POST /capabilities/{capability_id}:install -----------------------------
   const installRoute = defineRoute(
     {
       method: 'POST',
@@ -141,13 +109,14 @@ export function registerCapabilitiesRoutes(app: CapabilitiesRouteHost, core: Sco
         resourceLabel: 'capability',
       });
       if (parsed.kind !== 'action') {
-        const message =
-          parsed.kind === 'invalid' ? parsed.reason : `unsupported action: ${req.params.tail}`;
+        const message = parsed.kind === 'invalid' ? parsed.reason : `unsupported action: ${req.params.tail}`;
         reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, message, req.id));
         return;
       }
       try {
-        const capability = await core.accessor.get(ICapabilityService).installCapability(parsed.id);
+        const capability = await core.accessor
+          .get(ICapabilityService)
+          .installCapability(parsed.id);
         reply.send(okEnvelope(capability, req.id));
       } catch (error) {
         reply.send(mapCapabilityError(error, req.id));

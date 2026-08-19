@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
+import { isAbsolute, join, normalize, resolve } from 'pathe';
 import type { Readable, Writable } from 'node:stream';
 
-import { isAbsolute, join, normalize, resolve } from 'pathe';
 import * as ssh2 from 'ssh2';
 import type {
   AnyAuthMethod,
@@ -867,9 +867,7 @@ export class SSHKaos implements Kaos {
     return this._execInternal(args, this._buildExecEnv(env));
   }
 
-  private _buildExecEnv(
-    invocationEnv?: Record<string, string>,
-  ): Record<string, string> | undefined {
+  private _buildExecEnv(invocationEnv?: Record<string, string>): Record<string, string> | undefined {
     if (this._envLayers.length === 0) return invocationEnv;
     const merged: Record<string, string> = { ...invocationEnv };
     for (const layer of this._envLayers) {

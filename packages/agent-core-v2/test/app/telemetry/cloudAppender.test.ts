@@ -8,8 +8,8 @@ import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
-import { CloudAppender, type CloudAppenderOptions } from '#/app/telemetry/cloudAppender';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { CloudAppender, type CloudAppenderOptions } from '#/app/telemetry/cloudAppender';
 
 import { stubBootstrap, stubClientIdentity } from '../bootstrap/stubs';
 

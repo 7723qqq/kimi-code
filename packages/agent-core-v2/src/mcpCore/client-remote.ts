@@ -1,33 +1,17 @@
-/**
- * `mcpCore` domain — remote (HTTP/SSE) server config guards and request-header builders.
- */
-
+import type { McpRemoteServerConfig, McpServerConfig } from './config-schema';
 import { ErrorCodes, Error2 } from '#/errors';
 
-import type { McpRemoteServerConfig, McpServerConfig } from './config-schema';
-import { isSafeMcpRemoteUrl } from './config-schema';
-
-export async function buildMcpRemoteHeaders(
+export function buildMcpRemoteHeaders(
   config: McpRemoteServerConfig,
   envLookup: (name: string) => string | undefined,
-): Promise<Record<string, string> | undefined> {
+): Record<string, string> | undefined {
   const headers: Record<string, string> = { ...config.headers };
   if (config.bearerTokenEnvVar !== undefined) {
     const token = envLookup(config.bearerTokenEnvVar);
-    if (token === undefined || token.trim().length === 0) {
+    if (token === undefined || token.length === 0) {
       throw new Error2(
         ErrorCodes.CONFIG_INVALID,
-        `MCP ${config.transport?.toUpperCase() ?? 'unknown'} bearer token env var "${config.bearerTokenEnvVar}" is not set or is empty`,
-      );
-    }
-    // Refuse to send a bearer token to an internal/loopback URL: a
-    // malicious ``.mcp.json`` could otherwise exfiltrate cloud tokens
-    // to ``http://169.254.169.254/`` or a local attacker-controlled
-    // service. Local dev without a bearer token is still allowed.
-    if (!(await isSafeMcpRemoteUrl(config.url))) {
-      throw new Error2(
-        ErrorCodes.CONFIG_INVALID,
-        `MCP ${config.transport?.toUpperCase() ?? 'unknown'} server "${config.url}" targets an internal or loopback address; refusing to attach bearer token from env var "${config.bearerTokenEnvVar}"`,
+        `MCP ${config.transport.toUpperCase()} bearer token env var "${config.bearerTokenEnvVar}" is not set or is empty`,
       );
     }
     for (const key of Object.keys(headers)) {

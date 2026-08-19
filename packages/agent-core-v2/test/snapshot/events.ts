@@ -1,11 +1,10 @@
-import type { WireRecord } from '#/wire/record';
-
 import {
   createEventSnapshotter,
   type EventSnapshot,
   type EventSnapshotEntry,
   type WireSnapshotEntry,
 } from '../harness/snapshots';
+import type { WireRecord } from '#/wire/record';
 
 export interface RpcPromiseLike {
   resolve(value: unknown): void;
@@ -122,9 +121,7 @@ export function recordAgentEvents() {
       });
     },
 
-    take<T = unknown>(
-      event: string,
-    ): Promise<{
+    take<T = unknown>(event: string): Promise<{
       event: RecordedEventEntry;
       events: EventSnapshot;
       respond(result: T): void;

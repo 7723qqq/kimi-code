@@ -1,12 +1,10 @@
-/**
- * `media` domain — magic-byte + extension file-type detection.
- *
- * Classifies a file as text / image / video from its first bytes and
- * extension, and resolves a MIME type, with no npm dependency. Pure helper;
- * image dimensions are sniffed via the Rust native module when available.
- */
+import {
+  AUDIO_MIME_BY_SUFFIX,
+  IMAGE_MIME_BY_SUFFIX,
+  VIDEO_MIME_BY_SUFFIX,
+} from './mediaRef';
 
-import { tryNativeSniffImageDimensions, tryNativeDetectFileType } from '../../_base/native-tools';
+export { AUDIO_MIME_BY_SUFFIX, IMAGE_MIME_BY_SUFFIX, VIDEO_MIME_BY_SUFFIX };
 
 export const MEDIA_SNIFF_BYTES = 512;
 
@@ -16,38 +14,6 @@ export interface FileType {
 }
 
 export type DetectFileTypeMode = 'text' | 'media';
-
-export const IMAGE_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.freeze({
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.bmp': 'image/bmp',
-  '.tif': 'image/tiff',
-  '.tiff': 'image/tiff',
-  '.webp': 'image/webp',
-  '.ico': 'image/x-icon',
-  '.heic': 'image/heic',
-  '.heif': 'image/heif',
-  '.avif': 'image/avif',
-  '.svgz': 'image/svg+xml',
-});
-
-export const VIDEO_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.freeze({
-  '.mp4': 'video/mp4',
-  '.mpg': 'video/mpeg',
-  '.mpeg': 'video/mpeg',
-  '.mkv': 'video/x-matroska',
-  '.avi': 'video/x-msvideo',
-  '.mov': 'video/quicktime',
-  '.ogv': 'video/ogg',
-  '.wmv': 'video/x-ms-wmv',
-  '.webm': 'video/webm',
-  '.m4v': 'video/x-m4v',
-  '.flv': 'video/x-flv',
-  '.3gp': 'video/3gpp',
-  '.3g2': 'video/3gpp2',
-});
 
 const TEXT_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.freeze({
   '.svg': 'image/svg+xml',
@@ -245,20 +211,6 @@ export interface ImageDimensions {
 export function sniffImageDimensions(data: Buffer | Uint8Array): ImageDimensions | null {
   const buf = toBuffer(data);
 
-  const native = tryNativeSniffImageDimensions(new Uint8Array(buf));
-  if (native) {
-    // The Rust sniffer reports raw pixel dimensions and no EXIF orientation;
-    // re-apply the transpose so callers get display-space dimensions (the
-    // same contract the TS fallback below guarantees).
-    if (native.transposed === undefined && startsWith(buf, [0xff, 0xd8])) {
-      const orientation = readJpegExifOrientation(buf);
-      if (orientation !== null && orientation >= 5) {
-        return { width: native.height, height: native.width, transposed: true };
-      }
-    }
-    return { width: native.width, height: native.height, transposed: native.transposed };
-  }
-
   if (startsWith(buf, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) && buf.length >= 24) {
     return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
   }
@@ -297,7 +249,7 @@ export function sniffImageDimensions(data: Buffer | Uint8Array): ImageDimensions
   }
 
   if (startsWith(buf, [0xff, 0xd8])) {
-    const orientation = readJpegExifOrientation(buf);
+    let orientation: number | null = null;
     let offset = 2;
     while (offset + 9 < buf.length) {
       if (buf[offset] !== 0xff) {
@@ -324,42 +276,14 @@ export function sniffImageDimensions(data: Buffer | Uint8Array): ImageDimensions
       }
       const segmentLength = buf.readUInt16BE(offset + 2);
       if (segmentLength < 2) break;
+      if (marker === 0xe1 && orientation === null) {
+        orientation = readExifOrientation(buf, offset + 4, offset + 2 + segmentLength);
+      }
       offset += 2 + segmentLength;
     }
   }
 
   return null;
-}
-
-/**
- * Scan a JPEG's markers and return the EXIF orientation (1-8) when an APP1
- * Exif segment is present, or null. Orientation is only meaningful up to the
- * first SOFn segment (the frame header that carries the pixel dimensions).
- */
-function readJpegExifOrientation(buf: Buffer): number | null {
-  let orientation: number | null = null;
-  let offset = 2;
-  while (offset + 9 < buf.length) {
-    if (buf[offset] !== 0xff) {
-      offset += 1;
-      continue;
-    }
-    const marker = buf[offset + 1]!;
-    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      return orientation;
-    }
-    if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
-      offset += 2;
-      continue;
-    }
-    const segmentLength = buf.readUInt16BE(offset + 2);
-    if (segmentLength < 2) break;
-    if (marker === 0xe1 && orientation === null) {
-      orientation = readExifOrientation(buf, offset + 4, offset + 2 + segmentLength);
-    }
-    offset += 2 + segmentLength;
-  }
-  return orientation;
 }
 
 function readExifOrientation(buf: Buffer, start: number, end: number): number | null {
@@ -372,10 +296,8 @@ function readExifOrientation(buf: Buffer, start: number, end: number): number | 
   const byteOrder = buf.toString('latin1', tiff, tiff + 2);
   const le = byteOrder === 'II';
   if (!le && byteOrder !== 'MM') return null;
-  const u16 = (offset: number): number =>
-    le ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset);
-  const u32 = (offset: number): number =>
-    le ? buf.readUInt32LE(offset) : buf.readUInt32BE(offset);
+  const u16 = (offset: number): number => (le ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset));
+  const u32 = (offset: number): number => (le ? buf.readUInt32LE(offset) : buf.readUInt32BE(offset));
   if (u16(tiff + 2) !== 42) return null;
   const ifd = tiff + u32(tiff + 4);
   if (ifd + 2 > boundedEnd) return null;
@@ -404,12 +326,6 @@ export function detectFileType(
   header?: Buffer | Uint8Array,
   type: DetectFileTypeMode = 'text',
 ): FileType {
-  if (header) {
-    const native = tryNativeDetectFileType(path, new Uint8Array(toBuffer(header)));
-    if (native) {
-      return { kind: native.kind, mimeType: native.mimeType };
-    }
-  }
   const suffix = getSuffix(path);
   let mediaHint: FileType | null = null;
   if (suffix in TEXT_MIME_BY_SUFFIX) {

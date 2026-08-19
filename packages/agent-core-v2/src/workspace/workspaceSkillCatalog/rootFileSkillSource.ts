@@ -1,23 +1,10 @@
-/**
- * `workspaceSkillCatalog` domain — workspace-root `ISkillSource`
- * producer.
- *
- * Discovers project skills from the handler's workspace root
- * (`workspaceContext.cwd`) through `ISkillDiscovery`, contributing them at
- * priority 30. Watches project skill-root candidates through `hostFsWatch`
- * and emits debounced invalidations for source reloads. Bound at Workspace
- * scope so every session of the handler shares one scan.
- */
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
-import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { TimeoutTimer } from '#/_base/utils/timer';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
   MERGE_ALL_AVAILABLE_SKILLS_SECTION,
   type MergeAllAvailableSkillsConfig,
@@ -43,7 +30,6 @@ export interface IWorkspaceRootSkillSource extends ISkillSource {
 export const IWorkspaceRootSkillSource: ServiceIdentifier<IWorkspaceRootSkillSource> =
   createDecorator<IWorkspaceRootSkillSource>('workspaceRootSkillSource');
 
-// NOTE: stays Disposable — its own 'config' collides with the Fiber
 export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRootSkillSource {
   declare readonly _serviceBrand: undefined;
 
@@ -82,7 +68,9 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
     const mergeAllAvailableSkills =
       this.config.get<MergeAllAvailableSkillsConfig>(MERGE_ALL_AVAILABLE_SKILLS_SECTION) ?? true;
     const discover = async () =>
-      this.discovery.discover(await projectRoots(this.workspace.cwd, { mergeAllAvailableSkills }));
+      this.discovery.discover(
+        await projectRoots(this.workspace.cwd, { mergeAllAvailableSkills }),
+      );
     let contribution = await discover();
     while (await this.updateProjectSkillRootWatch(contribution.scannedDirectories)) {
       contribution = await discover();
@@ -125,10 +113,3 @@ export class WorkspaceRootSkillSource extends Disposable implements IWorkspaceRo
   }
 }
 
-registerScopedService(
-  LifecycleScope.Workspace,
-  IWorkspaceRootSkillSource,
-  WorkspaceRootSkillSource,
-  ScopeActivation.OnScopeCreated,
-  'workspaceSkillCatalog',
-);

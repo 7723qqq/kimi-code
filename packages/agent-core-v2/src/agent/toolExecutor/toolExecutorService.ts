@@ -1,54 +1,21 @@
-/**
- * `toolExecutor` domain 閳?`IAgentToolExecutorService` implementation.
- *
- * Resolves executable tools through `toolRegistry`, adjudicates tool calls
- * through the `onBeforeExecuteTool` veto event, awaits readiness work
- * through the `onWillExecuteTool` participation event, finalizes results
- * through the ordered `onDidExecuteTool` hook, publishes tool lifecycle
- * events through `event`, records telemetry through `telemetry`, truncates
- * oversized outputs through `toolResultTruncation`, and logs parse
- * diagnostics through `log`. A tool that declares an execution budget
- * (`RunnableToolExecution.timeoutMs`) is cut off with a `timed out` error
- * result when the budget elapses (ported from deepseek-harness
- * `guard/timeout-policy`, MIT). The mutable dup-type tracking state
- * (`toolCallDupTypes`, `dupTypeTurnId`) is registered into `agentState`
- * (`IAgentStateService`) and read/written through it; the emitters, the hook
- * slot, and the describer/guard registration slots stay plain fields. Bound
- * at Agent scope.
- */
-
-import type { ToolInputDisplay } from '@moonshot-ai/protocol';
-
 import { toDisposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AsyncEmitter, type Event } from '#/_base/event';
-import { ILogService } from '#/_base/log/log';
-import { defineState } from '#/_base/state/stateRegistry';
-import { createDeadlineAbortSignal, isAbortError, isUserCancellation } from '#/_base/utils/abort';
-import { IAgentStateService } from '#/agent/state/agentState';
-import type {
-  BeforeToolExecuteEvent,
-  ResolvedToolExecutionHookContext,
-  ToolDidExecuteContext,
-  ToolExecutionOutcome,
-  WillExecuteToolEvent,
-} from '#/agent/toolExecutor/toolHooks';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import { IEventBus } from '#/app/event/eventBus';
-import { LifecycleScope } from '#/app/scopes';
-import type { ToolCallEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { OrderedHookSlot } from '#/hooks';
+import { defineState } from '#/state/state';
 import type { ContentPart, ToolCall } from '#/kosong/contract/message';
+import type { ToolInputDisplay } from '@moonshot-ai/protocol';
+
 import {
   compileToolArgsValidator,
   validateToolArgs,
   type JsonType,
   type ToolArgsValidator,
 } from '#/tool/args-validator';
-import { PathSecurityError } from '#/tool/path-access';
 import { parseToolCallArguments } from '#/tool/tool-args-parse';
+import { PathSecurityError } from '#/tool/path-access';
+import { isAbortError, isUserCancellation } from '#/_base/utils/abort';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import {
   ToolAccesses,
   type ExecutableTool,
@@ -58,7 +25,20 @@ import {
   type ToolResult,
   type ToolUpdate,
 } from '#/tool/toolContract';
-
+import type {
+  BeforeToolExecuteEvent,
+  ResolvedToolExecutionHookContext,
+  ToolDidExecuteContext,
+  ToolExecutionOutcome,
+  WillExecuteToolEvent,
+} from '#/agent/toolExecutor/toolHooks';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { ILogService } from '#/_base/log/log';
+import type { ToolCallEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { OrderedHookSlot } from '#/hooks';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { BeforeToolExecuteEmitter } from './beforeToolExecuteEvent';
 import {
   IAgentToolExecutorService,
@@ -69,8 +49,8 @@ import {
   type ToolExecutorExecuteOptions,
   type UnavailableToolDescriber,
 } from './toolExecutor';
+import { ToolCallStarted, ToolProgress, ToolResultEvent } from './toolExecutorEvents';
 import { ToolScheduler } from './toolScheduler';
-import './toolExecutorEvents';
 
 const ABORT_GRACE_MS = 2_000;
 const TOOL_OUTPUT_EMPTY = 'Tool output is empty.';
@@ -169,15 +149,15 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
 
   constructor(
     @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
-    @IEventBus private readonly eventBus: IEventBus,
+    @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentToolResultTruncationService
     private readonly resultTruncation: IAgentToolResultTruncationService,
     @IAgentStateService private readonly states: IAgentStateService,
     @ILogService private readonly log?: ILogService,
   ) {
-    this.states.register(toolExecutorToolCallDupTypesKey);
-    this.states.register(toolExecutorDupTypeTurnIdKey);
+    this.states.contributeState(toolExecutorToolCallDupTypesKey);
+    this.states.contributeState(toolExecutorDupTypeTurnIdKey);
   }
 
   private get toolCallDupTypes(): Map<string, ToolCallDupType> {
@@ -253,7 +233,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
           candidates.push(
             nextTimed.then(
               (result): ToolExecutionStreamEvent => ({ type: 'timed', result }),
-              (error): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason: error }),
+              (reason): ToolExecutionStreamEvent => ({ type: 'timedRejected', reason }),
             ),
           );
         }
@@ -283,7 +263,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
             options,
           ).then(
             (value): SettledToolExecutionResult => ({ status: 'fulfilled', value }),
-            (error): SettledToolExecutionResult => ({ status: 'rejected', reason: error }),
+            (reason): SettledToolExecutionResult => ({ status: 'rejected', reason }),
           );
           finalizations.add(finalization);
           nextTimed = timedResults.next();
@@ -381,7 +361,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       task: ToolExecutionTask;
       stopBatchAfterThis?: boolean;
     } => {
-      const toolResult = this.normalizeAndMergeResult(result, call.toolName, undefined as never);
+      const toolResult = this.normalizeAndMergeResult(result, call.toolName, undefined);
       this.dispatchToolCall(call, args, options, displayFields);
       return {
         task: makeResolvedTask(
@@ -500,7 +480,7 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         index,
         pendingResult.then(
           (value): SettledTimedToolResult => ({ status: 'fulfilled', value }),
-          (error): SettledTimedToolResult => ({ status: 'rejected', index, reason: error }),
+          (reason): SettledTimedToolResult => ({ status: 'rejected', index, reason }),
         ),
       );
     }
@@ -527,21 +507,14 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
   ): Promise<ToolExecutionRunResult> {
     if (signal.aborted) {
       return {
-        result: makeErrorToolResult(call, call.args, abortedToolOutput(call.toolName, signal))
-          .result,
+        result: makeErrorToolResult(
+          call,
+          call.args,
+          abortedToolOutput(call.toolName, signal),
+        ).result,
         outcome: 'aborted',
       };
     }
-
-    // A tool that declares an execution budget gets a fused deadline signal;
-    // whichever of upstream cancellation / timeout fires first wins, and a
-    // timeout surfaces as an explicit 'timed out' error result (ported from
-    // deepseek-harness guard/timeout-policy, MIT).
-    const deadline =
-      execution.timeoutMs === undefined
-        ? undefined
-        : createDeadlineAbortSignal(signal, execution.timeoutMs);
-    const execSignal = deadline?.signal ?? signal;
 
     let rawResult: ExecutableToolResult;
     try {
@@ -550,35 +523,20 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
         toolCallId: call.toolCall.id,
         trace: options.trace,
         metadata,
-        signal: execSignal,
+        signal,
         onUpdate: (update) => {
-          if (execSignal.aborted) return;
+          if (signal.aborted) return;
           this.dispatchToolProgress(call, update, options);
         },
       });
-      rawResult = await raceWithAbortGrace(executePromise, execSignal, call.toolName);
+      rawResult = await raceWithAbortGrace(executePromise, signal, call.toolName);
     } catch (error) {
-      const aborted = isAbortError(error) || execSignal.aborted;
-      const output = deadline?.timedOut()
-        ? timeoutToolOutput(call.toolName, execution.timeoutMs)
-        : aborted
-          ? abortedToolOutput(call.toolName, signal)
-          : `Tool "${call.toolName}" failed: ${errorMessage(error)}`;
+      const aborted = isAbortError(error) || signal.aborted;
+      const output = aborted
+        ? abortedToolOutput(call.toolName, signal)
+        : `Tool "${call.toolName}" failed: ${errorMessage(error)}`;
       return {
         result: makeErrorToolResult(call, call.args, output).result,
-        outcome: 'executed',
-      };
-    } finally {
-      deadline?.clear();
-    }
-
-    if (deadline?.timedOut()) {
-      return {
-        result: makeErrorToolResult(
-          call,
-          call.args,
-          timeoutToolOutput(call.toolName, execution.timeoutMs),
-        ).result,
         outcome: 'executed',
       };
     }
@@ -612,20 +570,20 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     options: ToolExecutorExecuteOptions,
     displayFields?: ToolCallDisplayFields,
   ): void {
-    this.eventBus.publish({
-      type: 'tool.call.started',
-      turnId: options.turnId,
-      toolCallId: call.toolCall.id,
-      name: call.toolName,
-      args,
-      description: displayFields?.description,
-      display: displayFields?.display,
-    });
+    void this.dispatcher.dispatch(
+      new ToolCallStarted({
+        turnId: options.turnId,
+        toolCallId: call.toolCall.id,
+        name: call.toolName,
+        args,
+        description: displayFields?.description,
+        display: displayFields?.display,
+      }),
+    );
     options.onToolCall?.({
       toolCallId: call.toolCall.id,
       name: call.toolName,
       args,
-      display: displayFields?.display,
     });
   }
 
@@ -634,13 +592,14 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     result: ToolResult,
     options: ToolExecutorExecuteOptions,
   ): void {
-    this.eventBus.publish({
-      type: 'tool.result',
-      turnId: options.turnId,
-      toolCallId: call.toolCall.id,
-      output: result.output,
-      isError: result.isError,
-    });
+    void this.dispatcher.dispatch(
+      new ToolResultEvent({
+        turnId: options.turnId,
+        toolCallId: call.toolCall.id,
+        output: result.output,
+        isError: result.isError,
+      }),
+    );
   }
 
   private dispatchToolProgress(
@@ -648,12 +607,13 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
     update: ToolUpdate,
     options: ToolExecutorExecuteOptions,
   ): void {
-    this.eventBus.publish({
-      type: 'tool.progress',
-      turnId: options.turnId,
-      toolCallId: call.toolCall.id,
-      update,
-    });
+    void this.dispatcher.dispatch(
+      new ToolProgress({
+        turnId: options.turnId,
+        toolCallId: call.toolCall.id,
+        update,
+      }),
+    );
   }
 
   private async finalizeToolResult(
@@ -700,7 +660,9 @@ export class AgentToolExecutorService implements IAgentToolExecutorService {
       display: result.display,
       approvalRule: result.approvalRule,
       stopTurn:
-        result.stopTurn === true || didCtx.stopTurn === true || effectiveResult.stopTurn === true,
+        result.stopTurn === true ||
+        didCtx.stopTurn === true ||
+        effectiveResult.stopTurn === true,
       stopBatchAfterThis: result.stopBatchAfterThis,
       delivery: coercedResult.delivery,
     };
@@ -738,10 +700,7 @@ interface PreparedToolResult {
   readonly stopTurn?: boolean;
 }
 
-type ToolCallDisplayFields = {
-  description?: string | undefined;
-  display?: ToolInputDisplay | undefined;
-};
+type ToolCallDisplayFields = { description?: string | undefined; display?: ToolInputDisplay | undefined };
 
 function buildBeforeExecuteContext(
   call: RunnableToolCall,
@@ -898,26 +857,18 @@ function normalizeToolResult(result: ExecutableToolResult): ToolResult {
     output = result.output.length > 0 ? result.output : TOOL_OUTPUT_EMPTY;
   } else if (result.output.length === 0) {
     output = TOOL_OUTPUT_EMPTY;
-  } else if (result.output.some((part) => !isWellFormedContentPart(part))) {
-    return {
-      output: 'Tool returned a result with a malformed content part.',
-      isError: true,
-    };
   } else {
     const hasMediaBlock = result.output.some(isMediaContentPart);
     if (hasMediaBlock) {
       const hasNonEmptyText = result.output.some(
-        (part) => part.type === 'text' && typeof part.text === 'string' && part.text.length > 0,
+        (part) => part.type === 'text' && part.text.length > 0,
       );
       output = hasNonEmptyText
         ? result.output
         : [{ type: 'text', text: TOOL_OUTPUT_NON_TEXT }, ...result.output];
     } else {
       const textJoined = result.output
-        .filter(
-          (part): part is Extract<ContentPart, { type: 'text' }> =>
-            part.type === 'text' && typeof part.text === 'string',
-        )
+        .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
         .map((part) => part.text)
         .join('');
       output = textJoined.length > 0 ? textJoined : TOOL_OUTPUT_EMPTY;
@@ -958,23 +909,9 @@ function toolTelemetryErrorType(outcome: 'success' | 'error' | 'cancelled'): 'ca
 function toolOutputText(output: ToolResult['output']): string {
   if (typeof output === 'string') return output;
   return output
-    .filter(
-      (part): part is Extract<ContentPart, { type: 'text' }> =>
-        typeof part === 'object' &&
-        part !== null &&
-        part.type === 'text' &&
-        typeof part.text === 'string',
-    )
+    .filter((part): part is Extract<ContentPart, { type: 'text' }> => part.type === 'text')
     .map((part) => part.text)
     .join('');
-}
-
-function isWellFormedContentPart(part: unknown): boolean {
-  if (typeof part !== 'object' || part === null) return false;
-  const candidate = part as { type?: unknown; text?: unknown };
-  if (typeof candidate.type !== 'string') return false;
-  if (candidate.type === 'text') return typeof candidate.text === 'string';
-  return true;
 }
 
 function isMediaContentPart(part: ContentPart): boolean {
@@ -983,13 +920,9 @@ function isMediaContentPart(part: ContentPart): boolean {
 
 function abortedToolOutput(toolName: string, signal: AbortSignal): string {
   if (isUserCancellation(signal.reason)) {
-    return `The user manually interrupted "${toolName}" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause 閳?wait for the user's next instruction.`;
+    return `The user manually interrupted "${toolName}" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction.`;
   }
   return `Tool "${toolName}" was aborted`;
-}
-
-function timeoutToolOutput(toolName: string, timeoutMs: number | undefined): string {
-  return `Tool "${toolName}" timed out after ${String(timeoutMs)}ms. The call exceeded its execution budget; do not retry the same call blindly — inspect any partial result, reduce the scope, or try different arguments.`;
 }
 
 async function raceWithAbortGrace<Result>(
@@ -1024,7 +957,8 @@ async function raceWithAbortGrace<Result>(
     if (onAbort !== undefined) {
       try {
         signal.removeEventListener('abort', onAbort);
-      } catch {}
+      } catch {
+      }
     }
   }
 }

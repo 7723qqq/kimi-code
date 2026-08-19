@@ -9,7 +9,6 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 import { getDataDir } from '#/utils/paths';
-
 import type { ColorPalette, ResolvedTheme } from './colors';
 import { getBuiltInPalette } from './colors';
 

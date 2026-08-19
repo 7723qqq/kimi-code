@@ -1,55 +1,42 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
+import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { IAgentGuardianService } from '#/agent/guardian/guardianService';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import {
-  IAgentPermissionPolicyService,
-  type PermissionPolicyEvaluation,
-} from '#/agent/permissionPolicy/permissionPolicy';
-import { AgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicyService';
+  literalRulePattern,
+  matchesGlobRuleSubject,
+  matchesPathRuleSubject,
+} from '#/tool/rule-match';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import { IHostEnvironment, type IHostEnvironment as HostEnvironmentService } from '#/os/interface/hostEnvironment';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentPermissionPolicyService, type PermissionPolicyEvaluation } from '#/agent/permissionPolicy/permissionPolicy';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
+import { AgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicyService';
 import {
   IAgentPermissionRulesService,
   type IAgentPermissionRulesService as PermissionRulesServiceContract,
   type PermissionRule,
 } from '#/agent/permissionRules/permissionRules';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { IGitService } from '#/app/git/git';
 import { findGitWorkTree } from '#/app/git/workTree';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ToolCall } from '#/kosong/contract/message';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import {
-  IHostEnvironment,
-  type IHostEnvironment as HostEnvironmentService,
-} from '#/os/interface/hostEnvironment';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import {
-  literalRulePattern,
-  matchesGlobRuleSubject,
-  matchesPathRuleSubject,
-} from '#/tool/rule-match';
 import { ToolAccesses, type ToolAccesses as ToolAccessList } from '#/tool/toolContract';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 
-import { recordingTelemetry } from '../../app/telemetry/stubs';
 import { stubPermissionModeService } from '../permissionMode/stubs';
+import { recordingTelemetry } from '../../app/telemetry/stubs';
 
 const signal = new AbortController().signal;
-
-const guardianDisabledStub = {
-  _serviceBrand: undefined,
-  enabled: false,
-  circuitOpen: false,
-  review: async () => ({ verdict: 'bypass' as const, reason: 'disabled in test' }),
-};
 
 const hostFs = new HostFileSystem();
 
@@ -69,26 +56,48 @@ describe('AgentPermissionPolicyService chain', () => {
     workspace = workspaceStub('/workspace');
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.defineInstance(
-          IAgentPermissionModeService,
-          stubPermissionModeService(() => mode),
-        );
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
         reg.defineInstance(
           IAgentScopeContext,
           makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
         );
-        reg.definePartialInstance(
-          IAgentPermissionRulesService,
-          permissionRulesStub({
-            rules: () => rules,
-            sessionApprovalRulePatterns: () => sessionApprovalRulePatterns,
-          }),
-        );
+        reg.definePartialInstance(IAgentPermissionRulesService, permissionRulesStub({
+          rules: () => rules,
+          sessionApprovalRulePatterns: () => sessionApprovalRulePatterns,
+        }));
         reg.defineInstance(ISessionWorkspaceContext, workspace.stub);
         reg.defineInstance(IHostEnvironment, kaosStub());
+        reg.defineInstance(IAgentRuntimeService, {
+          _serviceBrand: undefined,
+          onDidChange: () => ({ dispose: () => {} }),
+          isAvailable: () => true,
+          inspect() { return (this as IAgentRuntimeService).acquire().runtime; },
+          acquire: () => ({
+            track: (resource) => resource,
+            runtime: {
+              identity: { workspaceId: 'test', runtimeId: 'local', generation: 'test' },
+              capabilities: new Set(),
+              status: 'ready',
+              onDidChangeStatus: () => ({ dispose: () => {} }),
+              dispose: () => {},
+              environment: { pathClass: 'posix' } as never,
+              path: {
+                separator: '/',
+                delimiter: ':',
+                isAbsolute: () => true,
+                join: (...paths: readonly string[]) => join(...paths),
+                relative: (from: string, to: string) => to.replace(`${from}/`, ''),
+                resolve: (...paths: readonly string[]) => join(...paths),
+                basename: (path: string) => basename(path),
+                dirname: (path: string) => dirname(path),
+              },
+              workspace: { mapRoots: (roots) => roots },
+            },
+            dispose: () => {},
+          }),
+        });
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
         reg.definePartialInstance(IGitService, { findWorkTree: async () => null });
-        reg.defineInstance(IAgentGuardianService, guardianDisabledStub);
         reg.define(IAgentPermissionPolicyService, AgentPermissionPolicyService);
       },
       strict: true,
@@ -113,12 +122,10 @@ describe('AgentPermissionPolicyService chain', () => {
   it('keeps auto-mode AskUserQuestion deny above default approval', async () => {
     mode = 'auto';
 
-    await expect(
-      evaluate({
-        toolName: 'AskUserQuestion',
-        args: { questions: [] },
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'AskUserQuestion',
+      args: { questions: [] },
+    })).resolves.toMatchObject({
       policyName: 'auto-mode-ask-user-question-deny',
       result: { kind: 'deny' },
     });
@@ -133,12 +140,10 @@ describe('AgentPermissionPolicyService chain', () => {
       reason: 'blocked by test',
     });
 
-    await expect(
-      evaluate({
-        toolName: 'Bash',
-        args: { command: 'printf first', timeout: 60 },
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Bash',
+      args: { command: 'printf first', timeout: 60 },
+    })).resolves.toMatchObject({
       policyName: 'user-configured-deny',
       result: {
         kind: 'deny',
@@ -161,12 +166,10 @@ describe('AgentPermissionPolicyService chain', () => {
       },
     );
 
-    await expect(
-      evaluate({
-        toolName: 'Bash',
-        args: { command: 'printf first', timeout: 60 },
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Bash',
+      args: { command: 'printf first', timeout: 60 },
+    })).resolves.toMatchObject({
       policyName: 'user-configured-ask',
       result: { kind: 'ask' },
     });
@@ -180,12 +183,10 @@ describe('AgentPermissionPolicyService chain', () => {
     });
     sessionApprovalRulePatterns.push('Bash(printf first)');
 
-    await expect(
-      evaluate({
-        toolName: 'Bash',
-        args: { command: 'printf first', timeout: 60 },
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Bash',
+      args: { command: 'printf first', timeout: 60 },
+    })).resolves.toMatchObject({
       policyName: 'session-approval-history',
       result: {
         kind: 'approve',
@@ -225,10 +226,7 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
     workspace = workspaceStub(workspaceDir);
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        reg.defineInstance(
-          IAgentPermissionModeService,
-          stubPermissionModeService(() => mode),
-        );
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
         reg.defineInstance(
           IAgentScopeContext,
           makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
@@ -236,11 +234,39 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
         reg.definePartialInstance(IAgentPermissionRulesService, permissionRulesStub());
         reg.defineInstance(ISessionWorkspaceContext, workspace.stub);
         reg.defineInstance(IHostEnvironment, kaosStub());
+        reg.defineInstance(IAgentRuntimeService, {
+          _serviceBrand: undefined,
+          onDidChange: () => ({ dispose: () => {} }),
+          isAvailable: () => true,
+          inspect() { return (this as IAgentRuntimeService).acquire().runtime; },
+          acquire: () => ({
+            track: (resource) => resource,
+            runtime: {
+              identity: { workspaceId: 'test', runtimeId: 'local', generation: 'test' },
+              capabilities: new Set(),
+              status: 'ready',
+              onDidChangeStatus: () => ({ dispose: () => {} }),
+              dispose: () => {},
+              environment: { pathClass: 'posix' } as never,
+              path: {
+                separator: '/',
+                delimiter: ':',
+                isAbsolute: () => true,
+                join: (...paths: readonly string[]) => join(...paths),
+                relative: (from: string, to: string) => to.replace(`${from}/`, ''),
+                resolve: (...paths: readonly string[]) => join(...paths),
+                basename: (path: string) => basename(path),
+                dirname: (path: string) => dirname(path),
+              },
+              workspace: { mapRoots: (roots) => roots },
+            },
+            dispose: () => {},
+          }),
+        });
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
         reg.definePartialInstance(IGitService, {
           findWorkTree: (cwd: string) => findGitWorkTree(hostFs, cwd),
         });
-        reg.defineInstance(IAgentGuardianService, guardianDisabledStub);
         reg.define(IAgentPermissionPolicyService, AgentPermissionPolicyService);
       },
       strict: true,
@@ -260,25 +286,21 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
   }
 
   it('still asks for Bash inside a git cwd in manual mode', async () => {
-    await expect(
-      evaluate({
-        toolName: 'Bash',
-        args: { command: 'printf first', timeout: 60 },
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Bash',
+      args: { command: 'printf first', timeout: 60 },
+    })).resolves.toMatchObject({
       policyName: 'fallback-ask',
       result: { kind: 'ask' },
     });
   });
 
   it('approves Write to a path inside the git cwd', async () => {
-    await expect(
-      evaluate({
-        toolName: 'Write',
-        args: { path: 'src/a.ts', content: 'x' },
-        accesses: ToolAccesses.writeFile(join(workspaceDir, 'src/a.ts')),
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Write',
+      args: { path: 'src/a.ts', content: 'x' },
+      accesses: ToolAccesses.writeFile(join(workspaceDir, 'src/a.ts')),
+    })).resolves.toMatchObject({
       policyName: 'git-cwd-write-approve',
       result: { kind: 'approve' },
     });
@@ -288,13 +310,11 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
     const extraDir = await mkdtemp(join(tmpdir(), 'kimi-permission-extra-'));
     cleanupDirs.push(extraDir);
     workspace.addAdditionalDir(extraDir);
-    await expect(
-      evaluate({
-        toolName: 'Edit',
-        args: { path: join(extraDir, 'src/a.ts'), old_string: 'A', new_string: 'B' },
-        accesses: ToolAccesses.readWriteFile(join(extraDir, 'src/a.ts')),
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Edit',
+      args: { path: join(extraDir, 'src/a.ts'), old_string: 'A', new_string: 'B' },
+      accesses: ToolAccesses.readWriteFile(join(extraDir, 'src/a.ts')),
+    })).resolves.toMatchObject({
       policyName: 'git-cwd-write-approve',
       result: { kind: 'approve' },
     });
@@ -305,39 +325,33 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
     cleanupDirs.push(extraDir);
     workspace.addAdditionalDir(extraDir);
     const outsidePath = join(`${extraDir}-evil`, 'outside.ts');
-    await expect(
-      evaluate({
-        toolName: 'Write',
-        args: { path: outsidePath, content: 'x' },
-        accesses: ToolAccesses.writeFile(outsidePath),
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Write',
+      args: { path: outsidePath, content: 'x' },
+      accesses: ToolAccesses.writeFile(outsidePath),
+    })).resolves.toMatchObject({
       policyName: 'fallback-ask',
       result: { kind: 'ask' },
     });
   });
 
   it('asks for git control files before git-cwd approval', async () => {
-    await expect(
-      evaluate({
-        toolName: 'Write',
-        args: { path: '.git/config', content: 'x' },
-        accesses: ToolAccesses.writeFile(join(workspaceDir, '.git/config')),
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Write',
+      args: { path: '.git/config', content: 'x' },
+      accesses: ToolAccesses.writeFile(join(workspaceDir, '.git/config')),
+    })).resolves.toMatchObject({
       policyName: 'git-control-path-access-ask',
       result: { kind: 'ask' },
     });
   });
 
   it('asks for sensitive files before git-cwd approval', async () => {
-    await expect(
-      evaluate({
-        toolName: 'Write',
-        args: { path: '.env', content: 'SECRET=1' },
-        accesses: ToolAccesses.writeFile(join(workspaceDir, '.env')),
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Write',
+      args: { path: '.env', content: 'SECRET=1' },
+      accesses: ToolAccesses.writeFile(join(workspaceDir, '.env')),
+    })).resolves.toMatchObject({
       policyName: 'sensitive-file-access-ask',
       result: { kind: 'ask' },
     });
@@ -345,58 +359,36 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
 
   it('does not use git-cwd approval in auto mode', async () => {
     mode = 'auto';
-    await expect(
-      evaluate({
-        toolName: 'Write',
-        args: { path: 'src/a.ts', content: 'x' },
-        accesses: ToolAccesses.writeFile(join(workspaceDir, 'src/a.ts')),
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Write',
+      args: { path: 'src/a.ts', content: 'x' },
+      accesses: ToolAccesses.writeFile(join(workspaceDir, 'src/a.ts')),
+    })).resolves.toMatchObject({
       policyName: 'auto-mode-approve',
       result: { kind: 'approve' },
     });
   });
 
   it('does not approve Write when execution has no write file access', async () => {
-    await expect(
-      evaluate({
-        toolName: 'Write',
-        args: { path: 'src/a.ts', content: 'x' },
-        accesses: ToolAccesses.none(),
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Write',
+      args: { path: 'src/a.ts', content: 'x' },
+      accesses: ToolAccesses.none(),
+    })).resolves.toMatchObject({
       policyName: 'fallback-ask',
       result: { kind: 'ask' },
     });
   });
 
   it('does not approve when any write access is outside the cwd', async () => {
-    await expect(
-      evaluate({
-        toolName: 'Write',
-        args: { path: 'src/a.ts', content: 'x' },
-        accesses: [
-          { kind: 'file', operation: 'write', path: join(workspaceDir, 'src/a.ts') },
-          { kind: 'file', operation: 'write', path: join(tmpdir(), 'outside.ts') },
-        ],
-      }),
-    ).resolves.toMatchObject({
-      policyName: 'fallback-ask',
-      result: { kind: 'ask' },
-    });
-  });
-
-  it('does not apply git-cwd approval when the workspace is not inside a git repo', async () => {
-    const nonGitDir = await mkdtemp(join(tmpdir(), 'kimi-non-git-'));
-    cleanupDirs.push(nonGitDir);
-    workspace.setWorkDir(nonGitDir);
-    await expect(
-      evaluate({
-        toolName: 'Write',
-        args: { path: 'src/a.ts', content: 'x' },
-        accesses: ToolAccesses.writeFile(join(nonGitDir, 'src/a.ts')),
-      }),
-    ).resolves.toMatchObject({
+    await expect(evaluate({
+      toolName: 'Write',
+      args: { path: 'src/a.ts', content: 'x' },
+      accesses: [
+        { kind: 'file', operation: 'write', path: join(workspaceDir, 'src/a.ts') },
+        { kind: 'file', operation: 'write', path: join(tmpdir(), 'outside.ts') },
+      ],
+    })).resolves.toMatchObject({
       policyName: 'fallback-ask',
       result: { kind: 'ask' },
     });
@@ -542,7 +534,11 @@ function accesses(toolName: string, args: Record<string, unknown>): ToolAccessLi
   }
 }
 
-function stringArg(args: Record<string, unknown>, key: string, fallback = ''): string {
+function stringArg(
+  args: Record<string, unknown>,
+  key: string,
+  fallback = '',
+): string {
   const value = args[key];
   return typeof value === 'string' ? value : fallback;
 }
@@ -550,15 +546,11 @@ function stringArg(args: Record<string, unknown>, key: string, fallback = ''): s
 function workspaceStub(initialWorkDir: string): {
   readonly stub: ISessionWorkspaceContext;
   addAdditionalDir(dir: string): void;
-  setWorkDir(dir: string): void;
 } {
   let additionalDirs: string[] = [];
-  let workDir = initialWorkDir;
   const stub: ISessionWorkspaceContext = {
     _serviceBrand: undefined,
-    get workDir() {
-      return workDir;
-    },
+    workDir: initialWorkDir,
     get additionalDirs() {
       return additionalDirs;
     },
@@ -571,15 +563,10 @@ function workspaceStub(initialWorkDir: string): {
     addAdditionalDir: (dir) => {
       if (!additionalDirs.includes(dir)) additionalDirs = [...additionalDirs, dir];
     },
-    setWorkDir: (dir) => {
-      workDir = dir;
-    },
   };
 }
 
-function kaosStub(
-  pathClass: HostEnvironmentService['pathClass'] = 'posix',
-): HostEnvironmentService {
+function kaosStub(pathClass: HostEnvironmentService['pathClass'] = 'posix'): HostEnvironmentService {
   return {
     _serviceBrand: undefined,
     osKind: 'Linux',

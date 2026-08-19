@@ -1,36 +1,20 @@
-/**
- * `toolSelect` domain — `IAgentToolSelectService` implementation.
- *
- * Shapes the provider-visible tool and history views for progressive tool
- * disclosure, tracks loaded dynamic schemas as pending declarations drained
- * by the `contextInjector` boundary provider (the declaration lands at a
- * quiescent boundary instead of mid-step inside a streaming tool exchange),
- * and exposes loadable-tools announcement text. Removal splices
- * (`undo`/`clear`) drop pending entries whose announcing exchange left the
- * conversation, while compaction's replacement splice keeps them, so the
- * declaration still lands at the post-compaction boundary. Reads live tools from
- * `toolRegistry`, active-tool and capability state from `profile`, gates
- * through `flag`, hooks into `toolExecutor`, and listens to context
- * lifecycle events through `event`. The mutable load-tracking state
- * (`pendingLoaded`) is registered into `agentState` (`IAgentStateService`)
- * and read/written through it. Bound at Agent scope.
- */
-
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { defineState } from '#/_base/state/stateRegistry';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { defineState } from '#/state/state';
 import { IEventBus } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
-import { LifecycleScope } from '#/app/scopes';
 import type { Tool } from '#/kosong/contract/tool';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { CompactionCompleted } from '#/agent/fullCompaction/compactionOps';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 
 import {
   collectLoadedDynamicToolNames,
@@ -65,7 +49,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
     @IAgentStateService private readonly states: IAgentStateService,
   ) {
     super();
-    this.states.register(toolSelectPendingLoadedKey);
+    this.states.contributeState(toolSelectPendingLoadedKey);
     this._register(
       toolExecutor.registerUnavailableToolDescriber((name) => this.describeUnavailableTool(name)),
     );
@@ -73,12 +57,12 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       toolExecutor.registerMissingToolDescriber((name) => this.describeMissingTool(name)),
     );
     this._register(
-      eventBus.subscribe('compaction.completed', () => {
+      eventBus.subscribe(CompactionCompleted, () => {
         this.pendingLoaded.clear();
       }),
     );
     this._register(
-      eventBus.subscribe('context.spliced', (splice) => {
+      eventBus.subscribe(ContextSpliced, (splice) => {
         if (splice.deleteCount === 0 || splice.messages.length > 0) return;
         this.dropPendingLoadedNotLanded();
       }),
@@ -181,9 +165,9 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
 
   private shouldIntercept(name: string): boolean {
     if (!this.enabled()) return false;
-    const info = this.toolRegistry.resolveInfo(name);
+    const info = this.toolRegistry.list().find((entry) => entry.name === name);
     if (info === undefined || !this.isDynamicallyLoadable(info)) return false;
-    if (!this.toolPolicy.isToolActive(name, info.source)) return false;
+    if (!this.loadableToolNames().includes(name)) return false;
     return !this.activeLoadedToolNames().has(name);
   }
 
@@ -214,7 +198,8 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       .list()
       .filter(
         (info) =>
-          this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(info.name, info.source),
+          this.isDynamicallyLoadable(info) &&
+          this.toolPolicy.isToolActive(info.name, info.source),
       )
       .map((info) => info.name)
       .toSorted((a, b) => a.localeCompare(b));
@@ -228,15 +213,8 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
 
   private activeLoadedToolNames(): Set<string> {
     const names = this.loadedToolNames();
-    // Snapshot the policy once instead of per-tool: isToolActive otherwise
-    // re-allocates profile data and re-reads config for every loaded name,
-    // which is O(n) profile/config reads for n loaded tools per step.
-    const isActive = this.toolPolicy.createToolActiveChecker();
     for (const name of names) {
-      const info = this.toolRegistry.resolveInfo(name);
-      const loadable = info !== undefined ? this.isDynamicallyLoadable(info) : isMcpToolName(name);
-      const source = info?.source ?? 'mcp';
-      if (!loadable || !isActive(name, source)) names.delete(name);
+      if (!this.isLoadedToolActive(name)) names.delete(name);
     }
     return names;
   }
@@ -247,9 +225,12 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   }
 
   private isLoadedToolActive(name: string): boolean {
-    const info = this.toolRegistry.resolveInfo(name);
+    const info = this.toolRegistry.list().find((entry) => entry.name === name);
     if (info !== undefined) {
-      return this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(name, info.source);
+      return (
+        this.isDynamicallyLoadable(info) &&
+        this.toolPolicy.isToolActive(name, info.source)
+      );
     }
     if (isMcpToolName(name)) return this.toolPolicy.isToolActive(name, 'mcp');
     return false;

@@ -10,7 +10,8 @@
  * the full-width app-scope Service reflection (`AppServicesView`); the
  * `workspace` view is the workspace-scope counterpart
  * (`WorkspaceServicesView`, with a workspace picker on top); the
- * `bash` view is the full-width `IBashParserService` playground
+ * `suggest` view is the filesystem suggest playground (`FsSuggestView`);
+ * the `bash` view is the full-width `IBashParserService` playground
  * (`BashParserView`); the `di` view is the engine's Service × Effect × DI
  * debug surface (`DiInspectionView`); the `search` view is the full-width
  * global message search (`SearchView`) whose hits navigate back into the
@@ -26,6 +27,7 @@ import { AppServicesView } from './components/AppServicesView';
 import { BashParserView } from './components/BashParserView';
 import { ChatView, type ChatJump } from './components/ChatView';
 import { DiInspectionView } from './components/DiInspectionView';
+import { FsSuggestView } from './components/FsSuggestView';
 import { ModelCatalogView } from './components/ModelCatalogView';
 import { NavRail, type AppView } from './components/NavRail';
 import { RightPanel } from './components/RightPanel';
@@ -121,6 +123,8 @@ export function App() {
           <AppServicesView />
         ) : view === 'workspace' ? (
           <WorkspaceServicesView />
+        ) : view === 'suggest' ? (
+          <FsSuggestView />
         ) : view === 'bash' ? (
           <BashParserView />
         ) : view === 'di' ? (

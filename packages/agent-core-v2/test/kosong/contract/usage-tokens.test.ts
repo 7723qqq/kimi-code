@@ -66,13 +66,13 @@ describe('estimateTokensForMessage(s)', () => {
       content: [{ type: 'text', text: 'abcd' }],
       toolCalls: [{ type: 'function', id: 'c1', name: 'tool', arguments: '{}' }],
     };
-    // Serialized tool-call arguments are estimated with the implementation's
-    // JSON formula: raw heuristic estimate × 1.3, rounded up.
+    // Serialized tool-call arguments are JSON-stringified before the raw
+    // heuristic estimate applies.
     const expected =
       estimateTokens('assistant') +
       estimateTokens('abcd') +
       estimateTokens('tool') +
-      Math.ceil(estimateTokens('{}') * 1.3);
+      estimateTokens('"{}"');
     expect(estimateTokensForMessage(message)).toBe(expected);
   });
 
@@ -108,14 +108,12 @@ describe('estimateTokensForMessage(s)', () => {
 describe('estimateTokensForTools', () => {
   it('counts name, description, and serialized parameters', () => {
     const tool = { name: 'read', description: 'Read a file', parameters: { type: 'object' } };
-    // estimateTokensForTools applies the JSON ×1.3 multiplier to the summed
-    // token estimate of the whole batch, then rounds up.
-    const expected = Math.ceil(
-      (estimateTokens(tool.name) +
-        estimateTokens(tool.description) +
-        estimateTokens(JSON.stringify(tool.parameters))) *
-        1.3,
-    );
+    // estimateTokensForTools sums the raw heuristic estimate over name,
+    // description, and JSON-stringified parameters.
+    const expected =
+      estimateTokens(tool.name) +
+      estimateTokens(tool.description) +
+      estimateTokens(JSON.stringify(tool.parameters));
     expect(estimateTokensForTools([tool])).toBe(expected);
   });
 });

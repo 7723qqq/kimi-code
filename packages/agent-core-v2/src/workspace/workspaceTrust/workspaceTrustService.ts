@@ -1,27 +1,7 @@
-/**
- * `workspaceTrust` domain — `IWorkspaceTrust` implementation.
- *
- * Persists the trust marker through the `persistence` domain's
- * `IAtomicDocumentStore` under the `workspace-trust` scope, one document per
- * workspace keyed by `encodeWorkDirKey(root)`, with the raw root kept in the
- * value for inspection. The document's presence IS the trusted state: `trust()`
- * writes it, `untrust()` deletes it. The record lives under the kimi home,
- * never inside the workspace, so a checked-out tree cannot pre-trust
- * itself. The flag is read once through `ready` and every later mutation
- * goes through this service, so the view is in-process: another process
- * flipping the same record is picked up only on restart (a `docs.watch`
- * sync can join when a second writer exists). A read failure resolves to
- * untrusted. The plain-data state (`trusted`) is registered into
- * `workspaceState` (`IWorkspaceStateService`) and read/written through it.
- * Bound at Workspace scope.
- */
-
 import { Disposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
-import { defineState } from '#/_base/state/stateRegistry';
+import { defineState } from '#/state/state';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { LifecycleScope } from '#/app/scopes';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
@@ -35,9 +15,11 @@ interface TrustRecord {
   readonly trustedAt: number;
 }
 
-export const workspaceTrustTrustedKey = defineState<boolean>('workspaceTrust.trusted', () => false);
+export const workspaceTrustTrustedKey = defineState<boolean>(
+  'workspaceTrust.trusted',
+  () => false,
+);
 
-// NOTE: stays Disposable — its own 'get' collides with the Fiber
 export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust {
   declare readonly _serviceBrand: undefined;
 
@@ -53,7 +35,7 @@ export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust
     @IWorkspaceStateService private readonly states: IWorkspaceStateService,
   ) {
     super();
-    this.states.register(workspaceTrustTrustedKey);
+    this.states.contributeState(workspaceTrustTrustedKey);
     this.root = workspace.cwd;
     this.storeKey = encodeWorkDirKey(workspace.cwd);
     this.ready = this.initialize();
@@ -102,10 +84,3 @@ export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust
   }
 }
 
-registerScopedService(
-  LifecycleScope.Workspace,
-  IWorkspaceTrust,
-  WorkspaceTrustService,
-  ScopeActivation.OnDemand,
-  'workspaceTrust',
-);

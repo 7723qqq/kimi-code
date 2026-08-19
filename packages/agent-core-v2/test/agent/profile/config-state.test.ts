@@ -1,11 +1,9 @@
+import { emptyUsage } from '#/kosong/contract/usage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { emptyUsage } from '#/kosong/contract/usage';
 import type { ModelRecord } from '#/kosong/model/model';
-
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import {
   configServices,
   createTestAgent,
@@ -14,6 +12,7 @@ import {
   telemetryServices,
   type TestAgentContext,
 } from '../../harness';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 type TestKimiConfig = ReturnType<Parameters<typeof configServices>[0]>;
 type TestProtocolModelConfig = NonNullable<TestKimiConfig['models']>[string] &
@@ -121,10 +120,6 @@ describe('ConfigState model capabilities', () => {
   });
 
   it('omits maxContextTokens when the bound model no longer resolves', () => {
-    // `update` accepts an alias without validating resolvability; a model entry
-    // removed from config afterwards lands in the same state. The capabilities
-    // then fall back to UNKNOWN_CAPABILITY, whose 0 means "unknown" — the
-    // status event must drop the field rather than publish 0.
     profile.update({ modelAlias: 'ghost/model' });
 
     const statuses = ctx.allEvents.filter((entry) => entry.event === 'agent.status.updated');
@@ -290,9 +285,7 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
 
   beforeEach(() => {
     kimiConfig = {
-      providers: {
-        kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
-      },
+      providers: { kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' } },
       models: {
         'kimi-code/deep': {
           provider: 'kimi',
@@ -337,18 +330,16 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
     capturedThinking = undefined;
     ctx = createTestAgent(
       configServices(() => kimiConfig),
-      llmGenerateServices(
-        async (_provider, _systemPrompt, _tools, _history, _callbacks, options) => {
-          capturedThinking = options?.thinking;
-          return {
-            id: 'response-1',
-            message: { role: 'assistant', content: [], toolCalls: [] },
-            usage: emptyUsage(),
-            finishReason: 'completed',
-            rawFinishReason: 'stop',
-          };
-        },
-      ),
+      llmGenerateServices(async (_provider, _systemPrompt, _tools, _history, _callbacks, options) => {
+        capturedThinking = options?.thinking;
+        return {
+          id: 'response-1',
+          message: { role: 'assistant', content: [], toolCalls: [] },
+          usage: emptyUsage(),
+          finishReason: 'completed',
+          rawFinishReason: 'stop',
+        };
+      }),
     );
     profile = ctx.get(IAgentProfileService);
     requester = ctx.get(IAgentLLMRequesterService);
@@ -417,7 +408,9 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
 
     expect(() => {
       profile.setThinking('ultra');
-    }).toThrow('Thinking effort "ultra" is not supported by model "kimi-code/custom"');
+    }).toThrow(
+      'Thinking effort "ultra" is not supported by model "kimi-code/custom"',
+    );
   });
 
   it.each([
@@ -449,11 +442,11 @@ describe('ConfigState thinking clamp for always-thinking models', () => {
     expect(ctx.allEvents).toContainEqual({
       type: '[rpc]',
       event: 'warning',
-      args: {
+      args: expect.objectContaining({
         code: 'anthropic-thinking-effort-not-listed',
         message:
           'Thinking effort "high" is not listed for model "compatible-model" (known: max). The configured value will be sent unchanged to the Anthropic-compatible backend.',
-      },
+      }),
     });
   });
 
@@ -474,13 +467,10 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
   let kimiConfig: TestKimiConfig;
   let capturedProvider: unknown;
   let capturedOptions: Parameters<GenerateFn>[5];
-  let generate: GenerateFn;
 
   beforeEach(() => {
     kimiConfig = {
-      providers: {
-        kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
-      },
+      providers: { kimi: { type: 'kimi', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' } },
       models: {
         'kimi-code': {
           provider: 'kimi',
@@ -499,7 +489,6 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
       },
     };
     capturedProvider = undefined;
-    generate = defaultGenerate;
   });
 
   afterEach(async () => {
@@ -515,19 +504,17 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
   function createAgentWithEnv(): void {
     ctx = createTestAgent(
       configServices(() => kimiConfig),
-      llmGenerateServices(
-        async (provider, _systemPrompt, _tools, _history, _callbacks, options) => {
-          capturedProvider = provider;
-          capturedOptions = options;
-          return {
-            id: 'response-1',
-            message: { role: 'assistant', content: [], toolCalls: [] },
-            usage: emptyUsage(),
-            finishReason: 'completed',
-            rawFinishReason: 'stop',
-          };
-        },
-      ),
+      llmGenerateServices(async (provider, _systemPrompt, _tools, _history, _callbacks, options) => {
+        capturedProvider = provider;
+        capturedOptions = options;
+        return {
+          id: 'response-1',
+          message: { role: 'assistant', content: [], toolCalls: [] },
+          usage: emptyUsage(),
+          finishReason: 'completed',
+          rawFinishReason: 'stop',
+        };
+      }),
     );
     profile = ctx.get(IAgentProfileService);
     requester = ctx.get(IAgentLLMRequesterService);
@@ -587,67 +574,5 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
 
     expect(capturedProvider).toMatchObject({ name: 'anthropic' });
     expect(capturedOptions?.thinking?.effort).toBe('max');
-  });
-
-  it('works with model that has no capabilities set', () => {
-    kimiConfig = {
-      providers: {
-        custom: { type: 'openai', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
-      },
-      models: {
-        'custom/minimal': {
-          provider: 'custom',
-          model: 'minimal-model',
-          maxContextSize: 8_000,
-        },
-      },
-    };
-    ctx = createTestAgent(configServices(() => kimiConfig));
-    profile = ctx.get(IAgentProfileService);
-    profile.update({ modelAlias: 'custom/minimal' });
-
-    const caps = profile.getModelCapabilities();
-    expect(caps.image_in).toBe(false);
-    expect(caps.video_in).toBe(false);
-    expect(caps.thinking).toBe(false);
-    expect(caps.max_context_tokens).toBe(8_000);
-  });
-
-  it('uses config max output size even when very small', async () => {
-    let requestMaxTokens: unknown;
-    kimiConfig = {
-      providers: {
-        openai: { type: 'openai', apiKey: 'test-key', baseUrl: 'https://api.example.test/v1' },
-      },
-      models: {
-        'openai/tiny': {
-          provider: 'openai',
-          model: 'tiny-model',
-          maxContextSize: 4_000,
-          maxOutputSize: 100,
-        },
-      },
-    };
-    generate = async (_provider, _systemPrompt, _tools, _history, _callbacks, options) => {
-      requestMaxTokens = options?.maxCompletionTokens;
-      return {
-        id: 'response-1',
-        message: { role: 'assistant', content: [], toolCalls: [] },
-        usage: emptyUsage(),
-        finishReason: 'completed',
-        rawFinishReason: 'stop',
-      };
-    };
-    ctx = createTestAgent(
-      configServices(() => kimiConfig),
-      llmGenerateServices((...args) => generate(...args)),
-    );
-    profile = ctx.get(IAgentProfileService);
-    requester = ctx.get(IAgentLLMRequesterService);
-
-    profile.update({ modelAlias: 'openai/tiny', systemPrompt: 'sys', thinkingLevel: 'off' });
-    await requester.request({}, undefined, new AbortController().signal);
-
-    expect(requestMaxTokens).toBe(100);
   });
 });

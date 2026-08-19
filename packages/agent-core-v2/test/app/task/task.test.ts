@@ -19,6 +19,7 @@ describe('TaskService', () => {
   });
   afterEach(() => disposables.dispose());
 
+
   describe('run()', () => {
     it('transitions running → completed on success', async () => {
       const handle = svc.run(async () => 42);
@@ -59,6 +60,7 @@ describe('TaskService', () => {
     });
   });
 
+
   describe('defer()', () => {
     it('starts in pending state', () => {
       const handle = svc.defer<number>();
@@ -79,6 +81,7 @@ describe('TaskService', () => {
       await expect(handle.result).rejects.toThrow('fail');
     });
   });
+
 
   describe('cancellation', () => {
     it('run() cancel aborts the signal and settles as cancelled', async () => {
@@ -114,6 +117,7 @@ describe('TaskService', () => {
     });
   });
 
+
   describe('disposal', () => {
     it('dispose cancels a running task', async () => {
       const handle = svc.run(async (signal) => {
@@ -140,6 +144,7 @@ describe('TaskService', () => {
     });
   });
 
+
   describe('onDidChangeState', () => {
     it('fires on each transition for run()', async () => {
       const states: TaskState[] = [];
@@ -160,6 +165,7 @@ describe('TaskService', () => {
       expect(handle.state).toBe('completed');
     });
   });
+
 
   describe('consumption patterns', () => {
     it('resolves the value and completes when awaiting handle.result', async () => {
@@ -215,6 +221,7 @@ describe('TaskService', () => {
       expect(handle.state).toBe('completed');
     });
   });
+
 
   describe('IDs', () => {
     it('handles have unique IDs', () => {

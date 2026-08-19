@@ -1,12 +1,3 @@
-/**
- * `_base/utils/paths` (cross-cutting) — pure path predicates and directory
- * walks.
- *
- * Constrains filesystem watches to selected subtrees and scanner-visible
- * entries, and walks host directory chains with platform-native path
- * semantics so drive-letter / UNC roots keep their host form.
- */
-
 import nodePath from 'node:path';
 
 function normalizeSlashes(p: string): string {
@@ -108,7 +99,10 @@ function isScannerVisiblePath(
   if (separatorAt === -1) return false;
   const parent = normPath.slice(0, separatorAt);
   if (scannedDirectories.has(parent)) return true;
-  if (keepEntryFile === undefined || normPath.slice(separatorAt + 1) !== keepEntryFile) {
+  if (
+    keepEntryFile === undefined ||
+    normPath.slice(separatorAt + 1) !== keepEntryFile
+  ) {
     return false;
   }
   const parentSeparatorAt = parent.lastIndexOf('/');

@@ -1,43 +1,39 @@
+import * as vscode from "vscode";
 import {
   effectiveModelAlias,
   type KimiConfig as SdkKimiConfig,
   type ModelAlias,
   type ThinkingEffort,
-} from '@moonshot-ai/kimi-code-sdk';
-import * as vscode from 'vscode';
+} from "@moonshot-ai/kimi-code-sdk";
 
-import { Methods } from '../../shared/bridge';
+import { Methods } from "../../shared/bridge";
 import type {
   KimiConfig as WebviewKimiConfig,
   ModelConfig,
   SlashCommandInfo,
-} from '../../shared/legacy-sdk';
-import type { ExtensionConfig, SessionConfig } from '../../shared/types';
-import { VSCodeSettings } from '../config/vscode-settings';
-import type { Handler } from './types';
+} from "../../shared/legacy-sdk";
+import type { ExtensionConfig, SessionConfig } from "../../shared/types";
+import { VSCodeSettings } from "../config/vscode-settings";
+import type { Handler } from "./types";
 
 const SLASH_COMMANDS: SlashCommandInfo[] = [
-  { name: 'init', aliases: [], description: 'Analyze the codebase and generate AGENTS.md' },
-  { name: 'compact', aliases: [], description: 'Compact the conversation context' },
-  { name: 'clear', aliases: ['reset'], description: 'Clear the context' },
+  { name: "init", aliases: [], description: "Analyze the codebase and generate AGENTS.md" },
+  { name: "compact", aliases: [], description: "Compact the conversation context" },
+  { name: "clear", aliases: ["reset"], description: "Clear the context" },
+  { name: "yolo", aliases: [], description: "Toggle YOLO mode (auto-approve tool actions; may still ask questions)" },
   {
-    name: 'yolo',
+    name: "auto",
+    aliases: ["afk"],
+    description: "Toggle Auto mode (fully autonomous; the agent will not ask questions)",
+  },
+  { name: "plan", aliases: [], description: "Toggle plan mode. Usage: /plan [on|off|view|clear]" },
+  {
+    name: "add-dir",
     aliases: [],
-    description: 'Toggle YOLO mode (auto-approve tool actions; may still ask questions)',
+    description: "Add a directory to the workspace. Usage: /add-dir <path>",
   },
-  {
-    name: 'auto',
-    aliases: ['afk'],
-    description: 'Toggle Auto mode (fully autonomous; the agent will not ask questions)',
-  },
-  { name: 'plan', aliases: [], description: 'Toggle plan mode. Usage: /plan [on|off|view|clear]' },
-  {
-    name: 'add-dir',
-    aliases: [],
-    description: 'Add a directory to the workspace. Usage: /add-dir <path>',
-  },
-  { name: 'export', aliases: [], description: 'Export current session context to a markdown file' },
-  { name: 'import', aliases: [], description: 'Import context from a file or session ID' },
+  { name: "export", aliases: [], description: "Export current session context to a markdown file" },
+  { name: "import", aliases: [], description: "Import context from a file or session ID" },
 ];
 
 const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) => {
@@ -54,9 +50,9 @@ const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) 
   // persistModelSelection rule).
   const patch = effortChanged ? full : { enabled: full.enabled };
   if (
-    config.defaultModel !== params.model ||
-    config.thinking?.enabled !== patch.enabled ||
-    (effortChanged && config.thinking?.effort !== patch.effort)
+    config.defaultModel !== params.model
+    || config.thinking?.enabled !== patch.enabled
+    || (effortChanged && config.thinking?.effort !== patch.effort)
   ) {
     await ctx.harness.setConfig({
       defaultModel: params.model,
@@ -78,7 +74,7 @@ const getExtensionConfig: Handler<void, ExtensionConfig> = async () => {
 };
 
 const openSettings: Handler<void, { ok: boolean }> = async () => {
-  await vscode.commands.executeCommand('workbench.action.openSettings', 'kimi');
+  await vscode.commands.executeCommand("workbench.action.openSettings", "kimi");
   return { ok: true };
 };
 
@@ -97,11 +93,11 @@ const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
       .map((skill) => ({
         name: `skill:${skill.name}`,
         aliases: [],
-        description: skill.description ?? '',
+        description: skill.description ?? "",
       }));
     return [...SLASH_COMMANDS, ...skillCommands];
   } catch (error) {
-    ctx.logError('Unable to list workspace skills', error);
+    ctx.logError("Unable to list workspace skills", error);
     return SLASH_COMMANDS;
   }
 };
@@ -156,7 +152,7 @@ function toWebviewModel(id: string, model: ModelAlias): ModelConfig {
 
 function sessionConfigEffort(config: SessionConfig): ThinkingEffort {
   if (config.effort !== undefined) return config.effort as ThinkingEffort;
-  return config.thinking === true ? 'on' : 'off';
+  return config.thinking === true ? "on" : "off";
 }
 
 /**
@@ -173,13 +169,13 @@ function thinkingConfig(
   effort: ThinkingEffort,
   supportEfforts?: readonly string[],
 ): { enabled: boolean; effort?: string } {
-  if (effort === 'off') return { enabled: false };
-  if (effort === 'on') return { enabled: true };
+  if (effort === "off") return { enabled: false };
+  if (effort === "on") return { enabled: true };
   const top = supportEfforts?.at(-1);
   if (top !== undefined && effort === top) return { enabled: true };
   return { enabled: true, effort };
 }
 
 function isUserActivatableSkill(type: string | undefined): boolean {
-  return type === undefined || type === 'prompt' || type === 'inline' || type === 'flow';
+  return type === undefined || type === "prompt" || type === "inline" || type === "flow";
 }

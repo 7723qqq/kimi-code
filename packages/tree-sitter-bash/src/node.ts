@@ -58,11 +58,7 @@ export class SyntaxNodeBuilder {
   readonly namedChildren: SyntaxNodeBuilder[] = [];
 
   constructor(init: NodeInit) {
-    if (
-      init.startIndex < 0 ||
-      init.endIndex < init.startIndex ||
-      init.endIndex > init.source.length
-    ) {
+    if (init.startIndex < 0 || init.endIndex < init.startIndex || init.endIndex > init.source.length) {
       throw new RangeError(
         `invalid node range [${init.startIndex}, ${init.endIndex}) for source of length ${init.source.length}`,
       );

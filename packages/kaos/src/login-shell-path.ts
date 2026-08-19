@@ -126,6 +126,12 @@ export async function applyLoginShellPath(deps: LoginShellPathDeps): Promise<voi
 }
 
 /**
+ * Production convenience — apply the probe to `process.env` once per
+ * process. Memoised like `detectEnvironmentFromNode`: the login-shell PATH
+ * does not change for the lifetime of the process, and repeated
+ * `LocalKaos.create()` calls must not re-spawn the shell.
+ */
+/**
  * Login shell from the OS user database (`/etc/passwd` via getpwuid on
  * Linux, Directory Services on macOS). `userInfo()` throws when the uid
  * has no database entry (e.g. containers running an arbitrary uid), and
@@ -144,12 +150,6 @@ function userShellFromNode(): string | undefined {
 
 let appliedLoginShellPath: Promise<void> | undefined;
 
-/**
- * Production convenience — apply the probe to `process.env` once per
- * process. Memoised like `detectEnvironmentFromNode`: the login-shell PATH
- * does not change for the lifetime of the process, and repeated
- * `LocalKaos.create()` calls must not re-spawn the shell.
- */
 export function applyLoginShellPathFromNode(): Promise<void> {
   if (appliedLoginShellPath !== undefined) return appliedLoginShellPath;
   appliedLoginShellPath = applyLoginShellPath({

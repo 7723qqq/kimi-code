@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { TruncatedOutputComponent } from '#/tui/components/messages/tool-renderers/truncated';
 
+
 function strip(text: string): string {
   return text.replaceAll(/\[[0-9;]*m/g, '');
 }

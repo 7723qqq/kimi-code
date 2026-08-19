@@ -1,44 +1,23 @@
-/**
- * `tools` domain — `WriteTool` implementation.
- *
- * Resolves path access policy before any filesystem I/O, creates missing
- * parent directories (`mkdir(recursive)`), and writes through
- * `IHostFileSystem.writeText` / `appendText`. Append uses a native
- * `O_APPEND`-style append, so existing content is never read or rewritten —
- * keeping appends atomic with respect to concurrent writers and safe against
- * mid-write crashes.
- *
- * Write access flows through the os `hostFs` domain (`IHostFileSystem`); path
- * semantics (home expansion, path class) come from the `hostEnvironment`
- * domain; the workspace and skill roots come from `ISessionWorkspaceContext`
- * / `ISessionSkillCatalog`.
- *
- * Ported from v1.
- * Bound at Agent scope; self-registers via `registerAgentToolService(...)` at module
- * load.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
 import { dirname } from 'pathe';
 
+import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { unwrapErrorCause } from '#/_base/errors/errors';
-import { tryNativeWrite } from '#/_base/native-tools';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { IConfigService } from '#/app/config/config';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import {
-  extendWorkspaceWithSkillRoots,
+  ToolAccesses,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import {
   resolvePathAccessPath,
   type WorkspaceConfig,
 } from '#/tool/path-access';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
-import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
-import { resolveSandboxPolicy, sandboxWriteGuard } from '#/workspace/sandbox/sandbox';
-
 import { IWriteTool, WriteInputSchema, type WriteInput } from './write';
 import WRITE_DESCRIPTION from './write.md?raw';
 
@@ -49,86 +28,58 @@ export class WriteTool implements IWriteTool {
   readonly parameters: Record<string, unknown> = toInputJsonSchema(WriteInputSchema);
 
   constructor(
-    @IHostFileSystem private readonly fs: IHostFileSystem,
-    @IHostEnvironment private readonly env: IHostEnvironment,
+    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
-    @IConfigService private readonly config: IConfigService,
     @ISessionSkillCatalog private readonly skillCatalog?: ISessionSkillCatalog,
   ) {}
 
-  private get workspaceConfig(): WorkspaceConfig {
-    return extendWorkspaceWithSkillRoots(
-      {
-        workspaceDir: this.workspaceCtx.workDir,
-        additionalDirs: this.workspaceCtx.additionalDirs,
-      },
-      this.skillCatalog?.catalog.getSkillRoots() ?? [],
-      this.env.pathClass,
-    );
+  private workspaceConfig(view: RuntimeWorkspaceView): WorkspaceConfig {
+    return { workspaceDir: view.workDir, additionalDirs: view.additionalDirs };
   }
 
   resolveExecution(args: WriteInput): ToolExecution {
+    const inspected = inspectAgentRuntime(this.runtime);
+    const view = new RuntimeWorkspaceView(inspected, {
+      workDir: this.workspaceCtx.workDir,
+      additionalDirs: [
+        ...this.workspaceCtx.additionalDirs,
+        ...(this.skillCatalog?.catalog.getSkillRoots() ?? []),
+      ],
+    });
+    const env = { _serviceBrand: undefined, ...inspected.environment, ready: Promise.resolve() };
+    const workspace = this.workspaceConfig(view);
     const path = resolvePathAccessPath(args.path, {
-      env: this.env,
-      workspace: this.workspaceConfig,
+      env,
+      workspace,
       operation: 'write',
     });
     return {
       accesses: ToolAccesses.writeFile(path),
-      description: t('toolsV2.writing', { path: args.path }),
+      description: `Writing ${args.path}`,
       display: { kind: 'file_io', operation: 'write', path, content: args.content },
       approvalRule: literalRulePattern(this.name, path),
       matchesRule: (ruleArgs) =>
         matchesPathRuleSubject(ruleArgs, path, {
-          cwd: this.workspaceConfig.workspaceDir,
-          pathClass: this.env.pathClass,
-          homeDir: this.env.homeDir,
+          cwd: workspace.workspaceDir,
+          pathClass: env.pathClass,
+          homeDir: env.homeDir,
         }),
-      execute: () => this.execution(args, path),
+      execute: async () => {
+        const lease = this.runtime.acquire(['fs']);
+        try {
+          if (lease.runtime.identity.generation !== inspected.identity.generation) {
+            return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
+          }
+          return await this.execution(lease.runtime.fs!, args, path);
+        } finally {
+          lease.dispose();
+        }
+      },
     };
   }
 
-  private async execution(args: WriteInput, safePath: string): Promise<ExecutableToolResult> {
-    const sandboxError = sandboxWriteGuard(
-      resolveSandboxPolicy(this.config, this.workspaceConfig.workspaceDir),
-      safePath,
-    );
-    if (sandboxError !== undefined) {
-      return { isError: true, output: sandboxError };
-    }
-
-    // Reject writes whose target is an existing directory. The underlying fs
-    // write would fail anyway, and native may silently succeed on some
-    // platforms, so the guard runs before the native fast-path.
-    try {
-      const targetStat = await this.fs.stat(safePath);
-      if (targetStat.isDirectory) {
-        return { isError: true, output: t('toolsV2.writeTargetIsDirectory', { path: args.path }) };
-      }
-    } catch {
-      // A stat failure (e.g. ENOENT for a new file) is inconclusive — proceed.
-    }
-
-    // ── Native fast-path ─────────────────────────────────────────────────
-    // nativeWrite creates parent dirs and writes via atomic temp+rename for overwrite
-    // (or `O_APPEND` for append), matching the TS path's semantics. Its errors are
-    // final verdicts — never silently re-run in TS.
-    const nativeResult = await tryNativeWrite(safePath, args.content, args.mode, true);
-    if (nativeResult) {
-      if (nativeResult.error) {
-        return { isError: true, output: nativeResult.error };
-      }
-      const verb = args.mode === 'append' ? 'writeAppended' : 'writeWrote';
-      return {
-        output: t(`toolsV2.${verb}` as any, {
-          bytes: String(nativeResult.bytesWritten),
-          path: args.path,
-        }),
-      };
-    }
-    // Native unavailable — fall through to TS path.
-
-    const parentError = await this.ensureParentDirectory(safePath);
+  private async execution(fs: IHostFileSystem, args: WriteInput, safePath: string): Promise<ExecutableToolResult> {
+    const parentError = await this.ensureParentDirectory(fs, safePath);
     if (parentError !== undefined) {
       return { isError: true, output: parentError };
     }
@@ -136,23 +87,20 @@ export class WriteTool implements IWriteTool {
     try {
       const mode = args.mode ?? 'overwrite';
       if (mode === 'append') {
-        await this.fs.appendText(safePath, args.content);
+        await fs.appendText(safePath, args.content);
       } else {
-        await this.fs.writeText(safePath, args.content);
+        await fs.writeText(safePath, args.content);
       }
       const bytesWritten = Buffer.byteLength(args.content, 'utf8');
       return {
-        output:
-          mode === 'append'
-            ? t('toolsV2.writeAppended', { bytes: String(bytesWritten), path: args.path })
-            : t('toolsV2.writeWrote', { bytes: String(bytesWritten), path: args.path }),
+        output: `${mode === 'append' ? 'Appended' : 'Wrote'} ${String(bytesWritten)} bytes to ${args.path}`,
       };
     } catch (error) {
       const code = (unwrapErrorCause(error) as { code?: unknown } | null)?.code;
       if (code === 'ENOENT') {
         return {
           isError: true,
-          output: t('toolsV2.writeFailedParentNotFound', { path: args.path }),
+          output: `Failed to write ${args.path}: parent directory does not exist.`,
         };
       }
       return {
@@ -162,15 +110,15 @@ export class WriteTool implements IWriteTool {
     }
   }
 
-  private async ensureParentDirectory(safePath: string): Promise<string | undefined> {
+  private async ensureParentDirectory(fs: IHostFileSystem, safePath: string): Promise<string | undefined> {
     const parent = dirname(safePath);
     let stat: HostFileStat;
     try {
-      stat = await this.fs.stat(parent);
+      stat = await fs.stat(parent);
     } catch (error) {
       if ((unwrapErrorCause(error) as { code?: unknown } | null)?.code === 'ENOENT') {
         try {
-          await this.fs.mkdir(parent, { recursive: true });
+          await fs.mkdir(parent, { recursive: true });
           return undefined;
         } catch (mkdirError) {
           return mkdirError instanceof Error ? mkdirError.message : String(mkdirError);
@@ -179,10 +127,14 @@ export class WriteTool implements IWriteTool {
       return undefined;
     }
     if (!stat.isDirectory) {
-      return t('toolsV2.parentNotDirectory', { parent: parent });
+      return `Parent path is not a directory: ${parent}.`;
     }
     return undefined;
   }
 }
 
-registerAgentToolService(IWriteTool, WriteTool, { name: 'Write', domain: 'os/backends' });
+registerAgentToolService(IWriteTool, WriteTool, {
+  name: 'Write',
+  domain: 'os/backends',
+  requiredRuntimeCapabilities: ['fs'],
+});

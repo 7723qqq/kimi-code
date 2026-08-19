@@ -1,7 +1,5 @@
 Execute a `${SHELL_NAME}` command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.
 
-${SHELL_SEMANTICS}
-
 **Translate these to a dedicated tool instead:**
 - `cat` / `head` / `tail` (known path) → `Read`
 - `sed` / `awk` (in-place edit) → `Edit`

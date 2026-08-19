@@ -1,15 +1,10 @@
-/**
- * `telemetry` domain — `IAgentTelemetryContextService` implementation.
- *
- * Holds mutable request context (defaulting to `mode: 'agent'`) that turn
- * telemetry snapshots at launch. Bound at Agent scope; has no cross-domain
- * collaborators.
- */
-
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
 
-import { IAgentTelemetryContextService, type AgentTelemetryContext } from './agentTelemetryContext';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import {
+  IAgentTelemetryContextService,
+  type AgentTelemetryContext,
+} from './agentTelemetryContext';
 
 export class AgentTelemetryContextService implements IAgentTelemetryContextService {
   declare readonly _serviceBrand: undefined;

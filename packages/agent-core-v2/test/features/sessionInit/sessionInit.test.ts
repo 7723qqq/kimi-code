@@ -19,7 +19,7 @@ import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSyste
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { IWireService } from '#/wire/wire';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 
 const WORK_DIR = '/project';
 const AGENTS_MD = 'latest project instructions';
@@ -69,6 +69,10 @@ describe('SessionInitService', () => {
     run = lifecycle.run;
 
     const eventBus = { publish: vi.fn((event: unknown) => events.push(event)) };
+    const dispatcher = {
+      flush,
+      dispatch: vi.fn((event: unknown) => events.push(event)),
+    };
     const telemetry = { track: vi.fn(), track2: vi.fn() };
     const profile = {
       data: () => ({ modelAlias: 'mock-model', thinkingLevel: 'off' }),
@@ -85,7 +89,7 @@ describe('SessionInitService', () => {
           if (id === IAgentPermissionModeService) return permissionMode;
           if (id === IAgentSystemReminderService) return { appendSystemReminder: appendReminder };
           if (id === IAgentAgentsMdReminderService) return { seedInjected };
-          if (id === IWireService) return { flush };
+          if (id === IEventDispatcher) return dispatcher;
           if (id === IEventBus) return eventBus;
           if (id === ITelemetryService) return telemetry;
           return;

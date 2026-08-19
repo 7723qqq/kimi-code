@@ -1,14 +1,6 @@
-/**
- * `sessionExport` domain — bounded file source ownership.
- *
- * Opens one stable file handle, snapshots its current size, and exposes an
- * idempotent close operation shared by normal completion and failure cleanup.
- */
-
 import { open, type FileHandle } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { finished } from 'node:stream/promises';
-
 import { resolve } from 'pathe';
 
 import { Error2, ErrorCodes } from '#/errors';
@@ -41,13 +33,9 @@ export async function openZipSource(source: string, signal?: AbortSignal): Promi
     }
     const size = Number(file.size);
     if (!Number.isSafeInteger(size)) {
-      throw new Error2(
-        ErrorCodes.SESSION_EXPORT_TOO_LARGE,
-        `file is too large to export: ${source}`,
-        {
-          details: { path: source },
-        },
-      );
+      throw new Error2(ErrorCodes.SESSION_EXPORT_TOO_LARGE, `file is too large to export: ${source}`, {
+        details: { path: source },
+      });
     }
     signal?.throwIfAborted();
     stream =

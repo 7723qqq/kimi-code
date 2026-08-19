@@ -1,9 +1,23 @@
-/**
- * Render thrown values as human-readable lines for logs and CLI output.
- *
- * Re-export layer: the implementation moved to `@moonshot-ai/kosong/errors`
- * (shared infrastructure). Keep this file as a thin re-export so existing
- * `#/_base/errors/errorMessage` imports stay valid.
- */
+import { isCodedError } from './serialize';
 
-export * from '@moonshot-ai/kosong/errors/errorMessage';
+export function toErrorMessage(error: unknown, verbose = false): string {
+  if (isCodedError(error)) {
+    const base = `[${error.code}] ${error.message}`;
+    return verbose && error.details ? `${base} ${JSON.stringify(error.details)}` : base;
+  }
+  if (error instanceof Error) {
+    const base = error.message || error.name;
+    if (verbose && error.cause !== undefined) {
+      return `${base} (caused by: ${toErrorMessage(error.cause)})`;
+    }
+    return base;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}

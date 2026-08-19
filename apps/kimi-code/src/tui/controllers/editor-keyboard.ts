@@ -4,15 +4,8 @@ import type {
   FileMeta,
   KimiHarness,
   Session,
-  StrictPropertyCheck,
-  TelemetryEventName,
-  TelemetryEventPayload,
 } from '@moonshot-ai/kimi-code-sdk';
-import {
-  compressImageForModel,
-  persistOriginalImage,
-  sessionMediaOriginalsDir,
-} from '@moonshot-ai/kimi-code-sdk';
+import { compressImageForModel } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 import {
@@ -32,16 +25,26 @@ import {
   getNoActiveSessionMessage,
 } from '../constant/kimi-tui';
 import { MEDIA_STAGING_TTL_SECONDS } from '../constant/media';
-import type { TUIState } from '../tui-state';
-import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
-import type { ImageAttachmentStore, VideoAttachment } from '../utils/image-attachment-store';
-import { extractMediaAttachments } from '../utils/image-placeholder';
+import type {
+  ImageAttachment,
+  ImageAttachmentStore,
+  VideoAttachment,
+} from '../utils/image-attachment-store';
+import { extractMediaAttachments, imageExtensionForMime } from '../utils/image-placeholder';
+import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
+import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
 
 export interface EditorKeyboardHost {
   state: TUIState;
   session: Session | undefined;
+  /**
+   * True when the TUI runs on the agent-core-v2 engine (startup-selected).
+   * Gates the paste-time upload to the daemon file store; the v1 engine has
+   * no file store, so images keep the submit-time inline base64 form and
+   * videos cannot be submitted at all.
+   */
   readonly engineV2: boolean;
   cancelInFlight: (() => void) | undefined;
   /**
@@ -61,10 +64,11 @@ export interface EditorKeyboardHost {
   }): boolean;
   releaseStagingMedia(mediaAttachmentIds: readonly number[]): void;
   recallLastQueued(): QueuedMessage | undefined;
-  updateGoalLengthWarning(text: string | undefined): void;
   showError(msg: string): void;
   track(event: string, props?: Record<string, unknown>): void;
   updateEditorBorderHighlight(text?: string): void;
+  /** `undefined` means the input cannot be a `/goal` command (clear without measuring). */
+  updateGoalLengthWarning(text: string | undefined): void;
   updateQueueDisplay(): void;
   toggleToolOutputExpansion(): void;
   toggleTodoPanelExpansion(): void;
@@ -101,9 +105,11 @@ export class EditorKeyboardController {
     editor.onChange = (text: string) => {
       if (this.pendingExit) this.clearPendingExit();
       host.updateEditorBorderHighlight(text);
-      // Live pre-send `/goal` length warning: while the draft could still
-      // become a `/goal` command, measure it for the footer warning. A
-      // paste placeholder can still become a goal after expansion (a
+      // Expanding paste markers costs a full-text pass, and only `/goal`
+      // input can trip the objective length limit — so skip the expansion
+      // for ordinary prompts. Submitted text is trimmed before dispatch, so
+      // gate on the trimmed text too. A paste marker may itself expand into
+      // part of the command (`[paste #…]` → `/goal …`, or completing a
       // partial prefix like `/go[paste #1 …]` → `/goal …`), so any input
       // containing a marker that can still become a `/goal` command must
       // pass the gate as well.
@@ -139,7 +145,7 @@ export class EditorKeyboardController {
         return entry.slice(1);
       }
       editor.setInputMode('prompt');
-      return;
+      return undefined;
     };
 
     // Save/restore the input mode alongside pi-tui's history draft. Without
@@ -406,13 +412,14 @@ export class EditorKeyboardController {
 
     editor.onUpArrowEmpty = () => {
       if (host.btwPanelController.scroll('up')) return true;
-      if (host.state.appState.streamingPhase === 'idle' && !host.state.appState.isCompacting)
-        return false;
+      if (host.state.appState.streamingPhase === 'idle' && !host.state.appState.isCompacting) return false;
       const recalled = host.recallLastQueued();
       if (recalled !== undefined) {
         editor.setText(recalled.text);
         // Restore the queued item's mode so a recalled `!` command runs as a
         // shell command again instead of being submitted as a normal prompt.
+        // Skill activations recall as prompt mode: their text is the original
+        // `/name args` slash command, which re-parses on submit.
         const mode = recalled.mode ?? 'prompt';
         if (editor.inputMode !== mode) {
           editor.inputMode = mode;
@@ -539,64 +546,131 @@ export class EditorKeyboardController {
 
     const meta = parseImageMeta(media.bytes);
     if (meta === null) return false;
+
+    // Register the attachment and put its placeholder in the editor before
+    // any of the asynchronous ingestion work below. CustomEditor only holds
+    // keystrokes until this handler settles, so the callback returns right
+    // after the placeholder lands and ingestion continues in the background —
+    // typing never waits on compression or the daemon upload. Submit gives a
+    // pending ingestion a bounded wait (`pendingImageIngestions`) and falls
+    // back to the inline form when it has not finished.
+    const attachment = this.imageStore.addImage(
+      media.bytes,
+      meta.mime,
+      meta.width,
+      meta.height,
+    );
+    this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
+    this.host.state.ui.requestRender();
+    this.host.track('shortcut_paste', { kind: 'image' });
+
+    attachment.pending = this.finishClipboardImagePaste(
+      attachment,
+      media.bytes,
+      meta.mime,
+      meta.width,
+      meta.height,
+    ).catch((error: unknown) => {
+      // The raw attachment and its already-visible placeholder are still a
+      // valid inline fallback when optional ingestion work fails.
+      this.host.showError(
+        t('tui.statusMessages.failedToPrepareMediaAttachment', {
+          error: formatErrorMessage(error),
+        }),
+      );
+    });
+    return true;
+  }
+
+  private async finishClipboardImagePaste(
+    attachment: ImageAttachment,
+    originalBytes: Uint8Array,
+    originalMime: string,
+    originalWidth: number,
+    originalHeight: number,
+  ): Promise<void> {
     // Compress at ingestion — a pure data step while building the attachment, so
     // the stored bytes, the inline thumbnail, the `[image #N (W×H)]` placeholder,
     // and the submitted image all agree, and the agent core only ever sees an
     // already-compressed image. Best effort: originals pass through on failure.
-    // When compression changed the bytes, the original is persisted (into the
-    // session's media-originals dir when known, else the temp-dir fallback)
-    // and recorded on the attachment, so submit-time expansion can announce
-    // the compression and point the model at the full-fidelity copy.
+    // When compression changed the bytes, the pre-compression original is kept
+    // on the attachment in memory: the session whose media-originals dir it
+    // belongs in may not exist yet at paste time, so dispatch-time caption
+    // resolution (`resolveOriginalCaptions`) persists it and announces the
+    // compression, pointing the model at the full-fidelity copy.
     // The edge cap comes from the host harness's [image] config (resolved per
     // paste so a config reload applies immediately); hosts without a harness
     // use the env/built-in default.
-    const compressed = await compressImageForModel(media.bytes, meta.mime, {
+    const compressed = await compressImageForModel(originalBytes, originalMime, {
       maxEdge: this.host.harness?.imageLimits?.maxEdgePx(),
       telemetry: {
         client: {
-          track2: <K extends TelemetryEventName, E extends TelemetryEventPayload<K>>(
-            event: K,
-            properties?: StrictPropertyCheck<TelemetryEventPayload<K>, E>,
-          ) => {
+          track: (event: string, properties?: Readonly<Record<string, unknown>>) => {
             this.host.track(event, properties as Record<string, unknown> | undefined);
           },
         },
         source: 'tui_paste',
       },
     });
-    const sessionDir = this.host.session?.summary?.sessionDir;
     // Dimensions come from the compression result, not parseImageMeta: the
     // compressor reports display space (EXIF orientation applied) — the space
     // the sent image, the caption, and ReadMediaFile region readback share —
     // while parseImageMeta reads the raw pre-rotation header.
-    const attachment = compressed.changed
-      ? this.imageStore.addImage(
-          compressed.data,
-          compressed.mimeType,
-          compressed.width,
-          compressed.height,
-          {
-            path: (await persistOriginalImage(
-              media.bytes,
-              meta.mime,
-              sessionDir === undefined ? {} : { dir: sessionMediaOriginalsDir(sessionDir) },
-            )) ?? undefined,
-            width: compressed.originalWidth,
-            height: compressed.originalHeight,
-            byteLength: media.bytes.length,
-            mime: meta.mime,
-          },
-        )
-      : this.imageStore.addImage(
-          media.bytes,
-          meta.mime,
-          compressed.width || meta.width,
-          compressed.height || meta.height,
-        );
-    this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
+    const original = compressed.changed
+      ? {
+          bytes: originalBytes,
+          width: compressed.originalWidth,
+          height: compressed.originalHeight,
+          byteLength: originalBytes.length,
+          mime: originalMime,
+        }
+      : undefined;
+    // v2 only: upload the final bytes to the daemon file store so submit-time
+    // expansion emits a `kimi-file://` reference instead of inline base64.
+    const uploaded = await this.uploadImageToDaemonFileStore(
+      compressed.changed ? compressed.data : originalBytes,
+      compressed.changed ? compressed.mimeType : originalMime,
+    );
+    const completed = this.imageStore.completeImage(attachment, {
+      bytes: compressed.changed ? compressed.data : originalBytes,
+      mime: compressed.changed ? compressed.mimeType : originalMime,
+      width: compressed.width || originalWidth,
+      height: compressed.height || originalHeight,
+      original,
+      fileId: uploaded?.id,
+      fileExpiresAt: parseExpiry(uploaded),
+    });
+    if (completed === undefined && uploaded !== undefined) {
+      await this.host.harness?.deleteFile(uploaded.id).catch(() => undefined);
+    }
     this.host.state.ui.requestRender();
-    this.host.track('shortcut_paste', { kind: 'image' });
-    return true;
+  }
+
+  /**
+   * Paste-time upload of the final image bytes to the engine's daemon file
+   * store (agent-core-v2 only), run as part of the background ingestion —
+   * typing never waits on it, and submit only gives it the bounded
+   * `pendingImageIngestions` wait. Best effort: any failure returns undefined,
+   * so the attachment keeps no `fileId` and submit-time expansion falls back
+   * to the inline base64 form.
+   */
+  private async uploadImageToDaemonFileStore(
+    bytes: Uint8Array,
+    mime: string,
+  ): Promise<FileMeta | undefined> {
+    if (!this.host.engineV2) return undefined;
+    const harness = this.host.harness;
+    if (harness === undefined) return undefined;
+    try {
+      const meta = await harness.uploadFile(bytes, {
+        name: `pasted-image.${imageExtensionForMime(mime)}`,
+        mimeType: mime,
+        expiresInSec: MEDIA_STAGING_TTL_SECONDS,
+      });
+      return meta;
+    } catch {
+      return undefined;
+    }
   }
 
   /**

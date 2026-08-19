@@ -14,28 +14,10 @@ export const SPECIAL_VARIABLE_CHARS = SPECIAL_VARIABLES.filter((ch) => !/\w/.tes
 /** Operators that open a `file_redirect` (heredoc and herestring operators
  *  are handled separately). `<>` is included even though tree-sitter-bash
  *  0.25.0 fails to parse it — it is a real bash operator (`exec 3<>file`). */
-export const FILE_REDIRECT_OPERATORS = [
-  '<',
-  '>',
-  '>>',
-  '>&',
-  '<&',
-  '&>',
-  '&>>',
-  '>|',
-  '<>',
-  '>&-',
-  '<&-',
-] as const;
+export const FILE_REDIRECT_OPERATORS = ['<', '>', '>>', '>&', '<&', '&>', '&>>', '>|', '<>', '>&-', '<&-'] as const;
 
 /** Keywords that open a declaration_command at statement position. */
-export const DECLARATION_COMMAND_KEYWORDS = [
-  'declare',
-  'typeset',
-  'export',
-  'readonly',
-  'local',
-] as const;
+export const DECLARATION_COMMAND_KEYWORDS = ['declare', 'typeset', 'export', 'readonly', 'local'] as const;
 
 /** Keywords that open an unset_command at statement position. */
 export const UNSET_COMMAND_KEYWORDS = ['unset', 'unsetenv'] as const;

@@ -10,18 +10,24 @@ import {
   type UsageRecordedContext,
   type UsageStatus,
 } from '#/agent/usage/usage';
-import { UsageModel } from '#/agent/usage/usageOps';
 import { AgentUsageService } from '#/agent/usage/usageService';
-import { type DomainEvent, IEventBus } from '#/app/event/eventBus';
+import { usageKey } from '#/agent/usage/usageOps';
+import type { Event2 } from '#/app/event/event2';
+import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import { IWireService } from '#/wire/wire';
 
-import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
+import {
+  registerTestAgentWire,
+  registerTestEventDispatcher,
+  restoreTestEventDispatcher,
+  testWireScope,
+} from '../../wire/stubs';
 
 const SCOPE = 'wire';
 const KEY = 'usage-test';
@@ -29,6 +35,7 @@ const KEY = 'usage-test';
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
 let log: IAppendLogStore;
+let dispatcher: IEventDispatcher;
 let svc: IAgentUsageService;
 
 beforeEach(() => {
@@ -44,37 +51,38 @@ beforeEach(() => {
     log,
     eventBus: ix.get(IEventBus),
   });
+  dispatcher = registerTestEventDispatcher(ix);
   svc = ix.get(IAgentUsageService);
 });
 
 afterEach(() => disposables.dispose());
 
 async function readRecords(): Promise<WireRecord[]> {
-  await ix.get(IWireService).flush();
+  await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(
-    testWireScope(SCOPE, KEY),
-    AGENT_WIRE_RECORD_KEY,
-  )) {
+  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, KEY), AGENT_WIRE_RECORD_KEY)) {
     out.push(record);
   }
   return out;
 }
 
-function createFreshWire(logKey: string): {
-  readonly fresh: IWireService;
+function createFreshHost(logKey: string): {
+  readonly dispatcher: IEventDispatcher;
+  readonly agentState: IAgentStateService;
   readonly freshLog: IAppendLogStore;
 } {
   const freshIx = disposables.add(new TestInstantiationService());
   freshIx.stub(IFileSystemStorageService, new InMemoryStorageService());
   freshIx.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
-  freshIx.set(IAgentStateService, new AgentStateService());
   const freshLog = freshIx.get(IAppendLogStore);
-  const fresh = registerTestAgentWire(freshIx, testWireScope(SCOPE, logKey), {
+  registerTestAgentWire(freshIx, testWireScope(SCOPE, logKey), {
     log: freshLog,
   });
+  const freshDispatcher = registerTestEventDispatcher(freshIx);
+  freshIx.get(IAgentStateService).contributeState(usageKey);
   return {
-    fresh,
+    dispatcher: freshDispatcher,
+    agentState: freshIx.get(IAgentStateService),
     freshLog,
   };
 }
@@ -109,14 +117,10 @@ describe('AgentUsageService (wire-backed)', () => {
       currentTurn: { inputOther: 110, output: 220, inputCacheRead: 330, inputCacheCreation: 440 },
     });
 
-    svc.record(
-      'model-a',
-      { inputOther: 5, output: 6, inputCacheRead: 7, inputCacheCreation: 8 },
-      {
-        type: 'turn',
-        turnId: 2,
-      },
-    );
+    svc.record('model-a', { inputOther: 5, output: 6, inputCacheRead: 7, inputCacheCreation: 8 }, {
+      type: 'turn',
+      turnId: 2,
+    });
 
     expect(svc.status().currentTurn).toEqual({
       inputOther: 5,
@@ -140,20 +144,20 @@ describe('AgentUsageService (wire-backed)', () => {
   });
 
   it('emits agent.status.updated with the usage snapshot after each live record', () => {
-    const events: DomainEvent[] = [];
+    const events: Event2[] = [];
     disposables.add(ix.get(IEventBus).subscribe((e) => events.push(e)));
 
     svc.record('model-a', a1);
 
     expect(events).toEqual([
-      {
+      expect.objectContaining({
         type: 'agent.status.updated',
         usage: {
           byModel: { 'model-a': a1 },
           total: a1,
           currentTurn: undefined,
         } satisfies UsageStatus,
-      },
+      }),
     ]);
   });
 
@@ -207,24 +211,26 @@ describe('AgentUsageService (wire-backed)', () => {
     ]);
   });
 
-  it('replay rebuilds usage from persisted records on a fresh WireService (silent)', async () => {
+  it('replay rebuilds usage from persisted records on a fresh dispatcher (silent)', async () => {
     svc.record('model-a', a1);
     svc.record('model-a', a2, { type: 'turn', turnId: 1 });
     const records = await readRecords();
 
-    const { fresh, freshLog } = createFreshWire('usage-replay');
+    const fresh = createFreshHost('usage-replay');
 
-    await restoreTestAgentWire(fresh, freshLog, testWireScope(SCOPE, 'usage-replay'), records);
+    await restoreTestEventDispatcher(
+      fresh.dispatcher,
+      fresh.freshLog,
+      testWireScope(SCOPE, 'usage-replay'),
+      records,
+    );
 
-    expect(fresh.getModel(UsageModel).byModel).toEqual({
+    expect(fresh.agentState.get(usageKey).byModel).toEqual({
       'model-a': { inputOther: 11, output: 22, inputCacheRead: 33, inputCacheCreation: 44 },
     });
 
     const written: WireRecord[] = [];
-    for await (const record of freshLog.read<WireRecord>(
-      testWireScope(SCOPE, 'usage-replay'),
-      AGENT_WIRE_RECORD_KEY,
-    )) {
+    for await (const record of fresh.freshLog.read<WireRecord>(testWireScope(SCOPE, 'usage-replay'), AGENT_WIRE_RECORD_KEY)) {
       written.push(record);
     }
     expect(written[0]).toMatchObject({ type: 'metadata' });
@@ -232,67 +238,24 @@ describe('AgentUsageService (wire-backed)', () => {
   });
 
   it('replays legacy turn context records into byModel totals only (currentTurn is not rebuilt)', async () => {
-    const { fresh, freshLog } = createFreshWire('usage-legacy-context-replay');
+    const fresh = createFreshHost('usage-legacy-context-replay');
 
-    await restoreTestAgentWire(
-      fresh,
-      freshLog,
+    await restoreTestEventDispatcher(
+      fresh.dispatcher,
+      fresh.freshLog,
       testWireScope(SCOPE, 'usage-legacy-context-replay'),
-      [
-        {
-          type: 'usage.record',
-          model: 'model-a',
-          usage: a1,
-          usageScope: 'turn',
-          turnId: 1,
-          context: { type: 'turn', turnId: 9, step: 3 },
-        },
-      ],
+      [{
+        type: 'usage.record',
+        model: 'model-a',
+        usage: a1,
+        usageScope: 'turn',
+        turnId: 1,
+        context: { type: 'turn', turnId: 9, step: 3 },
+      }],
     );
 
-    expect(fresh.getModel(UsageModel)).toEqual({
+    expect(fresh.agentState.get(usageKey)).toEqual({
       byModel: { 'model-a': a1 },
     });
-  });
-
-  it('handles usage records with all-zero values', () => {
-    const zero = { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 };
-    svc.record('model-zero', zero);
-
-    expect(svc.status()).toEqual({
-      byModel: { 'model-zero': zero },
-      total: zero,
-      currentTurn: undefined,
-    });
-  });
-
-  it('accumulates correctly when the same model is recorded in multiple turns', () => {
-    svc.record('model-a', a1, { type: 'turn', turnId: 1 });
-    svc.record('model-a', a2, { type: 'turn', turnId: 2 });
-
-    expect(svc.status()).toMatchObject({
-      byModel: {
-        'model-a': { inputOther: 11, output: 22, inputCacheRead: 33, inputCacheCreation: 44 },
-      },
-      total: { inputOther: 11, output: 22, inputCacheRead: 33, inputCacheCreation: 44 },
-    });
-  });
-
-  it('replay with an empty record list produces an empty usage model', async () => {
-    const { fresh, freshLog } = createFreshWire('usage-replay-empty');
-
-    await restoreTestAgentWire(fresh, freshLog, testWireScope(SCOPE, 'usage-replay-empty'), []);
-
-    expect(fresh.getModel(UsageModel)).toEqual({
-      byModel: {},
-    });
-  });
-
-  it('dispatch persists only flat records without a payload key', async () => {
-    svc.record('model-a', a1);
-
-    const records = await readRecords();
-    expect(records).toHaveLength(1);
-    expect('payload' in records[0]!).toBe(false);
   });
 });

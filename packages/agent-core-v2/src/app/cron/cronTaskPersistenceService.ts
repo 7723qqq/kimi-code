@@ -1,19 +1,11 @@
-/**
- * `cron` domain — `ICronTaskPersistence` implementation.
- *
- * Persists cron tasks as atomic JSON documents under the `cron` persistence
- * scope (`bootstrap.scope('cron')`), laid out as `<workspaceId>/<id>.json`.
- * Pure CRUD — no scheduling logic. Bound at App scope.
- */
-
 import { Disposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 
-import type { CronTask } from './cronTask';
 import { ICronTaskPersistence, type CronTaskQuery } from './cronTaskPersistence';
+import type { CronTask } from './cronTask';
 
 export const CRON_ID_REGEX: RegExp = /^(?:[0-9a-f]{8}|[0-9A-HJKMNP-TV-Z]{26})$/i;
 const JSON_SUFFIX = '.json';
@@ -41,7 +33,6 @@ export function isValidCronTask(obj: unknown): obj is CronTask {
   return true;
 }
 
-// NOTE: stays Disposable — its own 'get' collides with the Fiber
 export class CronTaskPersistenceService extends Disposable implements ICronTaskPersistence {
   declare readonly _serviceBrand: undefined;
 

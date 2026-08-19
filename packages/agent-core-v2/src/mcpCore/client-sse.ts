@@ -1,14 +1,9 @@
-/**
- * `mcpCore` domain — SSE transport MCP client.
- */
-
-import { Client, SSEClientTransport, SseError } from '@modelcontextprotocol/client';
-import type { OAuthClientProvider } from '@modelcontextprotocol/client';
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { ErrorCodes, Error2 } from '#/errors';
+import type { McpServerSseConfig } from './config-schema';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import { SSEClientTransport, SseError } from '@modelcontextprotocol/sdk/client/sse.js';
 
-import { buildMcpRemoteHeaders } from './client-remote';
 import {
   buildRequestOptions,
   KIMI_MCP_CLIENT_NAME,
@@ -19,8 +14,7 @@ import {
   type UnexpectedCloseListener,
   type UnexpectedCloseReason,
 } from './client-shared';
-import type { McpServerSseConfig } from './config-schema';
-import { createMcpOAuthFetch } from './oauth/provider';
+import { buildMcpRemoteHeaders } from './client-remote';
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
 export interface SseMcpClientOptions {
@@ -35,13 +29,9 @@ export interface SseMcpClientOptions {
 
 export class SseMcpClient implements MCPClient {
   private readonly client: Client;
-  private readonly config: McpServerSseConfig;
-  private readonly envLookup: (name: string) => string | undefined;
-  private readonly fetchImpl: typeof fetch | undefined;
-  private readonly authProvider: OAuthClientProvider | undefined;
+  private readonly transport: SSEClientTransport;
   private readonly startupTimeoutMs?: number;
   private readonly toolCallTimeoutMs?: number;
-  private transport: SSEClientTransport | undefined;
   private started = false;
   private closed = false;
   private ready = false;
@@ -52,10 +42,14 @@ export class SseMcpClient implements MCPClient {
   private unexpectedCloseFired = false;
 
   constructor(config: McpServerSseConfig, options: SseMcpClientOptions = {}) {
-    this.config = config;
-    this.envLookup = options.envLookup ?? ((name) => process.env[name]);
-    this.fetchImpl = options.fetch;
-    this.authProvider = options.oauthProvider;
+    const envLookup = options.envLookup ?? ((name) => process.env[name]);
+    const headers = buildMcpRemoteHeaders(config, envLookup);
+
+    this.transport = new SSEClientTransport(new URL(config.url), {
+      requestInit: headers !== undefined ? { headers } : undefined,
+      fetch: options.fetch,
+      authProvider: options.oauthProvider,
+    });
     this.client = new Client({
       name: options.clientName ?? KIMI_MCP_CLIENT_NAME,
       version: options.clientVersion ?? KIMI_MCP_CLIENT_VERSION,
@@ -64,28 +58,17 @@ export class SseMcpClient implements MCPClient {
     this.toolCallTimeoutMs = options.toolCallTimeoutMs;
   }
 
-  private async ensureTransport(): Promise<SSEClientTransport> {
-    if (this.transport !== undefined) return this.transport;
-    const headers = await buildMcpRemoteHeaders(this.config, this.envLookup);
-    this.transport = new SSEClientTransport(new URL(this.config.url), {
-      requestInit: headers !== undefined ? { headers } : undefined,
-      fetch: createMcpOAuthFetch(this.authProvider, this.fetchImpl),
-      authProvider: this.authProvider,
-    });
-    return this.transport;
-  }
-
   async connect(): Promise<void> {
     if (this.closed) {
-      throw new Error2(ErrorCodes.MCP_STARTUP_FAILED, t('v2Errors.mcpSseClientClosed'));
+      throw new Error2(ErrorCodes.MCP_STARTUP_FAILED, 'MCP SSE client is closed');
     }
     if (this.started) return;
     this.started = true;
     this.installTransportHooks();
     try {
       await this.client.connect(
-        await this.ensureTransport(),
-        buildRequestOptions(this.startupTimeoutMs),
+        this.transport,
+        buildRequestOptions(this.startupTimeoutMs, undefined),
       );
     } catch (error) {
       await this.closeStartedClient();
@@ -93,10 +76,7 @@ export class SseMcpClient implements MCPClient {
     }
     if (this.closed) {
       await this.closeStartedClient();
-      throw new Error2(
-        ErrorCodes.MCP_STARTUP_FAILED,
-        t('v2Errors.mcpSseClientClosedDuringStartup'),
-      );
+      throw new Error2(ErrorCodes.MCP_STARTUP_FAILED, 'MCP SSE client was closed during startup');
     }
     this.ready = true;
   }
@@ -119,7 +99,7 @@ export class SseMcpClient implements MCPClient {
   async listTools(): Promise<MCPToolDefinition[]> {
     const result = await this.client.listTools(
       undefined,
-      buildRequestOptions(this.startupTimeoutMs),
+      buildRequestOptions(this.startupTimeoutMs, undefined),
     );
     return result.tools.map(toMcpToolDefinition);
   }
@@ -130,7 +110,7 @@ export class SseMcpClient implements MCPClient {
     signal?: AbortSignal,
   ): Promise<MCPToolResult> {
     const requestOptions = buildRequestOptions(this.toolCallTimeoutMs, signal);
-    const result = await this.client.callTool({ name, arguments: args }, requestOptions);
+    const result = await this.client.callTool({ name, arguments: args }, undefined, requestOptions);
     return toMcpToolResult(result);
   }
 
@@ -175,7 +155,6 @@ export class SseMcpClient implements MCPClient {
 }
 
 export function isTerminalSseTransportError(error: Error): boolean {
-  if (!(error instanceof Error)) return false;
   if (error.name === 'UnauthorizedError') return true;
-  return error instanceof SseError && error.code !== undefined && error.code >= 400;
+  return error instanceof SseError && error.code !== undefined;
 }

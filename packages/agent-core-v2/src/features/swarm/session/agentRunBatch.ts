@@ -1,20 +1,10 @@
-/**
- * `sessionSwarm` domain — internal concurrency / rate-limit scheduler.
- *
- * Owns the burst-then-throttle launch ramp and the provider-rate-limit recovery
- * loop for swarm agent runs; drives each attempt through a
- * `AgentRunBatchLauncher` and surfaces requeues via `suspended`. Pure scheduling
- * logic — owns no scoped state.
- */
-
+import { isProviderRateLimitError } from '#/kosong/contract/errors';
+import { type TokenUsage } from '#/kosong/contract/usage';
 import * as retry from 'retry';
 
 import { isUserCancellation } from '#/_base/utils/abort';
 import { setClampedTimeout } from '#/_base/utils/timer';
 import { BugIndicatingError, Error2, ErrorCodes } from '#/errors';
-import { isProviderRateLimitError } from '#/kosong/contract/errors';
-import { type TokenUsage } from '#/kosong/contract/usage';
-
 import type { SessionSwarmRunResult, SessionSwarmTask } from './sessionSwarm';
 
 export interface AgentRunAttemptOptions {
@@ -109,8 +99,8 @@ export class AgentRunBatch<T> {
   private readonly results: Array<AgentRunResult<T> | undefined>;
   private readonly active = new Set<ActiveAttempt<T>>();
   private readonly controller = new AbortController();
-  private readonly taskSignals: readonly AbortSignal[];
-  private readonly abortUnlinks: Array<() => void> = [];
+  private readonly batchSignal: AbortSignal | undefined;
+  private readonly batchAbortListener: () => void;
   private readonly maxConcurrency: number | undefined;
   private normalLaunchCount = 0;
   private normalLaunchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -143,13 +133,15 @@ export class AgentRunBatch<T> {
     }));
     this.pending = [...this.states];
     this.results = Array.from({ length: tasks.length });
-    this.taskSignals = [
-      ...new Set(
-        tasks
-          .map((task) => task.signal)
-          .filter((signal): signal is AbortSignal => signal !== undefined),
-      ),
-    ];
+    this.batchSignal = tasks.find((task) => task.signal !== undefined)?.signal;
+    this.batchAbortListener = () => {
+      this.controller.abort(this.batchSignal?.reason);
+      if (isUserCancellation(this.batchSignal?.reason)) {
+        this.finishWithUserCancellation();
+      } else {
+        this.fail(this.batchSignal?.reason ?? new Error('Aborted'));
+      }
+    };
   }
 
   run(): Promise<Array<AgentRunResult<T>>> {
@@ -167,29 +159,14 @@ export class AgentRunBatch<T> {
         return;
       }
 
-      for (const signal of this.taskSignals) {
-        if (signal.aborted) {
-          this.handleBatchAbort(signal.reason);
-          return;
-        }
+      if (this.batchSignal?.aborted === true) {
+        this.batchAbortListener();
+        return;
       }
 
-      for (const signal of this.taskSignals) {
-        const onAbort = () => this.handleBatchAbort(signal.reason);
-        signal.addEventListener('abort', onAbort, { once: true });
-        this.abortUnlinks.push(() => signal.removeEventListener('abort', onAbort));
-      }
+      this.batchSignal?.addEventListener('abort', this.batchAbortListener, { once: true });
       this.schedule();
     });
-  }
-
-  private handleBatchAbort(reason: unknown): void {
-    this.controller.abort(reason);
-    if (isUserCancellation(reason)) {
-      this.finishWithUserCancellation();
-    } else {
-      this.fail(reason ?? new Error('Aborted'));
-    }
   }
 
   private schedule(): void {
@@ -495,7 +472,10 @@ export class AgentRunBatch<T> {
       return Number.POSITIVE_INFINITY;
     }
 
-    const latestCapacityChangeAt = Math.max(this.lastRateLimitAt, this.lastCapacityRecoveryAt ?? 0);
+    const latestCapacityChangeAt = Math.max(
+      this.lastRateLimitAt,
+      this.lastCapacityRecoveryAt ?? 0,
+    );
     return latestCapacityChangeAt + RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS;
   }
 
@@ -584,8 +564,7 @@ export class AgentRunBatch<T> {
   }
 
   private cleanup(): void {
-    for (const unlink of this.abortUnlinks) unlink();
-    this.abortUnlinks.length = 0;
+    this.batchSignal?.removeEventListener('abort', this.batchAbortListener);
     this.clearNormalTimer();
     this.clearRateLimitTimer();
     for (const attempt of this.active.values()) {
@@ -663,3 +642,4 @@ export function resolveSwarmMaxConcurrency(
   }
   return value;
 }
+

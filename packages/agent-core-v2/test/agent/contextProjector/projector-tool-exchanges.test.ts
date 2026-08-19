@@ -1,12 +1,3 @@
-/**
- * Scenario: context projection rebuilds stored history into provider-valid messages.
- *
- * Responsibilities: validates tool-exchange repair, strict projection, and
- * degraded/full-strip media projections through the public projector contract.
- * Wiring: real AgentContextProjectorService with captured log and telemetry
- * boundaries. Run: pnpm test -- test/agent/contextProjector/projector-tool-exchanges.test.ts
- */
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -19,9 +10,8 @@ import { AgentContextProjectorService } from '#/agent/contextProjector/contextPr
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { Message } from '#/kosong/contract/message';
-
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 const REPAIR_WARNING = 'repaired the request to keep it wire-valid';
@@ -59,12 +49,7 @@ function repairPayloads(warnings: WarningCall[]): Record<string, unknown>[] {
 const INTERRUPTED = 'Tool result is not available in the current context';
 
 function user(text: string): ContextMessage {
-  return {
-    role: 'user',
-    content: [{ type: 'text', text }],
-    toolCalls: [],
-    origin: { kind: 'user' },
-  };
+  return { role: 'user', content: [{ type: 'text', text }], toolCalls: [], origin: { kind: 'user' } };
 }
 
 function reminder(text: string): ContextMessage {
@@ -121,7 +106,10 @@ describe('projector tool-exchange normalization', () => {
     ix.set(ILogService, createCapturingLog(warnings));
     ix.set(ITelemetryService, recordingTelemetry(telemetryRecords));
     ix.set(IAgentStateService, new AgentStateService());
-    ix.set(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
+    ix.set(
+      IAgentScopeContext,
+      makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
+    );
     ix.set(IAgentContextProjectorService, new SyncDescriptor(AgentContextProjectorService));
     projector = ix.get(IAgentContextProjectorService);
   });
@@ -139,7 +127,7 @@ describe('projector tool-exchange normalization', () => {
   }
 
   function projectStrict(history: readonly ContextMessage[]): readonly Message[] {
-    return projector.projectStrict(history);
+    return projector.project(history, { structure: 'strict' });
   }
 
   it('leaves a fully resolved exchange untouched', () => {
@@ -196,7 +184,12 @@ describe('projector tool-exchange normalization', () => {
   });
 
   it('closes an interrupted mid-history call before the next turn', () => {
-    const history = [user('go'), assistant('', ['c1']), user('keep going'), assistant('All done.')];
+    const history = [
+      user('go'),
+      assistant('', ['c1']),
+      user('keep going'),
+      assistant('All done.'),
+    ];
     expect(shape(history)).toEqual(['user', 'assistant', 'tool:c1', 'user', 'assistant']);
   });
 
@@ -318,7 +311,9 @@ describe('projector tool-exchange normalization', () => {
     };
     const history = [assistant('', ['call_image']), result];
 
-    expect(project(history)[1]?.content).toEqual([{ type: 'text', text: `image result\n${note}` }]);
+    expect(project(history)[1]?.content).toEqual([
+      { type: 'text', text: `image result\n${note}` },
+    ]);
     expect(result.content).toEqual([{ type: 'text', text: 'image result' }]);
   });
 
@@ -364,11 +359,12 @@ describe('projector tool-exchange normalization', () => {
 
     const projected = projectStrict(history);
 
-    expect(
-      projected.map((message) =>
-        message.role === 'tool' ? `tool:${message.toolCallId}` : message.role,
-      ),
-    ).toEqual(['user', 'assistant', 'tool:dup', 'assistant']);
+    expect(projected.map((message) => (message.role === 'tool' ? `tool:${message.toolCallId}` : message.role))).toEqual([
+      'user',
+      'assistant',
+      'tool:dup',
+      'assistant',
+    ]);
     expect(projected[1]?.toolCalls.map((call) => call.id)).toEqual(['dup']);
     expect(projected.filter((message) => message.role === 'tool')).toHaveLength(1);
   });
@@ -452,11 +448,7 @@ describe('projector tool-exchange normalization', () => {
   });
 
   it('strict mode drops leading non-user messages', () => {
-    const projected = projectStrict([
-      assistant('stale'),
-      toolResult('ghost', 'orphaned'),
-      user('hi'),
-    ]);
+    const projected = projectStrict([assistant('stale'), toolResult('ghost', 'orphaned'), user('hi')]);
 
     expect(projected.map((message) => message.role)).toEqual(['user']);
     expect(projected[0]?.content).toEqual([{ type: 'text', text: 'hi' }]);
@@ -604,10 +596,7 @@ describe('projector tool-exchange normalization', () => {
     it('keeps a message with real text intact — including its empty think part', () => {
       const history = [
         user('u1'),
-        thinkingAssistant([
-          { type: 'think', think: '' },
-          { type: 'text', text: 'answer' },
-        ]),
+        thinkingAssistant([{ type: 'think', think: '' }, { type: 'text', text: 'answer' }]),
       ];
       expect(project(history)[1]?.content).toEqual([
         { type: 'think', think: '' },
@@ -628,9 +617,7 @@ describe('projector tool-exchange normalization', () => {
         thinkingAssistant([{ type: 'think', think: '', encrypted: 'sig' }]),
       ];
       expect(shape(history)).toEqual(['user', 'assistant']);
-      expect(project(history)[1]?.content).toEqual([
-        { type: 'think', think: '', encrypted: 'sig' },
-      ]);
+      expect(project(history)[1]?.content).toEqual([{ type: 'think', think: '', encrypted: 'sig' }]);
     });
 
     it('drops a message whose think block is whitespace-only', () => {
@@ -659,7 +646,7 @@ describe('projector tool-exchange normalization', () => {
     });
   });
 
-  describe('projectMediaDegraded', () => {
+  describe('project with media: degraded policy', () => {
     function imageMessage(url: string): ContextMessage {
       return {
         role: 'user',
@@ -670,13 +657,16 @@ describe('projector tool-exchange normalization', () => {
     }
 
     it('keeps the two most recent media parts and replaces older ones with markers', () => {
-      const projected = projector.projectMediaDegraded([
-        imageMessage('data:image/png;base64,OLD1'),
-        user('middle'),
-        imageMessage('data:image/png;base64,OLD2'),
-        imageMessage('data:image/png;base64,KEEP1'),
-        imageMessage('data:image/png;base64,KEEP2'),
-      ]);
+      const projected = projector.project(
+        [
+          imageMessage('data:image/png;base64,OLD1'),
+          user('middle'),
+          imageMessage('data:image/png;base64,OLD2'),
+          imageMessage('data:image/png;base64,KEEP1'),
+          imageMessage('data:image/png;base64,KEEP2'),
+        ],
+        { media: 'degraded' },
+      );
 
       const urls = projected
         .flatMap((message) => message.content)
@@ -693,16 +683,16 @@ describe('projector tool-exchange normalization', () => {
     });
 
     it('returns the projected messages untouched when media fits within keep-recent', () => {
-      const projected = projector.projectMediaDegraded([
-        user('text'),
-        imageMessage('data:image/png;base64,AAAA'),
-      ]);
+      const projected = projector.project(
+        [user('text'), imageMessage('data:image/png;base64,AAAA')],
+        { media: 'degraded' },
+      );
       const allParts = projected.flatMap((message) => message.content);
       expect(allParts.some((part) => part.type === 'image_url')).toBe(true);
     });
   });
 
-  describe('projectMediaStripped', () => {
+  describe('project with media: stripped policy', () => {
     function imageMessage(url: string, id?: string): ContextMessage {
       return {
         role: 'user',
@@ -712,8 +702,15 @@ describe('projector tool-exchange normalization', () => {
       };
     }
 
+    function projectStripped(
+      history: readonly ContextMessage[],
+      snapshot = projector.captureMediaStripSnapshot(history),
+    ): readonly Message[] {
+      return projector.project(history, { media: { strip: snapshot } });
+    }
+
     it('replaces every media part with a text marker, keeping the surrounding text', () => {
-      const projected = projector.projectMediaStripped([
+      const projected = projectStripped([
         user('look at these'),
         imageMessage('data:image/png;base64,AAAA'),
         {
@@ -745,7 +742,7 @@ describe('projector tool-exchange normalization', () => {
     });
 
     it('returns the projected messages untouched when there is no media', () => {
-      const projected = projector.projectMediaStripped([user('just text')]);
+      const projected = projectStripped([user('just text')]);
       expect(projected).toEqual(project([user('just text')]));
     });
 
@@ -753,7 +750,7 @@ describe('projector tool-exchange normalization', () => {
       const rejected = imageMessage('data:image/png;base64,OLD', 'old-id');
       const snapshot = projector.captureMediaStripSnapshot([rejected]);
 
-      const projected = projector.projectMediaStripped(
+      const projected = projectStripped(
         [rejected, imageMessage('data:image/png;base64,NEW', 'new-id')],
         snapshot,
       );
@@ -773,12 +770,21 @@ describe('projector tool-exchange normalization', () => {
         toolCalls: [],
         toolCallId: 'ghost',
       };
-      const snapshot = projector.captureMediaStripSnapshot([user('go'), assistant('done'), orphan]);
+      const snapshot = projector.captureMediaStripSnapshot([
+        user('go'),
+        assistant('done'),
+        orphan,
+      ]);
 
-      const projected = projector.projectMediaStripped([imageMessage(url, 'orphan-id')], snapshot);
+      const projected = projectStripped(
+        [imageMessage(url, 'orphan-id')],
+        snapshot,
+      );
 
       expect(
-        projected.flatMap((message) => message.content).some((part) => part.type === 'image_url'),
+        projected
+          .flatMap((message) => message.content)
+          .some((part) => part.type === 'image_url'),
       ).toBe(true);
     });
 
@@ -787,13 +793,15 @@ describe('projector tool-exchange normalization', () => {
         imageMessage('data:image/png;base64,SAME', 'same-id'),
       ]);
 
-      const projected = projector.projectMediaStripped(
+      const projected = projectStripped(
         [imageMessage('data:image/png;base64,SAME', 'same-id')],
         snapshot,
       );
 
       expect(
-        projected.flatMap((message) => message.content).some((part) => part.type === 'image_url'),
+        projected
+          .flatMap((message) => message.content)
+          .some((part) => part.type === 'image_url'),
       ).toBe(false);
     });
 
@@ -801,7 +809,10 @@ describe('projector tool-exchange normalization', () => {
       const url = 'https://example.test/media/image.png';
       const snapshot = projector.captureMediaStripSnapshot([imageMessage(url, 'old-id')]);
 
-      const projected = projector.projectMediaStripped([imageMessage(url, 'new-id')], snapshot);
+      const projected = projectStripped(
+        [imageMessage(url, 'new-id')],
+        snapshot,
+      );
 
       const image = projected
         .flatMap((message) => message.content)

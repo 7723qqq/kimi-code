@@ -1,26 +1,9 @@
-/**
- * `sessionAgentProfileCatalog` domain — `ISessionAgentProfileCatalog`
- * implementation.
- *
- * Projects the App-scope `IAgentProfileRegistry` into this session's merged
- * profile view. The relevant entries are the global ones (builtin) plus the
- * ones tagged with the seeded workspace key (user / plugin / extra /
- * workspace / explicit); they are re-merged on every registry change (the
- * projection is a cheap full recompute — merge, never incremental patching).
- * Merge rules, applied per profile name: candidates are collected from every
- * relevant entry (deduped within an entry, highest priority first); the first
- * candidate wins, except that replacing a same-name `builtin` profile
- * requires `override: true` in the frontmatter — a non-override collision is
- * warned about and skipped to the next candidate. `ready` resolves
- * immediately: the registry is already populated when this service is
- * constructed, and every later change arrives through `onDidChange`. Bound at
- * Session scope.
- */
-
 import { Disposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
+import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
+import { BugIndicatingError } from '#/errors';
 import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import {
@@ -28,8 +11,6 @@ import {
   type AgentProfileRegistration,
 } from '#/app/agentProfileCatalog/agentProfileRegistry';
 import { BUILTIN_AGENT_PROFILE_SOURCE_ID } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
-import { LifecycleScope } from '#/app/scopes';
-import { BugIndicatingError } from '#/errors';
 
 import { ISessionAgentProfileCatalogSeed } from './agentProfileCatalogSeed';
 import {
@@ -44,7 +25,6 @@ interface ProfileCandidate {
   readonly priority: number;
 }
 
-// NOTE: stays Disposable — its own 'get' collides with the Fiber
 export class SessionAgentProfileCatalogService
   extends Disposable
   implements ISessionAgentProfileCatalog

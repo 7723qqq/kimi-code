@@ -45,7 +45,9 @@ export function errorForLog(error: unknown): unknown {
 }
 
 function objectFields(value: object): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined));
+  return Object.fromEntries(
+    Object.entries(value).filter(([, field]) => field !== undefined),
+  );
 }
 
 function stringifyForLog(value: unknown): string {

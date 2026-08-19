@@ -4,10 +4,7 @@ import { resolveInstallSource } from '#/app/plugin/source';
 
 describe('resolveInstallSource', () => {
   it('resolves absolute local paths', () => {
-    expect(resolveInstallSource('/tmp/plugin')).toEqual({
-      kind: 'local-path',
-      path: '/tmp/plugin',
-    });
+    expect(resolveInstallSource('/tmp/plugin')).toEqual({ kind: 'local-path', path: '/tmp/plugin' });
   });
 
   it('resolves zip urls', () => {

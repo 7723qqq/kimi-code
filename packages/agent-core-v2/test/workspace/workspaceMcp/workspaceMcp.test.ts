@@ -22,23 +22,24 @@ import { createServices } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { IMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 import { McpConnectionManager } from '#/mcpCore/connection-manager';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { ISessionEphemeralMcpServers } from '#/session/mcp/ephemeralMcpServers';
 import { MergedMcpConnectionView } from '#/session/mcp/mergedConnectionView';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import {
-  ISessionLifecycleService,
-  type SessionWillCreateEvent,
-} from '#/workspace/sessionLifecycle/sessionLifecycle';
+import type { SessionWillCreateEvent } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import {
   IWorkspaceMcpService,
   type ISessionMcpOverlay,
 } from '#/workspace/workspaceMcp/workspaceMcp';
 import { WorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcpService';
+import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 import {
   IWorkspaceMcpConfigService,
   type McpServersChange,
@@ -51,6 +52,18 @@ import { createMemoryMcpOAuthStore, stdioFixture } from '../../mcpCore/stubs';
 
 function stdioServer(): McpServerConfig {
   return { transport: 'stdio', command: process.execPath, args: [stdioFixture] };
+}
+
+// Session overlay managers require an explicit `runtime_id` on stdio
+// servers (`requireStdioRuntimeId`), unlike the workspace manager which
+// falls back to its own runtime binding.
+function sessionStdioServer(): McpServerConfig {
+  return {
+    transport: 'stdio',
+    command: process.execPath,
+    args: [stdioFixture],
+    runtime_id: 'local',
+  };
 }
 
 describe('WorkspaceMcpService', () => {
@@ -92,15 +105,30 @@ describe('WorkspaceMcpService', () => {
   }
 
   function createService(): IWorkspaceMcpService {
+    const runtime = Object.assign(
+      new FakeRuntime(
+        { workspaceId: 'test-workspace', runtimeId: 'local', generation: 'test-generation' },
+        {
+          capabilities: ['process'],
+          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+        },
+      ),
+      { process: new HostProcessService() },
+    );
     const ix = createServices(disposables, {
       strict: true,
       additionalServices: (reg) => {
-        reg.definePartialInstance(IWorkspaceContext, { cwd });
+        reg.definePartialInstance(IWorkspaceContext, { cwd, workspaceId: 'ws' });
+        reg.defineInstance(IRuntimeResolver, {
+          _serviceBrand: undefined,
+          inspect: () => runtime,
+          acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
+        });
         reg.defineInstance(IWorkspaceMcpConfigService, mcpConfigStub());
         reg.definePartialInstance(IMcpOAuthStore, createMemoryMcpOAuthStore());
         reg.defineInstance(ILogService, stubLog());
         reg.defineInstance(ITelemetryService, noopTelemetryService);
-        reg.definePartialInstance(ISessionLifecycleService, {
+        reg.definePartialInstance(ISessionManager, {
           onWillCreateSession: assemblyEvents.event,
         });
         registerAgentIdentityStub(reg);
@@ -233,7 +261,7 @@ describe('WorkspaceMcpService', () => {
     manager = service.connectionManager();
     await service.ready;
 
-    const overlay = service.sessionOverlay({ eph: stdioServer() });
+    const overlay = service.sessionOverlay({ eph: sessionStdioServer() });
     // True even before the overlay's own connect settles.
     expect(overlay.handle.isBaselineServer('eph')).toBe(true);
     expect(overlay.handle.isBaselineServer('base')).toBe(true);
@@ -269,7 +297,7 @@ describe('WorkspaceMcpService', () => {
     manager = service.connectionManager();
     await service.ready;
 
-    const overlay = service.sessionOverlay({ eph: stdioServer() });
+    const overlay = service.sessionOverlay({ eph: sessionStdioServer() });
     expect(overlay.handle.isBaselineServer('eph')).toBe(true);
     expect(overlay.handle.isBaselineServer('base')).toBe(true);
 
@@ -293,7 +321,7 @@ describe('WorkspaceMcpService', () => {
     manager = service.connectionManager();
     await service.ready;
 
-    const overlay = service.sessionOverlay({ eph: stdioServer() });
+    const overlay = service.sessionOverlay({ eph: sessionStdioServer() });
     await overlay.handle.ready;
 
     const view = overlay.handle.connectionManager;
@@ -347,7 +375,7 @@ describe('WorkspaceMcpService', () => {
 
       // A real, spawnable session cwd distinct from the workspace root.
       const sessionCwd = mkdtempSync(join(tmpdir(), 'kimi-session-mcp-cwd-'));
-      const servers = { eph: stdioServer() };
+      const servers = { eph: sessionStdioServer() };
       const sessionOverlay = vi.spyOn(service, 'sessionOverlay');
       const { event, contributed, disposers } = willCreateEvent(servers, sessionCwd);
       assemblyEvents.fire(event);

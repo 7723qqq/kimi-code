@@ -13,7 +13,7 @@
 
 import type { ServicesAccessor } from '#/_base/di/instantiation';
 import { DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
-import type { ISessionScopeHandle, IWorkspaceScopeHandle } from '#/_base/di/scope';
+import type { ISessionScopeHandle } from '#/_base/di/scope';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, isError2 } from '#/errors';
@@ -22,7 +22,7 @@ import {
   type ResumeSessionOptions,
 } from '#/workspace/sessionLifecycle/sessionLifecycle';
 
-import { IWorkspaceLifecycleService } from './workspaceLifecycle';
+import { IWorkspaceLifecycleService, type IWorkspaceScopeHandle } from './workspaceLifecycle';
 
 export async function handlerForSession(
   accessor: ServicesAccessor,

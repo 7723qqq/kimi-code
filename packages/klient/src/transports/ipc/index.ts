@@ -6,7 +6,11 @@
 import { createKlientFromChannel, type Klient, type KlientOptions } from '../../core/klient.js';
 import { IpcChannel, type IpcChannelOptions } from './channel.js';
 
-export { serveKlientIpc, type KlientIpcHost, type ServeKlientIpcOptions } from './host.js';
+export {
+  serveKlientIpc,
+  type KlientIpcHost,
+  type ServeKlientIpcOptions,
+} from './host.js';
 
 export interface IpcKlientOptions extends KlientOptions, IpcChannelOptions {}
 

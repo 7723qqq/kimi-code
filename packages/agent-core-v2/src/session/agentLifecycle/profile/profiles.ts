@@ -1,12 +1,4 @@
-/**
- * `agentLifecycle` domain — builtin agent profile contributions.
- *
- * Registers the default `agent` profile plus the `coder` / `explore` task-agent
- * profiles. Each profile is self-contained: its structured `renderSystemPrompt`
- * merges the shared base template with its own role text at call time, so a
- * child agent no longer inherits the parent's prompt through a runtime overlay.
- */
-
+import { collectGitContext } from './gitContext';
 import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 import {
   renderSystemPromptResult,
@@ -15,7 +7,6 @@ import {
 } from '#/app/agentProfileCatalog/profile-shared';
 
 import EXPLORE_ROLE from './explore-overlay.md?raw';
-import { collectGitContext } from './gitContext';
 import SUMMARY_CONTINUATION_PROMPT from './summary-continuation.md?raw';
 
 const AGENT_TOOLS = [
@@ -37,7 +28,6 @@ const AGENT_TOOLS = [
   'WebSearch',
   'Agent',
   'AgentSwarm',
-  'Team',
   'FetchURL',
   'AskUserQuestion',
   'EnterPlanMode',
@@ -46,38 +36,7 @@ const AGENT_TOOLS = [
   'GetGoal',
   'SetGoalBudget',
   'UpdateGoal',
-  // Built-in GitHub REST tools — gated by the `github_tools` experimental
-  // flag through each tool's activation predicate, so they only appear when
-  // the flag is on even though the profile lists them explicitly.
-  'GitHubGetRepo',
-  'GitHubListBranches',
-  'GitHubListCommits',
-  'GitHubGetCommit',
-  'GitHubGetFileContents',
-  'GitHubCreateOrUpdateFile',
-  'GitHubListIssues',
-  'GitHubGetIssue',
-  'GitHubCreateIssue',
-  'GitHubUpdateIssue',
-  'GitHubAddIssueComment',
-  'GitHubListIssueComments',
-  'GitHubListPRs',
-  'GitHubGetPR',
-  'GitHubGetPRDiff',
-  'GitHubGetPRFiles',
-  'GitHubCreatePR',
-  'GitHubUpdatePR',
-  'GitHubMergePR',
-  'GitHubCreatePRReview',
-  'GitHubListPRReviewComments',
-  'GitHubSearchCode',
-  'GitHubSearchRepos',
-  'GitHubSearchIssues',
-  'GitHubListWorkflowRuns',
-  'GitHubGetWorkflowRun',
-  'GitHubListReleases',
-  'GitHubGetLatestRelease',
-  'GitHubGetMe',
+  'TowerInit',
   'mcp__*',
 ] as const;
 
@@ -101,37 +60,6 @@ const CODER_TOOLS = [
   'WebSearch',
   'FetchURL',
   'Write',
-  // Built-in GitHub REST tools — gated by the `github_tools` experimental
-  // flag through each tool's activation predicate (same as the agent profile).
-  'GitHubGetRepo',
-  'GitHubListBranches',
-  'GitHubListCommits',
-  'GitHubGetCommit',
-  'GitHubGetFileContents',
-  'GitHubCreateOrUpdateFile',
-  'GitHubListIssues',
-  'GitHubGetIssue',
-  'GitHubCreateIssue',
-  'GitHubUpdateIssue',
-  'GitHubAddIssueComment',
-  'GitHubListIssueComments',
-  'GitHubListPRs',
-  'GitHubGetPR',
-  'GitHubGetPRDiff',
-  'GitHubGetPRFiles',
-  'GitHubCreatePR',
-  'GitHubUpdatePR',
-  'GitHubMergePR',
-  'GitHubCreatePRReview',
-  'GitHubListPRReviewComments',
-  'GitHubSearchCode',
-  'GitHubSearchRepos',
-  'GitHubSearchIssues',
-  'GitHubListWorkflowRuns',
-  'GitHubGetWorkflowRun',
-  'GitHubListReleases',
-  'GitHubGetLatestRelease',
-  'GitHubGetMe',
   'mcp__*',
 ] as const;
 
@@ -187,9 +115,9 @@ registerAgentProfile({
   tools: EXPLORE_TOOLS,
   renderSystemPrompt: (context) =>
     renderSystemPromptResult(EXPLORE_ROLE, context, { skillActive: skillActiveFor(EXPLORE_TOOLS) }),
-  promptPrefix: async ({ cwd, runner, log }) => {
+  promptPrefix: async ({ cwd, process, log }) => {
     try {
-      return await collectGitContext(runner, cwd, log);
+      return await collectGitContext(process, cwd, log);
     } catch {
       return '';
     }

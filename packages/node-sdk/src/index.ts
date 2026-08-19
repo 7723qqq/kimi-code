@@ -14,6 +14,7 @@ export {
   type ValidateKimiConfigTomlInput,
 } from '#/config-rpc';
 export { SDKRpcClientBase } from '#/rpc';
+export { ImageLimits } from '#/image-limits';
 export { KimiForCodingProvider } from '#/kimi-code-model-provider';
 export type { KimiForCodingProviderOptions } from '#/kimi-code-model-provider';
 export { removeProviderFromConfig } from '#/v2/config-mapper';
@@ -72,6 +73,12 @@ export {
 } from '#/legacy';
 export type { LogContext, LogLevel, LogPayload, Logger } from '#/legacy';
 export { resolveGlobalLogPath, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
+export {
+  buildDaemonFileUrl,
+  buildMediaPathTag,
+  isDaemonFileUrl,
+  parseDaemonFileUrl,
+} from '@moonshot-ai/agent-core-v2';
 export { resolveKimiHome, resolveConfigPath } from '#/config-local';
 
 // Host-side config helpers — the localized v1 config-document layer (see
@@ -114,8 +121,6 @@ export {
   buildUnsupportedImageNotice,
   compressImageForModel,
   compressBase64ForModel,
-  compressImageContentParts,
-  cropImageForModel,
   gateImageFormatParts,
   isModelAcceptedImageMime,
   normalizeImageMime,
@@ -125,12 +130,7 @@ export {
   IMAGE_BYTE_BUDGET,
   MAX_IMAGE_EDGE_PX,
 } from '@moonshot-ai/agent-core-v2';
-export { ImageLimits } from '@moonshot-ai/agent-core-v2';
 export type {
-  CompressImageOptions,
-  CompressImageResult,
-  CompressBase64Result,
-  ImageCompressionCaptionInput,
   ImageCompressionTelemetry,
   StrictPropertyCheck,
   TelemetryEventName,
@@ -144,24 +144,6 @@ export type {
   ExperimentalFlagMap,
   ExperimentalFlagSource,
 } from '@moonshot-ai/agent-core-v2';
-
-// Daemon file references (agent-core-v2) — pure helpers for the internal
-// `kimi-file://` media URLs and the model-facing `<image|video|file>` path
-// tags. A daemon-ref media part is self-contained (kind from the part type,
-// file id from the url) — there is no tag+ref pairing to fold.
-// Hosts must not import agent-core-v2 directly; `FileMeta` and
-// `UploadFileOptions` ride the `export type * from '#/types'` below.
-export {
-  buildDaemonFileUrl,
-  buildMediaPathTag,
-  isDaemonFileUrl,
-  matchSingleMediaPathTag,
-  parseDaemonFileUrl,
-} from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
-export type {
-  DaemonFileRef,
-  MediaKind,
-} from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
 
 export type {
   KimiAuthCompleteFeedbackUploadInput,

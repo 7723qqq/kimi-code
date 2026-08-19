@@ -1,21 +1,3 @@
-/**
- * `workspaceAgentProfileLoader` domain — filesystem agent-file discovery.
- *
- * Discovers and parses agent files through the `hostFs` filesystem boundary.
- * Invalid files are isolated from the rest of the discovery pass. Failure
- * policy: below a root, ANY readdir failure (notably EACCES) skips just that
- * directory — one unreadable subdirectory must not zero the whole source; at
- * a root, a missing directory is simply "no agents here", a transient
- * whole-fs outage (`os.fs.unavailable`) propagates so an existing
- * contribution is kept instead of replaced by a partial scan, and any other
- * failure skips just that root. Skip warnings are capped
- * (`MAX_SKIP_WARNINGS`) so a misconfigured root (e.g. an extra dir pointing
- * at a docs-heavy tree) cannot spam one line per non-agent file; the returned
- * `skipped` list keeps the full parse-failure detail regardless, and the
- * capping summary names a few suppressed paths so the rest stay findable. No
- * scoped state.
- */
-
 import { join } from 'pathe';
 
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -66,7 +48,10 @@ export async function discoverAgentFiles(
         byName.set(agent.name, agent);
       }
     } catch (error) {
-      if (error instanceof HostFsError && error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE) {
+      if (
+        error instanceof HostFsError &&
+        error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE
+      ) {
         throw error;
       }
       if (error instanceof AgentFileParseError) {
@@ -86,11 +71,7 @@ export async function discoverAgentFiles(
       entries = (await fs.readdir(dirPath)).map((entry) => entry.name).toSorted();
     } catch (error) {
       if (depth > 0) {
-        warnCapped(
-          dirPath,
-          `Skipping unreadable directory ${dirPath}: ${errorMessage(error)}`,
-          error,
-        );
+        warnCapped(dirPath, `Skipping unreadable directory ${dirPath}: ${errorMessage(error)}`, error);
         return;
       }
       if (
@@ -114,14 +95,13 @@ export async function discoverAgentFiles(
         if (!entry.endsWith('.md') || !(await isFilePath(fs, entryPath))) continue;
         await parseAndRegister(entryPath, root);
       } catch (error) {
-        if (error instanceof HostFsError && error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE) {
+        if (
+          error instanceof HostFsError &&
+          error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE
+        ) {
           throw error;
         }
-        warnCapped(
-          entryPath,
-          `Skipping unreadable agent path ${entryPath}: ${errorMessage(error)}`,
-          error,
-        );
+        warnCapped(entryPath, `Skipping unreadable agent path ${entryPath}: ${errorMessage(error)}`, error);
       }
     }
   }
@@ -130,14 +110,13 @@ export async function discoverAgentFiles(
     try {
       await walk(root.path, root, 0);
     } catch (error) {
-      if (error instanceof HostFsError && error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE) {
+      if (
+        error instanceof HostFsError &&
+        error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE
+      ) {
         throw error;
       }
-      warnCapped(
-        root.path,
-        `Skipping unreadable agent root ${root.path}: ${errorMessage(error)}`,
-        error,
-      );
+      warnCapped(root.path, `Skipping unreadable agent root ${root.path}: ${errorMessage(error)}`, error);
     }
   }
 

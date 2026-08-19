@@ -1,33 +1,5 @@
-/**
- * `tool` domain — workspace path access policy for file tools.
- *
- * Owns `WorkspaceConfig` (the roots tools are allowed to access, injected
- * through each tool's constructor), the lexical path guards used by
- * Read/Write/Edit/Grep/Glob — canonicalization, workspace containment,
- * sensitive-file detection (env / credential / SSH key patterns with
- * explicit exemptions like `.env.example`) — and `PathSecurityError`.
- * `extendWorkspaceWithSkillRoots` merges skill-catalog roots into a tool
- * workspace so skill directories outside the cwd (e.g. `~/.kimi-code/skills`)
- * stay reachable.
- * Canonicalization is **lexical** only (no `realpath` / symlink following).
- * The guard stays host-aware: callers pass the active `IHostEnvironment`
- * path class so SSH paths stay POSIX even when the host Node process is
- * running on Windows. Shared-prefix escapes (a path like `/workspace-evil`
- * passing a naive `startswith('/workspace')` check) are blocked by
- * requiring a path separator (or exact equality) after the base prefix in
- * `isWithinDirectory`. Pure policy; no scoped service.
- */
-
 import * as pathe from 'pathe';
 
-import {
-  tryNativeIsSensitiveFile,
-  tryNativePathCanonicalize,
-  tryNativePathExpandUserPath,
-  tryNativePathIsWithinDirectory,
-  tryNativePathIsWithinWorkspace,
-  tryNativePathNormalizeUserPath,
-} from '#/_base/native-tools';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 
 export interface WorkspaceConfig {
@@ -72,8 +44,6 @@ function comparable(path: string): string {
 }
 
 export function isSensitiveFile(path: string): boolean {
-  const native = tryNativeIsSensitiveFile(path);
-  if (native !== undefined) return native;
   const name = pathe.basename(path);
   const comparableName = comparable(name);
   const comparablePath = comparable(path);
@@ -148,8 +118,6 @@ function isWin32DriveRelative(path: string): boolean {
 }
 
 export function normalizeUserPath(path: string, pathClass: PathClass = DEFAULT_PATH_CLASS): string {
-  const native = tryNativePathNormalizeUserPath(path, pathClass);
-  if (native !== undefined) return native;
   if (pathClass !== 'win32') return path;
 
   if (path === '/') return '/';
@@ -177,8 +145,6 @@ export function normalizeUserPath(path: string, pathClass: PathClass = DEFAULT_P
 
 function expandUserPath(path: string, homeDir: string | undefined, pathClass: PathClass): string {
   if (homeDir === undefined) return path;
-  const native = tryNativePathExpandUserPath(path, homeDir, pathClass);
-  if (native !== undefined) return native;
   if (path === '~') return homeDir;
   if (path.startsWith('~/') || (pathClass === 'win32' && path.startsWith('~\\'))) {
     return pathe.join(homeDir, path.slice(2));
@@ -211,13 +177,7 @@ export function canonicalizePath(
       `Cannot resolve "${path}" against non-absolute cwd "${cwd}".`,
     );
   }
-  const native = tryNativePathCanonicalize(normalizedPath, cwd, pathClass);
-  if (native !== undefined && !native.startsWith('ERROR:')) {
-    return native;
-  }
-  const abs = pathe.isAbsolute(normalizedPath)
-    ? normalizedPath
-    : pathe.resolve(cwd, normalizedPath);
+  const abs = pathe.isAbsolute(normalizedPath) ? normalizedPath : pathe.resolve(cwd, normalizedPath);
   return pathe.normalize(abs);
 }
 
@@ -226,8 +186,6 @@ export function isWithinDirectory(
   base: string,
   pathClass: PathClass = DEFAULT_PATH_CLASS,
 ): boolean {
-  const native = tryNativePathIsWithinDirectory(candidate, base, pathClass);
-  if (native !== undefined) return native;
   const nc = pathe.normalize(candidate);
   const nb = pathe.normalize(base);
   const comparableCandidate = pathClass === 'win32' ? nc.toLowerCase() : nc;
@@ -242,12 +200,6 @@ export function isWithinWorkspace(
   config: WorkspaceConfig,
   pathClass: PathClass = DEFAULT_PATH_CLASS,
 ): boolean {
-  const native = tryNativePathIsWithinWorkspace(
-    candidate,
-    [config.workspaceDir, ...config.additionalDirs],
-    pathClass,
-  );
-  if (native !== undefined) return native;
   if (isWithinDirectory(candidate, config.workspaceDir, pathClass)) return true;
   for (const dir of config.additionalDirs) {
     if (isWithinDirectory(candidate, dir, pathClass)) return true;
@@ -348,7 +300,10 @@ export function resolvePathAccess(
   return { path: canonical, outsideWorkspace };
 }
 
-export function resolvePathAccessPath(path: string, options: ResolvePathAccessPathOptions): string {
+export function resolvePathAccessPath(
+  path: string,
+  options: ResolvePathAccessPathOptions,
+): string {
   const { env, workspace, operation, policy, expandHome = true } = options;
   return resolvePathAccess(path, workspace.workspaceDir, workspace, {
     operation,

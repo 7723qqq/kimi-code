@@ -1,10 +1,16 @@
-import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 import { z } from 'zod';
+
+import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 
 export const taskKindSchema = z.enum(['subagent', 'bash', 'tool']);
 export type TaskKind = z.infer<typeof taskKindSchema>;
 
-export const taskStatusSchema = z.enum(['running', 'completed', 'failed', 'cancelled']);
+export const taskStatusSchema = z.enum([
+  'running',
+  'completed',
+  'failed',
+  'cancelled',
+]);
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 
 export const taskSchema = z.object({
@@ -19,10 +25,7 @@ export const taskSchema = z.object({
   completed_at: isoDateTimeSchema.optional(),
   output_preview: z.string().optional(),
   output_bytes: z.number().int().nonnegative().optional(),
-  /** Subagent tasks only: the display-normalized model alias the child agent
-   *  is bound to. */
   model: z.string().optional(),
-  /** Subagent tasks only: the child's effective thinking effort at spawn. */
   thinking_effort: z.string().optional(),
   agent_id: z.string().optional(),
   subagent_type: z.string().optional(),

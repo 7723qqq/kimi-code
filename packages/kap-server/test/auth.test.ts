@@ -2,15 +2,12 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  authSummarySchema,
-  type AuthSummary,
-} from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
+import { authSummarySchema, type AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { authedFetch } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -134,7 +131,6 @@ describe('server-v2 GET /api/v1/auth', () => {
       name: 'managed:kimi-code',
       status: 'unauthenticated',
     });
-    // No default_model → still not ready, even though the provider exists.
     expect(summary.ready).toBe(false);
   });
 });

@@ -1,32 +1,7 @@
-/**
- * `kimi-cu` capability entry (macOS and Windows).
- *
- * Both platforms share the same product capability and plugin wiring flow.
- * macOS adds KimiCU.app + launchd + TCC permissions; Windows uses the
- * official signed runtime installer and its built-in `doctor` command.
- *
- * The macOS path replicates the official `setup_macos.sh` step-for-step
- * (stop old processes → ditto into /Applications → register service →
- * request permissions) with structured progress and errors instead of a
- * shell pipe. Elevation when /Applications is not writable goes through
- * `osascript ... with administrator privileges` (native auth dialog).
- * Installs are detect-first and idempotent: setup always refreshes the wiring
- * plugin, only unsatisfied runtime layers are redone, and setup re-enables a
- * previously disabled wiring plugin (and its
- * MCP servers), the app step requires an executable binary with bundle
- * metadata, the archive is staged and unpacked before the old service is
- * stopped, and cleanup of old processes is best-effort — a wedged old
- * binary turns CLI probes into failed steps or is skipped past, never
- * blocking the replacement.
- * The Windows path downloads and runs the official `setup_windows.ps1`, so
- * its signature verification, rollback, and agent autostart stay upstream.
- * It selects a trusted PowerShell installation that satisfies the script's
- * command requirements before changing plugin wiring.
- */
-
-import { createHash } from 'node:crypto';
-import { constants, createReadStream } from 'node:fs';
+import { constants } from 'node:fs';
+import { createReadStream } from 'node:fs';
 import { access, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -45,10 +20,12 @@ const MAC_PLUGIN = {
 } as const;
 const WINDOWS_PLUGIN = {
   id: 'kimi-cu-win',
-  zipUrl: 'https://cdn.kimi.com/kimi-computer-use-windows/latest/kimi-cu-win-plugin.zip',
+  zipUrl:
+    'https://cdn.kimi.com/kimi-computer-use-windows/latest/kimi-cu-win-plugin.zip',
 } as const;
 const APP_ZIP_URL = 'https://cdn.kimi.com/kimi-computer-use/latest/KimiCU.app.zip';
-const WINDOWS_SETUP_URL = 'https://cdn.kimi.com/kimi-computer-use-windows/latest/setup_windows.ps1';
+const WINDOWS_SETUP_URL =
+  'https://cdn.kimi.com/kimi-computer-use-windows/latest/setup_windows.ps1';
 const APP_BUNDLE = 'KimiCU.app';
 const LAUNCHD_LABEL = 'ai.kimi.cu.service';
 const COMMAND_TIMEOUT_MS = 30_000;
@@ -71,7 +48,7 @@ const WINDOWS_DOCTOR_SCRIPT =
   "if ($env:KIMI_CU_WINDOWS_HOME) { $candidates += (Join-Path $env:KIMI_CU_WINDOWS_HOME 'kimi-cu.exe') }; " +
   "if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'KimiCU\\kimi-cu.exe') }; " +
   "if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'KimiCU\\kimi-cu.exe') }; " +
-  '$exe = $candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1; ' +
+  "$exe = $candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1; " +
   'if (-not $exe) { exit 3 }; & $exe doctor; exit $LASTEXITCODE';
 
 /**
@@ -159,15 +136,24 @@ export function windowsPowerShellPath(
   systemRoot = process.env['SystemRoot'] ?? DEFAULT_WINDOWS_SYSTEM_ROOT,
 ): string {
   const root = path.win32.isAbsolute(systemRoot) ? systemRoot : DEFAULT_WINDOWS_SYSTEM_ROOT;
-  return path.win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  return path.win32.join(
+    root,
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe',
+  );
 }
 
 export function windowsPowerShell7Path(
-  programFiles = process.env['ProgramW6432'] ??
+  programFiles =
+    process.env['ProgramW6432'] ??
     process.env['ProgramFiles'] ??
     DEFAULT_WINDOWS_PROGRAM_FILES,
 ): string {
-  const root = path.win32.isAbsolute(programFiles) ? programFiles : DEFAULT_WINDOWS_PROGRAM_FILES;
+  const root = path.win32.isAbsolute(programFiles)
+    ? programFiles
+    : DEFAULT_WINDOWS_PROGRAM_FILES;
   return path.win32.join(root, 'PowerShell', '7', 'pwsh.exe');
 }
 
@@ -333,7 +319,9 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
     }
   }
 
-  async function removeLegacyMcpRegistration(legacy: LegacyMcpFile | undefined): Promise<boolean> {
+  async function removeLegacyMcpRegistration(
+    legacy: LegacyMcpFile | undefined,
+  ): Promise<boolean> {
     if (legacy === undefined) return false;
 
     const nextServers = { ...legacy.servers };
@@ -350,7 +338,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
       if ((await readFile(userMcpConfigPath, 'utf8')) !== legacy.raw) return false;
       await rename(tempPath, userMcpConfigPath);
     } finally {
-      await rm(tempPath, { force: true }).catch(() => {});
+      await rm(tempPath, { force: true }).catch(() => undefined);
     }
     return true;
   }
@@ -397,13 +385,12 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
     } else {
       const granted =
         permissions !== undefined && permissions.accessibility && permissions.screenRecording;
-      const missingPermissions =
-        permissions === undefined
-          ? undefined
-          : [
-              ...(permissions.accessibility ? [] : ['accessibility']),
-              ...(permissions.screenRecording ? [] : ['screenRecording']),
-            ].join(',');
+      const missingPermissions = permissions === undefined
+        ? undefined
+        : [
+            ...(permissions.accessibility ? [] : ['accessibility']),
+            ...(permissions.screenRecording ? [] : ['screenRecording']),
+          ].join(',');
       steps.push({
         id: 'permissions',
         state: granted ? 'ok' : 'missing',
@@ -421,7 +408,9 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
   }
 
   async function bestEffort(command: string, args: readonly string[]): Promise<void> {
-    await runCommand(ctx.hostProcess, command, args, { timeout: commandTimeoutMs }).catch(() => {});
+    await runCommand(ctx.hostProcess, command, args, { timeout: commandTimeoutMs }).catch(
+      () => undefined,
+    );
   }
 
   async function stopOldProcesses(): Promise<void> {
@@ -430,9 +419,6 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
       await bestEffort(appBin, ['uninstall']);
     }
     await bestEffort('launchctl', ['bootout', `gui/${uid}/${LAUNCHD_LABEL}`]);
-    // Keep connected MCP frontends alive while the app bundle is replaced.
-    // Their work is delegated to the service below; killing them makes the
-    // client report an installation-driven restart as an unexpected failure.
     for (const mode of ['service', 'overlay']) {
       await bestEffort('pkill', ['-f', `${APP_BUNDLE}/Contents/MacOS/kimi-cu[[:space:]]+${mode}`]);
     }
@@ -442,7 +428,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
   }
 
   async function moveAppIntoPlace(unzippedApp: string): Promise<void> {
-    await rm(appPath, { recursive: true, force: true }).catch(() => {});
+    await rm(appPath, { recursive: true, force: true }).catch(() => undefined);
     const direct = await runCommand(ctx.hostProcess, 'ditto', [unzippedApp, appPath], {
       timeout: commandTimeoutMs,
     });
@@ -477,9 +463,6 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
     report('plugin');
     await installPluginLayer(ctx, MAC_PLUGIN);
 
-    // A read-only or concurrently edited user config must not block the app
-    // installation. Detection keeps the duplicate as an optional warning so
-    // clients can record it in logs and a later install can retry migration.
     if (await removeLegacyMcpRegistration(legacyMcpBefore).catch(() => false)) {
       report('mcp-config');
     }
@@ -502,14 +485,9 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
 
         report('app');
         const unzipDir = path.join(workDir, 'unzipped');
-        const unzipped = await runCommand(
-          ctx.hostProcess,
-          'ditto',
-          ['-x', '-k', zipPath, unzipDir],
-          {
-            timeout: 120_000,
-          },
-        );
+        const unzipped = await runCommand(ctx.hostProcess, 'ditto', ['-x', '-k', zipPath, unzipDir], {
+          timeout: 120_000,
+        });
         if (unzipped.code !== 0) {
           throw new Error(`Failed to unzip KimiCU.app: ${unzipped.stderr || unzipped.stdout}`);
         }
@@ -519,7 +497,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
           timeout: commandTimeoutMs,
         });
       } finally {
-        await rm(workDir, { recursive: true, force: true }).catch(() => {});
+        await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
       }
     }
 
@@ -542,9 +520,12 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
 
     if (stepStates.get('permissions') !== 'ok') {
       report('permissions');
-      await runCommand(ctx.hostProcess, appBin, ['request-permissions', '--ax', '--screen'], {
-        timeout: PERMISSIONS_TIMEOUT_MS,
-      }).catch(() => {});
+      await runCommand(
+        ctx.hostProcess,
+        appBin,
+        ['request-permissions', '--ax', '--screen'],
+        { timeout: PERMISSIONS_TIMEOUT_MS },
+      ).catch(() => undefined);
     }
     return undefined;
   }
@@ -564,7 +545,8 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
 function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
   const supported = ctx.platform === 'win32' && ctx.arch === 'x64';
   const probeTimeoutMs = ctx.detectProbeTimeoutMs ?? DETECT_PROBE_TIMEOUT_MS;
-  const installerProbeTimeoutMs = ctx.detectProbeTimeoutMs ?? WINDOWS_INSTALLER_PROBE_TIMEOUT_MS;
+  const installerProbeTimeoutMs =
+    ctx.detectProbeTimeoutMs ?? WINDOWS_INSTALLER_PROBE_TIMEOUT_MS;
   const installTimeoutMs = ctx.commandTimeoutMs ?? WINDOWS_INSTALL_TIMEOUT_MS;
   const powershellPath = windowsPowerShellPath();
   const powershell7Path = windowsPowerShell7Path();
@@ -733,7 +715,7 @@ function createWindowsKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry 
           );
         }
       } finally {
-        await rm(workDir, { recursive: true, force: true }).catch(() => {});
+        await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
       }
 
       const runtime = await runtimeStep(installPowerShell);

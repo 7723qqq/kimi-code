@@ -1,10 +1,9 @@
+import { Hono } from 'hono';
 import { join } from 'node:path';
 
-import { Hono } from 'hono';
-
 import { KIMI_CODE_HOME } from '../config';
-import { rehydrateWireEntries } from '../lib/blob-resolver';
 import { isSafeAgentId, readSessionDetail } from '../lib/session-store';
+import { rehydrateWireEntries } from '../lib/blob-resolver';
 import { readAgentWire } from '../lib/wire-reader';
 
 export function wireRoute(home: string = KIMI_CODE_HOME): Hono {
@@ -27,7 +26,9 @@ export function wireRoute(home: string = KIMI_CODE_HOME): Hono {
       return c.json({ error: 'wire missing', code: 'NOT_FOUND' }, 404);
     }
     try {
-      const result = await readAgentWire(join(detail.sessionDir, 'agents', agentId, 'wire.jsonl'));
+      const result = await readAgentWire(
+        join(detail.sessionDir, 'agents', agentId, 'wire.jsonl'),
+      );
       const baseUrl = new URL(c.req.url).origin;
       rehydrateWireEntries(result.records, id, agentId, baseUrl);
       return c.json({
@@ -38,8 +39,8 @@ export function wireRoute(home: string = KIMI_CODE_HOME): Hono {
         records: result.records,
         warnings: result.warnings,
       });
-    } catch (error) {
-      const msg = (error as Error).message;
+    } catch (err) {
+      const msg = (err as Error).message;
       return c.json({ error: msg, code: 'READ_ERROR' }, 500);
     }
   });

@@ -102,7 +102,10 @@ export type GlobalMcpServerAuthState =
   | 'not-applicable'
   | 'bearer-token'
   | 'oauth-required'
-  | 'oauth-authorized';
+  | 'oauth-authorized'
+  // Stored credentials exist but are expired without a usable refresh token
+  // (or failed an online verification): re-login required.
+  | 'oauth-expired';
 
 export interface GlobalMcpServerAuthStatus {
   readonly name: string;
@@ -221,6 +224,11 @@ export type TextPromptPart = Extract<ContentPart, { type: 'text' }>;
 export type PromptPart = Extract<ContentPart, { type: 'text' | 'image_url' | 'video_url' }>;
 
 export type PromptInput = readonly PromptPart[];
+
+export interface PromptSkillActivation {
+  readonly name: string;
+  readonly args?: string;
+}
 
 export interface KimiHarnessOptions {
   readonly identity?: KimiHostIdentity | undefined;

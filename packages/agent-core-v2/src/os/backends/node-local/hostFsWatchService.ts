@@ -1,20 +1,14 @@
-/**
- * `hostFsWatch` domain — `IHostFsWatchService` implementation.
- *
- * Reports precise or coarse host filesystem changes through platform
- * watchers. Each handle owns and disposes its watcher. Bound at App scope.
- */
-
 import { watch as fsWatch } from 'node:fs';
 import { basename, isAbsolute, join, relative } from 'node:path';
 
 import { FSWatcher } from 'chokidar';
 
 import type { IDisposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { Emitter, type Event } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+
 import {
   type HostFsChange,
   type HostFsChangeAction,
@@ -45,7 +39,8 @@ interface HostFsWatchRuntime {
 
 const NODE_HOST_FS_WATCH_RUNTIME: HostFsWatchRuntime = {
   platform: process.platform,
-  watchNative: (root, listener) => fsWatch(root, { persistent: false, recursive: true }, listener),
+  watchNative: (root, listener) =>
+    fsWatch(root, { persistent: false, recursive: true }, listener),
   scheduleRetry: (callback, delayMs) => {
     const timer = setTimeout(callback, delayMs);
     timer.unref?.();

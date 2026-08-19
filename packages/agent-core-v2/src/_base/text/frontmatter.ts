@@ -1,13 +1,4 @@
-/**
- * `_base` text helpers — Markdown frontmatter parsing.
- *
- * Splits a Markdown document into its YAML frontmatter block and body. Pure
- * text processing with no IO and no domain knowledge. A document without a
- * leading `---` fence parses as all body with `data: null`; an unterminated
- * fence is a `FrontmatterError`.
- */
-
-import { CORE_SCHEMA, load as loadYaml } from 'js-yaml';
+import { load as loadYaml } from 'js-yaml';
 
 export class FrontmatterError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -44,7 +35,7 @@ export function parseFrontmatter(text: string): ParsedFrontmatter {
   }
 
   try {
-    return { data: loadYaml(yamlText, { schema: CORE_SCHEMA }) ?? {}, body };
+    return { data: loadYaml(yamlText) ?? {}, body };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new FrontmatterError(message, error);

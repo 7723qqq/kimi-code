@@ -112,7 +112,9 @@ describe('workspaceIdParamSchema', () => {
   });
 
   it('rejects a non-wd-shaped id', () => {
-    expect(workspaceIdParamSchema.safeParse({ workspace_id: 'sess_abc' }).success).toBe(false);
+    expect(
+      workspaceIdParamSchema.safeParse({ workspace_id: 'sess_abc' }).success,
+    ).toBe(false);
   });
 });
 
@@ -122,9 +124,9 @@ describe('listWorkspacesResponseSchema', () => {
   });
 
   it('accepts a non-empty list', () => {
-    expect(listWorkspacesResponseSchema.parse({ items: [sampleWorkspace] }).items[0]?.id).toBe(
-      sampleWorkspace.id,
-    );
+    expect(
+      listWorkspacesResponseSchema.parse({ items: [sampleWorkspace] }).items[0]?.id,
+    ).toBe(sampleWorkspace.id);
   });
 });
 

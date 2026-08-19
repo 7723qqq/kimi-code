@@ -49,6 +49,7 @@ export const metaResponseSchema = z.object({
    * probing routes.
    */
   backend: z.enum(['v1', 'v2']).optional(),
+  web_title: z.string().optional(),
 });
 
 export type MetaResponse = z.infer<typeof metaResponseSchema>;

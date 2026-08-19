@@ -1,19 +1,12 @@
-/**
- * L2 transport vocabulary.
- *
- * Operations are volatile — they carry no rendering contract and clients may
- * coalesce or drop them freely within the rules below. There is exactly one
- * non-idempotent op: `append` (must carry `offset`). Everything else is a
- * state-style upsert/merge: duplicates are absorbed, and ops consumed in the
- * producer's causal order (a single sequenced channel per agent) converge to
- * the producer's store.
- *
- * The single convergence path is `AgentTranscript.apply` in `store/`.
- */
-
+import type {
+  AgentId,
+  FrameId,
+  StepId,
+  TaskId,
+  TurnId,
+} from '../model/ids';
 import type { TranscriptAttachment } from '../model/attachment';
 import type { TranscriptFrame } from '../model/frame';
-import type { AgentId, FrameId, StepId, TaskId, TurnId } from '../model/ids';
 import type { TranscriptInteraction } from '../model/interaction';
 import type { TranscriptItem, TranscriptMarker, TranscriptTaskRef } from '../model/item';
 import type { TranscriptMeta, TranscriptMetaMerge } from '../model/meta';
@@ -52,12 +45,7 @@ export interface FrameUpsertOp {
 }
 
 export type AppendTarget =
-  | {
-      readonly type: 'frame';
-      readonly turnId: TurnId;
-      readonly stepId: StepId;
-      readonly frameId: FrameId;
-    }
+  | { readonly type: 'frame'; readonly turnId: TurnId; readonly stepId: StepId; readonly frameId: FrameId }
   | { readonly type: 'task'; readonly taskId: TaskId };
 
 /** The only non-idempotent op. `offset` is the chunk's cumulative position. */

@@ -1,11 +1,16 @@
 import type { Component, MarkdownTheme } from '@moonshot-ai/pi-tui';
-import { Markdown, Text, truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
+import {
+  Markdown,
+  Text,
+  truncateToWidth,
+  visibleWidth,
+} from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
-
 import { THINKING_PREVIEW_LINES } from '../../constant/rendering';
 import { currentTheme } from '../../theme';
+import type { InlineSkillActivation } from '../../types';
 import { createMarkdownOptions } from '../../utils/markdown-options';
 
 type BtwPanelPhase = 'running' | 'done' | 'failed';
@@ -28,7 +33,10 @@ interface BtwBodyRender {
 export interface BtwPanelOptions {
   readonly markdownTheme: MarkdownTheme;
   readonly canUseScrollKeys: () => boolean;
-  readonly onPrompt: (prompt: string) => void;
+  readonly onPrompt: (
+    prompt: string,
+    inlineSkillActivations?: readonly InlineSkillActivation[],
+  ) => void;
   readonly terminalRows: () => number;
 }
 
@@ -42,7 +50,7 @@ export class BtwPanelComponent implements Component {
 
   constructor(private readonly options: BtwPanelOptions) {}
 
-  submit(prompt: string): void {
+  submit(prompt: string, inlineSkillActivations?: readonly InlineSkillActivation[]): void {
     const normalized = prompt.trim();
     if (normalized.length === 0 || this.isRunning()) return;
     this.followTail = true;
@@ -54,7 +62,7 @@ export class BtwPanelComponent implements Component {
       thinking: '',
       phase: 'running',
     });
-    this.options.onPrompt(normalized);
+    this.options.onPrompt(normalized, inlineSkillActivations);
   }
 
   addTransientNotice(message: string): void {
@@ -158,7 +166,8 @@ export class BtwPanelComponent implements Component {
   private fitBodyLines(lines: string[]): BtwBodyRender {
     const bodyLimit = this.collapsedBodyLimit();
     const targetUncapped = Math.max(this.minBodyLines, lines.length);
-    const target = bodyLimit === undefined ? targetUncapped : Math.min(bodyLimit, targetUncapped);
+    const target =
+      bodyLimit === undefined ? targetUncapped : Math.min(bodyLimit, targetUncapped);
     this.minBodyLines = Math.max(this.minBodyLines, target);
 
     if (lines.length > target) {
@@ -198,21 +207,12 @@ export class BtwPanelComponent implements Component {
     const thinking = turn.thinking.trim();
     if (answer.length > 0) {
       lines.push(
-        ...new Markdown(
-          answer,
-          0,
-          0,
-          this.options.markdownTheme,
-          undefined,
-          createMarkdownOptions(),
-        ).render(width),
+        ...new Markdown(answer, 0, 0, this.options.markdownTheme, undefined, createMarkdownOptions()).render(width),
       );
     } else if (thinking.length > 0) {
-      const thinkingLines = new Text(
-        chalk.hex(currentTheme.palette.textDim)(thinking),
-        0,
-        0,
-      ).render(width);
+      const thinkingLines = new Text(chalk.hex(currentTheme.palette.textDim)(thinking), 0, 0).render(
+        width,
+      );
       const visibleThinking =
         thinkingLines.length > THINKING_PREVIEW_LINES
           ? thinkingLines.slice(thinkingLines.length - THINKING_PREVIEW_LINES)
@@ -255,7 +255,9 @@ export class BtwPanelComponent implements Component {
     if (this.maxScrollTop <= 0) return false;
     const current = this.followTail ? this.maxScrollTop : this.scrollTop;
     const next =
-      direction === 'up' ? Math.max(0, current - 1) : Math.min(this.maxScrollTop, current + 1);
+      direction === 'up'
+        ? Math.max(0, current - 1)
+        : Math.min(this.maxScrollTop, current + 1);
     this.scrollTop = next;
     this.followTail = next === this.maxScrollTop;
     return true;

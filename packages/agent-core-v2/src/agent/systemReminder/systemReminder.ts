@@ -1,14 +1,5 @@
-/**
- * `systemReminder` domain — low-level model-facing reminder write contract.
- *
- * Defines the Agent-scoped write head used by context injection, event-point
- * one-off reminders, and prompt-owned media annotations, and owns the
- * `<system-reminder>` text format: `wrapSystemReminder` is the only writer,
- * `systemReminderContent` the only reader, so no consumer reconstructs the
- * format by hand. Bound at Agent scope.
- */
+import { createDecorator } from "#/_base/di/instantiation";
 
-import { createDecorator } from '#/_base/di/instantiation';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 
 const SYSTEM_REMINDER_PREFIX = '<system-reminder>\n';
@@ -32,6 +23,4 @@ export interface IAgentSystemReminderService {
   appendSystemReminder(content: string, origin: PromptOrigin): ContextMessage;
 }
 
-export const IAgentSystemReminderService = createDecorator<IAgentSystemReminderService>(
-  'agentSystemReminderService',
-);
+export const IAgentSystemReminderService = createDecorator<IAgentSystemReminderService>('agentSystemReminderService');

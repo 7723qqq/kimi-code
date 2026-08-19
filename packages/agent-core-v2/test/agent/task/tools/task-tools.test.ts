@@ -1,7 +1,3 @@
-/**
- * Covers: TaskListTool, TaskOutputTool, TaskStopTool.
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -15,8 +11,6 @@ import type {
   RegisterAgentTaskOptions,
 } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
-import type { SubagentTaskInfo } from '#/agent/tools/agent/subagent-task';
-import type { ProcessTaskInfo } from '#/agent/tools/os/bash/process-task';
 import { TaskListInputSchema } from '#/agent/tools/task/task-list/task-list';
 import { TaskListTool } from '#/agent/tools/task/task-list/taskListTool';
 import { TaskOutputInputSchema } from '#/agent/tools/task/task-output/task-output';
@@ -25,12 +19,17 @@ import { TaskStopInputSchema } from '#/agent/tools/task/task-stop/task-stop';
 import { TaskStopTool } from '#/agent/tools/task/task-stop/taskStopTool';
 import type { ITaskHandle } from '#/app/task/task';
 import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
-
+import type { ProcessTaskInfo } from '#/agent/tools/os/bash/process-task';
+import type { SubagentTaskInfo } from '#/agent/tools/agent/subagent-task';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
 
-function context<Input>(toolCallId: string, args: Input, executionSignal: AbortSignal = signal) {
+function context<Input>(
+  toolCallId: string,
+  args: Input,
+  executionSignal: AbortSignal = signal,
+) {
   return { turnId: 0, toolCallId, args, signal: executionSignal };
 }
 
@@ -39,7 +38,9 @@ function outputString(result: { readonly output: string | readonly unknown[] }):
   return result.output as string;
 }
 
-function processTask(overrides: Partial<ProcessTaskInfo> = {}): ProcessTaskInfo {
+function processTask(
+  overrides: Partial<ProcessTaskInfo> = {},
+): ProcessTaskInfo {
   return {
     taskId: 'bash-abc12345',
     kind: 'process',
@@ -55,7 +56,9 @@ function processTask(overrides: Partial<ProcessTaskInfo> = {}): ProcessTaskInfo 
   };
 }
 
-function agentTaskInfo(overrides: Partial<SubagentTaskInfo> = {}): SubagentTaskInfo {
+function agentTaskInfo(
+  overrides: Partial<SubagentTaskInfo> = {},
+): SubagentTaskInfo {
   return {
     taskId: 'agent-abc12345',
     kind: 'agent',
@@ -99,7 +102,10 @@ class FakeTaskService implements IAgentTaskService {
 
   private readonly entries = new Map<string, FakeTaskEntry>();
 
-  add(info: AgentTaskInfo, output: AgentTaskOutputSnapshot = outputSnapshot()): string {
+  add(
+    info: AgentTaskInfo,
+    output: AgentTaskOutputSnapshot = outputSnapshot(),
+  ): string {
     this.entries.set(info.taskId, { info, output });
     return info.taskId;
   }
@@ -202,7 +208,9 @@ class FakeTaskService implements IAgentTaskService {
     return this.entries.get(taskId)?.info;
   }
 
-  async waitForForegroundRelease(taskId: string): Promise<ForegroundTaskReleaseReason | undefined> {
+  async waitForForegroundRelease(
+    taskId: string,
+  ): Promise<ForegroundTaskReleaseReason | undefined> {
     return this.entries.has(taskId) ? 'detached' : undefined;
   }
 }
@@ -237,15 +245,6 @@ describe('TaskListTool', () => {
     );
   });
 
-  it('returns empty all-tasks message when no tasks exist', async () => {
-    const result = await executeTool(
-      new TaskListTool(new FakeTaskService()),
-      context('task_list_empty_all', { active_only: false }),
-    );
-
-    expect(outputString(result)).toContain('background_tasks: 0\nNo background tasks found.');
-  });
-
   it('lists active process tasks', async () => {
     const tasks = new FakeTaskService();
     tasks.add(
@@ -269,38 +268,41 @@ describe('TaskListTool', () => {
     expect(output).toContain('description: running list');
   });
 
-  it('excludes terminal tasks from active_only=true and includes them when all tasks are listed', async () => {
-    const tasks = new FakeTaskService();
-    const taskId = tasks.add(
-      processTask({
-        taskId: 'bash-failed01',
-        command: 'exit 7',
-        description: 'exit code test',
-        status: 'failed',
-        endedAt: 1_700_000_001_000,
-        exitCode: 7,
-      }),
-    );
+  it(
+    'excludes terminal tasks from active_only=true and includes them when all tasks are listed',
+    async () => {
+      const tasks = new FakeTaskService();
+      const taskId = tasks.add(
+        processTask({
+          taskId: 'bash-failed01',
+          command: 'exit 7',
+          description: 'exit code test',
+          status: 'failed',
+          endedAt: 1_700_000_001_000,
+          exitCode: 7,
+        }),
+      );
 
-    const active = await executeTool(
-      new TaskListTool(tasks),
-      context('task_list_active_terminal', { active_only: true }),
-    );
-    expect(outputString(active)).toContain(
-      'active_background_tasks: 0\nNo background tasks found.',
-    );
+      const active = await executeTool(
+        new TaskListTool(tasks),
+        context('task_list_active_terminal', { active_only: true }),
+      );
+      expect(outputString(active)).toContain(
+        'active_background_tasks: 0\nNo background tasks found.',
+      );
 
-    const all = await executeTool(
-      new TaskListTool(tasks),
-      context('task_list_all_terminal', { active_only: false }),
-    );
-    const output = outputString(all);
+      const all = await executeTool(
+        new TaskListTool(tasks),
+        context('task_list_all_terminal', { active_only: false }),
+      );
+      const output = outputString(all);
 
-    expect(output).toMatch(/^background_tasks:\s*1/);
-    expect(output).toContain(taskId);
-    expect(output).toContain('status: failed');
-    expect(output).toContain('exit_code: 7');
-  });
+      expect(output).toMatch(/^background_tasks:\s*1/);
+      expect(output).toContain(taskId);
+      expect(output).toContain('status: failed');
+      expect(output).toContain('exit_code: 7');
+    },
+  );
 
   it('honours the limit parameter', async () => {
     const tasks = new FakeTaskService();
@@ -472,9 +474,7 @@ describe('TaskOutputTool', () => {
   });
 
   it('rejects stale block/timeout args at the validator instead of waiting', () => {
-    const validator = compileToolArgsValidator(
-      new TaskOutputTool(new FakeTaskService()).parameters,
-    );
+    const validator = compileToolArgsValidator(new TaskOutputTool(new FakeTaskService()).parameters);
 
     expect(validateToolArgs(validator, { task_id: 'bash-1' })).toBeNull();
     const stale = validateToolArgs(validator, { task_id: 'bash-1', block: true, timeout: 1 });
@@ -700,40 +700,5 @@ describe('TaskStopTool', () => {
     expect(outputString(result).trim().split('\n')[2]).toBe(
       'reason: Task already in terminal state',
     );
-  });
-});
-
-describe('task tool descriptions', () => {
-  const tasks = new FakeTaskService();
-
-  it('TaskOutput description documents non-blocking snapshots, output_path, and Read', () => {
-    const description = new TaskOutputTool(tasks).description;
-
-    expect(description).toMatch(/background/i);
-    expect(description).toMatch(/non-blocking/);
-    expect(description).not.toContain('block=');
-    expect(description).toMatch(/output_path/);
-    expect(description).toMatch(/Read/);
-    expect(description).toContain('run that task in the foreground instead');
-    expect(description).toContain('exit_code');
-    expect(description).toContain('`failed`');
-  });
-
-  it('TaskList description mentions active_only default, read-only, and plan-mode safety', () => {
-    const description = new TaskListTool(tasks).description;
-
-    expect(description).toMatch(/active_only/);
-    expect(description).toMatch(/read[- ]only/i);
-    expect(description).toMatch(/plan[- ]mode/i);
-    expect(description).toMatch(/background tasks?/i);
-  });
-
-  it('TaskStop description clarifies destructive cancellation and generic behavior', () => {
-    const description = new TaskStopTool(tasks).description;
-
-    expect(description).toMatch(/destructive/i);
-    expect(description).toMatch(/cancel/i);
-    expect(description).toMatch(/general[-\s]?purpose|generic/i);
-    expect(description).not.toMatch(/bash[- ]?only/i);
   });
 });

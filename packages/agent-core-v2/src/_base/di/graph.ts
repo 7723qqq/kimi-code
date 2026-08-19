@@ -1,21 +1,17 @@
-/**
- * `di` domain — directed `Graph` with cycle detection for DI instantiation.
- */
-
 export class Node<T> {
   readonly incoming = new Map<string, Node<T>>();
   readonly outgoing = new Map<string, Node<T>>();
 
   constructor(
     readonly key: string,
-    readonly data: T,
-  ) {}
+    readonly data: T
+  ) { }
 }
 
 export class Graph<T> {
   private readonly _nodes = new Map<string, Node<T>>();
 
-  constructor(private readonly _hashFn: (element: T) => string) {}
+  constructor(private readonly _hashFn: (element: T) => string) { }
 
   roots(): Node<T>[] {
     const ret: Node<T>[] = [];
@@ -60,9 +56,7 @@ export class Graph<T> {
   toString(): string {
     const data: string[] = [];
     for (const [key, value] of this._nodes) {
-      data.push(
-        `${key}\n\t(-> incoming)[${[...value.incoming.keys()].join(', ')}]\n\t(outgoing ->)[${[...value.outgoing.keys()].join(',')}]\n`,
-      );
+      data.push(`${key}\n\t(-> incoming)[${[...value.incoming.keys()].join(', ')}]\n\t(outgoing ->)[${[...value.outgoing.keys()].join(',')}]\n`);
     }
     return data.join('\n');
   }

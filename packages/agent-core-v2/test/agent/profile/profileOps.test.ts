@@ -4,43 +4,47 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
-import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { ActiveToolsModel, ProfileModel } from '#/agent/profile/profileOps';
 import { AgentProfileService } from '#/agent/profile/profileService';
-import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { AgentStateService } from '#/agent/state/agentStateService';
+import { profileActiveToolsKey, profileKey } from '#/agent/profile/profileOps';
 import {
   DEFAULT_AGENT_PROFILE_NAME,
   type EnvironmentDisclosureSnapshot,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
-import { AgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContextService';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import { IProtocolAdapterRegistry, type Protocol } from '#/kosong/protocol/protocol';
-import { IProviderService } from '#/kosong/provider/provider';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
+import { AgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContextService';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { AgentStateService } from '#/agent/state/agentStateService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import type { IWireService } from '#/wire/wire';
+
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 
-import { stubProviderService } from '../../app/provider/stubs';
-import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
+import {
+  registerTestAgentWire,
+  registerTestEventDispatcher,
+  restoreTestEventDispatcher,
+  testWireScope,
+} from '../../wire/stubs';
 
 const SCOPE = 'wire';
 const KEY = 'profile-test';
@@ -48,8 +52,8 @@ const KEY = 'profile-test';
 function createTelemetryStub(): ITelemetryService {
   return {
     _serviceBrand: undefined,
-    track: () => {},
-    track2: () => {},
+    track: () => undefined,
+    track2: () => undefined,
   } as unknown as ITelemetryService;
 }
 
@@ -90,7 +94,7 @@ function createTestModel(
     alwaysThinking: false,
     providerType,
     providerName: 'kimi',
-    authProvider: { getAuth: async () => {} },
+    authProvider: { getAuth: async () => undefined },
   };
 }
 
@@ -137,14 +141,15 @@ function createProtocolRegistryStub(): IProtocolAdapterRegistry {
         providerType === 'kimi' && protocol === 'openai'
           ? [
               {
-                trait: { withThinking: () => {}, strictThinkingValidation: true },
+                trait: { withThinking: () => undefined, strictThinkingValidation: true },
                 context: {},
               },
             ]
           : providerType === 'kimi' && protocol === 'anthropic'
-            ? [{ trait: { withThinking: () => {} }, context: {} }]
+            ? [{ trait: { withThinking: () => undefined }, context: {} }]
             : [],
     }),
+    resolveProviderBaseId: (protocol: Protocol) => protocol,
     resolveCapability: () => {
       throw new Error('not exercised');
     },
@@ -176,26 +181,30 @@ function createSessionContextStub(): ISessionContext {
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
 let log: IAppendLogStore;
-let wire: IWireService;
+let dispatcher: IEventDispatcher;
+let agentState: IAgentStateService;
 let svc: IAgentProfileService;
 let configValues: Record<string, unknown>;
 let modelCatalog: IModelCatalog;
 
 function buildHost(key: string): {
   ix: TestInstantiationService;
-  wire: IWireService;
+  dispatcher: IEventDispatcher;
   svc: IAgentProfileService;
   log: IAppendLogStore;
+  agentState: IAgentStateService;
 } {
   const host = disposables.add(new TestInstantiationService());
   host.stub(IFileSystemStorageService, new InMemoryStorageService());
   host.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   host.stub(ITelemetryService, createTelemetryStub());
   host.stub(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
-  host.stub(IAgentTelemetryContextService, new AgentTelemetryContextService());
+  host.stub(
+    IAgentTelemetryContextService,
+    new AgentTelemetryContextService(),
+  );
   host.stub(IConfigService, createConfigStub());
   host.stub(IModelCatalog, modelCatalog);
-  host.stub(IProviderService, stubProviderService());
   host.stub(IProtocolAdapterRegistry, createProtocolRegistryStub());
   host.stub(IHostEnvironment, stubUnused());
   host.stub(IHostFileSystem, stubUnused());
@@ -205,7 +214,7 @@ function buildHost(key: string): {
   host.stub(ISessionAgentProfileCatalog, {
     _serviceBrand: undefined,
     ready: Promise.resolve(),
-    get: () => {},
+    get: () => undefined,
     getDefault: () => {
       throw new Error('catalog resolution is not exercised');
     },
@@ -239,12 +248,15 @@ function buildHost(key: string): {
   });
   host.set(IAgentStateService, new AgentStateService());
   host.set(IAgentProfileService, new SyncDescriptor(AgentProfileService));
-  const wire = registerTestAgentWire(host, testWireScope(SCOPE, key), {
+  registerTestAgentWire(host, testWireScope(SCOPE, key), {
     log: host.get(IAppendLogStore),
   });
+  const dispatcher = registerTestEventDispatcher(host);
+  const agentState = host.get(IAgentStateService);
   return {
+    agentState,
     ix: host,
-    wire,
+    dispatcher,
     svc: host.get(IAgentProfileService),
     log: host.get(IAppendLogStore),
   };
@@ -256,7 +268,8 @@ beforeEach(() => {
   modelCatalog = createModelCatalogStub();
   const host = buildHost(KEY);
   ix = host.ix;
-  wire = host.wire;
+  dispatcher = host.dispatcher;
+  agentState = host.agentState;
   svc = host.svc;
   log = host.log;
 });
@@ -264,23 +277,20 @@ beforeEach(() => {
 afterEach(() => disposables.dispose());
 
 async function readRecords(key = KEY): Promise<WireRecord[]> {
-  await wire.flush();
+  await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(
-    testWireScope(SCOPE, key),
-    AGENT_WIRE_RECORD_KEY,
-  )) {
+  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
     out.push(record);
   }
   return out;
 }
 
-function modelOf(target: IWireService) {
-  return target.getModel(ProfileModel);
+function modelOf(target: IAgentStateService) {
+  return target.get(profileKey);
 }
 
-function activeToolsOf(target: IWireService) {
-  return target.getModel(ActiveToolsModel);
+function activeToolsOf(target: IAgentStateService) {
+  return target.get(profileActiveToolsKey);
 }
 
 describe('AgentProfileService (wire-backed config.update)', () => {
@@ -288,7 +298,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     svc.update({ profileName: DEFAULT_AGENT_PROFILE_NAME, systemPrompt: 'You are helpful.' });
     svc.update({ thinkingLevel: 'on' });
 
-    const model = modelOf(wire);
+    const model = modelOf(agentState);
     expect(model.profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
     expect(model.systemPrompt).toBe('You are helpful.');
     expect(model.thinkingLevel).toBe('on');
@@ -309,9 +319,9 @@ describe('AgentProfileService (wire-backed config.update)', () => {
 
   it('re-dispatching an equal config is a no-op on the model (same reference)', () => {
     svc.update({ profileName: DEFAULT_AGENT_PROFILE_NAME });
-    const before = modelOf(wire);
+    const before = modelOf(agentState);
     svc.update({ profileName: DEFAULT_AGENT_PROFILE_NAME });
-    expect(modelOf(wire)).toBe(before);
+    expect(modelOf(agentState)).toBe(before);
   });
 
   it('persists and replays an allowlist reset to unrestricted', async () => {
@@ -327,11 +337,16 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       systemPrompt: 'unrestricted',
       activeToolNames: undefined,
     });
-    expect(activeToolsOf(wire)).toBeUndefined();
+    expect(activeToolsOf(agentState)).toBeUndefined();
 
     const replay = buildHost('profile-replay-active-tools');
-    await restoreTestAgentWire(replay.wire, log, testWireScope(SCOPE, KEY), await readRecords());
-    expect(activeToolsOf(replay.wire)).toBeUndefined();
+    await restoreTestEventDispatcher(
+      replay.dispatcher,
+      log,
+      testWireScope(SCOPE, KEY),
+      await readRecords(),
+    );
+    expect(activeToolsOf(replay.agentState)).toBeUndefined();
     replay.ix.dispose();
   });
 
@@ -366,13 +381,13 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     expect(records.filter((record) => record.type === 'config.update')).toHaveLength(0);
 
     const replay = buildHost('profile-replay-disclosure');
-    await restoreTestAgentWire(
-      replay.wire,
+    await restoreTestEventDispatcher(
+      replay.dispatcher,
       replay.log,
       testWireScope(SCOPE, 'profile-replay-disclosure'),
       records,
     );
-    expect(modelOf(replay.wire)).toMatchObject({
+    expect(modelOf(replay.agentState)).toMatchObject({
       systemPrompt: 'rendered prompt',
       environmentDisclosure: environment,
       renderGeneration: 7,
@@ -390,8 +405,8 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     };
 
     const replay = buildHost('profile-replay-legacy-generation');
-    await restoreTestAgentWire(
-      replay.wire,
+    await restoreTestEventDispatcher(
+      replay.dispatcher,
       replay.log,
       testWireScope(SCOPE, 'profile-replay-legacy-generation'),
       [
@@ -405,7 +420,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       ],
     );
 
-    expect(modelOf(replay.wire)).toMatchObject({
+    expect(modelOf(replay.agentState)).toMatchObject({
       systemPrompt: 'legacy prompt',
       environmentDisclosure: environment,
       renderGeneration: 100,
@@ -434,13 +449,13 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       },
     });
 
-    await restoreTestAgentWire(
-      host.wire,
+    await restoreTestEventDispatcher(
+      host.dispatcher,
       host.log,
       testWireScope(SCOPE, 'profile-replay'),
       records,
     );
-    expect(modelOf(host.wire).profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
+    expect(modelOf(host.agentState).profileName).toBe(DEFAULT_AGENT_PROFILE_NAME);
     expect(replayEmits).toBe(0);
 
     const written: WireRecord[] = [];
@@ -459,42 +474,40 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     const records = await readRecords();
 
     const host = buildHost('profile-replay-thinking');
-    await restoreTestAgentWire(
-      host.wire,
+    await restoreTestEventDispatcher(
+      host.dispatcher,
       host.log,
       testWireScope(SCOPE, 'profile-replay-thinking'),
       records,
     );
-    expect(modelOf(host.wire).thinkingLevel).toBe('on');
+    expect(modelOf(host.agentState).thinkingLevel).toBe('on');
   });
 
   it('replays legacy config.update thinkingLevel records', async () => {
     const host = buildHost('profile-replay-legacy-thinking-level');
 
-    await restoreTestAgentWire(
-      host.wire,
+    await restoreTestEventDispatcher(
+      host.dispatcher,
       host.log,
       testWireScope(SCOPE, 'profile-replay-legacy-thinking-level'),
       [{ type: 'config.update', thinkingLevel: 'high' }],
     );
 
-    expect(modelOf(host.wire).thinkingLevel).toBe('high');
+    expect(modelOf(host.agentState).thinkingLevel).toBe('high');
   });
 
   it('returns the persisted effort when a replayed model alias no longer resolves', async () => {
     const host = buildHost('profile-replay-removed-model');
 
-    await restoreTestAgentWire(
-      host.wire,
+    await restoreTestEventDispatcher(
+      host.dispatcher,
       host.log,
       testWireScope(SCOPE, 'profile-replay-removed-model'),
-      [
-        {
-          type: 'config.update',
-          modelAlias: 'removed-model',
-          thinkingEffort: 'high',
-        },
-      ],
+      [{
+        type: 'config.update',
+        modelAlias: 'removed-model',
+        thinkingEffort: 'high',
+      }],
     );
 
     expect(host.svc.getEffectiveThinkingLevel()).toBe('high');
@@ -504,8 +517,8 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     const host = buildHost('profile-replay-conflicting-thinking-aliases');
 
     await expect(
-      restoreTestAgentWire(
-        host.wire,
+      restoreTestEventDispatcher(
+        host.dispatcher,
         host.log,
         testWireScope(SCOPE, 'profile-replay-conflicting-thinking-aliases'),
         [{ type: 'config.update', thinkingEffort: 'low', thinkingLevel: 'high' }],
@@ -516,42 +529,12 @@ describe('AgentProfileService (wire-backed config.update)', () => {
     });
   });
 
-  it('update with an empty modelAlias clears the model alias', () => {
-    svc.update({ modelAlias: 'kimi-code' });
-    expect(modelOf(wire).modelAlias).toBe('kimi-code');
-
-    svc.update({ modelAlias: '' });
-    expect(modelOf(wire).modelAlias).toBe('');
-  });
-
-  it('update with null systemPrompt does not reset it', () => {
-    svc.update({ systemPrompt: 'You are helpful.' });
-    svc.update({ systemPrompt: undefined as unknown as string });
-
-    expect(modelOf(wire).systemPrompt).toBe('You are helpful.');
-  });
-
-  it('update with empty activeToolNames clears the tool list', () => {
-    svc.update({ activeToolNames: ['Read', 'Write'] });
-    expect(activeToolsOf(wire)).toEqual(['Read', 'Write']);
-
-    svc.update({ activeToolNames: [] });
-    expect(activeToolsOf(wire)).toEqual([]);
-  });
-
-  it('update with a non-existent model alias does not throw', () => {
-    expect(() => {
-      svc.update({ modelAlias: 'non-existent-model' });
-    }).not.toThrow();
-    expect(modelOf(wire).modelAlias).toBe('non-existent-model');
-  });
-
   it('applies thinking.keep model override when thinking is enabled', () => {
     modelCatalog = createModelCatalogStub({
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-keep');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
     configValues['modelOverrides'] = { temperature: 0.3, thinkingKeep: 'all' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -569,7 +552,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-effort-resolved');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
     configValues['thinking'] = { effort: ' max ' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -586,12 +569,12 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-effort-force');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
     configValues['thinking'] = { effort: 'low', forcedEffort: ' max ' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
     expect(host.svc.data().thinkingLevel).toBe('high');
-    expect(modelOf(host.wire).thinkingLevel).toBe('high');
+    expect(modelOf(host.agentState).thinkingLevel).toBe('high');
     expect(host.svc.resolveModelContext().thinkingLevel).toBe('max');
 
     expect(host.svc.resolveRequestParams()).toEqual({
@@ -607,7 +590,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'other-code': createTestModel({ id: 'other-code', protocol: 'anthropic' }),
     });
     const host = buildHost('profile-thinking-effort-force-switch');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
     configValues['thinking'] = { forcedEffort: 'max' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -626,7 +609,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'claude-code': createTestModel({ id: 'claude-code', protocol: 'anthropic' }),
     });
     const host = buildHost('profile-thinking-keep-anthropic');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
     configValues['modelOverrides'] = { temperature: 0.3, thinkingKeep: 'all' };
 
     host.svc.update({ modelAlias: 'claude-code', thinkingLevel: 'high' });
@@ -644,7 +627,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ protocol: 'anthropic', providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-effort-force-anthropic');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
     configValues['thinking'] = { forcedEffort: 'max' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -662,7 +645,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-keep-default');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
 
@@ -678,7 +661,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-keep-env-off');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
     configValues['modelOverrides'] = { thinkingKeep: 'off' };
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -694,7 +677,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'claude-code': createTestModel({ id: 'claude-code', protocol: 'anthropic' }),
     });
     const host = buildHost('profile-thinking-keep-anthropic-config');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
     configValues['thinking'] = { keep: 'config-keep' };
 
     host.svc.update({ modelAlias: 'claude-code', thinkingLevel: 'high' });
@@ -711,7 +694,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-thinking-keep-off');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
     configValues['thinking'] = { forcedEffort: 'max' };
     configValues['modelOverrides'] = { temperature: 0.3, thinkingKeep: 'all' };
 
@@ -731,7 +714,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'kimi-code': createTestModel({ providerType: 'kimi' }),
     });
     const host = buildHost('profile-prompt-cache-key');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
 
     host.svc.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
 
@@ -747,7 +730,7 @@ describe('AgentProfileService (wire-backed config.update)', () => {
       'claude-sonnet': createTestModel({ id: 'claude-sonnet', protocol: 'anthropic' }),
     });
     const host = buildHost('profile-prompt-cache-key-anthropic');
-    host.svc.configure({ emitStatusUpdated: () => {} });
+    host.svc.configure({ emitStatusUpdated: () => undefined });
 
     host.svc.update({ modelAlias: 'claude-sonnet', thinkingLevel: 'high' });
 

@@ -60,9 +60,7 @@ describe('performance smoke', () => {
     const fullElapsed = performance.now() - restart;
     expect(full.ok).toBe(true);
     expect(fullElapsed).toBeLessThan(1000);
-    console.log(
-      `100KB realistic script: default-budget parse ${elapsed.toFixed(1)}ms, unbounded ${fullElapsed.toFixed(1)}ms`,
-    );
+    console.log(`100KB realistic script: default-budget parse ${elapsed.toFixed(1)}ms, unbounded ${fullElapsed.toFixed(1)}ms`);
   });
 
   it('the abort path is prompt (< 100 ms) on a node-budget bomb', () => {

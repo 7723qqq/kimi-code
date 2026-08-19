@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'vitest';
-
 import { LatencyStats } from '#/tui/utils/input-latency';
 
 describe('LatencyStats (input→render probe)', () => {

@@ -1,8 +1,7 @@
-/**
- * `di` domain — scoped test host and service-stub helpers for DI domain tests.
- */
-
-export { createServices, TestInstantiationService } from './testInstantiationService';
+export {
+  createServices,
+  TestInstantiationService,
+} from './testInstantiationService';
 export type {
   CreateServicesOptions,
   ServiceGroup,
@@ -10,8 +9,7 @@ export type {
 } from './testInstantiationService';
 
 import { type ServiceIdentifier } from './instantiation';
-import type { Scope } from './scope';
-import { createAppScope, type ScopeKind, type ScopeSeed } from './scope';
+import { createAppScope, createScopedChildHandle, Scope, type ScopeKind, type ScopeSeed } from './scope';
 
 export interface ScopedTestHost {
   readonly app: Scope;
@@ -25,6 +23,15 @@ export function createScopedTestHost(appStubs: ScopeSeed = []): ScopedTestHost {
   return {
     app,
     child(kind, id, stubs = []) {
+      if (kind === 'program') {
+        const handle = createScopedChildHandle(app.instantiation, kind, id, { seeds: stubs });
+        return {
+          id: handle.id,
+          kind: handle.kind,
+          accessor: handle.accessor,
+          dispose: () => handle.dispose(),
+        } as Scope;
+      }
       return app.createChild(kind, id, { seeds: stubs });
     },
     childOf(parent, kind, id, stubs = []) {

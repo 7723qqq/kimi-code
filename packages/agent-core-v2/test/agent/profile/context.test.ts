@@ -1,29 +1,17 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join, normalize } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   extractAgentsMdPathsFromSystemPrompt,
   loadAgentsMd,
   loadAgentsMdDetailed,
   prepareSystemPromptContext,
 } from '#/agent/profile/context';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-
-// These suites count fs.readdir calls to assert the preload/freeze behavior
-// of the TS list-directory path. Stub the native addon so a locally-built
-// addon (which lists directories in Rust) cannot bypass the readdir spies.
-vi.mock('#/_base/native-tools', async () => {
-  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
-  const stubs: Record<string, unknown> = {};
-  for (const key of Object.keys(actual)) {
-    stubs[key] = vi.fn(() => undefined);
-  }
-  return stubs;
-});
 
 function createFs(): IHostFileSystem {
   return new HostFileSystem();
@@ -185,12 +173,8 @@ describe('loadAgentsMd nested project hierarchy', () => {
     expect(result).toContain('root instructions');
     expect(result).toContain('packages instructions');
     expect(result).toContain('leaf instructions');
-    expect(result.indexOf('root instructions')).toBeLessThan(
-      result.indexOf('packages instructions'),
-    );
-    expect(result.indexOf('packages instructions')).toBeLessThan(
-      result.indexOf('leaf instructions'),
-    );
+    expect(result.indexOf('root instructions')).toBeLessThan(result.indexOf('packages instructions'));
+    expect(result.indexOf('packages instructions')).toBeLessThan(result.indexOf('leaf instructions'));
   });
 });
 
@@ -228,29 +212,6 @@ describe('prepareSystemPromptContext AGENTS.md size warning', () => {
     const result = await prepareSystemPromptContext({ fs, homeDir }, workDir, brandHome);
 
     expect(result.agentsMdWarning).toBeUndefined();
-  });
-
-  it('handles empty workDir gracefully', async () => {
-    const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-empty-brand-'));
-    extraDirs.push(brandHome);
-
-    const result = await prepareSystemPromptContext({ fs, homeDir }, '', brandHome);
-
-    expect(result.agentsMd).toBeDefined();
-    expect(result.agentsMdWarning).toBeUndefined();
-  });
-
-  it('serves the AGENTS.md content alongside the size warning', async () => {
-    const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-brand-'));
-    extraDirs.push(brandHome);
-    const largeContent = 'x'.repeat(40 * 1024);
-    await writeFile(join(workDir, 'AGENTS.md'), largeContent, 'utf-8');
-
-    const result = await prepareSystemPromptContext({ fs, homeDir }, workDir, brandHome);
-
-    expect(result.agentsMd).toContain(largeContent);
-    expect(result.agentsMdWarning).toBeDefined();
-    expect(result.agentsMdWarning).toContain('exceeds the recommended');
   });
 });
 
@@ -302,52 +263,6 @@ describe('prepareSystemPromptContext additional directories', () => {
     expect(agentsMd.split('shared user instructions').length - 1).toBe(1);
     expect(agentsMd).not.toContain('extra A instructions');
     expect(agentsMd).not.toContain('extra B instructions');
-  });
-});
-
-describe('prepareSystemPromptContext freeze preloads', () => {
-  it('does not re-list the cwd or additional dirs when preloaded', async () => {
-    const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-freeze-brand-'));
-    extraDirs.push(brandHome);
-    const extraDir = await mkdtemp(join(tmpdir(), 'kimi-agents-freeze-extra-'));
-    extraDirs.push(extraDir);
-    await writeFile(join(extraDir, 'frozen.txt'), 'frozen listing entry', 'utf-8');
-
-    // Count readdir calls per path so we can prove the preload short-circuits
-    // the re-listing (the mechanism AgentProfileService's freeze relies on).
-    const readdirCalls = new Map<string, number>();
-    const countingFs = new Proxy(createFs(), {
-      get(target, prop, receiver) {
-        if (prop === 'readdir') {
-          return async (path: string) => {
-            readdirCalls.set(path, (readdirCalls.get(path) ?? 0) + 1);
-            return target.readdir(path);
-          };
-        }
-        return Reflect.get(target, prop, receiver);
-      },
-    }) as unknown as IHostFileSystem;
-
-    const base = await prepareSystemPromptContext({ fs: countingFs, homeDir }, workDir, brandHome, {
-      additionalDirs: [extraDir],
-    });
-    const dirReaddirCount = readdirCalls.get(extraDir) ?? 0;
-    expect(dirReaddirCount).toBeGreaterThan(0);
-
-    const frozen = await prepareSystemPromptContext(
-      { fs: countingFs, homeDir },
-      workDir,
-      brandHome,
-      {
-        additionalDirs: [extraDir],
-        preloadedCwdListing: base.cwdListing,
-        preloadedAdditionalDirsInfo: base.additionalDirsInfo,
-      },
-    );
-
-    expect(readdirCalls.get(extraDir)).toBe(dirReaddirCount);
-    expect(frozen.additionalDirsInfo).toBe(base.additionalDirsInfo);
-    expect(frozen.cwdListing).toBe(base.cwdListing);
   });
 });
 

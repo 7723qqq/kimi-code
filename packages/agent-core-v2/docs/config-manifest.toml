@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (30 sections · 2 overlay(s))
+# Index (26 sections · 2 overlay(s))
 #   background               src\agent\task\configSection.ts
 #   builtinProductSkills     src\app\skillCatalog\configSection.ts
 #   cron                     src\app\cron\configSection.ts
@@ -22,19 +22,15 @@
 #   identity                 src\app\agentIdentity\configSection.ts
 #   image                    src\agent\media\configSection.ts
 #   loopControl              src\agent\loop\configSection.ts
-#   lsp                      src\features\lsp\configSection.ts
 #   mcp                      src\app\mcpConfig\configSection.ts
 #   mergeAllAvailableSkills  src\app\skillCatalog\configSection.ts
 #   modelCatalog             src\app\kosongConfig\configSection.ts
 #   models                   src\app\kosongConfig\configSection.ts
 #   permission               src\agent\permissionRules\configSection.ts
 #   providers                src\app\kosongConfig\configSection.ts
-#   sandbox                  src\workspace\sandbox\sandbox.ts
 #   secondaryModel           src\session\subagent\configSection.ts
 #   services                 src\app\auth\configSection.ts
-#   shell                    src\os\configSection.ts
 #   subagent                 src\session\subagent\configSection.ts
-#   subagentBackend          src\session\subagent\backend\configSection.ts
 #   task                     src\agent\task\configSection.ts
 #   thinking                 src\app\kosongConfig\configSection.ts
 #   tokenCounting            src\agent\tokenCounting\configSection.ts
@@ -210,15 +206,6 @@ extra_skill_dirs = []
 # compaction_trigger_ratio: number
 
 # ##########################################################################
-# lsp
-#   owner: src\features\lsp\configSection.ts
-#   scope: core
-# ##########################################################################
-
-[lsp]
-# servers: record<string, object>
-
-# ##########################################################################
 # mcp
 #   owner: src\app\mcpConfig\configSection.ts
 #   scope: core
@@ -337,16 +324,6 @@ merge_all_available_skills = true
     # oauth_host: string
   # env: record<string, string>
   # source: record<string, any>
-  # cache_key: boolean
-
-# ##########################################################################
-# sandbox
-#   owner: src\workspace\sandbox\sandbox.ts
-#   scope: core
-# ##########################################################################
-
-[sandbox]
-mode = "off"
 
 # ##########################################################################
 # secondaryModel (config.toml: secondary_model)
@@ -403,15 +380,6 @@ mode = "off"
   # custom_headers: record<string, string>
 
 # ##########################################################################
-# shell
-#   owner: src\os\configSection.ts
-#   scope: core
-# ##########################################################################
-
-[shell]
-# preference: "auto" | "bash" | "powershell" | "pwsh" | "cmd"
-
-# ##########################################################################
 # subagent
 #   owner: src\session\subagent\configSection.ts
 #   scope: core
@@ -422,27 +390,6 @@ mode = "off"
 
 [subagent]
 timeout_ms = 7200000
-
-# ##########################################################################
-# subagentBackend (config.toml: subagent_backend)
-#   owner: src\session\subagent\backend\configSection.ts
-#   scope: core
-# ##########################################################################
-
-[subagent_backend]
-
-# [subagent_backend.claude_code]
-  # command: string
-  # model: string
-
-# [subagent_backend.codex]
-  # command: string
-  # model: string
-
-# [subagent_backend.acp]
-  # command: string
-  # args: string[]
-  # env: record<string, string>
 
 # ##########################################################################
 # task

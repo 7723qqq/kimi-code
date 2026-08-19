@@ -8,7 +8,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { isPreflightError } from '../shared/errors';
-import { adaptSdkEvent, createEventAdapterState } from '../src/runtime/event-adapter';
+import {
+  adaptSdkEvent,
+  createEventAdapterState,
+} from '../src/runtime/event-adapter';
 
 describe('event adapter (projects SDK events into the legacy Webview contract)', () => {
   it('emits the pending input when a main-agent turn starts', () => {
@@ -202,14 +205,12 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
       type: 'ToolResult',
       payload: {
         return_value: {
-          display: [
-            {
-              type: 'diff',
-              path: 'src/index.ts',
-              old_text: 'old',
-              new_text: 'new',
-            },
-          ],
+          display: [{
+            type: 'diff',
+            path: 'src/index.ts',
+            old_text: 'old',
+            new_text: 'new',
+          }],
         },
       },
     });
@@ -266,8 +267,7 @@ describe('event adapter (projects SDK events into the legacy Webview contract)',
       type: 'agent.status.updated',
       sessionId: 'session-1',
       agentId: 'main',
-      contextTokens: 32_000,
-      maxContextTokens: 128_000,
+      contextUsage: 0.25,
       planMode: true,
       usage: {
         currentTurn: {

@@ -1,15 +1,5 @@
-/**
- * Scenario: pure helpers fold loadable-tool announcements, strip dynamic
- * schema context, and classify dynamic tool protocol messages.
- *
- * Responsibilities: assert the rendered announcement grammar, origin-based
- * predicates, loaded-tool ledger scan, and outgoing history stripping.
- * Wiring: pure functions only; no DI container or external boundary.
- * Run: ../../node_modules/.bin/vitest run test/toolSelect/dynamicTools.test.ts
- */
 import { describe, expect, it } from 'vitest';
 
-import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
   collectLoadedDynamicToolNames,
   foldAnnouncedToolNames,
@@ -19,6 +9,7 @@ import {
   renderLoadableToolsAnnouncement,
   stripDynamicToolContext,
 } from '#/agent/toolSelect/dynamicTools';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 
 function announcement(added: readonly string[], removed: readonly string[]): ContextMessage {
   const text = `<system-reminder>\n${renderLoadableToolsAnnouncement(added, removed).trim()}\n</system-reminder>`;

@@ -39,10 +39,7 @@ describe('kimi-datasource MCP server', () => {
 
       expect(result.error).toBeUndefined();
       const tools = (result.result as { tools: Array<{ name: string }> }).tools;
-      expect(tools.map((tool) => tool.name)).toEqual([
-        'call_data_source_tool',
-        'get_data_source_desc',
-      ]);
+      expect(tools.map((tool) => tool.name)).toEqual(['call_data_source_tool', 'get_data_source_desc']);
     } finally {
       child?.stdin.end();
       child?.kill();
@@ -361,10 +358,7 @@ describe('kimi-datasource MCP server', () => {
         response.setHeader('x-request-id', 'backend-req-test');
         response.setHeader('Content-Type', 'application/json');
         response.end(
-          JSON.stringify({
-            is_success: true,
-            result: { assistant: [{ type: 'text', text: 'ok' }] },
-          }),
+          JSON.stringify({ is_success: true, result: { assistant: [{ type: 'text', text: 'ok' }] } }),
         );
       });
     });
@@ -442,7 +436,7 @@ async function handleMockDatasourceRequest(
 ): Promise<void> {
   try {
     options.requests.push({
-      ...((await readJson(request)) as Record<string, unknown>),
+      ...(await readJson(request) as Record<string, unknown>),
       authorization: request.headers.authorization,
       url: request.url,
     });
@@ -562,9 +556,7 @@ function createRpcClient(child: ChildProcessWithoutNullStreams) {
   child.on('exit', (code, signal) => {
     for (const [id, waiter] of pending) {
       clearTimeout(waiter.timeout);
-      waiter.reject(
-        new Error(`MCP server exited before response ${id}: code=${code}, signal=${signal}.`),
-      );
+      waiter.reject(new Error(`MCP server exited before response ${id}: code=${code}, signal=${signal}.`));
     }
     pending.clear();
   });

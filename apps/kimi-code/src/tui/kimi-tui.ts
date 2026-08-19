@@ -168,7 +168,10 @@ import { pickForegroundTasks } from './utils/foreground-task';
 import { ImageAttachmentStore, type ImageAttachment } from './utils/image-attachment-store';
 import {
   extractMediaAttachments,
+  originalsDirForSession,
   pendingMediaIngestions,
+  refreshExpiringImageFileRefs,
+  resolveOriginalCaptions,
   rewriteMediaPlaceholders,
 } from './utils/image-placeholder';
 import type { ExtractionResult } from './utils/image-placeholder';
@@ -563,12 +566,14 @@ export class KimiTUI {
           : {}),
       };
     });
+    const skillCommandNames = new Set(this.skillCommandMap.keys());
     const provider = new FileMentionProvider(
       slashCommands,
       this.state.appState.workDir,
       this.fdPath,
       this.state.appState.additionalDirs,
       () => this.state.appState.inputMode,
+      skillCommandNames,
     );
     this.state.editor.setAutocompleteProvider(provider);
 
@@ -581,6 +586,7 @@ export class KimiTUI {
       }
     }
     this.state.editor.setArgumentHints(argumentHints);
+    this.state.editor.setSkillCommandNames(skillCommandNames);
   }
 
   refreshSlashCommandAutocomplete(): void {
@@ -1498,10 +1504,11 @@ export class KimiTUI {
     hasMedia: boolean;
     imageAttachmentIds: readonly number[];
     videoAttachmentIds: readonly number[];
+    imageSnapshots?: readonly unknown[];
   }): boolean {
     if (!extraction.hasMedia) return true;
     if (
-      extraction.imageAttachmentIds.length > 0 &&
+      (extraction.imageAttachmentIds.length > 0 || (extraction.imageSnapshots?.length ?? 0) > 0) &&
       !this.supportsCurrentModelCapability('image_in')
     ) {
       this.showError(t('tui.statusMessages.modelNoImageInput'));
@@ -1638,9 +1645,17 @@ export class KimiTUI {
       void this.runShellCommandFromInput(item.text);
       return;
     }
+    const parts =
+      item.parts === undefined
+        ? undefined
+        : refreshExpiringImageFileRefs(
+            item.parts,
+            item.imageAttachmentIds ?? [],
+            this.imageStore,
+          );
     this.harness.withInteractiveAgent(item.agentId ?? MAIN_AGENT_ID, () => {
       this.sendMessageInternal(session, item.text, {
-        parts: item.parts,
+        parts,
         imageAttachmentIds: item.imageAttachmentIds,
         videoAttachmentIds: item.videoAttachmentIds,
       });
@@ -1689,7 +1704,18 @@ export class KimiTUI {
         : this.streamingUI.getTurnContext().turnId;
     this.beginSessionRequest();
 
-    const sdkInput = options?.parts ?? input;
+    // Compression captions for pasted images are authored here — not at
+    // extraction — because only now is the session (and its media-originals
+    // dir) known: extraction runs before a first session exists.
+    const sdkInput =
+      options?.parts !== undefined
+        ? resolveOriginalCaptions(
+            options.parts,
+            options.imageAttachmentIds ?? [],
+            this.imageStore,
+            originalsDirForSession(session),
+          )
+        : input;
     const goalActive = this.state.appState.goal?.status === 'active';
     // The lease normally arrives pre-created by sendNormalUserInput. Queued
     // dispatches and steer batches arrive with raw ids instead: a prompt

@@ -1,45 +1,30 @@
-/**
- * `tools` domain — `GrepTool` implementation, content search via the Rust
- * native grep engine with ripgrep as the fallback.
- *
- * The native path (`tryNativeGrep`) runs the full ripgrep-compatible engine
- * in-process; when the native module is unavailable the tool shells out to
- * `rg` through the host process service (binary resolution and subprocess
- * plumbing shared with the Glob tool).
- *
- * Collaborators injected via constructor:
- *   - `processService` — `IHostProcessService`, spawns the rg subprocess
- *   - `fs`             — `IHostFileSystem`, mtime stat used to order
- *                        files_with_matches results (most recent first)
- *   - `env`            — `IHostEnvironment`, path class for display
- *                        relativization
- *   - `workspaceCtx`   — `ISessionWorkspaceContext`, workspace roots for path
- *                        safety and display
- *   - `telemetry`      — `ITelemetryService`, rg fallback outcome tracking
- *   - `skillCatalog`   — `ISessionSkillCatalog` (optional), extends the
- *                        workspace with skill roots
- *
- * Path safety is enforced before any host I/O. Explicit absolute paths outside
- * the workspace are allowed; relative paths that escape the workspace are
- * rejected.
- *
- * Output is bounded and post-processed before it reaches the model:
- *   - timeout and ambient abort both terminate the search;
- *   - hidden files are searched, but VCS metadata and common sensitive glob
- *     patterns are prefiltered (natively, and again on the rg path);
- *   - parsed path records are filtered against the active backend path class.
- *
- * Bound at Agent scope; self-registers via `registerAgentToolService(...)` at module
- * load.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
 import { normalize } from 'pathe';
 
-import { unwrapErrorCause } from '#/_base/errors/errors';
-import { tryNativeGrep } from '#/_base/native-tools';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { ToolResultBuilder } from '#/tool/result-builder';
+import {
+  ToolAccesses,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { IHostProcessService } from '#/os/interface/hostProcess';
+import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import { unwrapErrorCause } from '#/_base/errors/errors';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import {
+  resolvePathAccessPath,
+  type PathClass,
+  isSensitiveFile,
+  SENSITIVE_DOT_VARIANT_SUFFIXES,
+  type WorkspaceConfig,
+} from '#/tool/path-access';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ensureRgPath,
   rgUnavailableMessage,
@@ -52,26 +37,8 @@ import {
   shouldRetryRipgrepEagain,
   type RunRgResult,
 } from '#/os/backends/node-local/tools/runRg';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IHostProcessService } from '#/os/interface/hostProcess';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import {
-  extendWorkspaceWithSkillRoots,
-  resolvePathAccessPath,
-  type PathClass,
-  isSensitiveFile,
-  SENSITIVE_DOT_VARIANT_SUFFIXES,
-  type WorkspaceConfig,
-} from '#/tool/path-access';
-import { ToolResultBuilder } from '#/tool/result-builder';
-import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
-import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
-
-import { type GrepInput, GrepInputSchema, IGrepTool } from './grep';
 import GREP_DESCRIPTION from './grep.md?raw';
+import { type GrepInput, GrepInputSchema, IGrepTool } from './grep';
 
 const RG_MAX_COLUMNS = 500;
 const DEFAULT_HEAD_LIMIT = 250;
@@ -101,104 +68,75 @@ export class GrepTool implements IGrepTool {
   readonly description = GREP_DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(GrepInputSchema);
   constructor(
-    @IHostProcessService private readonly processService: IHostProcessService,
-    @IHostFileSystem private readonly fs: IHostFileSystem,
-    @IHostEnvironment private readonly env: IHostEnvironment,
+    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ISessionSkillCatalog private readonly skillCatalog?: ISessionSkillCatalog,
   ) {}
 
-  private get workspace(): WorkspaceConfig {
-    return extendWorkspaceWithSkillRoots(
-      {
-        workspaceDir: this.workspaceCtx.workDir,
-        additionalDirs: this.workspaceCtx.additionalDirs,
-      },
-      this.skillCatalog?.catalog.getSkillRoots() ?? [],
-      this.env.pathClass,
-    );
+  private workspace(view: RuntimeWorkspaceView): WorkspaceConfig {
+    return { workspaceDir: view.workDir, additionalDirs: view.additionalDirs };
   }
 
   resolveExecution(args: GrepInput): ToolExecution {
+    const inspected = inspectAgentRuntime(this.runtime);
+    const view = new RuntimeWorkspaceView(inspected, {
+      workDir: this.workspaceCtx.workDir,
+      additionalDirs: [
+        ...this.workspaceCtx.additionalDirs,
+        ...(this.skillCatalog?.catalog.getSkillRoots() ?? []),
+      ],
+    });
+    const env = { _serviceBrand: undefined, ...inspected.environment, ready: Promise.resolve() };
+    const workspace = this.workspace(view);
     let path: string | undefined;
     if (args.path !== undefined) {
       path = resolvePathAccessPath(args.path, {
-        env: this.env,
-        workspace: this.workspace,
+        env,
+        workspace,
         operation: 'search',
         policy: { guardMode: 'absolute-outside-allowed', checkSensitive: false },
       });
     }
-    const searchPaths = [path ?? this.workspace.workspaceDir];
-    const searchPath = args.path ?? this.workspace.workspaceDir;
+    const searchPaths = [path ?? workspace.workspaceDir];
+    const searchPath = args.path ?? workspace.workspaceDir;
     return {
       accesses: ToolAccesses.searchTree(searchPaths[0]!),
-      description: t('toolsV2.searchingFor', { pattern: args.pattern, path: searchPath }),
+      description: `Searching for '${args.pattern}' in ${searchPath}`,
       display: { kind: 'file_io', operation: 'grep', path: searchPaths[0]! },
       approvalRule: literalRulePattern(this.name, args.pattern),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.pattern),
-      execute: ({ signal }) => this.execution(args, signal, searchPaths),
+      execute: async ({ signal }) => {
+        const lease = this.runtime.acquire(['fs', 'process']);
+        try {
+          if (lease.runtime.identity.generation !== inspected.identity.generation) {
+            return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
+          }
+          return await this.execution(lease.runtime.process!, lease.runtime.fs!, env, workspace, args, signal, searchPaths);
+        } finally {
+          lease.dispose();
+        }
+      },
     };
   }
 
   private async execution(
+    processService: IHostProcessService,
+    fs: IHostFileSystem,
+    env: IHostEnvironment,
+    workspace: WorkspaceConfig,
     args: GrepInput,
     signal: AbortSignal,
     searchPaths: string[],
   ): Promise<ExecutableToolResult> {
     if (signal.aborted) {
-      return { isError: true, output: t('toolsV2.abort.beforeSearch') };
+      return { isError: true, output: 'Aborted before search started' };
     }
 
-    // Native Rust grep is the primary path; ripgrep remains the fallback.
-    // Multiline searches stay on ripgrep: the native engine's `multiline`
-    // flag toggles regex line-anchor semantics, not ripgrep's cross-line
-    // `-U --multiline-dotall` mode, so semantics would not match.
-    if (!args.multiline) {
-      const nativeResult = await tryNativeGrep(args.pattern, searchPaths[0]!, {
-        glob: args.glob,
-        fileType: args.type,
-        outputMode: args.output_mode,
-        caseInsensitive: args['-i'],
-        lineNumbers: args['-n'],
-        afterContext: args['-A'],
-        beforeContext: args['-B'],
-        context: args['-C'],
-        includeIgnored: args.include_ignored,
-        timeoutMs: DEFAULT_TIMEOUT_MS,
-      });
-      if (nativeResult !== undefined) {
-        if (nativeResult.error) {
-          this.telemetry.track2('grep_tool_native', { outcome: 'error' });
-          return { isError: true, output: nativeResult.error };
-        }
-        if (nativeResult.timedOut && nativeResult.content.trim() === '') {
-          this.telemetry.track2('grep_tool_native', { outcome: 'error' });
-          return {
-            isError: true,
-            output: t('toolsV2.grepTimedOut', { seconds: String(DEFAULT_TIMEOUT_MS / 1000) }),
-          };
-        }
-        if (signal.aborted) {
-          return { isError: true, output: t('toolsV2.grepAborted') };
-        }
-        this.telemetry.track2('grep_tool_native', { outcome: 'primary' });
-        const nativeLines = parseRipgrepOutput(
-          nativeResult.content,
-          args.output_mode ?? 'files_with_matches',
-        );
-        return this.buildGrepOutput(args, nativeLines, new Set(nativeResult.filteredSensitive), {
-          timedOut: nativeResult.timedOut,
-          bufferTruncated: false,
-        });
-      }
-    }
-
-    const pathClass = this.env.pathClass;
+    const pathClass = env.pathClass;
     let rgPath: string;
     try {
-      const resolution = await ensureRgPath(this.createRgProbe(), {
+      const resolution = await ensureRgPath(this.createRgProbe(processService), {
         signal,
         allowCachedFallback: true,
       });
@@ -211,10 +149,8 @@ export class GrepTool implements IGrepTool {
       }
     } catch (error) {
       if (signal.aborted) {
-        return { isError: true, output: t('toolsV2.grepAborted') };
+        return { isError: true, output: 'Grep aborted' };
       }
-      // Native grep already failed (or is unavailable) above; if ripgrep is
-      // also unusable, there is nothing left to fall back to.
       this.telemetry.track2('grep_tool_rg_fallback', { outcome: 'failed' });
       return { isError: true, output: rgUnavailableMessage(error) };
     }
@@ -222,23 +158,23 @@ export class GrepTool implements IGrepTool {
     let runResult: RunRgResult;
     try {
       const firstRun = await runRgOnce(
-        this.processService,
+        processService,
         buildRgArgs(rgPath, args, searchPaths),
         signal,
       );
       if (firstRun.kind === 'aborted') {
-        return { isError: true, output: t('toolsV2.grepAborted') };
+        return { isError: true, output: 'Grep aborted' };
       }
       runResult = firstRun;
 
       if (shouldRetryRipgrepEagain(runResult)) {
         const retryRun = await runRgOnce(
-          this.processService,
+          processService,
           buildRgArgs(rgPath, args, searchPaths, true),
           signal,
         );
         if (retryRun.kind === 'aborted') {
-          return { isError: true, output: t('toolsV2.grepAborted') };
+          return { isError: true, output: 'Grep aborted' };
         }
         runResult = retryRun;
       }
@@ -263,11 +199,11 @@ export class GrepTool implements IGrepTool {
     if (timedOut && stdoutText.trim() === '') {
       return {
         isError: true,
-        output: t('toolsV2.grepTimedOut', { seconds: String(DEFAULT_TIMEOUT_MS / 1000) }),
+        output: `Grep timed out after ${String(DEFAULT_TIMEOUT_MS / 1000)}s. Try a more specific path or pattern.`,
       };
     }
     if (signal.aborted) {
-      return { isError: true, output: t('toolsV2.grepAborted') };
+      return { isError: true, output: 'Grep aborted' };
     }
 
     const rawLines = parseRipgrepOutput(stdoutText, mode);
@@ -278,34 +214,14 @@ export class GrepTool implements IGrepTool {
     try {
       orderedLines =
         mode === 'files_with_matches' && !timedOut
-          ? await this.sortFilesWithMatchesByMtime(keptLines, signal)
+          ? await this.sortFilesWithMatchesByMtime(fs, keptLines, signal)
           : keptLines;
     } catch (error) {
       if (error instanceof GrepAbortedError) {
-        return { isError: true, output: t('toolsV2.grepAborted') };
+        return { isError: true, output: 'Grep aborted' };
       }
       throw error;
     }
-
-    return this.buildGrepOutput(args, orderedLines, filteredSensitive, {
-      timedOut,
-      bufferTruncated,
-    });
-  }
-
-  /**
-   * Shared result rendering for both the native and ripgrep paths: applies
-   * pagination (offset/head_limit), composes header lines and notices, and
-   * formats the display lines.
-   */
-  private buildGrepOutput(
-    args: GrepInput,
-    orderedLines: readonly ParsedGrepLine[],
-    filteredSensitive: ReadonlySet<string>,
-    extras: { timedOut: boolean; bufferTruncated: boolean },
-  ): ExecutableToolResult {
-    const mode = args.output_mode ?? 'files_with_matches';
-    const pathClass = this.env.pathClass;
 
     const offset = args.offset ?? 0;
     const headLimit = args.head_limit ?? DEFAULT_HEAD_LIMIT;
@@ -318,7 +234,7 @@ export class GrepTool implements IGrepTool {
     const messages: string[] = [];
     if (filteredSensitive.size > 0) {
       const displayedFilteredPaths = [...filteredSensitive].map((path) =>
-        relativizeIfUnder(path, this.workspace.workspaceDir, pathClass),
+        relativizeIfUnder(path, workspace.workspaceDir, pathClass),
       );
       messages.push(
         `Filtered ${String(filteredSensitive.size)} sensitive file(s): ${displayedFilteredPaths.join(', ')}`,
@@ -337,14 +253,14 @@ export class GrepTool implements IGrepTool {
         messages.push(paginationNotice);
       }
     }
-    if (extras.bufferTruncated) {
+    if (bufferTruncated) {
       messages.push(
         `[stdout truncated at ${String(MAX_OUTPUT_BYTES)} bytes; incomplete trailing line omitted]`,
       );
     }
-    if (extras.timedOut) {
+    if (timedOut) {
       messages.push(
-        t('toolsV2.grepTimedOutPartial', { seconds: String(DEFAULT_TIMEOUT_MS / 1000) }),
+        `Grep timed out after ${String(DEFAULT_TIMEOUT_MS / 1000)}s; partial results returned`,
       );
     }
 
@@ -353,7 +269,7 @@ export class GrepTool implements IGrepTool {
       formatDisplayLine(
         line,
         mode,
-        this.workspace.workspaceDir,
+        workspace.workspaceDir,
         pathClass,
         contentIncludesLineNumbers,
       ),
@@ -361,12 +277,10 @@ export class GrepTool implements IGrepTool {
     const contentBody = displayedLines.join('\n');
     const visibleBody =
       orderedLines.length === 0 && filteredSensitive.size > 0
-        ? t('toolsV2.noNonSensitiveMatches')
+        ? 'No non-sensitive matches found'
         : contentBody;
     const emptyResultMessage =
-      SENSITIVE_GLOBS_TO_EXCLUDE.length > 0
-        ? t('toolsV2.noNonSensitiveMatches')
-        : t('toolsV2.noMatches');
+      SENSITIVE_GLOBS_TO_EXCLUDE.length > 0 ? 'No non-sensitive matches found' : 'No matches found';
     const body =
       visibleBody === '' && headerLines.length === 0 && messages.length === 0
         ? emptyResultMessage
@@ -378,27 +292,30 @@ export class GrepTool implements IGrepTool {
     return builder.ok();
   }
 
-  private createRgProbe(): RgProbe {
+  private createRgProbe(processService: IHostProcessService): RgProbe {
     return {
       exec: async (args) => {
         const [command, ...rest] = args;
         if (command === undefined) return { exitCode: -1 };
-        const proc = await this.processService.spawn(command, rest);
+        const proc = await processService.spawn(command, rest);
         try {
           proc.stdin.end();
-        } catch {}
+        } catch {
+        }
         proc.stdout.resume();
         proc.stderr.resume();
         const exitCode = await proc.wait();
         try {
-          proc.dispose();
-        } catch {}
+          void proc.dispose();
+        } catch {
+        }
         return { exitCode };
       },
     };
   }
 
   private async sortFilesWithMatchesByMtime(
+    fs: IHostFileSystem,
     lines: readonly ParsedGrepLine[],
     signal: AbortSignal,
   ): Promise<ParsedGrepLine[]> {
@@ -412,9 +329,10 @@ export class GrepTool implements IGrepTool {
         let mtime = 0;
         if (path !== undefined) {
           try {
-            const mtimeMs = (await this.fs.stat(path)).mtimeMs ?? 0;
+            const mtimeMs = (await fs.stat(path)).mtimeMs ?? 0;
             mtime = Math.trunc(mtimeMs / 1000);
-          } catch {}
+          } catch {
+          }
         }
         return { line, mtime, index };
       },
@@ -424,7 +342,11 @@ export class GrepTool implements IGrepTool {
   }
 }
 
-registerAgentToolService(IGrepTool, GrepTool, { name: 'Grep', domain: 'os/backends' });
+registerAgentToolService(IGrepTool, GrepTool, {
+  name: 'Grep',
+  domain: 'os/backends',
+  requiredRuntimeCapabilities: ['fs', 'process'],
+});
 
 function formatSpawnError(error: unknown): string {
   return errorCode(error) === 'ENOENT'

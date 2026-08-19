@@ -3,9 +3,9 @@
  *
  * Lazily reads a session's main-agent wire records through
  * `IAppendLogStore` and caches them as detached event documents. The cache
- * is keyed to the journal's `revision()`: any append/rewrite bumps it, so a
- * reader detects "the log changed since I last read" without re-reading the
- * whole file and rebuilds on demand.
+ * is keyed to the journal's on-disk `size()`: any append/rewrite changes it,
+ * so a reader detects "the log changed since I last read" without re-reading
+ * the whole file and rebuilds on demand.
  *
  * Ported from deepseek-harness `session-query` corpus resolution semantics
  * (MIT), adapted to the wire journal as the event source. Only the main
@@ -14,14 +14,15 @@
 
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { AGENT_WIRE_RECORD_KEY, isWireRecord, isWireMetadataRecord } from '#/wire/record';
 
 import type { SessionEventSearchDocument } from './events';
 import { wireRecordText } from './eventText';
 
-/** One cached event source: the journal revision the cache was folded from. */
+/** One cached event source: the journal size the cache was folded from. */
 interface CachedSession {
-  readonly revision: number;
+  readonly revision: number | undefined;
   readonly events: SessionEventSearchDocument[];
 }
 
@@ -31,13 +32,14 @@ export class SessionEventIndex {
   constructor(
     private readonly bootstrap: IBootstrapService,
     private readonly log: IAppendLogStore,
+    private readonly storage: IFileSystemStorageService,
   ) {}
 
   /**
    * The wire journal scope of a session's main agent.
    * @param workspaceId - owning workspace id.
    * @param sessionId - owning session id.
-   * @returns the append-log scope for `read`/`revision`.
+   * @returns the append-log scope for `read`/`size`.
    */
   wireScopeOf(workspaceId: string, sessionId: string): string {
     return `${this.bootstrap.scope('sessions')}/${workspaceId}/${sessionId}/agents/main`;
@@ -52,7 +54,7 @@ export class SessionEventIndex {
    */
   async eventsOf(workspaceId: string, sessionId: string): Promise<SessionEventSearchDocument[]> {
     const scope = this.wireScopeOf(workspaceId, sessionId);
-    const revision = this.log.revision(scope, AGENT_WIRE_RECORD_KEY);
+    const revision = await this.storage.size(scope, AGENT_WIRE_RECORD_KEY);
     const cached = this.cache.get(sessionId);
     if (cached !== undefined && cached.revision === revision) return cached.events;
 

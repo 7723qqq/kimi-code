@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 
 class FakeChild implements Component {
-  constructor(private readonly lines: (innerWidth: number) => string[]) {}
+  constructor(
+    private readonly lines: (innerWidth: number) => string[],
+  ) {}
   invalidate(): void {}
   render(width: number): string[] {
     return this.lines(width);
@@ -55,12 +57,12 @@ describe('GutterContainer', () => {
 
   it('keeps a leading OSC 133 zone marker at byte 0, before the gutter', () => {
     const c = new GutterContainer(2, 2);
-    const marked = `\u001B]133;A\u0007content`;
-    const doubleMarked = `\u001B]133;B\u0007\u001B]133;C\u0007last`;
+    const marked = `\x1b]133;A\x07content`;
+    const doubleMarked = `\x1b]133;B\x07\x1b]133;C\x07last`;
     c.addChild(new FakeChild(() => [marked, doubleMarked]));
     expect(c.render(20)).toEqual([
-      `\u001B]133;A\u0007  content`,
-      `\u001B]133;B\u0007\u001B]133;C\u0007  last`,
+      `\x1b]133;A\x07  content`,
+      `\x1b]133;B\x07\x1b]133;C\x07  last`,
     ]);
   });
 });

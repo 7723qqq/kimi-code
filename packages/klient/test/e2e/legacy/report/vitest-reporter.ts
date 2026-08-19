@@ -2,7 +2,11 @@ import { join, resolve } from 'node:path';
 
 import type { Reporter, TestRunEndReason } from 'vitest/reporters';
 
-import { recordReportEvent, resetReportDir, writeHtmlReport } from '../../harness/report.js';
+import {
+  recordReportEvent,
+  resetReportDir,
+  writeHtmlReport,
+} from '../../harness/report.js';
 
 export default class DaemonE2eHtmlReporter implements Reporter {
   onTestRunStart(): void {
@@ -35,7 +39,5 @@ export default class DaemonE2eHtmlReporter implements Reporter {
 }
 
 function vitestReportDir(): string {
-  return resolve(
-    process.env['KIMI_SERVER_E2E_REPORT_DIR'] ?? join(process.cwd(), 'reports', 'vitest', 'latest'),
-  );
+  return resolve(process.env['KIMI_SERVER_E2E_REPORT_DIR'] ?? join(process.cwd(), 'reports', 'vitest', 'latest'));
 }

@@ -1,41 +1,23 @@
-/**
- * `dateChange` domain (L4) — `IAgentDateChangeService` implementation.
- *
- * Owns the `date_change` context-injection provider. The system prompt is only
- * re-rendered at profile (re)bind and after compaction, so a session that runs
- * past midnight keeps a stale date; this provider appends a system-reminder at
- * the next step boundary instead. The provider runs only while the profile's
- * rendered snapshot exists and matches the live cwd (an empty recorded cwd
- * means the render did not know it and never blocks), and reads current time
- * through the App-scoped `hostClock`. The baseline prefers the
- * typed disclosure on the newest surviving `date_change` injection, then the
- * persisted rendered snapshot, then a runtime seed kept in `agentState`: a
- * profile whose snapshot declares no date disclosure is seeded with the first
- * observed date (quietly), so a crossed midnight still announces afterwards.
- * Bound at Agent scope.
- */
-
 import { Disposable } from '#/_base/di/lifecycle';
-import { defineState } from '#/_base/state/stateRegistry';
+import { defineState } from '#/state/state';
 import {
   IAgentContextInjectorService,
   type ContextInjectionContext,
   type ContextInjectionResult,
 } from '#/agent/contextInjector/contextInjector';
+import { pickDisclosureBaseline } from './disclosureBaseline';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IHostClock } from '#/os/interface/hostClock';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
-import type { IAgentDateChangeService } from './dateChange';
-import { type DateInjectionDisclosure } from './dateChange';
-import { pickDisclosureBaseline } from './disclosureBaseline';
+import { type DateInjectionDisclosure, IAgentDateChangeService } from './dateChange';
 
 const DATE_CHANGE_INJECTION_VARIANT = 'date_change';
 
 export const dateChangeSeedKey = defineState<DateDisclosure | undefined>(
   'dateChange.seed',
-  () => {},
+  () => undefined,
 );
 
 export class AgentDateChangeService extends Disposable implements IAgentDateChangeService {
@@ -49,19 +31,18 @@ export class AgentDateChangeService extends Disposable implements IAgentDateChan
     @ISessionContext private readonly sessionContext: ISessionContext,
   ) {
     super();
-    this._register(this.states.register(dateChangeSeedKey));
+    this._register(this.states.contributeState(dateChangeSeedKey));
     this._register(
-      injector.register<DateInjectionDisclosure>(DATE_CHANGE_INJECTION_VARIANT, (ctx) =>
-        this.reminder(ctx),
+      injector.register<DateInjectionDisclosure>(
+        DATE_CHANGE_INJECTION_VARIANT,
+        (ctx) => this.reminder(ctx),
       ),
     );
   }
 
   private reminder({
     lastDisclosure,
-  }: ContextInjectionContext<DateInjectionDisclosure>):
-    | ContextInjectionResult<DateInjectionDisclosure>
-    | undefined {
+  }: ContextInjectionContext<DateInjectionDisclosure>): ContextInjectionResult<DateInjectionDisclosure> | undefined {
     const profileData = this.profile.data();
     const environment = profileData.environmentDisclosure;
     if (

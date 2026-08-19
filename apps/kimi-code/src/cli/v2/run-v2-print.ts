@@ -41,7 +41,6 @@ import {
   bootstrap,
   createCloudAppender,
   ensureMainAgent,
-  resumeSessionById,
   logSeed,
   parseAgentFileText,
   resolveAgentPath,
@@ -50,22 +49,29 @@ import {
   resolveLoggingConfig,
   resolvePrintBackgroundMode,
   setClampedTimeout,
-  type DomainEvent,
+  type Event2,
   type IAgentScopeHandle,
   type ISessionScopeHandle,
   type LoopRunResult,
   type PrintBackgroundMode,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { resumeSessionById } from '@moonshot-ai/agent-core-v2/app/workspaceLifecycle/sessionLookup';
 import { createKimiDefaultHeaders, createKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
 import { resolve } from 'pathe';
 
+// The v2 engine's event union is exposed as `Event2` class instances whose
+// payload fields are only known at runtime; the print tool only switches on
+// the string type field and reads payload fields loosely, so the alias keeps
+// the handler signatures stable across engine event-system migrations.
+type DomainEvent = Event2<Record<string, unknown>> & Record<string, unknown>;
+
+import { createMsys2PromptDeps, shouldPromptMsys2 } from '#/cli/msys2-prompt';
 import {
   CLI_SHUTDOWN_TIMEOUT_MS,
   CLI_USER_AGENT_PRODUCT,
   PROMPT_CLEANUP_TIMEOUT_MS,
 } from '#/constant/app';
-import { createMsys2PromptDeps, shouldPromptMsys2 } from '#/cli/msys2-prompt';
 import { t } from '#/i18n';
 
 import {
@@ -78,10 +84,12 @@ import {
 import { resolveOutputFormat } from '../options';
 import type { CLIOptions, PromptOutputFormat } from '../options';
 import {
+  type HookResultEventLike,
   type PromptOutput,
   PromptJsonWriter,
   type PromptTurnWriter,
   PromptTranscriptWriter,
+  type RetryingEventLike,
   writeExperimentalVersion,
   writeResumeHint,
 } from '../prompt-render';
@@ -425,12 +433,13 @@ async function runNativeTurn(
   await agent.accessor.get(IAuthSummaryService).ensureReady();
 
   const turnEndings = createPrintTurnEndings();
-  const subscription = agent.accessor.get(IEventBus).subscribe((event: DomainEvent) => {
+  const subscription = agent.accessor.get(IEventBus).subscribe((rawEvent) => {
+    const event = rawEvent as unknown as DomainEvent;
     dispatchNativeEvent(writer, event, stderr);
     // Arm the turn-endings collector before `turn.result` settles so a
     // background-task completion that steers a new turn right after the main
     // turn ends cannot have its `turn.ended` slip past the policy loop.
-    if (event.type === 'turn.ended') turnEndings.push(event);
+    if (event.type === 'turn.ended') turnEndings.push(event as PrintTurnEnding);
   });
   try {
     const handle = await agent.accessor.get(IAgentPromptService).enqueue({
@@ -523,13 +532,14 @@ async function runNativeGoal(
     replace: goal.replace,
   });
   let completedSnapshot: { readonly status: string } | null = null;
-  const subscription = agent.accessor.get(IEventBus).subscribe((event: DomainEvent) => {
+  const subscription = agent.accessor.get(IEventBus).subscribe((rawEvent) => {
+    const event = rawEvent as unknown as DomainEvent;
     if (
       event.type === 'goal.updated' &&
-      event.change?.kind === 'completion' &&
-      event.snapshot !== null
+      (event['change'] as { kind?: string } | undefined)?.kind === 'completion' &&
+      event['snapshot'] !== null
     ) {
-      completedSnapshot = event.snapshot;
+      completedSnapshot = event['snapshot'] as { readonly status: string } | null;
     }
   });
   try {
@@ -560,37 +570,41 @@ function dispatchNativeEvent(
       return;
     case 'turn.step.retrying':
       writer.discardAssistant();
-      writer.writeRetrying(event);
+      writer.writeRetrying(event as unknown as RetryingEventLike);
       return;
     case 'assistant.delta':
-      writer.writeAssistantDelta(event.delta);
+      writer.writeAssistantDelta(event['delta'] as string);
       return;
     case 'hook.result':
-      writer.writeHookResult(event);
+      writer.writeHookResult(event as unknown as HookResultEventLike);
       return;
     case 'thinking.delta':
-      writer.writeThinkingDelta(event.delta);
+      writer.writeThinkingDelta(event['delta'] as string);
       return;
     case 'tool.call.started':
-      writer.writeToolCall(event.toolCallId, event.name, event.args);
+      writer.writeToolCall(event['toolCallId'] as string, event['name'] as string, event['args']);
       return;
     case 'tool.call.delta':
-      writer.writeToolCallDelta(event.toolCallId, event.name, event.argumentsPart);
+      writer.writeToolCallDelta(
+        event['toolCallId'] as string,
+        event['name'] as string | undefined,
+        event['argumentsPart'] as string | undefined,
+      );
       return;
     case 'tool.result':
-      writer.writeToolResult(event.toolCallId, event.output);
+      writer.writeToolResult(event['toolCallId'] as string, event['output']);
       return;
-    case 'tool.progress':
-      if (event.update.text !== undefined && event.update.text.length > 0) {
-        stderr.write(
-          event.update.text.endsWith('\n') ? event.update.text : `${event.update.text}\n`,
-        );
+    case 'tool.progress': {
+      const text = (event['update'] as { text?: string }).text;
+      if (text !== undefined && text.length > 0) {
+        stderr.write(text.endsWith('\n') ? text : `${text}\n`);
       }
       return;
+    }
   }
 }
 
-export type PrintTurnEnding = Extract<DomainEvent, { type: 'turn.ended' }>;
+export type PrintTurnEnding = DomainEvent & { type: 'turn.ended' };
 
 /**
  * Source of `turn.ended` events for the print steer loop. `next` resolves with
@@ -649,14 +663,14 @@ export function createPrintTurnEndings(): PrintTurnEndings & {
       for (;;) {
         while (buffer.length > 0) {
           const ending = buffer.shift()!;
-          if (ending.turnId !== skipTurnId) return ending;
+          if (ending['turnId'] !== skipTurnId) return ending;
         }
         const ms = deadlineAt - Date.now();
         if (ms <= 0) return null;
         const ending = await waitOnce(ms);
         // Timer-chunk boundary, not the real deadline: keep waiting.
         if (ending === null) continue;
-        if (ending.turnId !== skipTurnId) return ending;
+        if (ending['turnId'] !== skipTurnId) return ending;
         // The skipped turn's own ending: keep waiting within the same budget.
       }
     },
@@ -763,7 +777,7 @@ export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInp
             Math.max(fireAt - input.now(), 0) + CRON_FIRE_GRACE_MS,
             input.skipTurnId,
           );
-          if (ended !== null && ended.reason !== 'completed') {
+          if (ended !== null && ended['reason'] !== 'completed') {
             throw new PrintSteeredTurnFailedError(formatTurnEndingFailure(ended));
           }
           // Fire observed (or its grace elapsed without a turn): re-read the
@@ -793,21 +807,23 @@ export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInp
     if (input.countPending() === 0) return;
     const ended = await input.turnEndings.next(deadline - input.now(), input.skipTurnId);
     if (ended === null) return;
-    if (ended.reason !== 'completed') {
+    if (ended['reason'] !== 'completed') {
       throw new PrintSteeredTurnFailedError(formatTurnEndingFailure(ended));
     }
   }
 }
 
 function formatTurnEndingFailure(ending: PrintTurnEnding): string {
-  if (ending.error?.code === 'provider.filtered') {
+  const error = ending['error'] as { code?: string; message?: string } | undefined;
+  if (error?.code === 'provider.filtered') {
     return t('tui.statusMessages.policyBlocked');
   }
-  if (ending.error !== undefined) return `${ending.error.code}: ${ending.error.message}`;
-  if (ending.reason === 'blocked') {
+  if (error !== undefined) return `${error.code}: ${error.message}`;
+  const reason = ending['reason'] as string;
+  if (reason === 'blocked') {
     return t('tui.statusMessages.promptBlocked');
   }
-  return `Prompt turn ended with reason: ${ending.reason}`;
+  return `Prompt turn ended with reason: ${reason}`;
 }
 
 function countPendingBackgroundTasks(session: ISessionScopeHandle): number {

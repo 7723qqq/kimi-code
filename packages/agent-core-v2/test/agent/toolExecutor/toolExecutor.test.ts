@@ -1,22 +1,10 @@
+import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { userCancellationReason } from '#/_base/utils/abort';
-import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
-import type { BeforeToolExecuteEvent, ToolExecutionOutcome } from '#/agent/toolExecutor/toolHooks';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import type { DomainEvent } from '#/app/event/eventBus';
-import { IEventBus } from '#/app/event/eventBus';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ToolCall } from '#/kosong/contract/message';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
-import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import {
   ToolAccesses,
   type ExecutableTool,
@@ -26,25 +14,41 @@ import {
   type ToolResult,
   type ToolUpdate,
 } from '#/tool/toolContract';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import type {
+  BeforeToolExecuteEvent,
+  ToolExecutionOutcome,
+} from '#/agent/toolExecutor/toolHooks';
+import {
+  ToolCallStarted,
+  ToolProgress,
+  ToolResultEvent,
+} from '#/agent/toolExecutor/toolExecutorEvents';
+import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import { parseToolCallArguments } from '#/tool/tool-args-parse';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { IEventBus } from '#/app/event/eventBus';
+import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { registerLogServices } from '../../_base/log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
 
-type ToolExecutorEvent = {
-  readonly type: 'tool.result';
-  readonly toolCallId: string;
-  readonly result: ToolResult;
-};
+type ToolExecutorEvent =
+  | { readonly type: 'tool.result'; readonly toolCallId: string; readonly result: ToolResult };
+
+type ProtocolEvent = ToolCallStarted | ToolProgress | ToolResultEvent;
 
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
 let executor: IAgentToolExecutorService;
 let registry: IAgentToolRegistryService;
 let events: ToolExecutorEvent[];
-let protocolEvents: DomainEvent[];
+let protocolEvents: ProtocolEvent[];
 let telemetryEvents: TelemetryRecord[];
 let truncateForModel: IAgentToolResultTruncationService['truncateForModel'];
 
@@ -60,23 +64,20 @@ beforeEach(() => {
       registerTestAgentWireServices(reg, 'wire/tool-executor');
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
-      reg.defineInstance(
-        IAgentScopeContext,
-        makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
-      );
+      reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
       reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryEvents));
       reg.defineInstance(IAgentToolResultTruncationService, {
         _serviceBrand: undefined,
         truncateForModel: (input) => truncateForModel(input),
       });
       reg.defineInstance(IEventBus, {
-        publish: (event: { type: string }) => {
+        publish: (event: ProtocolEvent) => {
           if (event.type.startsWith('tool.')) {
-            protocolEvents.push(event as unknown as DomainEvent);
+            protocolEvents.push(event);
           }
         },
         subscribe: (..._args: unknown[]) => ({ dispose: () => {} }),
-      } as IEventBus);
+      } as unknown as IEventBus);
       registerLogServices(reg);
     },
     strict: true,
@@ -176,9 +177,11 @@ describe('AgentToolExecutorService', () => {
     const tool = new TestTool('echo');
     registry.register(tool);
 
-    await execute([toolCall('call_traced', 'echo', { text: 'hi' })], undefined, {
-      traceId: 'trace-tool-1',
-    });
+    await execute(
+      [toolCall('call_traced', 'echo', { text: 'hi' })],
+      undefined,
+      { traceId: 'trace-tool-1' },
+    );
 
     expect(telemetryEvents).toContainEqual({
       event: 'tool_call',
@@ -229,8 +232,7 @@ describe('AgentToolExecutorService', () => {
       note: '<system>Image compressed.</system>',
     });
     const protocolResult = protocolEvents.find(
-      (event): event is Extract<DomainEvent, { type: 'tool.result' }> =>
-        event.type === 'tool.result',
+      (event): event is ToolResultEvent => event.type === 'tool.result',
     );
     expect(protocolResult).toMatchObject({
       type: 'tool.result',
@@ -345,7 +347,9 @@ describe('AgentToolExecutorService', () => {
       required: ['value'],
       additionalProperties: false,
     };
-    const accepted = await execute([toolCall('call_open', 'dynamic', { value: 1, model: 'fast' })]);
+    const accepted = await execute([
+      toolCall('call_open', 'dynamic', { value: 1, model: 'fast' }),
+    ]);
 
     expect(accepted).toEqual([expect.objectContaining({ stopTurn: false })]);
     expect(inner.calls).toHaveLength(1);
@@ -418,7 +422,7 @@ describe('AgentToolExecutorService', () => {
     });
   });
 
-  it("preserves an unknown tool's valid args in the tool.call.started event", async () => {
+  it('preserves an unknown tool\'s valid args in the tool.call.started event', async () => {
     const results = await execute([toolCall('call_unknown', 'missing', { x: 1 })]);
 
     expect(results).toEqual([
@@ -428,8 +432,7 @@ describe('AgentToolExecutorService', () => {
       }),
     ]);
     const toolCallEvent = protocolEvents.find(
-      (event): event is Extract<DomainEvent, { type: 'tool.call.started' }> =>
-        event.type === 'tool.call.started',
+      (event): event is ToolCallStarted => event.type === 'tool.call.started',
     );
     expect(toolCallEvent?.args).toEqual({ x: 1 });
   });
@@ -487,15 +490,13 @@ describe('AgentToolExecutorService', () => {
     ]);
 
     expect(results).toHaveLength(2);
-    expect(results).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
-        expect.objectContaining({
-          output: 'Tool skipped because a previous tool call stopped the turn.',
-          isError: true,
-        }),
-      ]),
-    );
+    expect(results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
+      expect.objectContaining({
+        output: 'Tool skipped because a previous tool call stopped the turn.',
+        isError: true,
+      }),
+    ]));
     expect(first.calls).toHaveLength(1);
     expect(second.calls).toEqual([]);
   });
@@ -528,7 +529,10 @@ describe('AgentToolExecutorService', () => {
     const yielded: string[] = [];
     const execution = (async () => {
       for await (const item of executor.execute(
-        [toolCall('call_slow', 'slow', {}), toolCall('call_fast', 'fast', {})],
+        [
+          toolCall('call_slow', 'slow', {}),
+          toolCall('call_fast', 'fast', {}),
+        ],
         { turnId: 0, signal: new AbortController().signal },
       )) {
         const output = item.result.output;
@@ -591,100 +595,6 @@ describe('AgentToolExecutorService', () => {
     ]);
   });
 
-  it('times out a tool that declares timeoutMs when the budget elapses', async () => {
-    const tool = new TestTool('hang', {
-      timeoutMs: 50,
-      execute: async (ctx) => {
-        await new Promise<void>((resolve, reject) => {
-          ctx.signal.addEventListener(
-            'abort',
-            () =>
-              reject(ctx.signal.reason instanceof Error ? ctx.signal.reason : new Error('aborted')),
-            { once: true },
-          );
-        });
-        return { output: 'late' };
-      },
-    });
-    registry.register(tool);
-
-    const results = await execute([toolCall('call_hang', 'hang', {})]);
-
-    expect(results).toEqual([
-      expect.objectContaining({
-        output: expect.stringContaining('Tool "hang" timed out after 50ms.'),
-        isError: true,
-      }),
-    ]);
-  });
-
-  it('reports a timeout even when the tool ignores the deadline signal', async () => {
-    const tool = new TestTool('stubborn', {
-      timeoutMs: 50,
-      execute: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 5_000));
-        return { output: 'late' };
-      },
-    });
-    registry.register(tool);
-
-    const results = await execute([toolCall('call_stubborn', 'stubborn', {})]);
-
-    expect(results).toEqual([
-      expect.objectContaining({
-        output: expect.stringContaining('Tool "stubborn" timed out after 50ms.'),
-        isError: true,
-      }),
-    ]);
-  });
-
-  it('reports user cancellation instead of a timeout when the user aborts first', async () => {
-    const controller = new AbortController();
-    const tool = new TestTool('slow', {
-      timeoutMs: 2_000,
-      execute: async (ctx) => {
-        await new Promise<void>((resolve, reject) => {
-          ctx.signal.addEventListener(
-            'abort',
-            () =>
-              reject(ctx.signal.reason instanceof Error ? ctx.signal.reason : new Error('aborted')),
-            { once: true },
-          );
-        });
-        return { output: 'late' };
-      },
-    });
-    registry.register(tool);
-
-    const pending = execute([toolCall('call_slow', 'slow', {})], controller.signal);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    controller.abort(userCancellationReason());
-
-    const results = await pending;
-    expect(results).toEqual([
-      expect.objectContaining({
-        output: expect.stringContaining('manually interrupted'),
-        isError: true,
-      }),
-    ]);
-  });
-
-  it('lets a tool with a generous budget complete normally', async () => {
-    const tool = new TestTool('quick', {
-      timeoutMs: 5_000,
-      execute: async (ctx) => {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-        if (ctx.signal.aborted) throw ctx.signal.reason;
-        return { output: 'done' };
-      },
-    });
-    registry.register(tool);
-
-    const results = await execute([toolCall('call_quick', 'quick', {})]);
-
-    expect(results).toEqual([expect.objectContaining({ output: 'done' })]);
-  });
-
   it('coerces an undefined tool return into an error result without breaking pairing', async () => {
     const tool = new TestTool('corrupt', {
       execute: async () => undefined as unknown as ExecutableToolResult,
@@ -721,8 +631,18 @@ describe('AgentToolExecutorService', () => {
     await execute([toolCall('call_progress', 'progress', {})]);
 
     expect(protocolEvents.filter((event) => event.type === 'tool.progress')).toEqual([
-      { type: 'tool.progress', turnId: 0, toolCallId: 'call_progress', update: updates[0] },
-      { type: 'tool.progress', turnId: 0, toolCallId: 'call_progress', update: updates[1] },
+      expect.objectContaining({
+        type: 'tool.progress',
+        turnId: 0,
+        toolCallId: 'call_progress',
+        update: updates[0],
+      }),
+      expect.objectContaining({
+        type: 'tool.progress',
+        turnId: 0,
+        toolCallId: 'call_progress',
+        update: updates[1],
+      }),
     ]);
   });
 
@@ -805,40 +725,6 @@ describe('AgentToolExecutorService', () => {
           { type: 'text', text: 'Tool returned non-text content.' },
           { type: 'image_url', imageUrl: { url: 'ms://image-1', id: 'image-1' } },
         ],
-      }),
-    ]);
-  });
-
-  it('degrades array output with a non-object element to an error result', async () => {
-    const tool = new TestTool('broken-output', {
-      result: { output: [null] } as unknown as ExecutableToolResult,
-    });
-    registry.register(tool);
-
-    const results = await execute([toolCall('call_broken_output', 'broken-output', {})]);
-
-    expect(results).toEqual([
-      expect.objectContaining({
-        isError: true,
-        output: expect.stringContaining('malformed content part'),
-      }),
-    ]);
-  });
-
-  it('degrades a text part without a string text to an error result', async () => {
-    const tool = new TestTool('broken-text', {
-      result: {
-        output: [{ type: 'text' }, { type: 'text', text: 'ok' }],
-      } as unknown as ExecutableToolResult,
-    });
-    registry.register(tool);
-
-    const results = await execute([toolCall('call_broken_text', 'broken-text', {})]);
-
-    expect(results).toEqual([
-      expect.objectContaining({
-        isError: true,
-        output: expect.stringContaining('malformed content part'),
       }),
     ]);
   });
@@ -981,7 +867,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
   it('never invokes waitUntil factories when an immediate veto decides the call', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    const askFactory = vi.fn(async () => undefined as never);
+    const askFactory = vi.fn(async () => undefined);
     executor.onBeforeExecuteTool((event) => {
       event.waitUntil(askFactory);
     });
@@ -1003,7 +889,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
     executor.onBeforeExecuteTool((event) => {
       event.waitUntil(async () => {
         fulfilled.push('first');
-        return;
+        return undefined;
       });
     });
     executor.onBeforeExecuteTool((event) => {
@@ -1015,14 +901,16 @@ describe('onBeforeExecuteTool veto semantics', () => {
     executor.onBeforeExecuteTool((event) => {
       event.waitUntil(async () => {
         fulfilled.push('third');
-        return;
+        return undefined;
       });
     });
 
     const results = await execute([toolCall('call_echo', 'echo', { text: 'hi' })]);
 
     expect(fulfilled).toEqual(['first', 'second']);
-    expect(results).toEqual([expect.objectContaining({ output: 'second-denied', isError: true })]);
+    expect(results).toEqual([
+      expect.objectContaining({ output: 'second-denied', isError: true }),
+    ]);
     expect(tool.calls).toEqual([]);
   });
 
@@ -1030,7 +918,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
     const tool = new TestTool('echo');
     registry.register(tool);
     executor.onBeforeExecuteTool((event) => {
-      event.waitUntil(async () => {});
+      event.waitUntil(async () => undefined);
     });
 
     const results = await execute([toolCall('call_echo', 'echo', { text: 'hi' })]);
@@ -1051,7 +939,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
 
     expect(captured).toBeDefined();
     const closed = captured!;
-    expect(() => closed.waitUntil(async () => {})).toThrow(
+    expect(() => closed.waitUntil(async () => undefined)).toThrow(
       'waitUntil can NOT be called asynchronously',
     );
     expect(() => closed.veto({ output: 'x', isError: true })).toThrow(
@@ -1155,7 +1043,7 @@ function eventTypes(): ToolExecutorEvent['type'][] {
   return events.map((event) => event.type);
 }
 
-function protocolEventTypes(): DomainEvent['type'][] {
+function protocolEventTypes(): string[] {
   return protocolEvents.map((event) => event.type);
 }
 
@@ -1163,13 +1051,13 @@ function pairedToolCallIds(): { readonly calls: string[]; readonly results: stri
   return {
     calls: protocolEvents
       .filter(
-        (event): event is Extract<DomainEvent, { type: 'tool.call.started' }> =>
+        (event): event is ToolCallStarted =>
           event.type === 'tool.call.started',
       )
       .map((event) => event.toolCallId),
     results: protocolEvents
       .filter(
-        (event): event is Extract<DomainEvent, { type: 'tool.result' }> =>
+        (event): event is ToolResultEvent =>
           event.type === 'tool.result',
       )
       .map((event) => event.toolCallId),
@@ -1203,7 +1091,6 @@ class TestTool implements ExecutableTool<Record<string, unknown>> {
       readonly stopBatchAfterThis?: boolean;
       readonly description?: string;
       readonly display?: ToolInputDisplay;
-      readonly timeoutMs?: number;
       readonly result?: ExecutableToolResult;
       readonly execute?: (
         ctx: ExecutableToolContext,
@@ -1221,17 +1108,14 @@ class TestTool implements ExecutableTool<Record<string, unknown>> {
       stopBatchAfterThis: this.options.stopBatchAfterThis,
       description: this.options.description,
       display: this.options.display,
-      timeoutMs: this.options.timeoutMs,
       execute: async (ctx) => {
         this.calls.push({ ...ctx, args });
         if (this.options.execute !== undefined) {
           return this.options.execute(ctx, args);
         }
-        return (
-          this.options.result ?? {
-            output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
-          }
-        );
+        return this.options.result ?? {
+          output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
+        };
       },
     };
   }

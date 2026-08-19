@@ -1,32 +1,3 @@
-/**
- * `kosong/provider` domain — Anthropic Messages wire base.
- *
- * Speaks the Anthropic Messages wire format: system blocks with ephemeral
- * cache control, tool-result user blocks, consecutive-user merging, beta
- * headers vs the beta endpoint, and the thinking profile matrix (budget vs
- * adaptive).
- *
- * The hook surface is `withThinking` plus `convertError`. `withThinking`
- * lets a vendor dialect running over this transport re-encode the thinking
- * intent; when the per-turn thinking intent carries `keep`, the BASE
- * overlays the context-management edit uniformly on top of whatever
- * thinking encoding happened (hook or base path), so a trait never handles
- * `keep` itself.
- *
- * `convertAnthropicError`'s FIRST line is the contract's `throwIfAbortError`
- * guard: a user cancellation is THROWN as the standard abort DOMException at
- * the very front of the classification chain. After the guard,
- * already-converted `ChatProviderError`s pass through untouched; only then is
- * the trait-composed `convertError` hook consulted, so a vendor riding this
- * transport classifies each RAW SDK failure exactly once before the base
- * rules run.
- *
- * The SDK client is built with `maxRetries: 0`: the SDK's internal backoff
- * sleep never observes the turn's AbortSignal, so rate-limit / server /
- * connection retry is owned by the engine's step-retry layer (observable and
- * cancellable), never by the SDK.
- */
-
 import Anthropic, {
   APIError as AnthropicAPIError,
   APIConnectionError as AnthropicConnectionError,
@@ -48,10 +19,6 @@ import type {
   ToolResultBlockParam,
   ToolUseBlockParam,
 } from '@anthropic-ai/sdk/resources/messages/messages.js';
-import {
-  CACHE_CONTROL,
-  injectCacheControlOnLastBlock,
-} from '@moonshot-ai/kosong/providers/anthropic-cache-breakpoints';
 
 import {
   APIConnectionError,
@@ -82,15 +49,6 @@ import type {
 import type { Tool } from '#/kosong/contract/tool';
 import type { TokenUsage } from '#/kosong/contract/usage';
 
-import { mergeConsecutiveUserMessages } from '@moonshot-ai/kosong/providers/merge-user-messages';
-import {
-  mergeRequestHeaders,
-  resolveAuthBackedClient,
-} from '@moonshot-ai/kosong/providers/request-auth';
-import {
-  normalizeToolCallIdsForProvider,
-  sanitizeToolCallId,
-} from '@moonshot-ai/kosong/providers/tool-call-id';
 import {
   BUDGET_THINKING_EFFORTS,
   inferAnthropicModelProfile,
@@ -98,7 +56,10 @@ import {
   parseAnthropicModelVersion,
   type AnthropicModelProfile,
   type AnthropicModelVersion,
-} from '@moonshot-ai/kosong/providers/anthropic-profile';
+} from './anthropic-profile';
+import { mergeConsecutiveUserMessages } from '../merge-user-messages';
+import { mergeRequestHeaders, resolveAuthBackedClient } from '../request-auth';
+import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
 
 function normalizeAnthropicStopReason(raw: string | null | undefined): {
   finishReason: FinishReason | null;
@@ -160,6 +121,7 @@ export interface AnthropicOptions {
   adaptiveThinking?: boolean | undefined;
   supportEfforts?: readonly string[] | undefined;
   betaApi?: boolean | undefined;
+  thinkingEffort?: ThinkingEffort | undefined;
   clientFactory?: (auth: ProviderRequestAuth) => Anthropic;
   hooks?: AnthropicHooks | undefined;
 }
@@ -287,11 +249,38 @@ function budgetTokensForEffort(effort: ThinkingEffort): number | undefined {
   return undefined;
 }
 
+const CACHE_CONTROL = { type: 'ephemeral' as const };
+
+type CacheableBlock = ContentBlockParam & { cache_control?: { type: 'ephemeral' } };
+
 function shouldPreserveUnsignedThinking(model: string): boolean {
   return (
     parseAnthropicModelVersion(model) === null &&
     matchKnownAnthropicModelProfile(model) === undefined
   );
+}
+
+const CACHEABLE_TYPES = new Set([
+  'text',
+  'image',
+  'document',
+  'search_result',
+  'tool_use',
+  'tool_result',
+  'server_tool_use',
+  'web_search_tool_result',
+]);
+
+function injectCacheControlOnLastBlock(messages: MessageParam[]): void {
+  const lastMessage = messages.at(-1);
+  if (lastMessage === undefined) return;
+  const content = lastMessage.content;
+  if (!Array.isArray(content) || content.length === 0) return;
+  const lastBlock = content.at(-1) as CacheableBlock | undefined;
+  if (lastBlock === undefined) return;
+  if (CACHEABLE_TYPES.has(lastBlock.type)) {
+    lastBlock.cache_control = CACHE_CONTROL;
+  }
 }
 
 function isToolResultOnly(message: MessageParam): boolean {
@@ -700,7 +689,6 @@ class AnthropicStreamedMessage implements StreamedMessage {
           const blockEvt = evt as unknown as RawContentBlockStartEvent;
           const block = blockEvt.content_block;
           const blockIndex = blockEvt.index;
-          // eslint-disable-next-line typescript-eslint/switch-exhaustiveness-check
           switch (block.type) {
             case 'text':
               yield { type: 'text', text: block.text };
@@ -730,7 +718,6 @@ class AnthropicStreamedMessage implements StreamedMessage {
           const deltaEvt = evt as unknown as RawContentBlockDeltaEvent;
           const delta = deltaEvt.delta;
           const blockIndex = deltaEvt.index;
-          // eslint-disable-next-line typescript-eslint/switch-exhaustiveness-check
           switch (delta.type) {
             case 'text_delta':
               yield { type: 'text', text: delta.text };
@@ -799,6 +786,7 @@ export class AnthropicChatProvider implements ChatProvider {
   private readonly _adaptiveThinking: boolean | undefined;
   private readonly _supportEfforts: readonly string[] | undefined;
   private readonly _betaApi: boolean;
+  private readonly _thinkingEffort: ThinkingEffort | undefined;
   private readonly _explicitMaxTokens: boolean;
   private readonly _hooks: AnthropicHooks | undefined;
 
@@ -809,6 +797,7 @@ export class AnthropicChatProvider implements ChatProvider {
     this._adaptiveThinking = options.adaptiveThinking;
     this._supportEfforts = options.supportEfforts;
     this._betaApi = options.betaApi ?? false;
+    this._thinkingEffort = options.thinkingEffort;
     this._hooks = options.hooks;
     this._apiKey =
       options.apiKey === undefined || options.apiKey.length === 0 ? undefined : options.apiKey;
@@ -828,7 +817,7 @@ export class AnthropicChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return null;
+    return this._thinkingEffort ?? null;
   }
 
   get maxCompletionTokens(): number | undefined {
@@ -888,7 +877,9 @@ export class AnthropicChatProvider implements ChatProvider {
       kwargs = { ...kwargs, top_p: options.sampling.topP };
     }
 
-    const thinking = options?.thinking;
+    const thinking =
+      options?.thinking ??
+      (this._thinkingEffort !== undefined ? { effort: this._thinkingEffort } : undefined);
     if (thinking !== undefined) {
       const hooked = this._hooks?.withThinking?.(
         thinking.effort,
@@ -1153,4 +1144,42 @@ function applyThinkingKeep(
     contextManagement: { edits },
     betaFeatures,
   };
+}
+
+const CLAUDE_VISION_TOOL_PREFIXES = ['claude-3-', 'claude-3.5-', 'claude-3.7-'] as const;
+
+const CLAUDE_THINKING_VISION_TOOL_PREFIXES = [
+  'claude-opus-4',
+  'claude-sonnet-4',
+  'claude-haiku-4',
+  'claude-fable',
+] as const;
+
+const ANTHROPIC_VISION_TOOL_CAPABILITY = Object.freeze({
+  image_in: true,
+  video_in: false,
+  audio_in: false,
+  thinking: false,
+  tool_use: true,
+  max_context_tokens: 0,
+});
+
+const ANTHROPIC_THINKING_VISION_TOOL_CAPABILITY = Object.freeze({
+  image_in: true,
+  video_in: false,
+  audio_in: false,
+  thinking: true,
+  tool_use: true,
+  max_context_tokens: 0,
+});
+
+export function getAnthropicModelCapability(modelName: string) {
+  const normalized = modelName.toLowerCase();
+  if (CLAUDE_VISION_TOOL_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+    return ANTHROPIC_VISION_TOOL_CAPABILITY;
+  }
+  if (CLAUDE_THINKING_VISION_TOOL_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+    return ANTHROPIC_THINKING_VISION_TOOL_CAPABILITY;
+  }
+  return undefined;
 }

@@ -332,6 +332,8 @@ export default {
     compactionComplete: '压缩完成',
     cancelled: '已取消',
     swarmExited: '群体模式已退出',
+    towerEntered: '塔模式已进入',
+    towerExited: '塔模式已退出',
     goalCleared: '目标已清除',
     noFields: '（无字段）',
     noChange: '（无变更）',

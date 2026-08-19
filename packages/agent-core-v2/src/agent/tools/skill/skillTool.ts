@@ -1,36 +1,16 @@
-/**
- * `tools` domain — `SkillTool` implementation (the `Skill` tool).
- *
- * The model-facing wrapping lives here on purpose: resolving the skill from
- * the catalog, the inline-only / `disableModelInvocation` gates, the `isError`
- * tool result, and the declared `delivery: 'steer'` into the *current* turn all
- * assume the caller is already inside a turn — which is exactly the edge a
- * tool runs at. The tool only declares the `delivery`; the agent layer
- * performs the actual steer, so the tool never reaches into
- * `IAgentPromptService`. `IAgentSkillService` keeps only the user-slash
- * `activate` primitive (it opens a fresh turn) and the shared activation
- * recording. `executeModelSkill` is the exported execution body behind
- * `SkillTool.execution`.
- *
- * Registered via the module-level `registerAgentToolService(ISkillTool, SkillTool)`
- * at the bottom of this file — the same "import = register" pattern used by
- * every agent tool. Collaborators: `ISessionSkillCatalog`,
- * `IAgentSkillService`, `ISessionContext`. Bound at Agent scope.
- */
-
 import { randomUUID } from 'node:crypto';
 
-import { renderPrompt } from '#/_base/utils/render-prompt';
 import type { SkillActivationOrigin } from '#/agent/contextMemory/types';
-import { renderModelToolSkillPrompt } from '#/agent/skill/prompt';
 import { IAgentSkillService } from '#/agent/skill/skill';
+import { renderModelToolSkillPrompt } from '#/agent/skill/prompt';
+import type { ExecutableToolResult, ToolDeliveryMessage, ToolExecution } from '#/tool/toolContract';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { isInlineSkillType } from '#/app/skillCatalog/types';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { renderPrompt } from '#/_base/utils/render-prompt';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import type { ExecutableToolResult, ToolDeliveryMessage, ToolExecution } from '#/tool/toolContract';
 
 import {
   ISkillTool,

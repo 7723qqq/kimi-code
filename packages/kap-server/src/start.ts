@@ -1,22 +1,10 @@
-/**
- * Server bootstrap — wires `@moonshot-ai/agent-core-v2` (DI × Scope engine) into
- * a Fastify HTTP server that speaks the same `/api/v1` interface as the v1
- * server.
- *
- * Composition root: `bootstrap()` builds the Core `Scope`; route handlers resolve
- * Core-scoped services through `core.accessor.get(IXxx)`.
- */
-
-import type { IncomingMessage } from 'node:http';
-import type { Socket } from 'node:net';
-import { join } from 'node:path';
-import type { Duplex } from 'node:stream';
-
 import {
   bootstrap,
   drainQueryStoreDisposals,
   drainSessionMetadataWrites,
   drainSessionIndexMirror,
+  ConfigWarning,
+  CapabilityChanged,
   IConfigService,
   IEventService,
   IProviderDiscoveryService,
@@ -26,6 +14,7 @@ import {
   IPluginService,
   IWorkspaceService,
   KIMI_CODE_PLUGIN_MARKETPLACE_URL,
+  PluginChanged,
   logSeed,
   resolveConfigPath,
   resolveKimiHome,
@@ -34,54 +23,69 @@ import {
   type Scope,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
-import { createKimiDefaultHeaders, type KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
+import {
+  createKimiDefaultHeaders,
+  type KimiHostIdentity,
+} from '@moonshot-ai/kimi-code-oauth';
+import { createAsyncApiDocument } from './protocol/asyncapi';
+import { enableEnvelopeStackTraces, setExposeErrorDetails } from './protocol/envelope';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { installErrorHandler } from './error-handler';
 import { createInstanceRegistry, type InstanceRegistration } from './instanceRegistry';
-import { createAuthHook } from './middleware/auth';
-import { createHostCheck, isHostCheckDisabled, parseAllowedHosts } from './middleware/hostnames';
-import { createOriginHook, isOriginAllowed, parseCorsOrigins } from './middleware/origin';
-import { createAuthFailureLimiter } from './middleware/rateLimit';
-import { createSecurityHeadersHook } from './middleware/securityHeaders';
 import { transformOpenApiDocument } from './openapi/transforms';
-import { createAsyncApiDocument } from './protocol/asyncapi';
-import { enableEnvelopeStackTraces, setExposeErrorDetails } from './protocol/envelope';
-import { resolveRequestId } from './request-id';
 import { registerRequestLogging } from './requestLogging';
+import { resolveRequestId } from './request-id';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
 import { registerApiV2Routes } from './routes/registerApiV2Routes';
 import { registerWebAssetRoutes } from './routes/webAssets';
-// Temporary feature: global message search. Importing this module registers
-// `IGlobalSearchService` (App scope) into the DI registry as a side effect, so
-// it MUST stay above any `bootstrap()` call — registration happens at module
-// evaluation time.
-import { drainGlobalSearchDisposals, IGlobalSearchService } from './search/searchService';
-import { classify } from './security/bindClassify';
-import { createAuthTokenService, type IAuthTokenService } from './services/auth/authTokenService';
-import { createCredentialValidator } from './services/auth/credentials';
-import { resolvePasswordHash } from './services/auth/password';
-import { createTokenStore } from './services/auth/tokenStore';
-import { GuiStoreService } from './services/guiStore/guiStoreService';
-import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
 import {
   createServerLogger,
   type ServerLogger,
   type ServerLogLevel,
 } from './services/pinoLoggerService';
+import { join } from 'node:path';
+import type { Socket } from 'node:net';
+import type { IncomingMessage } from 'node:http';
+import type { Duplex } from 'node:stream';
+
+import {
+  ConnectionRegistry,
+  type IConnectionRegistry,
+} from './transport/ws/connectionRegistry';
+import { extractWsBearerToken } from './transport/ws/bearerProtocol';
+import { SessionEventBroadcaster } from './transport/ws/v1/sessionEventBroadcaster';
+import type { ConfigWarningItem } from './transport/ws/v1/events';
+import { FsWatchBridge } from './transport/ws/v1/fsWatchBridge';
+import { registerWsV1, WS_PATH as WS_PATH_V1 } from './transport/ws/v1/registerWsV1';
+import { getServerVersion } from './version';
+import { classify } from './security/bindClassify';
+import {
+  createHostCheck,
+  isHostCheckDisabled,
+  parseAllowedHosts,
+} from './middleware/hostnames';
+import { createOriginHook, isOriginAllowed, parseCorsOrigins } from './middleware/origin';
+import { createSecurityHeadersHook } from './middleware/securityHeaders';
+import { createAuthHook } from './middleware/auth';
+import { GuiStoreService } from './services/guiStore/guiStoreService';
 import {
   initializeServerTelemetry,
   type ServerTelemetry,
   shutdownServerTelemetry,
 } from './services/telemetry';
 import { TranscriptService } from './services/transcript/transcriptService';
-import { extractWsBearerToken } from './transport/ws/bearerProtocol';
-import { ConnectionRegistry, type IConnectionRegistry } from './transport/ws/connectionRegistry';
-import type { ConfigWarningItem } from './transport/ws/v1/events';
-import { FsWatchBridge } from './transport/ws/v1/fsWatchBridge';
-import { registerWsV1, WS_PATH as WS_PATH_V1 } from './transport/ws/v1/registerWsV1';
-import { SessionEventBroadcaster } from './transport/ws/v1/sessionEventBroadcaster';
-import { getServerVersion } from './version';
+import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
+import { createAuthFailureLimiter } from './middleware/rateLimit';
+import {
+  createAuthTokenService,
+  type IAuthTokenService,
+} from './services/auth/authTokenService';
+import { createCredentialValidator } from './services/auth/credentials';
+import { resolvePasswordHash } from './services/auth/password';
+import { createTokenStore } from './services/auth/tokenStore';
+
+import { drainGlobalSearchDisposals, IGlobalSearchService } from './search/searchService';
 
 export interface ServerHostIdentity extends KimiHostIdentity {
   /** Fills the `${product_name}` slot in the base system prompt. Defaults render the CLI text. */
@@ -119,6 +123,13 @@ export interface ServerStartOptions {
   readonly allowRemoteTerminals?: boolean;
   readonly authTokenService?: IAuthTokenService;
   readonly disableAuth?: boolean;
+  /**
+   * Custom browser tab title for this web UI instance (the CLI's
+   * `--web-title`). Surfaced as `web_title` in `GET /api/v1/meta` so the web
+   * UI can distinguish multiple instances on different machines. Instance-level
+   * and frozen at boot; omit to let the UI fall back to `<workspace dir> | Kimi Code`.
+   */
+  readonly webTitle?: string;
   /**
    * Optional *additional* credential accepted on the RPC surface (debug REST +
    * WebSocket) alongside the persistent bearer token. Never required and never
@@ -184,12 +195,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const host = opts.host ?? DEFAULT_HOST;
   const port = opts.port ?? DEFAULT_PORT;
   const homeDir = resolveKimiHome(opts.homeDir);
-  // Instance discovery: every server registers itself under
-  // `<home>/server/instances/<serverId>.json`, so multiple servers can share
-  // one homeDir and consumers (the CLI's `server ps/kill`, `kimi web`, dev
-  // tooling) can discover the live instances. Port conflicts between siblings
-  // are resolved by the `port + 1` retry below. The registration is released
-  // on close and on any boot refusal below.
   const serverVersion = opts.serverVersion ?? getServerVersion();
   const registry = createInstanceRegistry({
     instancesDir: opts.instancesDir ?? join(homeDir, 'server', 'instances'),
@@ -219,8 +224,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const configPath = resolveConfigPath({ homeDir, configPath: opts.configPath });
   const guiStore = new GuiStoreService(homeDir, logger);
   let authTokenService: IAuthTokenService;
-  // Whether a password credential is configured (only meaningful for the real,
-  // non-injected auth impl). Drives the token-only warning on a public bind.
   let passwordConfigured = false;
   if (opts.authTokenService !== undefined) {
     authTokenService = opts.authTokenService;
@@ -230,29 +233,14 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     passwordConfigured = passwordHash !== undefined;
     authTokenService = createAuthTokenService({ tokenStore, passwordHash });
   }
-  // Unified credential: the persistent token (or password) protects every
-  // route; the optional `rpcToken` is accepted as an additional credential
-  // for the RPC surface. The same validator backs the HTTP auth hook,
-  // the WS upgrade handler, and the post-connect handshakes so one credential
-  // gates all surfaces and upgrade / handshake can never disagree.
   const validateCredential = createCredentialValidator(authTokenService, opts.rpcToken);
-  // `ILogOptions` (logSeed) is required by the Session-scoped log writer; any
-  // route that creates a session (e.g. POST /sessions) would otherwise fail to
-  // instantiate the Session scope. Resolve it from env + homeDir like the CLI.
   const logging = resolveLoggingConfig({ homeDir, env: process.env });
-  // `bootstrap()` seeds `IFileSystemStorageService` with a `FileStorageService`
-  // rooted at `homeDir`, so the Store facades above it (append-log, atomic
-  // document, blob) — and in turn session metadata, wire records, blobs, and
-  // the session index — all persist to disk.
   const { app: core } = bootstrap(
     {
       homeDir,
       configPath,
       clientIdentity: opts.hostIdentity,
       args: {
-        // Default host identity headers derived from `hostIdentity`: outbound
-        // requests (model, WebSearch, registry refresh) carry the host
-        // product's User-Agent + X-Msh-* set.
         requestHeaders: createKimiDefaultHeaders({ homeDir, ...opts.hostIdentity }),
         skillDirs: opts.skillDirs,
         displayName: opts.hostIdentity.displayName,
@@ -262,11 +250,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     [...logSeed(logging), ...(opts.seeds ?? [])],
   );
 
-  // Attach the cloud telemetry appender BEFORE any session is created:
-  // `session_started` / `session_load_failed` fire inside create()/resume(), so
-  // an appender wired later would drop them to the null appender. Opt-in via
-  // `opts.telemetry` (off by default so tests never post to the real endpoint);
-  // best-effort — telemetry must never block server boot.
   let telemetry: ServerTelemetry = {};
   if (opts.telemetry === true) {
     try {
@@ -297,11 +280,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     logger,
   );
 
-  // Sync the workspace catalog from the legacy session index once at startup,
-  // so sessions created by the v1 TUI surface as workspaces on the very first
-  // /workspaces request. Awaited so the write completes before the server
-  // starts accepting traffic (and before embedding hosts tear the homeDir
-  // down); best-effort: a failure re-surfaces on first access.
   try {
     await core.accessor.get(IWorkspaceService).list();
   } catch (error) {
@@ -311,11 +289,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     );
   }
 
-  // Prepare the session read model before serving traffic (flag-gated; a
-  // no-op when `persistence_minidb_readmodel` is off): opens the query store,
-  // restores the published generation — running the initial projection when
-  // none exists — and starts background reconciliation, so the first request
-  // never pays the open/rebuild cost.
   try {
     await core.accessor.get(ISessionIndex).prepare();
   } catch (error) {
@@ -327,21 +300,13 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
 
   const app = Fastify({
     loggerInstance: logger,
-    // Fastify's default access log records `res.statusCode`, but every
-    // kap-server response is HTTP 200 by design — the outcome lives in the
-    // envelope `code`. `registerRequestLogging` emits our own line instead.
     disableRequestLogging: true,
     genReqId: (req) => resolveRequestId(req.headers),
   }) as unknown as FastifyInstance;
   registerRequestLogging(app);
-  // Validation is performed by the route-level Zod preHandlers (defineRoute),
-  // not by Fastify's AJV layer — keep both compilers as pass-throughs.
   app.setValidatorCompiler(() => () => true);
   app.setSerializerCompiler(() => (data) => JSON.stringify(data));
   installErrorHandler(app);
-  // 50001 envelope messages keep the real failure text only on loopback binds;
-  // a non-loopback bind gets the fixed `internal error` text (the cause stays
-  // in the request log).
   setExposeErrorDetails(exposureClass === 'loopback');
   const hostCheck = createHostCheck({
     boundHost: host,
@@ -357,12 +322,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       createAuthHook(authTokenService, { limiter: authFailureLimiter, validateCredential }),
     );
   } else {
-    // `--dangerous-bypass-auth`: the operator explicitly disabled the
-    // bearer-token gate on every REST and WebSocket route. Warn loudly —
-    // especially on a non-loopback bind, where this grants unauthenticated
-    // remote session / filesystem / shell access to anyone who can reach the
-    // port. The `/api/v1/meta` payload advertises the state so the web UI can
-    // connect without a token.
     logger.warn(
       { host, exposureClass },
       'DANGEROUS: bearer-token auth is DISABLED (--dangerous-bypass-auth) — every REST and WebSocket route accepts unauthenticated requests',
@@ -373,55 +332,36 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   }
 
   const close = async (): Promise<void> => {
+    await app.close();
+    configWarningSubscription.dispose();
+    pluginChangeSubscription.dispose();
+    capabilityInstallSubscription.dispose();
+    authFailureLimiter?.dispose();
+    modelCatalogRefreshScheduler.dispose();
     try {
-      await app.close();
+      await shutdownServerTelemetry(telemetry);
+    } catch (error) {
+      logger.warn(
+        { err: error instanceof Error ? error.message : String(error) },
+        'telemetry shutdown failed; continuing server cleanup',
+      );
+    }
+    try {
+      await drainSessionMetadataWrites();
+      await core.accessor.get(ISessionIndexMirror).drain();
+      fsWatchBridge.dispose();
+      core.dispose();
+      await drainSessionIndexMirror();
+      await drainGlobalSearchDisposals();
+      await drainQueryStoreDisposals();
+      await drainSessionMetadataWrites();
     } finally {
-      // `app.close()` must never block the teardown chain below: even when the
-      // listener or its onClose hooks throw, the registration release and the
-      // core scope disposal still run (a failed close is rethrown afterwards).
-      configWarningSubscription.dispose();
-      pluginChangeSubscription.dispose();
-      capabilityInstallSubscription.dispose();
-      authFailureLimiter?.dispose();
-      modelCatalogRefreshScheduler.dispose();
-      // Telemetry is best-effort and must never prevent core or instance cleanup.
-      try {
-        await shutdownServerTelemetry(telemetry);
-      } catch (error) {
-        logger.warn(
-          { err: error instanceof Error ? error.message : String(error) },
-          'telemetry shutdown failed; continuing server cleanup',
-        );
-      }
-      try {
-        // Settle session metadata writes first: requests have stopped, and a
-        // queued write must land before the mirror flushes its summary and the
-        // scope disposal marks the service disposed.
-        await drainSessionMetadataWrites();
-        // Drain the session-index mirror while the query store is still open:
-        // requests have stopped, so no new summaries arrive and the queue just
-        // needs its final flush to land in the read model.
-        await core.accessor.get(ISessionIndexMirror).drain();
-        core.dispose();
-        // `core.dispose()` runs the mirror's, the search service's and the query
-        // store's synchronous `dispose()`, whose drains/closes are asynchronous —
-        // await them before releasing the instance registration (and before
-        // embedding hosts tear down homeDir).
-        await drainSessionIndexMirror();
-        await drainGlobalSearchDisposals();
-        await drainQueryStoreDisposals();
-        await drainSessionMetadataWrites();
-      } finally {
-        await registration.release();
-      }
+      await registration.release();
     }
   };
 
   const connectionRegistry = new ConnectionRegistry();
   const transcriptService = new TranscriptService({ homeDir, core, logger });
-  // The global search service is DI-managed (App scope) while the transcript
-  // service is constructed here by hand — wire the former to the latter so
-  // container-scoped searches on live sessions scan the in-memory transcript.
   core.accessor.get(IGlobalSearchService).setLiveTranscriptSource(transcriptService);
   const broadcaster = new SessionEventBroadcaster({
     eventsDir: join(homeDir, 'server', 'events'),
@@ -431,12 +371,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   });
   const fsWatchBridge = new FsWatchBridge({ core, logger });
 
-  // Push config warnings (deprecated keys / env vars in use, invalid sections)
-  // to every WS connection as `event.config.warning` whenever the config
-  // service's warning set changes. The broadcaster fans the DomainEvent out
-  // globally (see `onCoreEvent`); delivery is live-only, so the current set is
-  // also published once config is ready for already-connected clients (an
-  // empty initial set publishes nothing — silence already means no warnings).
   const configService = core.accessor.get(IConfigService);
   const publishConfigWarnings = (diagnostics: readonly ConfigDiagnostic[]): void => {
     const warnings: ConfigWarningItem[] = diagnostics
@@ -446,27 +380,21 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
           ? { message: diagnostic.message }
           : { domain: diagnostic.domain, message: diagnostic.message },
       );
-    core.accessor.get(IEventService).publish({
-      type: 'event.config.warning',
-      payload: { warnings },
-    });
+    core.accessor.get(IEventService).publish(new ConfigWarning({ payload: { warnings } }));
   };
   const configWarningSubscription = configService.onDidChangeDiagnostics(publishConfigWarnings);
 
-  // Fan plugin/capability lifecycle facts out as global WS events so every
-  // client (desktop settings, web, CLI) converges without polling: plugin
-  // mutations end in onDidReload; capability installs report every progress
-  // transition through onDidChangeInstall.
   const pluginService = core.accessor.get(IPluginService);
   const pluginChangeSubscription = pluginService.onDidReload(() => {
-    core.accessor.get(IEventService).publish({ type: 'event.plugin.changed', payload: {} });
+    core.accessor.get(IEventService).publish(new PluginChanged({ payload: {} }));
   });
   const capabilityService = core.accessor.get(ICapabilityService);
   const capabilityInstallSubscription = capabilityService.onDidChangeInstall((change) => {
-    core.accessor.get(IEventService).publish({
-      type: 'event.capability.changed',
-      payload: { capability_id: change.id, install: change.install },
-    });
+    core.accessor.get(IEventService).publish(
+      new CapabilityChanged({
+        payload: { capability_id: change.id, install: change.install },
+      }),
+    );
   });
   void configService.ready
     .then(() => {
@@ -475,7 +403,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       }
     })
     .catch(() => {
-      /* config readiness is best-effort; warnings are advisory */
     });
 
   async function registerOpenApi(): Promise<void> {
@@ -518,8 +445,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     });
   }
 
-  // `@fastify/swagger` collects route schemas via an `onRoute` hook, so it must
-  // be registered before any routes it should document.
   await registerOpenApi();
 
   await registerApiV1Routes(app, core, {
@@ -536,20 +461,17 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     pluginMarketplaceIsDefault:
       opts.pluginMarketplaceUrl === undefined &&
       (process.env['KIMI_CODE_PLUGIN_MARKETPLACE_URL'] === undefined ||
-        // The dev marketplace server (scripts/dev.mjs) serves this repo's own
-        // catalog and marks itself — it still counts as the default.
         process.env['KIMI_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] === '1'),
     onShutdown: () => {
-      void close().catch((error: unknown) => logger.error({ error }, 'server close failed'));
+      void close().catch((err: unknown) => logger.error({ err }, 'server close failed'));
     },
     connectionRegistry,
     broadcaster,
     transcriptService,
     dangerousBypassAuth: opts.disableAuth === true,
+    webTitle: opts.webTitle,
   });
 
-  // `/api/v2` — same envelope conventions as v1, domain-grouped payloads.
-  // Mounted after v1; the root auth/host/origin hooks cover it identically.
   await registerApiV2Routes(app, core);
 
   const wssV1 = registerWsV1(core, {
@@ -572,11 +494,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       return;
     }
 
-    // Host / Origin checks (mirror the HTTP `onRequest` hooks). The raw
-    // `upgrade` event bypasses Fastify's hooks, so enforce them explicitly
-    // here — and BEFORE token validation, matching v1's wsGatewayService.
-    // Origin is present-only: a missing Origin is treated as a non-browser
-    // client and allowed.
     if (!hostCheck.isAllowed(req.headers.host)) {
       logger.warn(
         { remoteAddress: req.socket.remoteAddress, path: url, reason: 'host_not_allowed' },
@@ -598,14 +515,9 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
 
     if (opts.disableAuth !== true) {
       const authHeader = req.headers.authorization;
-      const bearerToken = authHeader?.startsWith('Bearer ')
-        ? authHeader.slice('Bearer '.length)
-        : null;
+      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : null;
       const protocolToken = extractWsBearerToken(req.headers['sec-websocket-protocol']);
-      const candidate =
-        bearerToken !== null && bearerToken.length > 0 ? bearerToken : protocolToken;
-      // Require a valid credential at the upgrade: a token-less (or invalid)
-      // upgrade is rejected with 401 for `/api/v1/ws`.
+      const candidate = bearerToken !== null && bearerToken.length > 0 ? bearerToken : protocolToken;
       let ok = false;
       if (candidate !== null) {
         try {
@@ -654,9 +566,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   });
 
   app.get('/asyncapi.json', async (_req, reply) => {
-    // Reflect the bound host, never the caller-supplied `Host` header (Host
-    // reflection is an information-leak / SSRF-adjacent hole once the server is
-    // reachable beyond localhost). Gated by the global auth hook (meta doc).
     return reply
       .type('application/json')
       .send(createAsyncApiDocument({ version: serverVersion, serverHost: host }));
@@ -667,23 +576,10 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     return reply.type('application/json').send(openApiDocument);
   });
 
-  // Web UI static assets (mirrors v1). Registered LAST so the `/*` SPA fallback
-  // only catches paths not already handled by `/api/*`, `/openapi.json`, or
-  // `/asyncapi.json`. The global auth hook already bypasses non-`/api` paths, so
-  // the page loads without a token; API calls carry it.
   if (opts.webAssetsDir !== undefined) {
     await registerWebAssetRoutes(app, opts.webAssetsDir);
   }
 
-  // Bind with port+1 retry on EADDRINUSE (mirrors v1). Port 0 (ephemeral) is
-  // never retried.
-  //
-  // There is no single-instance lock: a busy port may be a sibling kimi
-  // instance sharing this homeDir (each registers itself under
-  // `<home>/server/instances/`), and the `port + 1` walk is exactly how the
-  // second instance yields to 58628 (and so on) — the retry doubles as the
-  // multi-instance coexistence mechanism. A busy port held by a third-party
-  // listener gets the same treatment, matching the v1 policy.
   try {
     await listenWithPortRetry({
       listen: (h, p) => app.listen({ host: h, port: p }),
@@ -692,22 +588,15 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       logger,
     });
   } catch (error) {
-    // Listen failed even after the port walk (or for a non-EADDRINUSE reason).
-    // Tear down what boot already assembled so a failed start does not leak the
-    // instance registration, the Core scope, or the refresh scheduler.
     try {
       await close();
     } catch {
-      // best-effort cleanup; the original listen error is what matters
     }
     throw error;
   }
 
   const address = app.server.address();
   const boundPort = typeof address === 'object' && address !== null ? address.port : port;
-  // Advertise the actually-bound port (e.g. ephemeral when `port: 0`, or the
-  // `port + 1` retry winner) so a status/kill lookup against the instance
-  // registry finds the real listener.
   await registration.update({ port: boundPort });
 
   void modelCatalogRefreshScheduler.start().catch((error) => {
@@ -758,7 +647,6 @@ export interface ListenWithPortRetryOptions {
 export async function listenWithPortRetry(
   opts: ListenWithPortRetryOptions,
 ): Promise<{ address: string; port: number }> {
-  // Ephemeral bind: the OS chooses a free port, so there is nothing to retry.
   if (opts.port === 0) {
     const address = await opts.listen(opts.host, 0);
     return { address, port: 0 };

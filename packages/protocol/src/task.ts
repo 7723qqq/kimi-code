@@ -5,7 +5,12 @@ import { isoDateTimeSchema } from './time';
 export const taskKindSchema = z.enum(['subagent', 'bash', 'tool']);
 export type TaskKind = z.infer<typeof taskKindSchema>;
 
-export const taskStatusSchema = z.enum(['running', 'completed', 'failed', 'cancelled']);
+export const taskStatusSchema = z.enum([
+  'running',
+  'completed',
+  'failed',
+  'cancelled',
+]);
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 
 export const taskSchema = z.object({
@@ -30,7 +35,7 @@ export const taskSchema = z.object({
 export type Task = z.infer<typeof taskSchema>;
 
 // Backward-compatible aliases for the legacy `BackgroundTask` naming. The
-// SDK and the TUI still import
+// pre-v2 agent core (`packages/agent-core`), the SDK, and the TUI still import
 // these names from the protocol, while the v2 engine and the protocol itself
 // have moved to the `Task`/`TaskKind`/`TaskStatus` spelling. New code should
 // prefer the `Task*` names.

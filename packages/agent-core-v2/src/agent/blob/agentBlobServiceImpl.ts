@@ -1,28 +1,19 @@
-/**
- * `blob` domain — `IAgentBlobService` implementation.
- *
- * Offloads large inline media payloads into content-addressed blobs and
- * loads them back on read; persists bytes through `IBlobStore` under the
- * agent's `scope('blobs')` root, matching the v1 `<agentDir>/blobs/<sha256>`
- * layout. Bound at Agent scope.
- */
-
 import { createHash } from 'node:crypto';
-
+import type { ContentPart } from '#/kosong/contract/message';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { LifecycleScope } from '#/app/scopes';
-import type { ContentPart } from '#/kosong/contract/message';
 import { IBlobStore } from '#/persistence/interface/blobStore';
-
-import { BLOBREF_PROTOCOL, IAgentBlobService, MISSING_MEDIA_PLACEHOLDER } from './agentBlobService';
+import {
+  BLOBREF_PROTOCOL,
+  IAgentBlobService,
+  MISSING_MEDIA_PLACEHOLDER,
+} from './agentBlobService';
 import { ByteLruCache } from './byteLruCache';
 
 const DEFAULT_THRESHOLD = 4096;
 const DEFAULT_MAX_CACHE_SIZE = 50 * 1024 * 1024;
 const DATA_URI_HEADER_RE = /^data:([^;]+);base64,/;
-const BLOBREF_HASH_RE = /^[a-f0-9]{64}$/;
-const BLOBREF_MIME_CONTROL_RE = /[\u0000-\u001F\u007F]/;
 
 export class AgentBlobServiceImpl implements IAgentBlobService {
   declare readonly _serviceBrand: undefined;
@@ -113,7 +104,7 @@ export class AgentBlobServiceImpl implements IAgentBlobService {
     const cached = this.cache.get(hash);
     if (cached !== undefined) return cached;
 
-    const payload = await this.blobs.get(this.storageScope, hash).catch(() => {});
+    const payload = await this.blobs.get(this.storageScope, hash).catch(() => undefined);
     if (payload === undefined) return undefined;
 
     const buffer = Buffer.from(payload);
@@ -152,11 +143,9 @@ function parseBlobRef(url: string): { mimeType: string; hash: string } | undefin
   const rest = url.slice(BLOBREF_PROTOCOL.length);
   const semiIdx = rest.indexOf(';');
   if (semiIdx === -1) return undefined;
-  const mimeType = rest.slice(0, semiIdx);
   const hash = rest.slice(semiIdx + 1);
-  if (!BLOBREF_HASH_RE.test(hash)) return undefined;
-  if (mimeType.includes(';') || BLOBREF_MIME_CONTROL_RE.test(mimeType)) return undefined;
-  return { mimeType, hash };
+  if (hash.length === 0) return undefined;
+  return { mimeType: rest.slice(0, semiIdx), hash };
 }
 
 function formatDataUri(mimeType: string, payload: Buffer): string {

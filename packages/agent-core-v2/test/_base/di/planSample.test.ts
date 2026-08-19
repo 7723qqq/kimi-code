@@ -1,10 +1,3 @@
-/**
- * Plan-sample acceptance test — `plan/plan-domain-plugin.manifest.ts` as the
- * API acceptance standard (Phase 3 验证项), exercised against the REAL kernel
- * and the REAL domain collection tokens. Each section cites the sample line
- * it proves; the unload chain asserts §3's teardown order end to end.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { collection, type CollectionView } from '#/_base/di/collection';
@@ -14,11 +7,11 @@ import { createDecorator, ScopeActivation } from '#/_base/di/instantiation';
 import { type InstantiationService } from '#/_base/di/instantiationService';
 import { Scope } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
-import { AgentProfileContribution } from '#/app/agentProfileCatalog/agentProfileContribution';
-import { ConfigSectionContribution } from '#/app/config/configSectionContributions';
 import { LifecycleScope } from '#/app/scopes';
-import { WireModelContribution } from '#/wire/wireContribution';
+import { ConfigSectionContribution } from '#/app/config/configSectionContributions';
+import { AgentProfileContribution } from '#/app/agentProfileCatalog/agentProfileContribution';
+import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
+import { EventStateContribution } from '#/state/stateContribution';
 
 interface IAgentPlanService {
   readonly _serviceBrand: undefined;
@@ -71,7 +64,7 @@ describe('Plan sample (plan-domain-plugin.manifest.ts) — API acceptance', () =
 
       constructor() {
         super();
-        this.provide(WireModelContribution, { models: [], ops: [] });
+        this.provide(EventStateContribution, { events: [] });
         this.provide(IAgentPlanService, AgentPlanService, {
           activation: ScopeActivation.OnScopeCreated,
         });
@@ -116,14 +109,10 @@ describe('Plan sample (plan-domain-plugin.manifest.ts) — API acceptance', () =
     const agent = app.createChild(LifecycleScope.Agent, 'agent-1');
     expect(log).toEqual(['agent feature up']);
     expect(agent.accessor.get(IAgentPlanService).marker).toBe('plan-service');
-    const toolView = (agent.instantiation as InstantiationService).fiberHost.collectionView(
-      AgentToolContribution,
-    );
+    const toolView = (agent.instantiation as InstantiationService).fiberHost.collectionView(AgentToolContribution);
     expect(toolView.items).toHaveLength(1);
     expect(toolView.items[0]!.options.name).toBe('EnterPlanMode');
-    const wireView = (agent.instantiation as InstantiationService).fiberHost.collectionView(
-      WireModelContribution,
-    );
+    const wireView = (agent.instantiation as InstantiationService).fiberHost.collectionView(EventStateContribution);
     expect(wireView.items).toHaveLength(1);
 
     const tool = agent.instantiation.createInstance(EnterPlanModeTool);
@@ -132,10 +121,7 @@ describe('Plan sample (plan-domain-plugin.manifest.ts) — API acceptance', () =
     featureHandle.dispose();
     await app.instantiation.cascade.whenIdle();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(
-      (agent.instantiation as InstantiationService).fiberHost.collectionView(WireModelContribution)
-        .items,
-    ).toHaveLength(0);
+    expect((agent.instantiation as InstantiationService).fiberHost.collectionView(EventStateContribution).items).toHaveLength(0);
     expect(toolView.items).toHaveLength(0);
     expect(seen).toEqual(['config:+defaultPlanMode', 'config:-defaultPlanMode']);
     expect(log).toEqual(['agent feature up']);

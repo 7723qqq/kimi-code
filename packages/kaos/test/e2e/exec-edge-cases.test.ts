@@ -68,25 +68,22 @@ describe('e2e: exec edge cases', () => {
   });
 
   describe('kill() terminates a running child', () => {
-    it.skipIf(process.platform === 'win32')(
-      'long-running child can be killed with SIGTERM',
-      async () => {
-        // A node script that sleeps forever.
-        const proc = await kaos.exec('node', '-e', 'setInterval(() => {}, 1000 * 60);');
+    it.skipIf(process.platform === 'win32')('long-running child can be killed with SIGTERM', async () => {
+      // A node script that sleeps forever.
+      const proc = await kaos.exec('node', '-e', 'setInterval(() => {}, 1000 * 60);');
 
-        expect(proc.pid).toBeGreaterThan(0);
+      expect(proc.pid).toBeGreaterThan(0);
 
-        // Give the child a moment to actually start.
-        await new Promise<void>((r) => setTimeout(r, 20));
+      // Give the child a moment to actually start.
+      await new Promise<void>((r) => setTimeout(r, 20));
 
-        await proc.kill('SIGTERM');
+      await proc.kill('SIGTERM');
 
-        const exitCode = await proc.wait();
-        // SIGTERM typically produces exitCode = null → -1 under our wrapper,
-        // or 143 (128 + 15). Either way, it must NOT be 0.
-        expect(exitCode).not.toBe(0);
-      },
-    );
+      const exitCode = await proc.wait();
+      // SIGTERM typically produces exitCode = null → -1 under our wrapper,
+      // or 143 (128 + 15). Either way, it must NOT be 0.
+      expect(exitCode).not.toBe(0);
+    });
 
     it('kill() after the child has already exited is a no-op (no ESRCH leak)', async () => {
       const proc = await kaos.exec('node', '-e', 'process.exit(0);');

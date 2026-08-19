@@ -1,12 +1,3 @@
-/**
- * `contextMemory` test stubs — shared doubles for `IAgentContextMemoryService` and its
- * collaborator (`IWireService`).
- *
- * Lives under `test/` (not `src/`) so test-support code stays out of the
- * production tree. Import from a relative path (`./stubs` or
- * `../contextMemory/stubs`).
- */
-
 import type { ServiceRegistration } from '#/_base/di/test';
 import { buildContextCompactionShape } from '#/agent/contextMemory/compactionHandoff';
 import {
@@ -15,6 +6,7 @@ import {
   type ContextCompactionResult,
 } from '#/agent/contextMemory/contextMemory';
 import { computeUndoCut, type UndoCut } from '#/agent/contextMemory/contextOps';
+import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IEventBus } from '#/app/event/eventBus';
@@ -36,14 +28,13 @@ function publishSplice(
     tokens?: number;
   },
 ): void {
-  eventBus?.publish({ type: 'context.spliced', ...input });
+  eventBus?.publish(new ContextSpliced(input));
 }
 
 export function stubContextMemory(eventBus?: IEventBus): StubContextMemory {
   const messages: ContextMessage[] = [];
   return {
     _serviceBrand: undefined,
-    contextTokenEstimate: 0,
     get messages() {
       return messages;
     },
@@ -90,11 +81,8 @@ export function stubContextMemory(eventBus?: IEventBus): StubContextMemory {
 class StubContextMemoryService implements IAgentContextMemoryService {
   declare readonly _serviceBrand: undefined;
   private readonly impl: StubContextMemory;
-  constructor(@IEventBus eventBus?: IEventBus) {
+  constructor(@IEventBus eventBus: IEventBus) {
     this.impl = stubContextMemory(eventBus);
-  }
-  get contextTokenEstimate(): number {
-    return this.impl.contextTokenEstimate;
   }
   get messages(): readonly ContextMessage[] {
     return this.impl.messages;

@@ -6,11 +6,11 @@ Gates not-yet-public features behind `IFlagService.enabled(id)`, per the reposit
 
 ## Layout
 
-- `src/app/flag/flagRegistry.ts` — `IFlagRegistry` token + `FlagDefinitionInput` / `FlagId` / `FlagSurface` types + `registerFlagDefinition` / `getContributedFlags` (import-time contribution queue).
-- `src/app/flag/flagRegistryService.ts` — `FlagRegistryService` impl; in-memory catalog seeded from import-time contributions; App scope.
-- `src/app/flag/flag.ts` — `IFlagService` token + resolver types (`ExperimentalFlagMap`, `ExperimentalFlagConfig`, `ExperimentalFlagSource`, `ExperimentalFeatureState`) + `EXPERIMENTAL_SECTION` (`experimental`) + `ExperimentalConfigSchema` / `ExperimentalConfig` (zod); registers the `[experimental]` config section at module top level.
-- `src/app/flag/flagService.ts` — `FlagService` impl + `MASTER_ENV` (`KIMI_CODE_EXPERIMENTAL_FLAG`); reads definitions from `IFlagRegistry`; self-registers at App scope.
-- `src/app/flag/` — no `index.ts` barrel; `src/index.ts` imports and re-exports each file individually (`import '#/app/flag/flag'` plus `export * from '#/app/flag/flagRegistry'` / `flagRegistryService` / `flag` / `flagService`).
+- `src/flag/flagRegistry.ts` — `IFlagRegistry` token + `FlagDefinitionInput` / `FlagId` / `FlagSurface` types + `registerFlagDefinition` / `getContributedFlags` (import-time contribution queue).
+- `src/flag/flagRegistryService.ts` — `FlagRegistryService` impl; in-memory catalog seeded from import-time contributions; App scope.
+- `src/flag/flag.ts` — `IFlagService` token + resolver types (`ExperimentalFlagMap`, `ExperimentalFlagConfig`, `ExperimentalFlagSource`, `ExperimentalFeatureState`) + `ExperimentalConfigSchema` / `ExperimentalConfig` (zod).
+- `src/flag/flagService.ts` — `FlagService` impl + `MASTER_ENV` (`KIMI_CODE_EXPERIMENTAL_FLAG`) + `EXPERIMENTAL_SECTION` (`experimental`); reads definitions from `IFlagRegistry`; self-registers at App scope.
+- `src/flag/index.ts` — barrel; re-exported by `src/index.ts`.
 - `src/<domain>/flag.ts` — each domain that owns a flag declares it here and calls `registerFlagDefinition` at the module top level (e.g. `src/agent/toolSelect/flag.ts`). The directory already names the domain, so the file is just `flag.ts`.
 
 ## Public surface
@@ -33,9 +33,9 @@ Highest wins; env is read live on every call (nothing cached):
 
 ## Config integration
 
-- The `[experimental]` section is registered into the config registry at module load from `flag.ts` (`registerConfigSection(EXPERIMENTAL_SECTION, ExperimentalConfigSchema, …)`) — `FlagService` itself only reads overrides from `IConfigService`.
+- `FlagService` registers the `[experimental]` section into `IConfigRegistry` at construction (`registerSection('experimental', ExperimentalConfigSchema)`) and reads overrides from `IConfigService`.
 - It subscribes `IConfigService.onDidChangeConfiguration` and refreshes overrides whenever the `experimental` domain changes, so config edits apply live.
-- `registerConfigSection` throws if a section is registered twice — `experimental` is owned exclusively by the `flag` domain (`flag.ts`).
+- `IConfigRegistry.registerSection` throws if a domain is registered twice — `experimental` is owned exclusively by `FlagService`.
 - `setConfigOverrides(overrides)` is an imperative escape hatch for tests and hosts without an `IConfigService`; hosts on `IConfigService` should set the `[experimental]` section instead.
 
 Config shape mirrors v1:
@@ -68,14 +68,15 @@ export const myFeatureFlag: FlagDefinitionInput = {
 registerFlagDefinition(myFeatureFlag);
 ```
 
-Then make sure the file is imported during bootstrap so the top-level call runs at import time:
+Then load it from the domain barrel so the top-level call runs at import time:
 
 ```ts
-// src/index.ts（无域 barrel；按叶子文件逐个导入/导出）
-import '#/<domain>/flag';
+// src/<domain>/index.ts
+import './flag';
+export * from './flag';
 ```
 
-`src/index.ts` already imports/exports every domain leaf (e.g. `import '#/agent/toolSelect/flag'`), so the contribution runs during bootstrap, before any scope is created — and therefore before any consumer resolves `IFlagService`.
+`src/index.ts` already re-exports every domain barrel, so the contribution runs during bootstrap, before any scope is created — and therefore before any consumer resolves `IFlagService`.
 
 - `env` must start with `KIMI_CODE_EXPERIMENTAL_`, be unique, and not equal `KIMI_CODE_EXPERIMENTAL_FLAG`.
 - `id` must not be `flag`. A duplicate `id` throws when `FlagRegistryService` drains the contributions.
@@ -97,12 +98,13 @@ if (!this.flags.enabled('my_feature')) return;
 - Domain `flag` imports only `config` downward.
 - It cannot live in `_base`: registering/reading the config section requires importing `config`, and `_base` is pure infrastructure that must not know any business domain.
 - Scope: `IFlagRegistry` and `IFlagService` are both `App`. Env + config are process-global inputs, so there is no per-session/agent state. Flag definitions are contributed at **import time** (top-level `registerFlagDefinition` calls), so they are queued before any scope is created and drained when `FlagRegistryService` is first instantiated — before `IFlagService` is first resolved.
-- Tests build `FlagService` + `FlagRegistryService` directly with a real `ConfigRegistry`/`ConfigService` and an injected env map, then `register` the flags they exercise (`test/app/flag/flag.test.ts`).
+- Tests build `FlagService` + `FlagRegistryService` directly with a real `ConfigRegistry`/`ConfigService` and an injected env map, then `register` the flags they exercise (`test/flag/flag.test.ts`).
 
 ## References
 
-- `packages/agent-core-v2/src/app/flag/` — implementation (`IFlagRegistry` + `IFlagService`).
+- `packages/agent-core-v2/src/flag/` — implementation (`IFlagRegistry` + `IFlagService`).
 - `packages/agent-core-v2/src/agent/toolSelect/flag.ts` — example per-domain flag contribution.
-- `packages/agent-core-v2/test/app/flag/flag.test.ts` — precedence + config subscription tests.
+- `packages/agent-core-v2/test/flag/flag.test.ts` — precedence + config subscription tests.
 - `packages/agent-core/src/flags/` — v1 source this was ported from (the v1 engine has been removed from the repository — see git history).
+- `packages/agent-core-v2/GAP_ANALYSIS.md` §2.1 — gap closure note.
 - Root `AGENTS.md` — experimental-feature gating rule.

@@ -27,11 +27,7 @@ describe('envelope', () => {
   });
 
   it('errEnvelope round-trips with data: null', () => {
-    const built = errEnvelope(
-      ErrorCode.SESSION_NOT_FOUND,
-      'session abc123 does not exist',
-      'req_x',
-    );
+    const built = errEnvelope(ErrorCode.SESSION_NOT_FOUND, 'session abc123 does not exist', 'req_x');
 
     expect(built).toEqual({
       code: 40401,

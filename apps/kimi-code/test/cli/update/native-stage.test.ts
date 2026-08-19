@@ -172,7 +172,9 @@ describe('stageNativeUpdate', () => {
     expect(leftovers).toEqual([]);
   });
 
-  it('marks the staged exe executable', async () => {
+  // chmod has no effect on the Windows permission model — the mode bits stay
+  // 0 regardless of the call — so the executable-bit contract is POSIX-only.
+  it.skipIf(process.platform === 'win32')('marks the staged exe executable', async () => {
     const result = await stageNativeUpdate({
       version: VERSION,
       exePath,

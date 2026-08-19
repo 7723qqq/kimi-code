@@ -63,9 +63,7 @@ function render(lines: DumpLine[], hasError: boolean): string {
   const out = [`hasError: ${hasError}`];
   for (const line of lines) {
     const preview =
-      line.text.length <= 40
-        ? JSON.stringify(line.text)
-        : JSON.stringify(`${line.text.slice(0, 37)}...`);
+      line.text.length <= 40 ? JSON.stringify(line.text) : JSON.stringify(`${line.text.slice(0, 37)}...`);
     out.push(`${'  '.repeat(line.depth)}${line.label} [${line.start},${line.end}] ${preview}`);
   }
   return out.join('\n');
@@ -79,8 +77,7 @@ function label(type: string, isNamed: boolean): string {
 export async function referenceDump(source: string): Promise<string> {
   const parser = await loadReferenceParser();
   const tree = parser.parse(source);
-  if (tree === null)
-    throw new Error(`reference parser returned null for ${JSON.stringify(source)}`);
+  if (tree === null) throw new Error(`reference parser returned null for ${JSON.stringify(source)}`);
   const lines: DumpLine[] = [];
   const stack: Array<{ node: RefNode; depth: number }> = [{ node: tree.rootNode, depth: 0 }];
   while (stack.length > 0) {
@@ -92,8 +89,7 @@ export async function referenceDump(source: string): Promise<string> {
       end: node.endIndex,
       text: source.slice(node.startIndex, node.endIndex),
     });
-    for (let i = node.childCount - 1; i >= 0; i--)
-      stack.push({ node: node.child(i)!, depth: depth + 1 });
+    for (let i = node.childCount - 1; i >= 0; i--) stack.push({ node: node.child(i)!, depth: depth + 1 });
   }
   return render(lines, tree.rootNode.hasError);
 }
@@ -105,21 +101,13 @@ export async function referenceDump(source: string): Promise<string> {
  */
 export function ourDump(source: string): string {
   const result = parse(source, { timeoutMs: 60_000, maxNodes: 10_000_000 });
-  if (!result.ok)
-    throw new Error(`our parser aborted on a differential fixture: ${JSON.stringify(source)}`);
+  if (!result.ok) throw new Error(`our parser aborted on a differential fixture: ${JSON.stringify(source)}`);
   const lines: DumpLine[] = [];
   const stack: Array<{ node: SyntaxNode; depth: number }> = [{ node: result.rootNode, depth: 0 }];
   while (stack.length > 0) {
     const { node, depth } = stack.pop()!;
-    lines.push({
-      depth,
-      label: label(node.type, node.isNamed),
-      start: node.startIndex,
-      end: node.endIndex,
-      text: node.text,
-    });
-    for (let i = node.children.length - 1; i >= 0; i--)
-      stack.push({ node: node.children[i]!, depth: depth + 1 });
+    lines.push({ depth, label: label(node.type, node.isNamed), start: node.startIndex, end: node.endIndex, text: node.text });
+    for (let i = node.children.length - 1; i >= 0; i--) stack.push({ node: node.children[i]!, depth: depth + 1 });
   }
   return render(lines, result.hasError);
 }
@@ -168,14 +156,10 @@ export function assertTreeIntegrity(root: SyntaxNode, source: string): void {
   while (stack.length > 0) {
     const node = stack.pop()!;
     if (node.startIndex < 0 || node.endIndex < node.startIndex || node.endIndex > source.length) {
-      throw new Error(
-        `node ${node.type} range [${node.startIndex}, ${node.endIndex}) escapes source length ${source.length}`,
-      );
+      throw new Error(`node ${node.type} range [${node.startIndex}, ${node.endIndex}) escapes source length ${source.length}`);
     }
     if (node.text !== source.slice(node.startIndex, node.endIndex)) {
-      throw new Error(
-        `node ${node.type} text does not match source.slice(${node.startIndex}, ${node.endIndex})`,
-      );
+      throw new Error(`node ${node.type} text does not match source.slice(${node.startIndex}, ${node.endIndex})`);
     }
     let previousEnd = node.startIndex;
     for (const child of node.children) {
@@ -239,13 +223,11 @@ export function parseCorpusFile(content: string): CorpusCase[] {
     while (i < lines.length && !/^-{3,}\s*$/.test(lines[i]!)) inputLines.push(lines[i++]!);
     i++;
     while (i < lines.length && !/^=+\s*$/.test(lines[i]!)) i++;
-    out.push({
-      name: nameLines.join(' ').trim(),
-      input: inputLines.join('\n').replace(/^\n+/, '').replace(/\n+$/, ''),
-    });
+    out.push({ name: nameLines.join(' ').trim(), input: inputLines.join('\n').replace(/^\n+/, '').replace(/\n+$/, '') });
   }
   return out;
 }
+
 
 /**
  * Parse a fixture file. Format: blocks separated by lines of `===`; each
@@ -269,21 +251,16 @@ export function parseFixtureFile(filePath: string, content: string): FixtureSamp
     const body = nl === -1 ? '' : block.slice(nl + 1);
     const directive = DIRECTIVE_RE.exec(directiveLine.trim());
     if (directive === null) {
-      throw new Error(
-        `${filePath}:${blockLine}: expected a @match: / @known-diff <id>: directive, got ${JSON.stringify(directiveLine)}`,
-      );
+      throw new Error(`${filePath}:${blockLine}: expected a @match: / @known-diff <id>: directive, got ${JSON.stringify(directiveLine)}`);
     }
     const [, kind, id, description = ''] = directive;
     if (kind === 'match') {
       samples.push({ kind, description, source: body, line: blockLine });
     } else {
-      if (id === undefined)
-        throw new Error(`${filePath}:${blockLine}: @known-diff requires a registry id`);
+      if (id === undefined) throw new Error(`${filePath}:${blockLine}: @known-diff requires a registry id`);
       const parts = body.split(DUMP_SPLIT_RE);
       if (parts.length !== 2) {
-        throw new Error(
-          `${filePath}:${blockLine}: @known-diff block must contain a --- line followed by the expected dump of our parser`,
-        );
+        throw new Error(`${filePath}:${blockLine}: @known-diff block must contain a --- line followed by the expected dump of our parser`);
       }
       const source = parts[0]!.replace(/\n$/, '');
       const expectedOurs = parts[1]!.replace(/^\n/, '').replace(/\n$/, '');

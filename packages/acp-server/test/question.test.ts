@@ -1,8 +1,3 @@
-import type {
-  CreateElicitationResponse,
-  RequestPermissionResponse,
-} from '@agentclientprotocol/sdk';
-import type { QuestionItem } from '@moonshot-ai/agent-core-v2';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -11,6 +6,9 @@ import {
   questionItemToPermissionOptions,
   questionRequestToElicitationParams,
 } from '../src/question';
+
+import type { CreateElicitationResponse, RequestPermissionResponse } from '@agentclientprotocol/sdk';
+import type { QuestionItem } from '@moonshot-ai/agent-core-v2';
 
 function selected(optionId: string): RequestPermissionResponse {
   return { outcome: { outcome: 'selected', optionId } };
@@ -26,7 +24,12 @@ const sampleQuestion: QuestionItem = {
 describe('questionItemToPermissionOptions', () => {
   it('maps each option to an allow_once plus a trailing Skip reject', () => {
     const options = questionItemToPermissionOptions(sampleQuestion, 0);
-    expect(options.map((o) => o.optionId)).toEqual(['q0_opt_0', 'q0_opt_1', 'q0_opt_2', 'q0_skip']);
+    expect(options.map((o) => o.optionId)).toEqual([
+      'q0_opt_0',
+      'q0_opt_1',
+      'q0_opt_2',
+      'q0_skip',
+    ]);
     expect(options[0]).toMatchObject({ name: 'Red', kind: 'allow_once' });
     expect(options.at(-1)).toMatchObject({ name: 'Skip', kind: 'reject_once' });
   });
@@ -87,7 +90,10 @@ describe('questionRequestToElicitationParams', () => {
   });
 
   it('maps every question (multi-select as array anyOf with minItems), titled by header', () => {
-    const params = questionRequestToElicitationParams([sampleQuestion, multiQuestion], 'session_1');
+    const params = questionRequestToElicitationParams(
+      [sampleQuestion, multiQuestion],
+      'session_1',
+    );
     expect(params.message).toBe('Pick a color\nPick features');
     const schema = params.requestedSchema;
     expect(schema.required).toEqual(['q0', 'q1']);
@@ -112,17 +118,13 @@ function elicitation(content: Record<string, unknown>): CreateElicitationRespons
 
 describe('elicitationResponseToQuestionAnswers', () => {
   it('maps an accepted single-select answer keyed by the question text', () => {
-    expect(
-      elicitationResponseToQuestionAnswers([sampleQuestion], elicitation({ q0: 'Green' })),
-    ).toEqual({ 'Pick a color': 'Green' });
+    expect(elicitationResponseToQuestionAnswers([sampleQuestion], elicitation({ q0: 'Green' })))
+      .toEqual({ 'Pick a color': 'Green' });
   });
 
   it('joins multi-select values in declared option order', () => {
     expect(
-      elicitationResponseToQuestionAnswers(
-        [multiQuestion],
-        elicitation({ q0: ['Uploads', 'Auth'] }),
-      ),
+      elicitationResponseToQuestionAnswers([multiQuestion], elicitation({ q0: ['Uploads', 'Auth'] })),
     ).toEqual({ 'Pick features': 'Auth, Uploads' });
   });
 
@@ -140,6 +142,8 @@ describe('elicitationResponseToQuestionAnswers', () => {
       elicitationResponseToQuestionAnswers([sampleQuestion], { action: 'decline' }),
     ).toBeNull();
     expect(elicitationResponseToQuestionAnswers([sampleQuestion], { action: 'cancel' })).toBeNull();
-    expect(elicitationResponseToQuestionAnswers([sampleQuestion], { action: 'accept' })).toBeNull();
+    expect(
+      elicitationResponseToQuestionAnswers([sampleQuestion], { action: 'accept' }),
+    ).toBeNull();
   });
 });

@@ -2,9 +2,7 @@
  * Scenario: the `spill` capability — tool-output spill storage.
  *
  * Exercises the DI-free store mechanics (safe-name encoding, exclusive
- * owner-only writes, session-scoped directories), the `ToolResultBuilder`
- * truncation hook (spill fires only on truncation, attaches to the result,
- * and degrades best-effort on hook failure), and the Session-scope
+ * owner-only writes, session-scoped directories) and the Session-scope
  * `SpillService` (save/read round-trip, locator escape guard).
  */
 
@@ -16,11 +14,10 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { IConfigService } from '#/app/config/config';
-import { SpillLocator, type ISpillService, type SpillRef } from '#/features/spill/spill';
+import { SpillLocator, type ISpillService } from '#/features/spill/spill';
 import { SpillService } from '#/features/spill/spillService';
 import { encodeSegment, saveTextFile, sessionDir } from '#/features/spill/spillStore';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ToolResultBuilder } from '#/tool/result-builder';
 
 const scratchDirs: string[] = [];
 
@@ -110,63 +107,6 @@ describe('spillStore saveTextFile', () => {
     expect(sessionDir(root, 'sess-a')).not.toBe(sessionDir(root, 'sess-b'));
     expect(readFileSync(a.path, 'utf8')).toBe('a');
     expect(readFileSync(b.path, 'utf8')).toBe('b');
-  });
-});
-
-describe('ToolResultBuilder spill hook', () => {
-  it('spills the FULL untruncated text and attaches the reference when truncated', async () => {
-    const onTruncated = vi.fn((fullText: string): SpillRef => {
-      expect(fullText).toContain('tail beyond the cap');
-      return {
-        locator: SpillLocator('/spill/out.txt'),
-        bytes: fullText.length,
-        retrievalHint: 'read /spill/out.txt',
-      };
-    });
-    const builder = new ToolResultBuilder({ maxChars: 100, onTruncated });
-    builder.write('a'.repeat(200) + 'tail beyond the cap');
-
-    expect(builder.truncated).toBe(true);
-    await builder.spillFullText();
-    const result = builder.ok('done');
-
-    expect(onTruncated).toHaveBeenCalledTimes(1);
-    expect(result.spilled?.locator).toBe('/spill/out.txt');
-    expect(result.spilled?.retrievalHint).toBe('read /spill/out.txt');
-  });
-
-  it('does not spill when the output fits', async () => {
-    const onTruncated = vi.fn();
-    const builder = new ToolResultBuilder({ maxChars: 100, onTruncated: onTruncated as never });
-    builder.write('small');
-    await builder.spillFullText();
-    const result = builder.ok();
-
-    expect(onTruncated).not.toHaveBeenCalled();
-    expect(result.spilled).toBeUndefined();
-  });
-
-  it('degrades best-effort when the hook rejects', async () => {
-    const onTruncated = vi.fn((): SpillRef => {
-      throw new Error('disk full');
-    });
-    const builder = new ToolResultBuilder({ maxChars: 10, onTruncated });
-    builder.write('x'.repeat(50));
-    await builder.spillFullText();
-    const result = builder.ok();
-
-    expect(result.truncated).toBe(true);
-    expect(result.spilled).toBeUndefined();
-    expect(result.output).toContain('truncated');
-  });
-
-  it('without a hook, results carry no spill reference', async () => {
-    const builder = new ToolResultBuilder({ maxChars: 10 });
-    builder.write('x'.repeat(50));
-    await builder.spillFullText();
-    const result = builder.ok();
-    expect(result.truncated).toBe(true);
-    expect(result.spilled).toBeUndefined();
   });
 });
 

@@ -36,11 +36,7 @@ if (externalUrl !== undefined && externalUrl.length > 0) {
   // the CLI can tell it apart from a user-configured marketplace override.
   env['KIMI_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] = '1';
   console.error(`Plugin marketplace dev server: ${marketplaceServer.marketplaceUrl}`);
-  if (
-    inherited !== undefined &&
-    inherited.length > 0 &&
-    inherited !== marketplaceServer.marketplaceUrl
-  ) {
+  if (inherited !== undefined && inherited.length > 0 && inherited !== marketplaceServer.marketplaceUrl) {
     console.error(
       `(ignored inherited ${MARKETPLACE_ENV}=${inherited}; set ${EXTERNAL_MARKETPLACE_ENV} to use an external marketplace)`,
     );

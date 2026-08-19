@@ -1,15 +1,3 @@
-/**
- * Public-bind hardening end-to-end (port of v1 `host-exposure.e2e.test.ts`).
- *
- * Covers the parts not already exercised by `securityExposure.test.ts`:
- *   - public-bind gate (refuse without `--insecure-no-tls`; token-only warning
- *     logged on a non-loopback boot without a password);
- *   - real password path (`Authorization: Bearer <password>` → 200 via
- *     `verifyPassword`; wrong / missing credentials → 401);
- *   - auth-failure rate limit (10 bad tokens → 429 on the 11th) on a real bind;
- *   - security response headers on a non-loopback response.
- */
-
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -51,7 +39,6 @@ afterEach(async () => {
     try {
       await r.close();
     } catch {
-      // best-effort
     }
   }
   for (const dir of createdDirs.splice(0)) {
@@ -68,13 +55,7 @@ describe('public-bind gate', () => {
   it('refuses to bind 0.0.0.0 without --insecure-no-tls', async () => {
     const home = await tmpHome();
     await expect(
-      startServer({
-        hostIdentity: TEST_HOST_IDENTITY,
-        host: '0.0.0.0',
-        port: 0,
-        homeDir: home,
-        logLevel: 'silent',
-      }),
+      startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '0.0.0.0', port: 0, homeDir: home, logLevel: 'silent' }),
     ).rejects.toThrow(/without TLS/);
   });
 
@@ -152,8 +133,6 @@ describe('real password path (verifyPassword)', () => {
 describe('auth-failure rate limit on a real bind', () => {
   it('returns 429 on the 11th bad token', async () => {
     const home = await tmpHome();
-    // Inject a fast token-only auth service: this test exercises the rate
-    // limiter, not bcrypt — 12 sequential cost-12 compares would take seconds.
     const server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '0.0.0.0',
@@ -178,9 +157,7 @@ describe('auth-failure rate limit on a real bind', () => {
       }
     }
     expect(lastStatus).toBe(429);
-    const body = (await (
-      await fetch(url, { headers: { authorization: 'Bearer wrong' } })
-    ).json()) as {
+    const body = (await (await fetch(url, { headers: { authorization: 'Bearer wrong' } })).json()) as {
       code: number;
     };
     expect(body.code).toBe(42901);

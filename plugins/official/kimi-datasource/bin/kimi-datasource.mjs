@@ -145,13 +145,9 @@ async function runTool(params) {
     const fileWarnings = await writeResponseFiles(response, expectedResponseFilePath(built));
     const text = extractText(response);
     const formatted = (handler.format?.(text, built) ?? text).trim();
-    return {
-      content: [
-        { type: 'text', text: appendTrace(appendWarnings(formatted, fileWarnings), trace) },
-      ],
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    return { content: [{ type: 'text', text: appendTrace(appendWarnings(formatted, fileWarnings), trace) }] };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     return {
       content: [{ type: 'text', text: appendTrace(message, trace) }],
       isError: true,
@@ -170,9 +166,7 @@ async function writeResponseFiles(response, expectedOutputPath) {
 
     const writePath = allowedResponseFilePath(name, expectedOutputPath);
     if (writePath === undefined) {
-      warnings.push(
-        `Warning: skipped returned file ${name} because it is outside the requested output path.`,
-      );
+      warnings.push(`Warning: skipped returned file ${name} because it is outside the requested output path.`);
       continue;
     }
 
@@ -230,13 +224,7 @@ function appendWarnings(text, warnings) {
 
 // Pick the backend request id from the response headers, if the gateway sends one.
 function extractRequestId(headers) {
-  for (const key of [
-    'x-request-id',
-    'x-trace-id',
-    'x-msh-request-id',
-    'x-msh-trace-id',
-    'request-id',
-  ]) {
+  for (const key of ['x-request-id', 'x-trace-id', 'x-msh-request-id', 'x-msh-trace-id', 'request-id']) {
     const value = headers.get(key);
     if (typeof value === 'string' && value.trim().length > 0) return value.trim();
   }
@@ -270,7 +258,9 @@ function kimiCodeBaseUrl() {
 
 function kimiCodeOAuthHost() {
   return normalizeEndpoint(
-    process.env.KIMI_CODE_OAUTH_HOST ?? process.env.KIMI_OAUTH_HOST ?? DEFAULT_KIMI_CODE_OAUTH_HOST,
+    process.env.KIMI_CODE_OAUTH_HOST ??
+      process.env.KIMI_OAUTH_HOST ??
+      DEFAULT_KIMI_CODE_OAUTH_HOST,
   );
 }
 
@@ -306,19 +296,16 @@ async function loadAccessToken() {
   let parsed;
   try {
     parsed = JSON.parse(await readFile(credentialsFile, 'utf8'));
-  } catch (error) {
-    if (isNotFound(error)) {
+  } catch (err) {
+    if (isNotFound(err)) {
       throw new Error(
         `Kimi Code credentials file not found: ${credentialsFile}\nRun /login in Kimi Code first.`,
-        { cause: error },
       );
     }
-    if (error instanceof SyntaxError) {
-      throw new TypeError(`Failed to parse Kimi Code credentials file: ${error.message}`, {
-        cause: error,
-      });
+    if (err instanceof SyntaxError) {
+      throw new Error(`Failed to parse Kimi Code credentials file: ${err.message}`);
     }
-    throw error;
+    throw err;
   }
 
   if (!isRecord(parsed)) {
@@ -371,13 +358,11 @@ async function callKimiTool(method, params, trace = {}) {
     } catch {
       return text;
     }
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds.`, {
-        cause: error,
-      });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000} seconds.`);
     }
-    throw error;
+    throw err;
   } finally {
     clearTimeout(timeout);
   }
@@ -393,9 +378,7 @@ async function buildHeaders(kimiHome, token, toolCallId) {
     'X-Msh-Device-Name': asciiHeader(process.env.KIMI_MSH_DEVICE_NAME ?? hostname()),
     'X-Msh-Device-Model': asciiHeader(process.env.KIMI_MSH_DEVICE_MODEL ?? deviceModel()),
     'X-Msh-Os-Version': asciiHeader(process.env.KIMI_MSH_OS_VERSION ?? release()),
-    'X-Msh-Device-Id': asciiHeader(
-      process.env.KIMI_MSH_DEVICE_ID ?? (await createDeviceId(kimiHome)),
-    ),
+    'X-Msh-Device-Id': asciiHeader(process.env.KIMI_MSH_DEVICE_ID ?? (await createDeviceId(kimiHome))),
     'User-Agent': `kimi-datasource/${VERSION}`,
   };
 }
@@ -489,9 +472,7 @@ function isNotFound(err) {
 }
 
 function asciiHeader(value, fallback = 'unknown') {
-  const cleaned = String(value)
-    .replaceAll(/[^ -~]/g, '')
-    .trim();
+  const cleaned = String(value).replaceAll(/[^ -~]/g, '').trim();
   return cleaned.length > 0 ? cleaned : fallback;
 }
 
@@ -517,10 +498,7 @@ async function dispatch(message) {
   if (message?.jsonrpc !== '2.0') return;
   // Notifications carry no id and never expect a response.
   if (message.id === undefined || message.id === null) {
-    if (
-      message.method === 'notifications/initialized' ||
-      message.method === 'notifications/cancelled'
-    ) {
+    if (message.method === 'notifications/initialized' || message.method === 'notifications/cancelled') {
       return;
     }
     return;
@@ -529,14 +507,14 @@ async function dispatch(message) {
   try {
     const result = await handleRequest(message);
     sendResult(id, result ?? {});
-  } catch (error) {
-    if (error && typeof error === 'object' && error.jsonRpc !== undefined) {
-      sendError(id, error.jsonRpc);
+  } catch (err) {
+    if (err && typeof err === 'object' && err.jsonRpc !== undefined) {
+      sendError(id, err.jsonRpc);
       return;
     }
     sendError(id, {
       code: -32603,
-      message: error instanceof Error ? error.message : String(error),
+      message: err instanceof Error ? err.message : String(err),
     });
   }
 }
@@ -549,10 +527,10 @@ function start() {
     let message;
     try {
       message = JSON.parse(trimmed);
-    } catch (error) {
+    } catch (err) {
       sendError(null, {
         code: -32700,
-        message: `Parse error: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Parse error: ${err instanceof Error ? err.message : String(err)}`,
       });
       return;
     }

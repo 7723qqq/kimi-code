@@ -1,6 +1,10 @@
 import { join, resolve } from 'node:path';
 
-import { defaultVsixOutputDir, normalizeVsixTargets, vsixFileName } from './vsix-targets.mjs';
+import {
+  defaultVsixOutputDir,
+  normalizeVsixTargets,
+  vsixFileName,
+} from './vsix-targets.mjs';
 
 export function parsePublishArguments(argv) {
   const targets = [];

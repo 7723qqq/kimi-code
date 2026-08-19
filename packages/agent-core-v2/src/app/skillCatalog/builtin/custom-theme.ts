@@ -1,10 +1,5 @@
-/**
- * `skillCatalog` domain — builtin `custom-theme` skill definition.
- */
-
-import { parseSkillText } from '#/app/skillCatalog/parser';
 import type { SkillDefinition } from '#/app/skillCatalog/types';
-
+import { parseSkillText } from '#/app/skillCatalog/parser';
 import CUSTOM_THEME_BODY from './custom-theme.md?raw';
 
 const PSEUDO_PATH = 'builtin://custom-theme';

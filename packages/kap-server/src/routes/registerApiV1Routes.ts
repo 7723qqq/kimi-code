@@ -1,27 +1,12 @@
-/**
- * `/api/v1` route registration.
- *
- * Mirrors the v1 server's prefixing and per-module delegation, but resolves
- * services from the `agent-core-v2` Core `Scope` instead of the v1 flat
- * `IInstantiationService`. Mounts the full v1 route surface: health, meta,
- * auth readiness, OAuth device flow, config, model/provider catalog, sessions,
- * skills, capabilities, plugins, messages, search, tasks, approvals,
- * questions, prompts, workspaces, the session filesystem, files, fs, gui
- * store, tools, terminals, connections, cron, mcp, snapshot, transcript, and
- * shutdown.
- */
-
 import { IConfigService, type Scope } from '@moonshot-ai/agent-core-v2';
 import { IFlagService } from '@moonshot-ai/agent-core-v2/app/flag/flag';
 import type { KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
 import { ulid } from 'ulid';
 
 import { okEnvelope } from '../envelope';
-import type { IGuiStoreService } from '../services/guiStore/guiStore';
-import type { TranscriptService } from '../services/transcript/transcriptService';
-import { registerDebugRoutes } from '../transport/registerDebugRoutes';
 import { type IConnectionRegistry } from '../transport/ws/connectionRegistry';
 import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBroadcaster';
+import type { TranscriptService } from '../services/transcript/transcriptService';
 import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
 import { registerCapabilitiesRoutes } from './capabilities';
@@ -31,20 +16,24 @@ import { registerCronRoutes } from './cron';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
 import { registerGuiStoreRoutes } from './guiStore';
-import { registerMcpRoutes } from './mcp';
 import { registerMessagesRoutes } from './messages';
+import { registerMcpRoutes } from './mcp';
+import type { IGuiStoreService } from '../services/guiStore/guiStore';
+import { registerDebugRoutes } from '../transport/registerDebugRoutes';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
 import { registerOAuthRoutes } from './oauth';
 import { registerPluginsRoutes } from './plugins';
 import { registerPromptsRoutes } from './prompts';
 import { registerQuestionsRoutes } from './questions';
+import { registerRuntimeRoutes } from './runtime';
 import { registerSearchRoutes } from './search';
+import { registerSessionMediaRoutes } from './sessionMedia';
 import { registerSessionExportRoute } from './sessionExport';
 import { registerSessionsRoutes } from './sessions';
 import { registerShutdownRoutes } from './shutdown';
-import { registerSkillsRoutes } from './skills';
 import { registerSnapshotRoutes } from './snapshot';
+import { registerSkillsRoutes } from './skills';
 import { registerTasksRoutes } from './tasks';
 import { registerTerminalsRoutes } from './terminals';
 import { registerToolsRoutes } from './tools';
@@ -92,6 +81,12 @@ export interface RegisterApiV1RoutesOptions {
    * flag).
    */
   readonly dangerousBypassAuth?: boolean;
+  /**
+   * Custom browser tab title for this instance, surfaced as `web_title` in the
+   * `/meta` payload. Set by `start.ts` from the `webTitle` server option (the
+   * CLI's `--web-title` flag).
+   */
+  readonly webTitle?: string;
 }
 
 export async function registerApiV1Routes(
@@ -103,8 +98,6 @@ export async function registerApiV1Routes(
     async (apiV1) => {
       registerHealthRoute(apiV1);
 
-      // Dev-only debug RPC surface (`--debug-endpoints`, loopback-gated in
-      // `start.ts`): every scoped Service reachable.
       if (opts.debugEndpoints === true) {
         registerDebugRoutes(apiV1 as unknown as Parameters<typeof registerDebugRoutes>[0], core);
       }
@@ -114,12 +107,8 @@ export async function registerApiV1Routes(
         serverId: ulid(),
         startedAt: new Date().toISOString(),
         dangerousBypassAuth: opts.dangerousBypassAuth === true,
+        webTitle: opts.webTitle,
         getExperimentalFlags: async () => {
-          // Same edge-facade contract as the config route: never project
-          // config-derived state before the initial load settles — an early
-          // /meta hit would otherwise advertise default/env-only flags and
-          // hide config-enabled features until the FlagService's change
-          // watcher catches up.
           await core.accessor.get(IConfigService).ready;
           return core.accessor.get(IFlagService).snapshot();
         },
@@ -136,6 +125,7 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerSessionsRoutes>[0],
         core,
       );
+      registerRuntimeRoutes(apiV1 as unknown as Parameters<typeof registerRuntimeRoutes>[0], core);
       registerSessionExportRoute(
         apiV1 as unknown as Parameters<typeof registerSessionExportRoute>[0],
         core,
@@ -164,7 +154,10 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerQuestionsRoutes>[0],
         core,
       );
-      registerPromptsRoutes(apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0], core);
+      registerPromptsRoutes(
+        apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0],
+        core,
+      );
       registerWorkspacesRoutes(
         apiV1 as unknown as Parameters<typeof registerWorkspacesRoutes>[0],
         core,
@@ -174,11 +167,12 @@ export async function registerApiV1Routes(
         core,
       );
       registerFilesRoutes(apiV1 as unknown as Parameters<typeof registerFilesRoutes>[0], core);
-      registerFsRoutes(apiV1 as unknown as Parameters<typeof registerFsRoutes>[0], core);
-      registerGuiStoreRoutes(
-        apiV1 as unknown as Parameters<typeof registerGuiStoreRoutes>[0],
-        opts.guiStore,
+      registerSessionMediaRoutes(
+        apiV1 as unknown as Parameters<typeof registerSessionMediaRoutes>[0],
+        core,
       );
+      registerFsRoutes(apiV1 as unknown as Parameters<typeof registerFsRoutes>[0], core);
+      registerGuiStoreRoutes(apiV1 as unknown as Parameters<typeof registerGuiStoreRoutes>[0], opts.guiStore);
       registerToolsRoutes(apiV1 as unknown as Parameters<typeof registerToolsRoutes>[0], core);
       if (opts.enableTerminals !== false) {
         registerTerminalsRoutes(

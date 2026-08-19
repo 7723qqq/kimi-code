@@ -55,11 +55,10 @@
 import fs from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
-
+import { WAL } from './wal.js';
 import { renameReplace } from './rename-replace.js';
 import { writeSnapshot } from './snapshot.js';
 import type { Store, ValueLoc } from './store.js';
-import { WAL } from './wal.js';
 import type { FsyncPolicy, WalStats } from './wal.js';
 
 /** Structural interface of the bits compaction needs from a MiniDb. */
@@ -148,8 +147,8 @@ export async function fsyncDir(
   try {
     fh = await fs.open(dir, 'r');
     await fh.sync();
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
     // Some platforms cannot fsync a directory at all. That is a permanent
     // environment property, not a rotation fault: mark the degraded durability
     // state and continue without directory fsync in both modes.
@@ -159,7 +158,7 @@ export async function fsyncDir(
     }
     // Strict mode (the rotation path): a failed directory fsync breaks the
     // rename-durability invariant, so the caller must abort — never swallow.
-    if (opts.strict) throw error;
+    if (opts.strict) throw e;
     /* best-effort otherwise */
   } finally {
     if (fh) await fh.close().catch(() => {});
@@ -194,8 +193,7 @@ export async function copyFileRange(
           let written = 0;
           while (written < bytesRead) {
             const { bytesWritten } = await dst.write(buf, written, bytesRead - written);
-            if (bytesWritten === 0)
-              throw new Error('copyFileRange: write made no progress (short write)');
+            if (bytesWritten === 0) throw new Error('copyFileRange: write made no progress (short write)');
             written += bytesWritten;
           }
           pos += bytesRead;
@@ -222,13 +220,12 @@ export async function compact(db: CompactionTarget): Promise<void> {
       // throws is counted as a compactError, not a successful compaction.
       await db.onCompacted?.();
       db.stats.compactions++;
-      db.stats.compactionDurationMs =
-        (db.stats.compactionDurationMs ?? 0) + (performance.now() - t0);
+      db.stats.compactionDurationMs = (db.stats.compactionDurationMs ?? 0) + (performance.now() - t0);
       db.lastCompactError = null;
-    } catch (error) {
+    } catch (err) {
       db.stats.compactErrors = (db.stats.compactErrors ?? 0) + 1;
-      db.lastCompactError = error;
-      throw error;
+      db.lastCompactError = err;
+      throw err;
     } finally {
       db.compacting = false;
       // A failed rotation must not leave writers parked forever.
@@ -256,13 +253,10 @@ async function runCompaction(db: CompactionTarget): Promise<void> {
   // synchronous positioned read per record on the event loop.
   const snapT0 = performance.now();
   const snapRes = await writeSnapshot(db.store, tmp, {
-    readValueAsync: db.valueReader?.readAsync
-      ? (loc) => db.valueReader!.readAsync!(loc)
-      : undefined,
+    readValueAsync: db.valueReader?.readAsync ? (loc) => db.valueReader!.readAsync!(loc) : undefined,
   });
   db.stats.snapshotBytesWritten += snapRes.bytes;
-  db.stats.compactionSnapshotDurationMs =
-    (db.stats.compactionSnapshotDurationMs ?? 0) + (performance.now() - snapT0);
+  db.stats.compactionSnapshotDurationMs = (db.stats.compactionSnapshotDurationMs ?? 0) + (performance.now() - snapT0);
 
   // Phase 2.5: pre-copy the post-fence WAL tail into db.wal.tmp. NON-BLOCKING.
   // Each pass flushes to get a stable `head`, then copies the bytes that landed
@@ -368,11 +362,7 @@ async function runCompaction(db: CompactionTarget): Promise<void> {
     rotated = true;
     await fsyncDir(db.dir, { strict: true, stats: db.stats });
 
-    const fresh = new WAL(db.walPath, {
-      fsyncPolicy: db.fsyncPolicy,
-      syncIntervalMs: db.syncIntervalMs,
-      stats: db.stats,
-    });
+    const fresh = new WAL(db.walPath, { fsyncPolicy: db.fsyncPolicy, syncIntervalMs: db.syncIntervalMs, stats: db.stats });
     db.wal = fresh;
     await fresh.open();
 
@@ -381,17 +371,13 @@ async function runCompaction(db: CompactionTarget): Promise<void> {
     // observe a new pointer against an old fd or vice versa.
     remap();
     db.valueReader?.reopenBoth();
-  } catch (error) {
+  } catch (err) {
     try {
       // Swap the sealed/closed WAL for a fresh handle on db.walPath. The swap
       // comes first: it both restores appendability and stops late in-flight
       // writers from publishing old-file value pointers against the fresh WAL.
       await db.wal.close().catch(() => {});
-      const fresh = new WAL(db.walPath, {
-        fsyncPolicy: db.fsyncPolicy,
-        syncIntervalMs: db.syncIntervalMs,
-        stats: db.stats,
-      });
+      const fresh = new WAL(db.walPath, { fsyncPolicy: db.fsyncPolicy, syncIntervalMs: db.syncIntervalMs, stats: db.stats });
       await fresh.open();
       db.wal = fresh;
       if (rotated) {
@@ -401,7 +387,7 @@ async function runCompaction(db: CompactionTarget): Promise<void> {
     } catch {
       // Best-effort recovery only — on-disk state is consistent regardless.
     }
-    throw error;
+    throw err;
   } finally {
     releaseRotation();
     db._rotateLock = null;
@@ -409,7 +395,6 @@ async function runCompaction(db: CompactionTarget): Promise<void> {
     // Wall time of the rotation critical section — the window writers were
     // parked (their per-op waits accumulate separately in MiniDb's
     // compactionRotationPauseMs).
-    db.stats.compactionRotationDurationMs =
-      (db.stats.compactionRotationDurationMs ?? 0) + (performance.now() - rotateT0);
+    db.stats.compactionRotationDurationMs = (db.stats.compactionRotationDurationMs ?? 0) + (performance.now() - rotateT0);
   }
 }

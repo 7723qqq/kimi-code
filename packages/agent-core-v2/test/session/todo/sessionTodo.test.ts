@@ -1,54 +1,58 @@
-/**
- * Scenario: session-shared Todo state, including undo restoration.
- * Responsibility: SessionTodoService exposes the main wire state and emits observable changes.
- * Wiring: lightweight lifecycle/agent fakes with real event-bus behavior.
- * Run: pnpm --filter @moonshot-ai/agent-core-v2 test -- test/session/todo/sessionTodo.test.ts
- */
-
 import { describe, expect, it } from 'vitest';
 
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { IInstantiationService } from '#/_base/di/instantiation';
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { TestInstantiationService } from '#/_base/di/test';
+import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
+import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { ContextUndone } from '#/agent/undo/undoService';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { LifecycleScope } from '#/app/scopes';
-import { createHooks } from '#/hooks';
-import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import type { ISessionTodoService } from '#/session/todo/sessionTodo';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionTodoService } from '#/session/todo/sessionTodo';
 import { SessionTodoService } from '#/session/todo/sessionTodoService';
-import { readTodoItems, type TodoItem } from '#/session/todo/todoItem';
+import { type TodoItem } from '#/session/todo/todoItem';
 import { TODO_LIST_REMINDER_VARIANT } from '#/session/todo/todoListReminder';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { AgentStateService } from '#/agent/state/agentStateService';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { EventDispatcherService } from '#/state/eventDispatcherService';
+import { IWireService } from '#/wire/wire';
 import type { WireRecord } from '#/wire/record';
-import { IWireService, type WireHooks } from '#/wire/wire';
 
-interface RecordedTodoSet {
-  readonly todos: readonly TodoItem[];
-}
+import { stubWireJournal } from '../../wire/stubs';
 
 interface FakeAgent {
   readonly handle: IAgentScopeHandle;
   readonly registeredTools: string[];
   readonly registeredVariants: string[];
-  readonly appended: RecordedTodoSet[];
+  readonly journal: WireRecord[];
   readonly eventBus: EventBusService;
+  readonly dispatcher: IEventDispatcher;
   readonly restore: (records: readonly WireRecord[]) => Promise<void>;
 }
+
+const noopBlob: IAgentBlobService = {
+  _serviceBrand: undefined,
+  offloadParts: async (parts) => parts,
+  loadParts: async (parts) => parts,
+  isBlobRef: () => false,
+};
 
 function makeFakeAgent(agentId: string): FakeAgent {
   const registeredTools: string[] = [];
   const registeredVariants: string[] = [];
-  const appended: RecordedTodoSet[] = [];
+  const journal: WireRecord[] = [];
   const eventBus = new EventBusService();
-
-  let todoState: readonly TodoItem[] = [];
 
   const registryStub = {
     _serviceBrand: undefined,
@@ -83,36 +87,18 @@ function makeFakeAgent(agentId: string): FakeAgent {
     isToolActive: () => false,
   };
 
-  const restore = async (records: readonly WireRecord[]): Promise<void> => {
-    for (const record of records) {
-      if (record.type === 'tools.update_store' && record['key'] === 'todo') {
-        todoState = readTodoItems(record['value']);
-      }
-    }
-  };
+  const ix = new TestInstantiationService();
+  ix.set(IEventBus, eventBus);
+  ix.set(IAgentBlobService, noopBlob);
+  ix.set(IWireService, stubWireJournal(journal));
+  ix.set(IAgentStateService, new AgentStateService());
+  ix.set(IEventDispatcher, new SyncDescriptor(EventDispatcherService));
+  const dispatcher = ix.get(IEventDispatcher);
 
-  const wireStub: IWireService = {
-    _serviceBrand: undefined,
-    hooks: createHooks<WireHooks, keyof WireHooks>(['onDidRestore']),
-    dispatch: (...ops: unknown[]) => {
-      for (const raw of ops) {
-        const op = raw as { type: string; payload: unknown };
-        const payload = op.payload;
-        const record =
-          payload !== null && typeof payload === 'object' && !Array.isArray(payload)
-            ? (payload as Record<string, unknown>)
-            : { payload };
-        appended.push({ type: op.type, ...record } as unknown as RecordedTodoSet);
-        if (op.type === 'tools.update_store' && record['key'] === 'todo') {
-          todoState = readTodoItems(record['value']);
-        }
-      }
-    },
-    restore: async () => {},
-    flush: async () => {},
-    getModel: () => ({ current: todoState, checkpoints: [] }),
-    subscribe: () => toDisposable(() => {}),
-  } as unknown as IWireService;
+  const restore = async (records: readonly WireRecord[]): Promise<void> => {
+    journal.push(...records);
+    await dispatcher.restore();
+  };
 
   const accessor: ServicesAccessor = {
     get: <T>(id: ServiceIdentifier<T>): T => {
@@ -123,7 +109,9 @@ function makeFakeAgent(agentId: string): FakeAgent {
       if (id === IAgentProfileService) return profileStub as unknown as T;
       if (id === IAgentToolPolicyService) return profileStub as unknown as T;
       if (id === IEventBus) return eventBus as unknown as T;
-      if (id === IWireService) return wireStub as unknown as T;
+      if (id === IWireService) return ix.get(IWireService) as unknown as T;
+      if (id === IEventDispatcher) return dispatcher as unknown as T;
+      if (id === IAgentStateService) return ix.get(IAgentStateService) as unknown as T;
       throw new Error(`unexpected service request in fake agent: ${String(id)}`);
     },
   };
@@ -139,8 +127,9 @@ function makeFakeAgent(agentId: string): FakeAgent {
     handle,
     registeredTools,
     registeredVariants,
-    appended,
+    journal,
     eventBus,
+    dispatcher,
     restore,
   };
 }
@@ -194,28 +183,11 @@ describe('SessionTodoService', () => {
     expect(service.getTodos()).toEqual([]);
 
     const next: TodoItem[] = [
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'a',
-        status: 'open',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-      {
-        id: 'T2',
-        parentId: null,
-        title: 'b',
-        status: 'in_progress',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
+      { title: 'a', status: 'pending' },
+      { title: 'b', status: 'in_progress' },
     ];
     service.setTodos(next);
-    expect(service.getTodos()).toEqual([
-      expect.objectContaining({ id: 'T1', parentId: null, title: 'a', status: 'open' }),
-      expect.objectContaining({ id: 'T2', parentId: null, title: 'b', status: 'in_progress' }),
-    ]);
+    expect(service.getTodos()).toEqual(next);
 
     service.clear();
     expect(service.getTodos()).toEqual([]);
@@ -228,31 +200,13 @@ describe('SessionTodoService', () => {
 
     const seen: Array<readonly TodoItem[]> = [];
     const d = service.onDidChange((todos) => seen.push(todos));
-    service.setTodos([
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'x',
-        status: 'open',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ]);
-    service.setTodos([
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'y',
-        status: 'done',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ]);
+    service.setTodos([{ title: 'x', status: 'pending' }]);
+    service.setTodos([{ title: 'y', status: 'done' }]);
     d.dispose();
 
     expect(seen).toEqual([
-      [expect.objectContaining({ title: 'x', status: 'open' })],
-      [expect.objectContaining({ title: 'y', status: 'done' })],
+      [{ title: 'x', status: 'pending' }],
+      [{ title: 'y', status: 'done' }],
     ]);
   });
 
@@ -260,27 +214,18 @@ describe('SessionTodoService', () => {
     const main = makeFakeAgent('main');
     const lifecycle = makeLifecycleStub([main.handle]);
     const service = new SessionTodoService(lifecycle.service);
-    service.setTodos([
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'doomed',
-        status: 'in_progress',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ]);
+    service.setTodos([{ title: 'doomed', status: 'in_progress' }]);
 
     const seen: Array<readonly TodoItem[]> = [];
     const subscription = service.onDidChange((todos) => seen.push(todos));
     await main.restore([
       { type: 'tools.update_store', key: 'todo', value: [{ title: 'kept', status: 'pending' }] },
     ]);
-    main.eventBus.publish({ type: 'context.undone', turns: 1 });
-    main.eventBus.publish({ type: 'context.undone', turns: 1 });
+    await main.dispatcher.dispatch(new ContextUndone({ turns: 1 }));
+    await main.dispatcher.dispatch(new ContextUndone({ turns: 1 }));
     subscription.dispose();
 
-    expect(seen).toEqual([[expect.objectContaining({ title: 'kept', status: 'open' })]]);
+    expect(seen).toEqual([[{ title: 'kept', status: 'pending' }]]);
   });
 
   it('appends a tools.update_store record to the main agent wire on setTodos', () => {
@@ -288,22 +233,14 @@ describe('SessionTodoService', () => {
     const lifecycle = makeLifecycleStub([main.handle]);
     const service = new SessionTodoService(lifecycle.service);
 
-    service.setTodos([
-      {
-        id: 'T1',
-        parentId: null,
-        title: 'persist me',
-        status: 'in_progress',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ]);
+    service.setTodos([{ title: 'persist me', status: 'in_progress' }]);
 
-    expect(main.appended).toEqual([
+    expect(main.journal).toEqual([
       {
         type: 'tools.update_store',
         key: 'todo',
-        value: [expect.objectContaining({ title: 'persist me', status: 'in_progress' })],
+        value: [{ title: 'persist me', status: 'in_progress' }],
+        time: expect.any(Number),
       },
     ]);
   });
@@ -311,18 +248,7 @@ describe('SessionTodoService', () => {
   it('does not append to the wire when the main agent is absent', () => {
     const lifecycle = makeLifecycleStub();
     const service = new SessionTodoService(lifecycle.service);
-    expect(() =>
-      service.setTodos([
-        {
-          id: 'T1',
-          parentId: null,
-          title: 'x',
-          status: 'open',
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        },
-      ]),
-    ).not.toThrow();
+    expect(() => service.setTodos([{ title: 'x', status: 'pending' }])).not.toThrow();
     expect(service.getTodos()).toEqual([]);
   });
 
@@ -346,25 +272,10 @@ describe('SessionTodoService', () => {
     const service = new SessionTodoService(lifecycle.service);
 
     await main.restore([
-      {
-        type: 'tools.update_store',
-        key: 'todo',
-        value: [
-          {
-            id: 'T1',
-            parentId: null,
-            title: 'restored',
-            status: 'done',
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          },
-        ],
-      },
+      { type: 'tools.update_store', key: 'todo', value: [{ title: 'restored', status: 'done' }] },
     ]);
 
-    expect(service.getTodos()).toEqual([
-      expect.objectContaining({ title: 'restored', status: 'done' }),
-    ]);
+    expect(service.getTodos()).toEqual([{ title: 'restored', status: 'done' }]);
   });
 
   it('disposes per-agent bindings when the agent is disposed', () => {
@@ -399,17 +310,14 @@ describe('SessionTodoService', () => {
         value: [
           { title: 'valid', status: 'done' },
           { title: 'missing status' },
-          { title: 123, status: 'open' },
+          { title: 123, status: 'pending' },
           'garbage',
           { title: 'bad status', status: 'wip' },
         ],
       } as unknown as WireRecord,
     ]);
 
-    expect(service.getTodos()).toEqual([
-      expect.objectContaining({ title: 'valid', status: 'done' }),
-      expect.objectContaining({ title: 'bad status', status: 'open' }),
-    ]);
+    expect(service.getTodos()).toEqual([{ title: 'valid', status: 'done' }]);
   });
 
   it('treats a non-array todo tools.update_store value as an empty list on replay', async () => {

@@ -1,11 +1,3 @@
-/**
- * `agentLifecycle` domain — persisted subagent relationship labels.
- *
- * Provides the label helpers that record and read the requester → subagent
- * relationship without making the flat lifecycle registry interpret parentage
- * itself.
- */
-
 import { t } from '@moonshot-ai/kimi-i18n';
 
 import { Error2, ErrorCodes } from '#/errors';
@@ -35,7 +27,9 @@ export function subagentLabels(
   return labels;
 }
 
-export function labelsFromAgentMeta(meta: AgentMeta): Readonly<Record<string, string>> | undefined {
+export function labelsFromAgentMeta(
+  meta: AgentMeta,
+): Readonly<Record<string, string>> | undefined {
   const labels: Record<string, string> = { ...meta.labels };
   const parentAgentId = subagentParentAgentId(meta);
   if (parentAgentId !== undefined) {

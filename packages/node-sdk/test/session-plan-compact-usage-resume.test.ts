@@ -1,7 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { join as pathJoin } from 'node:path';
+import { dirname, join } from 'node:path';
 
-import { dirname, join } from 'pathe';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness, type Event, type KimiError } from '#/index';
@@ -97,12 +96,10 @@ describe('Session plan, compact, usage, and resume APIs', () => {
     try {
       const session = await harness.createSession({ id: 'ses_compact_runtime', workDir });
 
-      await expect(session.compact({ instruction: 'Keep important facts.' })).rejects.toMatchObject(
-        {
-          // The v2 engine surfaces its own error class; the code is the contract.
-          code: 'compaction.unable',
-        },
-      );
+      await expect(session.compact({ instruction: 'Keep important facts.' })).rejects.toMatchObject({
+        name: 'KimiError',
+        code: 'compaction.unable',
+      } satisfies Partial<KimiError>);
     } finally {
       await harness.close();
     }
@@ -257,9 +254,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       expect(forkPlan).toEqual({
         id: sourcePlan.id,
         content: 'source plan',
-        path: toPosix(
-          join(forkSummary!.sessionDir, 'agents', 'main', 'plans', `${sourcePlan.id}.md`),
-        ),
+        path: toPosix(join(forkSummary!.sessionDir, 'agents', 'main', 'plans', `${sourcePlan.id}.md`)),
       });
       expect(forkPlan?.path).not.toBe(sourcePlan.path);
       const forkWire = await readFile(
@@ -293,7 +288,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       expect(forkState.title).toBe('Forked runtime');
       expect(forkState.forkedFrom).toBe(source.id);
       expect(forkState.agents?.main?.homedir).toBe(
-        pathJoin(forkSummary!.sessionDir, 'agents', 'main'),
+        toPosix(join(forkSummary!.sessionDir, 'agents', 'main')),
       );
       expect(forkState.custom).toMatchObject({ source: true, child: true });
       expect(forkState.custom).not.toHaveProperty('goal');

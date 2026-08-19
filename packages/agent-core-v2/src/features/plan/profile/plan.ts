@@ -1,12 +1,3 @@
-/**
- * `plan` domain — builtin `plan` profile contribution.
- *
- * Registers the read-only planning task-agent profile. The profile is
- * self-contained: its structured `renderSystemPrompt` merges the shared base
- * template with the planning role text at call time, so a child agent no
- * longer inherits the parent's prompt through a runtime overlay.
- */
-
 import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 import {
   renderSystemPromptResult,
@@ -14,7 +5,14 @@ import {
   TASK_AGENT_ROLE_PREFIX,
 } from '#/app/agentProfileCatalog/profile-shared';
 
-const PLAN_TOOLS = ['Read', 'ReadMediaFile', 'Glob', 'Grep', 'WebSearch', 'FetchURL'] as const;
+const PLAN_TOOLS = [
+  'Read',
+  'ReadMediaFile',
+  'Glob',
+  'Grep',
+  'WebSearch',
+  'FetchURL',
+] as const;
 
 const PLAN_ROLE =
   `${TASK_AGENT_ROLE_PREFIX}\n\n` +

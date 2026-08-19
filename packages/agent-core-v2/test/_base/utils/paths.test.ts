@@ -1,12 +1,3 @@
-/**
- * Scenario: recursive watches constrained to selected candidate subtrees.
- * Responsibilities: candidate ancestry, scan-depth bounds, excluded-entry
- * probing, and the marker-based upward root walk. Wiring: pure path
- * predicates and walks with no external collaborators.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/_base/utils/paths.test.ts`.
- */
-
 import { mkdtemp, mkdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import nodePath, { win32 } from 'node:path';
@@ -99,7 +90,10 @@ describe('subtree watch filtering', () => {
 
   it('keeps direct sub-skill probes below a directory the scanner traversed', () => {
     const ignored = subtreeWatchFilter(root, candidates, {
-      scannedDirectories: ['/repo/.agents/skills', '/repo/.agents/skills/parent'],
+      scannedDirectories: [
+        '/repo/.agents/skills',
+        '/repo/.agents/skills/parent',
+      ],
       keepEntryFile: 'SKILL.md',
     });
     expect(ignored('/repo/.agents/skills/parent/child')).toBe(false);

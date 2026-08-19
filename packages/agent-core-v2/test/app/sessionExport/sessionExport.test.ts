@@ -17,21 +17,22 @@ import {
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 
-import { basename, dirname, join, resolve } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { basename, dirname, join, resolve } from 'pathe';
 import { open as openZip } from 'yauzl';
 
-import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { Disposable, DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
-import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
 import {
   createServices,
   type ServiceRegistration,
   type TestInstantiationService,
 } from '#/_base/di/test';
-import { ILogService, type ILogService as LogService } from '#/_base/log/log';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
+import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
+import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
+import { ILogService, type ILogService as LogService } from '#/_base/log/log';
+import { IWireService } from '#/wire/wire';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { openZipSource, type ZipSource } from '#/app/sessionExport/file-source';
 import {
   type ExportSessionManifest,
@@ -43,17 +44,16 @@ import {
 } from '#/app/sessionExport/sessionExportService';
 import { writeExportZip } from '#/app/sessionExport/zip';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
+import { ISessionManager, type UnguardedSessionLifecycle } from '#/app/sessionManager/sessionManager';
+import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import { IWorkspaceService } from '#/app/workspace/workspace';
-import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
-import type { Error2 } from '#/errors';
+import { Error2 } from '#/errors';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
-import { IWireService } from '#/wire/wire';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 
+import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../../_base/log/stubs';
 import { stubAgentWire } from '../../wire/stubs';
-import { stubBootstrap } from '../bootstrap/stubs';
 
 const fsOpenHook = vi.hoisted(() => ({
   afterOpen: undefined as ((path: string, handle: FileHandle) => Promise<void>) | undefined,
@@ -324,9 +324,9 @@ describe('sessionExport', () => {
       await expect(handle.stat()).rejects.toMatchObject({ code: 'EBADF' });
     }
     await expect(stat(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(
-      (await readdir(tmp)).filter((entry) => entry.startsWith('.kimi-session-export-')),
-    ).toEqual([]);
+    expect((await readdir(tmp)).filter((entry) => entry.startsWith('.kimi-session-export-'))).toEqual(
+      [],
+    );
   });
 
   it('omits the optional global log when the configured file is missing', async () => {
@@ -883,54 +883,28 @@ function registerSessionExportServices(
     count: async () => (options.summary === undefined || options.summary.archived ? 0 : 1),
     remove: async () => {},
   });
-  reg.defineInstance(IWorkspaceLifecycleService, {
+  reg.defineInstance(ISessionManager, {
     _serviceBrand: undefined,
-    onDidMaterializeHandler: noopEvent,
-    handlerFor: async () => {
-      throw new Error('handlerFor should not be called by session export');
+    create: async () => {
+      throw new Error('create should not be called by session export');
     },
-    handlers: {
-      list: () => [
-        {
-          id: 'ws_live',
-          kind: LifecycleScope.Workspace,
-          accessor: accessorFrom([
-            [
-              ISessionLifecycleService,
-              {
-                _serviceBrand: undefined,
-                onWillCreateSession: noopEvent,
-                onDidCreateSession: noopEvent,
-                onWillCloseSession: noopEvent,
-                onDidCloseSession: noopEvent,
-                onDidArchiveSession: noopEvent,
-                onDidForkSession: noopEvent,
-                create: async () => {
-                  throw new Error('create should not be called by session export');
-                },
-                get: () => options.lifecycleHandle,
-                list: () =>
-                  options.lifecycleHandle === undefined ? [] : [options.lifecycleHandle],
-                resume: async () => options.lifecycleHandle,
-                close: async () => {},
-                archive: async () => {},
-                restore: async () => options.lifecycleHandle,
-                delete: async () => {},
-                fork: async () => {
-                  throw new Error('fork should not be called by session export');
-                },
-                createChild: async () => {
-                  throw new Error('createChild should not be called by session export');
-                },
-              } satisfies ISessionLifecycleService,
-            ],
-          ]),
-          dispose: () => {},
-        },
-      ],
+    resume: async () => options.lifecycleHandle,
+    get: () => options.lifecycleHandle,
+    whenResumeSettled: async () => {},
+    withLifecycleSerialization: async <T>(
+      _sessionId: string,
+      work: (unguarded: UnguardedSessionLifecycle) => Promise<T>,
+    ): Promise<T> => work({ archive: async () => {}, restore: async () => undefined }),
+    list: () => (options.lifecycleHandle === undefined ? [] : [options.lifecycleHandle]),
+    close: async () => {},
+    archive: async () => {},
+    restore: async () => options.lifecycleHandle,
+    delete: async () => {},
+    fork: async () => {
+      throw new Error('fork should not be called by session export');
     },
-    sessions: {
-      list: () => (options.lifecycleHandle === undefined ? [] : [options.lifecycleHandle.id]),
+    createChild: async () => {
+      throw new Error('createChild should not be called by session export');
     },
   });
   reg.defineInstance(IWorkspaceService, {
@@ -950,7 +924,7 @@ function registerSessionExportServices(
       createdAt: 1,
       lastOpenedAt: 2,
     }),
-    update: async () => {},
+    update: async () => undefined,
     delete: async () => {},
   });
   reg.define(ISessionExportService, SessionExportService);
@@ -975,9 +949,7 @@ function liveSessionHandle(options: {
   };
 }
 
-function testAgentHandle(
-  agentWire: Pick<ReturnType<typeof stubAgentWire>, 'flush'>,
-): IAgentScopeHandle {
+function testAgentHandle(agentWire: Pick<ReturnType<typeof stubAgentWire>, 'flush'>): IAgentScopeHandle {
   return {
     id: 'main',
     kind: LifecycleScope.Agent,

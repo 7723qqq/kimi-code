@@ -38,9 +38,9 @@ function makeHost(options?: {
       k2: model('k2'),
       cheap: model('cheap'),
       // The v1 derived entry must never be selectable.
-      __secondary__: model('cheap'),
+      '__secondary__': model('cheap'),
       // The pool's reserved symbolic choice must never be selectable either.
-      primary: model('primary'),
+      'primary': model('primary'),
     } as Record<string, ModelAlias>,
     availableProviders: {},
     transcriptEntries: [],
@@ -51,7 +51,7 @@ function makeHost(options?: {
       transcriptEntries: [],
     },
     authFlow: {
-      refreshOAuthProviderModels: vi.fn(async () => {}),
+      refreshOAuthProviderModels: vi.fn(async () => undefined),
     },
     harness: {
       getConfig: vi.fn(async () => ({

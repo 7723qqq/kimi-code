@@ -91,6 +91,23 @@ describe('promptSubmissionSchema', () => {
     expect(parsed.plan_mode).toBe(false);
   });
 
+  it('preserves a client-chosen prompt_id through parsing', () => {
+    const parsed = promptSubmissionSchema.parse({
+      content: [{ type: 'text', text: 'hi' }],
+      prompt_id: 'client-prompt-1',
+    });
+    expect(parsed.prompt_id).toBe('client-prompt-1');
+  });
+
+  it('rejects an empty prompt_id', () => {
+    expect(
+      promptSubmissionSchema.safeParse({
+        content: [{ type: 'text', text: 'hi' }],
+        prompt_id: '',
+      }).success,
+    ).toBe(false);
+  });
+
   it('rejects empty content array', () => {
     expect(
       promptSubmissionSchema.safeParse({
@@ -167,7 +184,8 @@ describe('promptSubmitResultSchema', () => {
 
   it('rejects empty prompt_id', () => {
     expect(
-      promptSubmitResultSchema.safeParse({ prompt_id: '', user_message_id: 'msg' }).success,
+      promptSubmitResultSchema.safeParse({ prompt_id: '', user_message_id: 'msg' })
+        .success,
     ).toBe(false);
   });
 });
@@ -199,9 +217,8 @@ describe('promptListResponseSchema', () => {
 
 describe('promptSteerRequestSchema', () => {
   it('requires at least one prompt id', () => {
-    expect(promptSteerRequestSchema.parse({ prompt_ids: ['prompt_a'] }).prompt_ids).toEqual([
-      'prompt_a',
-    ]);
+    expect(promptSteerRequestSchema.parse({ prompt_ids: ['prompt_a'] }).prompt_ids)
+      .toEqual(['prompt_a']);
     expect(promptSteerRequestSchema.safeParse({ prompt_ids: [] }).success).toBe(false);
   });
 });

@@ -13,7 +13,6 @@ export default defineConfig({
     neverBundle: [
       '@moonshot-ai/kimi-code-oauth',
       '@moonshot-ai/kimi-telemetry',
-      '@moonshot-ai/kimi-i18n',
     ],
   },
 });

@@ -7,9 +7,10 @@
  * session State); the app-scope (server-level) Services live in their own
  * rail view (`AppServicesView`), not here.
  *
- * Everything here is fetch-on-demand (Load / Refresh buttons): no `/api/v2/ws`
- * event socket exists — no live panel refetches, no pending-interaction push,
- * no merged event log — so there is no live push to render.
+ * Everything here is fetch-on-demand (Load / Refresh buttons): the v2 event
+ * socket (`/api/v2/ws`) that used to push core/session/agent event streams
+ * — live panel refetches, the pending-interaction push, the merged event
+ * log — was removed server-side, so there is no live push to render.
  */
 
 import { ISessionMetadata } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
@@ -20,6 +21,7 @@ import { serviceByName } from '../channel';
 import { useConnection } from '../connection';
 import { t } from '../i18n';
 import { type AnyService } from '../panels';
+import { fetchAgentRuntimeBinding } from '../snapshots/api';
 import { fetchTranscriptPlan, type TranscriptPlanInfo } from '../transcript/api';
 import { ActionButton, Badge, ErrorLine } from '../ui';
 import { ScopePanels } from './ServicePanels';
@@ -57,6 +59,12 @@ export function Inspector({
 
   // Keep the selected agent valid as the registry changes.
   const effectiveAgent = agentIds.includes(agentId) ? agentId : agentIds[0]!;
+  const runtimeBinding = useQuery({
+    queryKey: ['agent-runtime-binding', klient.baseUrl, sessionId, effectiveAgent],
+    queryFn: () => fetchAgentRuntimeBinding(klient, sessionId as string, effectiveAgent),
+    enabled: sessionId !== null && ready,
+    refetchInterval: 1_000,
+  });
   useEffect(() => {
     if (effectiveAgent !== agentId) onAgentChange(effectiveAgent);
   }, [effectiveAgent, agentId, onAgentChange]);
@@ -131,6 +139,29 @@ export function Inspector({
           </div>
         ) : (
           <>
+            <div className="mb-3 rounded border border-neutral-800 bg-neutral-950/40 p-2 text-[11px]">
+              <div className="mb-1 flex items-center gap-2 font-semibold uppercase tracking-wider text-neutral-500">
+                Runtime binding
+                {runtimeBinding.data !== undefined ? (
+                  <Badge tone={runtimeBinding.data.available ? 'green' : 'red'}>
+                    {runtimeBinding.data.available ? 'available' : 'unavailable'}
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-1 font-mono">
+                <span className="text-neutral-600">workspace</span>
+                <span className="break-all text-neutral-300">{runtimeBinding.data?.binding.workspaceId ?? 'loading…'}</span>
+                <span className="text-neutral-600">runtime</span>
+                <span className="break-all text-neutral-300">{runtimeBinding.data?.binding.runtimeId ?? 'loading…'}</span>
+                <span className="text-neutral-600">generation</span>
+                <span className="break-all text-neutral-300">{runtimeBinding.data?.runtime?.generation ?? 'unavailable'}</span>
+                <span className="text-neutral-600">status</span>
+                <span className="text-neutral-300">{runtimeBinding.data?.runtime?.status ?? 'unavailable'}</span>
+                <span className="text-neutral-600">capabilities</span>
+                <span className="text-neutral-300">{runtimeBinding.data?.runtime?.capabilities.join(', ') ?? 'none'}</span>
+              </div>
+              {runtimeBinding.isError ? <ErrorLine error={runtimeBinding.error} /> : null}
+            </div>
             <PlanCard sessionId={sessionId} agentId={effectiveAgent} />
             <ScopePanels
               scope="agent"

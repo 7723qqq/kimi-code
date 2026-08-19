@@ -30,6 +30,7 @@ import type {
   GetConfigOptions,
   GetCronTasksResult,
   GlobalMcpServerAuthStatus,
+  GlobalMcpServerConfig,
   McpServerConfig,
   GoalSnapshot,
   GoalToolResult,
@@ -50,6 +51,7 @@ import type {
   SessionUsage,
   SessionTodoItem,
   PromptInput,
+  PromptSkillActivation,
   RenameSessionInput,
   ResumeSessionInput,
   ResumedSessionSummary,
@@ -67,6 +69,10 @@ const MAIN_AGENT_ID = 'main';
 export interface SessionPromptRpcInput {
   readonly sessionId: string;
   readonly input: PromptInput;
+}
+
+export interface SessionPromptWithSkillsRpcInput extends SessionPromptRpcInput {
+  readonly skills: readonly PromptSkillActivation[];
 }
 
 export interface SessionIdRpcInput {
@@ -369,6 +375,11 @@ export abstract class SDKRpcClientBase {
     return rpc.listGlobalMcpServers({});
   }
 
+  async getGlobalMcpServer(name: string): Promise<GlobalMcpServerConfig> {
+    const rpc = await this.getRpc();
+    return rpc.getGlobalMcpServer({ name });
+  }
+
   async listGlobalMcpServerAuthStatuses(): Promise<readonly GlobalMcpServerAuthStatus[]> {
     const rpc = await this.getRpc();
     return rpc.listGlobalMcpServerAuthStatuses({});
@@ -427,6 +438,17 @@ export abstract class SDKRpcClientBase {
       sessionId: input.sessionId,
       agentId,
       input: input.input,
+    });
+  }
+
+  async promptWithSkills(input: SessionPromptWithSkillsRpcInput): Promise<void> {
+    const agentId = this.interactiveAgentId;
+    const rpc = await this.getRpc();
+    return rpc.promptWithSkills({
+      sessionId: input.sessionId,
+      agentId,
+      input: input.input,
+      skills: input.skills,
     });
   }
 

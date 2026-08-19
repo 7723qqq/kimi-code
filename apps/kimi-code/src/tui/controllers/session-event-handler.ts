@@ -1167,7 +1167,6 @@ export class SessionEventHandler {
         );
         return;
       case 'pending':
-      case 'pending-approval':
         this.showMcpServerStatusSpinner(server.name);
         return;
     }

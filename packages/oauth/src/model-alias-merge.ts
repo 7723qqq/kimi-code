@@ -1,5 +1,5 @@
-import type { ManagedKimiModelAlias, ManagedKimiModelAliasOverrides } from './managed-kimi-code';
 import { isRecord } from './utils';
+import type { ManagedKimiModelAlias, ManagedKimiModelAliasOverrides } from './managed-kimi-code';
 
 export const MANAGED_KIMI_MODEL_FIELDS: ReadonlySet<string> = new Set([
   'provider',

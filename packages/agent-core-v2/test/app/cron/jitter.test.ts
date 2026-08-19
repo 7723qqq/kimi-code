@@ -176,10 +176,11 @@ describe('cron jitter config', () => {
 
   it('honors a custom one-shot cap', () => {
     const ideal = localDate(2024, 5, 1, 14, 0, 0);
-    const jittered = oneShotJitteredNextCronRunMs({ id: ID_A }, ideal, {
-      ...DEFAULT_CRON_JITTER_CONFIG,
-      oneShotMaxMs: 10_000,
-    });
+    const jittered = oneShotJitteredNextCronRunMs(
+      { id: ID_A },
+      ideal,
+      { ...DEFAULT_CRON_JITTER_CONFIG, oneShotMaxMs: 10_000 },
+    );
 
     expect(jittered - ideal).toBeGreaterThanOrEqual(-10_000);
     expect(jittered - ideal).toBeLessThanOrEqual(0);

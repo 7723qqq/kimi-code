@@ -19,7 +19,7 @@
 | `/secondary-model` | `/subagent-model` | 选择 subagent 的默认模型（写入 `[secondary_model] default_model`，详见[subagent 模型池](../configuration/config-files.md#subagent-模型池)）。在 subagent 模型池实验功能启用时可见 | 是 |
 | `/multi-llm` | `/multillm` | 配置 MultiLLM 并发提供方（Rust 引擎） | 是 |
 | `/settings` | `/config` | 打开 TUI 内的设置面板 | 是 |
-| `/experiments` | `/experimental` | 打开实验功能面板 | 否 |
+| `/experiments` | `/experimental` | 打开实验功能面板 | 是 |
 | `/permission` | — | 选择权限模式 | 是 |
 | `/editor` | — | 配置 `Ctrl-G` 调起的外部编辑器 | 是 |
 | `/theme` | — | 切换终端 UI 配色主题 | 是 |
@@ -53,7 +53,7 @@
 | `/plan [on\|off]` | — | 切换 Plan 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。单纯切换不会创建空计划文件 | 是 |
 | `/plan clear` | — | 清除当前 plan 方案 | 否 |
 | `/effort` | `/thinking` | 切换思考模式 | 是 |
-| `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。 | 否 |
+| `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。 | 是 |
 | `/swarm <task>` | — | 先开启 swarm mode，再把 `<task>` 作为普通提示词发送。如果该轮次正常完成，swarm mode 会自动关闭。若当前是 `manual` 权限模式，启动前会提示是否切换到 `auto` 或 `yolo`。 | 否 |
 | `/team <topic>` | — | 启动多 Agent 团队讨论 | 否 |
 | `/workflow <name> [<args>...]` | — | 运行或管理工作流（列表、状态、取消或按名称运行） | 是 |

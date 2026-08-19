@@ -1,41 +1,53 @@
 import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 
+import type { IHostProcess } from '#/os/interface/hostProcess';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IAgentTaskService } from '#/agent/task/task';
-import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
+import {
+  IAgentTaskService,
+} from '#/agent/task/task';
+import {
+  SubagentTask,
+  type SubagentHandle,
+} from '#/agent/tools/agent/subagent-task';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
-import type { IProcess } from '#/session/process/processRunner';
-
 import { createTestAgent, type TestAgentContext } from '../../harness';
 import { createAgentTaskPersistence } from './stubs';
 
 function registerProcess(
   manager: IAgentTaskService,
-  proc: IProcess,
+  proc: IHostProcess,
   command: string,
   description: string,
 ): string {
   return manager.registerTask(new ProcessTask(proc, command, description));
 }
 
-function agentTask(completion: Promise<{ result: string }>, description: string): SubagentTask {
+function agentTask(
+  completion: Promise<{ result: string }>,
+  description: string,
+): SubagentTask {
   const handle: SubagentHandle = {
     agentId: 'agent-child',
     profileName: 'coder',
     completion,
   };
-  return new SubagentTask(handle, description, new AbortController());
+  return new SubagentTask(
+    handle,
+    description,
+    new AbortController(),
+  );
 }
 
-function pendingProcess(): IProcess & { resolve(code: number): void } {
+function pendingProcess(): IHostProcess & { resolve(code: number): void } {
   let resolveWait: (code: number) => void = () => {};
   const waitPromise = new Promise<number>((resolve) => {
     resolveWait = resolve;
   });
   let currentExitCode: number | null = null;
   return {
+    _serviceBrand: undefined,
     stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
@@ -44,8 +56,8 @@ function pendingProcess(): IProcess & { resolve(code: number): void } {
       return currentExitCode;
     },
     wait: () => waitPromise,
-    kill: vi.fn().mockResolvedValue(undefined) as IProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IProcess['dispose'],
+    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
     resolve(code: number): void {
       currentExitCode = code;
       resolveWait(code);
@@ -85,7 +97,9 @@ describe('background task id format', () => {
     const completion = new Promise<{ result: string }>((resolve) => {
       resolveCompletion = resolve;
     });
-    const id = background.registerTask(agentTask(completion, 'agent task'));
+    const id = background.registerTask(
+      agentTask(completion, 'agent task'),
+    );
 
     expect(id).toMatch(/^agent-[0-9a-z]{8}$/);
     expect(background.getTask(id)).toMatchObject({ taskId: id, kind: 'agent' });

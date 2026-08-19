@@ -4,19 +4,28 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import type { TestInstantiationService } from '#/_base/di/test';
 import { UserCancellationError } from '#/_base/utils/abort';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import type { PermissionMode, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
+import type {
+  PermissionMode,
+  PermissionPolicyResult,
+} from '#/agent/permissionPolicy/types';
 import {
   IAgentPermissionRulesService,
   type PermissionApprovalResultRecord,
 } from '#/agent/permissionRules/permissionRules';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
-import { AgentToolApprovalService } from '#/agent/toolApproval/toolApprovalService';
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import {
+  AgentToolApprovalService,
+  PermissionApprovalRequested,
+  PermissionApprovalResolved,
+} from '#/agent/toolApproval/toolApprovalService';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import type { Event2 } from '#/app/event/event2';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { OrderedHookSlot } from '#/hooks';
 import type { ToolCall } from '#/kosong/contract/message';
 import {
   ISessionApprovalService,
@@ -24,10 +33,11 @@ import {
   type ApprovalResponse,
 } from '#/session/approval/approval';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { stubPermissionModeService } from '../permissionMode/stubs';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 const RETRY_GUIDANCE =
   "Try a different approach — don't retry the same call, don't attempt to bypass the restriction.";
@@ -93,10 +103,7 @@ describe('AgentToolApprovalService', () => {
           IAgentScopeContext,
           makeAgentScopeContext({ agentId: 'main', agentScope: 'main' }),
         );
-        reg.defineInstance(
-          IAgentPermissionModeService,
-          stubPermissionModeService(() => mode),
-        );
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
         reg.defineInstance(IAgentPermissionRulesService, {
           _serviceBrand: undefined,
           rules: [],
@@ -106,19 +113,24 @@ describe('AgentToolApprovalService', () => {
             recorded.push(record);
           },
         });
-        reg.defineInstance(
-          ISessionContext,
-          makeSessionContext({
-            sessionId: 'test-session',
-            workspaceId: 'test-workspace',
-            sessionDir: '/tmp/test-session',
-            sessionScope: 'sessions/test-workspace/test-session',
-            metaScope: 'sessions/test-workspace/test-session/session-meta',
-            cwd: '/tmp/test-session',
-          }),
-        );
+        reg.defineInstance(ISessionContext, makeSessionContext({
+          sessionId: 'test-session',
+          workspaceId: 'test-workspace',
+          sessionDir: '/tmp/test-session',
+          sessionScope: 'sessions/test-workspace/test-session',
+          metaScope: 'sessions/test-workspace/test-session/session-meta',
+          cwd: '/tmp/test-session',
+        }));
         reg.defineInstance(ITelemetryService, recordingTelemetry(records));
         reg.defineInstance(IEventBus, eventBus);
+        const dispatcher: IEventDispatcher = {
+          _serviceBrand: undefined,
+          hooks: { onDidRestore: new OrderedHookSlot() },
+          dispatch: async (event: Event2) => {
+            eventBus.publish(event);
+          },
+        } as unknown as IEventDispatcher;
+        reg.defineInstance(IEventDispatcher, dispatcher);
         reg.define(IAgentToolApprovalService, AgentToolApprovalService);
       },
       strict: true,
@@ -152,13 +164,16 @@ describe('AgentToolApprovalService', () => {
   } {
     const requested = vi.fn();
     const resolved = vi.fn();
-    disposables.add(eventBus.subscribe('permission.approval.requested', requested));
-    disposables.add(eventBus.subscribe('permission.approval.resolved', resolved));
+    disposables.add(eventBus.subscribe(PermissionApprovalRequested, requested));
+    disposables.add(eventBus.subscribe(PermissionApprovalResolved, resolved));
     return { requested, resolved };
   }
 
   function useSubagentScope(): void {
-    ix.set(IAgentScopeContext, makeAgentScopeContext({ agentId: 'sub-1', agentScope: 'sub-1' }));
+    ix.set(
+      IAgentScopeContext,
+      makeAgentScopeContext({ agentId: 'sub-1', agentScope: 'sub-1' }),
+    );
   }
 
   describe('resolvePermissionResolution', () => {
@@ -241,60 +256,29 @@ describe('AgentToolApprovalService', () => {
   });
 
   describe('requestToolApproval', () => {
-    it('fails closed when no approval broker is registered', async () => {
+    it('auto-approves when no approval broker is registered', async () => {
       const events = subscribeApprovalEvents();
       const svc = make();
-      const feedback = 'No approval surface is available; the request was denied.';
 
       await expect(
-        svc.requestToolApproval(
-          makeContext('Bash', { command: 'printf hi' }),
-          ask(),
-          'fallback-ask',
-        ),
-      ).resolves.toEqual({
-        veto: {
-          output: `Tool "Bash" was not run because the user rejected the approval request. Reason: ${feedback}`,
-          isError: true,
-        },
-      });
+        svc.requestToolApproval(makeContext('Bash', { command: 'printf hi' }), ask(), 'fallback-ask'),
+      ).resolves.toBeUndefined();
 
       expect(events.requested).not.toHaveBeenCalled();
-      expect(events.resolved).toHaveBeenCalledWith({
-        type: 'permission.approval.resolved',
-        sessionId: 'test-session',
-        agentId: 'main',
-        turnId: 1,
-        toolCallId: 'call-Bash',
-        toolName: 'Bash',
-        action: 'Approve Bash',
-        toolInput: { command: 'printf hi' },
-        display: {
-          kind: 'generic',
-          summary: 'Approve Bash',
-          detail: { command: 'printf hi' },
-        },
-        // Engine-minted interaction id (upstream #2911).
-        id: expect.any(String),
-        decision: 'rejected',
-        feedback,
-      });
+      expect(events.resolved).not.toHaveBeenCalled();
       expect(recorded).toHaveLength(1);
       expect(recorded[0]).toMatchObject({
         toolName: 'Bash',
         sessionApprovalRule: undefined,
-        result: { decision: 'rejected', feedback },
+        result: { decision: 'approved' },
       });
       expect(records).toContainEqual({
         event: 'permission_approval_result',
         properties: expect.objectContaining({
           policy_name: 'fallback-ask',
           tool_name: 'Bash',
-          permission_mode: 'manual',
-          result: 'no_approval_surface',
-          approval_surface: 'generic',
+          result: 'approved',
           session_cache_written: false,
-          has_feedback: false,
         }),
       });
     });
@@ -308,48 +292,48 @@ describe('AgentToolApprovalService', () => {
       const svc = make();
 
       await expect(
-        svc.requestToolApproval(
-          makeContext('Bash', { command: 'printf first' }),
-          ask(),
-          'fallback-ask',
-        ),
+        svc.requestToolApproval(makeContext('Bash', { command: 'printf first' }), ask(), 'fallback-ask'),
       ).resolves.toBeUndefined();
 
       expect(request).toHaveBeenCalledTimes(1);
-      expect(events.requested).toHaveBeenCalledWith({
-        type: 'permission.approval.requested',
-        id: expect.stringMatching(/^approval_/),
-        sessionId: 'test-session',
-        agentId: 'main',
-        turnId: 1,
-        toolCallId: 'call-Bash',
-        toolName: 'Bash',
-        action: 'Approve Bash',
-        toolInput: { command: 'printf first' },
-        display: {
-          kind: 'generic',
-          summary: 'Approve Bash',
-          detail: { command: 'printf first' },
-        },
-      });
-      expect(events.resolved).toHaveBeenCalledWith({
-        type: 'permission.approval.resolved',
-        id: expect.stringMatching(/^approval_/),
-        sessionId: 'test-session',
-        agentId: 'main',
-        turnId: 1,
-        toolCallId: 'call-Bash',
-        toolName: 'Bash',
-        action: 'Approve Bash',
-        toolInput: { command: 'printf first' },
-        display: {
-          kind: 'generic',
-          summary: 'Approve Bash',
-          detail: { command: 'printf first' },
-        },
-        decision: 'approved',
-        selectedLabel: 'Approve once',
-      });
+      expect(events.requested).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'permission.approval.requested',
+          id: expect.stringMatching(/^approval_/),
+          sessionId: 'test-session',
+          agentId: 'main',
+          turnId: 1,
+          toolCallId: 'call-Bash',
+          toolName: 'Bash',
+          action: 'Approve Bash',
+          toolInput: { command: 'printf first' },
+          display: {
+            kind: 'generic',
+            summary: 'Approve Bash',
+            detail: { command: 'printf first' },
+          },
+        }),
+      );
+      expect(events.resolved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'permission.approval.resolved',
+          id: expect.stringMatching(/^approval_/),
+          sessionId: 'test-session',
+          agentId: 'main',
+          turnId: 1,
+          toolCallId: 'call-Bash',
+          toolName: 'Bash',
+          action: 'Approve Bash',
+          toolInput: { command: 'printf first' },
+          display: {
+            kind: 'generic',
+            summary: 'Approve Bash',
+            detail: { command: 'printf first' },
+          },
+          decision: 'approved',
+          selectedLabel: 'Approve once',
+        }),
+      );
     });
 
     it('uses the execution description and display when provided', async () => {

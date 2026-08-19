@@ -9,7 +9,9 @@ import { buildPluginMarketplaceCdn } from '../../scripts/build-plugin-marketplac
 const tempRoots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(
+    tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
 });
 
 describe('buildPluginMarketplaceCdn', () => {

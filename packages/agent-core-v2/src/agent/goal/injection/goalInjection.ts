@@ -1,11 +1,9 @@
-import { Service } from '#/_base/di/service';
-import { renderPrompt } from '#/_base/utils/render-prompt';
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import type { GoalSnapshot } from '#/agent/goal/types';
-
+import { Service } from "#/_base/di/service";
+import { renderPrompt } from "#/_base/utils/render-prompt";
+import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import GOAL_ACTIVE_REMINDER from './goal-active-reminder.md?raw';
 import GOAL_BLOCKED_REMINDER from './goal-blocked-reminder.md?raw';
-import GOAL_BUDGET_LIMITED_REMINDER from './goal-budget-limited-reminder.md?raw';
 import GOAL_PAUSED_REMINDER from './goal-paused-reminder.md?raw';
 
 export interface GoalInjectionOptions {
@@ -29,7 +27,6 @@ export class GoalInjection extends Service {
     if (goal.status === 'active') return buildGoalReminder(goal);
     if (goal.status === 'blocked') return buildBlockedNote(goal);
     if (goal.status === 'paused') return buildPausedNote(goal);
-    if (goal.status === 'budget_limited') return buildBudgetLimitedNote(goal);
     return undefined;
   }
 }
@@ -52,15 +49,6 @@ function buildPausedNote(goal: GoalSnapshot): string {
     reason_suffix: reasonSuffix(goal),
     objective: escapeUntrustedText(goal.objective),
     completion_criterion_block: completionCriterionBlock(goal),
-  });
-}
-
-function buildBudgetLimitedNote(goal: GoalSnapshot): string {
-  return renderPrompt(GOAL_BUDGET_LIMITED_REMINDER, {
-    objective: escapeUntrustedText(goal.objective),
-    completion_criterion_block: completionCriterionBlock(goal),
-    status: goal.status,
-    progress: `${goal.turnsUsed} continuation turns, ${goal.tokensUsed} tokens, ${formatElapsed(goal.wallClockMs)} elapsed`,
   });
 }
 
@@ -125,7 +113,10 @@ function maxBudgetFraction(goal: GoalSnapshot): number {
 }
 
 function escapeUntrustedText(text: string): string {
-  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 function formatElapsed(ms: number): string {

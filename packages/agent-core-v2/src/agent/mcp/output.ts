@@ -1,44 +1,5 @@
-/**
- * MCP tool-call result → ExecutableTool output pipeline.
- *
- * Owns the full path from "MCP protocol content blocks" to "what the agent
- * loop feeds back to the model":
- *  1. Convert each {@link MCPContentBlock} to a kosong `ContentPart`
- *     (dropping unsupported shapes).
- *  2. Wrap media-only outputs in `<mcp_tool_result name="…">` tags so the
- *     model can attribute binary output when several tools return media.
- *  3. Serialize `structuredContent` and server `_meta` into a trailing
- *     `<mcp-structured-result>` text part — appended after the media wrap so
- *     a media-only result keeps its attribution tags, and before the text
- *     budget so oversized payloads stay bounded. Literal closing tags inside
- *     the serialized payload are stripped so server data cannot fake an
- *     early end of the block. `_meta` keys with a protocol-reserved prefix
- *     (per the spec's key-name rules: a `modelcontextprotocol` or `mcp`
- *     label followed by at least one more label, as in
- *     `modelcontextprotocol.io/…` or `tools.mcp.com/…`, but not a vendor
- *     namespace like `com.example.mcp/…`) are dropped first: they carry
- *     host/protocol plumbing rather than model-facing data, while unprefixed
- *     and vendor-prefixed keys pass through because their semantics belong
- *     to the server. Non-serialisable payloads drop the whole block rather
- *     than failing the call.
- *  4. Apply the 100K text/think character budget to the tool's own text.
- *     This runs BEFORE captions exist, so a chatty tool (page text + a
- *     screenshot) can never evict or slice the compression caption — that
- *     would silently reintroduce the very degradation the caption reports.
- *  5. Compress oversized inline images, announcing each compression with a
- *     caption (original vs. sent size, readback path to the persisted
- *     original) so downsampling is never silent. The captions ride the
- *     result's `note` side channel — projected to the model at fold time, but
- *     kept out of `output` so UIs never render them.
- *  6. Apply the per-part 10 MB binary cap: oversized binary parts
- *     (image/audio/video URLs) collapse to a notice, so a single
- *     screenshot cannot evict every text part.
- *  7. Collapse a single-text-part result to a plain string output; otherwise
- *     emit the `ContentPart[]` as-is.
- *
- * `mcpResultToExecutableOutput` is the single entry point; the per-step
- * helpers stay private so callers cannot bypass the limits.
- */
+import type { ContentPart } from '#/kosong/contract/message';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
 
 import { compressImageContentParts } from '#/agent/media/image-compress';
 import {
@@ -46,8 +7,6 @@ import {
   isModelAcceptedImageMime,
 } from '#/agent/media/image-format-policy';
 import { persistOriginalImage } from '#/agent/media/image-originals';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ContentPart } from '#/kosong/contract/message';
 import type { MCPContentBlock, MCPToolResult } from '#/mcpCore/types';
 
 export interface McpOutputOptions {
@@ -224,7 +183,9 @@ function serializeStructuredExtras(extras: Record<string, unknown>): string | un
   }
 }
 
-function stripReservedMetaKeys(meta: Record<string, unknown>): Record<string, unknown> | undefined {
+function stripReservedMetaKeys(
+  meta: Record<string, unknown>,
+): Record<string, unknown> | undefined {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(meta)) {
     if (!isReservedMetaKey(key)) {
@@ -239,7 +200,8 @@ function isReservedMetaKey(key: string): boolean {
   if (slash <= 0) return false;
   const labels = key.slice(0, slash).split('.');
   return labels.some(
-    (label, i) => (label === 'modelcontextprotocol' || label === 'mcp') && i < labels.length - 1,
+    (label, i) =>
+      (label === 'modelcontextprotocol' || label === 'mcp') && i < labels.length - 1,
   );
 }
 

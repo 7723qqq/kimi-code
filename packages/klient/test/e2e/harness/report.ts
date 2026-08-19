@@ -53,7 +53,11 @@ export interface TestResultReportEvent extends ReportEventBase {
   error?: unknown;
 }
 
-export type ReportEvent = LogReportEvent | HttpReportEvent | WsReportEvent | TestResultReportEvent;
+export type ReportEvent =
+  | LogReportEvent
+  | HttpReportEvent
+  | WsReportEvent
+  | TestResultReportEvent;
 
 export interface StoredReportEvent extends ReportEventBase {
   kind: ReportEventKind;
@@ -192,9 +196,7 @@ export async function fetchWithReport(
 }
 
 export function defaultReportDir(): string {
-  return resolve(
-    process.env['KIMI_SERVER_E2E_REPORT_DIR'] ?? join(process.cwd(), 'reports', 'latest'),
-  );
+  return resolve(process.env['KIMI_SERVER_E2E_REPORT_DIR'] ?? join(process.cwd(), 'reports', 'latest'));
 }
 
 function normalizeEvent(event: ReportEvent): StoredReportEvent {
@@ -202,11 +204,7 @@ function normalizeEvent(event: ReportEvent): StoredReportEvent {
   return {
     ...stored,
     at: event.at ?? new Date().toISOString(),
-    caseName:
-      event.caseName ??
-      getActiveReportCase() ??
-      process.env['KIMI_SERVER_E2E_CASE_NAME'] ??
-      'unassigned',
+    caseName: event.caseName ?? getActiveReportCase() ?? process.env['KIMI_SERVER_E2E_CASE_NAME'] ?? 'unassigned',
     pid: process.pid,
     ordinal: ordinal++,
   };
@@ -476,10 +474,9 @@ function renderEvent(rendered: RenderEvent): string {
   const left = eventLaneContent(rendered.event, 'left');
   const right = eventLaneContent(rendered.event, 'right');
   const center = lifecycleLaneContent(rendered.event);
-  const rowClass =
-    rendered.event.kind === 'ws' && rendered.event.direction === 'lifecycle'
-      ? `${rendered.event.kind} lifecycle`
-      : rendered.event.kind;
+  const rowClass = rendered.event.kind === 'ws' && rendered.event.direction === 'lifecycle'
+    ? `${rendered.event.kind} lifecycle`
+    : rendered.event.kind;
   return `<li class="swim-row ${escapeHtml(rowClass)}" data-event-id="${escapeHtml(rendered.id)}" data-case-id="${escapeHtml(rendered.caseId)}">
   <div class="time">#${rendered.stepIndex}</div>
   <div class="lane lane-left">${left}</div>
@@ -588,10 +585,7 @@ function escapeHtml(value: unknown): string {
     .replaceAll("'", '&#39;');
 }
 
-function fetchMethod(
-  input: Parameters<typeof fetch>[0],
-  init: Parameters<typeof fetch>[1],
-): string {
+function fetchMethod(input: Parameters<typeof fetch>[0], init: Parameters<typeof fetch>[1]): string {
   if (init?.method) return init.method.toUpperCase();
   if (input instanceof Request) return input.method.toUpperCase();
   return 'GET';

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { evaluateCacheHint, formatIdleDuration } from '#/tui/utils/cache-hint';
 import type { CacheHintConfig } from '#/utils/cache-hint-config';
+import { evaluateCacheHint, formatIdleDuration } from '#/tui/utils/cache-hint';
 
 const CONFIG: CacheHintConfig = {
   version: 1,
@@ -52,7 +52,9 @@ describe('evaluateCacheHint', () => {
   });
 
   it('skips at exactly cache_duration (strictly-greater rule)', () => {
-    expect(evaluateCacheHint(input({ lastActiveAt: NOW - 600_000 })).kind).toBe('skip');
+    expect(
+      evaluateCacheHint(input({ lastActiveAt: NOW - 600_000 })).kind,
+    ).toBe('skip');
   });
 
   it('skips below the token threshold', () => {

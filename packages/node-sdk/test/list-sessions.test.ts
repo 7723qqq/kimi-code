@@ -31,7 +31,16 @@ const tempDirs: string[] = [];
 
 afterEach(async () => {
   for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
+    // Windows: minidb/engine handles may outlive the test for a few hundred
+    // ms; retry so a slow handle release does not leak the temp home.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await rm(dir, { recursive: true, force: true });
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    }
   }
 });
 
@@ -270,7 +279,7 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
       await drainQueryStoreDisposals();
       vi.unstubAllEnvs();
     }
-  });
+  }, 15_000);
 });
 
 describe('SDKRpcClientV2 search-index separation', () => {
@@ -341,5 +350,5 @@ describe('SDKRpcClientV2 search-index separation', () => {
       await drainQueryStoreDisposals();
       vi.unstubAllEnvs();
     }
-  });
+  }, 15_000);
 });

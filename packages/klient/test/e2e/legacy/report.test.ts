@@ -1,13 +1,11 @@
-import { EventEmitter } from 'node:events';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
-import type { WebSocket as WsWebSocket } from 'ws';
+import { WebSocket as WsWebSocket } from 'ws';
 
-import { DaemonClient } from '../harness/client.js';
-import { HttpClient } from '../harness/http.js';
 import {
   fetchWithReport,
   readReportEvents,
@@ -16,6 +14,8 @@ import {
   setActiveReportCase,
   writeHtmlReport,
 } from '../harness/report.js';
+import { DaemonClient } from '../harness/client.js';
+import { HttpClient } from '../harness/http.js';
 import { WsClient } from '../harness/ws.js';
 import { createCaseLogger } from './log';
 
@@ -112,15 +112,9 @@ describe('server-e2e report', () => {
     expect(html).toContain('<div class="time">#1</div>');
     expect(html).toContain('<div class="time">#2</div>');
     expect(html).not.toContain('<div class="time">06:');
-    expect(html).toContain(
-      '.report { display: grid; grid-template-columns: minmax(680px, 1fr) minmax(320px, 34vw);',
-    );
-    expect(html).toContain(
-      '.lane-head { display: grid; grid-template-columns: 38px minmax(0, 1fr) 22px minmax(0, 1fr);',
-    );
-    expect(html).toContain(
-      '.swim-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) 22px minmax(0, 1fr); align-items: start; min-height: 30px; }',
-    );
+    expect(html).toContain('.report { display: grid; grid-template-columns: minmax(680px, 1fr) minmax(320px, 34vw);');
+    expect(html).toContain('.lane-head { display: grid; grid-template-columns: 38px minmax(0, 1fr) 22px minmax(0, 1fr);');
+    expect(html).toContain('.swim-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) 22px minmax(0, 1fr); align-items: start; min-height: 30px; }');
     expect(html).toContain('border-radius: 0');
     expect(html).toContain('<li class="swim-row ws lifecycle"');
     expect(html).toContain('class="event-card ws life-event"');
@@ -134,25 +128,15 @@ describe('server-e2e report', () => {
     expect(html).toContain('scrollIntoView');
     expect(html).toContain('function setActiveEvent(eventId, options = {})');
     expect(html).toContain('if (!options.scrollPeer) return;');
-    expect(html).toContain(
-      'setActiveEvent(nearest(rows, eventScroll)?.dataset.eventId, { scrollPeer: false });',
-    );
-    expect(html).toContain(
-      'setActiveEvent(nearest(details, detailScroll)?.dataset.eventId, { scrollPeer: false });',
-    );
-    expect(html).toContain(
-      "row.addEventListener('click', () => setActiveEvent(row.dataset.eventId, { scrollPeer: true, peer: 'detail' }));",
-    );
-    expect(html).toContain(
-      "detail.addEventListener('click', () => setActiveEvent(detail.dataset.eventId, { scrollPeer: true, peer: 'timeline' }));",
-    );
+    expect(html).toContain("setActiveEvent(nearest(rows, eventScroll)?.dataset.eventId, { scrollPeer: false });");
+    expect(html).toContain("setActiveEvent(nearest(details, detailScroll)?.dataset.eventId, { scrollPeer: false });");
+    expect(html).toContain("row.addEventListener('click', () => setActiveEvent(row.dataset.eventId, { scrollPeer: true, peer: 'detail' }));");
+    expect(html).toContain("detail.addEventListener('click', () => setActiveEvent(detail.dataset.eventId, { scrollPeer: true, peer: 'timeline' }));");
     expect(html).not.toContain('syncing');
     expect(html).not.toContain("if (source === 'timeline')");
     expect(html).not.toContain("if (source === 'detail')");
     expect(html).not.toContain('WS -- open');
-    expect(html).not.toMatch(
-      /<div class="lane lane-right"><button class="event-card ws" type="button">\s*<span class="event-title">WS open<\/span>/,
-    );
+    expect(html).not.toMatch(/<div class="lane lane-right"><button class="event-card ws" type="button">\s*<span class="event-title">WS open<\/span>/);
     expect(html).not.toContain('<details');
   });
 
@@ -319,7 +303,10 @@ describe('server-e2e report', () => {
     const reportDir = tmpReportDir();
     resetReportDir(reportDir);
 
-    await Promise.all([recordLater(reportDir, 'case A', 20), recordLater(reportDir, 'case B', 0)]);
+    await Promise.all([
+      recordLater(reportDir, 'case A', 20),
+      recordLater(reportDir, 'case B', 0),
+    ]);
 
     const events = readReportEvents(reportDir).filter((event) => event.kind === 'log');
     expect(events).toEqual(
@@ -433,11 +420,13 @@ describe('server-e2e report', () => {
       }),
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const hello = ws?.sent
-      .map((raw) => JSON.parse(raw) as { type: string; id?: string })
+    const hello = ws?.sent.map((raw) => JSON.parse(raw) as { type: string; id?: string })
       .find((frame) => frame.type === 'client_hello');
     expect(hello?.id).toBeDefined();
-    ws?.emit('message', JSON.stringify({ type: 'ack', id: hello?.id, code: 0, payload: {} }));
+    ws?.emit(
+      'message',
+      JSON.stringify({ type: 'ack', id: hello?.id, code: 0, payload: {} }),
+    );
     await connect;
     await client.close();
 

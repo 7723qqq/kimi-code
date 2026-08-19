@@ -1,13 +1,7 @@
-/**
- * Low-level durable file-write primitives — atomic writes plus file and
- * directory fsync helpers.
- */
-
 import { randomBytes } from 'node:crypto';
 import { closeSync, fsyncSync, openSync } from 'node:fs';
 import * as nodeFs from 'node:fs';
 import { open, rename, unlink } from 'node:fs/promises';
-
 import { dirname } from 'pathe';
 
 export async function syncDir(dirPath: string): Promise<void> {
@@ -30,32 +24,6 @@ export function syncDirSync(dirPath: string): void {
   }
 }
 
-/**
- * Rename `from` over `to` atomically. Modern Node's `rename` on Windows
- * replaces an existing target (MoveFileEx with MOVEFILE_REPLACE_EXISTING), so
- * a plain rename keeps the write atomic — there is never a moment where `to`
- * is missing. Only fall back to unlink-then-rename when the filesystem refuses
- * to overwrite (older runtimes / exotic filesystems), which reintroduces a tiny
- * non-atomic window as a last resort rather than failing the write outright.
- */
-async function renameOver(from: string, to: string): Promise<void> {
-  try {
-    await rename(from, to);
-    return;
-  } catch (error) {
-    if (process.platform !== 'win32') throw error;
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== 'EEXIST' && code !== 'EPERM') throw error;
-  }
-  try {
-    await unlink(to);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT') throw error;
-  }
-  await rename(from, to);
-}
-
 export async function writeFileAtomicDurable(
   filePath: string,
   content: string | Uint8Array,
@@ -70,14 +38,23 @@ export async function writeFileAtomicDurable(
     } finally {
       await fh.close();
     }
-    await renameOver(tmpPath, filePath);
+    if (process.platform === 'win32') {
+      try {
+        await unlink(filePath);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ENOENT') throw error;
+      }
+    }
+    await rename(tmpPath, filePath);
     renamed = true;
     await syncDir(dirname(filePath));
   } finally {
     if (!renamed) {
       try {
         await unlink(tmpPath);
-      } catch {}
+      } catch {
+      }
     }
   }
 }
@@ -99,25 +76,39 @@ export async function atomicWrite(
   content: string | Uint8Array,
   _syncOverride?: (fd: number) => Promise<void>,
   mode?: number,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const hex = randomBytes(4).toString('hex');
   const tmpPath = `${filePath}.tmp.${process.pid}.${hex}`;
   let renamed = false;
   try {
     const fh = await open(tmpPath, 'w', mode);
     try {
+      signal?.throwIfAborted();
       await fh.writeFile(content);
+      signal?.throwIfAborted();
       await (_syncOverride ?? syncFd)(fh.fd);
     } finally {
       await fh.close();
     }
-    await renameOver(tmpPath, filePath);
+    if (process.platform === 'win32') {
+      try {
+        await unlink(filePath);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ENOENT') throw error;
+      }
+    }
+    signal?.throwIfAborted();
+    await rename(tmpPath, filePath);
     renamed = true;
   } finally {
     if (!renamed) {
       try {
         await unlink(tmpPath);
-      } catch {}
+      } catch {
+      }
     }
   }
 }
@@ -126,29 +117,52 @@ export async function atomicWriteStream(
   filePath: string,
   source: AsyncIterable<Uint8Array>,
   mode?: number,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const hex = randomBytes(4).toString('hex');
   const tmpPath = `${filePath}.tmp.${process.pid}.${hex}`;
   let renamed = false;
+  const destroyable = source as AsyncIterable<Uint8Array> & {
+    destroy?(error?: Error): void;
+  };
+  const onAbort = (): void => {
+    const reason = signal?.reason instanceof Error ? signal.reason : undefined;
+    destroyable.destroy?.(reason);
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
   try {
     const fh = await open(tmpPath, 'w', mode);
     try {
       for await (const chunk of source) {
+        signal?.throwIfAborted();
         if (chunk.byteLength > 0) {
           await fh.writeFile(chunk);
         }
       }
+      signal?.throwIfAborted();
       await fh.sync();
     } finally {
       await fh.close();
     }
-    await renameOver(tmpPath, filePath);
+    if (process.platform === 'win32') {
+      try {
+        await unlink(filePath);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ENOENT') throw error;
+      }
+    }
+    signal?.throwIfAborted();
+    await rename(tmpPath, filePath);
     renamed = true;
   } finally {
+    signal?.removeEventListener('abort', onAbort);
     if (!renamed) {
       try {
         await unlink(tmpPath);
-      } catch {}
+      } catch {
+      }
     }
   }
 }

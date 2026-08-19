@@ -13,15 +13,10 @@ const UpdateCacheSchema = z
     source: z.literal('cdn'),
     checkedAt: z.string().min(1).nullable(),
     latest: z.string().min(1).nullable(),
-    manifest: z.preprocess(
-      (value) => {
-        const parsed = UpdateManifestSchema.nullable().safeParse(
-          value === undefined ? null : value,
-        );
-        return parsed.success ? parsed.data : null;
-      },
-      z.union([UpdateManifestSchema, z.null()]),
-    ),
+    manifest: z.preprocess((value) => {
+      const parsed = UpdateManifestSchema.nullable().safeParse(value === undefined ? null : value);
+      return parsed.success ? parsed.data : null;
+    }, z.union([UpdateManifestSchema, z.null()])),
   })
   .strict();
 

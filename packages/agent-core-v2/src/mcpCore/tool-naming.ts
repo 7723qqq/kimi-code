@@ -1,7 +1,3 @@
-/**
- * `mcpCore` domain — qualified `mcp__server__tool` name sanitizing and hashing.
- */
-
 const MCP_NAME_PREFIX = 'mcp__';
 const MCP_NAME_SEPARATOR = '__';
 
@@ -22,10 +18,8 @@ export function qualifyMcpToolName(serverName: string, toolName: string): string
 
 function stableHash8(input: string): string {
   let hash = 0x811c9dc5;
-  // Iterate by code point so surrogate pairs contribute both halves
-  // (``codePointAt(i)`` skips the low surrogate when i is on a pair).
-  for (const ch of input) {
-    hash ^= ch.codePointAt(0)!;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.codePointAt(i)!;
     hash = Math.trunc(Math.imul(hash, 0x01000193));
   }
   return hash.toString(16).padStart(8, '0');

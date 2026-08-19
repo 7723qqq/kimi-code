@@ -11,6 +11,7 @@
  * writes are recorded as coverage gaps (same semantics as Reasonix).
  */
 
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
 
@@ -22,6 +23,7 @@ import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
+import { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -33,17 +35,16 @@ export const CHECKPOINT_MAX_FILE_BYTES = 32 * 1024 * 1024;
 /** Checkpoint groups kept per session (oldest evicted on overflow). */
 export const CHECKPOINT_MAX_TURNS = 20;
 
-export interface CheckpointRestoredEvent {
-  readonly type: 'checkpoint.restored';
+export interface CheckpointRestoredPayload {
   readonly restored: readonly string[];
   readonly conflicts: readonly { readonly path: string; readonly reason: string }[];
 }
 
-declare module '#/app/event/eventBus' {
-  interface DomainEventMap {
-    'checkpoint.restored': CheckpointRestoredEvent;
-  }
+export class CheckpointRestored extends Event2<CheckpointRestoredPayload> {
+  static override readonly type = 'checkpoint.restored';
+  static override readonly observable = true;
 }
+export interface CheckpointRestored extends CheckpointRestoredPayload {}
 
 export interface IAgentCheckpointService {
   readonly _serviceBrand: undefined;
@@ -209,7 +210,7 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
       this.checkpoints.delete(turnId);
     }
     if (restored.length > 0 || conflicts.length > 0) {
-      this.eventBus.publish({ type: 'checkpoint.restored', restored, conflicts });
+      this.eventBus.publish(new CheckpointRestored({ restored, conflicts }));
     }
   }
 

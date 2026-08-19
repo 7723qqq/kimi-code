@@ -13,7 +13,7 @@
  * fields pass through") and avoiding double-work since the server emits the
  * shapes already.
  */
-import type { WebSocket as WsWebSocket } from 'ws';
+import { WebSocket as WsWebSocket } from 'ws';
 
 import { recordReportEvent } from './report.js';
 
@@ -134,9 +134,7 @@ export class WsClient {
         }
       }
       if (this._closed) {
-        reject(
-          new Error(`ws closed before matching frame arrived (code=${this._closeReason?.code})`),
-        );
+        reject(new Error(`ws closed before matching frame arrived (code=${this._closeReason?.code})`));
         return;
       }
       const waiter: PendingWaiter = {
@@ -161,12 +159,12 @@ export class WsClient {
   }
 
   /** Send a control message and wait for its `ack` (matched by `id`). */
-  async sendAndAwaitAck(
-    frame: { type: string; id: string; payload: unknown },
-    timeoutMs: number,
-  ): Promise<AnyFrame> {
+  async sendAndAwaitAck(frame: { type: string; id: string; payload: unknown }, timeoutMs: number): Promise<AnyFrame> {
     this.send(frame);
-    return this.waitForFrame((f) => f.type === 'ack' && f.id === frame.id, timeoutMs);
+    return this.waitForFrame(
+      (f) => f.type === 'ack' && f.id === frame.id,
+      timeoutMs,
+    );
   }
 
   /** Resolves when the socket closes (or immediately if already closed). */
@@ -189,15 +187,15 @@ export class WsClient {
     try {
       const raw = typeof data === 'string' ? data : String(data);
       frame = JSON.parse(raw) as AnyFrame;
-    } catch (error) {
-      this.opts.logger('warn', 'ws: dropped non-JSON frame', { error });
+    } catch (err) {
+      this.opts.logger('warn', 'ws: dropped non-JSON frame', { err: String(err) });
       recordReportEvent(
         {
           kind: 'ws',
           direction: 'in',
           url: this.opts.url,
           message: 'dropped non-JSON frame',
-          error: errorForReport(error),
+          error: errorForReport(err),
         },
         { reportDir: this.opts.reportDir },
       );
@@ -217,8 +215,8 @@ export class WsClient {
     for (const sub of this._subscribers) {
       try {
         sub(frame);
-      } catch (error) {
-        this.opts.logger('warn', 'ws: subscriber threw', { error });
+      } catch (err) {
+        this.opts.logger('warn', 'ws: subscriber threw', { err: String(err) });
       }
     }
 
@@ -229,8 +227,8 @@ export class WsClient {
       let matches = false;
       try {
         matches = w.match(frame);
-      } catch (error) {
-        this.opts.logger('warn', 'ws: waiter predicate threw', { error });
+      } catch (err) {
+        this.opts.logger('warn', 'ws: waiter predicate threw', { err: String(err) });
       }
       if (matches) {
         this._waiters.splice(i, 1);

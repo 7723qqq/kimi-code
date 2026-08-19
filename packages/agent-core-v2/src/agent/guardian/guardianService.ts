@@ -11,12 +11,14 @@
  * rubber-stamping.
  */
 
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import type { Message } from '#/kosong/contract/message';
@@ -30,8 +32,7 @@ export const GUARDIAN_TRANSCRIPT_CHARS = 4000;
 /** Cap on tool arguments serialized into the review prompt. */
 export const GUARDIAN_ARGS_CHARS = 2000;
 
-export interface GuardianAssessmentEvent {
-  readonly type: 'guardian.assessment';
+export interface GuardianAssessmentPayload {
   readonly toolName: string;
   readonly outcome: 'allow' | 'deny' | 'bypass';
   readonly riskLevel?: string;
@@ -39,11 +40,11 @@ export interface GuardianAssessmentEvent {
   readonly circuitOpen: boolean;
 }
 
-declare module '#/app/event/eventBus' {
-  interface DomainEventMap {
-    'guardian.assessment': GuardianAssessmentEvent;
-  }
+export class GuardianAssessment extends Event2<GuardianAssessmentPayload> {
+  static override readonly type = 'guardian.assessment';
+  static override readonly observable = true;
 }
+export interface GuardianAssessment extends GuardianAssessmentPayload {}
 
 export type GuardianVerdict =
   | {
@@ -73,7 +74,7 @@ const GUARDIAN_SYSTEM_PROMPT = [
   'write outside the workspace, or run obviously destructive commands.',
 ].join(' ');
 
-interface GuardianAssessment {
+interface ParsedGuardianAssessment {
   readonly riskLevel: string;
   readonly userAuthorization: string;
   readonly outcome: string;
@@ -158,14 +159,15 @@ export class GuardianService extends Disposable implements IAgentGuardianService
     if (verdict.verdict === 'deny') this.recordDenial();
     else this.recordAllow();
 
-    this.eventBus.publish({
-      type: 'guardian.assessment',
-      toolName: ctx.toolCall.name,
-      outcome: verdict.verdict,
-      riskLevel: verdict.riskLevel,
-      rationale: verdict.rationale,
-      circuitOpen: this._circuitOpen,
-    });
+    this.eventBus.publish(
+      new GuardianAssessment({
+        toolName: ctx.toolCall.name,
+        outcome: verdict.verdict,
+        riskLevel: verdict.riskLevel,
+        rationale: verdict.rationale,
+        circuitOpen: this._circuitOpen,
+      }),
+    );
     return verdict;
   }
 
@@ -231,7 +233,7 @@ export class GuardianService extends Disposable implements IAgentGuardianService
  * `{...}` block and reads the four fields; anything else yields undefined
  * (the caller decides the fallback).
  */
-export function parseAssessment(text: string): GuardianAssessment | undefined {
+export function parseAssessment(text: string): ParsedGuardianAssessment | undefined {
   const start = text.indexOf('{');
   if (start < 0) return undefined;
   let depth = 0;

@@ -1,25 +1,13 @@
-/**
- * `tools` domain — `SelectToolsTool` implementation (the `select_tools`
- * tool).
- *
- * The built-in tool that lets the model load dynamic schemas named in
- * loadable-tools announcements. Delegates loading to
- * `IAgentToolSelectService` (`toolSelect` domain); offered by the shaped tool
- * view only while the disclosure gate is open.
- *
- * Registered via the module-level `registerAgentToolService(ISelectToolsTool,
- * SelectToolsTool)` at the bottom of this file — the same "import = register"
- * pattern used by every agent tool. Bound at Agent scope.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { IAgentToolSelectService, SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IAgentToolSelectService, SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 
-import { ISelectToolsTool, SelectToolsInputSchema, type SelectToolsInput } from './select-tools';
+import {
+  ISelectToolsTool,
+  SelectToolsInputSchema,
+  type SelectToolsInput,
+} from './select-tools';
 
 const DESCRIPTION =
   'Load one or more tools by name so you can call them. ' +
@@ -34,7 +22,9 @@ export class SelectToolsTool implements ISelectToolsTool {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SelectToolsInputSchema);
 
-  constructor(@IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService) {}
+  constructor(
+    @IAgentToolSelectService private readonly toolSelect: IAgentToolSelectService,
+  ) {}
 
   resolveExecution(args: SelectToolsInput): ToolExecution {
     return {
@@ -43,7 +33,7 @@ export class SelectToolsTool implements ISelectToolsTool {
       execute: async () => {
         if (!this.toolSelect.enabled()) {
           return {
-            output: t('toolsV2.selectTools.notAvailable'),
+            output: 'select_tools is not available for the current model.',
             isError: true,
           };
         }
@@ -64,7 +54,4 @@ export class SelectToolsTool implements ISelectToolsTool {
   }
 }
 
-registerAgentToolService(ISelectToolsTool, SelectToolsTool, {
-  name: SELECT_TOOLS_TOOL_NAME,
-  domain: 'toolSelect',
-});
+registerAgentToolService(ISelectToolsTool, SelectToolsTool, { name: SELECT_TOOLS_TOOL_NAME, domain: 'toolSelect' });

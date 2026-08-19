@@ -1,11 +1,3 @@
-/**
- * `todo` domain — pure stale-todo reminder logic.
- *
- * Computes the `todo_list_reminder` context injection from the agent's context
- * history (turns since the last `TodoList` write / last reminder) and the
- * current session todo list. Pure — no scoped state.
- */
-
 import type { ContextMessage } from '#/agent/contextMemory/types';
 
 import { TODO_LIST_TOOL_NAME, type TodoItem } from './todoItem';
@@ -28,8 +20,6 @@ interface TodoListReminderTurnCounts {
 
 export function todoListStaleReminder(input: TodoListReminderInput): string | undefined {
   if (!input.active) return undefined;
-  // Nothing to remind about when there are no tracked todos.
-  if (input.todos.length === 0) return undefined;
 
   const counts = getTodoListReminderTurnCounts(input.history);
   if (
@@ -92,7 +82,8 @@ function hasTodoListWrite(message: ContextMessage): boolean {
 
 function isTodoListReminder(message: ContextMessage): boolean {
   return (
-    message.origin?.kind === 'injection' && message.origin.variant === TODO_LIST_REMINDER_VARIANT
+    message.origin?.kind === 'injection' &&
+    message.origin.variant === TODO_LIST_REMINDER_VARIANT
   );
 }
 
@@ -109,5 +100,5 @@ function renderTodoListReminder(todos: readonly TodoItem[]): string {
 }
 
 function renderTodoItems(todos: readonly TodoItem[]): string {
-  return todos.map((todo) => `${todo.id}. [${todo.status}] ${todo.title}`).join('\n');
+  return todos.map((todo, index) => `${index + 1}. [${todo.status}] ${todo.title}`).join('\n');
 }

@@ -1,4 +1,4 @@
-import { createDecorator } from '#/_base/di/instantiation';
+import { createDecorator } from "#/_base/di/instantiation";
 
 import type { UndoCut } from './contextOps';
 import type { LoopRecordedEvent } from './loopEventFold';
@@ -38,9 +38,6 @@ export interface ContextCompactionResult {
 export interface IAgentContextMemoryService {
   readonly _serviceBrand: undefined;
 
-  /** Estimated total tokens across all context messages (O(1)). */
-  readonly contextTokenEstimate: number;
-
   get(): readonly ContextMessage[];
 
   append(...messages: readonly ContextMessage[]): void;
@@ -56,6 +53,4 @@ export interface IAgentContextMemoryService {
   applyCompaction(input: ContextCompactionInput): ContextCompactionResult;
 }
 
-export const IAgentContextMemoryService = createDecorator<IAgentContextMemoryService>(
-  'agentContextMemoryService',
-);
+export const IAgentContextMemoryService = createDecorator<IAgentContextMemoryService>('agentContextMemoryService');

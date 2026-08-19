@@ -1,19 +1,7 @@
-/**
- * `plan` domain — ExitPlanMode plan review.
- *
- * Owns the user-facing review that intercepts an `ExitPlanMode` call carrying
- * a non-empty `plan_review` display: emits `plan_submitted` / `plan_resolved`
- * through `telemetry`, drives the approval round-trip through `toolApproval`
- * (origin `exit-plan-mode-review-ask`, matching the legacy permission
- * policy's telemetry), and folds every approval outcome (approve with or
- * without a selected option, Revise with feedback, Reject and Exit, dismiss)
- * into a synthetic tool result, exiting plan mode through `plan` when the
- * outcome deactivates it.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import type { ApprovalResponse, PermissionPolicyResolution } from '#/agent/permissionPolicy/types';
+import type {
+  ApprovalResponse,
+  PermissionPolicyResolution,
+} from '#/agent/permissionPolicy/types';
 import type { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import type {
   BeforeExecuteDecision,
@@ -80,15 +68,14 @@ export class ExitPlanModeReview {
     const optionPrefix =
       selected === undefined
         ? ''
-        : `${t('toolsV2.planMode.selectedApproach', { label: selected.label })}\n\n`;
-    const savedTo =
-      display.path !== undefined ? t('toolsV2.planMode.planSaved', { path: display.path }) : '';
-    const formattedPlan = t('toolsV2.planMode.planApproved', { savedTo, plan: display.plan });
+        : `Selected approach: ${selected.label}\nExecute ONLY the selected approach. Do not execute any unselected alternatives.\n\n`;
+    const savedTo = display.path !== undefined ? `Plan saved to: ${display.path}\n\n` : '';
+    const formattedPlan = `Plan mode deactivated. All tools are now available.\n${savedTo}## Approved Plan:\n${display.plan}`;
     return {
       kind: 'result',
       result: {
         isError: false,
-        output: t('toolsV2.planMode.exitedPlanMode', { prefix: optionPrefix, plan: formattedPlan }),
+        output: `Exited plan mode. ${optionPrefix}${formattedPlan}`,
       },
     };
   }
@@ -101,7 +88,7 @@ export class ExitPlanModeReview {
         kind: 'result',
         result: {
           isError: false,
-          output: t('toolsV2.planMode.approvalDismissed'),
+          output: 'Plan approval dismissed. Plan mode remains active.',
         },
       };
     }
@@ -113,7 +100,7 @@ export class ExitPlanModeReview {
         result: {
           isError: true,
           stopTurn: true,
-          output: t('toolsV2.planMode.rejected'),
+          output: 'Plan rejected by user. Plan mode deactivated.',
         },
       };
     }
@@ -126,8 +113,8 @@ export class ExitPlanModeReview {
           isError: false,
           output:
             feedback.length > 0
-              ? t('toolsV2.planMode.rejectedWithFeedback', { feedback })
-              : t('toolsV2.planMode.revisionsRequested'),
+              ? `User rejected the plan. Feedback:\n\n${feedback}`
+              : 'User requested revisions. Plan mode remains active.',
         },
       };
     }
@@ -137,7 +124,7 @@ export class ExitPlanModeReview {
       result: {
         isError: true,
         stopTurn: true,
-        output: t('toolsV2.planMode.rejectedStaysActive'),
+        output: 'Plan rejected by user. Plan mode remains active.',
       },
     };
   }

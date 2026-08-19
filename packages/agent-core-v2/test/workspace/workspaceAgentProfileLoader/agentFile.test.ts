@@ -1,22 +1,9 @@
-/**
- * Scenario: agent-file parsing primitives — frontmatter validation, defaults,
- * and the AgentFileDefinition → AgentProfile factory (template substitution,
- * `${base_prompt}`, `${plugin_sections}`, tool pass-through, explicit override
- * intent).
- * Pure-function level, no IO.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/workspace/workspaceAgentProfileLoader/agentFile.test.ts`.
- */
-
 import { describe, expect, it } from 'vitest';
 
-import type { SystemPromptRenderResult } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import {
-  AgentFileParseError,
-  parseAgentFileText,
-} from '#/workspace/workspaceAgentProfileLoader/internal/agentFile';
+import { AgentFileParseError, parseAgentFileText } from '#/workspace/workspaceAgentProfileLoader/internal/agentFile';
 import { agentProfileFromFile } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileFromFile';
 import type { AgentFileDefinition } from '#/workspace/workspaceAgentProfileLoader/internal/types';
+import type { SystemPromptRenderResult } from '#/app/agentProfileCatalog/agentProfileCatalog';
 
 const FULL_FILE = `---
 name: code-reviewer
@@ -174,9 +161,9 @@ describe('parseAgentFileText', () => {
   });
 
   it('rejects non-string tool entries', () => {
-    expect(() => parse('---\nname: solo\ndescription: d\ntools:\n  - 42\n---\n\nbody\n')).toThrow(
-      /non-empty strings/,
-    );
+    expect(() =>
+      parse('---\nname: solo\ndescription: d\ntools:\n  - 42\n---\n\nbody\n'),
+    ).toThrow(/non-empty strings/);
   });
 
   it('rejects an empty prompt body', () => {

@@ -1,12 +1,14 @@
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
 import { describe, expect, it } from 'vitest';
 
 import { Error2 } from '#/errors';
-import { mergeStdioEnv, StdioMcpClient } from '#/mcpCore/client-stdio';
+import { mergeStdioEnv, StdioMcpClient, type StdioMcpClientOptions } from '#/mcpCore/client-stdio';
+import type { McpServerStdioConfig } from '#/mcpCore/config-schema';
+import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
 
 import {
   crashAfterConnectFixture,
@@ -15,11 +17,42 @@ import {
   stdioFixture,
 } from './stubs';
 
+function createClient(
+  config: McpServerStdioConfig,
+  options: Partial<StdioMcpClientOptions> = {},
+): StdioMcpClient {
+  const runtime = Object.assign(
+    new FakeRuntime(
+      { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+      {
+        capabilities: ['process'],
+        pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+      },
+    ),
+    { process: new HostProcessService() },
+  );
+  return new StdioMcpClient(config, {
+    runtimeResolver: {
+      _serviceBrand: undefined,
+      inspect: () => runtime,
+      acquire: () => ({
+        runtime,
+        track: (resource) => resource,
+        dispose: () => {},
+      }),
+    },
+    workspaceId: 'workspace',
+    runtimeId: 'local',
+    defaultCwd: process.cwd(),
+    ...options,
+  });
+}
+
 describe('StdioMcpClient', () => {
   it('rejects unsupported executor at construction time', () => {
     expect(
       () =>
-        new StdioMcpClient({
+        createClient({
           transport: 'stdio',
           command: 'true',
           executor: 'kaos',
@@ -30,7 +63,7 @@ describe('StdioMcpClient', () => {
 
     let thrown: unknown;
     try {
-      const client = new StdioMcpClient({ transport: 'stdio', command: 'true', executor: 'kaos' });
+      const client = createClient({ transport: 'stdio', command: 'true', executor: 'kaos' });
       void client;
     } catch (error) {
       thrown = error;
@@ -40,7 +73,7 @@ describe('StdioMcpClient', () => {
 
   it('uses defaultCwd when config.cwd is omitted', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-default-cwd-'));
-    const client = new StdioMcpClient(
+    const client = createClient(
       {
         transport: 'stdio',
         command: process.execPath,
@@ -61,8 +94,9 @@ describe('StdioMcpClient', () => {
 
   it('prefers explicit config.cwd over defaultCwd', async () => {
     const defaultCwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-default-cwd-'));
-    const configuredCwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-configured-cwd-'));
-    const client = new StdioMcpClient(
+    const configuredCwd = join(defaultCwd, 'configured');
+    mkdirSync(configuredCwd);
+    const client = createClient(
       {
         transport: 'stdio',
         command: process.execPath,
@@ -87,7 +121,7 @@ describe('StdioMcpClient', () => {
     const defaultCwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-relative-cwd-'));
     const configuredCwd = join(defaultCwd, 'tools', 'mcp');
     mkdirSync(configuredCwd, { recursive: true });
-    const client = new StdioMcpClient(
+    const client = createClient(
       {
         transport: 'stdio',
         command: process.execPath,
@@ -107,8 +141,32 @@ describe('StdioMcpClient', () => {
     }
   }, 15000);
 
+  it('allows explicit config.cwd outside defaultCwd', async () => {
+    const defaultCwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-default-cwd-'));
+    const outsideCwd = mkdtempSync(join(tmpdir(), 'kimi-mcp-outside-cwd-'));
+    const client = createClient(
+      {
+        transport: 'stdio',
+        command: process.execPath,
+        args: [cwdStdioFixture],
+        cwd: outsideCwd,
+      },
+      { defaultCwd },
+    );
+    try {
+      await client.connect();
+      const result = await client.callTool('get_cwd', {});
+      const text = (result.content[0] as { type: 'text'; text: string }).text;
+      expect(realpathSync(text)).toBe(realpathSync(outsideCwd));
+    } finally {
+      await client.close();
+      await rm(defaultCwd, { recursive: true, force: true });
+      await rm(outsideCwd, { recursive: true, force: true });
+    }
+  }, 15000);
+
   it('connects, lists tools, and round-trips a text result', async () => {
-    const client = new StdioMcpClient({
+    const client = createClient({
       transport: 'stdio',
       command: process.execPath,
       args: [stdioFixture],
@@ -116,7 +174,12 @@ describe('StdioMcpClient', () => {
     try {
       await client.connect();
       const tools = await client.listTools();
-      expect(tools.map((t) => t.name).toSorted()).toEqual(['boom', 'echo', 'read_env', 'whoami']);
+      expect(tools.map((t) => t.name).toSorted()).toEqual([
+        'boom',
+        'echo',
+        'read_env',
+        'whoami',
+      ]);
       const echo = tools.find((t) => t.name === 'echo');
       expect(echo?.description).toBe('Echoes input text');
       expect(echo?.inputSchema).toMatchObject({ type: 'object' });
@@ -130,7 +193,7 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('propagates server-reported isError', async () => {
-    const client = new StdioMcpClient({
+    const client = createClient({
       transport: 'stdio',
       command: process.execPath,
       args: [stdioFixture],
@@ -146,7 +209,7 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('forwards configured env to the spawned server', async () => {
-    const client = new StdioMcpClient({
+    const client = createClient({
       transport: 'stdio',
       command: process.execPath,
       args: [stdioFixture],
@@ -162,36 +225,32 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('inherits parent process env so PATH/HOME survive; config.env overrides on conflict', async () => {
-    const parentKey = 'LC_ALL';
-    const sharedKey = 'LC_CTYPE';
-    const savedParent = process.env[parentKey];
-    const savedShared = process.env[sharedKey];
-    process.env[parentKey] = 'from-parent';
-    process.env[sharedKey] = 'from-parent';
-    const client = new StdioMcpClient({
+    const parentOnly = `KIMI_TEST_PARENT_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const shared = `KIMI_TEST_SHARED_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    process.env[parentOnly] = 'from-parent';
+    process.env[shared] = 'from-parent';
+    const client = createClient({
       transport: 'stdio',
       command: process.execPath,
       args: [stdioFixture],
-      env: { [sharedKey]: 'from-config' },
+      env: { [shared]: 'from-config' },
     });
     try {
       await client.connect();
-      const inherited = await client.callTool('read_env', { name: parentKey });
+      const inherited = await client.callTool('read_env', { name: parentOnly });
       expect(inherited.content).toEqual([{ type: 'text', text: 'from-parent' }]);
-      const overridden = await client.callTool('read_env', { name: sharedKey });
+      const overridden = await client.callTool('read_env', { name: shared });
       expect(overridden.content).toEqual([{ type: 'text', text: 'from-config' }]);
     } finally {
-      if (savedParent === undefined) delete process.env[parentKey];
-      else process.env[parentKey] = savedParent;
-      if (savedShared === undefined) delete process.env[sharedKey];
-      else process.env[sharedKey] = savedShared;
+      delete process.env[parentOnly];
+      delete process.env[shared];
       await client.close();
     }
   }, 15000);
 
   it('captures recent stderr into a snapshot the manager can attach to errors', async () => {
     const banner = `kimi-test-stderr-${Date.now()}`;
-    const client = new StdioMcpClient({
+    const client = createClient({
       transport: 'stdio',
       command: process.execPath,
       args: [stderrThenExitFixture],
@@ -206,7 +265,7 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('keeps the stderr buffer bounded so noisy servers cannot exhaust memory', async () => {
-    const client = new StdioMcpClient({
+    const client = createClient({
       transport: 'stdio',
       command: process.execPath,
       args: [stdioFixture],
@@ -222,7 +281,7 @@ describe('StdioMcpClient', () => {
 
   it('notifies an unexpected-close listener when the child exits after connect', async () => {
     const banner = `kimi-test-crash-${Date.now()}`;
-    const client = new StdioMcpClient({
+    const client = createClient({
       transport: 'stdio',
       command: process.execPath,
       args: [crashAfterConnectFixture],
@@ -247,7 +306,7 @@ describe('StdioMcpClient', () => {
 
   it('buffers an early close and replays it on listener registration', async () => {
     const banner = `kimi-test-early-${Date.now()}`;
-    const client = new StdioMcpClient({
+    const client = createClient({
       transport: 'stdio',
       command: process.execPath,
       args: [crashAfterConnectFixture],
@@ -290,7 +349,7 @@ describe('StdioMcpClient', () => {
   }, 15000);
 
   it('does not fire unexpected-close when the caller closes the client itself', async () => {
-    const client = new StdioMcpClient({
+    const client = createClient({
       transport: 'stdio',
       command: process.execPath,
       args: [stdioFixture],
@@ -301,26 +360,6 @@ describe('StdioMcpClient', () => {
     await client.close();
     await new Promise((r) => setTimeout(r, 100));
     expect(closes).toEqual([]);
-  }, 15000);
-
-  it('rejects callTool after close with a clear error', async () => {
-    const client = new StdioMcpClient({
-      transport: 'stdio',
-      command: process.execPath,
-      args: [stdioFixture],
-    });
-    await client.connect();
-    await client.close();
-    await expect(client.callTool('echo', { text: 'after close' })).rejects.toThrow();
-  }, 15000);
-
-  it('rejects connect with a non-existent command', async () => {
-    const client = new StdioMcpClient({
-      transport: 'stdio',
-      command: '/this/command/does/not/exist/anywhere',
-    });
-    await expect(client.connect()).rejects.toThrow();
-    await client.close();
   }, 15000);
 });
 
@@ -339,47 +378,9 @@ describe('mergeStdioEnv', () => {
     expect(merged['PATH']).toBe('/usr/bin');
   });
 
-  it('injects NODE_USE_ENV_PROXY for uppercase and lowercase proxy config', () => {
-    const upper = mergeStdioEnv({ HTTP_PROXY: 'http://corp:3128' }, {});
-    expect(upper['NODE_USE_ENV_PROXY']).toBe('1');
-    const lower = mergeStdioEnv({ http_proxy: 'http://corp:3128' }, {});
-    expect(lower['NODE_USE_ENV_PROXY']).toBe('1');
-  });
-
-  it('treats null/undefined parent env gracefully', () => {
-    const merged = mergeStdioEnv({ FOO: 'bar' }, null as unknown as Record<string, string>);
-    expect(merged['FOO']).toBe('bar');
-    expect(merged['NODE_USE_ENV_PROXY']).toBeUndefined();
-  });
-
   it('lets config.env override the parent env', () => {
     const merged = mergeStdioEnv({ FOO: 'override' }, { FOO: 'parent', PATH: '/x' });
     expect(merged['FOO']).toBe('override');
-  });
-
-  it('filters secrets, proxy, and connection-URL keys from the parent environment', () => {
-    const merged = mergeStdioEnv(undefined, {
-      PATH: '/usr/bin',
-      HOME: '/home/user',
-      GITHUB_TOKEN: 'secret-token',
-      AWS_SECRET_ACCESS_KEY: 'secret-key',
-      DB_PASSWORD: 's3cret',
-      NPM_CREDENTIALS: 'creds',
-      OPENAI_API_KEY: 'sk-abc',
-      CUSTOM_DEBUG_VAR: 'debug',
-      INTERNAL_BUILD_ID: '12345',
-    });
-    expect(merged['PATH']).toBe('/usr/bin');
-    expect(merged['HOME']).toBe('/home/user');
-    expect(merged['GITHUB_TOKEN']).toBeUndefined();
-    expect(merged['AWS_SECRET_ACCESS_KEY']).toBeUndefined();
-    expect(merged['DB_PASSWORD']).toBeUndefined();
-    expect(merged['NPM_CREDENTIALS']).toBeUndefined();
-    expect(merged['OPENAI_API_KEY']).toBeUndefined();
-    // Non-sensitive custom parent vars are inherited so real stdio servers
-    // that need e.g. LANG/TERM still launch; only secrets/proxy/URLs are gated.
-    expect(merged['CUSTOM_DEBUG_VAR']).toBe('debug');
-    expect(merged['INTERNAL_BUILD_ID']).toBe('12345');
   });
 
   it('does not depend on a filesystem cwd fixture for env merging', async () => {

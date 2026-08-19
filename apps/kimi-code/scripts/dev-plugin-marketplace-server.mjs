@@ -15,9 +15,7 @@ const DEFAULT_PLUGINS_ROOT = resolve(REPO_ROOT, 'plugins');
 
 export async function startPluginMarketplaceServer(options = {}) {
   const pluginsRoot = resolve(
-    options.pluginsRoot ??
-      process.env.KIMI_CODE_PLUGIN_MARKETPLACE_DEV_ROOT ??
-      DEFAULT_PLUGINS_ROOT,
+    options.pluginsRoot ?? process.env.KIMI_CODE_PLUGIN_MARKETPLACE_DEV_ROOT ?? DEFAULT_PLUGINS_ROOT,
   );
   const host = options.host ?? process.env.KIMI_CODE_PLUGIN_MARKETPLACE_DEV_HOST ?? '127.0.0.1';
   const port = Number(options.port ?? process.env.KIMI_CODE_PLUGIN_MARKETPLACE_DEV_PORT ?? 0);
@@ -165,9 +163,7 @@ async function serveStaticFile(res, pluginsRoot, pathname, headOnly) {
     res.end();
     return;
   }
-  createReadStream(file)
-    .on('error', (error) => res.destroy(error))
-    .pipe(res);
+  createReadStream(file).on('error', (error) => res.destroy(error)).pipe(res);
 }
 
 async function addDirectoryToZip(zipfile, root, zipRoot) {
@@ -235,8 +231,7 @@ function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-const isMain =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const started = await startPluginMarketplaceServer();
   console.error(`Plugin marketplace dev server: ${started.marketplaceUrl}`);

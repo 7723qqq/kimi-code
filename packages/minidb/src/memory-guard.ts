@@ -8,8 +8,8 @@
 // this module never imports the MiniDb class itself.
 
 import { TYPE_SET } from './codec.js';
-import type { ValueMode } from './recovery.js';
 import type { Store } from './store.js';
+import type { ValueMode } from './recovery.js';
 import type { PreparedOp } from './types.js';
 
 /** The owner-injected surface the guard needs (see the header). */
@@ -54,9 +54,7 @@ export class MemoryGuard<V> {
       projected -= cur;
       const next =
         op.type === TYPE_SET
-          ? store.estimateSetBytes(op.key, op.value!, op.dtNorm, {
-              countValue: this.deps.valueMode() === 'memory',
-            })
+          ? store.estimateSetBytes(op.key, op.value!, op.dtNorm, { countValue: this.deps.valueMode() === 'memory' })
           : 0;
       projected += next;
       considered.set(op.pk, next);

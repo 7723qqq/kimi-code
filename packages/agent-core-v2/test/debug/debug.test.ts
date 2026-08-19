@@ -7,21 +7,17 @@ import { InstantiationService } from '#/_base/di/instantiationService';
 import { Service } from '#/_base/di/service';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
 import { Emitter } from '#/_base/event';
-import { type DomainEvent, IEventService } from '#/app/event/event';
+import { IEventService } from '#/app/event/event';
+import type { Event2 } from '#/app/event/event2';
+import { EventService } from '#/app/event/eventService';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { EventService } from '#/app/event/eventService';
-import { DI_UNIT_CHANGED_EVENT } from '#/debug/debugCascade';
+import { DI_UNIT_CHANGED_EVENT, DiUnitChanged } from '#/debug/debugCascade';
 import { DebugCascadeService } from '#/debug/debugCascadeService';
 import { DebugGraphService } from '#/debug/debugGraphService';
 import { DebugLedgerService } from '#/debug/debugLedgerService';
 import { DebugEventsService } from '#/features/debugEvents/debugEventsService';
 
-declare module '#/app/event/eventBus' {
-  interface DomainEventMap {
-    'debug.test': { v: number };
-  }
-}
 
 interface IRoot {
   label: string;
@@ -71,14 +67,14 @@ class Fold extends Service implements IFold {
 
 class FakeEventService implements IEventService {
   declare readonly _serviceBrand: undefined;
-  private readonly emitter = new Emitter<DomainEvent>();
+  private readonly emitter = new Emitter<Event2>();
   readonly onDidPublish = this.emitter.event;
-  readonly published: DomainEvent[] = [];
-  publish(event: DomainEvent): void {
+  readonly published: Event2[] = [];
+  publish(event: Event2): void {
     this.published.push(event);
     this.emitter.fire(event);
   }
-  subscribe(handler: (event: DomainEvent) => void) {
+  subscribe(handler: (event: Event2) => void) {
     return this.emitter.event(handler);
   }
 }
@@ -86,7 +82,7 @@ class FakeEventService implements IEventService {
 class BusSubscriber extends Service {
   constructor(@IEventBus bus: IEventBus) {
     super();
-    this._register(bus.subscribe('debug.test', () => {}));
+    this._register(bus.subscribe('debug.test', () => undefined));
   }
 }
 const IBusSubscriber = createDecorator<BusSubscriber>('debug-bus-subscriber');
@@ -98,6 +94,7 @@ function makeTree(): { app: InstantiationService; ws: InstantiationService } {
   ws.debugLabel = 'workspace:ws1';
   return { app, ws };
 }
+
 
 describe('debug domain — IDebugLedgerService', () => {
   it('tree() exposes units, ledger entries, and children recursively', () => {
@@ -189,7 +186,9 @@ describe('debug domain — IDebugCascadeService', () => {
     const wsGroup = pending.find((group) => group.scopePath === 'app/workspace:ws1');
     expect(wsGroup?.waiting ?? []).toEqual([]);
     const appGroup = pending.find((group) => group.scopePath === 'app');
-    expect(appGroup?.failed).toEqual([{ token: 'debug-boom', error: 'boom construction failed' }]);
+    expect(appGroup?.failed).toEqual([
+      { token: 'debug-boom', error: 'boom construction failed' },
+    ]);
     app.dispose();
   });
 
@@ -261,19 +260,23 @@ describe('debug domain — IDebugCascadeService', () => {
     const service = new DebugCascadeService(app, events);
 
     app.provide(IRoot, new SyncDescriptor(Root));
-    const rootEvents = events.published.filter((event) => event.type === DI_UNIT_CHANGED_EVENT);
-    expect(rootEvents).toContainEqual({
-      type: DI_UNIT_CHANGED_EVENT,
-      payload: { scope: 'app', token: 'debug-root', state: 'Active', error: undefined },
-    });
+    const rootEvents = events.published.filter(
+      (event) => event.type === DI_UNIT_CHANGED_EVENT,
+    );
+    expect(rootEvents).toContainEqual(
+      expect.objectContaining({
+        type: DI_UNIT_CHANGED_EVENT,
+        payload: { scope: 'app', token: 'debug-root', state: 'Active', error: undefined },
+      }),
+    );
 
     const ws = app.createChild(new ServiceCollection()) as InstantiationService;
     ws.debugLabel = 'workspace:late';
     ws.provide(IMid, new SyncDescriptor(Mid));
     const wsEvents = events.published.filter(
-      (event) =>
+      (event): event is DiUnitChanged =>
         event.type === DI_UNIT_CHANGED_EVENT &&
-        (event.payload as { scope?: string }).scope === 'app/workspace:late',
+        (event as DiUnitChanged).payload.scope === 'app/workspace:late',
     );
     expect(wsEvents.length).toBeGreaterThan(0);
 
@@ -292,8 +295,8 @@ describe('debug domain — IDebugEventsService', () => {
     app.provide(IBusSubscriber, new SyncDescriptor(BusSubscriber));
     app.invokeFunction((a) => a.get(IBusSubscriber));
     const bus = app.invokeFunction((a) => a.get(IEventBus));
-    bus.subscribe('debug.test', () => {});
-    bus.subscribe(() => {});
+    bus.subscribe('debug.test', () => undefined);
+    bus.subscribe(() => undefined);
 
     const result = new DebugEventsService(app).subscriptions();
 
@@ -304,7 +307,9 @@ describe('debug domain — IDebugEventsService', () => {
       kind: 'disposer',
       uid: expect.any(Number),
     });
-    expect(result.buses).toEqual([{ scopePath: 'app', all: 1, perType: { 'debug.test': 2 } }]);
+    expect(result.buses).toEqual([
+      { scopePath: 'app', all: 1, perType: { 'debug.test': 2 } },
+    ]);
     expect(() => JSON.stringify(result)).not.toThrow();
     app.dispose();
   });
@@ -314,7 +319,7 @@ describe('debug domain — IDebugEventsService', () => {
     app.provide(IBusSubscriber, new SyncDescriptor(BusSubscriber));
     app.provide(IEventService, new SyncDescriptor(EventService));
     const events = app.invokeFunction((a) => a.get(IEventService));
-    events.subscribe(() => {});
+    events.subscribe(() => undefined);
 
     const result = new DebugEventsService(app).subscriptions();
 

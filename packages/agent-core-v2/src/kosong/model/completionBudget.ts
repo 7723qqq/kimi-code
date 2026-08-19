@@ -1,20 +1,3 @@
-/**
- * `kosong/model` domain — the completion-token budget, as pure functions.
- *
- * The budget no longer morphs a Model (there is no `applyCompletionBudget`):
- * the caller resolves a `CompletionBudgetConfig`, folds it into a per-turn cap
- * with `computeCompletionBudgetCap`, and passes the result through
- * `ModelRequestParams` (`maxCompletionTokens` + the window-clamp companions). The
- * wire base clamps the cap against the context window before any dialect
- * ceiling applies.
- *
- * Load-bearing rule: `usedContextTokens` is the caller's MEASURED in-context
- * tokens and is only folded in when the request did not explicitly override
- * its messages — with explicit messages the budget is not tightened against
- * the current context. `completionBudgetParams` is the single fold point that
- * keeps this honest.
- */
-
 import type { ModelCapability } from '#/kosong/contract/capability';
 
 import type { CompletionBudgetConfig, CompletionBudgetParams } from './model.types';
@@ -47,7 +30,7 @@ export function computeCompletionBudgetCap(args: {
   const maxCtx = args.capability?.max_context_tokens ?? 0;
   const cap =
     args.budget.hardCap ??
-    (maxCtx > 0 ? maxCtx : (args.budget.fallback ?? DEFAULT_UNKNOWN_CONTEXT_FALLBACK));
+    (maxCtx > 0 ? maxCtx : args.budget.fallback ?? DEFAULT_UNKNOWN_CONTEXT_FALLBACK);
   return Math.max(MIN_FLOOR, cap);
 }
 

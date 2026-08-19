@@ -1,18 +1,3 @@
-/**
- * `tools` domain — `IBashTool` contract.
- *
- * Public contract of Bash, the model's shell command runner: the command runs
- * as `cd <cwd> && <command>` inside the session's working directory, with a
- * manager-owned timeout deadline — a foreground command whose deadline fires
- * is moved to the background instead of being killed, and background tasks
- * report completion automatically in a later turn.
- *
- * Owns the `BashInput` / `BashOutput` zod schemas, the foreground/background
- * timeout constants the schema descriptions and validation share with the
- * implementation, and the Agent-scope service identifier. Bound at Agent
- * scope.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -88,7 +73,5 @@ export const BashOutputSchema = z.object({
 export type BashInput = z.infer<typeof BashInputSchema>;
 export type BashOutput = z.infer<typeof BashOutputSchema>;
 
-export interface IBashTool extends AgentTool<BashInput> {
-  readonly _serviceBrand: undefined;
-}
+export interface IBashTool extends AgentTool<BashInput> { readonly _serviceBrand: undefined }
 export const IBashTool = createDecorator<IBashTool>('bashTool');

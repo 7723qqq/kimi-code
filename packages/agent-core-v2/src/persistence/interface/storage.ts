@@ -1,40 +1,7 @@
-/**
- * `storage` domain — the filesystem persistence backend.
- *
- * `IFileSystemStorageService` is the filesystem-specific byte store. It
- * exposes two irreducible durable primitives side by side:
- *
- *   - `write`  — atomic whole-value replacement (the `Config` access pattern).
- *   - `append` — ordered, durable byte extension   (the `Record` access pattern).
- *
- * They are not interchangeable: building `append` on top of `write` is O(n)
- * per append, and building `write` on top of `append` yields awkward "read
- * the last value" semantics. Keeping both as first-class primitives lets each
- * implementation implement them optimally (file: `open('a')` vs tmp+rename).
- *
- * `writeStream` is the streamed form of `write` for values too large to hold
- * in memory: same whole-value replacement semantics (tmp + rename on the file
- * backend), but the bytes arrive as an `AsyncIterable`.
- *
- * The service is byte-oriented and scope/key-addressed: `scope` maps to a
- * directory, `key` maps to a filename. It knows nothing about JSON, records,
- * configs, versions or framing. Those concerns live in the typed Store facades
- * above it.
- *
- * Non-filesystem backends (Postgres, S3, Redis) do not implement this
- * interface — they implement the Store interfaces directly via their own
- * native clients.
- *
- * `scope`/`key` are trusted internal path segments for the file implementation
- * (e.g. scope `"agents/main"`, key `"wire.jsonl"`); they are not user input.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { Event } from '#/_base/event';
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 import { Error2, type Error2Options } from '#/_base/errors/errors';
-import type { Event } from '#/_base/event';
 
 export const StorageErrors = {
   codes: {
@@ -49,32 +16,32 @@ export const StorageErrors = {
   retryable: ['storage.io_failed', 'storage.locked'],
   info: {
     'storage.not_found': {
-      title: t('v2Errors.storageNotFound'),
+      title: 'Stored value not found',
       retryable: false,
       public: true,
     },
     'storage.decode_failed': {
-      title: t('v2Errors.storageDecodeFailed'),
+      title: 'Stored value could not be decoded',
       retryable: false,
       public: true,
-      action: t('v2Errors.storageDecodeFailedAction'),
+      action: 'Inspect the stored document; it is not valid for its declared format.',
     },
     'storage.corrupted': {
-      title: t('v2Errors.storageCorrupted'),
+      title: 'Stored data is corrupted',
       retryable: false,
       public: true,
-      action: t('v2Errors.storageCorruptedAction'),
+      action: 'Inspect the backing store; the corrupted entry must be repaired or dropped.',
     },
     'storage.io_failed': {
-      title: t('v2Errors.storageIoFailed'),
+      title: 'Storage I/O failed',
       retryable: true,
       public: true,
     },
     'storage.locked': {
-      title: t('v2Errors.storageLocked'),
+      title: 'Storage is locked',
       retryable: true,
       public: true,
-      action: t('v2Errors.storageLockedAction'),
+      action: 'Another process holds the store; close it or retry later.',
     },
     'storage.permission_denied': {
       title: 'Storage permission denied',
@@ -112,16 +79,46 @@ function readErrno(error: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined;
 }
 
+type StorageIoErrorCode =
+  | typeof StorageErrors.codes.STORAGE_NOT_FOUND
+  | typeof StorageErrors.codes.STORAGE_IO_FAILED
+  | typeof StorageErrors.codes.STORAGE_PERMISSION_DENIED
+  | typeof StorageErrors.codes.STORAGE_DISK_FULL;
+
+const REASONS: Record<StorageIoErrorCode, string> = {
+  'storage.not_found': 'path does not exist',
+  'storage.io_failed': 'unrecognized I/O error',
+  'storage.permission_denied': 'permission denied',
+  'storage.disk_full': 'no space left on device',
+};
+
+function mapErrno(errno: string | undefined): StorageIoErrorCode {
+  switch (errno) {
+    case 'ENOENT':
+      return StorageErrors.codes.STORAGE_NOT_FOUND;
+    case 'EACCES':
+    case 'EPERM':
+      return StorageErrors.codes.STORAGE_PERMISSION_DENIED;
+    case 'ENOSPC':
+      return StorageErrors.codes.STORAGE_DISK_FULL;
+    default:
+      return StorageErrors.codes.STORAGE_IO_FAILED;
+  }
+}
+
 export function toStorageIoError(error: unknown, ctx: { path: string; op: string }): StorageError {
   if (error instanceof StorageError) return error;
-  return new StorageError(StorageErrors.codes.STORAGE_IO_FAILED, t('v2Storage.ioFailed'), {
-    details: { path: ctx.path, op: ctx.op, errno: readErrno(error) },
+  const errno = readErrno(error);
+  const code = mapErrno(errno);
+  return new StorageError(code, `storage ${ctx.op} failed: ${REASONS[code]}`, {
+    details: { path: ctx.path, op: ctx.op, errno },
     cause: error,
   });
 }
 
 export interface StorageWriteOptions {
   readonly atomic?: boolean;
+  readonly signal?: AbortSignal;
 }
 
 export interface StorageAppendOptions {
@@ -145,14 +142,11 @@ export interface IFileSystemStorageService {
     source: AsyncIterable<Uint8Array>,
     options?: StorageWriteOptions,
   ): Promise<void>;
-  append(
-    scope: string,
-    key: string,
-    data: Uint8Array,
-    options?: StorageAppendOptions,
-  ): Promise<void>;
+  append(scope: string, key: string, data: Uint8Array, options?: StorageAppendOptions): Promise<void>;
   list(scope: string, prefix?: string): Promise<readonly string[]>;
   delete(scope: string, key: string): Promise<void>;
+  size(scope: string, key: string): Promise<number | undefined>;
+  pathFor(scope: string, key: string): string | undefined;
   watch?(scope: string, key: string): Event<void>;
   flush(): Promise<void>;
   close(): Promise<void>;

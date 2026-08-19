@@ -1,20 +1,3 @@
-/**
- * `GET /meta` route handler.
- *
- * Returns `server_version`, the declared `capabilities` map, a per-process
- * `server_id` (ULID minted at boot), and `started_at`.
- *
- * **Capabilities**: the wire schema (`metaCapabilitiesSchema`) only permits the
- * literal `true` for each capability, and every declared capability is backed
- * by a live route (WebSocket / file upload / fs query / mcp / tasks /
- * terminal), so clients can treat the map as available.
- *
- * **No DI for the static fields**: pure server-self info; that part of the
- * payload is frozen at registration time. `experimental_flags` is the
- * exception — flag state flips live when the `[experimental]` config section
- * changes, so it is resolved per request through the injected getter.
- */
-
 import { okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
 import { metaResponseSchema } from '../protocol/rest-meta';
@@ -24,7 +7,10 @@ interface RouteHost {
   get(
     path: string,
     options: { schema?: Record<string, unknown> },
-    handler: (req: { id: string }, reply: { send(payload: unknown): void }) => Promise<void> | void,
+    handler: (
+      req: { id: string },
+      reply: { send(payload: unknown): void },
+    ) => Promise<void> | void,
   ): unknown;
 }
 
@@ -37,6 +23,12 @@ export interface MetaRouteOptions {
    * the web UI can skip the token prompt and connect without a credential.
    */
   readonly dangerousBypassAuth: boolean;
+  /**
+   * Custom browser tab title for this instance (the CLI's `--web-title`).
+   * Surfaced as `web_title` in the `/meta` payload; instance-level and frozen
+   * at boot, so it joins the frozen static fields. Omitted when unset.
+   */
+  readonly webTitle?: string;
   /**
    * Resolves the effective experimental-flag map (flag id → enabled) at
    * request time. Backed by `IFlagService.snapshot()` in production; tests may
@@ -62,6 +54,7 @@ export function registerMetaRoute(app: RouteHost, opts: MetaRouteOptions): void 
     open_in_apps: [],
     dangerous_bypass_auth: opts.dangerousBypassAuth,
     backend: 'v2' as const,
+    web_title: opts.webTitle,
   });
 
   const route = defineRoute(

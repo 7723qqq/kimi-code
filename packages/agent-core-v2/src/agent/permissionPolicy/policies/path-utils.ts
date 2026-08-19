@@ -1,16 +1,18 @@
 import * as posixPath from 'node:path/posix';
 import * as win32Path from 'node:path/win32';
 
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import type { GitWorkTree } from '#/app/git/workTree';
-import { isWithinDirectory, type PathClass } from '#/tool/path-access';
 import type { ToolFileAccess } from '#/tool/toolContract';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import {
+  isWithinDirectory,
+  type PathClass,
+} from '#/tool/path-access';
 
 export function fileAccesses(context: ResolvedToolExecutionHookContext): ToolFileAccess[] {
   return (
-    context.execution.accesses?.filter(
-      (access): access is ToolFileAccess => access.kind === 'file',
-    ) ?? []
+    context.execution.accesses?.filter((access): access is ToolFileAccess => access.kind === 'file') ??
+    []
   );
 }
 

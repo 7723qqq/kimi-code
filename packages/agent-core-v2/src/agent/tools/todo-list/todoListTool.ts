@@ -1,28 +1,21 @@
-/**
- * `tools` domain — `TodoListTool` implementation (the `TodoList` tool).
- *
- * The list is session-shared: the tool reads/writes `ISessionTodoService`
- * (`todo` domain), which persists every change as a `tools.update_store`
- * (`key: 'todo'`) wire record on the main agent.
- *
- * Registered via the module-level `registerAgentToolService(ITodoListTool,
- * TodoListTool)` at the bottom of this file — the same "import = register"
- * pattern used by every agent tool. `AgentToolActivationService` activates it
- * per agent when the profile allows (resolving the Session-scope
- * `ISessionTodoService` from the parent scope) — never from a service
- * constructor, which would re-enter `ISessionTodoService` while it is still
- * being constructed. Bound at Agent scope.
- */
-
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { ISessionTodoService } from '#/session/todo/sessionTodo';
-import { TODO_LIST_TOOL_NAME, renderTodoList, type TodoItem } from '#/session/todo/todoItem';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
 
-import { ITodoListTool, TodoListInputSchema, type TodoListInput } from './todo-list';
-import TODO_LIST_WRITE_REMINDER from './todo-list-write-reminder.md?raw';
+import { ISessionTodoService } from '#/session/todo/sessionTodo';
+import {
+  TODO_LIST_TOOL_NAME,
+  renderTodoList,
+  type TodoItem,
+} from '#/session/todo/todoItem';
+
+import {
+  ITodoListTool,
+  TodoListInputSchema,
+  type TodoListInput,
+} from './todo-list';
 import DESCRIPTION from './todo-list.md?raw';
+import TODO_LIST_WRITE_REMINDER from './todo-list-write-reminder.md?raw';
 
 export class TodoListTool implements ITodoListTool {
   declare readonly _serviceBrand: undefined;
@@ -41,28 +34,15 @@ export class TodoListTool implements ITodoListTool {
           : 'Updating todo list';
     return {
       description,
-      display: {
-        kind: 'todo_list',
-        items: (args.todos ?? this.todo.getTodos()).map((todo) => ({
-          title: todo.title,
-          status: todo.status,
-        })),
-      },
       approvalRule: this.name,
       execute: async () => {
         if (args.todos === undefined) {
           return { isError: false, output: renderTodoList(this.todo.getTodos()) };
         }
 
-        const now = Date.now();
         const next: readonly TodoItem[] = args.todos.map((todo) => ({
-          id: todo.id,
-          parentId: todo.parentId,
           title: todo.title,
           status: todo.status,
-          description: todo.description,
-          createdAt: now,
-          updatedAt: now,
         }));
         this.todo.setTodos(next);
         const stored = this.todo.getTodos();

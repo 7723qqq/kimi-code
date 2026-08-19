@@ -15,7 +15,6 @@
 import { z } from 'zod';
 
 import { taskSchema, taskStatusSchema } from '../task';
-import { booleanQueryParam } from './session';
 
 export const listTasksQuerySchema = z.object({
   status: taskStatusSchema.optional(),
@@ -28,7 +27,7 @@ export const listTasksResponseSchema = z.object({
 export type ListTasksResponse = z.infer<typeof listTasksResponseSchema>;
 
 export const getTaskQuerySchema = z.object({
-  with_output: booleanQueryParam,
+  with_output: z.coerce.boolean().optional(),
   output_bytes: z.coerce.number().int().nonnegative().optional(),
 });
 export type GetTaskQuery = z.infer<typeof getTaskQuerySchema>;

@@ -80,10 +80,7 @@ describe('if / while / until', () => {
     expectTree('fi', `(program (command (command_name (word "fi"))))`);
     expectTree('done', `(program (command (command_name (word "done"))))`);
     expectTree('}', `(program (command (command_name (word "}"))))`);
-    expectTree(
-      'time ls -la',
-      `(program (command (command_name (word "time")) (word "ls") (word "-la")))`,
-    );
+    expectTree('time ls -la', `(program (command (command_name (word "time")) (word "ls") (word "-la")))`);
     // Reserved words are plain arguments inside conditions and bodies.
     expectTree(
       'if echo then; then x; fi',
@@ -271,10 +268,7 @@ describe('functions and compound statements', () => {
       '{ echo a; echo b; }',
       `(program (compound_statement "{" (command (command_name (word "echo")) (word "a")) ";" (command (command_name (word "echo")) (word "b")) ";" "}"))`,
     );
-    expectTree(
-      '{ls;}',
-      `(program (compound_statement "{" (command (command_name (word "ls"))) ";" "}"))`,
-    );
+    expectTree('{ls;}', `(program (compound_statement "{" (command (command_name (word "ls"))) ";" "}"))`);
   });
 
   it('parses coproc as an ordinary command (like the reference)', () => {
@@ -370,10 +364,7 @@ describe('test commands', () => {
   });
 
   it('parses the single-bracket form and adjacent =', () => {
-    expectTree(
-      '[ -f file ]',
-      `(program (test_command "[" (unary_expression (test_operator "-f") (word "file")) "]"))`,
-    );
+    expectTree('[ -f file ]', `(program (test_command "[" (unary_expression (test_operator "-f") (word "file")) "]"))`);
     expectTree('[ x ]', `(program (test_command "[" (word "x") "]"))`);
     expectTree('[[ a=b ]]', `(program (test_command "[[" (word "a=b") "]]"))`);
   });
@@ -390,18 +381,11 @@ describe('test commands', () => {
   });
 
   it('keeps [ in argument position as plain words', () => {
-    expectTree(
-      'echo [ x ]',
-      `(program (command (command_name (word "echo")) (word "[") (word "x") (word "]")))`,
-    );
+    expectTree('echo [ x ]', `(program (command (command_name (word "echo")) (word "[") (word "x") (word "]")))`);
   });
 
   it('recovers an unterminated test command with a zero-width closer', () => {
-    expectTree(
-      '[ -f file',
-      `(program (test_command "[" (unary_expression (test_operator "-f") (word "file")) "]"))`,
-      true,
-    );
+    expectTree('[ -f file', `(program (test_command "[" (unary_expression (test_operator "-f") (word "file")) "]"))`, true);
   });
 });
 
@@ -552,10 +536,7 @@ describe('declaration and unset commands', () => {
   });
 
   it('parses unset', () => {
-    expectTree(
-      'unset a b',
-      `(program (unset_command "unset" (variable_name "a") (variable_name "b")))`,
-    );
+    expectTree('unset a b', `(program (unset_command "unset" (variable_name "a") (variable_name "b")))`);
   });
 });
 
@@ -1137,13 +1118,7 @@ describe('M2 review round 2 regressions', () => {
     }
     // Valid inputs stay clean: case items need no terminator before esac,
     // subshells none before ), compounds with proper terminators.
-    for (const source of [
-      'if a; then b; fi',
-      '{ ls; }',
-      '(ls)',
-      'case $x in a) x esac',
-      'while x; do y; done',
-    ]) {
+    for (const source of ['if a; then b; fi', '{ ls; }', '(ls)', 'case $x in a) x esac', 'while x; do y; done']) {
       const result = parse(source);
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.hasError).toBe(false);

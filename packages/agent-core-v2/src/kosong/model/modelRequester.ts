@@ -1,16 +1,3 @@
-/**
- * `kosong/model` domain — the `ModelRequester` contract: per-turn input,
- * streamed events, and the per-turn intent carrier `ModelRequestParams`.
- *
- * `ModelRequestParams` is how every per-turn intent reaches the wire: prompt-cache
- * key, sampling overrides, thinking effort/keep, and the completion-token
- * budget (with its window-clamp companions). It is deliberately dialect-free —
- * each wire dialect encodes (or silently drops) an intent in its own hooks.
- * The requester maps the params onto `GenerateOptions` 1:1; the fixed overlay
- * order inside the bases is `cacheKey → sampling → thinking →
- * maxCompletionTokens`.
- */
-
 import type { Message, StreamedMessagePart, VideoURLPart } from '#/kosong/contract/message';
 import type {
   FinishReason,
@@ -57,12 +44,6 @@ export interface ModelRequestParams {
   readonly cacheKey?: string;
   readonly sampling?: SamplingOptions;
   readonly thinkingEffort?: ThinkingEffort;
-  /**
-   * Thinking-keep value for the current turn. Only honored when
-   * {@link thinkingEffort} is also set — the wire intent is carried as a
-   * single `thinking: { effort, keep }` pair, so a keep without an effort is
-   * dropped at the mapping boundary (`ModelRequesterImpl`).
-   */
   readonly thinkingKeep?: string;
   readonly maxCompletionTokens?: number;
   readonly usedContextTokens?: number;
@@ -83,4 +64,8 @@ export interface ModelRequester {
     input: string | VideoUploadInput,
     options?: { readonly signal?: AbortSignal },
   ): Promise<VideoURLPart>;
+}
+
+export function effectiveMaxCompletionTokens(params?: ModelRequestParams): number | undefined {
+  return params?.maxCompletionTokens;
 }

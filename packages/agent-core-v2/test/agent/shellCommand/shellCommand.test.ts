@@ -25,9 +25,7 @@ describe('AgentShellCommandService', () => {
   let shell: IAgentShellCommandService;
 
   function setup(stdout: string, exitCode: number): void {
-    ctx = createTestAgent(
-      execEnvServices({ processRunner: createCommandRunner(stdout, exitCode) }),
-    );
+    ctx = createTestAgent(execEnvServices({ processRunner: createCommandRunner(stdout, exitCode) }));
     context = ctx.get(IAgentContextMemoryService);
     shell = ctx.get(IAgentShellCommandService);
   }
@@ -92,7 +90,12 @@ describe('AgentShellCommandService', () => {
 
     await shell.run({ command: 'echo hello', commandId: 'cmd-1' });
     expect(events.filter((e) => e.type === 'shell.completed')).toEqual([
-      { type: 'shell.completed', commandId: 'cmd-1', isError: false, taskId: expect.any(String) },
+      expect.objectContaining({
+        type: 'shell.completed',
+        commandId: 'cmd-1',
+        isError: false,
+        taskId: expect.any(String),
+      }),
     ]);
   });
 
@@ -103,7 +106,12 @@ describe('AgentShellCommandService', () => {
 
     await shell.run({ command: 'false', commandId: 'cmd-2' });
     expect(events.filter((e) => e.type === 'shell.completed')).toEqual([
-      { type: 'shell.completed', commandId: 'cmd-2', isError: true, taskId: expect.any(String) },
+      expect.objectContaining({
+        type: 'shell.completed',
+        commandId: 'cmd-2',
+        isError: true,
+        taskId: expect.any(String),
+      }),
     ]);
   });
 
@@ -152,9 +160,7 @@ describe('AgentShellCommandService', () => {
     ctx.get(IEventBus).subscribe((event) => events.push(event as (typeof events)[number]));
 
     await shell.run({ command: 'false', commandId: 'cmd-3' });
-    const relevant = events.filter(
-      (e) => e.type === 'shell.output' || e.type === 'shell.completed',
-    );
+    const relevant = events.filter((e) => e.type === 'shell.output' || e.type === 'shell.completed');
     expect(relevant[0]).toMatchObject({ type: 'shell.output', commandId: 'cmd-3' });
     expect(relevant[0]?.update?.text?.length).toBeGreaterThan(0);
     expect(relevant.at(-1)).toMatchObject({ type: 'shell.completed', commandId: 'cmd-3' });
@@ -165,9 +171,8 @@ describe('AgentShellCommandService', () => {
       _serviceBrand: undefined,
       register: () => ({ dispose: () => {} }),
       list: () => [],
-      resolveInfo: () => {},
       listReferences: () => [],
-      resolve: () => {},
+      resolve: () => undefined,
     };
     ctx = createTestAgent(agentService(IAgentToolRegistryService, emptyRegistry));
     context = ctx.get(IAgentContextMemoryService);

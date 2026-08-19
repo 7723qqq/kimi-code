@@ -132,13 +132,13 @@ base_url = "https://your-gateway.example"
 
 ## `vertexai`
 
-与 `google-genai` 共用实现；`type` 是自由文本，本身不会切换行为。Vertex AI 访问路径在供应商的 `env` 中定义 `GOOGLE_CLOUD_PROJECT` 加 `GOOGLE_CLOUD_LOCATION`（或使用 `*-aiplatform.googleapis.com` 的 base URL）时启用。
+与 `google-genai` 共用实现，`type = "vertexai"` 时切换到 Vertex AI 访问路径。
 
 认证走 Google Cloud 标准 ADC 流程（`gcloud auth application-default login` 或 `GOOGLE_APPLICATION_CREDENTIALS` 服务账号 JSON），这部分与 Kimi Code 无关。**项目 ID 和区域必须写在 `[providers.vertexai.env]` 子表里**——直接在 shell 里 `export GOOGLE_CLOUD_PROJECT` 不会被 CLI 读取。
 
 ```toml
 [providers.vertexai]
-type = "google-genai"
+type = "vertexai"
 
 [providers.vertexai.env]
 GOOGLE_CLOUD_PROJECT = "my-gcp-project"

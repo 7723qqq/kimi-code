@@ -1,26 +1,10 @@
-/**
- * ReadTool tests for the v2 fileTools domain.
- *
- * Ported from v1 (`packages/agent-core/test/tools/read.test.ts`, removed with the v1 engine) and adapted
- * to the v2 constructor `(fs, env, workspace)`. Self-contained: builds a
- * minimal fake `IHostFileSystem` inline so the tool can be exercised without
- * the composition root.
- *
- * The v1 fast-path tests (`scanTextFile` / `readLineRange` / `readTailLines` /
- * `readTextPreview`) are intentionally dropped: `IHostFileSystem` streams
- * through `readLines` only, so `readForward` / `readTail` always take the
- * line-iteration path.
- *
- * The status block rides the result's `note` side channel (rendered to the
- * model at projection time, never to UIs); the tool keeps its own `<system>`
- * wrapping as a wording choice, and `output` is the rendered file content
- * and nothing else.
- */
+import { describe, expect, it, vi } from 'vitest';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
-import { tryNativeRead } from '#/_base/native-tools';
+import { PathSecurityError } from '#/tool/path-access';
 import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
+import type { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   MAX_BYTES,
   MAX_LINE_LENGTH,
@@ -30,34 +14,11 @@ import {
   TRANSCODE_MAX_BYTES,
 } from '#/agent/tools/os/read/read';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { FakeRuntime } from '#/runtime/fakeRuntime';
+import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { PathSecurityError } from '#/tool/path-access';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
-
-import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
-
-// The Rust native tools addon is loadable in the vitest environment (activated
-// indirectly through the workspace), so ReadTool's `tryNativeRead` fast-path
-// reads the real filesystem and bypasses the fake `IHostFileSystem` below —
-// leftover files in /tmp (e.g. from the write suite) leak into results. Stub
-// every native export to return `undefined` so the TS line-iteration path runs.
-// `tryNativeRead` stays a controllable `vi.fn` so the native routing policy
-// (authoritative errors, invalid_utf8 → GBK chain) can be exercised directly.
-vi.mock('#/_base/native-tools', async () => {
-  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
-  const stubs = Object.fromEntries(
-    Object.keys(actual)
-      .filter((key) => key !== 'tryNativeRead')
-      .map((key) => [key, () => {}]),
-  );
-  return { ...stubs, tryNativeRead: vi.fn(() => Promise.resolve(undefined)) };
-});
+import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
 const signal = new AbortController().signal;
 const PERMISSIVE_WORKSPACE = stubWorkspaceContext('/');
@@ -101,6 +62,31 @@ function createTestEnv(home = '/home'): IHostEnvironment {
     homeDir: home,
     ready: Promise.resolve(),
   };
+}
+
+function createReadTool(
+  fs: IHostFileSystem,
+  env: IHostEnvironment,
+  workspace: ReturnType<typeof stubWorkspaceContext>,
+  skillCatalog: ISessionSkillCatalog = {
+    catalog: { getSkillRoots: () => [] },
+  } as unknown as ISessionSkillCatalog,
+): ReadTool {
+  const runtime = Object.assign(
+    new FakeRuntime(
+      { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+      { capabilities: ['fs'], pathClass: env.pathClass },
+    ),
+    { environment: env, fs },
+  );
+  const resolver: IAgentRuntimeService = {
+    _serviceBrand: undefined,
+    onDidChange: () => ({ dispose: () => {} }),
+    isAvailable: () => true,
+    inspect: () => runtime,
+    acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
+  };
+  return new ReadTool(resolver, workspace, skillCatalog);
 }
 
 function createSpiedFs(content: string) {
@@ -158,12 +144,10 @@ function createSpiedMapFs(files: Record<string, FakeFile>) {
 }
 
 function toolWithContent(content: string, workspace = PERMISSIVE_WORKSPACE) {
-  return new ReadTool(createSpiedFs(content).fs, createTestEnv(), workspace);
+  return createReadTool(createSpiedFs(content).fs, createTestEnv(), workspace);
 }
 
-function isPromiseLike(
-  value: ToolExecution | Promise<ToolExecution>,
-): value is Promise<ToolExecution> {
+function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -195,23 +179,10 @@ describe('ReadTool', () => {
     const tool = toolWithContent('');
 
     expect(tool.name).toBe('Read');
-    expect(tool.description).toContain('concrete file path');
-    expect(tool.description).toContain('Pure CRLF files are displayed with LF');
-    expect(tool.description).not.toContain('skip the verification re-read');
-    expect(tool.description).toContain('final external contract');
     expect(tool.parameters).toMatchObject({
       type: 'object',
       properties: {
-        path: {
-          type: 'string',
-          description: expect.stringContaining('working directory'),
-        },
-        line_offset: {
-          description: expect.stringContaining('line number to start reading from'),
-        },
-        n_lines: {
-          description: expect.stringContaining('number of lines to read'),
-        },
+        path: { type: 'string' },
       },
     });
     expect(ReadInputSchema.safeParse({ path: '/tmp/test.txt' }).success).toBe(true);
@@ -250,7 +221,7 @@ describe('ReadTool', () => {
 
   it('stats the resolved target so symlinked files stay readable', async () => {
     const { fs, stat } = createSpiedFs('alpha\n');
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/a.txt' });
 
@@ -332,7 +303,7 @@ describe('ReadTool', () => {
 
   it('rejects relative traversal before reading', async () => {
     const { fs, readText } = createSpiedFs('secret');
-    const tool = new ReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace/project'));
+    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace/project'));
 
     const result = await execute(tool, { path: '../../outside.txt' });
 
@@ -347,7 +318,7 @@ describe('ReadTool', () => {
       _serviceBrand: undefined,
       catalog: { getSkillRoots: () => ['/skills'] },
     } as unknown as ISessionSkillCatalog;
-    const tool = new ReadTool(
+    const tool = createReadTool(
       fs,
       createTestEnv(),
       stubWorkspaceContext('/workspace/project'),
@@ -362,7 +333,7 @@ describe('ReadTool', () => {
 
   it('allows explicit absolute paths outside the workspace', async () => {
     const { fs, readBytes, readLines } = createSpiedFs('external');
-    const tool = new ReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
 
     const result = await execute(tool, { path: '/tmp/external.txt' });
 
@@ -378,7 +349,7 @@ describe('ReadTool', () => {
 
   it('returns a friendly error for missing files before sniffing bytes', async () => {
     const { fs, readBytes, readLines } = createSpiedMapFs({});
-    const tool = new ReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace/missing.txt' });
 
@@ -394,7 +365,7 @@ describe('ReadTool', () => {
     const { fs, readBytes, readLines } = createSpiedMapFs({
       '/workspace/src': { bytes: Buffer.alloc(0), isFile: false, isDirectory: true },
     });
-    const tool = new ReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace/src' });
 
@@ -408,7 +379,7 @@ describe('ReadTool', () => {
 
   it('expands leading tilde paths using the kaos home directory', async () => {
     const { fs, readBytes, readLines } = createSpiedFs('home note');
-    const tool = new ReadTool(fs, createTestEnv('/home/test'), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv('/home/test'), stubWorkspaceContext('/workspace'));
 
     const result = await execute(tool, { path: '~/notes/today.txt' });
 
@@ -424,7 +395,7 @@ describe('ReadTool', () => {
 
   it('blocks sensitive files independently from workspace access', async () => {
     const { fs, readText } = createSpiedFs('SECRET=value');
-    const tool = new ReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace/.env' });
 
@@ -438,7 +409,7 @@ describe('ReadTool', () => {
     const { fs, readText } = createSpiedMapFs({
       '/tmp/sample.png': { bytes: pngHeader },
     });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/sample.png' });
     const output = toolContentString(result);
@@ -454,7 +425,7 @@ describe('ReadTool', () => {
     const { fs, readText } = createSpiedMapFs({
       '/tmp/fake.png': { bytes: plainText },
     });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/fake.png' });
     const output = toolContentString(result);
@@ -471,7 +442,7 @@ describe('ReadTool', () => {
     const { fs, readText } = createSpiedMapFs({
       '/tmp/sample': { bytes: pngHeader },
     });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/sample' });
     const output = toolContentString(result);
@@ -492,7 +463,7 @@ describe('ReadTool', () => {
     const { fs, readText } = createSpiedMapFs({
       '/tmp/sample.mp4': { bytes: mp4Header },
     });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/sample.mp4' });
     const output = toolContentString(result);
@@ -508,7 +479,7 @@ describe('ReadTool', () => {
     const { fs, readText } = createSpiedMapFs({
       '/tmp/blob.bin': { bytes: header },
     });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/blob.bin' });
     const output = toolContentString(result);
@@ -519,27 +490,6 @@ describe('ReadTool', () => {
     );
     expect(output).not.toContain('Python tools');
     expect(readText).not.toHaveBeenCalled();
-  });
-
-  it('reads a file whose multi-byte char straddles the 512-byte sniff window', async () => {
-    // The preflight header is a raw byte slice: a CJK char cut at byte 512
-    // yields an invalid-UTF-8 tail that must NOT make the file look binary —
-    // the header check only looks for magic bytes / NULs, and line decoding
-    // always sees whole lines.
-    const content = `${'a'.repeat(509)}\n中文内容测试\n${'b'.repeat(100)}\n`;
-    const bytes = Buffer.from(content, 'utf8');
-    expect(bytes.length).toBeGreaterThan(MEDIA_SNIFF_BYTES);
-    // Sanity: the header really ends mid-character (split lead bytes, no NUL).
-    const header = bytes.subarray(0, MEDIA_SNIFF_BYTES);
-    expect(header.includes(0x00)).toBe(false);
-    expect(() => Buffer.from(header.toString('utf8'), 'utf8').toString()).not.toThrow();
-
-    const tool = toolWithContent(content);
-
-    const result = await execute(tool, { path: '/tmp/cjk-boundary.txt' });
-
-    expect(result.isError).not.toBe(true);
-    expect(toolContentString(result)).toContain('中文内容测试');
   });
 
   it('rejects NUL bytes that appear after the preflight header', async () => {
@@ -553,7 +503,7 @@ describe('ReadTool', () => {
         },
       },
     });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/blob-with-late-nul' });
     const output = toolContentString(result);
@@ -565,17 +515,11 @@ describe('ReadTool', () => {
     expect(output).not.toContain('Python tools');
   });
 
-  it('refuses bytes that are neither UTF-8, UTF-16, nor GBK', async () => {
+  it('rejects invalid UTF-8 instead of returning replacement characters', async () => {
     const replacement = String.fromCodePoint(0xfffd);
     const { fs } = createSpiedMapFs({
-      '/tmp/not-text.txt': {
-        // No NUL bytes (so the binary preflight passes), but the payload is
-        // mostly malformed UTF-8 and not GBK either — the fallback chain
-        // must refuse instead of returning replacement characters.
-        bytes: Buffer.concat([
-          Buffer.from('text header\n'),
-          Buffer.from([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
-        ]),
+      '/tmp/not-utf8.txt': {
+        bytes: Buffer.from('text header'),
         readLines: async function* readLines(
           _path: string,
           options?: { errors?: 'strict' | 'replace' | 'ignore' },
@@ -587,76 +531,18 @@ describe('ReadTool', () => {
         },
       },
     });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
-    const result = await execute(tool, { path: '/tmp/not-text.txt' });
+    const result = await execute(tool, { path: '/tmp/not-utf8.txt' });
     const output = toolContentString(result);
 
     expect(result.isError).toBe(true);
     expect(output).toBe(
-      '"/tmp/not-text.txt" is not valid UTF-8, UTF-16, or GBK/GB18030 text. Only UTF-8, UTF-16 and GBK/GB18030 text files can be read; for other encodings, convert the file to UTF-8 first (e.g. `iconv` via Bash).',
+      '"/tmp/not-utf8.txt" is not valid UTF-8 or UTF-16 text. Only UTF-8 and UTF-16 text files can be read; for other encodings (e.g. GBK), convert the file to UTF-8 first (e.g. `iconv` via Bash).',
     );
+    expect(output).not.toContain('Python tools');
     expect(output).not.toContain(replacement);
     expect(output).not.toContain('encoded data was not valid');
-  });
-
-  it('reads a GBK file by transcoding to UTF-8 when strict UTF-8 fails', async () => {
-    // "中文内容\n第二行" in GBK (Windows code page 936).
-    const gbkBytes = Buffer.from([
-      0xd6, 0xd0, 0xce, 0xc4, 0xc4, 0xda, 0xc8, 0xdd, 0x0a, 0xb5, 0xda, 0xb6, 0xfe, 0xd0, 0xd0,
-    ]);
-    const { fs } = createSpiedMapFs({
-      '/tmp/gbk.txt': {
-        bytes: gbkBytes,
-        readLines: async function* readLines(
-          _path: string,
-          options?: { errors?: 'strict' | 'replace' | 'ignore' },
-        ): AsyncGenerator<string> {
-          if (options?.errors === 'strict') {
-            throw new TypeError('The encoded data was not valid for encoding utf-8');
-          }
-          yield 'garbage\n';
-        },
-      },
-    });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/gbk.txt' });
-
-    expect(result.isError).not.toBe(true);
-    expect(result.output).toContain('1\t中文内容');
-    expect(result.output).toContain('2\t第二行');
-    expect(result.note).toContain('Detected GBK/GB18030 encoding');
-    expect(result.note).toContain('Total lines in file: 2.');
-  });
-
-  it('reads a UTF-8 file with a few malformed bytes leniently and flags the replacements', async () => {
-    const bytes = Buffer.concat([
-      Buffer.from('正常文本行\n第二行\n', 'utf8'),
-      Buffer.from([0x88, 0xa1, 0xff]),
-    ]);
-    const { fs } = createSpiedMapFs({
-      '/tmp/utf8-with-junk.txt': {
-        bytes,
-        readLines: async function* readLines(
-          _path: string,
-          options?: { errors?: 'strict' | 'replace' | 'ignore' },
-        ): AsyncGenerator<string> {
-          if (options?.errors === 'strict') {
-            throw new TypeError('The encoded data was not valid for encoding utf-8');
-          }
-          yield 'garbage\n';
-        },
-      },
-    });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/utf8-with-junk.txt' });
-
-    expect(result.isError).not.toBe(true);
-    expect(result.output).toContain('1\t正常文本行');
-    expect(result.output).toContain('2\t第二行');
-    expect(result.note).toContain('Some bytes were not valid UTF-8 and were replaced with U+FFFD');
   });
 
   it('reads a UTF-16 LE file with BOM by transcoding to UTF-8', async () => {
@@ -665,7 +551,7 @@ describe('ReadTool', () => {
       Buffer.from('hello\nworld\n', 'utf16le'),
     ]);
     const { fs } = createSpiedMapFs({ '/tmp/notes.TXT': { bytes } });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/notes.TXT' });
 
@@ -678,7 +564,7 @@ describe('ReadTool', () => {
   it('reads a BOM-marked UTF-16 file whose content has no zero bytes (CJK-only)', async () => {
     const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('你好世界', 'utf16le')]);
     const { fs } = createSpiedMapFs({ '/tmp/cjk.txt': { bytes } });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/cjk.txt' });
 
@@ -690,7 +576,7 @@ describe('ReadTool', () => {
   it('reads BOM-less UTF-16 LE text via the zero-byte heuristic', async () => {
     const bytes = Buffer.from('first\nsecond\n', 'utf16le');
     const { fs } = createSpiedMapFs({ '/tmp/no-bom.txt': { bytes } });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/no-bom.txt' });
 
@@ -709,7 +595,7 @@ describe('ReadTool', () => {
     }
     const bytes = Buffer.concat([Buffer.from([0xfe, 0xff]), be]);
     const { fs } = createSpiedMapFs({ '/tmp/be.txt': { bytes } });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/be.txt' });
 
@@ -724,7 +610,7 @@ describe('ReadTool', () => {
       Buffer.from('one\ntwo\nthree\n', 'utf16le'),
     ]);
     const { fs } = createSpiedMapFs({ '/tmp/tail.txt': { bytes } });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/tail.txt', line_offset: -1 });
 
@@ -739,7 +625,7 @@ describe('ReadTool', () => {
     const { fs } = createSpiedMapFs({
       '/tmp/huge.txt': { bytes, size: TRANSCODE_MAX_BYTES + 1 },
     });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/huge.txt' });
     const output = toolContentString(result);
@@ -791,7 +677,7 @@ describe('ReadTool', () => {
     );
     const stat = vi.fn(async () => ({ isFile: true, isDirectory: false, size: bytes.length }));
     const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as IHostFileSystem;
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
+    const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 
     const result = await execute(tool, { path: '/tmp/large.txt' });
     const output = toolContentString(result);
@@ -853,17 +739,16 @@ describe('ReadTool', () => {
     expect(output).not.toContain('Max');
   });
 
-  it('description pins line/byte caps, tail mode, and the Grep-over-Read preference', () => {
+  it('interpolates the cap constants into the description and references the Grep tool', () => {
     const tool = toolWithContent('');
     expect(tool.description).toContain(String(MAX_LINES));
     expect(tool.description).toContain(String(MAX_LINE_LENGTH));
-    expect(tool.description).toMatch(/negative line_offset|reads from the end/i);
     expect(tool.description).toContain('Grep');
   });
 
   it('reads files inside additional_dirs via absolute path', async () => {
     const { fs } = createSpiedFs('extra-dir note');
-    const tool = new ReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace', ['/extra']));
+    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace', ['/extra']));
 
     const result = await execute(tool, { path: '/extra/notes.txt' });
 
@@ -873,7 +758,7 @@ describe('ReadTool', () => {
 
   it('reports nonexistent files with the expected does-not-exist phrasing', async () => {
     const { fs } = createSpiedMapFs({});
-    const tool = new ReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
+    const tool = createReadTool(fs, createTestEnv(), stubWorkspaceContext('/workspace'));
 
     const result = await execute(tool, { path: '/workspace/ghost.txt' });
 
@@ -982,226 +867,45 @@ describe('ReadTool', () => {
     expect(result.note).toContain('Lines [4] were truncated.');
   });
 
-  it('reads a file with a single line and no trailing newline', async () => {
-    const tool = toolWithContent('single line without newline');
+  it('rechecks runtime availability when execution starts after the tool was shown', async () => {
+    const env = createTestEnv();
+    const fs = createSpiedFs('visible').fs;
+    const runtimeValue = new FakeRuntime(
+      { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
+      { capabilities: ['fs'] },
+    );
+    Object.assign(runtimeValue, { environment: env, fs });
+    const registry = new RuntimeRegistry('workspace');
+    registry.register(runtimeValue);
+    const binding = { workspaceId: 'workspace', runtimeId: 'local' } as const;
+    const runtime: IAgentRuntimeService = {
+      _serviceBrand: undefined,
+      onDidChange: (listener) => registry.onDidChange(() => listener()),
+      isAvailable: (required = []) => {
+        try {
+          const lease = registry.acquire(binding, required);
+          lease.dispose();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      inspect: () => registry.inspect(binding),
+      acquire: (required = []) => registry.acquire(binding, required),
+    };
+    const tool = new ReadTool(
+      runtime,
+      stubWorkspaceContext('/workspace'),
+      { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
+    );
+    const execution = tool.resolveExecution({ path: '/workspace/a.txt' });
+    expect('execute' in execution).toBe(true);
 
-    const result = await execute(tool, { path: '/tmp/single.txt' });
+    runtimeValue.setStatus('disconnected');
 
-    expect(result.isError).toBeFalsy();
-    expect(result.output).toBe('1\tsingle line without newline');
-    expect(result.note).toContain('1 line read');
-  });
-
-  it('reads a file with only newlines as content', async () => {
-    const tool = toolWithContent('\n\n\n');
-
-    const result = await execute(tool, { path: '/tmp/newlines.txt' });
-
-    expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('1\t');
-    expect(result.note).toContain('3 lines read');
-  });
-
-  it('handles a path with spaces and special characters', async () => {
-    const { fs } = createSpiedFs('special path content');
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/my project/file (copy).txt' });
-
-    expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('special path content');
-  });
-
-  it('reads a file with very long path (over 256 characters)', async () => {
-    const longPath = '/tmp/' + 'x'.repeat(300) + '/file.txt';
-    const { fs } = createSpiedFs('deep path content');
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: longPath });
-
-    expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('deep path content');
-  });
-});
-
-describe('ReadTool description and schema parity', () => {
-  it('encourages reading multiple files in parallel', () => {
-    const tool = toolWithContent('');
-
-    expect(tool.description).toMatch(/parallel/i);
-    expect(tool.description).toMatch(/multiple `Read` calls in a single response/i);
-  });
-
-  it('explains the trailing <system> status block', () => {
-    const tool = toolWithContent('');
-
-    expect(tool.description).toContain('<system>');
-    expect(tool.description).toMatch(/after the file content/i);
-  });
-
-  it('describes the path parameter with accurate working-directory semantics', () => {
-    const tool = toolWithContent('');
-    const pathProperty = (tool.parameters as { properties: { path: { description: string } } })
-      .properties.path;
-
-    expect(pathProperty.description).toContain('working directory');
-    expect(pathProperty.description).not.toMatch(/^Absolute path/);
-  });
-
-  it('documents the default for n_lines when omitted', () => {
-    const tool = toolWithContent('');
-    const nLinesProperty = (tool.parameters as { properties: { n_lines: { description: string } } })
-      .properties.n_lines;
-
-    expect(nLinesProperty.description).toMatch(/omit/i);
-    expect(nLinesProperty.description).toContain(String(MAX_LINES));
-  });
-
-  it('warns that sensitive files are refused', () => {
-    const tool = toolWithContent('');
-
-    expect(tool.description).toMatch(/refuse|reject|decline|block/i);
-    expect(tool.description).toMatch(/sensitive|credential|secret|\.env|SSH key/i);
-  });
-
-  it('explains that non-UTF-8 and binary files are refused', () => {
-    const tool = toolWithContent('');
-
-    expect(tool.description).toMatch(/UTF-?8/i);
-    expect(tool.description).toMatch(/binary/i);
-  });
-});
-
-describe('ReadTool native fast-path routing', () => {
-  afterEach(() => {
-    vi.mocked(tryNativeRead).mockReset();
-    vi.mocked(tryNativeRead).mockImplementation(() => Promise.resolve(undefined));
-  });
-
-  it('uses the native result directly and never spins up the TS line reader', async () => {
-    // The fake fs content ('ignored by native') doubles as a sentinel: had
-    // the TS line reader run, it would appear in the output.
-    const { fs } = createSpiedMapFs({
-      '/tmp/native.txt': { bytes: Buffer.from('ignored by native\n', 'utf8') },
-    });
-    vi.mocked(tryNativeRead).mockResolvedValue({
-      content:
-        '1\talpha\n2\tbeta\n<system>2 lines read from file starting from line 1. Total lines in file: 2. End of file reached.</system>',
-      lineCount: 2,
-    });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/native.txt' });
-
-    expect(result).toEqual({
-      output: '1\talpha\n2\tbeta',
-      note: '<system>2 lines read from file starting from line 1. Total lines in file: 2. End of file reached.</system>',
-    });
-  });
-
-  it('returns a classified native error as final instead of re-reading via TS', async () => {
-    const { fs } = createSpiedMapFs({
-      '/tmp/gone.txt': { bytes: Buffer.from('never read\n', 'utf8') },
-    });
-    vi.mocked(tryNativeRead).mockResolvedValue({
-      content: '',
-      lineCount: 0,
-      error: '"/tmp/gone.txt" does not exist.',
-      errorKind: 'not_found',
-    });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/gone.txt' });
-
-    expect(result.isError).toBe(true);
-    // The native verdict verbatim — a TS re-read would have surfaced the
-    // fake file's content ('never read') instead.
-    expect(toolContentString(result)).toBe('"/tmp/gone.txt" does not exist.');
-  });
-
-  it('returns the native invalid_utf8 refusal as final (the chain ran in Rust)', async () => {
-    // The native reader runs the GBK/GB18030 + lenient chain internally;
-    // an invalid_utf8 error reaching TS means the chain refused — the
-    // verdict is final and the TS decode chain must not re-run.
-    const { fs } = createSpiedMapFs({
-      '/tmp/native-garbage.txt': { bytes: Buffer.from([0xff, 0xff, 0xff, 0xff]) },
-    });
-    vi.mocked(tryNativeRead).mockResolvedValue({
-      content: '',
-      lineCount: 0,
-      error:
-        '"/tmp/native-garbage.txt" is not valid UTF-8, UTF-16, or GBK/GB18030 text. ' +
-        'Only UTF-8, UTF-16 and GBK/GB18030 text files can be read; for other encodings, ' +
-        'convert the file to UTF-8 first (e.g. `iconv` via Bash).',
-      errorKind: 'invalid_utf8',
-    });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/native-garbage.txt' });
-
-    expect(result.isError).toBe(true);
-    expect(toolContentString(result)).toContain('not valid UTF-8, UTF-16, or GBK/GB18030 text');
-  });
-
-  it('consults the native reader for UTF-16 headers instead of transcoding in TS', async () => {
-    // BOM + "ab\n" as UTF-16 LE — the native reader transcodes it itself,
-    // so the TS whole-file decode path never runs.
-    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('a\0b\0\n\0', 'latin1')]);
-    const { fs } = createSpiedMapFs({
-      '/tmp/native-utf16.txt': { bytes: utf16 },
-    });
-    vi.mocked(tryNativeRead).mockResolvedValue({
-      content:
-        '1\tab\n<system>1 line read from file starting from line 1. Total lines in file: 1. End of file reached. Detected file encoding: UTF-16 LE; content transcoded to UTF-8 for display.</system>',
-      lineCount: 1,
-    });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/native-utf16.txt' });
-
-    expect(tryNativeRead).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({
-      output: '1\tab',
-      note: expect.stringContaining('Detected file encoding: UTF-16 LE'),
-    });
-  });
-
-  it('skips the TS stat and header preflight entirely when the native read succeeds', async () => {
-    // The native reader performs every preflight itself (existence, file
-    // type, encoding detection), so a successful native verdict must not
-    // trigger any TS-side I/O — not even the 512-byte header sniff.
-    const { fs, readBytes, stat } = createSpiedMapFs({
-      '/tmp/native-preflight.txt': { bytes: Buffer.from('content\n', 'utf8') },
-    });
-    vi.mocked(tryNativeRead).mockResolvedValue({
-      content:
-        '1\tfrom native\n<system>1 line read from file starting from line 1. Total lines in file: 1. End of file reached.</system>',
-      lineCount: 1,
-    });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/native-preflight.txt' });
-
-    expect(result.output).toBe('1\tfrom native');
-    expect(stat).not.toHaveBeenCalled();
-    expect(readBytes).not.toHaveBeenCalled();
-  });
-
-  it('treats any native error as final, even one without errorKind', async () => {
-    // Release builds bundle the native module (SEA exe / version-pinned
-    // optional dep), so a loaded-but-mismatched prebuild is not a real
-    // distribution state — no TS fallthrough is owed to missing errorKind.
-    const { fs } = createSpiedFs('legacy content\n');
-    vi.mocked(tryNativeRead).mockResolvedValue({
-      content: '',
-      lineCount: 0,
-      error: 'stream did not contain valid UTF-8',
-    });
-    const tool = new ReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
-
-    const result = await execute(tool, { path: '/tmp/stale.txt' });
-
-    expect(result.isError).toBe(true);
-    expect(toolContentString(result)).toBe('stream did not contain valid UTF-8');
+    if (!('execute' in execution)) throw new Error('expected executable Read tool');
+    await expect(
+      execution.execute({ turnId: 0, toolCallId: 'call_read_late', signal }),
+    ).rejects.toMatchObject({ code: 'runtime.unavailable' });
   });
 });

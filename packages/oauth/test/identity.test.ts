@@ -230,11 +230,7 @@ describe('ascii header value sanitization', () => {
 
     try {
       const { createKimiDeviceHeaders } = await import('../src/identity');
-      const headers = createKimiDeviceHeaders({
-        homeDir: tempHome(),
-        version: '1.0.0',
-        platform: 'test',
-      });
+      const headers = createKimiDeviceHeaders({ homeDir: tempHome(), version: '1.0.0', platform: 'test' });
       expect(headers['X-Msh-Device-Model']).toBe('macOS 25.5.0 arm64');
     } finally {
       vi.doUnmock('node:os');

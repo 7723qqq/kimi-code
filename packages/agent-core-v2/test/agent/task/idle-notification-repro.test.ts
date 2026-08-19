@@ -1,47 +1,31 @@
-/**
- * Repro for bug: "after a group of background agents complete, the
- * main agent doesn't receive notifications".
- *
- * Unlike `background-manager.test.ts` (which mocks `agent.turn.steer`),
- * this file drives a real `Agent` instance so we can verify the
- * full chain:
- *
- *    task terminal → notifyAgentTask → loop.enqueue(TaskNotificationStepRequest)
- *      → (busy) the mergeable request folds into the active turn's next step
- *      → (idle / race) `activeOrNewTurn` admission launches a fresh turn for
- *        the notification — matching v1's `turn.steer`, the model consumes it
- *        without waiting for the user
- *
- * Delivery is queue-ordered and the message only materializes when the loop
- * pops the request. If a scenario fails to inject the notification into an
- * LLM call, the per-notification `waitFor` times out, making the failure
- * mode explicit.
- */
-
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import type { generate as kosongGenerate } from '#/kosong/contract/generate';
 import { IAgentTaskService } from '#/agent/task/task';
 import { SubagentTask } from '#/agent/tools/agent/subagent-task';
-import { LifecycleScope } from '#/app/scopes';
-import type { generate as kosongGenerate } from '#/kosong/contract/generate';
 import { runAgentTurn } from '#/session/subagent/runAgentTurn';
-
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import {
   taskServices,
   createTestAgent,
   homeDirServices,
   type TestAgentContext,
 } from '../../harness';
-import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
+import {
+  createAgentTaskPersistence,
+  type TaskServiceTestManager,
+} from './stubs';
 
-function agentTask(completion: Promise<{ result: string }>, description: string): SubagentTask {
+function agentTask(
+  completion: Promise<{ result: string }>,
+  description: string,
+): SubagentTask {
   return new SubagentTask(
     { agentId: 'agent-child', profileName: 'coder', completion },
     description,
@@ -82,12 +66,10 @@ describe('task notification → main agent (real Agent instance)', () => {
 
       ctx.mockNextResponse({ type: 'text', text: 'ack from main agent' });
       const turnEnd = ctx.untilTurnEnd();
-      const taskId = background.registerTask(
-        agentTask(
-          Promise.resolve({ result: 'background agent finished its job' }),
-          'idle-state repro',
-        ),
-      );
+      const taskId = background.registerTask(agentTask(
+        Promise.resolve({ result: 'background agent finished its job' }),
+        'idle-state repro',
+      ));
       await background.wait(taskId);
 
       await vi.waitFor(
@@ -118,9 +100,10 @@ describe('task notification → main agent (real Agent instance)', () => {
         input: [{ type: 'text', text: 'kick off a turn' }],
       });
 
-      const taskId = background.registerTask(
-        agentTask(Promise.resolve({ result: 'busy-state bg result' }), 'busy-state repro'),
-      );
+      const taskId = background.registerTask(agentTask(
+        Promise.resolve({ result: 'busy-state bg result' }),
+        'busy-state repro',
+      ));
 
       await promptPromise;
       await ctx.untilTurnEnd();
@@ -158,9 +141,18 @@ describe('task notification → main agent (real Agent instance)', () => {
       ctx.mockNextResponse({ type: 'text', text: 'ack group 3' });
       const turnEnd = ctx.untilTurnEnd();
       const taskIds = [
-        background.registerTask(agentTask(Promise.resolve({ result: 'bg #1 result' }), 'group-1')),
-        background.registerTask(agentTask(Promise.resolve({ result: 'bg #2 result' }), 'group-2')),
-        background.registerTask(agentTask(Promise.resolve({ result: 'bg #3 result' }), 'group-3')),
+        background.registerTask(agentTask(
+          Promise.resolve({ result: 'bg #1 result' }),
+          'group-1',
+        )),
+        background.registerTask(agentTask(
+          Promise.resolve({ result: 'bg #2 result' }),
+          'group-2',
+        )),
+        background.registerTask(agentTask(
+          Promise.resolve({ result: 'bg #3 result' }),
+          'group-3',
+        )),
       ];
 
       for (const id of taskIds) {
@@ -205,9 +197,10 @@ describe('task notification → main agent (real Agent instance)', () => {
 
       ctx.mockNextResponse({ type: 'text', text: 'ack from bg notification' });
       const turnEnd = ctx.untilTurnEnd();
-      const taskId = background.registerTask(
-        agentTask(Promise.resolve({ result: 'post-turn bg result' }), 'race-after-turn'),
-      );
+      const taskId = background.registerTask(agentTask(
+        Promise.resolve({ result: 'post-turn bg result' }),
+        'race-after-turn',
+      ));
       await background.wait(taskId);
       await vi.waitFor(
         () => {
@@ -372,6 +365,7 @@ describe('task notification → main agent (real Agent instance)', () => {
     });
 
     it('RESUME: terminal bg tasks discovered on reconcile are SILENTLY injected (no auto-turn)', async () => {
+
       const launchSpy = vi.spyOn(loop as unknown as { startTurn: () => unknown }, 'startTurn');
 
       await background.loadFromDisk();

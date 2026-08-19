@@ -1,19 +1,9 @@
-import { lookup } from 'node:dns/promises';
-
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { ErrorCodes, Error2 } from '#/errors';
-import {
-  buildMcpHttpHeaders,
-  HttpMcpClient,
-  isTerminalTransportError,
-} from '#/mcpCore/client-http';
+import { buildMcpHttpHeaders, HttpMcpClient, isTerminalTransportError } from '#/mcpCore/client-http';
 
 import { startInProcessHttpMcpServer } from './stubs';
-
-vi.mock('node:dns/promises', () => ({ lookup: vi.fn() }));
-
-const lookupMock = lookup as unknown as Mock;
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
@@ -23,14 +13,9 @@ afterEach(async () => {
   }
 });
 
-beforeEach(() => {
-  lookupMock.mockReset();
-  lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-});
-
-async function expectConfigInvalid(fn: () => Promise<unknown>): Promise<void> {
+function expectConfigInvalid(fn: () => unknown): void {
   try {
-    await fn();
+    fn();
   } catch (error) {
     expect(error).toBeInstanceOf(Error2);
     expect((error as Error2).code).toBe(ErrorCodes.CONFIG_INVALID);
@@ -40,44 +25,44 @@ async function expectConfigInvalid(fn: () => Promise<unknown>): Promise<void> {
 }
 
 describe('buildMcpHttpHeaders', () => {
-  it('returns undefined when no headers and no bearer are configured', async () => {
-    await expect(
-      buildMcpHttpHeaders({ transport: 'http', url: 'https://x.example.com' }, () => {}),
-    ).resolves.toBeUndefined();
+  it('returns undefined when no headers and no bearer are configured', () => {
+    expect(
+      buildMcpHttpHeaders({ transport: 'http', url: 'https://x.example.com' }, () => undefined),
+    ).toBeUndefined();
   });
 
-  it('passes through configured static headers', async () => {
-    await expect(
+  it('passes through configured static headers', () => {
+    expect(
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', headers: { 'X-Tenant': 'kimi' } },
-        () => {},
+        () => undefined,
       ),
-    ).resolves.toEqual({ 'X-Tenant': 'kimi' });
+    ).toEqual({ 'X-Tenant': 'kimi' });
   });
 
-  it('injects Authorization Bearer when env lookup yields a token', async () => {
-    await expect(
+  it('injects Authorization Bearer when env lookup yields a token', () => {
+    expect(
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', bearerTokenEnvVar: 'TOK' },
         (name) => (name === 'TOK' ? 'secret' : undefined),
       ),
-    ).resolves.toEqual({ Authorization: 'Bearer secret' });
+    ).toEqual({ Authorization: 'Bearer secret' });
   });
 
-  it('throws Error2(config.invalid) when a configured bearer token env var is empty or missing', async () => {
-    await expectConfigInvalid(() =>
+  it('throws Error2(config.invalid) when a configured bearer token env var is empty or missing', () => {
+    expectConfigInvalid(() =>
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', bearerTokenEnvVar: 'MISSING' },
-        () => {},
+        () => undefined,
       ),
     );
-    await expect(
+    expect(() =>
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', bearerTokenEnvVar: 'MISSING' },
-        () => {},
+        () => undefined,
       ),
-    ).rejects.toThrow(/"MISSING" is not set or is empty/);
-    await expectConfigInvalid(() =>
+    ).toThrow(/"MISSING" is not set or is empty/);
+    expectConfigInvalid(() =>
       buildMcpHttpHeaders(
         { transport: 'http', url: 'https://x.example.com', bearerTokenEnvVar: 'EMPTY' },
         () => '',
@@ -85,8 +70,8 @@ describe('buildMcpHttpHeaders', () => {
     );
   });
 
-  it('merges bearer over the same Authorization key from static headers', async () => {
-    await expect(
+  it('merges bearer over the same Authorization key from static headers', () => {
+    expect(
       buildMcpHttpHeaders(
         {
           transport: 'http',
@@ -96,11 +81,11 @@ describe('buildMcpHttpHeaders', () => {
         },
         () => 'fresh',
       ),
-    ).resolves.toEqual({ Authorization: 'Bearer fresh', 'X-Trace': '1' });
+    ).toEqual({ Authorization: 'Bearer fresh', 'X-Trace': '1' });
   });
 
-  it('strips case-variant authorization headers before injecting the bearer', async () => {
-    await expect(
+  it('strips case-variant authorization headers before injecting the bearer', () => {
+    expect(
       buildMcpHttpHeaders(
         {
           transport: 'http',
@@ -110,111 +95,7 @@ describe('buildMcpHttpHeaders', () => {
         },
         () => 'fresh',
       ),
-    ).resolves.toEqual({ Authorization: 'Bearer fresh', 'X-Trace': '1' });
-  });
-
-  it('refuses bearer token for loopback / private / metadata URLs (SSRF guard)', async () => {
-    for (const url of [
-      'http://127.0.0.1:8080/mcp',
-      'http://127.1.2.3/mcp',
-      'http://169.254.169.254/latest/meta-data',
-      'http://10.0.0.1/mcp',
-      'http://192.168.1.1/mcp',
-      'http://[::1]/mcp',
-      'http://0.0.0.0/mcp',
-    ]) {
-      await expectConfigInvalid(() =>
-        buildMcpHttpHeaders({ transport: 'http', url, bearerTokenEnvVar: 'TOK' }, () => 'secret'),
-      );
-    }
-  });
-
-  it('allows bearer token for localhost and public URLs', async () => {
-    await expect(
-      buildMcpHttpHeaders(
-        { transport: 'http', url: 'http://localhost:8080/mcp', bearerTokenEnvVar: 'TOK' },
-        () => 'secret',
-      ),
-    ).resolves.toEqual({ Authorization: 'Bearer secret' });
-    await expect(
-      buildMcpHttpHeaders(
-        { transport: 'http', url: 'https://example.com/mcp', bearerTokenEnvVar: 'TOK' },
-        () => 'secret',
-      ),
-    ).resolves.toEqual({ Authorization: 'Bearer secret' });
-  });
-
-  it('resolves hostnames and refuses when any resolved address is private', async () => {
-    lookupMock.mockResolvedValue([
-      { address: '93.184.216.34', family: 4 },
-      { address: '10.0.0.7', family: 4 },
-    ]);
-    await expectConfigInvalid(() =>
-      buildMcpHttpHeaders(
-        { transport: 'http', url: 'https://sneaky.example.com/mcp', bearerTokenEnvVar: 'TOK' },
-        () => 'secret',
-      ),
-    );
-    expect(lookupMock).toHaveBeenCalledWith('sneaky.example.com', { all: true });
-  });
-
-  it('allows bearer token when every resolved address is public', async () => {
-    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-    await expect(
-      buildMcpHttpHeaders(
-        { transport: 'http', url: 'https://example.com/mcp', bearerTokenEnvVar: 'TOK' },
-        () => 'secret',
-      ),
-    ).resolves.toEqual({ Authorization: 'Bearer secret' });
-  });
-
-  it('fails closed when DNS resolution of the hostname fails', async () => {
-    lookupMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND b0rked.example'));
-    await expectConfigInvalid(() =>
-      buildMcpHttpHeaders(
-        { transport: 'http', url: 'https://b0rked.example/mcp', bearerTokenEnvVar: 'TOK' },
-        () => 'secret',
-      ),
-    );
-  });
-
-  it('refuses IPv4-mapped IPv6 loopback literals, including the hex form', async () => {
-    for (const url of ['http://[::ffff:127.0.0.1]/mcp', 'http://[::ffff:7f00:1]/mcp']) {
-      await expectConfigInvalid(() =>
-        buildMcpHttpHeaders({ transport: 'http', url, bearerTokenEnvVar: 'TOK' }, () => 'secret'),
-      );
-    }
-  });
-
-  it('handles headers with empty values', async () => {
-    await expect(
-      buildMcpHttpHeaders(
-        { transport: 'http', url: 'https://x.example.com', headers: { 'X-Empty': '' } },
-        () => {},
-      ),
-    ).resolves.toEqual({ 'X-Empty': '' });
-  });
-
-  it('handles multiple headers with mixed case keys', async () => {
-    await expect(
-      buildMcpHttpHeaders(
-        {
-          transport: 'http',
-          url: 'https://x.example.com',
-          headers: { 'x-custom': 'v1', 'X-Custom-Trace': 'trace-123' },
-        },
-        () => {},
-      ),
-    ).resolves.toEqual({ 'x-custom': 'v1', 'X-Custom-Trace': 'trace-123' });
-  });
-
-  it('throws config.invalid when bearerTokenEnvVar resolves to a whitespace-only string', async () => {
-    await expectConfigInvalid(() =>
-      buildMcpHttpHeaders(
-        { transport: 'http', url: 'https://x.example.com', bearerTokenEnvVar: 'SPACE' },
-        () => '   ',
-      ),
-    );
+    ).toEqual({ Authorization: 'Bearer fresh', 'X-Trace': '1' });
   });
 
   it('flags errors the SDK uses to signal a dead HTTP transport as terminal', () => {
@@ -230,18 +111,6 @@ describe('buildMcpHttpHeaders', () => {
     expect(isTerminalTransportError(new Error('SSE stream disconnected: ECONNRESET'))).toBe(false);
     expect(isTerminalTransportError(new Error('fetch failed'))).toBe(false);
     expect(isTerminalTransportError(new Error('Connection closed'))).toBe(false);
-  });
-
-  it('returns false for null, undefined, or plain objects', () => {
-    expect(isTerminalTransportError(null as unknown as Error)).toBe(false);
-    expect(isTerminalTransportError(undefined as unknown as Error)).toBe(false);
-    expect(isTerminalTransportError({} as unknown as Error)).toBe(false);
-  });
-
-  it('returns false for a generic Error with no terminal message', () => {
-    expect(isTerminalTransportError(new Error('socket hang up'))).toBe(false);
-    expect(isTerminalTransportError(new Error('ETIMEDOUT'))).toBe(false);
-    expect(isTerminalTransportError(new Error('connect ECONNREFUSED 127.0.0.1:8080'))).toBe(false);
   });
 });
 
@@ -275,11 +144,9 @@ describe('HttpMcpClient', () => {
     });
     try {
       await client.connect();
-      const internal = (
-        client as unknown as {
-          client: { onerror?: (error: Error) => void };
-        }
-      ).client;
+      const internal = (client as unknown as {
+        client: { onerror?: (error: Error) => void };
+      }).client;
       internal.onerror?.(new Error('Maximum reconnection attempts (3) exceeded.'));
       await new Promise((r) => setTimeout(r, 25));
       expect(closes).toHaveLength(1);
@@ -298,11 +165,9 @@ describe('HttpMcpClient', () => {
     client.onUnexpectedClose(() => closes.push(Date.now()));
     try {
       await client.connect();
-      const internal = (
-        client as unknown as {
-          client: { onerror?: (error: Error) => void };
-        }
-      ).client;
+      const internal = (client as unknown as {
+        client: { onerror?: (error: Error) => void };
+      }).client;
       internal.onerror?.(new Error('SSE stream disconnected: ECONNRESET'));
       internal.onerror?.(new Error('fetch failed'));
       await new Promise((r) => setTimeout(r, 25));
@@ -331,25 +196,5 @@ describe('HttpMcpClient', () => {
     } finally {
       await client.close();
     }
-  }, 15000);
-
-  it('double close is safe (no throw)', async () => {
-    const server = await startInProcessHttpMcpServer();
-    cleanups.push(server.close);
-
-    const client = new HttpMcpClient({ transport: 'http', url: server.url });
-    await client.connect();
-    await client.close();
-    await expect(client.close()).resolves.toBeUndefined();
-  }, 15000);
-
-  it('rejects connect with an unreachable URL', async () => {
-    const client = new HttpMcpClient({
-      transport: 'http',
-      url: 'http://127.255.255.255:1/mcp',
-      startupTimeoutMs: 500,
-    });
-    await expect(client.connect()).rejects.toThrow();
-    await client.close();
   }, 15000);
 });

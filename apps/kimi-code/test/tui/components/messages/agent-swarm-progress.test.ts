@@ -1,6 +1,6 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AgentSwarmProgressComponent,
@@ -435,7 +435,8 @@ describe('AgentSwarmProgressComponent', () => {
     });
     component.markCancelled('agent-1');
 
-    const cellLine = renderLines(component).find((line) => line.includes('001 ['));
+    const cellLine = renderLines(component)
+      .find((line) => line.includes('001 ['));
 
     expect(cellLine).toBeDefined();
     expect(cellLine).toContain('⊘ Cancelled.');
@@ -449,14 +450,12 @@ describe('AgentSwarmProgressComponent', () => {
       description: 'Review changed files',
       items: ['src/a.ts'],
     });
-    component.applyResult(
-      [
-        '<agent_swarm_result>',
-        '<summary>failed: 1</summary>',
-        '<subagent index="1" agent_id="agent-1" outcome="failed">Agent timed out after 30s.</subagent>',
-        '</agent_swarm_result>',
-      ].join('\n'),
-    );
+    component.applyResult([
+      '<agent_swarm_result>',
+      '<summary>failed: 1</summary>',
+      '<subagent index="1" agent_id="agent-1" outcome="failed">Agent timed out after 30s.</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'));
 
     const output = renderText(component);
 
@@ -471,17 +470,15 @@ describe('AgentSwarmProgressComponent', () => {
       description: 'Review changed files',
       items: ['src/a.ts', 'src/b.ts'],
     });
-    const applied = component.applyResult(
-      [
-        '<agent_swarm_result>',
-        '<summary>failed: 1, aborted: 1</summary>',
-        '<subagent agent_id="agent-1" item="src/a.ts" outcome="failed">' +
-          'Agent timed out after 30s.</subagent>',
-        '<subagent agent_id="agent-2" item="src/b.ts" outcome="aborted">' +
-          'User interrupted.</subagent>',
-        '</agent_swarm_result>',
-      ].join('\n'),
-    );
+    const applied = component.applyResult([
+      '<agent_swarm_result>',
+      '<summary>failed: 1, aborted: 1</summary>',
+      '<subagent agent_id="agent-1" item="src/a.ts" outcome="failed">' +
+        'Agent timed out after 30s.</subagent>',
+      '<subagent agent_id="agent-2" item="src/b.ts" outcome="aborted">' +
+        'User interrupted.</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'));
 
     const output = renderText(component, 120);
 
@@ -499,23 +496,21 @@ describe('AgentSwarmProgressComponent', () => {
       description: 'Review changed files',
       items: ['src/a.ts'],
     });
-    component.applyResult(
-      [
-        '<agent_swarm_result>',
-        '<summary>failed: 1</summary>',
-        '<subagent index="1" agent_id="agent-1" outcome="failed">agent_swarm: failed',
-        'description: Nested review',
-        'items: 1',
-        'completed: 0',
-        'failed: 1',
-        '',
-        '[agent 1]',
-        'status: failed',
-        '',
-        'subagent error: [provider.rate_limit] 429 request reached user+model max RPM.</subagent>',
-        '</agent_swarm_result>',
-      ].join('\n'),
-    );
+    component.applyResult([
+      '<agent_swarm_result>',
+      '<summary>failed: 1</summary>',
+      '<subagent index="1" agent_id="agent-1" outcome="failed">agent_swarm: failed',
+      'description: Nested review',
+      'items: 1',
+      'completed: 0',
+      'failed: 1',
+      '',
+      '[agent 1]',
+      'status: failed',
+      '',
+      'subagent error: [provider.rate_limit] 429 request reached user+model max RPM.</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'));
 
     const output = renderText(component, 120);
 
@@ -531,14 +526,12 @@ describe('AgentSwarmProgressComponent', () => {
       description: 'Review changed files',
       items: ['src/a.ts'],
     });
-    component.applyResult(
-      [
-        '<agent_swarm_result>',
-        '<summary>completed: 1</summary>',
-        '<subagent index="1" agent_id="agent-1" outcome="completed">Reviewed src/a.ts and confirmed imports are stable.</subagent>',
-        '</agent_swarm_result>',
-      ].join('\n'),
-    );
+    component.applyResult([
+      '<agent_swarm_result>',
+      '<summary>completed: 1</summary>',
+      '<subagent index="1" agent_id="agent-1" outcome="completed">Reviewed src/a.ts and confirmed imports are stable.</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'));
 
     const output = renderText(component);
 
@@ -553,15 +546,13 @@ describe('AgentSwarmProgressComponent', () => {
       description: 'Review changed files',
       items: ['src/a.ts', 'src/b.ts'],
     });
-    component.applyResult(
-      [
-        '<agent_swarm_result>',
-        '<summary>completed: 1, failed: 1</summary>',
-        '<subagent index="1" agent_id="agent-1" outcome="completed">Reviewed src/a.ts and confirmed imports are stable.</subagent>',
-        '<subagent index="2" agent_id="agent-2" outcome="failed">Agent timed out after 30s.</subagent>',
-        '</agent_swarm_result>',
-      ].join('\n'),
-    );
+    component.applyResult([
+      '<agent_swarm_result>',
+      '<summary>completed: 1, failed: 1</summary>',
+      '<subagent index="1" agent_id="agent-1" outcome="completed">Reviewed src/a.ts and confirmed imports are stable.</subagent>',
+      '<subagent index="2" agent_id="agent-2" outcome="failed">Agent timed out after 30s.</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'));
 
     const output = renderText(component, 120);
     const totalStatusLine = output.split('\n').find((line) => line.includes('Completed.'));
@@ -609,21 +600,20 @@ describe('AgentSwarmProgressComponent', () => {
     const prompting = createComponent({
       description: '',
     });
-    prompting.updateArgs(
-      {},
-      {
-        streamingArguments: '{"prompt_template":"Review the changed TypeScript files carefully',
-      },
-    );
+    prompting.updateArgs({}, {
+      streamingArguments: '{"prompt_template":"Review the changed TypeScript files carefully',
+    });
 
-    const promptLine = renderLines(prompting, 80).find((line) => line.includes('Prompting...'));
+    const promptLine = renderLines(prompting, 80)
+      .find((line) => line.includes('Prompting...'));
     expect(promptLine).toBeDefined();
 
     const working = createComponent();
     registerSubagents(working, 1);
     startSubagents(working, 1);
 
-    const workingLine = renderLines(working, 80).find((line) => line.includes('Working...'));
+    const workingLine = renderLines(working, 80)
+      .find((line) => line.includes('Working...'));
     expect(workingLine).toBeDefined();
 
     const promptTextIndex = promptLine?.indexOf('Review the changed') ?? -1;
@@ -641,7 +631,8 @@ describe('AgentSwarmProgressComponent', () => {
     startSubagents(component, 1);
     component.setActivitySpinnerText(() => '🌗');
 
-    const statusLine = renderLines(component, 80).find((line) => line.includes('Working...'));
+    const statusLine = renderLines(component, 80)
+      .find((line) => line.includes('Working...'));
 
     expect(statusLine).toBeDefined();
     expect(statusLine?.startsWith(' 🌗 Working...')).toBe(true);
@@ -656,7 +647,8 @@ describe('AgentSwarmProgressComponent', () => {
     component.markToolCallEnded();
     component.setActivitySpinnerText(() => '🌘');
 
-    const statusLine = renderLines(component, 80).find((line) => line.includes('Working...'));
+    const statusLine = renderLines(component, 80)
+      .find((line) => line.includes('Working...'));
 
     expect(statusLine).toBeDefined();
     expect(statusLine?.startsWith('    Working...')).toBe(true);
@@ -697,15 +689,12 @@ describe('AgentSwarmProgressComponent', () => {
     const prompting = createComponent({
       description: '',
     });
-    prompting.updateArgs(
-      {},
-      {
-        streamingArguments:
-          '{"prompt_template":"Review every changed TypeScript file and summarize regressions carefully before reporting',
-      },
-    );
+    prompting.updateArgs({}, {
+      streamingArguments: '{"prompt_template":"Review every changed TypeScript file and summarize regressions carefully before reporting',
+    });
 
-    const promptLine = renderLines(prompting, 50).find((line) => line.includes('Prompting...'));
+    const promptLine = renderLines(prompting, 50)
+      .find((line) => line.includes('Prompting...'));
 
     expect(promptLine).toBeDefined();
     expect(visibleWidth(promptLine ?? '')).toBeLessThan(50);
@@ -783,7 +772,9 @@ describe('AgentSwarmProgressComponent', () => {
   });
 
   it('counts partial items before each string is complete', () => {
-    expect(agentSwarmPartialItemsCountFromArguments('{"items":["src/a.ts","src/b')).toBe(2);
+    expect(
+      agentSwarmPartialItemsCountFromArguments('{"items":["src/a.ts","src/b'),
+    ).toBe(2);
     expect(
       agentSwarmPartialItemsCountFromArguments('{"items":["src/a.ts","src/\\"b.ts","src/c'),
     ).toBe(3);
@@ -797,12 +788,9 @@ describe('AgentSwarmProgressComponent', () => {
       description: '',
     });
 
-    component.updateArgs(
-      {},
-      {
-        streamingArguments: '{"description":"Review changed files","items":["src/a.ts","src/b',
-      },
-    );
+    component.updateArgs({}, {
+      streamingArguments: '{"description":"Review changed files","items":["src/a.ts","src/b',
+    });
     const output = renderText(component);
 
     expect(output).toContain('001 src/a.ts');
@@ -814,13 +802,10 @@ describe('AgentSwarmProgressComponent', () => {
       description: '',
     });
 
-    component.updateArgs(
-      {},
-      {
-        streamingArguments:
-          '{"description":"Resume reviews","resume_agent_ids":{"agent-old-1":"continue","agent-old-2":"cont',
-      },
-    );
+    component.updateArgs({}, {
+      streamingArguments:
+        '{"description":"Resume reviews","resume_agent_ids":{"agent-old-1":"continue","agent-old-2":"cont',
+    });
     const output = renderText(component);
 
     expect(output).toContain('001 (resumed)');

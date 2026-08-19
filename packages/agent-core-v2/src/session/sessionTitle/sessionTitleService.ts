@@ -1,29 +1,3 @@
-/**
- * `sessionTitle` domain (L6) — `ISessionTitleService` implementation.
- *
- * Generates the session's title from the first active prompts in the main
- * Agent's live conversation context through the managed platform `/tools`
- * `chat_title` endpoint, persists it through
- * `sessionMetadata`, and rebroadcasts `session.meta.updated`.
- * Generation is on demand only: `generateTitle()` is the single entry point
- * (the kap-server route), gated by the experimental `auto_session_title` flag and
- * a managed Kimi Code OAuth login; any
- * failure degrades to keeping the current title, and a custom title set by
- * the user is never overwritten. An already-generated title is not
- * regenerated. Concurrent calls coalesce onto one shared in-flight
- * generation. `force` requests an explicit user-driven regeneration: it
- * bypasses the in-flight coalescing and both title-kind guards, and the
- * applied title is marked `generated` (a previous custom marking is
- * dropped). The `source` option picks the conversation excerpt sent to the
- * backend (see `SessionTitleSource`): the default first-prompts window, the
- * strict `first_turn` user+assistant pair, or the head+tail `digest` for
- * multi-turn regeneration.
- * Provider config comes
- * from `provider`, the bearer token from `auth`, host identity headers from
- * `model`, prompt history from `agentLifecycle`/`sessionTitle`, and logs
- * through `log`. Bound at Session scope.
- */
-
 import {
   KIMI_CODE_PROVIDER_NAME,
   OAuthError,
@@ -34,17 +8,18 @@ import {
 } from '@moonshot-ai/kimi-code-oauth';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
+import { IFlagService } from '#/app/flag/flag';
 import { ILogService } from '#/_base/log/log';
 import { IOAuthService } from '#/app/auth/auth';
 import { IEventService } from '#/app/event/event';
-import { IFlagService } from '#/app/flag/flag';
-import { LifecycleScope } from '#/app/scopes';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { IHostRequestHeaders } from '#/kosong/model/hostRequestHeaders';
 import { IProviderService } from '#/kosong/provider/provider';
 import { isOAuthCatalogVendor } from '#/kosong/provider/providerDefinition';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
 
 import { IAgentTitlePromptSource } from './agentTitlePromptSource';
 import { AUTO_SESSION_TITLE_FLAG_ID } from './flag';
@@ -56,7 +31,6 @@ const MAX_TITLE_INPUT_LENGTH = 1000;
 
 const MAX_TITLE_PROMPTS = 3;
 
-/** Per-segment excerpt budgets inside the composed chat_content. */
 const MAX_TITLE_USER_SEGMENT = 300;
 
 const MAX_TITLE_FIRST_TURN_ASSISTANT = 600;
@@ -113,7 +87,10 @@ export class SessionTitleService implements ISessionTitleService {
     return this.generateAndApply(input, force);
   }
 
-  private async generateAndApply(chatContent: string, force: boolean): Promise<string | undefined> {
+  private async generateAndApply(
+    chatContent: string,
+    force: boolean,
+  ): Promise<string | undefined> {
     const current = await this.metadata.read();
     if (!force && current.titleKind === 'custom') return undefined;
     const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);
@@ -167,15 +144,16 @@ export class SessionTitleService implements ISessionTitleService {
     const title = result.title.slice(0, MAX_GENERATED_TITLE_LENGTH);
     const applied = await this.metadata.setGeneratedTitleIfUncustomized(title, { force });
     if (!applied) return undefined;
-    this.eventService.publish({
-      type: 'session.meta.updated',
-      payload: {
-        agentId: 'main',
-        sessionId: this.ctx.sessionId,
-        title,
-        patch: { title, isCustomTitle: false },
-      },
-    });
+    this.eventService.publish(
+      new SessionMetaUpdated({
+        payload: {
+          agentId: 'main',
+          sessionId: this.ctx.sessionId,
+          title,
+          patch: { title, isCustomTitle: false },
+        },
+      }),
+    );
     return title;
   }
 }

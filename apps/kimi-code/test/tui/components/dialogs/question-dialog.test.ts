@@ -84,7 +84,9 @@ describe('QuestionDialogComponent', () => {
     expect(review).toContain('Ready to submit your answers?');
     expect(review).not.toContain('? Ready to submit your answers?');
     expect(review).not.toContain('Please answer all questions before submitting.');
-    expect(reviewRaw).toContain(currentTheme.boldFg('text', ' Review your answer before submit'));
+    expect(reviewRaw).toContain(
+      currentTheme.boldFg('text', ' Review your answer before submit'),
+    );
     expect(reviewRaw).toContain(currentTheme.fg('text', ' Ready to submit your answers?'));
     expect(review).toContain('B1');
     expect(review).toContain('A2');
@@ -489,9 +491,7 @@ describe('QuestionDialogComponent', () => {
 
       expect(joined).not.toContain('…');
       // Question text should span multiple physical lines.
-      expect(
-        joined.split('\n').filter((l) => l.includes('?') || /Please|workspace|side/.test(l)).length,
-      ).toBeGreaterThan(1);
+      expect(joined.split('\n').filter((l) => l.includes('?') || /Please|workspace|side/.test(l)).length).toBeGreaterThan(1);
       // And the full content should still be reconstructable.
       expect(flat).toContain(longQuestion);
     });
@@ -556,4 +556,5 @@ describe('QuestionDialogComponent', () => {
       expect(flat).toContain(longQuestion);
     });
   });
+
 });

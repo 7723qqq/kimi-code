@@ -6,7 +6,7 @@
  * subscription stream.
  */
 
-import type { z } from 'zod';
+import { z } from 'zod';
 
 import type { ProcedureContract, StreamingProcedureContract } from '#/contract/types';
 
@@ -77,10 +77,7 @@ export function parseEvent(
 ): { ok: true; data: unknown } | { ok: false; error: KlientValidationError } {
   const result = schema.safeParse(data);
   if (!result.success) {
-    return {
-      ok: false,
-      error: new KlientValidationError('event', event, result.error.issues, data),
-    };
+    return { ok: false, error: new KlientValidationError('event', event, result.error.issues, data) };
   }
   return { ok: true, data: result.data };
 }

@@ -1,54 +1,37 @@
-/**
- * `app/kosongConfig` discovery tests — `IProviderDiscoveryService`:
- *
- *  - `refreshProviderModels` short-circuits `modelSource: 'static'`: a scoped
- *    refresh answers `unchanged` without any I/O, and an unscoped refresh
- *    hides the static entries from the orchestrator and merges them back
- *    verbatim — the static provider, its models, and a default model pointing
- *    at them all survive;
- *  - concurrent refreshes serialize (never overlap);
- *  - custom-registry fetches carry the host `User-Agent`;
- *  - provider/model patches land in config through ONE atomic
- *    `replaceSections` transition (the persistence bridge then syncs them
- *    into the registries), merging discovered aliases into user-owned
- *    provider records, while `defaultModel` / `thinking` ride the same
- *    transition — restoring a surviving default selection and CLEARing a
- *    default (plus its thinking) whose alias the upstream dropped, never a
- *    dangling `set`;
- *  - the two-phase orchestrator host contract (removeProvider, then
- *    setConfig) never exposes a halfway-removed catalog: the registries
- *    stay untouched until the single atomic write;
- *  - the `[modelCatalog]` config section self-registers and validates.
- */
-
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createScopedTestHost } from '#/_base/di/test';
 import { isError2 } from '#/_base/errors/errors';
 import { ILogService, type LogPayload } from '#/_base/log/log';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IOAuthService } from '#/app/auth/auth';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { ConfigRegistry } from '#/app/config/configService';
 import { IEventService } from '#/app/event/event';
-import { MODEL_CATALOG_SECTION } from '#/app/kosongConfig/configSection';
-import '#/app/kosongConfig/discoveryService';
 import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
+import '#/app/kosongConfig/discoveryService';
+import { MODEL_CATALOG_SECTION } from '#/app/kosongConfig/configSection';
 import { IKosongConfigService } from '#/app/kosongConfig/kosongConfig';
 import '#/app/kosongConfig/kosongConfigService';
 import '#/kosong/model/errors';
-import { IModelService, type ModelRecord } from '#/kosong/model/model';
+import {
+  IModelService,
+  type ModelRecord,
+} from '#/kosong/model/model';
 import '#/kosong/model/modelService';
-import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
+import {
+  IProviderService,
+  type ProviderConfig,
+} from '#/kosong/provider/provider';
 import '#/kosong/provider/providerService';
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 import '#/kosong/provider/providers/standard.contrib';
 
 import { StubConfigService, stubOAuthService, stubTokenProvider } from '../../kosong/stubs';
-import { stubAgentIdentity } from '../agentIdentity/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
+import { stubAgentIdentity } from '../agentIdentity/stubs';
 
 function stubEvents(): IEventService & { published: Array<{ type: string; payload: unknown }> } {
   const published: Array<{ type: string; payload: unknown }> = [];
@@ -101,7 +84,10 @@ async function createHost(
       IBootstrapService,
       stubBootstrap('/tmp/kimi-home', {}, { requestHeaders: { 'User-Agent': 'kimi-test/1.0' } }),
     ],
-    [IAgentIdentity, stubAgentIdentity({ hostRequestHeaders: { 'User-Agent': 'kimi-test/1.0' } })],
+    [
+      IAgentIdentity,
+      stubAgentIdentity({ hostRequestHeaders: { 'User-Agent': 'kimi-test/1.0' } }),
+    ],
   ]);
   const providers = host.app.accessor.get(IProviderService);
   const models = host.app.accessor.get(IModelService);
@@ -185,11 +171,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
         acme: {
           type: 'openai',
           apiKey: 'sk-acme',
-          source: {
-            kind: 'apiJson',
-            url: 'https://registry.example.test/api.json',
-            apiKey: 'sk-registry',
-          },
+          source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
         },
       },
       models: staticModels,
@@ -209,17 +191,9 @@ describe('refreshProviderModels modelSource short-circuit', () => {
 
       const providerRecords = providers.list();
       expect(Object.keys(providerRecords).toSorted()).toEqual(['acme', 'static-p']);
-      expect(providerRecords['static-p']).toEqual({
-        type: 'openai',
-        modelSource: 'static',
-        apiKey: 'sk-static',
-      });
+      expect(providerRecords['static-p']).toEqual({ type: 'openai', modelSource: 'static', apiKey: 'sk-static' });
       const modelRecords = models.list();
-      expect(modelRecords['s1']).toEqual({
-        provider: 'static-p',
-        model: 'static-model',
-        maxContextSize: 1000,
-      });
+      expect(modelRecords['s1']).toEqual({ provider: 'static-p', model: 'static-model', maxContextSize: 1000 });
       expect(modelRecords['acme/m1']).toBeDefined();
       expect(config.get<string>('defaultModel')).toBe('s1');
       expect(config.get('thinking')).toEqual({ enabled: true });

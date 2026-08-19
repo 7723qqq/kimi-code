@@ -1,32 +1,21 @@
-/**
- * `toolExecutor` domain — Agent-scope tool execution contract.
- *
- * Defines the public execution surface for provider tool calls, the
- * before/will execution-interception events, the did execution hook,
- * tool-call result settlement, duplicate-call tagging for telemetry, and
- * preflight description extension points. Bound at Agent scope.
- */
-
 import { createDecorator } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import type { Event } from '#/_base/event';
+import type { ToolResult } from '#/tool/toolContract';
 import type {
   BeforeToolExecuteEvent,
   ToolDidExecuteContext,
   WillExecuteToolEvent,
 } from '#/agent/toolExecutor/toolHooks';
-import type { OrderedHookSlot } from '#/hooks';
 import type { ToolCall } from '#/kosong/contract/message';
+import type { OrderedHookSlot } from '#/hooks';
 import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
-import type { ToolResult } from '#/tool/toolContract';
 import type { ToolSource } from '#/tool/toolContract';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 export interface ToolCallStartedPayload {
   readonly toolCallId: string;
   readonly name: string;
   readonly args: unknown;
-  readonly display?: ToolInputDisplay | undefined;
 }
 
 export interface ToolExecutorExecuteOptions {
@@ -54,10 +43,7 @@ export type ToolCallDupType = 'same_step' | 'cross_step';
 export interface IAgentToolExecutorService {
   readonly _serviceBrand: undefined;
 
-  execute(
-    calls: ToolCall[],
-    options: ToolExecutorExecuteOptions,
-  ): AsyncIterable<ToolExecutionResult>;
+  execute(calls: ToolCall[], options: ToolExecutorExecuteOptions): AsyncIterable<ToolExecutionResult>;
 
   readonly onBeforeExecuteTool: Event<BeforeToolExecuteEvent>;
 
@@ -74,6 +60,5 @@ export interface IAgentToolExecutorService {
   registerMissingToolDescriber(describer: MissingToolDescriber): IDisposable;
 }
 
-export const IAgentToolExecutorService = createDecorator<IAgentToolExecutorService>(
-  'agentToolExecutorService',
-);
+export const IAgentToolExecutorService =
+  createDecorator<IAgentToolExecutorService>('agentToolExecutorService');

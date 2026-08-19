@@ -1,9 +1,17 @@
-/**
- * `kosong/contract` domain — resolution-provenance annotations.
- *
- * Re-export layer: the implementation moved to `@moonshot-ai/kosong/inspection`
- * (shared contract layer). Keep this file as a thin re-export so existing
- * `#/kosong/contract/inspection` imports stay valid.
- */
+export type InspectionSourceKind =
+  | 'config'
+  | 'override'
+  | 'builtin'
+  | 'env'
+  | 'synthesized'
+  | 'none';
 
-export * from '@moonshot-ai/kosong/inspection';
+export interface InspectionSource {
+  readonly kind: InspectionSourceKind;
+  readonly detail?: string;
+}
+
+export interface ResolutionTrace {
+  record(path: string, source: InspectionSource): void;
+  capture(key: string, value: unknown): void;
+}

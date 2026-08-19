@@ -1,21 +1,16 @@
-import { gzipSync } from 'node:zlib';
-
 import { describe, it, expect, afterEach } from 'vitest';
-
+import { gzipSync } from 'node:zlib';
 import { startVisServer } from '../../src/start';
 
 let stop: (() => Promise<void>) | null = null;
-afterEach(async () => {
-  if (stop) await stop();
-  stop = null;
-});
+afterEach(async () => { if (stop) await stop(); stop = null; });
 
 describe('startVisServer', () => {
   it('serves the embedded web asset and the API on an auto-picked port', async () => {
     const html = '<!doctype html><title>vis</title>';
     const server = await startVisServer({
-      port: 0, // auto-pick
-      homeDir: '/tmp/does-not-exist-home', // no sessions; API still responds
+      port: 0,                               // auto-pick
+      homeDir: '/tmp/does-not-exist-home',   // no sessions; API still responds
       webAsset: { gzipped: new Uint8Array(gzipSync(Buffer.from(html))) },
     });
     stop = server.close;

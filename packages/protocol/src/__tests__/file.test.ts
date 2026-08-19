@@ -30,16 +30,22 @@ describe('fileMetaSchema (W12.2 / Chain 15)', () => {
   });
 
   it('rejects a negative size', () => {
-    expect(fileMetaSchema.safeParse({ ...base, size: -1 }).success).toBe(false);
+    expect(
+      fileMetaSchema.safeParse({ ...base, size: -1 }).success,
+    ).toBe(false);
   });
 
   it('rejects empty id / name / media_type', () => {
     expect(fileMetaSchema.safeParse({ ...base, id: '' }).success).toBe(false);
     expect(fileMetaSchema.safeParse({ ...base, name: '' }).success).toBe(false);
-    expect(fileMetaSchema.safeParse({ ...base, media_type: '' }).success).toBe(false);
+    expect(
+      fileMetaSchema.safeParse({ ...base, media_type: '' }).success,
+    ).toBe(false);
   });
 
   it('rejects a non-ISO created_at', () => {
-    expect(fileMetaSchema.safeParse({ ...base, created_at: 'not a date' }).success).toBe(false);
+    expect(
+      fileMetaSchema.safeParse({ ...base, created_at: 'not a date' }).success,
+    ).toBe(false);
   });
 });

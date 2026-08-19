@@ -1,37 +1,20 @@
-/**
- * `/api/v1` skills routes — server-v2 port of `packages/server/test/skills.e2e.test.ts` (removed with the v1 engine).
- *
- * Covers the wire contract of the three endpoints:
- *   - GET  /api/v1/sessions/{sid}/skills                  → envelope shape + skills[]
- *   - GET  on an unknown session                          → 40401 "does not exist"
- *   - GET  on a persisted-but-not-activated session        → 40401 "not activated ..."
- *   - GET  /api/v1/workspaces/{wid}/skills                → skills[] (no session)
- *   - GET  workspace listing == session listing (same cwd) → parity
- *   - GET  on an unknown workspace                        → 40410
- *   - POST /api/v1/sessions/{sid}/skills/{name}:activate   → {activated:true, skill_name}
- *   - POST :activate an unknown skill                      → 40415
- *   - POST bare `{name}` / bogus action                    → 40001
- *
- * Session skills are resolved from the per-session `ISessionSkillCatalog` (list)
- * and the main agent's `IAgentSkillService` (activate). A session created through
- * `POST /sessions` is already activated (live), so listing/activation work
- * immediately; the "not activated" branch is exercised by archiving the session
- * (it stays in the index but leaves the live map). Workspace skills are scanned
- * session-less from the workspace root via the edge composition in
- * `routes/skills.ts`, which must match the session listing for the same cwd.
- */
-
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { IAgentLifecycleService, getLiveSessionById } from '@moonshot-ai/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  IAgentLifecycleService,
+  getLiveSessionById,
+} from '@moonshot-ai/agent-core-v2';
+import {
+  activateSkillResultSchema,
+  listSkillsResponseSchema,
+} from '../src/protocol/rest-skill';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { activateSkillResultSchema, listSkillsResponseSchema } from '../src/protocol/rest-skill';
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -56,13 +39,7 @@ describe('server-v2 /api/v1 skills', () => {
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-skills-'));
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
+    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
     base = `http://127.0.0.1:${server.port}`;
   });
 
@@ -104,8 +81,6 @@ describe('server-v2 /api/v1 skills', () => {
     return body.data.id;
   }
 
-  // The main agent scope is not created automatically on session creation
-  // (server-v2 gap G10); create it here so skill activation can start a turn.
   async function createMainAgent(sessionId: string): Promise<void> {
     const session = getLiveSessionById(server!.core.accessor, sessionId);
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
@@ -119,8 +94,6 @@ describe('server-v2 /api/v1 skills', () => {
     return body.data.id;
   }
 
-  // Lives under `home` so the existing afterEach cleanup removes it; unique per
-  // call so parallel tests do not collide on skill roots.
   async function makeWorkspaceDir(): Promise<string> {
     const dir = join(
       home as string,
@@ -130,7 +103,6 @@ describe('server-v2 /api/v1 skills', () => {
     return dir;
   }
 
-  /** Seed a project skill bundle at `<root>/.kimi-code/skills/<name>/SKILL.md`. */
   async function seedProjectSkill(root: string, name: string): Promise<void> {
     const dir = join(root, '.kimi-code', 'skills', name);
     await mkdir(dir, { recursive: true });
@@ -158,12 +130,9 @@ describe('server-v2 /api/v1 skills', () => {
 
     it('cold-loads a persisted but not live (archived) session and lists skills', async () => {
       const id = await createSession();
-      // Archiving removes the session from the live map but keeps it in the index.
       const archived = await postJson<{ archived: boolean }>(`/api/v1/sessions/${id}:archive`);
       expect(archived.body.code).toBe(0);
 
-      // Cold-loaded on demand (matches v1's `resumeSession` in SkillService):
-      // listing skills succeeds instead of reporting "not activated".
       const { body } = await getJson<{ skills: SkillWire[] }>(`/api/v1/sessions/${id}/skills`);
       expect(body.code).toBe(0);
       const skills = listSkillsResponseSchema.parse(body.data).skills;
@@ -172,21 +141,24 @@ describe('server-v2 /api/v1 skills', () => {
 
     it('lists builtin skills projected to the wire shape', async () => {
       const id = await createSession();
-      const { body } = await getJson<{ skills: SkillWire[] }>(`/api/v1/sessions/${id}/skills`);
+      const { body } = await getJson<{ skills: SkillWire[] }>(
+        `/api/v1/sessions/${id}/skills`,
+      );
       expect(body.code).toBe(0);
       const skills = listSkillsResponseSchema.parse(body.data).skills;
 
       const updateConfig = skills.find((s) => s.name === 'update-config');
       expect(updateConfig).toBeDefined();
       expect(updateConfig).toMatchObject({ source: 'builtin' });
-      // v1 parity: `isSubSkill` is never emitted on the wire.
       expect(updateConfig).not.toHaveProperty('is_sub_skill');
       expect(updateConfig).not.toHaveProperty('isSubSkill');
     });
 
     it('lists the check-kimi-code-docs builtin skill', async () => {
       const id = await createSession();
-      const { body } = await getJson<{ skills: SkillWire[] }>(`/api/v1/sessions/${id}/skills`);
+      const { body } = await getJson<{ skills: SkillWire[] }>(
+        `/api/v1/sessions/${id}/skills`,
+      );
       expect(body.code).toBe(0);
       const skills = listSkillsResponseSchema.parse(body.data).skills;
 
@@ -253,7 +225,9 @@ describe('server-v2 /api/v1 skills', () => {
 
     it('rejects an unsupported action with 40001', async () => {
       const id = await createSession();
-      const { body } = await postJson<null>(`/api/v1/sessions/${id}/skills/update-config:bogus`);
+      const { body } = await postJson<null>(
+        `/api/v1/sessions/${id}/skills/update-config:bogus`,
+      );
       expect(body.code).toBe(40001);
       expect(body.msg).toMatch(/unsupported action/);
     });
@@ -291,29 +265,20 @@ describe('server-v2 /api/v1 skills', () => {
       expect(body.code).toBe(0);
       expect(body.data).toEqual({ activated: true, skill_name: 'update-config' });
 
-      // The activation's user message carries the rendered skill prompt
-      // followed by the materialized attachment's path notice — the same
-      // pipeline a prompt submission runs through. The message lands
-      // asynchronously (and the session can briefly report 40401 / an empty
-      // page while the turn settles), so poll until the notice is visible.
-      let attachedPath: string | undefined;
-      await vi.waitFor(async () => {
-        const messages = await getJson<{
-          items: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
-        }>(`/api/v1/sessions/${id}/messages`);
-        expect(messages.body.code).toBe(0);
-        const userMsg = messages.body.data.items.find((m) => m.role === 'user');
-        expect(userMsg).toBeDefined();
-        expect(userMsg!.content[0]?.type).toBe('text');
-        expect(userMsg!.content[0]?.text).toContain('User activated the skill "update-config"');
-        const notice = userMsg!.content[1];
-        expect(notice?.type).toBe('text');
-        expect(notice?.text).toContain('Attached file "note.txt"');
-        expect(notice?.text).toContain(`${noteBytes.length} bytes`);
-        attachedPath = /bytes\): (.+) — open it with the Read tool$/.exec(notice?.text ?? '')?.[1];
-        expect(attachedPath).toBeDefined();
-      });
-      expect(attachedPath).toMatch(/[\\/]attachments[\\/]/);
+      const messages = await getJson<{
+        items: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
+      }>(`/api/v1/sessions/${id}/messages`);
+      const userMsg = messages.body.data.items.find((m) => m.role === 'user');
+      expect(userMsg).toBeDefined();
+      expect(userMsg!.content[0]?.type).toBe('text');
+      expect(userMsg!.content[0]?.text).toContain('User activated the skill "update-config"');
+      const notice = userMsg!.content[1];
+      expect(notice?.type).toBe('text');
+      expect(notice?.text).toContain('Attached file "note.txt"');
+      expect(notice?.text).toContain(`${noteBytes.length} bytes`);
+      const attachedPath = /bytes\): (.+) — open it with the Read tool$/.exec(notice?.text ?? '')?.[1];
+      expect(attachedPath).toBeDefined();
+      expect(attachedPath!.split(/[\\/]/)).toContain('attachments');
       expect(await readFile(attachedPath!)).toEqual(noteBytes);
     });
 
@@ -325,13 +290,7 @@ describe('server-v2 /api/v1 skills', () => {
         `/api/v1/sessions/${id}/skills/update-config:activate`,
         {
           attachments: [
-            {
-              type: 'file',
-              file_id: 'f_does_not_exist',
-              name: 'x.txt',
-              media_type: 'text/plain',
-              size: 1,
-            },
+            { type: 'file', file_id: 'f_does_not_exist', name: 'x.txt', media_type: 'text/plain', size: 1 },
           ],
         },
       );
@@ -342,8 +301,6 @@ describe('server-v2 /api/v1 skills', () => {
       const id = await createSession();
       await createMainAgent(id);
 
-      // A real upload, so skipping the skill check would stream its bytes
-      // into the session attachments dir.
       const noteBytes = Buffer.from('must never be materialized');
       const form = new FormData();
       form.set('file', new Blob([noteBytes], { type: 'text/plain' }), 'note.txt');
@@ -359,19 +316,12 @@ describe('server-v2 /api/v1 skills', () => {
         `/api/v1/sessions/${id}/skills/does-not-exist:activate`,
         {
           attachments: [
-            {
-              type: 'file',
-              file_id: uploaded.data.id,
-              name: 'note.txt',
-              media_type: 'text/plain',
-              size: noteBytes.length,
-            },
+            { type: 'file', file_id: uploaded.data.id, name: 'note.txt', media_type: 'text/plain', size: noteBytes.length },
           ],
         },
       );
       expect(body.code).toBe(40415);
 
-      // The rejected activation left no materialized attachments on disk.
       const sessionTree = await readdir(join(home as string, 'sessions'), { recursive: true });
       expect(sessionTree.filter((entry) => entry.includes('attachments'))).toEqual([]);
     });
@@ -383,7 +333,9 @@ describe('server-v2 /api/v1 skills', () => {
       await seedProjectSkill(workspaceDir, 'e2e-greeting');
       const wid = await registerWorkspace(workspaceDir);
 
-      const { body } = await getJson<{ skills: SkillWire[] }>(`/api/v1/workspaces/${wid}/skills`);
+      const { body } = await getJson<{ skills: SkillWire[] }>(
+        `/api/v1/workspaces/${wid}/skills`,
+      );
       expect(body.code).toBe(0);
       const skills = listSkillsResponseSchema.parse(body.data).skills;
       const seeded = skills.find((s) => s.name === 'e2e-greeting');
@@ -427,7 +379,9 @@ describe('server-v2 /api/v1 skills', () => {
       base = `http://127.0.0.1:${server.port}`;
 
       const wid = await registerWorkspace(workspaceDir);
-      const { body } = await getJson<{ skills: SkillWire[] }>(`/api/v1/workspaces/${wid}/skills`);
+      const { body } = await getJson<{ skills: SkillWire[] }>(
+        `/api/v1/workspaces/${wid}/skills`,
+      );
       expect(body.code).toBe(0);
       const skills = listSkillsResponseSchema.parse(body.data).skills;
       const seeded = skills.find((s) => s.name === 'e2e-explicit');

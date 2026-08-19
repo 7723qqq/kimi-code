@@ -1,9 +1,3 @@
-/**
- * `goal` domain error codes.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const GoalErrors = {
@@ -12,8 +6,6 @@ export const GoalErrors = {
     GOAL_NOT_FOUND: 'goal.not_found',
     GOAL_OBJECTIVE_EMPTY: 'goal.objective_empty',
     GOAL_OBJECTIVE_TOO_LONG: 'goal.objective_too_long',
-    GOAL_COMPLETION_CRITERION_EMPTY: 'goal.completion_criterion_empty',
-    GOAL_COMPLETION_CRITERION_TOO_SHORT: 'goal.completion_criterion_too_short',
     GOAL_STATUS_INVALID: 'goal.status_invalid',
     GOAL_METADATA_RESERVED: 'goal.metadata_reserved',
     GOAL_NOT_RESUMABLE: 'goal.not_resumable',
@@ -21,64 +13,52 @@ export const GoalErrors = {
   },
   info: {
     'goal.already_exists': {
-      title: t('v2Errors.goalAlreadyExists'),
+      title: 'A goal is already active',
       retryable: false,
       public: true,
-      action: t('v2Errors.goalAlreadyExistsAction'),
+      action: 'Use `/goal replace <objective>` to replace the current goal.',
     },
     'goal.not_found': {
-      title: t('v2Errors.goalNotFound'),
+      title: 'No goal found',
       retryable: false,
       public: true,
-      action: t('v2Errors.goalNotFoundAction'),
+      action: 'Start a goal with `/goal <objective>` first.',
     },
     'goal.objective_empty': {
-      title: t('v2Errors.goalObjectiveEmpty'),
+      title: 'Goal objective is empty',
       retryable: false,
       public: true,
-      action: t('v2Errors.goalObjectiveEmptyAction'),
+      action: 'Provide a non-empty objective.',
     },
     'goal.objective_too_long': {
-      title: t('v2Errors.goalObjectiveTooLong'),
+      title: 'Goal objective is too long',
       retryable: false,
       public: true,
-      action: t('v2Errors.goalObjectiveTooLongAction'),
-    },
-    'goal.completion_criterion_empty': {
-      title: t('v2Errors.goalCompletionCriterionEmpty'),
-      retryable: false,
-      public: true,
-      action: t('v2Errors.goalCompletionCriterionEmptyAction'),
-    },
-    'goal.completion_criterion_too_short': {
-      title: t('v2Errors.goalCompletionCriterionTooShort'),
-      retryable: false,
-      public: true,
-      action: t('v2Errors.goalCompletionCriterionTooShortAction'),
+      action: 'Keep the objective under 4000 characters; reference long details by file path.',
     },
     'goal.status_invalid': {
-      title: t('v2Errors.goalStatusInvalid'),
+      title: 'Invalid goal status transition',
       retryable: false,
       public: true,
-      action: t('v2Errors.goalStatusInvalidAction'),
+      action: 'Only an active goal can be paused; resume a blocked goal with `/goal resume`.',
     },
     'goal.metadata_reserved': {
-      title: t('v2Errors.goalMetadataReserved'),
+      title: 'Goal metadata is reserved',
       retryable: false,
       public: true,
-      action: t('v2Errors.goalMetadataReservedAction'),
+      action: 'Do not write metadata.custom.goal directly; use the goal lifecycle methods.',
     },
     'goal.not_resumable': {
-      title: t('v2Errors.goalNotResumable'),
+      title: 'Goal is not resumable',
       retryable: false,
       public: true,
-      action: t('v2Errors.goalNotResumableAction'),
+      action: 'Only paused or blocked goals can be resumed.',
     },
     'goal.unsupported_agent': {
-      title: t('v2Errors.goalUnsupportedAgent'),
+      title: 'Goals are unavailable for subagents',
       retryable: false,
       public: true,
-      action: t('v2Errors.goalUnsupportedAgentAction'),
+      action: 'Run goal lifecycle commands on the main agent.',
     },
   },
 } as const satisfies ErrorDomain;

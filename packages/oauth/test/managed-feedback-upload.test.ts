@@ -36,23 +36,22 @@ describe('kimiCodeFeedbackUploadCompleteUrl', () => {
 
 describe('fetchCreateFeedbackUploadUrl', () => {
   it('POSTs JSON body with bearer auth and parses upload parts', async () => {
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            code: 0,
-            upload: {
-              id: 28,
-              upload_id: 'tos-multipart-id',
-              part_size: 8,
-              total_parts: 1,
-              parts: [
-                { part_number: 1, url: 'https://example.test/part1', method: 'PUT', size: 123 },
-              ],
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          code: 0,
+          upload: {
+            id: 28,
+            upload_id: 'tos-multipart-id',
+            part_size: 8,
+            total_parts: 1,
+            parts: [
+              { part_number: 1, url: 'https://example.test/part1', method: 'PUT', size: 123 },
+            ],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -77,12 +76,11 @@ describe('fetchCreateFeedbackUploadUrl', () => {
   it('returns an error when the response omits parts', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(
-        async () =>
-          new Response(JSON.stringify({ code: 0, upload: { id: 28 } }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
+      vi.fn(async () =>
+        new Response(JSON.stringify({ code: 0, upload: { id: 28 } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
       ),
     );
 
@@ -97,15 +95,14 @@ describe('fetchCreateFeedbackUploadUrl', () => {
   it('returns an error when a part is missing required fields', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              code: 0,
-              upload: { id: 28, parts: [{ part_number: 1 }] },
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          ),
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            code: 0,
+            upload: { id: 28, parts: [{ part_number: 1 }] },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
       ),
     );
 
@@ -118,10 +115,7 @@ describe('fetchCreateFeedbackUploadUrl', () => {
   });
 
   it('returns an error with status when the server responds 401', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('', { status: 401 })),
-    );
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })));
 
     const result = await fetchCreateFeedbackUploadUrl('access-token', SAMPLE_BODY);
 

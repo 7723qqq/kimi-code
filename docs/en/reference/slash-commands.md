@@ -19,7 +19,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/secondary-model` | `/subagent-model` | Pick the default model for subagents (writes `[secondary_model] default_model`; see the [subagent model pool](../configuration/config-files.md#subagent-model-pool)). Visible when the subagent model pool experiment is enabled | Yes |
 | `/multi-llm` | `/multillm` | Configure MultiLLM concurrent providers (Rust engine) | Yes |
 | `/settings` | `/config` | Open the settings panel inside the TUI | Yes |
-| `/experiments` | `/experimental` | Open the experimental feature panel | No |
+| `/experiments` | `/experimental` | Open the experimental feature panel | Yes |
 | `/permission` | — | Select a permission mode | Yes |
 | `/editor` | — | Configure the external editor launched by `Ctrl-G` | Yes |
 | `/theme` | — | Switch the terminal UI color theme | Yes |
@@ -53,7 +53,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/plan [on\|off]` | — | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file | Yes |
 | `/plan clear` | — | Clear the current plan | No |
 | `/effort` | `/thinking` | Switch thinking effort | Yes |
-| `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | No |
+| `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | Yes |
 | `/swarm <task>` | — | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to `auto` or `yolo` before starting. | No |
 | `/team <topic>` | — | Start a Team discussion among multiple agents | No |
 | `/workflow <name> [<args>...]` | — | Run or manage workflows (list, status, cancel, or run by name) | Yes |

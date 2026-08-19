@@ -1,33 +1,7 @@
-/**
- * `kosong/model` domain — `ModelRequesterImpl`, the request executor.
- *
- * This is the ONLY production code that calls
- * `IProtocolAdapterRegistry.createChatProvider`: it lazily composes exactly
- * one immutable ChatProvider per Model (on first use) and caches it for the
- * Model's lifetime; every per-turn variation arrives as `ModelRequestParams` and
- * is mapped onto `GenerateOptions` (overlay order inside the bases:
- * `cacheKey → sampling → thinking → maxCompletionTokens`).
- *
- * The driver itself turns per-turn input (systemPrompt / tools / messages)
- * into the `ModelRequestEvent` stream via the contract's `generate(...)`, measures
- * stream timing (`buildStreamTiming`), and owns the auth-refresh replay: a
- * 401 against a refreshable (OAuth) auth provider triggers one forced token
- * refresh and exactly one replay; a 401 that survives the replay means the
- * provider rejected the account itself, so it is surfaced through
- * `translateProviderError` as `provider.auth_error` carrying the provider's
- * message instead of a misleading re-login prompt.
- *
- * Constructed by `ModelCatalog` — plain constructor args, no DI.
- */
-
 import { AsyncEventQueue } from '#/_base/asyncEventQueue';
-import {
-  APIStatusError,
-  isAbortError,
-  VideoUploadUnsupportedError,
-} from '#/kosong/contract/errors';
-import { generate, type GenerateResult } from '#/kosong/contract/generate';
 import type { VideoURLPart } from '#/kosong/contract/message';
+import { APIStatusError, isAbortError, VideoUploadUnsupportedError } from '#/kosong/contract/errors';
+import { generate, type GenerateResult } from '#/kosong/contract/generate';
 import type {
   ChatProvider,
   GenerateOptions,
@@ -74,7 +48,7 @@ export class ModelRequesterImpl implements ModelRequester {
     signal?: AbortSignal,
     params?: ModelRequestParams,
   ): AsyncIterable<ModelRequestEvent> {
-    const queue = new AsyncEventQueue<ModelRequestEvent>({ maxBufferSize: 100_000 });
+    const queue = new AsyncEventQueue<ModelRequestEvent>();
     void this.runRequest(input, signal, queue, params).then(
       () => queue.end(),
       (error) => queue.fail(error),
@@ -93,7 +67,9 @@ export class ModelRequesterImpl implements ModelRequester {
       );
     }
     const uploadVideo = provider.uploadVideo.bind(provider);
-    return this.runWithAuthRefresh((auth) => uploadVideo(input, { signal: options?.signal, auth }));
+    return this.runWithAuthRefresh((auth) =>
+      uploadVideo(input, { signal: options?.signal, auth }),
+    );
   }
 
   private async runRequest(
@@ -105,7 +81,7 @@ export class ModelRequesterImpl implements ModelRequester {
     signal?.throwIfAborted();
     const provider = this.resolveChatProvider();
 
-    let requestStartedAt: number | undefined;
+    let requestStartedAt = Date.now();
     let requestSentAt: number | undefined;
     let firstChunkAt: number | undefined;
     let streamEndedAt: number | undefined;
@@ -122,6 +98,9 @@ export class ModelRequesterImpl implements ModelRequester {
       maxCompletionTokens: params?.maxCompletionTokens,
       usedContextTokens: params?.usedContextTokens,
       maxContextTokens: params?.maxContextTokens,
+      onRequestStart: () => {
+        requestStartedAt = Date.now();
+      },
       onRequestSent: () => {
         requestSentAt = Date.now();
       },
@@ -135,35 +114,22 @@ export class ModelRequesterImpl implements ModelRequester {
 
     let result: GenerateResult;
     try {
-      result = await this.runWithAuthRefresh(
-        (auth) => {
-          requestStartedAt = Date.now();
-          return generate(
-            provider,
-            input.systemPrompt,
-            [...input.tools],
-            [...input.messages],
-            {
-              onMessagePart: (part) => {
-                firstChunkAt ??= Date.now();
-                queue.push({ type: 'part', part });
-              },
+      result = await this.runWithAuthRefresh((auth) => {
+        requestStartedAt = Date.now();
+        return generate(
+          provider,
+          input.systemPrompt,
+          [...input.tools],
+          [...input.messages],
+          {
+            onMessagePart: (part) => {
+              firstChunkAt ??= Date.now();
+              queue.push({ type: 'part', part });
             },
-            { ...options, auth },
-          );
-        },
-        (firstError) => {
-          // A 401 mid-stream means the first attempt already pushed partial
-          // parts. Parts already delivered to the consumer cannot be recalled,
-          // and a replay would interleave two generations into one message —
-          // surface the auth error instead of replaying.
-          if (firstChunkAt !== undefined) {
-            throw firstError;
-          }
-          queue.clear();
-          firstChunkAt = undefined;
-        },
-      );
+          },
+          { ...options, auth },
+        );
+      });
     } catch (error) {
       if (isAbortError(error) || signal?.aborted === true) throw error;
       throw translateProviderError(error);
@@ -184,7 +150,7 @@ export class ModelRequesterImpl implements ModelRequester {
       queue.push({
         type: 'timing',
         ...buildStreamTiming(
-          requestStartedAt ?? Date.now(),
+          requestStartedAt,
           requestSentAt,
           firstChunkAt,
           streamEndedAt,
@@ -196,18 +162,14 @@ export class ModelRequesterImpl implements ModelRequester {
 
   private async runWithAuthRefresh<T>(
     run: (auth: ProviderRequestAuth | undefined) => Promise<T>,
-    onReplay?: (firstError: unknown) => void,
   ): Promise<T> {
     const auth = await this.authProvider.getAuth();
-    let firstError: unknown;
     try {
       return await run(auth);
     } catch (error) {
-      firstError = error;
       if (!this.shouldForceRefresh(error)) throw error;
     }
 
-    onReplay?.(firstError);
     const refreshedAuth = await this.authProvider.getAuth({ force: true });
     try {
       return await run(refreshedAuth);
@@ -230,9 +192,7 @@ function isUnauthorizedStatusError(error: unknown): error is APIStatusError {
   return error instanceof APIStatusError && error.statusCode === 401;
 }
 
-type MutableModelRequestTiming = {
-  -readonly [K in keyof ModelRequestTiming]: ModelRequestTiming[K];
-};
+type MutableModelRequestTiming = { -readonly [K in keyof ModelRequestTiming]: ModelRequestTiming[K] };
 
 export function buildStreamTiming(
   requestStartedAt: number,

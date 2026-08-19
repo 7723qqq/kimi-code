@@ -1,18 +1,7 @@
-/**
- * `tool` domain — permission rule-subject matching.
- *
- * Owns the glob / path matching primitives (`globMatch` / `pathGlobMatch`)
- * and the rule-subject helpers (`literalRulePattern`,
- * `escapeRuleSubjectLiteral`, `matchesGlobRuleSubject`,
- * `matchesPathRuleSubject`) that tool implementations use to build their
- * `matchesRule` closures and canonical rule strings. Path matching compares
- * normalized path variants, so `./a`, `dir/../a`, and Windows separator or
- * case variants can match the same rule. Pure functions; no scoped service.
- */
-
 import { isAbsolute, join, parse } from 'pathe';
 
-import { tryNativeGlobMatch } from './native-glob-match';
+import picomatch from 'picomatch';
+
 import { canonicalizePath, type PathClass } from './path-access';
 
 export interface PermissionPathMatchOptions {
@@ -27,11 +16,12 @@ interface PathMatchSemantics {
 }
 
 export function globMatch(value: string, pattern: string, options?: { nocase?: boolean }): boolean {
-  if (tryNativeGlobMatch(value, pattern, options)) return true;
+  if (picomatch.isMatch(value, pattern, options)) return true;
+
   const normalizedValue = stripLeadingDotSlash(value);
   const normalizedPattern = stripLeadingDotSlash(pattern);
   if (normalizedValue === value && normalizedPattern === pattern) return false;
-  return tryNativeGlobMatch(normalizedValue, normalizedPattern, options);
+  return picomatch.isMatch(normalizedValue, normalizedPattern, options);
 }
 
 function stripLeadingDotSlash(value: string): string {
@@ -85,7 +75,11 @@ function canonicalizePathPattern(
   }
 }
 
-function expandUserPath(value: string, pathClass: PathClass, homeDir: string | undefined): string {
+function expandUserPath(
+  value: string,
+  pathClass: PathClass,
+  homeDir: string | undefined,
+): string {
   if (homeDir === undefined) return value;
   if (value === '~') return homeDir;
   if (value.startsWith('~/') || (pathClass === 'win32' && value.startsWith('~\\'))) {

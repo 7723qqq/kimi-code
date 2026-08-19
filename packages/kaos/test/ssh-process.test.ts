@@ -183,45 +183,41 @@ describe('SSHProcess.kill()', () => {
     expect(proc.exitCode).toBe(1);
   });
 
-  test.skipIf(process.platform === 'win32')(
-    'kill(SIGTERM) preserves cleanup output and the real exit status',
-    async () => {
-      const { channel } = createChildBackedChannel();
-      const proc = new SSHProcess(channel as never);
-      const stdoutChunks: Buffer[] = [];
+  test.skipIf(process.platform === 'win32')('kill(SIGTERM) preserves cleanup output and the real exit status', async () => {
+    const { channel } = createChildBackedChannel();
+    const proc = new SSHProcess(channel as never);
+    const stdoutChunks: Buffer[] = [];
 
-      proc.stdout.on('data', (chunk: Buffer) => {
-        stdoutChunks.push(Buffer.from(chunk));
+    proc.stdout.on('data', (chunk: Buffer) => {
+      stdoutChunks.push(Buffer.from(chunk));
+    });
+    const stdoutEnded = new Promise<void>((resolve) => {
+      proc.stdout.on('end', () => {
+        resolve();
       });
-      const stdoutEnded = new Promise<void>((resolve) => {
-        proc.stdout.on('end', () => {
-          resolve();
-        });
+    });
+
+    const firstChunk = await new Promise<Buffer>((resolve) => {
+      proc.stdout.once('data', (chunk: Buffer) => {
+        resolve(chunk);
       });
+    });
+    expect(firstChunk.toString()).toContain('ready');
 
-      const firstChunk = await new Promise<Buffer>((resolve) => {
-        proc.stdout.once('data', (chunk: Buffer) => {
-          resolve(chunk);
-        });
-      });
-      expect(firstChunk.toString()).toContain('ready');
+    await proc.kill('SIGTERM');
 
-      await proc.kill('SIGTERM');
+    const exitCode = await proc.wait();
+    await Promise.race([
+      stdoutEnded,
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 250);
+      }),
+    ]);
+    const stdout = Buffer.concat(stdoutChunks).toString('utf-8');
 
-      const exitCode = await proc.wait();
-      await Promise.race([
-        stdoutEnded,
-        new Promise<void>((resolve) => {
-          setTimeout(resolve, 250);
-        }),
-      ]);
-      const stdout = Buffer.concat(stdoutChunks).toString('utf-8');
-
-      expect(exitCode).toBe(42);
-      expect(proc.exitCode).toBe(42);
-      expect(stdout).toContain('ready');
-      expect(stdout).toContain('cleanup done');
-    },
-    10000,
-  );
+    expect(exitCode).toBe(42);
+    expect(proc.exitCode).toBe(42);
+    expect(stdout).toContain('ready');
+    expect(stdout).toContain('cleanup done');
+  }, 10000);
 });

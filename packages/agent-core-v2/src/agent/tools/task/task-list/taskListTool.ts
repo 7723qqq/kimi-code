@@ -1,22 +1,11 @@
-/**
- * `tools` domain — `TaskListTool` implementation (the `TaskList` tool).
- *
- * Reads the agent's background tasks from `IAgentTaskService` (`agentTask`
- * domain) and renders them as a plain `key: value` list.
- *
- * Registered via the module-level `registerAgentToolService(ITaskListTool,
- * TaskListTool)` at the bottom of this file — the same "import = register"
- * pattern used by every agent tool. Bound at Agent scope.
- */
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { matchesGlobRuleSubject } from '#/tool/rule-match';
+import { type ToolExecution } from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
 import { IAgentTaskService } from '#/agent/task/task';
 import type { AgentTaskInfo } from '#/agent/task/task';
 import { formatPlainObject } from '#/agent/task/tools/format';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import { type ToolExecution } from '#/tool/toolContract';
-
 import { ITaskListTool, TaskListInputSchema, type TaskListInput } from './task-list';
 import TASK_LIST_DESCRIPTION from './task-list.md?raw';
 

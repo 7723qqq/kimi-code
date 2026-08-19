@@ -18,12 +18,14 @@ import {
   ISessionCronService,
   ISessionIndex,
   ISessionLifecycleService,
+  ISessionManager,
   IWorkspaceLifecycleService,
   ITelemetryService,
   type BootstrapInput,
-  type DomainEvent,
 } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+type DomainEvent = any;
 
 import { runV2Print } from '../../src/cli/v2/run-v2-print';
 
@@ -224,6 +226,12 @@ function makeFakeHarness() {
     [
       ISessionIndex,
       { get: vi.fn(async () => undefined), listRecent: vi.fn(async () => ({ items: [] })) },
+    ],
+    // `resumeSessionById` (sessionLookup) goes through the session manager
+    // to restore a live session; resume paths must resolve it.
+    [
+      ISessionManager,
+      { get: vi.fn(() => undefined), resume: vi.fn(async () => session) },
     ],
     [
       IBootstrapService,

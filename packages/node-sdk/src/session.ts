@@ -23,6 +23,7 @@ import type {
   PluginInfo,
   PluginSummary,
   PromptInput,
+  PromptSkillActivation,
   ReloadSessionOptions,
   ReloadSummary,
   ResumedSessionState,
@@ -137,6 +138,25 @@ export class Session {
     await this.rpc.prompt({
       sessionId: this.id,
       input: normalizePromptInput(input),
+    });
+  }
+
+  /**
+   * Submit one prompt with one or more skill activations bundled into the
+   * same user message: the skills are validated up front (an unknown name
+   * rejects the whole submission), rendered ahead of the prompt in the same
+   * turn, and the bundle undoes as a single anchor. Requires the
+   * agent-core-v2 engine.
+   */
+  async promptWithSkills(
+    input: string | PromptInput,
+    skills: readonly PromptSkillActivation[],
+  ): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.promptWithSkills({
+      sessionId: this.id,
+      input: normalizePromptInput(input),
+      skills,
     });
   }
 
@@ -463,12 +483,13 @@ export class Session {
   }
 
   /**
-   * Used by `kimi -p` after the main agent's turn ends with `reason ===
-   * 'completed'`. Returns `'finish'` when the run may exit, or `'continue'` when
-   * the caller must keep the session alive so a background-task completion can
-   * steer the main agent into a new turn. Policy is selected by
-   * `background.print_background_mode` (`'exit' | 'drain' | 'steer'`); when unset
-   * it falls back to the legacy `keep_alive_on_exit` mapping (`true ⇒ 'drain'`).
+   * Used by `kimi -p` after the main agent's turn ends with
+   * `reason === 'completed'`. Returns `'finish'` when the run may exit, or
+   * `'continue'` when the caller must keep the session alive so a
+   * background-task completion can steer the main agent into a new turn.
+   * Policy is selected by `background.print_background_mode`
+   * (`'exit' | 'drain' | 'steer'`); when unset it falls back to the legacy
+   * `keep_alive_on_exit` mapping (`true ⇒ 'drain'`).
    */
   async handlePrintMainTurnCompleted(): Promise<'finish' | 'continue'> {
     this.ensureOpen();

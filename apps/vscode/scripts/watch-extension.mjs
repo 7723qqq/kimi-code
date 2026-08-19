@@ -50,9 +50,7 @@ async function main() {
       buildExtension();
       console.log('Extension rebuild complete.');
     } catch (error) {
-      console.error(
-        `Extension watch check failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      console.error(`Extension watch check failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       checking = false;
     }
@@ -93,9 +91,7 @@ async function addFileRecord(path, records) {
 
 if (isMainModule(import.meta.url)) {
   main().catch((error) => {
-    console.error(
-      `Extension watch failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(`Extension watch failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 }

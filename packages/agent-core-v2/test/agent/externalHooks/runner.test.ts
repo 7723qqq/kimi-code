@@ -6,14 +6,14 @@ import { HostProcessService } from '#/os/backends/node-local/hostProcessService'
 const hostProcess = new HostProcessService();
 
 function nodeCommand(source: string): string {
-  return `node -e ${JSON.stringify(source.replaceAll(/\s*\n\s*/g, ' '))}`;
+  return `node -e ${JSON.stringify(source.replace(/\s*\n\s*/g, ' '))}`;
 }
 
 describe('runHook process runner', () => {
   it('returns allow when the hook exits 0 and captures stdout', async () => {
     const result = await runHook(
       hostProcess,
-      nodeCommand('process.stdout.write("ok");'),
+      nodeCommand(`process.stdout.write("ok" + String.fromCharCode(10));`),
       { tool_name: 'Bash' },
       { timeout: 5 },
     );
@@ -109,16 +109,14 @@ describe('runHook process runner', () => {
   it('writes the input payload to the hook process stdin as JSON', async () => {
     const result = await runHook(
       hostProcess,
-      nodeCommand(
-        [
-          'let input = "";',
-          'process.stdin.on("data", (chunk) => { input += chunk; });',
-          'process.stdin.on("end", () => {',
-          '  const parsed = JSON.parse(input);',
-          '  process.stdout.write(parsed.tool_name);',
-          '});',
-        ].join('\n'),
-      ),
+      nodeCommand([
+        'let input = "";',
+        'process.stdin.on("data", (chunk) => { input += chunk; });',
+        'process.stdin.on("end", () => {',
+        '  const parsed = JSON.parse(input);',
+        '  process.stdout.write(parsed.tool_name);',
+        '});',
+      ].join('\n')),
       { tool_name: 'Write' },
       { timeout: 5 },
     );

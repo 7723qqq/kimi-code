@@ -1,10 +1,6 @@
-/**
- * `InFlightTurnTracker` — volatile accumulation + delta offsets.
- */
-
+import type { Event } from '../src/transport/ws/v1/events';
 import { describe, expect, it } from 'vitest';
 
-import type { Event } from '../src/transport/ws/v1/events';
 import { InFlightTurnTracker } from '../src/transport/ws/v1/inFlightTurnTracker';
 
 const SID = 'sess_1';
@@ -51,13 +47,7 @@ describe('InFlightTurnTracker', () => {
   it('ignores non-main agents', () => {
     const t = new InFlightTurnTracker();
     t.apply(SID, ev({ type: 'turn.started', turnId: 1 }));
-    const sub = {
-      agentId: 'agent-sub',
-      sessionId: SID,
-      type: 'assistant.delta',
-      turnId: 1,
-      delta: 'nope',
-    } as unknown as Event;
+    const sub = { agentId: 'agent-sub', sessionId: SID, type: 'assistant.delta', turnId: 1, delta: 'nope' } as unknown as Event;
     expect(t.apply(SID, sub)).toEqual({});
     expect(t.get(SID)?.assistant_text).toBe('');
   });
@@ -75,12 +65,7 @@ describe('InFlightTurnTracker', () => {
     t.apply(SID, ev({ type: 'tool.call.started', turnId: 1, toolCallId: 'tc1', name: 'bash' }));
     t.apply(
       SID,
-      ev({
-        type: 'tool.progress',
-        turnId: 1,
-        toolCallId: 'tc1',
-        update: { kind: 'stdout', text: 'hi' },
-      }),
+      ev({ type: 'tool.progress', turnId: 1, toolCallId: 'tc1', update: { kind: 'stdout', text: 'hi' } }),
     );
     expect(t.get(SID)?.running_tools).toEqual([
       { tool_call_id: 'tc1', name: 'bash', last_progress: { kind: 'stdout', text: 'hi' } },
@@ -107,17 +92,11 @@ describe('InFlightTurnTracker', () => {
     const t = new InFlightTurnTracker();
     t.apply(SID, ev({ type: 'turn.started', turnId: 1 }));
     t.apply(SID, ev({ type: 'turn.step.started', turnId: 1, step: 1 }));
-    expect(t.apply(SID, ev({ type: 'assistant.delta', turnId: 1, delta: 'ab' }))).toEqual({
-      offset: 0,
-    });
-    expect(t.apply(SID, ev({ type: 'assistant.delta', turnId: 1, delta: 'cd' }))).toEqual({
-      offset: 2,
-    });
+    expect(t.apply(SID, ev({ type: 'assistant.delta', turnId: 1, delta: 'ab' }))).toEqual({ offset: 0 });
+    expect(t.apply(SID, ev({ type: 'assistant.delta', turnId: 1, delta: 'cd' }))).toEqual({ offset: 2 });
 
     t.apply(SID, ev({ type: 'turn.step.started', turnId: 1, step: 2 }));
-    expect(t.apply(SID, ev({ type: 'assistant.delta', turnId: 1, delta: 'x' }))).toEqual({
-      offset: 0,
-    });
+    expect(t.apply(SID, ev({ type: 'assistant.delta', turnId: 1, delta: 'x' }))).toEqual({ offset: 0 });
   });
 
   it('keeps running tools across step boundaries while resetting text', () => {

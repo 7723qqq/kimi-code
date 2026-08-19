@@ -1,18 +1,3 @@
-/**
- * `/api/v1` tools + MCP routes — server-v2 port of `packages/server/test/tools.e2e.test.ts` (removed with the v1 engine).
- *
- * Covers the wire contract of the three endpoints:
- *   - GET  /api/v1/tools                              → envelope shape + tools[]
- *   - GET  /api/v1/mcp/servers                        → envelope shape + servers[]
- *   - POST /api/v1/mcp/servers/{id}:restart           → {restarting:true} / 40408
- *   - POST /api/v1/mcp/servers/foo:bogus              → 40001 unsupported action
- *
- * Unlike v1 (which sources these from a global singleton), server-v2 resolves
- * `IToolRegistry` / `IMcpService` from the most-recent session's `main` agent.
- * The empty-list / 40408 fallbacks for "no session yet" and "no main agent yet"
- * (gap G10) are exercised explicitly.
- */
-
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,12 +10,15 @@ import {
   IModelCatalog,
   type ExecutableTool,
 } from '@moonshot-ai/agent-core-v2';
+import {
+  listMcpServersResponseSchema,
+  listToolsResponseSchema,
+} from '../src/protocol/rest-tool';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { listMcpServersResponseSchema, listToolsResponseSchema } from '../src/protocol/rest-tool';
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -128,8 +116,6 @@ describe('server-v2 /api/v1 tools + mcp', () => {
     return body.data.id;
   }
 
-  // The main agent scope is not created automatically on session creation
-  // (server-v2 gap G10); create it here so IToolRegistry / IMcpService resolve.
   async function ensureMainAgent(sessionId: string) {
     const session = getLiveSessionById(server!.core.accessor, sessionId);
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
@@ -179,25 +165,22 @@ describe('server-v2 /api/v1 tools + mcp', () => {
       const tools = listToolsResponseSchema.parse(body.data).tools;
 
       const echo = tools.find((t) => t.name === 'Echo');
-      // v1 parity: `input_schema` is always null on the wire, even though v2's
-      // registry carries the real JSON schema (`parameters`).
-      // With no gate in play every tool is `active: true` (v2 extension).
       expect(echo).toMatchObject({ source: 'builtin', input_schema: null, active: true });
       expect(echo?.mcp_server_id).toBeUndefined();
 
       const skill = tools.find((t) => t.name === 'MySkill');
-      // v2 `user` source maps to the wire `skill` name.
       expect(skill).toMatchObject({ source: 'skill' });
 
       const mcp = tools.find((t) => t.name === 'mcp__myserver__search');
-      // Qualified name `mcp__<server>__<tool>` yields the server id.
       expect(mcp).toMatchObject({ source: 'mcp', mcp_server_id: 'myserver' });
     });
 
     it('accepts an explicit session_id query', async () => {
       const sid = await createSession();
       await ensureMainAgent(sid);
-      const { body } = await getJson<{ tools: ToolWire[] }>(`/api/v1/tools?session_id=${sid}`);
+      const { body } = await getJson<{ tools: ToolWire[] }>(
+        `/api/v1/tools?session_id=${sid}`,
+      );
       expect(body.code).toBe(0);
       expect(listToolsResponseSchema.safeParse(body.data).success).toBe(true);
     });
@@ -206,9 +189,6 @@ describe('server-v2 /api/v1 tools + mcp', () => {
       const id = await createSession();
       await ensureMainAgent(id);
 
-      // Set the session-scope denylist directly: this harness's model catalog is
-      // a throwing stub, so the REST prompt path (which requires a bound profile)
-      // is unavailable here. The composed gate read by the route is the same.
       const session = getLiveSessionById(server!.core.accessor, id);
       if (session === undefined) throw new Error(`session ${id} not found`);
       await session.accessor.get(ISessionToolPolicy).setDisabledTools(['Bash']);
@@ -246,8 +226,6 @@ describe('server-v2 /api/v1 tools + mcp', () => {
       await ensureMainAgent(id);
       const { body } = await getJson<{ servers: unknown[] }>('/api/v1/mcp/servers');
       expect(body.code).toBe(0);
-      // No MCP servers configured in the sandboxed home → empty, but the route
-      // must still resolve IMcpService successfully and answer a valid shape.
       expect(listMcpServersResponseSchema.parse(body.data).servers).toEqual([]);
     });
   });

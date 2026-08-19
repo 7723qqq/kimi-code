@@ -41,10 +41,10 @@ import type { ProtocolAdapterConfig } from '#/kosong/protocol/protocol';
 import { traitConvertError, type TraitContext } from '#/kosong/protocol/protocolTrait';
 import { convertAnthropicError } from '#/kosong/provider/bases/anthropic/anthropic';
 import { convertGoogleGenAIError } from '#/kosong/provider/bases/google-genai/google-genai';
-import { convertOpenAIError } from '@moonshot-ai/kosong/providers/openai-common';
+import { convertOpenAIError } from '#/kosong/provider/bases/openai/openai-common';
 import { OpenAIResponsesStreamedMessage } from '#/kosong/provider/bases/openai/openai-responses';
 import { composeOpenAIChatHooks } from '#/kosong/provider/bases/openai/openaiHooks';
-import { classifyKimiQuotaError } from '@moonshot-ai/kosong/providers/kimi-errors';
+import { classifyKimiQuotaError } from '#/kosong/provider/providers/kimi/kimi-errors';
 import { kimiAnthropicTrait, kimiOpenAITrait } from '#/kosong/provider/providers/kimi/kimi.contrib';
 
 const APIUserAbortError = class extends Error {};

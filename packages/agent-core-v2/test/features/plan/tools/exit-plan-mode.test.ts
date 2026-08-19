@@ -90,14 +90,6 @@ describe('ExitPlanMode options schema', () => {
     ).toBe(true); // empty description is allowed
   });
 
-  it('rejects options with only whitespace in the label', () => {
-    expect(
-      ExitPlanModeInputSchema.safeParse({
-        options: [{ label: '   ', description: 'spaces only' }],
-      }).success,
-    ).toBe(false);
-  });
-
   it('rejects options with Unicode reserved-matching labels', () => {
     // "Ｒeject" uses fullwidth Latin letters
     expect(

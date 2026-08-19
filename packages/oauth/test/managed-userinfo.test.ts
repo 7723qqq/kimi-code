@@ -151,9 +151,9 @@ describe('parseManagedUserInfoPayload', () => {
   });
 
   it('keeps email only when it is a non-empty string', () => {
-    expect(parseManagedUserInfoPayload({ user_id: 'u_1', email: 'user@example.com' })?.email).toBe(
-      'user@example.com',
-    );
+    expect(
+      parseManagedUserInfoPayload({ user_id: 'u_1', email: 'user@example.com' })?.email,
+    ).toBe('user@example.com');
     expect(parseManagedUserInfoPayload({ user_id: 'u_1', email: '' })?.email).toBeUndefined();
     expect(parseManagedUserInfoPayload({ user_id: 'u_1', email: 42 })?.email).toBeUndefined();
   });
@@ -231,10 +231,7 @@ describe('fetchManagedUserInfo', () => {
   });
 
   it('falls back to the local authorization hint on an empty 401 body', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('', { status: 401 })),
-    );
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })));
 
     const result = await fetchManagedUserInfo('https://api.example/me', 'access-token');
 
@@ -245,10 +242,7 @@ describe('fetchManagedUserInfo', () => {
   });
 
   it('falls back to the local profile hint on an empty 404 body', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('', { status: 404 })),
-    );
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })));
 
     const result = await fetchManagedUserInfo('https://api.example/me', 'access-token');
 
@@ -272,10 +266,7 @@ describe('fetchManagedUserInfo', () => {
 
     const result = await fetchManagedUserInfo('https://api.example/me', 'access-token');
 
-    expect(result).toEqual({
-      kind: 'error',
-      message: 'Failed to fetch profile: malformed response.',
-    });
+    expect(result).toEqual({ kind: 'error', message: 'Failed to fetch profile: malformed response.' });
   });
 
   it('maps an aborted request to a timeout message', async () => {

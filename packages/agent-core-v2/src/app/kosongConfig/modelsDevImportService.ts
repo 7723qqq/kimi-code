@@ -1,41 +1,3 @@
-/**
- * `kosongConfig` domain — `IModelsDevImportService` implementation.
- *
- * Owns the models.dev directory import and the custom-registry (api.json)
- * import. Both are multi-step config writes (inspect → build → replace × N),
- * serialized through an internal chain so two interleaved imports cannot
- * lose each other's section rebuilds. Custom registries reuse the shared
- * OAuth primitives' exact remove-then-apply sequence, split into TWO
- * persisted passes so deletions really reach the disk (the TOML transform is
- * a raw overlay that only honors entry-level deletes; applying in the same
- * pass would let stale fields of kept ids survive on disk). The in-memory
- * shapes
- * deliberately omit the default pointers so the removal logic can never
- * clamp them: imports never move default_provider/default_model — aside
- * from seeding a default_model from the first imported model when none is
- * configured at all (a fresh setup must become usable).
- *
- * One subtlety shapes all the write code below: the providers/models TOML
- * transforms rebuild each section's entries but overlay each entry's fields
- * onto the old on-disk raw — so an entry id absent from the replacement
- * truly disappears, while a FIELD absent from a kept entry would silently
- * survive on disk (and resurrect on the next boot). Field-level clears
- * therefore always assign an explicit `undefined` (the transform's
- * `setDefined` drops those), and the models.dev import swaps aliases in two
- * passes (drop, then re-add onto clean slots). The kosong persistence
- * bridge then pushes the change into the registries, which is also what
- * invalidates the runtime model catalog. Each FINAL models-table pass also
- * folds the `[secondary_model]` subagent pool through
- * `cascadeSubagentModelPool` (the drop passes deliberately skip it — the
- * re-add pass is what the pool must agree with), so an import that drops a
- * pooled alias never leaves a dangling pool for session-start validation.
- *
- * Both third-party fetches — the models.dev directory and the custom-registry
- * import — send the identity snapshot's `outboundUserAgent`, matching what
- * the scheduled refresh of the same registry sends: these are directories
- * this service chooses to call, so a header is always sent.
- */
-
 import {
   applyCustomRegistryProvider,
   fetchCustomRegistry,
@@ -44,25 +6,24 @@ import {
   type CustomRegistrySource,
   type ManagedKimiConfigShape,
 } from '@moonshot-ai/kimi-code-oauth';
-
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { type ModelsSection } from '#/kosong/model/model';
 import { type ProviderConfig, type ProvidersSection } from '#/kosong/provider/provider';
+import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
+
+import { DEFAULT_MODEL_SECTION, MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
+import { ModelsDevImportErrors } from './errors';
+import { IKosongConfigService } from './kosongConfig';
 import {
   SECONDARY_MODEL_SECTION,
   cascadeSubagentModelPool,
   type SecondaryModelConfig,
 } from '#/session/subagent/configSection';
-
-import { DEFAULT_MODEL_SECTION, MODELS_SECTION, PROVIDERS_SECTION } from './configSection';
-import { ModelsDevImportErrors } from './errors';
-import { IKosongConfigService } from './kosongConfig';
-import { modelsDevProviderModels, resolveModelsDevImport } from './modelsDev';
 import {
   IModelsDevImportService,
   PROVIDER_ID_PATTERN,
@@ -108,7 +69,10 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const catalog = await getModelsDevCatalog(await this.outboundUserAgent());
     const entry = modelsDevEntry(catalog, catalogId);
     if (entry === undefined) {
-      throw new Error2(codes.CATALOG_ENTRY_NOT_FOUND, `catalog entry ${catalogId} does not exist`);
+      throw new Error2(
+        codes.CATALOG_ENTRY_NOT_FOUND,
+        `catalog entry ${catalogId} does not exist`,
+      );
     }
     return toModelsDevProviderItem(catalogId, entry);
   }
@@ -119,15 +83,17 @@ export class ModelsDevImportService implements IModelsDevImportService {
     return this.enqueueWrite(() => this.doImportModelsDevProvider(options));
   }
 
-  importCustomRegistry(options: ImportCustomRegistryOptions): Promise<ImportCustomRegistryResult> {
+  importCustomRegistry(
+    options: ImportCustomRegistryOptions,
+  ): Promise<ImportCustomRegistryResult> {
     return this.enqueueWrite(() => this.doImportCustomRegistry(options));
   }
 
   private enqueueWrite<T>(task: () => Promise<T>): Promise<T> {
     const run = this.writeChain.then(task, task);
     this.writeChain = run.then(
-      () => {},
-      () => {},
+      () => undefined,
+      () => undefined,
     );
     return run;
   }
@@ -158,7 +124,10 @@ export class ModelsDevImportService implements IModelsDevImportService {
     const catalog = await getModelsDevCatalog(await this.outboundUserAgent());
     const entry = modelsDevEntry(catalog, catalogId);
     if (entry === undefined) {
-      throw new Error2(codes.CATALOG_ENTRY_NOT_FOUND, `catalog entry ${catalogId} does not exist`);
+      throw new Error2(
+        codes.CATALOG_ENTRY_NOT_FOUND,
+        `catalog entry ${catalogId} does not exist`,
+      );
     }
 
     const resolution = resolveModelsDevImport(entry, options.baseUrl);
@@ -246,10 +215,10 @@ export class ModelsDevImportService implements IModelsDevImportService {
         userAgent: await this.outboundUserAgent(),
         signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
       });
-    } catch (error) {
+    } catch (err) {
       throw new Error2(
         codes.REGISTRY_IMPORT_INVALID,
-        `custom registry at ${url} cannot be imported: ${truncateUpstreamMessage(error)}`,
+        `custom registry at ${url} cannot be imported: ${truncateUpstreamMessage(err)}`,
       );
     }
     if (Object.keys(entries).length === 0) {
@@ -331,7 +300,10 @@ async function seedDefaultModelWhenUnset(config: IConfigService, alias: string):
   await config.replace(DEFAULT_MODEL_SECTION, alias);
 }
 
-function registryKeyFromExisting(providers: ProvidersSection, url: string): string | undefined {
+function registryKeyFromExisting(
+  providers: ProvidersSection,
+  url: string,
+): string | undefined {
   for (const provider of Object.values(providers)) {
     if (!isRecord(provider)) continue;
     const source = provider['source'];

@@ -16,7 +16,11 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { contextApplyCompaction, contextClear } from '#/agent/contextMemory/contextOps';
+import {
+  ContextApplyCompaction,
+  ContextClear,
+  ContextSpliced,
+} from '#/agent/contextMemory/contextEvents';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import {
   IAgentLoopService,
@@ -29,26 +33,32 @@ import {
   type MicroCompactionConfig,
 } from '#/agent/microCompaction/microCompaction';
 import {
-  MicroCompactionModel,
-  microCompactionApply,
+  microCompactionKey,
+  MicroCompactionApplied,
 } from '#/agent/microCompaction/microCompactionOps';
 import { AgentMicroCompactionService } from '#/agent/microCompaction/microCompactionService';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { Event2, type Event2Class } from '#/app/event/event2';
 import type { IEventBus } from '#/app/event/eventBus';
-import { type DomainEvent } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { createHooks } from '#/hooks';
 import type { ModelCapability } from '#/kosong/contract/capability';
 import type { Message } from '#/kosong/contract/message';
 import { emptyUsage } from '#/kosong/contract/usage';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { testAgent, type TestAgentContext } from '../../harness';
-import { recordingWireLog, registerTestAgentWire } from '../../wire/stubs';
+import {
+  recordingWireLog,
+  registerTestAgentWire,
+  registerTestEventDispatcher,
+} from '../../wire/stubs';
 
 const MINUTE = 60 * 1000;
 const DEFAULT_MARKER = '[Old tool result content cleared]';
@@ -114,6 +124,8 @@ function createMicroHooks() {
 interface UnitHarness {
   readonly svc: IAgentMicroCompactionService;
   readonly wire: IWireService;
+  readonly dispatcher: IEventDispatcher;
+  readonly agentState: IAgentStateService;
   readonly records: WireRecord[];
   readonly telemetryRecords: TelemetryRecord[];
   readonly hooks: MicroHooks;
@@ -132,7 +144,7 @@ function createUnit(
   const ix = disposables.add(new TestInstantiationService());
   const records: WireRecord[] = [];
   const telemetryRecords: TelemetryRecord[] = [];
-  const listeners = new Set<(event: DomainEvent) => void>();
+  const listeners = new Set<(event: Event2<any>) => void>();
   const eventBus: IEventBus = {
     _serviceBrand: undefined,
     publish: (event) => {
@@ -141,15 +153,25 @@ function createUnit(
     subscribe: ((typeOrHandler: unknown, handler?: unknown) => {
       if (typeof typeOrHandler === 'string') {
         const type = typeOrHandler;
-        const onEvent = handler as (event: DomainEvent) => void;
-        const wrapper = (event: DomainEvent): void => {
-          if (event.type === type) onEvent(event as never);
+        const onEvent = handler as (event: Event2<any>) => void;
+        const wrapper = (event: Event2<any>): void => {
+          if (event.type === type) onEvent(event);
         };
         listeners.add(wrapper);
         return toDisposable(() => listeners.delete(wrapper));
       }
-      listeners.add(typeOrHandler as (event: DomainEvent) => void);
-      return toDisposable(() => listeners.delete(typeOrHandler as (event: DomainEvent) => void));
+      if (typeof typeOrHandler === 'function' && typeOrHandler.prototype !== undefined) {
+        const cls = typeOrHandler as Event2Class<any, any>;
+        const onEvent = handler as (event: Event2<any>) => void;
+        const wrapper = (event: Event2<any>): void => {
+          if (event instanceof cls) onEvent(event);
+        };
+        listeners.add(wrapper);
+        return toDisposable(() => listeners.delete(wrapper));
+      }
+      const onEvent = typeOrHandler as (event: Event2<any>) => void;
+      listeners.add(onEvent);
+      return toDisposable(() => listeners.delete(onEvent));
     }) as IEventBus['subscribe'],
   };
   const hooks = createMicroHooks();
@@ -173,6 +195,8 @@ function createUnit(
     log: recordingWireLog(records),
     eventBus,
   });
+  const dispatcher = registerTestEventDispatcher(ix);
+  const agentState = ix.get(IAgentStateService);
   ix.set(IAgentMicroCompactionService, new SyncDescriptor(AgentMicroCompactionService));
   const svc = ix.get(IAgentMicroCompactionService);
   if (Object.keys(config).length > 0) {
@@ -181,11 +205,13 @@ function createUnit(
   return {
     svc,
     wire,
+    dispatcher,
+    agentState,
     records,
     telemetryRecords,
     hooks,
     splice: (start, deleteCount) =>
-      eventBus.publish({ type: 'context.spliced', start, deleteCount, messages: [] }),
+      void dispatcher.dispatch(new ContextSpliced({ start, deleteCount, messages: [] })),
   };
 }
 
@@ -363,7 +389,7 @@ describe('AgentMicroCompactionService', () => {
   });
 
   it('resets the cutoff to zero and only ever shrinks it', () => {
-    const { svc, wire } = createUnit(disposables, {
+    const { svc, dispatcher } = createUnit(disposables, {
       keepRecentMessages: 0,
       minContentTokens: 1,
       cacheMissedThresholdMs: 60 * MINUTE,
@@ -375,7 +401,7 @@ describe('AgentMicroCompactionService', () => {
       ...toolExchange(3, 'result three'),
     );
 
-    wire.dispatch(microCompactionApply({ cutoff: 7 }));
+    void dispatcher.dispatch(new MicroCompactionApplied({ cutoff: 7 }));
     expect(toolTexts(svc.compact(history))).toEqual([
       DEFAULT_MARKER,
       DEFAULT_MARKER,
@@ -385,7 +411,7 @@ describe('AgentMicroCompactionService', () => {
     svc.reset();
     expect(hasMarker(svc.compact(history))).toBe(false);
 
-    wire.dispatch(microCompactionApply({ cutoff: 7 }));
+    void dispatcher.dispatch(new MicroCompactionApplied({ cutoff: 7 }));
     svc.reset(5);
     expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
     // reset only ever shrinks the cutoff.
@@ -394,7 +420,7 @@ describe('AgentMicroCompactionService', () => {
   });
 
   it('clamps the cutoff via context.spliced undo events', () => {
-    const { svc, wire, splice } = createUnit(disposables, {
+    const { svc, dispatcher, splice } = createUnit(disposables, {
       keepRecentMessages: 2,
       minContentTokens: 1,
       cacheMissedThresholdMs: 60 * MINUTE,
@@ -405,7 +431,7 @@ describe('AgentMicroCompactionService', () => {
       ...toolExchange(2, 'result two'),
       ...toolExchange(3, 'result three'),
     );
-    wire.dispatch(microCompactionApply({ cutoff: 7 }));
+    void dispatcher.dispatch(new MicroCompactionApplied({ cutoff: 7 }));
     expect(toolTexts(svc.compact(history))).toEqual([
       DEFAULT_MARKER,
       DEFAULT_MARKER,
@@ -421,8 +447,8 @@ describe('AgentMicroCompactionService', () => {
     expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
   });
 
-  it('zeroes the cutoff on context clear and compaction via wire cross-reducers', () => {
-    const { svc, wire } = createUnit(disposables, {
+  it('zeroes the cutoff on context clear and compaction via state folds', () => {
+    const { svc, dispatcher, agentState } = createUnit(disposables, {
       keepRecentMessages: 0,
       minContentTokens: 1,
       cacheMissedThresholdMs: 60 * MINUTE,
@@ -430,15 +456,17 @@ describe('AgentMicroCompactionService', () => {
     });
     history.push(...toolExchange(1, 'result one'));
 
-    wire.dispatch(microCompactionApply({ cutoff: 5 }));
-    expect(wire.getModel(MicroCompactionModel).cutoff).toBe(5);
+    void dispatcher.dispatch(new MicroCompactionApplied({ cutoff: 5 }));
+    expect(agentState.get(microCompactionKey).cutoff).toBe(5);
 
-    wire.dispatch(contextClear({}));
-    expect(wire.getModel(MicroCompactionModel).cutoff).toBe(0);
+    void dispatcher.dispatch(new ContextClear({}));
+    expect(agentState.get(microCompactionKey).cutoff).toBe(0);
 
-    wire.dispatch(microCompactionApply({ cutoff: 5 }));
-    wire.dispatch(contextApplyCompaction({ summary: 'Summary.', compactedCount: 1 }));
-    expect(wire.getModel(MicroCompactionModel).cutoff).toBe(0);
+    void dispatcher.dispatch(new MicroCompactionApplied({ cutoff: 5 }));
+    void dispatcher.dispatch(
+      new ContextApplyCompaction({ summary: 'Summary.', compactedCount: 1 }),
+    );
+    expect(agentState.get(microCompactionKey).cutoff).toBe(0);
   });
 
   it('tracks telemetry when a cache miss advances the cutoff', async () => {
@@ -522,7 +550,7 @@ describe('AgentMicroCompactionService', () => {
   });
 
   it('persists the cutoff as a wire record', () => {
-    const { svc, wire, records } = createUnit(disposables, {
+    const { svc, dispatcher, records } = createUnit(disposables, {
       keepRecentMessages: 2,
       minContentTokens: 1,
       cacheMissedThresholdMs: 60 * MINUTE,
@@ -530,7 +558,7 @@ describe('AgentMicroCompactionService', () => {
     });
     history.push(...toolExchange(1, 'result one'), ...toolExchange(2, 'result two'));
 
-    wire.dispatch(microCompactionApply({ cutoff: 7 }));
+    void dispatcher.dispatch(new MicroCompactionApplied({ cutoff: 7 }));
     const record = records.findLast((candidate) => candidate.type === 'micro_compaction.apply');
     expect(record?.['cutoff']).toBe(7);
   });
@@ -606,12 +634,14 @@ describe('MicroCompaction (integration)', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'continue' }] });
     await ctx.untilTurnEnd();
 
-    const wire = ctx.get(IWireService);
-    const cutoffAfterDetect = wire.getModel(MicroCompactionModel).cutoff;
+    const agentState = ctx.get(IAgentStateService);
+    const cutoffAfterDetect = agentState.get(microCompactionKey).cutoff;
     expect(cutoffAfterDetect).toBeGreaterThan(0);
 
     memory.undo(2);
     const newLength = memory.get().length;
-    expect(wire.getModel(MicroCompactionModel).cutoff).toBe(Math.min(cutoffAfterDetect, newLength));
+    expect(agentState.get(microCompactionKey).cutoff).toBe(
+      Math.min(cutoffAfterDetect, newLength),
+    );
   });
 });

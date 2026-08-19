@@ -86,13 +86,11 @@ describe('installed VSIX Extension Host smoke', () => {
       );
     });
 
-    await expect(
-      runExtensionHostSmoke({
-        version: '1.100.0',
-        vsixPath: fixture.vsixPath,
-        cachePath: fixture.cachePath,
-      }),
-    ).rejects.toThrow('Extension Host ran VS Code 1.99.3, expected requested version 1.100.0');
+    await expect(runExtensionHostSmoke({
+      version: '1.100.0',
+      vsixPath: fixture.vsixPath,
+      cachePath: fixture.cachePath,
+    })).rejects.toThrow('Extension Host ran VS Code 1.99.3, expected requested version 1.100.0');
   });
 });
 

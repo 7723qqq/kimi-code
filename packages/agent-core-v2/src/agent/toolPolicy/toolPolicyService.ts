@@ -1,32 +1,18 @@
-/**
- * `toolPolicy` domain — Agent-scope tool authorization service.
- *
- * Intersects the workspace os-level veto (the seeded `sessionToolPolicyGate`,
- * which outranks everything below it), the bound profile policy, global
- * `[tools]` configuration, and Session denylist (composed by
- * `isToolActiveComposed`), and installs the resulting
- * authorization check into the L3 executor preflight so direct tool calls
- * cannot bypass schema filtering. Disclosure entries retain their implicit
- * availability when a profile allowlist omits them, while explicit deny
- * layers still apply.
- */
-
 import { Disposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentProfileService, ProfileError, ProfileErrors } from '#/agent/profile/profile';
+import { TOOLS_SECTION, type ToolsConfig } from './configSection';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
+import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import type { ToolSource } from '#/tool/toolContract';
 
-import { TOOLS_SECTION, type ToolsConfig } from './configSection';
-import { isToolActiveComposed, type ToolActivationPolicy, type ToolPolicyLayers } from './evaluate';
+import { isToolActiveComposed, type ToolActivationPolicy } from './evaluate';
 import { IAgentToolPolicyService } from './toolPolicy';
 
-// NOTE: stays Disposable — its own 'config' collides with the Fiber
 export class AgentToolPolicyService extends Disposable implements IAgentToolPolicyService {
   declare readonly _serviceBrand: undefined;
 
@@ -44,7 +30,9 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
           name === SELECT_TOOLS_TOOL_NAME
             ? this.isToolActiveForDisclosure(name, source)
             : this.isToolActive(name, source);
-        return active ? undefined : `Tool "${name}" is disabled by the active tool policy`;
+        return active
+          ? undefined
+          : `Tool "${name}" is disabled by the active tool policy`;
       }),
     );
   }
@@ -80,25 +68,16 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
     name: string,
     source: ToolSource = 'builtin',
   ): boolean {
-    return isToolActiveComposed(this.snapshotPolicyLayers(profile), name, source);
-  }
-
-  createToolActiveChecker(): (name: string, source?: ToolSource) => boolean {
-    const profile = this.profile.data();
-    const layers = this.snapshotPolicyLayers({
-      tools: profile.activeToolNames,
-      disallowedTools: profile.disallowedTools,
-    });
-    return (name, source = 'builtin') => isToolActiveComposed(layers, name, source);
-  }
-
-  private snapshotPolicyLayers(profile: ToolActivationPolicy): ToolPolicyLayers {
-    return {
-      workspaceDisabledTools: this.toolPolicyGate.disabledTools,
-      profile,
-      global: this.config.get<ToolsConfig>(TOOLS_SECTION),
-      sessionDisabledTools: this.sessionToolPolicy.disabledTools(),
-    };
+    return isToolActiveComposed(
+      {
+        workspaceDisabledTools: this.toolPolicyGate.disabledTools,
+        profile,
+        global: this.config.get<ToolsConfig>(TOOLS_SECTION),
+        sessionDisabledTools: this.sessionToolPolicy.disabledTools(),
+      },
+      name,
+      source,
+    );
   }
 
   async setSessionDisabledTools(names: readonly string[]): Promise<void> {

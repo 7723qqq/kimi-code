@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { collection, type CollectionChange, type CollectionView } from '#/_base/di/collection';
+import {
+  collection,
+  type CollectionChange,
+  type CollectionView,
+} from '#/_base/di/collection';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';

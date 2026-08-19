@@ -1,33 +1,42 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createControlledPromise } from '@antfu/utils';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import type { Turn } from '#/agent/loop/loop';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
-import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentSkillService } from '#/agent/skill/skill';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
+import { summarizeSkill } from '#/app/skillCatalog/types';
+import type { generate as kosongGenerate } from '#/kosong/contract/generate';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { IEventService } from '#/app/event/event';
 import { AgentSkillService } from '#/agent/skill/skillService';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import {
   MAX_SKILL_QUERY_DEPTH,
   NestedSkillTooDeepError,
   SkillToolInputSchema,
 } from '#/agent/tools/skill/skill';
 import { SkillTool } from '#/agent/tools/skill/skillTool';
-import { IEventService } from '#/app/event/event';
-import { InMemorySkillCatalog } from '#/app/skillCatalog/registry';
-import { summarizeSkill } from '#/app/skillCatalog/types';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ErrorCodes, Error2 } from '#/errors';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-
-import { stubSkill } from '../../app/skillCatalog/stubs';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import type { Turn } from '#/agent/loop/loop';
 import { executeTool } from '../../tools/fixtures/execute-tool';
+import { stubSkill } from '../../app/skillCatalog/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
+import {
+  createTestAgent,
+  InMemoryWireRecordPersistence,
+  skillServices,
+  type TestAgentContext,
+} from '../../harness';
+
+type GenerateFn = typeof kosongGenerate;
 
 const COMMIT_SKILL = stubSkill('commit', {
   description: 'commit changes',
@@ -72,12 +81,13 @@ describe('AgentSkillService', () => {
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IAgentPromptService, {
-          enqueue: ({ message }: { message: ContextMessage }) => {
-            prompted.push(message);
-            return Promise.resolve({ launched: Promise.resolve(fakeTurn()) } as never);
-          },
-          retry: () => Promise.resolve(undefined as never),
+          enqueue: ({ message }: { message: ContextMessage }) => { prompted.push(message); return Promise.resolve({ launched: Promise.resolve(fakeTurn()) } as never); },
+          inject: (message: ContextMessage) => { prompted.push(message); return Promise.resolve(fakeTurn()); },
+          retry: () => Promise.resolve(undefined),
           clear: () => {},
+        });
+        reg.definePartialInstance(IAgentLoopService, {
+          status: () => ({ state: 'idle', activeTurnId: undefined, pendingTurnIds: [], hasPendingRequests: false, activeTraceId: undefined }),
         });
         registerTestAgentWireServices(reg, 'wire/skill-test');
         reg.definePartialInstance(ITelemetryService, { track: () => {}, track2: () => {} });
@@ -90,10 +100,7 @@ describe('AgentSkillService', () => {
         });
         reg.definePartialInstance(IEventService, { publish: () => {} });
         reg.defineInstance(ISessionContext, stubSessionContext());
-        reg.defineInstance(
-          IAgentScopeContext,
-          makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
-        );
+        reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
       },
     });
     skills = new InMemorySkillCatalog();
@@ -127,9 +134,7 @@ describe('AgentSkillService', () => {
 
   it('activate throws for an unknown skill', async () => {
     const svc = ix.get(IAgentSkillService);
-    await expect(svc.activate({ name: 'missing' })).rejects.toSatisfy(
-      (error) => error instanceof Error2 && error.code === ErrorCodes.SKILL_NOT_FOUND,
-    );
+    await expect(svc.activate({ name: 'missing' })).rejects.toThrow(/not found/i);
   });
 
   it('activate waits for the catalog to be ready before resolving', async () => {
@@ -179,12 +184,13 @@ describe('SkillTool', () => {
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IAgentPromptService, {
-          enqueue: ({ message }: { message: ContextMessage }) => {
-            prompted.push(message);
-            return Promise.resolve({ launched: Promise.resolve(fakeTurn()) } as never);
-          },
-          retry: () => Promise.resolve(undefined as never),
+          enqueue: ({ message }: { message: ContextMessage }) => { prompted.push(message); return Promise.resolve({ launched: Promise.resolve(fakeTurn()) } as never); },
+          inject: (message: ContextMessage) => { prompted.push(message); return Promise.resolve(fakeTurn()); },
+          retry: () => Promise.resolve(undefined),
           clear: () => {},
+        });
+        reg.definePartialInstance(IAgentLoopService, {
+          status: () => ({ state: 'idle', activeTurnId: undefined, pendingTurnIds: [], hasPendingRequests: false, activeTraceId: undefined }),
         });
         registerTestAgentWireServices(reg, 'wire/skill-test');
         reg.definePartialInstance(ITelemetryService, { track: () => {}, track2: () => {} });
@@ -197,10 +203,7 @@ describe('SkillTool', () => {
         });
         reg.definePartialInstance(IEventService, { publish: () => {} });
         reg.defineInstance(ISessionContext, stubSessionContext());
-        reg.defineInstance(
-          IAgentScopeContext,
-          makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
-        );
+        reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
       },
     });
     skills = new InMemorySkillCatalog();
@@ -231,6 +234,7 @@ describe('SkillTool', () => {
     return {
       _serviceBrand: undefined,
       activate: () => Promise.reject(new Error('not implemented')),
+      promptWithSkills: () => Promise.reject(new Error('not implemented')),
       recordModelToolActivation: () => {},
     };
   }
@@ -248,22 +252,13 @@ describe('SkillTool', () => {
     const tool = makeTool(ix);
 
     expect(tool.name).toBe('Skill');
-    expect(tool.description).toContain('Invoke a registered skill');
-    expect(tool.description).toContain('skill-loaded');
-    expect(tool.description).toContain('with the same `args`');
     expect(tool.parameters).toMatchObject({
       type: 'object',
       required: ['skill'],
       additionalProperties: false,
       properties: {
-        skill: expect.objectContaining({
-          type: 'string',
-          description: expect.stringMatching(/skill listing/i),
-        }),
-        args: expect.objectContaining({
-          type: 'string',
-          description: expect.stringMatching(/argument/i),
-        }),
+        skill: { type: 'string' },
+        args: { type: 'string' },
       },
     });
     expect(SkillToolInputSchema.safeParse({ skill: 'commit' }).success).toBe(true);
@@ -272,7 +267,10 @@ describe('SkillTool', () => {
   });
 
   it('returns a tool error when the skill is unknown', async () => {
-    const result = await executeTool(makeTool(ix), toolContext({ skill: 'missing' }));
+    const result = await executeTool(
+      makeTool(ix),
+      toolContext({ skill: 'missing' }),
+    );
 
     expect(result).toMatchObject({
       isError: true,
@@ -283,7 +281,10 @@ describe('SkillTool', () => {
   it('rejects skills that disable model invocation', async () => {
     skills.register(stubSkill('private', { metadata: { disableModelInvocation: true } }));
 
-    const result = await executeTool(makeTool(ix), toolContext({ skill: 'private' }));
+    const result = await executeTool(
+      makeTool(ix),
+      toolContext({ skill: 'private' }),
+    );
 
     expect(result).toMatchObject({
       isError: true,
@@ -294,7 +295,10 @@ describe('SkillTool', () => {
   it('rejects non-inline skill types in the current v1 runtime', async () => {
     skills.register(stubSkill('flow-only', { metadata: { type: 'flow' } }));
 
-    const result = await executeTool(makeTool(ix), toolContext({ skill: 'flow-only' }));
+    const result = await executeTool(
+      makeTool(ix),
+      toolContext({ skill: 'flow-only' }),
+    );
 
     expect(result).toMatchObject({
       isError: true,
@@ -332,8 +336,14 @@ describe('SkillTool', () => {
   });
 
   it('honors initialQueryDepth as an alias for queryDepth', async () => {
-    const nested = await executeTool(makeTool(ix, 2), toolContext({ skill: 'commit' }));
-    const root = await executeTool(makeTool(ix, 0), toolContext({ skill: 'commit' }));
+    const nested = await executeTool(
+      makeTool(ix, 2),
+      toolContext({ skill: 'commit' }),
+    );
+    const root = await executeTool(
+      makeTool(ix, 0),
+      toolContext({ skill: 'commit' }),
+    );
 
     expect(prompted).toHaveLength(0);
     expect(nested.delivery?.message.origin).toMatchObject({
@@ -348,8 +358,86 @@ describe('SkillTool', () => {
 
   it('throws a structured recursion error when nested skill invocation is too deep', async () => {
     await expect(
-      executeTool(makeTool(ix, MAX_SKILL_QUERY_DEPTH), toolContext({ skill: 'commit' })),
+      executeTool(
+        makeTool(ix, MAX_SKILL_QUERY_DEPTH),
+        toolContext({ skill: 'commit' }),
+      ),
     ).rejects.toBeInstanceOf(NestedSkillTooDeepError);
     expect(prompted).toHaveLength(0);
+  });
+});
+
+describe('AgentSkillService busy delivery (harness)', () => {
+  let ctx: TestAgentContext;
+
+  afterEach(async () => {
+    await ctx.dispose();
+  });
+
+  it('steers the activation into the running turn and launches a new one when idle', async () => {
+    const catalog = new InMemorySkillCatalog();
+    catalog.register(
+      stubSkill('tower', {
+        content: 'Tower mission: $ARGUMENTS',
+        metadata: {},
+      }),
+    );
+
+    const gate = createControlledPromise<void>();
+    let generateCalls = 0;
+    const generate: GenerateFn = async (_chat, _systemPrompt, _tools, _history, callbacks, options) => {
+      generateCalls += 1;
+      const n = generateCalls;
+      options?.onRequestStart?.();
+      if (n === 1) await gate;
+      options?.signal?.throwIfAborted();
+      const text = `response-${String(n)}`;
+      await callbacks?.onMessagePart?.({ type: 'text', text });
+      options?.onStreamEnd?.();
+      return {
+        id: `mock-${String(n)}`,
+        message: { role: 'assistant', content: [{ type: 'text', text }], toolCalls: [] },
+        usage: { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
+        finishReason: 'completed',
+        rawFinishReason: 'stop',
+        traceId: null,
+      };
+    };
+
+    const persistence = new InMemoryWireRecordPersistence();
+    ctx = createTestAgent(skillServices(catalog), { generate, persistence });
+
+    const promptPromise = ctx.rpc.prompt({ input: [{ type: 'text', text: 'start' }] });
+    await vi.waitFor(() => {
+      expect(generateCalls).toBe(1);
+    });
+
+    const busyActivation = ctx.get(IAgentSkillService).activate({ name: 'tower', args: 'mission-1' });
+    const busyResult = await busyActivation;
+    expect(busyResult.turn_id).toBe(0);
+    expect(generateCalls).toBe(1);
+
+    gate.resolve();
+    await promptPromise;
+    await ctx.untilTurnEnd();
+
+    const idleResult = await ctx.get(IAgentSkillService).activate({ name: 'tower', args: 'mission-2' });
+    expect(idleResult.turn_id).toBe(1);
+    await ctx.untilTurnEnd();
+    expect(generateCalls).toBe(3);
+
+    const activations = ctx
+      .contextData()
+      .history.filter((m) => m.role === 'user' && m.origin?.kind === 'skill_activation');
+    expect(activations.map((m) => (m.origin?.kind === 'skill_activation' ? m.origin.skillArgs : ''))).toEqual([
+      'mission-1',
+      'mission-2',
+    ]);
+
+    const types = persistence.records.map((record) => record.type);
+    expect(types.filter((type) => type === 'turn.prompt')).toHaveLength(2);
+    expect(types.filter((type) => type === 'turn.steer')).toHaveLength(1);
+    const steer = persistence.records.find((record) => record.type === 'turn.steer');
+    expect(steer).toMatchObject({ origin: { kind: 'skill_activation', skillArgs: 'mission-1' } });
   });
 });

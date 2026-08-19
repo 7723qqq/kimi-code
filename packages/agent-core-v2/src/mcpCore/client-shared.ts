@@ -1,10 +1,5 @@
-/**
- * `mcpCore` domain — shared MCP client helpers — request options, liveness probes, result conversion.
- */
-
-import { ProtocolError, SdkErrorCode } from '@modelcontextprotocol/client';
-
 import { getCoreVersion } from '#/_base/version';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
@@ -21,14 +16,14 @@ export type UnexpectedCloseListener = (reason: UnexpectedCloseReason) => void;
 export function isMcpConnectionClosedError(error: unknown): boolean {
   return (
     error instanceof Error &&
-    (error as Error & { readonly code?: unknown }).code === SdkErrorCode.ConnectionClosed
+    (error as Error & { readonly code?: unknown }).code === ErrorCode.ConnectionClosed
   );
 }
 
 export function isMcpTransportFailure(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   if (isMcpConnectionClosedError(error)) return true;
-  return !(error instanceof ProtocolError);
+  return !(error instanceof McpError);
 }
 
 export const MCP_LIVENESS_PROBE_TIMEOUT_MS = 5_000;
@@ -44,8 +39,8 @@ export async function probeMcpLiveness(client: MCPClient, signal: AbortSignal): 
   } catch (error) {
     if (isMcpConnectionClosedError(error)) return false;
     if (isMcpMalformedResultError(error)) return true;
-    if (error instanceof ProtocolError) {
-      return (error as Error & { readonly code?: unknown }).code !== SdkErrorCode.RequestTimeout;
+    if (error instanceof McpError) {
+      return (error as Error & { readonly code?: unknown }).code !== ErrorCode.RequestTimeout;
     }
     return false;
   }
@@ -58,7 +53,7 @@ export interface McpRequestOptions {
 
 export function buildRequestOptions(
   timeoutMs: number | undefined,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
 ): McpRequestOptions | undefined {
   if (timeoutMs === undefined && signal === undefined) return undefined;
   return { timeout: timeoutMs, signal };

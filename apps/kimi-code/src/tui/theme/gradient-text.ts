@@ -14,12 +14,10 @@ export function gradientText(text: string, fromHex: string, toHex: string, accen
     return chalk.hex(fromHex).bold(text);
   }
   const safeAccentBias = Number.isFinite(accentBias) ? Math.max(0, accentBias) : 1;
-  return chars
-    .map((char, index) => {
-      const ratio = Math.min(1, (index / (chars.length - 1)) * safeAccentBias);
-      return chalk.hex(interpolateHexColor(from, to, ratio)).bold(char);
-    })
-    .join('');
+  return chars.map((char, index) => {
+    const ratio = Math.min(1, (index / (chars.length - 1)) * safeAccentBias);
+    return chalk.hex(interpolateHexColor(from, to, ratio)).bold(char);
+  }).join('');
 }
 
 function parseHexColor(hex: string): RgbColor | undefined {

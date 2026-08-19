@@ -61,13 +61,7 @@ describe('server-v2 gui store routes', () => {
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-gui-store-'));
-    server = await startServer({
-      hostIdentity: TEST_HOST_IDENTITY,
-      host: '127.0.0.1',
-      port: 0,
-      homeDir: home,
-      logLevel: 'silent',
-    });
+    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
   });
 
   afterEach(async () => {
@@ -122,12 +116,8 @@ describe('server-v2 gui store routes', () => {
     });
     expect(envelopeOf<null>(rmRes.json()).code).toBe(0);
 
-    expect(
-      envelopeOf<{ value: string | null }>((await getItem(api, 'a')).json()).data?.value,
-    ).toBeNull();
-    expect(envelopeOf<{ value: string | null }>((await getItem(api, 'b')).json()).data?.value).toBe(
-      '2',
-    );
+    expect(envelopeOf<{ value: string | null }>((await getItem(api, 'a')).json()).data?.value).toBeNull();
+    expect(envelopeOf<{ value: string | null }>((await getItem(api, 'b')).json()).data?.value).toBe('2');
   });
 
   it('removeItem on a missing key is a no-op', async () => {
@@ -180,7 +170,6 @@ describe('server-v2 gui store routes', () => {
 
   it('treats Object.prototype keys as ordinary keys', async () => {
     const api = appOf(server as RunningServer);
-    // On an empty store, prototype keys must not resolve to inherited members.
     expect(
       envelopeOf<{ value: string | null }>((await getItem(api, 'toString')).json()).data?.value,
     ).toBeNull();
@@ -191,8 +180,7 @@ describe('server-v2 gui store routes', () => {
     await setItem(api, 'hasOwnProperty', 'x');
     await setItem(api, '__proto__', 'y');
     expect(
-      envelopeOf<{ value: string | null }>((await getItem(api, 'hasOwnProperty')).json()).data
-        ?.value,
+      envelopeOf<{ value: string | null }>((await getItem(api, 'hasOwnProperty')).json()).data?.value,
     ).toBe('x');
     expect(
       envelopeOf<{ value: string | null }>((await getItem(api, '__proto__')).json()).data?.value,

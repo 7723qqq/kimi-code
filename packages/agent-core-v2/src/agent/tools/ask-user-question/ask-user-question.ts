@@ -1,15 +1,3 @@
-/**
- * `tools` domain — `IAskUserQuestionTool` contract (the
- * `AskUserQuestion` tool).
- *
- * Public contract of the `AskUserQuestion` structured user question tool:
- * the input zod schemas the model-facing parameters are derived from
- * (including the background-asking variant and the uniqueness validation
- * shared by both the schema refinement and the runtime re-check) and the
- * `IAskUserQuestionTool` DI decorator that the implementation registers
- * against via `registerAgentToolService`. Bound at Agent scope.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -19,7 +7,6 @@ const QuestionOptionSchema = z.object({
   label: z
     .string()
     .min(1)
-    .max(100)
     .describe("Concise display text (1-5 words). If recommended, append '(Recommended)'."),
   description: z.string().default('').describe('Brief explanation of trade-offs or implications.'),
 });

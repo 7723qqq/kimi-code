@@ -3,13 +3,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   getTextBuildWorkerRuntimeState,
   resetTextBuildWorkerRuntime,
 } from '@moonshot-ai/minidb/worker-runtime';
-import { afterEach, describe, expect, it } from 'vitest';
 
-import { installMinidbTextBuildWorker } from '#/native/minidb-worker';
 import {
   getEmbeddedNativeAssetManifest,
   getMinidbTextBuildWorkerFile,
@@ -19,16 +18,14 @@ import {
   type NativeAssetManifest,
   type NativeAssetSource,
 } from '#/native/native-assets';
+import { installMinidbTextBuildWorker } from '#/native/minidb-worker';
 import { loadNativePackage } from '#/native/native-require';
 
 function sha256(bytes: Buffer | string): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-function fakeManifest(
-  files: Record<string, string>,
-  workerContent?: string,
-): {
+function fakeManifest(files: Record<string, string>, workerContent?: string): {
   manifest: NativeAssetManifest;
   source: NativeAssetSource;
 } {
@@ -67,11 +64,13 @@ function fakeManifest(
   };
   const assets = new Map<string, Buffer>([
     [manifestKey, Buffer.from(JSON.stringify(manifest))],
-    ...Object.entries(files).map(
-      ([relativePath, content]) =>
-        [`native/test-target/${relativePath}`, Buffer.from(content)] as const,
-    ),
-    ...(workerContent === undefined ? [] : [[workerAssetKey, Buffer.from(workerContent)] as const]),
+    ...Object.entries(files).map(([relativePath, content]) => [
+      `native/test-target/${relativePath}`,
+      Buffer.from(content),
+    ] as const),
+    ...(workerContent === undefined
+      ? []
+      : [[workerAssetKey, Buffer.from(workerContent)] as const]),
   ]);
   return {
     manifest,
@@ -126,17 +125,7 @@ describe('native assets', () => {
         source,
         version: 'test',
       });
-      expect(packageRoot).toBe(
-        join(
-          dir,
-          'native',
-          'test',
-          'test-target',
-          sha256(JSON.stringify(manifest)),
-          'node_modules',
-          'fake-native',
-        ),
-      );
+      expect(packageRoot).toBe(join(dir, 'native', 'test', 'test-target', sha256(JSON.stringify(manifest)), 'node_modules', 'fake-native'));
       expect(readFileSync(join(packageRoot ?? '', 'index.js'), 'utf-8')).toContain("value: 'ok'");
 
       writeFileSync(join(packageRoot ?? '', 'index.js'), 'broken');
@@ -256,11 +245,7 @@ describe('native assets', () => {
     const cases: Array<{ manifest: unknown; error: RegExp }> = [
       { manifest: { ...valid, version: 1 }, error: /Unsupported native asset manifest version: 1/ },
       {
-        manifest: {
-          version: NATIVE_ASSET_MANIFEST_VERSION,
-          target: 'test-target',
-          runtimeFiles: [],
-        },
+        manifest: { version: NATIVE_ASSET_MANIFEST_VERSION, target: 'test-target', runtimeFiles: [] },
         error: /packages must be an array/,
       },
       {
@@ -324,11 +309,7 @@ describe('native assets', () => {
           ...valid,
           runtimeFiles: [
             worker,
-            {
-              ...worker,
-              assetKey: 'native/test-target/runtime/other',
-              relativePath: 'runtime/other.mjs',
-            },
+            { ...worker, assetKey: 'native/test-target/runtime/other', relativePath: 'runtime/other.mjs' },
           ],
         }),
         'test-target',

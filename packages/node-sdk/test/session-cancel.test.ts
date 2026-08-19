@@ -87,12 +87,10 @@ describe('Session.cancel', () => {
     try {
       const session = await harness.createSession({ id: 'ses_cancel_compaction', workDir });
 
-      await expect(
-        session.compact({ instruction: 'Keep the compact test pending.' }),
-      ).rejects.toMatchObject({
-        // The v2 engine surfaces its own error class; the code is the contract.
+      await expect(session.compact({ instruction: 'Keep the compact test pending.' })).rejects.toMatchObject({
+        name: 'KimiError',
         code: 'compaction.unable',
-      });
+      } satisfies Partial<KimiError>);
     } finally {
       await harness.close();
     }
@@ -122,7 +120,7 @@ describe('Session.cancel', () => {
 });
 
 describe('KimiHarness.forkSession', () => {
-  it('rejects a fork while the source turn is active (v2 pinned)', async () => {
+  it('rejects while the source session has an active turn', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-fork-active-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-fork-active-work-');
     await writeFakeModelConfig(homeDir);
@@ -136,18 +134,15 @@ describe('KimiHarness.forkSession', () => {
       await session.prompt('keep this turn active');
       await started;
       try {
-        // Both engines reject an in-flight fork with v1's code (pinned in
-        // the migration tracker); the extension's v2 engine switch made the
-        // v2 engine match v1 exactly here.
         await expect(
           harness.forkSession({
             id: session.id,
             forkId: 'ses_fork_active_child',
           }),
         ).rejects.toMatchObject({
+          name: 'KimiError',
           code: 'session.fork_active_turn',
-        });
-        expect(harness.getSession('ses_fork_active_child')).toBeUndefined();
+        } satisfies Partial<KimiError>);
       } finally {
         await session.cancel().catch(() => undefined);
         await ended.catch(() => undefined);

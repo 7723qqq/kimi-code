@@ -1,31 +1,3 @@
-/**
- * `toolSelect` domain — predicates and shaping helpers for the
- * select_tools progressive-disclosure protocol context.
- *
- * Exposes pure helpers for recognizing injected tool-schema messages,
- * folding loadable-tool announcements, rendering announcement text, and
- * stripping dynamic-tool protocol context from an outgoing history view.
- *
- * Two kinds of messages carry the protocol state in the history:
- *   - dynamic tool schema messages: `role: 'system'` messages whose `tools`
- *     field holds full tool definitions (origin
- *     `{kind: 'injection', variant: 'dynamic_tool_schema'}`) — tool loading is
- *     protocol context, not conversation. v2's undo cuts histories at the
- *     first real user prompt it finds regardless of origin: schema messages
- *     survive only when the cut lands before them.
- *   - loadable-tools announcements: `<tools_added>/<tools_removed>` system
- *     reminders (origin `{kind: 'injection', variant: 'loadable-tools'}`;
- *     legacy journals used `{kind: 'system_trigger', name: 'loadable-tools'}`
- *     and both are folded) — the next turn-boundary diff self-heals by
- *     re-announcing the folded delta whenever the ledger drifts.
- *
- * The loaded-tool ledger is the history itself: there is deliberately no
- * separate persisted ledger, so undo/compaction/resume all self-heal by
- * re-folding. Everything here anchors on `origin` or the `tools` field, so
- * callers that need to filter MUST run before `project()` — projection
- * strips `origin`.
- */
-
 import type { ContextMessage } from '#/agent/contextMemory/types';
 
 export const DYNAMIC_TOOL_SCHEMA_VARIANT = 'dynamic_tool_schema';
@@ -63,7 +35,9 @@ export function stripDynamicToolContext(
   return out;
 }
 
-export function collectLoadedDynamicToolNames(history: readonly ContextMessage[]): Set<string> {
+export function collectLoadedDynamicToolNames(
+  history: readonly ContextMessage[],
+): Set<string> {
   const names = new Set<string>();
   for (const message of history) {
     if (message.tools === undefined) continue;
@@ -81,7 +55,9 @@ export function foldAnnouncedToolNames(history: readonly ContextMessage[]): Set<
   const announced = new Set<string>();
   for (const message of history) {
     if (!isLoadableToolsAnnouncement(message)) continue;
-    const text = message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
+    const text = message.content
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('');
     for (const name of matchToolNameBlocks(text, TOOLS_REMOVED_BLOCK)) {
       announced.delete(name);
     }

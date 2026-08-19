@@ -1,24 +1,11 @@
-/**
- * `plan` domain — plan-mode context injection.
- *
- * Owns the `plan_mode` context-injection provider: while plan mode is active it
- * emits the full / sparse / re-entry reminders (deduped against recent history),
- * and on the first inject after deactivation it emits the exit reminder. It reads
- * the live plan state through `IAgentPlanService.status()` and the recent history
- * through `IAgentContextMemoryService`, so no derived-state closures are needed.
- * The plain-data state (`wasActive`) is registered into `agentState`
- * (`IAgentStateService`) and read/written through it.
- */
-
 import { Service } from '#/_base/di/service';
-import { defineState } from '#/_base/state/stateRegistry';
+import { defineState } from '#/state/state';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentPlanService } from '#/features/plan/plan';
 import type { PlanFilePath } from '#/features/plan/plan';
-
+import { IAgentStateService } from '#/agent/state/agentState';
 import PLAN_MODE_EXIT_REMINDER from './plan-mode-exit-reminder.md?raw';
 import PLAN_MODE_FULL_REMINDER from './plan-mode-full-reminder.md?raw';
 import PLAN_MODE_INLINE_FULL_REMINDER from './plan-mode-inline-full-reminder.md?raw';
@@ -41,13 +28,13 @@ export class PlanModeInjection extends Service {
     @IAgentStateService private readonly states: IAgentStateService,
   ) {
     super();
-    this.states.register(planWasActiveKey);
+    this.states.contributeState(planWasActiveKey);
 
     this._register(
       injector.register(PLAN_MODE_INJECTION_VARIANT, async ({ lastInjectedAt: injectedAt }) => {
         const data = await this.plan.status();
         if (data === null) {
-          if (!this.states.get(planWasActiveKey)) return;
+          if (!this.states.get(planWasActiveKey)) return undefined;
           this.states.set(planWasActiveKey, false);
           return PLAN_MODE_EXIT_REMINDER;
         }
@@ -62,7 +49,7 @@ export class PlanModeInjection extends Service {
         const variant = planModeReminderVariant(injectedAt, this.context.get());
         if (variant === 'full') return fullReminder(planFilePath);
         if (variant === 'sparse') return sparseReminder(planFilePath);
-        return;
+        return undefined;
       }),
     );
   }

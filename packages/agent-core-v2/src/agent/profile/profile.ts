@@ -1,22 +1,3 @@
-/**
- * `profile` domain — `IAgentProfileService` contract.
- *
- * Owns the active agent's identity: bound profile, model alias, thinking
- * level, system prompt, and active-tool set. `bind()` takes an optional
- * `model`, falling back to the configured `defaultModel` so edges don't each
- * re-implement the fallback (a missing model everywhere throws
- * `model.not_configured`), and an optional `thinking`; `strictThinking` marks
- * `thinking` as an explicit user request (edge input) rather than inherited
- * state, so the effort is validated against the model's supported efforts and
- * the bind rejects up front when unsupported — internal spawns pass inherited
- * thinking without the flag, and a persisted effort that drifted out of the
- * model's support list clamps instead of breaking the spawn. The profile
- * contract also owns live status re-publication for consumers that attach to
- * an agent after its initial model binding.
- */
-
-import { createDecorator } from '#/_base/di/instantiation';
-import { Error2 } from '#/_base/errors/errors';
 import type {
   AgentProfile,
   AgentProfileContext,
@@ -26,7 +7,11 @@ import type { ModelCapability } from '#/kosong/contract/capability';
 import type { ThinkingEffort } from '#/kosong/contract/provider';
 import type { ModelRequestParams } from '#/kosong/model/modelRequester';
 
-import type { ProfileErrors } from './errors';
+import { createDecorator } from "#/_base/di/instantiation";
+import type { ErrorCode } from '#/errors';
+import { Error2 } from '#/_base/errors/errors';
+
+import { ProfileErrors } from './errors';
 
 export { ProfileErrors } from './errors';
 
@@ -34,7 +19,7 @@ export type ProfileErrorCode = (typeof ProfileErrors.codes)[keyof typeof Profile
 
 export class ProfileError extends Error2 {
   constructor(code: ProfileErrorCode, message: string, details?: Record<string, unknown>) {
-    super(code, message, { details });
+    super(code as ErrorCode, message, { details });
     this.name = 'ProfileError';
   }
 }

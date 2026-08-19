@@ -1,9 +1,3 @@
-/**
- * `auth` domain error codes.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const AuthErrors = {
@@ -16,34 +10,34 @@ export const AuthErrors = {
   },
   info: {
     'auth.login_required': {
-      title: t('v2Errors.authLoginRequired'),
+      title: 'Login required',
       retryable: false,
       public: true,
-      action: t('v2Errors.authLoginRequiredAction'),
+      action: 'Run /login to authenticate with the OAuth provider.',
     },
     'auth.provisioning_required': {
-      title: t('v2Errors.authProvisioningRequired'),
+      title: 'Provider provisioning required',
       retryable: false,
       public: true,
-      action: t('v2Errors.authProvisioningRequiredAction'),
+      action: 'Configure a provider via /login or the providers endpoint.',
     },
     'auth.token_missing': {
-      title: t('v2Errors.authTokenMissing'),
+      title: 'Provider credential missing',
       retryable: false,
       public: true,
-      action: t('v2Errors.authTokenMissingAction'),
+      action: 'Configure an API key or complete OAuth login for the provider.',
     },
     'auth.token_unauthorized': {
-      title: t('v2Errors.authTokenUnauthorized'),
+      title: 'Provider credential unauthorized',
       retryable: false,
       public: true,
-      action: t('v2Errors.authTokenUnauthorizedAction'),
+      action: 'Re-authenticate with the OAuth provider.',
     },
     'auth.model_not_resolved': {
-      title: t('v2Errors.authModelNotResolved'),
+      title: 'Model not resolved',
       retryable: false,
       public: true,
-      action: t('v2Errors.authModelNotResolvedAction'),
+      action: 'Set a default model or configure the requested model alias.',
     },
   },
 } as const satisfies ErrorDomain;

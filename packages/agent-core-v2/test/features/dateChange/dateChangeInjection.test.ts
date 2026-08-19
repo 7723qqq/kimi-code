@@ -275,7 +275,14 @@ describe('AgentDateChangeService', () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-date-bind-home-'));
     try {
       await ctx.dispose();
-      ctx = createTestAgent(appService(IHostClock, clock), hostEnvironmentServices(homeDir));
+      // The harness runtime is posix-path based; a posix cwd keeps the bind's
+      // rendered environment cwd consistent with the session context on all
+      // platforms (a win32 cwd would be mangled by the posix path resolve).
+      ctx = createTestAgent(
+        { cwd: '/home/test' },
+        appService(IHostClock, clock),
+        hostEnvironmentServices(homeDir),
+      );
       context = ctx.get(IAgentContextMemoryService);
       loop = ctx.get(IAgentLoopService);
       profile = ctx.get(IAgentProfileService);

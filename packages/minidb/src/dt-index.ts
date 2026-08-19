@@ -6,9 +6,9 @@
 // published index generation on open (stage 5) or rebuilt from the store as
 // the fallback.
 
-import type { DtImageColumn } from './gen-codec.js';
 import { SkipList, cmpNumber, cmpString } from './skiplist.js';
 import type { RangeEntry } from './skiplist.js';
+import type { DtImageColumn } from './gen-codec.js';
 
 interface DtColumn {
   list: SkipList<number, string>;
@@ -27,10 +27,7 @@ export class DtIndex {
   private col(name: string): DtColumn {
     let c = this.cols.get(name);
     if (!c) {
-      c = {
-        list: new SkipList<number, string>({ compareKey: cmpNumber, compareVal: cmpString }),
-        byKey: new Map(),
-      };
+      c = { list: new SkipList<number, string>({ compareKey: cmpNumber, compareVal: cmpString }), byKey: new Map() };
       this.cols.set(name, c);
     }
     return c;
@@ -60,7 +57,7 @@ export class DtIndex {
       c.byKey.set(key, ms);
     }
 
-    if (Object.keys(next).length > 0) this.byKey.set(key, { ...next });
+    if (Object.keys(next).length) this.byKey.set(key, { ...next });
     else this.byKey.delete(key);
   }
 
@@ -82,9 +79,7 @@ export class DtIndex {
   range(col: string, opts: Parameters<SkipList<number, string>['range']>[0] = {}): DtRangeEntry[] {
     const c = this.cols.get(col);
     if (!c) return [];
-    return c.list
-      .range(opts)
-      .map((n: RangeEntry<number, string>) => ({ key: n.val, value: n.key }));
+    return c.list.range(opts).map((n: RangeEntry<number, string>) => ({ key: n.val, value: n.key }));
   }
 
   /** Lazy range over a dt column; yields { key: recordKey, value: ts } like
@@ -145,10 +140,7 @@ export class DtIndex {
    *  that fails midway leaves the previous index fully intact. Rebuild keys
    *  are unique (one store record each), so add() is a pure insert — the
    *  diff-based set() logic is not needed here. */
-  beginRebuild(): {
-    add(key: string, dt: Record<string, number> | null | undefined): void;
-    commit(): void;
-  } {
+  beginRebuild(): { add(key: string, dt: Record<string, number> | null | undefined): void; commit(): void } {
     const cols = new Map<string, DtColumn>();
     const byKey = new Map<string, Record<string, number>>();
     return {
@@ -159,17 +151,14 @@ export class DtIndex {
           if (typeof ms !== 'number' || !Number.isFinite(ms)) continue;
           let c = cols.get(name);
           if (!c) {
-            c = {
-              list: new SkipList<number, string>({ compareKey: cmpNumber, compareVal: cmpString }),
-              byKey: new Map(),
-            };
+            c = { list: new SkipList<number, string>({ compareKey: cmpNumber, compareVal: cmpString }), byKey: new Map() };
             cols.set(name, c);
           }
           c.list.insert(ms, key);
           c.byKey.set(key, ms);
           rec[name] = ms;
         }
-        if (Object.keys(rec).length > 0) byKey.set(key, rec);
+        if (Object.keys(rec).length) byKey.set(key, rec);
       },
       commit: () => {
         this.cols = cols;

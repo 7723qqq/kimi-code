@@ -1,10 +1,3 @@
-/**
- * `contextMemory` domain — rebuilds display history from the wire journal.
- *
- * Supplies transcript consumers with full pre-compaction history and folded
- * context length while preserving undo/clear semantics. Scope-agnostic.
- */
-
 import { type ContentPart, type ToolCall } from '#/kosong/contract/message';
 import type { WireRecord } from '#/wire/record';
 
@@ -176,7 +169,10 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
       if (isUndoAnchor(message)) {
         removedUserCount++;
         if (removedUserCount >= count) {
-          while (i > clearFloor && isPromptOwnedInjection(transcript[i - 1]!.message, message)) {
+          while (
+            i > clearFloor &&
+            isPromptOwnedInjection(transcript[i - 1]!.message, message)
+          ) {
             transcript.splice(i - 1, 1);
             i--;
             foldedLength = Math.max(0, foldedLength - 1);

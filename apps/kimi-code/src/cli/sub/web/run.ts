@@ -138,6 +138,10 @@ export function buildWebCommand(cmd: Command): Command {
       t('cli.optionDescriptions.serverRunOptionLogLevel', { levels: VALID_LOG_LEVELS.join('|') }),
     )
     .option('--debug-endpoints', t('cli.optionDescriptions.serverRunOptionDebugEndpoints'), false)
+    .option(
+      '--web-title <title>',
+      'Set a custom browser tab title for this web UI instance (default: "<workspace dir> | Kimi Code").',
+    )
     .option('--no-open', t('cli.optionDescriptions.serverRunOptionNoOpen'), true)
     .action(async (opts: WebCliOptions) => {
       try {
@@ -280,6 +284,7 @@ async function runServerInProcess(
     allowRemoteTerminals: options.allowRemoteTerminals,
     allowedHosts: options.allowedHosts,
     disableAuth: options.dangerousBypassAuth,
+    webTitle: options.webTitle,
     // Attach the engine's cloud telemetry appender (still gated by the config
     // `telemetry` toggle). Complements the v1 client registered above, which
     // only covers host-level events.

@@ -47,7 +47,11 @@ export function rolloutDelaySeconds(manifest: UpdateManifest, deviceId: string):
   return rolloutDelayForBucket(manifest.rollout, rolloutBucket(deviceId, manifest.version));
 }
 
-export function isRolloutEligible(manifest: UpdateManifest, deviceId: string, now: Date): boolean {
+export function isRolloutEligible(
+  manifest: UpdateManifest,
+  deviceId: string,
+  now: Date,
+): boolean {
   const publishedAt = Date.parse(manifest.publishedAt);
   // Schema validation rejects unparseable timestamps before they get here;
   // fail open defensively so a defect can never block updates indefinitely.
@@ -98,13 +102,7 @@ export function decidePassiveUpdateTarget(
 ): PassiveUpdateDecision {
   if (bypassRollout) {
     if (latest === null) {
-      return {
-        target: null,
-        reason: 'no-latest',
-        bucket: null,
-        delaySeconds: null,
-        eligibleAt: null,
-      };
+      return { target: null, reason: 'no-latest', bucket: null, delaySeconds: null, eligibleAt: null };
     }
     const target = selectUpdateTarget(currentVersion, latest);
     return {
@@ -118,13 +116,7 @@ export function decidePassiveUpdateTarget(
 
   if (manifest === null) {
     if (latest === null) {
-      return {
-        target: null,
-        reason: 'no-latest',
-        bucket: null,
-        delaySeconds: null,
-        eligibleAt: null,
-      };
+      return { target: null, reason: 'no-latest', bucket: null, delaySeconds: null, eligibleAt: null };
     }
     const target = selectUpdateTarget(currentVersion, latest);
     return {
@@ -138,13 +130,7 @@ export function decidePassiveUpdateTarget(
 
   const target = selectUpdateTarget(currentVersion, manifest.version);
   if (target === null) {
-    return {
-      target: null,
-      reason: 'not-newer',
-      bucket: null,
-      delaySeconds: null,
-      eligibleAt: null,
-    };
+    return { target: null, reason: 'not-newer', bucket: null, delaySeconds: null, eligibleAt: null };
   }
 
   const bucket = rolloutBucket(deviceId, manifest.version);
@@ -188,10 +174,7 @@ export async function appendRolloutDecisionLog(
   try {
     await mkdir(dirname(filePath), { recursive: true });
     const line = `${JSON.stringify(entry)}\n`;
-    const size = await stat(filePath).then(
-      (s) => s.size,
-      () => 0,
-    );
+    const size = await stat(filePath).then((s) => s.size, () => 0);
     if (size > ROLLOUT_LOG_MAX_BYTES) {
       await writeFile(filePath, line, 'utf-8');
       return;

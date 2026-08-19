@@ -195,10 +195,7 @@ function generatedProviderAliasKeys(
   return keys;
 }
 
-function computeChanges(
-  oldIds: Set<string>,
-  newIds: Set<string>,
-): { added: number; removed: number } {
+function computeChanges(oldIds: Set<string>, newIds: Set<string>): { added: number; removed: number } {
   let added = 0;
   for (const id of newIds) {
     if (!oldIds.has(id)) added++;
@@ -262,9 +259,7 @@ function providerConfigEqual(
   nextConfig: ManagedKimiConfigShape,
   providerId: string,
 ): boolean {
-  return (
-    providerConfigSnapshot(config, providerId) === providerConfigSnapshot(nextConfig, providerId)
-  );
+  return providerConfigSnapshot(config, providerId) === providerConfigSnapshot(nextConfig, providerId);
 }
 
 function providerRefreshAliasKeys(
@@ -509,10 +504,7 @@ export async function refreshProviderModels(
         providerId,
         `${providerId}/`,
       );
-      restoreProviderAliases(
-        next,
-        preserveUserProviderAliases(config, providerId, refreshedAliasKeys),
-      );
+      restoreProviderAliases(next, preserveUserProviderAliases(config, providerId, refreshedAliasKeys));
       restoreDefaultSelection(next, config.defaultModel, config.thinking?.enabled);
       clampDanglingDefault(next);
       clearDefaultThinkingWhenDefaultRemoved(next, config.defaultModel);
@@ -679,7 +671,9 @@ export async function refreshProviderModels(
       const providersToRemoveBeforeSet = new Set<string>();
       let hasUnreportedConfigChange = false;
       const remoteEntries = Object.values(entries);
-      const remoteEntriesByProviderId = new Map(remoteEntries.map((entry) => [entry.id, entry]));
+      const remoteEntriesByProviderId = new Map(
+        remoteEntries.map((entry) => [entry.id, entry]),
+      );
       const providerIdsToSync = new Set(providerIds);
       // Only pull in newly-appeared providers from the registry when running an
       // unscoped refresh; a scoped refresh must not add siblings.
@@ -705,17 +699,9 @@ export async function refreshProviderModels(
 
         const existed = config.providers[providerId] !== undefined;
         applyCustomRegistryProvider(next, entry, source);
-        const refreshedAliasKeys = providerRefreshAliasKeys(
-          config,
-          next,
-          providerId,
-          `${providerId}/`,
-        );
+        const refreshedAliasKeys = providerRefreshAliasKeys(config, next, providerId, `${providerId}/`);
         if (existed) {
-          restoreProviderAliases(
-            next,
-            preserveUserProviderAliases(config, providerId, refreshedAliasKeys),
-          );
+          restoreProviderAliases(next, preserveUserProviderAliases(config, providerId, refreshedAliasKeys));
         }
 
         if (

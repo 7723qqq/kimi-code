@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { authSummarySchema, managedProviderStatusSchema, type AuthSummary } from '../rest/auth';
+import {
+  authSummarySchema,
+  managedProviderStatusSchema,
+  type AuthSummary,
+} from '../rest/auth';
 
 describe('authSummarySchema', () => {
   const emptyState: AuthSummary = {

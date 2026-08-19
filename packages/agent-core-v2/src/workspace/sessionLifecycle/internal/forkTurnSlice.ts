@@ -1,25 +1,9 @@
-/**
- * `sessionLifecycle` domain — fork-time turn truncation over raw wire records.
- *
- * Ports the v1 engine's `forkSession(turnIndex)` slicing onto the flat
- * `WireRecord` shape: a user-visible turn boundary is a
- * `context.append_message` user record with an interactive origin (plain user
- * input, a user-slash skill / plugin command, or a shell-command input line),
- * the retained main prefix runs through the addressed turn inclusive, and
- * `turn.prompt` / `turn.steer` inputs inside the prefix survive only when
- * matched (origin kind, then content exact-then-fuzzy) to a retained boundary.
- * Subagent wires time-cut at the retained main prefix's latest record time,
- * and the fork's `lastPrompt` re-derives from the addressed turn's record
- * through the `prompt` domain's shared metadata-text normalization. Pure
- * functions over already-read records — own no scoped state.
- */
-
+import { Error2, ErrorCodes } from '#/errors';
+import type { ContentPart } from '#/kosong/contract/message';
 import {
   promptMetadataTextFromContentParts,
   promptMetadataTextFromText,
 } from '#/agent/prompt/promptMetadataText';
-import { Error2, ErrorCodes } from '#/errors';
-import type { ContentPart } from '#/kosong/contract/message';
 import type { WireRecord } from '#/wire/record';
 
 export interface MainTurnSlice {
@@ -63,7 +47,9 @@ export function sliceMainRecordsAtTurn(
     .filter(
       (record, index) => !isUserVisibleTurnInputRecord(record) || retainedTurnInputs.has(index),
     );
-  const cutoffTimes = retained.map(recordTime).filter((time): time is number => time !== undefined);
+  const cutoffTimes = retained
+    .map(recordTime)
+    .filter((time): time is number => time !== undefined);
   const lastPrompt = promptMetadataFromTurnRecord(records[start]!);
   return {
     records: retained,
@@ -177,7 +163,8 @@ function turnInputMatchesRecord(
   if (messageKind !== undefined && typeof messageKind !== 'string') return false;
   if (!sameTurnOrigin(inputKind, messageKind)) return false;
   return (
-    !compareContent || JSON.stringify(inputRecord['input']) === JSON.stringify(message['content'])
+    !compareContent ||
+    JSON.stringify(inputRecord['input']) === JSON.stringify(message['content'])
   );
 }
 
@@ -215,7 +202,11 @@ function promptMetadataFromTurnRecord(record: WireRecord): string | undefined {
   }
   const content = message['content'];
   if (!Array.isArray(content)) return undefined;
-  return promptMetadataTextFromContentParts(content as readonly ContentPart[]);
+  const activations = origin?.['skillActivations'];
+  const bundled = origin?.['kind'] === 'user' && Array.isArray(activations) ? activations.length : 0;
+  return promptMetadataTextFromContentParts(
+    (bundled === 0 ? content : content.slice(bundled)) as readonly ContentPart[],
+  );
 }
 
 function slashCommandText(command: string, args: unknown): string {

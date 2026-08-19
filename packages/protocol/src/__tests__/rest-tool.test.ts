@@ -65,6 +65,8 @@ describe('restartMcpServerResultSchema', () => {
     expect(restartMcpServerResultSchema.parse({ restarting: true })).toEqual({
       restarting: true,
     });
-    expect(restartMcpServerResultSchema.safeParse({ restarting: false }).success).toBe(false);
+    expect(restartMcpServerResultSchema.safeParse({ restarting: false }).success).toBe(
+      false,
+    );
   });
 });

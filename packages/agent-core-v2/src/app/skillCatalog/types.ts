@@ -1,26 +1,10 @@
-/**
- * `skillCatalog` domain — skill data types.
- *
- * The shapes every skill source produces and the catalog stores. A definition
- * marked `productSpecific` documents this CLI itself — its configuration,
- * themes, MCP setup — rather than a capability the agent applies to the user's
- * work, which is what the `builtin_product_skills` switch excludes; those
- * names and descriptions otherwise sit in the system prompt every turn. A
- * root's `scanMode` defaults to `directory` (full directory scan);
- * `root-skill-only` marks the plugin manifest root SKILL.md fallback, where
- * the root is a single skill bundle and sibling docs like CHANGELOG.md must
- * not be mistaken for flat skills.
- */
-
 export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
 
 /**
- * Source precedence for same-named skills (inspired by deepseek-harness
- * `skill-filesystem`'s source ranks, MIT): a higher rank wins when two
- * sources register the same skill name. Project-defined skills win over
- * user-level ones, user over plugin extras, and built-ins only fill gaps —
- * a local definition always shadows a bundled one. Within one source, first
- * registration wins.
+ * Which source wins when multiple sources register the same skill name.
+ * Project-defined skills win over user-level ones, user over plugin extras,
+ * and built-ins only fill gaps — a local definition always shadows a bundled
+ * one. Within one source, first registration wins.
  */
 export const SKILL_SOURCE_RANK: Readonly<Record<SkillSource, number>> = {
   project: 400,
@@ -57,6 +41,7 @@ export interface SkillDefinition {
   readonly mermaid?: string | undefined;
   readonly d2?: string;
   readonly productSpecific?: boolean;
+  readonly experimentalFlag?: string;
 }
 
 export interface SkillSummary {

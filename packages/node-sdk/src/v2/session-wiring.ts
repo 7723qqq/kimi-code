@@ -8,7 +8,6 @@ import {
   ISessionInteractionService,
   ISessionQuestionService,
   MAIN_AGENT_ID,
-  type DomainEvent,
   type IAgentScopeHandle,
   type IDisposable,
   type Interaction,
@@ -47,6 +46,7 @@ import {
 import type {
   ApprovalRequest,
   ApprovalResponse,
+  DomainEvent,
   Event,
   QuestionRequest,
   QuestionResult,
@@ -156,7 +156,8 @@ export class SessionEventWiring {
       agent.accessor.get(IEventBus).subscribe((event) => {
         const enriched =
           event.type === 'agent.status.updated' ? withStatusSnapshot(agent, event) : event;
-        this.sink.receiveEvent({ ...enriched, sessionId, agentId });
+        // oxlint-disable-next-line typescript-eslint/no-misused-spread -- the engine event is a class instance; the SDK stream carries plain protocol-shaped objects, so the spread intentionally drops the prototype.
+        this.sink.receiveEvent({ ...enriched, sessionId, agentId } as unknown as Event);
       }),
     );
   }
@@ -293,6 +294,7 @@ function withStatusSnapshot(agent: IAgentScopeHandle, event: DomainEvent): Domai
   const capabilities = profile.getModelCapabilities();
   const maxContextTokens = capabilities.max_input_tokens ?? capabilities.max_context_tokens;
   return {
+    // oxlint-disable-next-line typescript-eslint/no-misused-spread -- the engine event is a class instance; the SDK stream carries plain protocol-shaped objects, so the spread intentionally drops the prototype.
     ...event,
     usage: usageService.status(),
     contextTokens,

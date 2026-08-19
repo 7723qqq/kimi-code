@@ -1,46 +1,33 @@
 /**
  * `workspaceLifecycle` domain — `IWorkspaceLifecycleService` implementation.
  *
- * Holds the live handler registry (`Map<workspaceId, IWorkspaceScopeHandle>`)
- * and materializes handlers through the DI scope tree, seeding each
- * Workspace scope with its `workspaceContext` (identity, catalog metadata,
- * the `sessions/{wd_id}` persistence scope, and the local runtime keying
- * pair). `handlerFor` is create-or-get with an in-flight join keyed by
- * workspaceId, so concurrent materializations of one workspace — by id or
- * by any alias spelling of its root — converge on a single handler; a
- * failed materialization only drops its own in-flight entry and never
- * disturbs live handlers. Materialization refreshes the catalog record
- * through `workspace.createOrTouch` (the same write the old per-session
- * materialization performed, now once per handler) — only local workspaces
- * are ever written to `workspaces.json`. Handlers are never closed: they
- * die with the App scope's disposal cascade. Bound at App scope.
+ * Rides on the upstream `IWorkspaceInstanceManager` (App scope): `handlerFor`
+ * delegates to `getOrCreate` (create-or-get with the manager's in-flight
+ * join keyed by workspaceId), `handlers.list()` maps the manager's instances
+ * and `onDidMaterializeHandler` forwards the manager's change events. Each
+ * handle wraps a `WorkspaceInstance`; its `accessor` resolves
+ * `ISessionLifecycleService` lazily through `program.createSessionController`
+ * (one cached controller per handler, disposed with the handle — handlers
+ * are never closed, they die with the App scope's disposal cascade).
+ * `sessions.list(workspaceId)` is the live-session projection of the
+ * App-scope `ISessionManager` filtered by workspace. Bound at App scope.
  */
 
-import { IInstantiationService } from '#/_base/di/instantiation';
-import {
-  createScopedChildHandle,
-  type IWorkspaceScopeHandle,
-  ScopeActivation,
-  registerScopedService,
-} from '#/_base/di/scope';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { LifecycleScope } from '#/app/scopes';
-import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
-import { ErrorCodes, Error2 } from '#/errors';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { workspacePersistenceScope } from '#/workspace/sessionLifecycle/internal/addressing';
+import { BugIndicatingError } from '#/errors';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import {
-  LOCAL_OS_BACKEND_ID,
-  LOCAL_PERSISTENCE_BACKEND_ID,
-  workspaceContextSeed,
-  type IWorkspaceContext,
-} from '#/workspace/workspaceContext/workspaceContext';
+import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
+import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
 
 import {
   IWorkspaceLifecycleService,
+  type IWorkspaceScopeHandle,
   type WorkspaceHandlerRegistry,
   type WorkspaceRef,
   type WorkspaceSessionRegistry,
@@ -48,101 +35,77 @@ import {
 
 export class WorkspaceLifecycleService extends Service implements IWorkspaceLifecycleService {
   declare readonly _serviceBrand: undefined;
-  private readonly live = new Map<string, IWorkspaceScopeHandle>();
-  private readonly materializing = new Map<string, Promise<IWorkspaceScopeHandle>>();
+  private readonly controllers = new Map<string, SessionLifecycleService>();
+  private readonly handles = new Map<string, IWorkspaceScopeHandle>();
   private readonly _onDidMaterializeHandler = this._register(new Emitter<IWorkspaceScopeHandle>());
   readonly onDidMaterializeHandler: Event<IWorkspaceScopeHandle> =
     this._onDidMaterializeHandler.event;
 
   readonly handlers: WorkspaceHandlerRegistry = {
-    list: () => [...this.live.values()],
+    list: () => this.manager.list().map((instance) => this.handleOf(instance)),
   };
 
   readonly sessions: WorkspaceSessionRegistry = {
-    list: (workspaceId: string) => {
-      const handler = this.live.get(workspaceId);
-      if (handler === undefined) return [];
-      return handler.accessor
-        .get(ISessionLifecycleService)
+    list: (workspaceId: string) =>
+      this.sessionManager
         .list()
-        .map((session) => session.id);
-    },
+        .filter((handle) => handle.accessor.get(ISessionContext).workspaceId === workspaceId)
+        .map((handle) => handle.id),
   };
 
   constructor(
-    @IInstantiationService private readonly instantiation: IInstantiationService,
-    @IBootstrapService private readonly bootstrap: IBootstrapService,
-    @IWorkspaceService private readonly workspaces: IWorkspaceService,
-    @IHostEnvironment private readonly hostEnv: IHostEnvironment,
+    @IWorkspaceInstanceManager private readonly manager: IWorkspaceInstanceManager,
+    @ISessionManager private readonly sessionManager: ISessionManager,
   ) {
     super();
+    this._register(
+      this.manager.onDidChange(({ instance }) => {
+        if (instance !== undefined) {
+          this._onDidMaterializeHandler.fire(this.handleOf(instance));
+        }
+      }),
+    );
   }
 
   async handlerFor(ref: WorkspaceRef): Promise<IWorkspaceScopeHandle> {
-    if ('workspaceId' in ref) {
-      const existing = this.live.get(ref.workspaceId);
-      if (existing !== undefined) return existing;
-      const root = ref.root ?? (await this.workspaces.get(ref.workspaceId))?.root;
-      if (root === undefined) {
-        throw new Error2(
-          ErrorCodes.WORKSPACE_NOT_FOUND,
-          `workspace ${ref.workspaceId} does not exist`,
-        );
-      }
-      return this.joinMaterialization(ref.workspaceId, root);
-    }
-    const workspace = await this.workspaces.createOrTouch(ref.root);
-    const existing = this.live.get(workspace.id);
+    const instance = await this.manager.getOrCreate(ref);
+    return this.handleOf(instance);
+  }
+
+  private handleOf(instance: WorkspaceInstance): IWorkspaceScopeHandle {
+    const existing = this.handles.get(instance.id);
     if (existing !== undefined) return existing;
-    return this.joinMaterialization(workspace.id, workspace.root, workspace);
-  }
-
-  private joinMaterialization(
-    workspaceId: string,
-    root: string,
-    known?: Workspace,
-  ): Promise<IWorkspaceScopeHandle> {
-    const inflight = this.materializing.get(workspaceId);
-    if (inflight !== undefined) return inflight;
-    const promise = this.doMaterialize(workspaceId, root, known).finally(() =>
-      this.materializing.delete(workspaceId),
-    );
-    this.materializing.set(workspaceId, promise);
-    return promise;
-  }
-
-  private async doMaterialize(
-    workspaceId: string,
-    root: string,
-    known?: Workspace,
-  ): Promise<IWorkspaceScopeHandle> {
-    const workspace = known ?? (await this.workspaces.createOrTouch(root));
-    const ctx: IWorkspaceContext = {
-      _serviceBrand: undefined,
-      workspaceId,
-      cwd: workspace.root,
-      source: 'local',
-      meta: workspace,
-      persistenceScope: workspacePersistenceScope(this.bootstrap.scope('sessions'), workspaceId),
-      osBackendId: LOCAL_OS_BACKEND_ID,
-      persistenceBackendId: LOCAL_PERSISTENCE_BACKEND_ID,
+    const handle: IWorkspaceScopeHandle = {
+      id: instance.id,
+      accessor: {
+        get: <T>(serviceId: unknown): T => {
+          if (serviceId === ISessionLifecycleService) {
+            return this.controllerOf(instance) as unknown as T;
+          }
+          throw new BugIndicatingError(
+            `workspace handler of ${instance.id} only resolves ISessionLifecycleService`,
+          );
+        },
+      },
+      dispose: () => {
+        this.handles.delete(instance.id);
+        const controller = this.controllers.get(instance.id);
+        if (controller !== undefined) {
+          this.controllers.delete(instance.id);
+          controller.dispose();
+        }
+      },
     };
-    await this.hostEnv.ready;
-    // Re-check after the await: a racing materialization (e.g. started from a
-    // different alias spelling or a slower caller path) may have won and
-    // published its handler while this call was waiting, and creating another
-    // would clobber the live registry entry.
-    const existing = this.live.get(workspaceId);
-    if (existing !== undefined) return existing;
-    const handle = createScopedChildHandle(
-      this.instantiation,
-      LifecycleScope.Workspace,
-      workspaceId,
-      { seeds: workspaceContextSeed(ctx) },
-    ) as IWorkspaceScopeHandle;
-    this.live.set(workspaceId, handle);
-    this._onDidMaterializeHandler.fire(handle);
+    this.handles.set(instance.id, handle);
     return handle;
+  }
+
+  private controllerOf(instance: WorkspaceInstance): SessionLifecycleService {
+    const existing = this.controllers.get(instance.id);
+    if (existing !== undefined) return existing;
+    const controller = instance.program.createSessionController();
+    this.controllers.set(instance.id, controller);
+    return controller;
   }
 }
 

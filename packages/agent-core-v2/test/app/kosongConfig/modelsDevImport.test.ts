@@ -1,45 +1,26 @@
-/**
- * `app/kosongConfig` models.dev import tests — `IModelsDevImportService`:
- *
- *  - the browse surface prunes the models.dev directory and resolves import
- *    eligibility (ok / needs-base-url / rejected), and a missing entry throws
- *    `provider.catalog_entry_not_found`;
- *  - a failed upstream fetch with no built-in snapshot throws
- *    `provider.catalog_unavailable`;
- *  - `importModelsDevProvider` writes the provider + model aliases through
- *    `config.replace` (never the default pointers), keeps the stored api_key
- *    on a re-import without one, and rejects OAuth-managed providers and
- *    non-importable entries with coded errors;
- *  - `importCustomRegistry` applies every valid entry with a `source` blob,
- *    drops same-URL providers that vanished upstream, rejects OAuth-managed
- *    targets, and maps fetch/validation failures to
- *    `provider.registry_import_invalid`.
- */
-
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createScopedTestHost } from '#/_base/di/test';
-import type { Error2 } from '#/_base/errors/errors';
-import { isError2 } from '#/_base/errors/errors';
+import { Error2, isError2 } from '#/_base/errors/errors';
 import { DEFAULT_IDENTITY_SLUG, IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { MODELS_SECTION, PROVIDERS_SECTION } from '#/app/kosongConfig/configSection';
-import { ModelsDevImportErrors } from '#/app/kosongConfig/errors';
-import { IKosongConfigService } from '#/app/kosongConfig/kosongConfig';
-import { IModelsDevImportService } from '#/app/kosongConfig/modelsDevImport';
 import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
 } from '#/app/kosongConfig/modelsDevUpstream';
+import { MODELS_SECTION, PROVIDERS_SECTION } from '#/app/kosongConfig/configSection';
+import { ModelsDevImportErrors } from '#/app/kosongConfig/errors';
+import { IKosongConfigService } from '#/app/kosongConfig/kosongConfig';
+import { IModelsDevImportService } from '#/app/kosongConfig/modelsDevImport';
 import '#/app/kosongConfig/modelsDevImportService';
 import { IModelCatalog, type ProviderCatalogItem } from '#/kosong/model/catalog';
 import type { ModelsSection } from '#/kosong/model/model';
 import type { ProvidersSection } from '#/kosong/provider/provider';
 
 import { StubConfigService } from '../../kosong/stubs';
-import { stubAgentIdentity } from '../agentIdentity/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
+import { stubAgentIdentity } from '../agentIdentity/stubs';
 
 const HOST_HEADERS = { 'User-Agent': 'kimi-test/1.0' };
 
@@ -173,7 +154,7 @@ async function expectError2(promise: Promise<unknown>, code: string): Promise<Er
     () => {
       throw new Error(`expected the call to throw ${code}`);
     },
-    (error: unknown) => error,
+    (cause: unknown) => cause,
   );
   expect(isError2(err)).toBe(true);
   expect((err as Error2).code).toBe(code);
@@ -271,8 +252,6 @@ describe('IModelsDevImportService', () => {
 
     await imports.importModelsDevProvider({ catalogId: 'openai' });
 
-    // The import rebuilt openai's alias set (gpt-4o → gpt-4.1): the dropped
-    // alias leaves the pool, the surviving default stays.
     expect(config.get('secondaryModel')).toEqual({
       defaultModel: 'k2',
       models: { k2: 'fast' },
@@ -306,8 +285,6 @@ describe('IModelsDevImportService', () => {
 
     await imports.importCustomRegistry({ url: REGISTRY_URL });
 
-    // The registry rebuild replaced acme-gpt's only alias (gpt-old → gpt-x),
-    // orphaning the pool default.
     expect(config.get('secondaryModel')).toBeUndefined();
   });
 
@@ -365,9 +342,6 @@ describe('IModelsDevImportService', () => {
     expect(err.message).toContain('requires a base_url');
   });
 
-  // A custom registry is a user-supplied third-party endpoint, so this request
-  // carries the same identity the scheduled refresh of that registry sends —
-  // it used to go out with a hardcoded product token instead.
   it('sends the configured identity as the custom-registry import User-Agent', async () => {
     const seen: Array<string | null> = [];
     setModelsDevUpstreamForTest({ fetchImpl: fetchJsonRecordingUserAgent(REGISTRY_DOC, seen) });
@@ -398,9 +372,6 @@ describe('IModelsDevImportService', () => {
     expect(seen).toEqual(['acme/1.0']);
   });
 
-  // The fourth combination of (host header, configured slug): a host that
-  // states no User-Agent must still present the configured identity, not the
-  // neutral stand-in — this is exactly the case the fallback exists to serve.
   it('presents the configured slug when the host states no User-Agent', async () => {
     const seen: Array<string | null> = [];
     setModelsDevUpstreamForTest({ fetchImpl: fetchJsonRecordingUserAgent(REGISTRY_DOC, seen) });
@@ -411,8 +382,6 @@ describe('IModelsDevImportService', () => {
     expect(seen).toEqual(['acme']);
   });
 
-  // These directories are ones this service chooses to call, so a host that
-  // states no User-Agent gets a neutral token rather than no header at all.
   it('falls back to a neutral token when the host states no User-Agent', async () => {
     const seen: Array<string | null> = [];
     setModelsDevUpstreamForTest({ fetchImpl: fetchJsonRecordingUserAgent(REGISTRY_DOC, seen) });

@@ -1,33 +1,17 @@
-/**
- * Scenario: the App-scope agent-profile registry fold.
- *
- * Exercises `AgentProfileRegistryService` as a fold over the
- * `AgentProfileContribution` collection: records are contributed through real
- * containers by contributor units (the same `this.provide` path the
- * production loaders take), and the suite pins the folded read surface — the
- * (sourceId, workspaceKey) pair encoding (one global entry per source id,
- * with same-id workspace-local entries coexisting across handlers),
- * later-record-shadows-earlier replacement, provider-death withdrawal, the
- * `entries()` metadata, and the decoded `onDidChange` payload (a pair fires
- * only when its winning record actually changes). Run:
- * `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/app/agentProfileCatalog/agentProfileRegistry.test.ts`.
- */
-
 import { describe, expect, it } from 'vitest';
 
-import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator } from '#/_base/di/instantiation';
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
-import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import {
   AgentProfileContribution,
   type AgentProfileContributionRecord,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
 import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
+import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 
 interface IContributor {
   readonly record: AgentProfileContributionRecord;
@@ -52,9 +36,7 @@ function record(
     sourceId,
     priority: options?.priority,
     workspaceKey: options?.workspaceKey,
-    contribution: {
-      profiles: [normalizeAgentProfile({ name: marker, systemPrompt: () => marker })],
-    },
+    contribution: { profiles: [normalizeAgentProfile({ name: marker, systemPrompt: () => marker })] },
   };
 }
 

@@ -15,7 +15,10 @@
 import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { BackgroundTaskInfo, BackgroundTaskStatus } from './agent-record-types';
+import type {
+  BackgroundTaskInfo,
+  BackgroundTaskStatus,
+} from './agent-record-types';
 
 /** Task id format: `{prefix}-{8 chars of [0-9a-z]}`. Mirror of agent-core's
  *  `VALID_TASK_ID` (background/persist.ts). Enforced before deriving any
@@ -45,7 +48,9 @@ function taskOutputFile(agentDir: string, taskId: string): string {
  * to read/parse, and records that are neither the current nor the legacy
  * task shape — matching agent-core's tolerant `listTasks`.
  */
-export async function listBackgroundTasks(agentDir: string): Promise<BackgroundTaskInfo[]> {
+export async function listBackgroundTasks(
+  agentDir: string,
+): Promise<BackgroundTaskInfo[]> {
   const dir = tasksDirOf(agentDir);
   let entries: import('node:fs').Dirent[];
   try {
@@ -80,7 +85,10 @@ export async function listBackgroundTasks(agentDir: string): Promise<BackgroundT
 }
 
 /** Byte size of a task's `output.log` (0 when absent or unreadable). */
-export async function taskOutputSizeBytes(agentDir: string, taskId: string): Promise<number> {
+export async function taskOutputSizeBytes(
+  agentDir: string,
+  taskId: string,
+): Promise<number> {
   try {
     return (await stat(taskOutputFile(agentDir, taskId))).size;
   } catch {
@@ -211,7 +219,10 @@ function legacyStatusToCurrent(task: LegacyPersistedTask): BackgroundTaskStatus 
 }
 
 function isReadablePersistedTask(obj: unknown): obj is DiskPersistedTask {
-  return isRecord(obj) && (typeof obj['taskId'] === 'string' || typeof obj['task_id'] === 'string');
+  return (
+    isRecord(obj) &&
+    (typeof obj['taskId'] === 'string' || typeof obj['task_id'] === 'string')
+  );
 }
 
 function isLegacyPersistedTask(task: DiskPersistedTask): task is LegacyPersistedTask {

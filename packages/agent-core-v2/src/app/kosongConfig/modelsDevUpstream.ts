@@ -1,15 +1,3 @@
-/**
- * `kosongConfig` domain — models.dev upstream: fetch the third-party
- * directory, in-memory cache, built-in snapshot fallback, and the pruned
- * item mapping behind the import service's browse methods.
- *
- * The caller states the outbound `User-Agent`: this module is plain
- * module-level state with no container access, and the value depends on the
- * host and the configured identity, which only the calling service can see.
- * The cached catalog does not vary by caller, so a later call with a different
- * value still reuses it.
- */
-
 import { CoreErrors } from '#/_base/errors/codes';
 import { BugIndicatingError, Error2 } from '#/_base/errors/errors';
 import type { ModelCapability } from '#/kosong/contract/capability';
@@ -97,7 +85,7 @@ async function fetchAndCache(userAgent: string): Promise<ModelsDevCatalog> {
     }
     cache = { catalog: payload as ModelsDevCatalog, fetchedAt: now };
     return cache.catalog;
-  } catch (error) {
+  } catch (err) {
     if (cache !== undefined) return cache.catalog;
     const builtIn = builtInCatalog();
     if (builtIn !== undefined) {
@@ -106,7 +94,7 @@ async function fetchAndCache(userAgent: string): Promise<ModelsDevCatalog> {
     }
     throw new Error2(
       ModelsDevImportErrors.codes.CATALOG_UNAVAILABLE,
-      `models.dev catalog unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      `models.dev catalog unavailable: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }

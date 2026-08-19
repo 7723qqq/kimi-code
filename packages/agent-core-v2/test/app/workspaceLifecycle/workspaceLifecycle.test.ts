@@ -1,26 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  ScopeActivation,
-  _clearScopedRegistryForTests,
-  registerScopedService,
-} from '#/_base/di/scope';
+import { ScopeActivation, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
-import { Event } from '#/_base/event';
-import { ILogService } from '#/_base/log/log';
-import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
-import { ICronTaskPersistence } from '#/app/cron/cronTaskPersistence';
-import { IEventService } from '#/app/event/event';
-import { IFlagService } from '#/app/flag/flag';
-import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { LifecycleScope } from '#/app/scopes';
-import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
-import { IAppStateService } from '#/app/state/appState';
-import { AppStateService } from '#/app/state/appStateService';
+import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
 import {
   followWorkspaceHandlers,
   getLiveSessionById,
@@ -29,98 +14,108 @@ import {
 import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
 import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
 import { Error2, ErrorCodes } from '#/errors';
-import { IModelCatalog } from '#/kosong/model/catalog';
-import { IModelService } from '#/kosong/model/model';
-import { IProviderService } from '#/kosong/provider/provider';
-import type { McpConnectionManager } from '#/mcpCore/connection-manager';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
-import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionProcessRunner } from '#/session/process/processRunner';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
-import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
-import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
-import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
-import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
-import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
-import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
-import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
-import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
-import { WorkspaceDirsService } from '#/workspace/workspaceDirs/workspaceDirsService';
-import { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
-import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
-import { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalog';
-import { IWorkspaceToolPolicy } from '#/workspace/workspaceToolPolicy/workspaceToolPolicy';
-import { WorkspaceToolPolicyService } from '#/workspace/workspaceToolPolicy/workspaceToolPolicyService';
+import { IWorkspaceInstanceManager, type WorkspaceInstanceRef } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
 
-import { stubLog } from '../../_base/log/stubs';
-import { stubFlag } from '../../app/flag/stubs';
-import { stubProviderService } from '../provider/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 
-function bootstrapStub(): IBootstrapService {
-  return {
-    homeDir: '/tmp',
-    scope: (name: string) => name,
-  } as unknown as IBootstrapService;
+interface FakeController {
+  readonly id: string;
+  resume: ReturnType<typeof vi.fn>;
+  get: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+  onDidCloseSession: ReturnType<typeof vi.fn>;
+  dispose: ReturnType<typeof vi.fn>;
 }
 
-function hostEnvironmentStub(): IHostEnvironment {
+function fakeInstance(id: string, root: string, controller: FakeController): WorkspaceInstance {
   return {
-    _serviceBrand: undefined,
-    osKind: 'Linux',
-    osArch: 'x86_64',
-    osVersion: 'test',
-    shellName: 'bash',
-    shellPath: '/bin/bash',
-    pathClass: 'posix',
-    homeDir: '/home',
-    ready: Promise.resolve(),
+    id,
+    root,
+    program: {
+      createSessionController: () => controller,
+    },
+  } as unknown as WorkspaceInstance;
+}
+
+function controllerStub(id: string): FakeController {
+  const closeListeners = new Set<(event: unknown) => void>();
+  return {
+    id,
+    resume: vi.fn(async (sessionId: string) => ({ id: sessionId })),
+    get: vi.fn(),
+    close: vi.fn(async () => {}),
+    onDidCloseSession: vi.fn((listener: (event: unknown) => void) => {
+      closeListeners.add(listener);
+      return { dispose: () => closeListeners.delete(listener) };
+    }),
+    dispose: vi.fn(() => {}),
   };
 }
 
-function catalogStub() {
-  const workspaces = new Map<string, Workspace>();
-  const createOrTouch = vi.fn((root: string, name?: string) => {
-    const id = encodeWorkDirKey(root);
-    const existing = workspaces.get(id);
-    const workspace: Workspace = existing ?? {
-      id,
-      root,
-      name: name ?? 'proj',
-      createdAt: 1,
-      lastOpenedAt: 1,
-    };
-    workspaces.set(id, workspace);
-    return Promise.resolve(workspace);
+function managerStub(
+  seed: WorkspaceInstance[] = [],
+  createInstance?: (ref: WorkspaceInstanceRef) => WorkspaceInstance,
+) {
+  const instances = new Map(seed.map((instance) => [instance.id, instance]));
+  const changeListeners = new Set<
+    (change: { workspaceId: string; instance?: WorkspaceInstance }) => void
+  >();
+  const getOrCreate = vi.fn(async (ref: WorkspaceInstanceRef) => {
+    const found = (() => {
+      if ('workspaceId' in ref && ref.workspaceId !== undefined) {
+        const byId = instances.get(ref.workspaceId);
+        if (byId !== undefined) return byId;
+      }
+      return [...instances.values()].find((instance) => instance.root === ref.root);
+    })();
+    if (found !== undefined) return found;
+    if (createInstance === undefined) {
+      throw new Error2(
+        ErrorCodes.WORKSPACE_NOT_FOUND,
+        `workspace ${'workspaceId' in ref ? ref.workspaceId : ref.root} does not exist`,
+      );
+    }
+    const instance = createInstance(ref);
+    instances.set(instance.id, instance);
+    for (const listener of changeListeners) listener({ workspaceId: instance.id, instance });
+    return instance;
   });
-  const service: IWorkspaceService = {
+  const manager: IWorkspaceInstanceManager = {
     _serviceBrand: undefined,
-    list: () => Promise.resolve([...workspaces.values()]),
-    get: (id) => Promise.resolve(workspaces.get(id)),
-    createOrTouch,
-    update: () => Promise.resolve(undefined),
-    delete: () => Promise.resolve(),
+    onDidChange: (listener) => {
+      changeListeners.add(listener);
+      return { dispose: () => changeListeners.delete(listener) };
+    },
+    getOrCreate,
+    get: (workspaceId) => instances.get(workspaceId),
+    findByRoot: (root) => [...instances.values()].find((instance) => instance.root === root),
+    list: () => [...instances.values()],
+    snapshot: () => ({ workspaces: [] }),
+    close: async () => {},
+    addProvider: async () => ({ dispose: () => {} }),
   };
-  return { service, createOrTouch };
+  const fire = (workspaceId: string, instance: WorkspaceInstance): void => {
+    instances.set(workspaceId, instance);
+    for (const listener of changeListeners) listener({ workspaceId, instance });
+  };
+  return { manager, fire, getOrCreate };
 }
 
-function sessionIndexMirrorStub(): ISessionIndexMirror {
+function sessionManagerStub(sessions: readonly { readonly id: string; readonly workspaceId: string }[]) {
   return {
     _serviceBrand: undefined,
-    record: () => {},
-    pending: () => [],
-    evict: () => Promise.resolve(),
-    drain: () => Promise.resolve(),
-  };
+    list: () =>
+      sessions.map(({ id, workspaceId }) => ({
+        id,
+        accessor: {
+          get: <T>(token: unknown): T =>
+            token === ISessionContext ? ({ workspaceId } as T) : (undefined as T),
+        },
+      })),
+  } as unknown as ISessionManager;
 }
 
 function sessionIndexStub(): ISessionIndex {
@@ -135,149 +130,9 @@ function sessionIndexStub(): ISessionIndex {
   };
 }
 
-function agentProfileLoaderStub(): IWorkspaceAgentProfileLoader {
-  return {
-    _serviceBrand: undefined,
-    ready: Promise.resolve(),
-    reload: () => Promise.resolve(),
-  };
-}
-
-function userAgentProfileLoaderStub(): IUserAgentProfileLoader {
-  return {
-    ...agentProfileLoaderStub(),
-    getDefaultProfile: () => {
-      throw new Error('not implemented');
-    },
-  };
-}
-
-function sessionStubs(): ReturnType<typeof stubPair>[] {
-  return [
-    stubPair(ISessionMetadata, {
-      _serviceBrand: undefined,
-      ready: Promise.resolve(),
-      onDidChangeMetadata: () => ({ dispose: () => {} }),
-      read: () => Promise.resolve({} as never),
-      update: () => Promise.resolve(undefined),
-      setTitle: () => Promise.resolve(),
-      setGeneratedTitleIfUncustomized: () => Promise.resolve(false),
-      setArchived: () => Promise.resolve(),
-      registerAgent: () => Promise.resolve(),
-    } satisfies ISessionMetadata),
-    stubPair(ISessionToolPolicy, {
-      _serviceBrand: undefined,
-      ready: Promise.resolve(),
-      onDidChange: () => ({ dispose: () => {} }),
-      disabledTools: () => [],
-      setDisabledTools: () => Promise.resolve(),
-    } satisfies ISessionToolPolicy),
-    stubPair(ISessionProcessRunner, {
-      _serviceBrand: undefined,
-      exec: () => Promise.reject(new Error('process exec is not supported in this test')),
-    } satisfies ISessionProcessRunner),
-    stubPair(
-      IWorkspaceSkillCatalog,
-      (() => {
-        const catalog = {
-          getSkill: () => {},
-          getPluginSkill: () => {},
-          renderSkillPrompt: () => '',
-          listSkills: () => [],
-          listInvocableSkills: () => [],
-          getSkillRoots: () => [],
-          getSkippedByPolicy: () => [],
-          getModelSkillListing: () => '',
-        };
-        const onDidChange = () => ({ dispose: () => {} });
-        return {
-          _serviceBrand: undefined,
-          ready: Promise.resolve(),
-          catalog,
-          onDidChange,
-          load: () => Promise.resolve(),
-          reload: () => Promise.resolve(),
-          sessionData: () => ({
-            _serviceBrand: undefined,
-            ready: Promise.resolve(),
-            catalog,
-            onDidChange,
-          }),
-        } as unknown as IWorkspaceSkillCatalog;
-      })(),
-    ),
-    stubPair(IWorkspaceAgentProfileLoader, agentProfileLoaderStub()),
-    stubPair(IExtraAgentProfileLoader, agentProfileLoaderStub()),
-    stubPair(IExplicitAgentProfileLoader, agentProfileLoaderStub()),
-    stubPair(IUserAgentProfileLoader, userAgentProfileLoaderStub()),
-    stubPair(IPluginAgentProfileLoader, agentProfileLoaderStub()),
-    stubPair(
-      IWorkspaceInstructionsService,
-      (() => {
-        const onDidChange = () => ({ dispose: () => {} });
-        return {
-          _serviceBrand: undefined,
-          ready: Promise.resolve(),
-          snapshot: { agentsMd: undefined, agentsMdWarning: undefined },
-          onDidChange,
-          reload: () => Promise.resolve(),
-          sessionProvider: () => ({
-            _serviceBrand: undefined,
-            ready: Promise.resolve(),
-            agentsMd: undefined,
-            agentsMdWarning: undefined,
-            onDidChange,
-          }),
-        } as unknown as IWorkspaceInstructionsService;
-      })(),
-    ),
-    stubPair(IWorkspaceMcpService, {
-      _serviceBrand: undefined,
-      ready: Promise.resolve(),
-      connectionManager: () => {
-        throw new Error('not implemented');
-      },
-      sessionHandle: () => ({
-        _serviceBrand: undefined,
-        ready: Promise.resolve(),
-        get connectionManager(): McpConnectionManager {
-          throw new Error('not implemented');
-        },
-      }),
-    } as unknown as IWorkspaceMcpService),
-    stubPair(
-      IAgentLifecycleService,
-      (() => {
-        const main = {
-          id: 'main',
-          kind: LifecycleScope.Agent,
-          accessor: {
-            get: () => {
-              throw new Error('unexpected main agent service access');
-            },
-          },
-          dispose: () => {},
-        } as const;
-        return {
-          _serviceBrand: undefined,
-          onDidCreate: () => ({ dispose: () => {} }),
-          onDidDispose: () => ({ dispose: () => {} }),
-          create: () => Promise.reject(new Error('not implemented')),
-          fork: () => Promise.reject(new Error('not implemented')),
-          get: (id: string) => (id === 'main' ? main : undefined),
-          list: () => [],
-          remove: () => Promise.resolve(),
-          broadcastPermissionMode: () => {},
-        } as unknown as IAgentLifecycleService;
-      })(),
-    ),
-  ];
-}
-
 describe('WorkspaceLifecycleService', () => {
   let host: ScopedTestHost | undefined;
   let telemetryRecords: TelemetryRecord[];
-  let createOrTouchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     telemetryRecords = [];
@@ -289,48 +144,6 @@ describe('WorkspaceLifecycleService', () => {
       ScopeActivation.OnDemand,
       'workspaceLifecycle',
     );
-    registerScopedService(
-      LifecycleScope.Workspace,
-      ISessionLifecycleService,
-      SessionLifecycleService,
-      ScopeActivation.OnScopeCreated,
-      'sessionLifecycle',
-    );
-    registerScopedService(
-      LifecycleScope.Workspace,
-      IWorkspaceToolPolicy,
-      WorkspaceToolPolicyService,
-      ScopeActivation.OnScopeCreated,
-      'workspaceToolPolicy',
-    );
-    registerScopedService(
-      LifecycleScope.Workspace,
-      IWorkspaceDirs,
-      WorkspaceDirsService,
-      ScopeActivation.OnScopeCreated,
-      'workspaceDirs',
-    );
-    registerScopedService(
-      LifecycleScope.App,
-      IAppStateService,
-      AppStateService,
-      ScopeActivation.OnScopeCreated,
-      'state',
-    );
-    registerScopedService(
-      LifecycleScope.Workspace,
-      IWorkspaceStateService,
-      WorkspaceStateService,
-      ScopeActivation.OnScopeCreated,
-      'state',
-    );
-    registerScopedService(
-      LifecycleScope.App,
-      IHostFileSystem,
-      HostFileSystem,
-      ScopeActivation.OnDemand,
-      'hostFs',
-    );
   });
 
   afterEach(() => {
@@ -338,190 +151,69 @@ describe('WorkspaceLifecycleService', () => {
     host = undefined;
   });
 
-  function build(extra: ReturnType<typeof stubPair>[] = []): IWorkspaceLifecycleService {
-    const catalog = catalogStub();
-    createOrTouchSpy = catalog.createOrTouch;
+  function build(options: {
+    instances?: WorkspaceInstance[];
+    sessions?: readonly { readonly id: string; readonly workspaceId: string }[];
+    createInstance?: (ref: WorkspaceInstanceRef) => WorkspaceInstance;
+    extra?: ReturnType<typeof stubPair>[];
+  } = {}): {
+    lifecycle: IWorkspaceLifecycleService;
+    manager: ReturnType<typeof managerStub>;
+  } {
+    const manager = managerStub(options.instances, options.createInstance);
     host = createScopedTestHost([
-      stubPair(IBootstrapService, bootstrapStub()),
-      stubPair(IHostEnvironment, hostEnvironmentStub()),
-      stubPair(IWorkspaceService, catalog.service),
+      stubPair(IWorkspaceInstanceManager, manager.manager),
+      stubPair(ISessionManager, sessionManagerStub(options.sessions ?? [])),
       stubPair(ISessionIndex, sessionIndexStub()),
-      stubPair(ISessionIndexMirror, sessionIndexMirrorStub()),
-      stubPair(IConfigService, { get: () => {} } as unknown as IConfigService),
-      stubPair(IModelCatalog, { _serviceBrand: undefined } as unknown as IModelCatalog),
-      stubPair(IModelService, {
-        _serviceBrand: undefined,
-        ready: Promise.resolve(),
-      } as unknown as IModelService),
-      stubPair(IProviderService, stubProviderService()),
-      stubPair(
-        IFlagService,
-        stubFlag(() => false),
-      ),
-      stubPair(IAppendLogStore, {
-        _serviceBrand: undefined,
-        append: () => {},
-        read: async function* () {},
-        rewrite: () => Promise.resolve(),
-        flush: () => Promise.resolve(),
-        close: () => Promise.resolve(),
-        acquire: () => ({ dispose: () => {} }),
-        revision: () => 0,
-      } satisfies IAppendLogStore),
-      stubPair(IAtomicDocumentStore, {
-        _serviceBrand: undefined,
-        get: () => Promise.resolve(undefined),
-        set: () => Promise.resolve(),
-        delete: () => Promise.resolve(),
-        list: () => Promise.resolve([]),
-        watch: () => () => ({ dispose: () => {} }),
-        acquire: () => ({ dispose: () => {} }),
-      } as unknown as IAtomicDocumentStore),
-      stubPair(IEventService, {
-        _serviceBrand: undefined,
-        onDidPublish: () => ({ dispose: () => {} }),
-        publish: () => {},
-        subscribe: () => ({ dispose: () => {} }),
-      } satisfies IEventService),
-      stubPair(IProjectLocalConfigService, {
-        _serviceBrand: undefined,
-        readAdditionalDirs: (workDir: string) =>
-          Promise.resolve({
-            projectRoot: workDir,
-            configPath: `${workDir}/.kimi-code/local.toml`,
-            additionalDirs: [],
-          }),
-        resolveAdditionalDirs: (_base: string, dirs: readonly string[]) =>
-          Promise.resolve([...dirs]),
-        appendAdditionalDir: () => Promise.reject(new Error('not implemented')),
-      } satisfies IProjectLocalConfigService),
-      stubPair(IHostFsWatchService, {
-        _serviceBrand: undefined,
-        watch: () => ({ onDidChange: Event.None, dispose: () => {} }),
-      } as unknown as IHostFsWatchService),
-      stubPair(ILogService, stubLog()),
       stubPair(ITelemetryService, recordingTelemetry(telemetryRecords)),
-      stubPair(ICronTaskPersistence, {
-        _serviceBrand: undefined,
-        get: () => Promise.resolve(undefined),
-        list: () => Promise.resolve([]),
-        save: () => Promise.resolve(),
-        delete: () => Promise.resolve(),
-      } satisfies ICronTaskPersistence),
-      ...sessionStubs(),
-      ...extra,
+      ...(options.extra ?? []),
     ]);
-    return host.app.accessor.get(IWorkspaceLifecycleService);
+    return { lifecycle: host.app.accessor.get(IWorkspaceLifecycleService), manager };
   }
 
-  it('handlerFor materializes a handler seeded with the workspace facts', async () => {
-    const lifecycle = build();
-    const handler = await lifecycle.handlerFor({ root: '/tmp/proj' });
-
-    expect(handler.kind).toBe(LifecycleScope.Workspace);
-    const ctx = handler.accessor.get(IWorkspaceContext);
-    expect(ctx).toMatchObject({
-      workspaceId: encodeWorkDirKey('/tmp/proj'),
-      cwd: '/tmp/proj',
-      source: 'local',
-      persistenceScope: `sessions/${encodeWorkDirKey('/tmp/proj')}`,
-      osBackendId: 'local',
-      persistenceBackendId: 'local',
+  it('handlerFor materializes a handler over the workspace instance', async () => {
+    const controller = controllerStub('controller');
+    const { lifecycle, manager } = build({
+      instances: [fakeInstance('wd_proj', '/tmp/proj', controller)],
     });
-    expect(lifecycle.handlers.list()).toEqual([handler]);
+
+    const handler = await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
+
+    expect(manager.getOrCreate).toHaveBeenCalledWith({ workspaceId: 'wd_proj' });
+    expect(handler.id).toBe('wd_proj');
+    expect(lifecycle.handlers.list().map((h) => h.id)).toEqual(['wd_proj']);
+    expect(handler).toBe(lifecycle.handlers.list()[0]);
   });
 
-  it('handlerFor joins concurrent materializations of the same workspace', async () => {
-    const lifecycle = build();
+  it('handlerFor by root delegates the root lookup to the manager', async () => {
+    const controller = controllerStub('controller');
+    const { lifecycle, manager } = build({
+      instances: [fakeInstance('wd_proj', '/tmp/proj', controller)],
+    });
+
+    const handler = await lifecycle.handlerFor({ root: '/tmp/proj' });
+
+    expect(manager.getOrCreate).toHaveBeenCalledWith({ root: '/tmp/proj' });
+    expect(handler.id).toBe('wd_proj');
+  });
+
+  it('handlerFor returns the same handler for concurrent materializations', async () => {
+    const controller = controllerStub('controller');
+    const { lifecycle } = build({
+      instances: [fakeInstance('wd_proj', '/tmp/proj', controller)],
+    });
 
     const [a, b] = await Promise.all([
-      lifecycle.handlerFor({ root: '/tmp/proj' }),
-      lifecycle.handlerFor({ root: '/tmp/proj' }),
+      lifecycle.handlerFor({ workspaceId: 'wd_proj' }),
+      lifecycle.handlerFor({ workspaceId: 'wd_proj' }),
     ]);
 
     expect(a).toBe(b);
     expect(lifecycle.handlers.list()).toHaveLength(1);
   });
 
-  it('handlerFor reuses the handler published by a racing materialization during the registry lookup', async () => {
-    let releaseGet!: () => void;
-    const getGate = new Promise<void>((resolve) => {
-      releaseGet = resolve;
-    });
-    const workspaceId = encodeWorkDirKey('/tmp/proj');
-    const workspaces: IWorkspaceService = {
-      _serviceBrand: undefined,
-      list: () => Promise.resolve([]),
-      get: (id: string) =>
-        id === workspaceId
-          ? getGate.then(() => ({
-              id: workspaceId,
-              root: '/tmp/proj',
-              name: 'proj',
-              createdAt: 1,
-              lastOpenedAt: 1,
-            }))
-          : Promise.resolve(undefined),
-      createOrTouch: (root: string, name?: string) =>
-        Promise.resolve({
-          id: encodeWorkDirKey(root),
-          root,
-          name: name ?? 'proj',
-          createdAt: 1,
-          lastOpenedAt: 1,
-        }),
-      update: async () => {},
-      delete: () => Promise.resolve(),
-    };
-    const lifecycle = build([stubPair(IWorkspaceService, workspaces)]);
-
-    // The workspaceId lookup is stuck on the catalog read while a root-based
-    // materialization of the same workspace completes and publishes its
-    // handler; the later materialization must reuse it, not clone it.
-    const pending = lifecycle.handlerFor({ workspaceId });
-    const viaRoot = await lifecycle.handlerFor({ root: '/tmp/proj' });
-    releaseGet();
-    const viaId = await pending;
-
-    expect(viaId).toBe(viaRoot);
-    expect(lifecycle.handlers.list()).toEqual([viaRoot]);
-  });
-
-  it('two concurrent sessions of one workspace share a single handler', async () => {
-    const lifecycle = build();
-    const workspaceId = encodeWorkDirKey('/tmp/proj');
-
-    const [handlerA, handlerB] = await Promise.all([
-      lifecycle.handlerFor({ root: '/tmp/proj' }),
-      lifecycle.handlerFor({ workspaceId, root: '/tmp/proj' }),
-    ]);
-    expect(handlerA).toBe(handlerB);
-
-    const sessions = handlerA.accessor.get(ISessionLifecycleService);
-    const [s1, s2] = await Promise.all([
-      sessions.create({ sessionId: 's1', workDir: '/tmp/proj' }),
-      sessions.create({ sessionId: 's2', workDir: '/tmp/proj' }),
-    ]);
-
-    expect(s1.id).toBe('s1');
-    expect(s2.id).toBe('s2');
-    expect(lifecycle.handlers.list()).toEqual([handlerA]);
-    expect(lifecycle.sessions.list(workspaceId).toSorted()).toEqual(['s1', 's2']);
-  });
-
-  it('handlerFor by workspaceId returns the live handler without re-touching the catalog', async () => {
-    const lifecycle = build();
-    const handler = await lifecycle.handlerFor({ root: '/tmp/proj' });
-    expect(createOrTouchSpy).toHaveBeenCalledTimes(1);
-
-    const again = await lifecycle.handlerFor({ workspaceId: encodeWorkDirKey('/tmp/proj') });
-
-    expect(again).toBe(handler);
-    expect(createOrTouchSpy).toHaveBeenCalledTimes(1);
-  });
-
   it('handlerFor by unknown workspaceId without a root hint throws workspace.not_found', async () => {
-    const lifecycle = build();
+    const { lifecycle } = build();
 
     await expect(lifecycle.handlerFor({ workspaceId: 'wd_missing' })).rejects.toMatchObject({
       code: ErrorCodes.WORKSPACE_NOT_FOUND,
@@ -529,52 +221,97 @@ describe('WorkspaceLifecycleService', () => {
     expect(lifecycle.handlers.list()).toHaveLength(0);
   });
 
-  it('a failed handler materialization does not disturb live handlers', async () => {
-    const lifecycle = build();
-    const first = await lifecycle.handlerFor({ root: '/tmp/proj' });
+  it('sessions.list filters live sessions by workspace', () => {
+    const { lifecycle } = build({
+      sessions: [
+        { id: 's1', workspaceId: 'wd_a' },
+        { id: 's2', workspaceId: 'wd_a' },
+        { id: 's3', workspaceId: 'wd_b' },
+      ],
+    });
 
-    const workspaces = host!.app.accessor.get(IWorkspaceService);
-    const original = workspaces.createOrTouch.bind(workspaces);
-    vi.spyOn(workspaces, 'createOrTouch').mockImplementation((root: string, name?: string) =>
-      root === '/tmp/broken' ? Promise.reject(new Error('disk gone')) : original(root, name),
-    );
-
-    await expect(lifecycle.handlerFor({ root: '/tmp/broken' })).rejects.toThrow('disk gone');
-    expect(lifecycle.handlers.list()).toEqual([first]);
-    expect(first.accessor.get(IWorkspaceContext).workspaceId).toBe(encodeWorkDirKey('/tmp/proj'));
-  });
-
-  it('sessions.list is empty for a non-materialized workspace', () => {
-    const lifecycle = build();
+    expect(lifecycle.sessions.list('wd_a').toSorted()).toEqual(['s1', 's2']);
+    expect(lifecycle.sessions.list('wd_b')).toEqual(['s3']);
     expect(lifecycle.sessions.list('wd_missing')).toEqual([]);
   });
 
-  describe('sessionLookup', () => {
-    function indexWith(summary: {
-      readonly id: string;
-      readonly workspaceId: string;
-      readonly cwd?: string;
-    }): ReturnType<typeof stubPair> {
-      return stubPair(ISessionIndex, {
-        ...sessionIndexStub(),
-        get: (id: string) =>
-          Promise.resolve(
-            id === summary.id
-              ? { ...summary, createdAt: 1, updatedAt: 1, archived: false }
-              : undefined,
-          ),
-      } as unknown as ISessionIndex);
-    }
+  it('onDidMaterializeHandler forwards manager materializations', async () => {
+    const controller = controllerStub('controller');
+    const { lifecycle, manager } = build();
+    const materialized: string[] = [];
+    lifecycle.onDidMaterializeHandler((handler) => materialized.push(handler.id));
 
-    it('resumeSessionById routes index 鈫?handlerFor 鈫?handler resume', async () => {
-      const workspaceId = encodeWorkDirKey('/tmp/proj');
-      const lifecycle = build([indexWith({ id: 's1', workspaceId, cwd: '/tmp/proj' })]);
+    const instance = fakeInstance('wd_proj', '/tmp/proj', controller);
+    manager.fire('wd_proj', instance);
+
+    expect(materialized).toEqual(['wd_proj']);
+    expect(lifecycle.handlers.list().map((h) => h.id)).toEqual(['wd_proj']);
+  });
+
+  it('handle accessor resolves a cached ISessionLifecycleService controller', async () => {
+    const controller = controllerStub('controller');
+    const { lifecycle } = build({
+      instances: [fakeInstance('wd_proj', '/tmp/proj', controller)],
+    });
+    const handler = await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
+
+    const first = handler.accessor.get(ISessionLifecycleService);
+    const second = handler.accessor.get(ISessionLifecycleService);
+
+    expect(first).toBe(second);
+    expect(first).toBe(controller);
+  });
+
+  it('handle accessor rejects unknown service ids', async () => {
+    const controller = controllerStub('controller');
+    const { lifecycle } = build({
+      instances: [fakeInstance('wd_proj', '/tmp/proj', controller)],
+    });
+    const handler = await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
+
+    expect(() => handler.accessor.get(ISessionIndex)).toThrow(/only resolves ISessionLifecycleService/);
+  });
+
+  it('handle.dispose disposes the cached controller', async () => {
+    const controller = controllerStub('controller');
+    const { lifecycle } = build({
+      instances: [fakeInstance('wd_proj', '/tmp/proj', controller)],
+    });
+    const handler = await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
+
+    handler.accessor.get(ISessionLifecycleService);
+    handler.dispose();
+
+    expect(controller.dispose).toHaveBeenCalledTimes(1);
+    const again = await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
+    expect(again).not.toBe(handler);
+    again.accessor.get(ISessionLifecycleService);
+    expect(controller.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  describe('sessionLookup', () => {
+    it('resumeSessionById routes index → handlerFor → handler resume', async () => {
+      const controller = controllerStub('controller');
+      const { lifecycle } = build({
+        instances: [fakeInstance('wd_proj', '/tmp/proj', controller)],
+        extra: [
+          stubPair(ISessionIndex, {
+            ...sessionIndexStub(),
+            get: (id: string) =>
+              Promise.resolve(
+                id === 's1'
+                  ? { id: 's1', workspaceId: 'wd_proj', cwd: '/tmp/proj', createdAt: 1, updatedAt: 1, archived: false }
+                  : undefined,
+              ),
+          } as unknown as ISessionIndex),
+        ],
+      });
 
       const handle = await resumeSessionById(host!.app.accessor, 's1');
 
       expect(handle?.id).toBe('s1');
+      expect(controller.resume).toHaveBeenCalledWith('s1', undefined);
       expect(lifecycle.handlers.list()).toHaveLength(1);
-      expect(getLiveSessionById(host!.app.accessor, 's1')).toBe(handle);
     });
 
     it('resumeSessionById returns undefined for an unknown session', async () => {
@@ -583,12 +320,14 @@ describe('WorkspaceLifecycleService', () => {
     });
 
     it('resumeSessionById reports session_load_failed when the index read fails', async () => {
-      build([
-        stubPair(ISessionIndex, {
-          ...sessionIndexStub(),
-          get: () => Promise.reject(new Error2(ErrorCodes.SESSION_NOT_FOUND, 'index read failed')),
-        } as unknown as ISessionIndex),
-      ]);
+      build({
+        extra: [
+          stubPair(ISessionIndex, {
+            ...sessionIndexStub(),
+            get: () => Promise.reject(new Error2(ErrorCodes.SESSION_NOT_FOUND, 'index read failed')),
+          } as unknown as ISessionIndex),
+        ],
+      });
 
       await expect(resumeSessionById(host!.app.accessor, 's1')).rejects.toMatchObject({
         code: ErrorCodes.SESSION_NOT_FOUND,
@@ -600,33 +339,47 @@ describe('WorkspaceLifecycleService', () => {
     });
 
     it('getLiveSessionById finds only live sessions', async () => {
-      const lifecycle = build();
-      const handler = await lifecycle.handlerFor({ root: '/tmp/proj' });
-      const sessions = handler.accessor.get(ISessionLifecycleService);
-      await sessions.create({ sessionId: 's1', workDir: '/tmp/proj' });
+      const controller = controllerStub('controller');
+      controller.get.mockImplementation((sessionId: string) =>
+        sessionId === 's1' ? { id: 's1' } : undefined,
+      );
+      build({ instances: [fakeInstance('wd_proj', '/tmp/proj', controller)] });
+      const lifecycle = host!.app.accessor.get(IWorkspaceLifecycleService);
+      await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
 
       expect(getLiveSessionById(host!.app.accessor, 's1')?.id).toBe('s1');
       expect(getLiveSessionById(host!.app.accessor, 'other')).toBeUndefined();
     });
 
     it('followWorkspaceHandlers subscribes present and future handlers', async () => {
-      const lifecycle = build();
+      const firstController = controllerStub('controller-a');
+      const secondController = controllerStub('controller-b');
+      const { lifecycle } = build({
+        instances: [fakeInstance('wd_a', '/tmp/a', firstController)],
+        createInstance: (ref) => {
+          const workspaceId = 'workspaceId' in ref && ref.workspaceId !== undefined ? ref.workspaceId : 'wd_b';
+          const root = 'root' in ref && ref.root !== undefined ? ref.root : '/tmp/b';
+          return fakeInstance(workspaceId, root, secondController);
+        },
+      });
       const closed: string[] = [];
       const sub = followWorkspaceHandlers(host!.app.accessor, (service) =>
-        service.onDidCloseSession((event) => closed.push(event.sessionId)),
+        service.onDidCloseSession((event) =>
+          closed.push((event as { sessionId: string }).sessionId),
+        ),
       );
 
-      const first = await lifecycle.handlerFor({ root: '/tmp/proj' });
-      await first.accessor
-        .get(ISessionLifecycleService)
-        .create({ sessionId: 's1', workDir: '/tmp/proj' });
-      const second = await lifecycle.handlerFor({ root: '/tmp/other' });
-      await second.accessor
-        .get(ISessionLifecycleService)
-        .create({ sessionId: 's2', workDir: '/tmp/other' });
+      await lifecycle.handlerFor({ workspaceId: 'wd_a' });
+      await lifecycle.handlerFor({ workspaceId: 'wd_b' });
 
-      await first.accessor.get(ISessionLifecycleService).close('s1');
-      await second.accessor.get(ISessionLifecycleService).close('s2');
+      const fire = (controller: FakeController, sessionId: string): void => {
+        const listener = controller.onDidCloseSession.mock.calls[0]?.[0] as
+          | ((event: unknown) => void)
+          | undefined;
+        listener?.({ sessionId });
+      };
+      fire(firstController, 's1');
+      fire(secondController, 's2');
 
       expect(closed.toSorted()).toEqual(['s1', 's2']);
       sub.dispose();

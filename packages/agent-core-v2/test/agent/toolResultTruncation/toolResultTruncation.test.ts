@@ -2,18 +2,17 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import type { ExecutableToolResult } from '#/tool/toolContract';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { ContentPart } from '#/kosong/contract/message';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import type { ExecutableToolResult } from '#/tool/toolContract';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { stubBootstrap } from '../../app/bootstrap/stubs';
 
@@ -64,7 +63,10 @@ describe('ToolResultTruncationService', () => {
 
     const outputPath = renderedOutputPath(rendered);
     expect(outputPath).toContain(
-      `${homeDir.replaceAll('\\', '/')}/sessions/workspace/session/agents/main/tool-results/Lookup_Tool-call_lookup-`,
+      join(
+        homeDir,
+        'sessions/workspace/session/agents/main/tool-results/Lookup_Tool-call_lookup-',
+      ).replaceAll('\\', '/'),
     );
     await expect(readFile(outputPath, 'utf8')).resolves.toBe(fullOutput);
   });
@@ -137,19 +139,6 @@ describe('ToolResultTruncationService', () => {
     await expect(readFile(secondPath, 'utf8')).resolves.toContain('second');
   });
 
-  it('preserves output that is exactly at the boundary of the truncation limit', async () => {
-    const exactlyAtLimit = 'x'.repeat(50_000);
-
-    const result = await truncation.truncateForModel<ExecutableToolResult>({
-      toolName: 'Boundary',
-      toolCallId: 'call_boundary',
-      result: { output: exactlyAtLimit },
-    });
-
-    expect(result.truncated).toBeUndefined();
-    expect(result.output).toBe(exactlyAtLimit);
-  });
-
   it('handles empty output strings without truncation', async () => {
     const result = await truncation.truncateForModel<ExecutableToolResult>({
       toolName: 'Empty',
@@ -175,6 +164,19 @@ describe('ToolResultTruncationService', () => {
     expect(typeof rendered).toBe('string');
     if (typeof rendered !== 'string') throw new Error('expected string output');
     expect(rendered).toContain('Tool output exceeded 50000 characters');
+  });
+
+  it('preserves output that is exactly at the boundary of the truncation limit', async () => {
+    const exactlyAtLimit = 'x'.repeat(50_000);
+
+    const result = await truncation.truncateForModel<ExecutableToolResult>({
+      toolName: 'Boundary',
+      toolCallId: 'call_boundary',
+      result: { output: exactlyAtLimit },
+    });
+
+    expect(result.truncated).toBeUndefined();
+    expect(result.output).toBe(exactlyAtLimit);
   });
 
   it('uses a tool name with special characters in the output path', async () => {

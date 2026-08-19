@@ -17,9 +17,11 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
 import { IEventBus } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
@@ -27,7 +29,7 @@ import { LifecycleScope } from '#/app/scopes';
 import type { MicroCompactionFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { estimateTokensForContentParts, estimateTokensForMessages } from '#/kosong/contract/tokens';
-import { IWireService } from '#/wire/wire';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { MICRO_COMPACTION_FLAG_ID } from './flag';
 import {
@@ -36,9 +38,9 @@ import {
   type MicroCompactionConfig,
 } from './microCompaction';
 import {
-  MicroCompactionModel,
-  microCompactionApply,
-  microCompactionClamp,
+  microCompactionKey,
+  MicroCompactionApplied,
+  MicroCompactionClamped,
 } from './microCompactionOps';
 
 interface TruncationEffect {
@@ -63,11 +65,13 @@ export class AgentMicroCompactionService
     @IAgentTokenCountingService private readonly tokenCounting: IAgentTokenCountingService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentLoopService private readonly loop: IAgentLoopService,
-    @IWireService private readonly wire: IWireService,
+    @IAgentStateService private readonly agentState: IAgentStateService,
+    @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IEventBus private readonly eventBus: IEventBus,
   ) {
     super();
+    this.agentState.contributeState(microCompactionKey);
     this._register(
       this.loop.hooks.onWillBeginStep.register('micro-compaction', async (_ctx, next) => {
         this.detect();
@@ -81,9 +85,9 @@ export class AgentMicroCompactionService
       }),
     );
     this._register(
-      this.eventBus.subscribe('context.spliced', (event) => {
+      this.eventBus.subscribe(ContextSpliced, (event) => {
         // Undo splice only: clear / compaction start at 0 (their zeroing is
-        // handled by the wire cross-reducers) and appends carry deleteCount 0.
+        // handled by the state folds) and appends carry deleteCount 0.
         if (event.start > 0 && event.deleteCount > 0) {
           this.clampTo(event.start);
         }
@@ -186,7 +190,7 @@ export class AgentMicroCompactionService
   }
 
   private apply(cutoff: number): void {
-    this.wire.dispatch(microCompactionApply({ cutoff }));
+    void this.dispatcher.dispatch(new MicroCompactionApplied({ cutoff }));
   }
 
   reset(maxCutoff = 0): void {
@@ -194,11 +198,11 @@ export class AgentMicroCompactionService
   }
 
   private clampTo(maxCutoff: number): void {
-    this.wire.dispatch(microCompactionClamp({ maxCutoff }));
+    void this.dispatcher.dispatch(new MicroCompactionClamped({ maxCutoff }));
   }
 
   private get cutoff(): number {
-    return this.wire.getModel(MicroCompactionModel).cutoff;
+    return this.agentState.get(microCompactionKey).cutoff;
   }
 
   private measureEffect(messages: readonly ContextMessage[], cutoff: number): TruncationEffect {

@@ -1,39 +1,19 @@
-/**
- * `plan` domain — `IExitPlanModeTool` implementation.
- *
- * Reads the plan file tracked by the plan service (`plan`) and flips plan
- * mode off. Every submission — the moment the final content is read for the
- * `plan_review` display — records a plan revision through
- * `planMode.recordRevision()` (blob snapshot + `plan.revision` wire record),
- * so a Revise → resubmit archives each reviewed version.
- *
- * `execute` runs only when no interactive review ask intercepted the call. In
- * auto permission mode (`permissionMode`) the auto-mode-approve policy lets
- * every call through before any ask can fire, so the result is worded as
- * auto-approved (not user-reviewed), matching the `auto_approved` telemetry
- * outcome (`telemetry`). In manual / yolo modes the review-ask policy owns
- * the user-facing result; the only way `execute` still runs there is a
- * configured or session allow/ask rule — an explicit user decision that keeps
- * the user-approved output and the `approved` outcome. Bound at Agent scope.
- */
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentPlanService } from '#/features/plan/plan';
 import type { PlanData } from '#/features/plan/plan';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 
-import type { IExitPlanModeTool } from './exit-plan-mode';
+import DESCRIPTION from './exit-plan-mode.md?raw';
 import {
   ExitPlanModeInputSchema,
+  IExitPlanModeTool,
   type ExitPlanModeInput,
   type ExitPlanModePlanSource,
 } from './exit-plan-mode';
-import DESCRIPTION from './exit-plan-mode.md?raw';
 
 type ResolvePlanResult =
   | { readonly ok: true; readonly plan: string; readonly path?: string | undefined }
@@ -72,7 +52,8 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     if (data === null || data.content.trim().length === 0) return undefined;
     try {
       await this.planMode.recordRevision();
-    } catch {}
+    } catch {
+    }
     const display: ToolInputDisplay = {
       kind: 'plan_review',
       plan: data.content,
@@ -89,7 +70,8 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     if (status === null) {
       return {
         isError: true,
-        output: t('toolsV2.planMode.exitOnlyInPlanMode'),
+        output:
+          'ExitPlanMode can only be called while plan mode is active. Use EnterPlanMode (or /plan) first.',
       };
     }
 
@@ -109,10 +91,7 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
       });
       return {
         isError: false,
-        output: t('toolsV2.planMode.exitedPlanMode', {
-          prefix: '',
-          plan: formatAutoApprovedPlanForOutput(resolvedPlan.plan, resolvedPlan.path),
-        }),
+        output: `Exited plan mode. ${formatAutoApprovedPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}`,
       };
     }
 
@@ -121,10 +100,7 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     });
     return {
       isError: false,
-      output: t('toolsV2.planMode.exitedPlanMode', {
-        prefix: '',
-        plan: formatPlanForOutput(resolvedPlan.plan, resolvedPlan.path),
-      }),
+      output: `Exited plan mode. ${formatPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}`,
     };
   }
 
@@ -132,10 +108,10 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     try {
       this.planMode.exit();
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('toolsV2.planMode.exitFailed');
+      const message = error instanceof Error ? error.message : 'Failed to exit plan mode.';
       return {
         isError: true,
-        output: t('toolsV2.planMode.exitFailedDetail', { message }),
+        output: `Failed to exit plan mode: ${message}`,
       };
     }
   }
@@ -146,10 +122,10 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
       const data = await this.planMode.status();
       source = data === null ? null : { plan: data.content, path: data.path };
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('toolsV2.planMode.readFailed');
+      const message = error instanceof Error ? error.message : 'Failed to read plan file.';
       return {
         ok: false,
-        error: { isError: true, output: t('toolsV2.planMode.readFailedDetail', { message }) },
+        error: { isError: true, output: `Failed to read plan file: ${message}` },
       };
     }
 
@@ -169,19 +145,19 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
         isError: true,
         output:
           path === null
-            ? t('toolsV2.planMode.noPlanFile')
-            : t('toolsV2.planMode.noPlanFileDetail', { path }),
+            ? 'No plan file found. Write the plan to the current plan file first, then call ExitPlanMode.'
+            : `No plan file found. Write your plan to ${path} first, then call ExitPlanMode.`,
       },
     };
   }
 }
 
 function formatAutoApprovedPlanForOutput(plan: string, path: string | undefined): string {
-  const savedTo = path !== undefined ? t('toolsV2.planMode.planSaved', { path }) : '';
-  return t('toolsV2.planMode.planAutoApproved', { savedTo, plan });
+  const savedTo = path !== undefined ? `Plan saved to: ${path}\n\n` : '';
+  return `Plan mode deactivated. All tools are now available.\nNote: this plan was auto-approved without user review — the user has NOT explicitly approved it. Follow the user's original instructions on whether to proceed with execution; if they asked you to stop, wait, or only summarize after planning, do not start executing.\n${savedTo}## Plan (auto-approved, not user-reviewed):\n${plan}`;
 }
 
 function formatPlanForOutput(plan: string, path: string | undefined): string {
-  const savedTo = path !== undefined ? t('toolsV2.planMode.planSaved', { path }) : '';
-  return t('toolsV2.planMode.planApproved', { savedTo, plan });
+  const savedTo = path !== undefined ? `Plan saved to: ${path}\n\n` : '';
+  return `Plan mode deactivated. All tools are now available.\n${savedTo}## Approved Plan:\n${plan}`;
 }

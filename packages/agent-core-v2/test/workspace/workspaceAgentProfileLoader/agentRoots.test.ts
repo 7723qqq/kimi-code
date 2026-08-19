@@ -1,30 +1,24 @@
-/**
- * Scenario: agent-root resolution — user / project / configured roots,
- * .git walk-up, brand-vs-generic ordering, `~` and relative path expansion,
- * and canonical dedup. Exercises the path primitives against real temp dirs.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/app/agentFileCatalog/agentRoots.test.ts`.
- */
-
 import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import {
   configuredAgentRoots,
   projectAgentRoots,
   userAgentRoots,
 } from '#/workspace/workspaceAgentProfileLoader/internal/agentRoots';
+import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 
 const hostFs = new HostFileSystem();
 
-async function normalizedRealpath(p: string): Promise<string> {
-  return (await realpath(p)).replaceAll('\\', '/');
-}
+// `configuredAgentRoots` normalizes realpath output to forward slashes
+// (`replaceAll('\\', '/')`), matching the platform-independent path form
+// used across the agent profile loader.
+const normalizedRealpath = async (path: string): Promise<string> =>
+  (await realpath(path)).replaceAll('\\', '/');
 
 describe('agentRoots', () => {
   let root: string;
@@ -168,7 +162,10 @@ describe('agentRoots', () => {
             return (path: string) =>
               path === blockedDir
                 ? Promise.reject(
-                    new HostFsError(OsFsErrors.codes.OS_FS_PERMISSION_DENIED, 'permission denied'),
+                    new HostFsError(
+                      OsFsErrors.codes.OS_FS_PERMISSION_DENIED,
+                      'permission denied',
+                    ),
                   )
                 : target.realpath(path);
           }

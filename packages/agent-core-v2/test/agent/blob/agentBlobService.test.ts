@@ -1,25 +1,9 @@
-/**
- * Scenario: the agent blob service offloads large inline media (data URIs) into
- * content-addressed blobs and loads them back on read.
- *
- * Responsibilities asserted:
- *  - sub-threshold data URIs pass through unchanged (and keep the same array ref)
- *  - large data URIs become `blobref:` URLs and are persisted under the agent scope
- *  - offload is non-mutating, idempotent, and handles every media container
- *  - load restores blobrefs, leaves other URLs alone, and substitutes a
- *    placeholder when the blob is missing
- *  - content-addressing deduplicates identical payloads and isolates per agent
- *
- * Wiring: real `BlobStoreService` over the in-memory storage backend, with the
- * service resolved through the DI scope tree — no stubbed boundary, no real fs.
- *
- * Run: `pnpm test -- test/blob/agentBlobService.test.ts`
- */
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import type { ContentPart } from '#/kosong/contract/message';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { type ServiceIdentifier } from '#/_base/di/instantiation';
+import { LifecycleScope } from '#/app/scopes';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import {
   BLOBREF_PROTOCOL,
@@ -28,10 +12,8 @@ import {
 } from '#/agent/blob/agentBlobService';
 import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { LifecycleScope } from '#/app/scopes';
-import type { ContentPart } from '#/kosong/contract/message';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 

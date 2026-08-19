@@ -49,7 +49,12 @@ export {
   projectModelCatalog,
 } from './model-catalog';
 export type { AcpModelEntry } from './model-catalog';
-export { ACP_MODES, acpModeToToggles, DEFAULT_MODE_ID, isAcpModeId } from './modes';
+export {
+  ACP_MODES,
+  acpModeToToggles,
+  DEFAULT_MODE_ID,
+  isAcpModeId,
+} from './modes';
 export type { AcpModeId, AcpModeToggles } from './modes';
 export type { AcpStopReason, AcpToolCallStatus, AcpToolKind } from './types';
 export { HideOutputMarker, isHideOutputMarker } from './marker';
@@ -81,7 +86,7 @@ export {
   questionRequestToElicitationParams,
 } from './question';
 export { projectHistoryToSessionUpdates } from './replay';
-export { AcpProcessRunner } from './acp-terminal';
+export { AcpRuntimeProviderFactory } from './acp-terminal';
 export type {
   AcpTerminalCreatedEvent,
   AcpTerminalCreatedListener,

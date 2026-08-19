@@ -1,25 +1,3 @@
-/**
- * `kosong/protocol` domain — wire protocol identity and the adapter
- * registry contract.
- *
- * A Protocol names a real wire encoding. There are exactly four: every
- * vendor-specific behavior that used to pose as a protocol is now expressed
- * as per-transport provider definitions (a base protocol plus declarative
- * traits) registered with the L2 provider domain, so this enum can never
- * grow a vendor entry again. (Vertex AI used to be the fifth entry; it is a
- * mode of the `google-genai` base now, enabled through
- * `ProtocolProviderOptions` — same wire encoding, different SDK client
- * options.)
- *
- * `IProtocolAdapterRegistry` is the single resolution point for
- * "(protocol, providerType) → which base + which traits" and the single
- * construction point for composed ChatProviders. The interface speaks only
- * L0/L1 types: vendor knowledge (the L2 definition registry) stays in L2 and
- * reaches this layer only as resolved, context-bound traits (`ResolvedTrait`).
- *
- * Bound at App scope.
- */
-
 import { z } from 'zod';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
@@ -27,9 +5,14 @@ import type { ModelCapability } from '#/kosong/contract/capability';
 import type { InspectionSource } from '#/kosong/contract/inspection';
 import type { ChatProvider } from '#/kosong/contract/provider';
 
-import type { ResolvedAdapterIdentity } from './protocolBase';
+import type { ProtocolBaseId, ResolvedAdapterIdentity } from './protocolBase';
 
-export const ProtocolSchema = z.enum(['anthropic', 'openai', 'openai_responses', 'google-genai']);
+export const ProtocolSchema = z.enum([
+  'anthropic',
+  'openai',
+  'openai_responses',
+  'google-genai',
+]);
 
 export type Protocol = z.infer<typeof ProtocolSchema>;
 
@@ -68,7 +51,13 @@ export interface IProtocolAdapterRegistry {
 
   resolveAdapterIdentity(protocol: Protocol, providerType?: string): ResolvedAdapterIdentity;
 
-  resolveCapability(protocol: Protocol, modelName: string, providerType?: string): ModelCapability;
+  resolveProviderBaseId(protocol: Protocol, providerType?: string): ProtocolBaseId;
+
+  resolveCapability(
+    protocol: Protocol,
+    modelName: string,
+    providerType?: string,
+  ): ModelCapability;
 
   explainCapability(
     protocol: Protocol,

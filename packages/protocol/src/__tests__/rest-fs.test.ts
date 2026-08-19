@@ -19,6 +19,8 @@ import {
   fsStatManyRequestSchema,
   fsStatManyResponseSchema,
   fsStatRequestSchema,
+  fsSuggestRequestSchema,
+  fsSuggestResponseSchema,
 } from '../rest/fs';
 
 describe('fsListRequestSchema', () => {
@@ -60,10 +62,9 @@ describe('fsListRequestSchema', () => {
 
 describe('fsListResponseSchema', () => {
   it('round-trips an empty truncated:false response', () => {
-    expect(fsListResponseSchema.parse({ items: [], truncated: false })).toEqual({
-      items: [],
-      truncated: false,
-    });
+    expect(
+      fsListResponseSchema.parse({ items: [], truncated: false }),
+    ).toEqual({ items: [], truncated: false });
   });
 
   it('round-trips a response with children_by_path', () => {
@@ -106,7 +107,9 @@ describe('fsReadRequestSchema', () => {
   });
 
   it('rejects length > 10 MB', () => {
-    expect(fsReadRequestSchema.safeParse({ path: 'a', length: 10_485_761 }).success).toBe(false);
+    expect(
+      fsReadRequestSchema.safeParse({ path: 'a', length: 10_485_761 }).success,
+    ).toBe(false);
   });
 
   it('rejects empty path', () => {
@@ -114,7 +117,9 @@ describe('fsReadRequestSchema', () => {
   });
 
   it('rejects negative offset', () => {
-    expect(fsReadRequestSchema.safeParse({ path: 'a', offset: -1 }).success).toBe(false);
+    expect(
+      fsReadRequestSchema.safeParse({ path: 'a', offset: -1 }).success,
+    ).toBe(false);
   });
 });
 
@@ -262,10 +267,8 @@ describe('fsSearchRequestSchema (W11.1)', () => {
 
 describe('fsSearchResponseSchema (W11.1)', () => {
   it('round-trips an empty response', () => {
-    expect(fsSearchResponseSchema.parse({ items: [], truncated: false })).toEqual({
-      items: [],
-      truncated: false,
-    });
+    expect(fsSearchResponseSchema.parse({ items: [], truncated: false }))
+      .toEqual({ items: [], truncated: false });
   });
 
   it('round-trips a populated response', () => {
@@ -282,6 +285,62 @@ describe('fsSearchResponseSchema (W11.1)', () => {
       truncated: true,
     };
     expect(fsSearchResponseSchema.parse(r)).toEqual(r);
+  });
+});
+
+describe('fsSuggestRequestSchema', () => {
+  it('applies all defaults on minimal body', () => {
+    const parsed = fsSuggestRequestSchema.parse({ query: 'Button' });
+    expect(parsed).toEqual({
+      query: 'Button',
+      limit: 50,
+      follow_gitignore: true,
+      show_hidden: false,
+    });
+  });
+
+  it('accepts an empty query (workspace-root listing)', () => {
+    expect(fsSuggestRequestSchema.safeParse({ query: '' }).success).toBe(true);
+  });
+
+  it('caps limit at 200', () => {
+    expect(fsSuggestRequestSchema.safeParse({ query: 'a', limit: 201 }).success).toBe(false);
+    expect(fsSuggestRequestSchema.safeParse({ query: 'a', limit: 200 }).success).toBe(true);
+  });
+
+  it('round-trips a fully populated request', () => {
+    const body = {
+      query: 'apps/de',
+      limit: 100,
+      follow_gitignore: false,
+      show_hidden: true,
+      include_globs: ['**/*.ts'],
+      exclude_globs: ['**/node_modules/**'],
+    };
+    expect(fsSuggestRequestSchema.parse(body)).toEqual(body);
+  });
+});
+
+describe('fsSuggestResponseSchema', () => {
+  it('round-trips an empty response', () => {
+    expect(fsSuggestResponseSchema.parse({ items: [], truncated: false }))
+      .toEqual({ items: [], truncated: false });
+  });
+
+  it('round-trips a populated response', () => {
+    const r = {
+      items: [
+        {
+          path: 'apps/desktop',
+          name: 'desktop',
+          kind: 'directory' as const,
+          score: 0.9,
+          match_positions: [5, 6],
+        },
+      ],
+      truncated: true,
+    };
+    expect(fsSuggestResponseSchema.parse(r)).toEqual(r);
   });
 });
 
@@ -305,7 +364,9 @@ describe('fsGrepRequestSchema (W11.1)', () => {
   });
 
   it('rejects context_lines > 10', () => {
-    expect(fsGrepRequestSchema.safeParse({ pattern: 'a', context_lines: 11 }).success).toBe(false);
+    expect(
+      fsGrepRequestSchema.safeParse({ pattern: 'a', context_lines: 11 }).success,
+    ).toBe(false);
   });
 
   it('accepts a regex pattern', () => {
@@ -364,7 +425,9 @@ describe('fsGitStatusRequestSchema (W11.2)', () => {
   });
 
   it('rejects empty path strings inside paths', () => {
-    expect(fsGitStatusRequestSchema.safeParse({ paths: [''] }).success).toBe(false);
+    expect(
+      fsGitStatusRequestSchema.safeParse({ paths: [''] }).success,
+    ).toBe(false);
   });
 });
 

@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { clipboard } from '#/utils/clipboard/clipboard-native';

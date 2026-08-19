@@ -28,6 +28,10 @@ import {
 } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+// Each test boots a full v2 engine (DI container, fs watchers, minidb); on
+// Windows cold starts routinely exceed vitest's 5s default.
+vi.setConfig({ testTimeout: 60_000 });
+
 import type { KimiHarness } from '#/index';
 import {
   createKimiHarnessV2,

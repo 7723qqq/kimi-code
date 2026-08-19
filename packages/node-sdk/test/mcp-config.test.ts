@@ -25,7 +25,20 @@ const stdioFixture = join(
 );
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    tempDirs.splice(0).map(async (dir) => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          await rm(dir, { recursive: true, force: true });
+          return;
+        } catch {
+          // Windows: a just-killed stdio server process may still hold the
+          // directory for a few hundred ms; retry instead of leaking it.
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+      }
+    }),
+  );
 });
 
 async function makeTempDir(): Promise<string> {
@@ -305,7 +318,9 @@ describe('MCP OAuth facade (host-controlled browser flow)', () => {
         { name: 'bearer', authStatus: 'bearer-token' },
         { name: 'oauth-required', authStatus: 'oauth-required' },
         { name: 'oauth-authorized', authStatus: 'oauth-authorized' },
-        { name: 'oauth-stale', authStatus: 'oauth-required' },
+        // Stored grant exists but the server challenges: the credential is
+        // dead (oauth-expired), matching v1's needs-auth classification.
+        { name: 'oauth-stale', authStatus: 'oauth-expired' },
         { name: '__proto__', authStatus: 'oauth-required' },
       ]);
       expect(statusServer.requestCount('/unavailable')).toBe(0);

@@ -33,10 +33,10 @@ function fakeWebAssets(files: Record<string, string>): {
   };
   const assets = new Map<string, Buffer>([
     ['web/test-target/manifest.json', Buffer.from(JSON.stringify(manifest))],
-    ...Object.entries(files).map(
-      ([relativePath, content]) =>
-        [`web/test-target/dist-web/${relativePath}`, Buffer.from(content)] as const,
-    ),
+    ...Object.entries(files).map(([relativePath, content]) => [
+      `web/test-target/dist-web/${relativePath}`,
+      Buffer.from(content),
+    ] as const),
   ]);
   return {
     manifest,
@@ -68,9 +68,7 @@ describe('web assets', () => {
       });
 
       expect(webDir).toBe(getWebAssetCacheRoot(manifest, { cacheBase: dir, version: 'test' }));
-      expect(readFileSync(join(webDir ?? '', 'index.html'), 'utf-8')).toBe(
-        '<div id="app"></div>\n',
-      );
+      expect(readFileSync(join(webDir ?? '', 'index.html'), 'utf-8')).toBe('<div id="app"></div>\n');
       expect(readFileSync(join(webDir ?? '', 'assets', 'app.js'), 'utf-8')).toBe(
         'console.log("ok");\n',
       );

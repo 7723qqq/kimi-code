@@ -12,16 +12,15 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-
 import { TEXT_INDEXES_FILE, rootPostingsFile } from './generation.js';
-import { createSerializer } from './serialize.js';
-import type { Store } from './store.js';
 import { TextIndex } from './text-index/index.js';
 import type { TextIndexOptions } from './text-index/index.js';
 import { createNgramTokenizer } from './trigram.js';
 import type { TextIndexTokenizerName } from './trigram.js';
-import type { ValueCodecName } from './types.js';
+import { createSerializer } from './serialize.js';
 import { fromKStr } from './value-codec.js';
+import type { Store } from './store.js';
+import type { ValueCodecName } from './types.js';
 import type { TextBuildCheckpoint } from './worker/text-build.js';
 
 /** Persisted shape of one entry in `db.textindexes.json`. `tokenizer` is
@@ -74,12 +73,7 @@ export interface TextRegistryDeps<V> {
   /** The owner's bounded full-corpus build (worker/inline + rebase — see
    *  MiniDb.boundedTextBuild). Returns null when the index is ineligible and
    *  the caller must use the staged `ti.build(...)` instead. */
-  boundedTextBuild: (
-    name: string,
-    ti: TextIndex,
-    def: TextIndexDef,
-    checkpoint: TextBuildCheckpoint | null,
-  ) => Promise<'worker' | 'inline' | null>;
+  boundedTextBuild: (name: string, ti: TextIndex, def: TextIndexDef, checkpoint: TextBuildCheckpoint | null) => Promise<'worker' | 'inline' | null>;
 }
 
 export class TextRegistry<V> {
@@ -112,11 +106,7 @@ export class TextRegistry<V> {
   /** The canonical definition shape a text index's manifest hash is computed
    *  from (both sides use it, so a legacy definition without `tokenizer`
    *  hashes identically to an explicit 'default'). */
-  static canonicalTextDef(d: TextIndexDef): {
-    name: string;
-    fields: readonly string[] | null;
-    tokenizer: string;
-  } {
+  static canonicalTextDef(d: TextIndexDef): { name: string; fields: readonly string[] | null; tokenizer: string } {
     return { name: d.name, fields: d.fields, tokenizer: d.tokenizer ?? 'default' };
   }
 
@@ -157,10 +147,11 @@ export class TextRegistry<V> {
           }),
         );
       }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     }
   }
+
 
   async createTextIndex(
     name: string,
@@ -168,16 +159,10 @@ export class TextRegistry<V> {
   ): Promise<void> {
     this.deps.ensureOpen();
     this.deps.ensureWritable();
-    if (this.deps.codecName() !== 'json')
-      throw new Error('text indexes require valueCodec: "json"');
+    if (this.deps.codecName() !== 'json') throw new Error('text indexes require valueCodec: "json"');
     await this.textDefChain(async () => {
       if (this.text.has(name)) throw new Error(`text index "${name}" already exists`);
-      const ti = new TextIndex({
-        name,
-        fields,
-        ...textIndexTokenizers(tokenizer),
-        postingsPath: this.textPostingsPath(name),
-      });
+      const ti = new TextIndex({ name, fields, ...textIndexTokenizers(tokenizer), postingsPath: this.textPostingsPath(name) });
       // The staged definition: joins the persisted set (publish) only after
       // the sidecar is durable.
       const def: TextIndexDef = { name, fields: fields ?? null, tokenizer };
@@ -198,14 +183,14 @@ export class TextRegistry<V> {
         const hosted = await this.deps.boundedTextBuild(name, ti, def, null);
         if (hosted === null) await ti.build(this.deps.textRecords());
         await this.deps.persistTextIndexDefinitions([...this.textDefs, def]);
-      } catch (error) {
+      } catch (e) {
         // Discard the staged index so the in-memory state and the definition
         // sidecar (which does not name this index) do not diverge; drop the
         // derived postings file with it, exactly like dropTextIndex would.
         this.text.delete(name);
         ti.close();
         await fs.rm(this.textPostingsPath(name), { force: true }).catch(() => {});
-        throw error;
+        throw e;
       }
       this.textDefs.push(def);
     });
@@ -270,11 +255,7 @@ export class TextRegistry<V> {
     if (!ti) throw new Error(`no such text index: ${name}`);
     const res = ti.searchBounded(q, opts);
     const hits = res.hits
-      .map(({ key, score }) => ({
-        key: fromKStr(key),
-        value: this.deps.decode(this.deps.store().get(key)),
-        score,
-      }))
+      .map(({ key, score }) => ({ key: fromKStr(key), value: this.deps.decode(this.deps.store().get(key)), score }))
       .filter((r): r is { key: string; value: V; score: number } => r.value !== undefined);
     return { hits, visits: res.visits, truncated: res.truncated };
   }
@@ -286,11 +267,7 @@ export class TextRegistry<V> {
     name: string,
     q: string,
     opts: { op?: 'AND' | 'OR'; limit?: number; maxVisits?: number } = {},
-  ): Promise<{
-    hits: { key: string; value: V; score: number }[];
-    visits: number;
-    truncated: boolean;
-  }> {
+  ): Promise<{ hits: { key: string; value: V; score: number }[]; visits: number; truncated: boolean }> {
     this.deps.ensureOpen();
     const ti = this.text.get(name);
     if (!ti) throw new Error(`no such text index: ${name}`);

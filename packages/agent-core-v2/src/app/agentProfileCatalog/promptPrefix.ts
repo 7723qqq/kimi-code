@@ -1,12 +1,7 @@
-/**
- * `agentProfileCatalog` domain — profile prompt-prefix helper.
- *
- * Applies a profile's optional per-invocation `promptPrefix` (e.g. `explore`'s
- * `<git-context>` block) to a caller-supplied prompt. Best-effort: a thrown
- * error or empty prefix leaves the prompt unchanged.
- */
-
-import type { AgentProfile, AgentProfilePromptPrefixContext } from './agentProfileCatalog';
+import type {
+  AgentProfile,
+  AgentProfilePromptPrefixContext,
+} from './agentProfileCatalog';
 
 export async function applyProfilePromptPrefix(
   profile: AgentProfile,

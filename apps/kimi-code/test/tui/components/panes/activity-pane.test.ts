@@ -9,9 +9,7 @@ function createMockSpinner(initialText = 'working') {
   let availableWidth = 0;
   const update = () => {
     const fullText = initialText + tip;
-    spinner.setText(
-      availableWidth > 0 && visibleWidth(fullText) > availableWidth ? initialText : fullText,
-    );
+    spinner.setText(availableWidth > 0 && visibleWidth(fullText) > availableWidth ? initialText : fullText);
   };
   return {
     spinner: Object.assign(spinner, {

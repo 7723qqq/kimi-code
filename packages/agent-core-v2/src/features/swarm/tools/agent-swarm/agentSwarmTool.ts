@@ -1,41 +1,22 @@
-/**
- * `swarm` domain — `AgentSwarmTool` implementation (the `AgentSwarm`
- * tool).
- *
- * Launches a batch of child agents (an ordinary Agent scope each) through the
- * session swarm coordinator (`ISessionSwarmService`) and renders the
- * per-subagent XML result. Reads persisted swarm item labels through the
- * Session-scoped coordinator so later `resume_agent_ids` calls relabel
- * resumed subagents like v1. When the caller has a model bound, the tool
- * resolves the explicit tool `model` choice up front via
- * `resolveSubagentBinding` (against `IConfigService`, `IFlagService`,
- * `ISessionAgentProfileCatalog`, and the caller's `IAgentProfileService`) and
- * threads it through the swarm tasks; otherwise binding is left to the
- * service, which keeps its own "no model bound" check and inherit-caller
- * fallback. The advertised `model` parameter lists the configured
- * `[secondary_model.models]` pool via `buildSubagentModelDescriptions`; the
- * pool is gated behind the `secondary-model` experiment, so while it is off
- * (or under `[secondary_model].force`) the parameter is not advertised at
- * all. Swarm mode is
- * entered through `IAgentSwarmService`; the caller's agent id comes from
- * `IAgentScopeContext`. Pure tool — owns no scoped state. Bound at Agent
- * scope — contributed by `SwarmFeature` (`features/swarm/swarmFeature`).
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
+import {
+  ToolAccesses,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+import { Error2, ErrorCodes } from '#/errors';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { IConfigService } from '#/app/config/config';
+import { IFlagService } from '#/app/flag/flag';
+import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import {
   subagentAllowlistFor,
   subagentTypeNotAllowedMessage,
 } from '#/app/agentProfileCatalog/profile-shared';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
-import { Error2, ErrorCodes } from '#/errors';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import {
   buildSubagentModelDescriptions,
   exposesSubagentModelChoice,
@@ -43,17 +24,9 @@ import {
   resolveSubagentTimeoutMs,
   stripSubagentModelParameter,
 } from '#/session/subagent/configSection';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import {
-  ToolAccesses,
-  type ExecutableToolContext,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-
-import type { IAgentSwarmTool } from './agent-swarm';
 import {
   AgentSwarmToolInputSchema,
+  IAgentSwarmTool,
   MAX_AGENT_SWARM_SUBAGENTS,
   PROMPT_TEMPLATE_PLACEHOLDER,
   type AgentSwarmToolInput,
@@ -130,7 +103,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     const agentCount = (args.items?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;
     return {
       accesses: ToolAccesses.all(),
-      description: t('toolsV2.swarm.launching', { description: args.description }),
+      description: `Launching agent swarm: ${args.description}`,
       display: {
         kind: 'agent_call',
         agent_name: `swarm (${agentCount} subagents)`,
@@ -179,13 +152,9 @@ export class AgentSwarmTool implements IAgentSwarmTool {
       }
       const targetProfile = this.catalog.get(profileName);
       if (targetProfile === undefined) {
-        throw new Error2(
-          ErrorCodes.PROFILE_UNKNOWN,
-          t('v2Errors.unknownAgentType', { type: profileName }),
-          {
-            details: { profileName },
-          },
-        );
+        throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${profileName}"`, {
+          details: { profileName },
+        });
       }
       if (own.modelAlias !== undefined) {
         const resolved = resolveSubagentBinding(
@@ -251,21 +220,30 @@ async function createAgentSwarmSpecs(
   const resumeCount = resumeEntries.length;
   const totalCount = resumeCount + itemCount;
   if (!hasMinimumAgentSwarmInputs(itemCount, resumeCount)) {
-    throw new Error(t('v2Errors.swarmMinInputs'));
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      'AgentSwarm requires at least 2 items unless resume_agent_ids is provided.',
+    );
   }
   if (totalCount > MAX_AGENT_SWARM_SUBAGENTS) {
-    throw new Error(t('v2Errors.swarmMaxSubagents', { count: MAX_AGENT_SWARM_SUBAGENTS }));
-  }
-  if (itemCount === 0 && resumeCount === 0) {
-    throw new Error(t('v2Errors.swarmMinInputs'));
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      `AgentSwarm supports at most ${String(MAX_AGENT_SWARM_SUBAGENTS)} subagents.`,
+      { details: { total: totalCount, max: MAX_AGENT_SWARM_SUBAGENTS } },
+    );
   }
   const promptTemplate = normalizeOptionalString(args.prompt_template);
   if (items.length > 0 && promptTemplate === undefined) {
-    throw new Error(t('v2Errors.swarmPromptRequired'));
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      'prompt_template is required when items are provided.',
+    );
   }
   if (promptTemplate !== undefined && !promptTemplate.includes(PROMPT_TEMPLATE_PLACEHOLDER)) {
-    throw new Error(
-      t('v2Errors.swarmPromptPlaceholder', { placeholder: PROMPT_TEMPLATE_PLACEHOLDER }),
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      `prompt_template must include the ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder.`,
+      { details: { placeholder: PROMPT_TEMPLATE_PLACEHOLDER } },
     );
   }
 
@@ -286,8 +264,10 @@ async function createAgentSwarmSpecs(
       const prompt = itemPromptTemplate.split(PROMPT_TEMPLATE_PLACEHOLDER).join(item);
       const previousIndex = seenPrompts.get(prompt);
       if (previousIndex !== undefined) {
-        throw new Error(
-          t('v2Errors.swarmDuplicatePrompts', { indexA: previousIndex, indexB: index + 1 }),
+        throw new Error2(
+          ErrorCodes.VALIDATION_FAILED,
+          `Duplicate subagent prompts from items ${String(previousIndex)} and ${String(index + 1)}. AgentSwarm requires distinct subagents.`,
+          { details: { previousIndex, index: index + 1 } },
         );
       }
       seenPrompts.set(prompt, index + 1);
@@ -307,11 +287,7 @@ function hasMinimumAgentSwarmInputs(itemCount: number, resumeCount: number): boo
 }
 
 function childDescription(swarmDescription: string, index: number, profileName: string): string {
-  return t('toolsV2.swarm.childDescription', {
-    description: swarmDescription,
-    index: String(index),
-    profileName,
-  });
+  return `${swarmDescription} #${String(index)} (${profileName})`;
 }
 
 function renderSwarmResults(results: readonly SwarmRunResult[]): string {
@@ -335,11 +311,9 @@ function renderSwarmResults(results: readonly SwarmRunResult[]): string {
   for (const result of results) {
     const agentId = result.agentId === undefined ? '' : ` agent_id="${result.agentId}"`;
     const mode = result.spec.kind === 'resume' ? ' mode="resume"' : '';
-    const item =
-      result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
+    const item = result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
     const state = result.state === undefined ? '' : ` state="${result.state}"`;
-    const body =
-      result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
+    const body = result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
     lines.push(
       `<subagent${mode}${agentId}${item}${state} outcome="${result.status}">${body}</subagent>`,
     );

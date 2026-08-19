@@ -1,29 +1,17 @@
-/**
- * `tools` domain — `ISetGoalBudgetTool` implementation.
- *
- * Normalizes the model's budget input, converts supported time units to
- * milliseconds, and rejects obviously unreasonable time limits before writing
- * the limit through the goal service (`goal`). Stops the batch when the goal
- * has already reached the new budget, and guards against the goal changing
- * between resolution and execution. Registered for the main agent only,
- * mirroring v1's `agent.type === 'main'` gate. Bound at Agent scope.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { type ToolExecution } from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
 import { IAgentGoalService } from '#/agent/goal/goal';
 import type { GoalBudgetLimits, GoalSnapshot } from '#/agent/goal/types';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { type ToolExecution } from '#/tool/toolContract';
 
+import DESCRIPTION from './set-goal-budget.md?raw';
 import {
   SetGoalBudgetToolInputSchema,
   ISetGoalBudgetTool,
   type SetGoalBudgetToolInput,
 } from './set-goal-budget';
-import DESCRIPTION from './set-goal-budget.md?raw';
 
 const MIN_REASONABLE_TIME_BUDGET_MS = 1_000;
 const MAX_REASONABLE_TIME_BUDGET_MS = 24 * 60 * 60 * 1000;
@@ -54,13 +42,13 @@ export class SetGoalBudgetTool implements ISetGoalBudgetTool {
       execute: async ({ turnId }) => {
         const currentGoal = this.goal.getGoal().goal;
         if (currentGoal === null) {
-          return { output: t('toolsV2.goal.budgetNotSet') };
+          return { output: 'Goal budget not set: no current goal.' };
         }
         if (
           currentGoal.goalId !== goalAtResolution?.goalId &&
           !this.goal.isGoalToolTarget(turnId, currentGoal.goalId)
         ) {
-          return { output: t('toolsV2.goal.budgetStale') };
+          return { output: 'Goal budget not set: the current goal changed.' };
         }
         if (budget === null) {
           return {

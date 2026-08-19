@@ -114,12 +114,13 @@ export const api = {
         (mode === 'full' ? '&history=full' : ''),
     ),
 
-  getAgentTree: (id: string) => get<AgentTreeResponse>(`/api/sessions/${enc(id)}/agents`),
+  getAgentTree: (id: string) =>
+    get<AgentTreeResponse>(`/api/sessions/${enc(id)}/agents`),
 
-  /** Background tasks (process / agent / question) persisted under each
-   *  spawning agent's homedir (`<homedir>/tasks`), each with `output.log`
-   *  metadata. */
-  getTasks: (id: string) => get<BackgroundTasksResponse>(`/api/sessions/${enc(id)}/tasks`),
+  /** Background tasks (process / agent / question) persisted under the
+   *  session's `tasks/` directory, each with `output.log` metadata. */
+  getTasks: (id: string) =>
+    get<BackgroundTasksResponse>(`/api/sessions/${enc(id)}/tasks`),
 
   /** A byte-window of a single task's `output.log`. */
   getTaskOutput: (id: string, taskId: string, offset = 0, limit?: number) =>
@@ -128,8 +129,9 @@ export const api = {
         (limit !== undefined ? `&limit=${limit}` : ''),
     ),
 
-  /** Cron jobs persisted under each agent's homedir (`<homedir>/cron`). */
-  getCron: (id: string) => get<CronTasksResponse>(`/api/sessions/${enc(id)}/cron`),
+  /** Cron jobs persisted under the session's `cron/` directory. */
+  getCron: (id: string) =>
+    get<CronTasksResponse>(`/api/sessions/${enc(id)}/cron`),
 
   /** Parsed diagnostic log for a session (works for local and imported). */
   getLogs: (id: string, which: 'session' | 'global' = 'session') =>

@@ -1,13 +1,12 @@
-import { Blob, File } from 'node:buffer';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-
-import type OpenAI from 'openai';
-import OpenAIClient from 'openai';
+import { Blob, File } from 'node:buffer';
 
 import { ChatProviderError } from '#/errors';
 import type { VideoURLPart } from '#/message';
 import type { ProviderRequestAuth, VideoUploadInput } from '#/provider';
+import type OpenAI from 'openai';
+import OpenAIClient from 'openai';
 
 import { classifyKimiQuotaError } from './kimi-errors';
 import { convertOpenAIError } from './openai-common';

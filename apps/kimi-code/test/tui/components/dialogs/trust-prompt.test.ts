@@ -1,5 +1,6 @@
-import type { WorkspaceTrustMcpServerInfo } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
+
+import type { WorkspaceTrustMcpServerInfo } from '@moonshot-ai/kimi-code-sdk';
 
 import { TrustPromptComponent } from '#/tui/components/dialogs/trust-prompt';
 
@@ -32,32 +33,20 @@ describe('TrustPromptComponent', () => {
 
   it('lists the gated project MCP servers when present', () => {
     const lines = renderLines([
-      {
-        name: 'nested-server',
-        transport: 'stdio',
-        command: 'nested-cmd',
-        args: ['--safe'],
-        cwd: '/tmp',
-      },
+      { name: 'nested-server', transport: 'stdio', command: 'nested-cmd', args: ['--safe'], cwd: '/tmp' },
       { name: 'root-server', transport: 'http', url: 'https://example.test/mcp' },
     ]);
     expect(lines.some((l) => l.includes('Project MCP targets'))).toBe(true);
     expect(lines.some((l) => l.includes('nested-server (stdio): command=nested-cmd'))).toBe(true);
     expect(lines.some((l) => l.includes('args=["--safe"] cwd=/tmp'))).toBe(true);
-    expect(lines.some((l) => l.includes('root-server (http): url=https://example.test/mcp'))).toBe(
-      true,
-    );
+    expect(lines.some((l) => l.includes('root-server (http): url=https://example.test/mcp'))).toBe(true);
     expect(renderLines().some((l) => l.includes('This folder defines'))).toBe(false);
   });
 
   it('strips terminal control characters from workspace-supplied MCP targets', () => {
     const lines = renderLines([
       { name: 'evil', transport: 'stdio', command: 'cmd\u001B[2J\u0007evil' },
-      {
-        name: 'multi\nline',
-        transport: 'http',
-        url: 'https://example.test/\u001B]8;;https://evil.test\u0007',
-      },
+      { name: 'multi\nline', transport: 'http', url: 'https://example.test/\u001B]8;;https://evil.test\u0007' },
     ]);
     const text = lines.join('\n');
     // ESC and BEL are dropped, defusing the sequences into harmless literal text.

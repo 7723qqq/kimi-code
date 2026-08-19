@@ -16,8 +16,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -52,7 +52,7 @@ describe('server-v2 GET /api/v1/oauth/usage', () => {
       startLogin: async () => {
         throw new Error('unused');
       },
-      getFlow: () => {},
+      getFlow: () => undefined,
       cancelLogin: async () => {
         throw new Error('unused');
       },
@@ -176,9 +176,7 @@ describe('server-v2 GET /api/v1/oauth/userinfo', () => {
     }
   });
 
-  function oauthStub(
-    getManagedUserInfo: IOAuthServiceType['getManagedUserInfo'],
-  ): IOAuthServiceType {
+  function oauthStub(getManagedUserInfo: IOAuthServiceType['getManagedUserInfo']): IOAuthServiceType {
     return {
       _serviceBrand: undefined,
       startLogin: async () => {

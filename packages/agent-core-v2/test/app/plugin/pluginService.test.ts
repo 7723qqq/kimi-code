@@ -1,22 +1,10 @@
-/**
- * `plugin` domain — App-scope `PluginService` boundary scenarios.
- *
- * Covers load-failure degradation and recovery, serialized catalog changes,
- * coded management errors, and managed endpoint injection. Resolves the real
- * service by interface through a scoped host; bootstrap, provider, and skill
- * discovery are stubbed, while the installed-file store remains real except
- * for controlled read/write failures used for concurrency and rollback.
- *
- * Run: pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run test/app/plugin/pluginService.test.ts
- */
-
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
+import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -26,12 +14,11 @@ import { createScopedTestHost, stubPair, type ScopedTestHost } from '#/_base/di/
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IPluginService } from '#/app/plugin/plugin';
 import { PluginService } from '#/app/plugin/pluginService';
+import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
+import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
 import * as pluginStore from '#/app/plugin/store';
 import type { InstalledFile } from '#/app/plugin/store';
 import type { PluginMutationSummary, ReloadSummary } from '#/app/plugin/types';
-import { LifecycleScope } from '#/app/scopes';
-import { ISkillDiscovery } from '#/app/skillCatalog/skillDiscovery';
-import { IProviderService, type ProviderConfig } from '#/kosong/provider/provider';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubProviderService } from '../provider/stubs';
@@ -129,7 +116,10 @@ function deferred<T>(): {
   return { promise, resolve };
 }
 
-async function makePluginDir(name: string, manifest: Record<string, unknown>): Promise<string> {
+async function makePluginDir(
+  name: string,
+  manifest: Record<string, unknown>,
+): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), `plugin-${name}-`));
   await writeFile(
     path.join(root, 'kimi.plugin.json'),
@@ -362,7 +352,10 @@ describe('PluginService (plugin boundary)', () => {
     const host = makeHost(home);
     try {
       const svc = host.app.accessor.get(IPluginService);
-      const [plugins, roots] = await Promise.all([svc.listPlugins(), svc.pluginSkillRoots()]);
+      const [plugins, roots] = await Promise.all([
+        svc.listPlugins(),
+        svc.pluginSkillRoots(),
+      ]);
 
       expect(plugins).toEqual([expect.objectContaining({ id: 'snapshot-demo' })]);
       expect(roots).toEqual([
@@ -383,7 +376,7 @@ describe('PluginService (plugin boundary)', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() => {
-        downloadStarted.resolve();
+        downloadStarted.resolve(undefined);
         return downloadResponse.promise;
       }) as typeof fetch,
     );
@@ -429,9 +422,9 @@ describe('PluginService (plugin boundary)', () => {
       await expect(svc.getPluginInfo({ id: 'demo' })).resolves.toEqual(
         expect.objectContaining({ root: previous.root, version: '1.0.0' }),
       );
-      await expect(
-        readFile(path.join(previous.root, 'kimi.plugin.json'), 'utf8'),
-      ).resolves.toContain('"version":"1.0.0"');
+      await expect(readFile(path.join(previous.root, 'kimi.plugin.json'), 'utf8')).resolves.toContain(
+        '"version":"1.0.0"',
+      );
       await expect(readdir(path.join(home, 'plugins', 'managed'))).resolves.toEqual(['demo']);
     } finally {
       host.dispose();
@@ -449,7 +442,7 @@ describe('PluginService (plugin boundary)', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() => {
-        lookupStarted.resolve();
+        lookupStarted.resolve(undefined);
         return lookupResponse.promise;
       }) as typeof fetch,
     );
@@ -491,7 +484,7 @@ describe('PluginService (plugin boundary)', () => {
     const firstRead = deferred<InstalledFile>();
     const firstReadStarted = deferred<void>();
     readInstalled.mockImplementationOnce(async () => {
-      firstReadStarted.resolve();
+      firstReadStarted.resolve(undefined);
       return firstRead.promise;
     });
     const host = makeHost(home);
@@ -531,7 +524,7 @@ describe('PluginService (plugin boundary)', () => {
       const reloadRead = deferred<InstalledFile>();
       const reloadReadStarted = deferred<void>();
       readInstalled.mockImplementationOnce(async () => {
-        reloadReadStarted.resolve();
+        reloadReadStarted.resolve(undefined);
         return reloadRead.promise;
       });
 
@@ -615,7 +608,7 @@ describe('PluginService (plugin boundary)', () => {
     const providers = stubProviderService(providerConfigs, readyGate.promise);
     Object.defineProperty(providers, 'ready', {
       get: () => {
-        readyAccessed.resolve();
+        readyAccessed.resolve(undefined);
         return readyGate.promise;
       },
     });
@@ -634,7 +627,7 @@ describe('PluginService (plugin boundary)', () => {
         baseUrl: 'https://ready.example.test/',
         oauth: { storage: 'file', key: 'kimi', oauthHost: 'https://auth.ready.example.test' },
       };
-      readyGate.resolve();
+      readyGate.resolve(undefined);
 
       await expect(servers).resolves.toMatchObject({
         'plugin-ready-demo:finance': {

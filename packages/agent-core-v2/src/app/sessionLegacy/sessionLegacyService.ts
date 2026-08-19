@@ -1,39 +1,35 @@
-/**
- * `sessionLegacy` domain — `ISessionLegacyService` implementation.
- *
- * Stateless App-scope dispatcher: each method resolves the target session (and
- * its main agent) per call, delegates to the native v2 services, and projects
- * the result into the v1 wire shape. Only `status` (the best-effort status
- * rollup) and `goal` (the current-goal read) live here — the profile route's
- * title/metadata patch and `agent_config` dispatch are composed by kap-server.
- * No business logic is duplicated here.
- */
+import type { GoalSnapshot } from '#/agent/goal/types';
 
-import { IInstantiationService, type ServicesAccessor } from '#/_base/di/instantiation';
+import type { SessionStatusResponse } from './sessionProtocol';
+import { LifecycleScope } from '#/app/scopes';
 import {
   type IAgentScopeHandle,
   type ISessionScopeHandle,
   ScopeActivation,
   registerScopedService,
 } from '#/_base/di/scope';
-import { IAgentActivityView } from '#/agent/activityView/activityView';
-import { IAgentGoalService } from '#/agent/goal/goal';
-import type { GoalSnapshot } from '#/agent/goal/types';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import {
+  IInstantiationService,
+  type ServicesAccessor,
+} from '#/_base/di/instantiation';
 import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
-import { LifecycleScope } from '#/app/scopes';
-import { getLiveSessionById, resumeSessionById } from '#/app/workspaceLifecycle/sessionLookup';
-import { ErrorCodes, Error2 } from '#/errors';
+import { IAgentGoalService } from '#/agent/goal/goal';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPlanService } from '#/features/plan/plan';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import {
+  getLiveSessionById,
+  resumeSessionById,
+} from '#/app/sessionManager/sessionLookup';
 import { IModelCatalog } from '#/kosong/model/catalog';
 import { IModelService } from '#/kosong/model/model';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ErrorCodes, Error2 } from '#/errors';
 import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentActivityView } from '#/agent/activityView/activityView';
 
 import { ISessionLegacyService } from './sessionLegacy';
-import type { SessionStatusResponse } from './sessionProtocol';
 
 export class SessionLegacyService implements ISessionLegacyService {
   declare readonly _serviceBrand: undefined;
@@ -75,11 +71,6 @@ export class SessionLegacyService implements ISessionLegacyService {
 
     const model = profile.getModel();
     const capabilities = profile.getModelCapabilities();
-    // An alias that no longer resolves yields UNKNOWN_CAPABILITY whose
-    // max_context_tokens is 0 — the "unknown" marker, not a real limit. Only
-    // an unbound session falls back to the default model's limit; when the
-    // limit stays unknown the field is omitted (never 0), mirroring the WS
-    // status push (`readLegacyStatus`).
     let maxTokens = capabilities.max_input_tokens ?? capabilities.max_context_tokens;
     if (maxTokens === 0 && model === '') {
       maxTokens = resolveDefaultModelContextTokens(agent) ?? 0;
@@ -116,10 +107,6 @@ export class SessionLegacyService implements ISessionLegacyService {
   }
 }
 
-/**
- * Context limit of the configured default model, or `undefined` when no
- * default model is configured or it does not resolve.
- */
 function resolveDefaultModelContextTokens(agent: IAgentScopeHandle): number | undefined {
   const defaultModel = agent.accessor.get(IModelService).getDefaultModel();
   if (defaultModel === undefined || defaultModel.length === 0) return undefined;

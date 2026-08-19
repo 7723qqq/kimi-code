@@ -191,6 +191,12 @@ export interface MCPServerConfig {
   headers?: Record<string, string>;
   auth?: 'oauth';
   bearerTokenEnvVar?: string;
+  /** Unified management view tags; absent on cores predating the management plane. */
+  source?: 'global' | 'plugin' | 'caller';
+  /** global: defining file path; plugin: plugin id. */
+  origin?: string;
+  /** false for plugin / project-layer entries — the panel hides mutating actions for them. */
+  mutable?: boolean;
 }
 
 export interface UpdateMCPServerRequest {
@@ -221,7 +227,7 @@ export function formatContentOutput(output: string | ContentPart[]): string {
   if (typeof output === 'string') return output;
   if (!Array.isArray(output)) return JSON.stringify(output);
   return output
-    .map((item) => (item.type === 'text' ? item.text : `[${item.type}]`))
+    .map((item) => item.type === 'text' ? item.text : `[${item.type}]`)
     .filter(Boolean)
     .join('\n');
 }

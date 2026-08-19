@@ -1,8 +1,7 @@
 import { Hono } from 'hono';
-
 import { KIMI_CODE_HOME } from '../config';
-import { buildAgentTree } from '../lib/agent-tree';
 import { readSessionDetail } from '../lib/session-store';
+import { buildAgentTree } from '../lib/agent-tree';
 
 export function subagentsRoute(home: string = KIMI_CODE_HOME): Hono {
   const r = new Hono();

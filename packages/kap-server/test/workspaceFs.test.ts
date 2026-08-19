@@ -5,8 +5,8 @@ import { join, parse } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -41,8 +41,6 @@ describe('server-v2 /api/v1 fs folder picker', () => {
 
   beforeEach(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-'));
-    // Keep the instance registry OUTSIDE the browsed homeDir so the folder
-    // picker only sees the test fixtures.
     instancesDir = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-instances-'));
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
@@ -103,10 +101,6 @@ describe('server-v2 /api/v1 fs folder picker', () => {
   });
 
   it('does not serve the double-colon URL (v1 parity: only /fs:browse is valid)', async () => {
-    // v1 registers the source path `/fs::browse`, but find-my-way serves it on
-    // the wire as single-colon `/fs:browse`; the double-colon form 404s. This
-    // guards against reintroducing a `/fs:action` parametric dispatcher that
-    // would accept the non-v1 double-colon URL.
     const res = await fetch(`${base}/api/v1/fs::browse`, {
       headers: authHeaders(server as RunningServer),
     } as never);
@@ -124,7 +118,7 @@ describe('server-v2 /api/v1 fs folder picker', () => {
     );
     expect(body.code).toBe(0);
     expect(body.data.path).toBe(await realpath(root));
-    const names = body.data.entries.map((e) => e.name).toSorted();
+    const names = body.data.entries.map((e) => e.name).sort();
     expect(names).toEqual(['alpha', 'beta']);
     for (const entry of body.data.entries) {
       expect(entry.is_dir).toBe(true);
@@ -147,9 +141,8 @@ describe('server-v2 /api/v1 fs folder picker', () => {
   it('returns parent=null for the filesystem root', async () => {
     const { body } = await getJson<BrowseWire>('/api/v1/fs:browse?path=%2F');
     expect(body.code).toBe(0);
-    // The root spelling is platform-specific (POSIX '/', Windows 'G:\') — the
-    // contract is that the returned path IS a filesystem root with no parent.
-    expect(parse(body.data.path).root).toBe(body.data.path);
+    // The platform root: '/' on POSIX, the current drive root (e.g. 'G:\') on Windows.
+    expect(body.data.path).toBe(parse(body.data.path).root);
     expect(body.data.parent).toBeNull();
   });
 
@@ -326,10 +319,10 @@ describe('server-v2 /api/v1 fs:content', () => {
     return `${base}/api/v1/fs:content?path=${encodeURIComponent(path)}`;
   }
 
-  async function getContent(path: string, headers: Record<string, string> = {}): Promise<Response> {
-    // `connection: close` keeps every fetch on its own short-lived socket so
-    // undici never pools an idle keep-alive connection that would hold
-    // `server.close()` open in afterEach.
+  async function getContent(
+    path: string,
+    headers: Record<string, string> = {},
+  ): Promise<Response> {
     return fetch(contentUrl(path), {
       headers: { connection: 'close', ...authHeaders(server as RunningServer), ...headers },
     } as never);
@@ -430,7 +423,6 @@ describe('server-v2 /api/v1 fs:content', () => {
     expect(body.code).toBe(40906);
   });
 
-  // /dev/null is a character device, not a regular file.
   it.skipIf(process.platform === 'win32')('rejects non-regular files (40001)', async () => {
     const res = await getContent('/dev/null');
     const body = (await res.json()) as Envelope<null>;

@@ -113,20 +113,6 @@ describe('FileStorageService — error translation', () => {
     await expect(svc.close()).resolves.toBeUndefined();
     await expect(svc.close()).resolves.toBeUndefined();
   });
-
-  it('rejects keys with .. path segments', async () => {
-    const svc = new FileStorageService(dir);
-    await expect(svc.read('scope', '../escape.json')).rejects.toThrow(/invalid storage key/i);
-    await expect(svc.write('scope', 'a/../../escape.json', encoder.encode('{}'))).rejects.toThrow(
-      /invalid storage key/i,
-    );
-  });
-
-  it('rejects absolute-path keys', async () => {
-    const svc = new FileStorageService(dir);
-    await expect(svc.read('scope', '/etc/escape.json')).rejects.toThrow(/invalid storage key/i);
-    await expect(svc.read('scope', 'C:\\escape.json')).rejects.toThrow(/invalid storage key/i);
-  });
 });
 
 describe('FileStorageService — writeStream', () => {

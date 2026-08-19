@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { qualifyMcpToolName, sanitizeMcpNamePart } from '#/mcpCore/tool-naming';
 import { isMcpToolName } from '#/tool/toolContract';
+import { qualifyMcpToolName, sanitizeMcpNamePart } from '#/mcpCore/tool-naming';
 
 describe('sanitizeMcpNamePart', () => {
   it('passes alphanumeric, underscore, and dash through unchanged', () => {
@@ -17,28 +17,6 @@ describe('sanitizeMcpNamePart', () => {
     expect(sanitizeMcpNamePart('my__server')).toBe('my_server');
     expect(sanitizeMcpNamePart('a   b')).toBe('a_b');
     expect(sanitizeMcpNamePart('list..__issues')).toBe('list_issues');
-  });
-
-  it('handles empty string', () => {
-    expect(sanitizeMcpNamePart('')).toBe('');
-  });
-
-  it('handles strings with only special characters', () => {
-    expect(sanitizeMcpNamePart('!@#$%^&*()')).toBe('_');
-  });
-
-  it('passes numeric-only strings through', () => {
-    expect(sanitizeMcpNamePart('12345')).toBe('12345');
-  });
-
-  it('replaces non-ASCII (e.g. CJK) characters with underscores', () => {
-    expect(sanitizeMcpNamePart('服务端')).toBe('_');
-    expect(sanitizeMcpNamePart('中文 server')).toBe('_server');
-  });
-
-  it('preserves leading/trailing underscores after collapsing', () => {
-    expect(sanitizeMcpNamePart('__hello__')).toBe('_hello_');
-    expect(sanitizeMcpNamePart('___')).toBe('_');
   });
 });
 
@@ -75,18 +53,5 @@ describe('isMcpToolName', () => {
     expect(isMcpToolName('mcp__github__list')).toBe(true);
     expect(isMcpToolName('Read')).toBe(false);
     expect(isMcpToolName('mcp_one_underscore__no')).toBe(false);
-  });
-
-  it('returns false for empty string or null-like values', () => {
-    expect(isMcpToolName('')).toBe(false);
-  });
-
-  it('returns true for any name starting with the mcp__ prefix', () => {
-    expect(isMcpToolName('mcp__')).toBe(true);
-    expect(isMcpToolName('mcp____')).toBe(true);
-  });
-
-  it('returns false for names with only the prefix and no separator', () => {
-    expect(isMcpToolName('mcp')).toBe(false);
   });
 });

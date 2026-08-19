@@ -39,12 +39,8 @@ try {
     chmodSync(helper, 0o755);
     fixed++;
   }
-  if (fixed > 0)
-    console.log(`[fix-node-pty-perms] made ${fixed} spawn-helper binary(ies) executable`);
-} catch (error) {
-  console.warn(
-    '[fix-node-pty-perms] skipped:',
-    error instanceof Error ? error.message : String(error),
-  );
+  if (fixed > 0) console.log(`[fix-node-pty-perms] made ${fixed} spawn-helper binary(ies) executable`);
+} catch (err) {
+  console.warn('[fix-node-pty-perms] skipped:', err instanceof Error ? err.message : String(err));
 }
 process.exit(0);

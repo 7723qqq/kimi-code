@@ -184,7 +184,9 @@ describe('SessionQueryService', () => {
       revision: () => 0,
       read: () => (async function* () {})(),
     } as unknown as IAppendLogStore;
-    return new SessionQueryService(indexStub, lifecycleStub, bootstrapStub, logStub);
+    return new SessionQueryService(indexStub, lifecycleStub, bootstrapStub, logStub, {
+      size: () => 0,
+    } as never);
   }
 
   it('lists the corpus newest-first with live/persisted availability', async () => {

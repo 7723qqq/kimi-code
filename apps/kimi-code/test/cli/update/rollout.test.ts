@@ -267,10 +267,7 @@ describe('appendRolloutDecisionLog', () => {
     const lines = readFileSync(file, 'utf-8').trim().split('\n');
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0] ?? '')).toMatchObject({ phase: 'startup-cache', reason: 'held' });
-    expect(JSON.parse(lines[1] ?? '')).toMatchObject({
-      phase: 'prompt-refresh',
-      reason: 'eligible',
-    });
+    expect(JSON.parse(lines[1] ?? '')).toMatchObject({ phase: 'prompt-refresh', reason: 'eligible' });
   });
 
   it('resets the file once it grows past the size cap', async () => {
@@ -324,14 +321,7 @@ describe('experimental flag bypass', () => {
   const heldManifest = makeManifest({ rollout: [{ percent: 100, delaySeconds: 86_400 }] });
 
   it('bypasses a held rollout and reports experimental', () => {
-    const decision = decidePassiveUpdateTarget(
-      '1.0.0',
-      '2.0.0',
-      heldManifest,
-      'device-a',
-      now,
-      true,
-    );
+    const decision = decidePassiveUpdateTarget('1.0.0', '2.0.0', heldManifest, 'device-a', now, true);
     expect(decision).toMatchObject({
       target: { version: '2.0.0' },
       reason: 'experimental',
@@ -342,9 +332,7 @@ describe('experimental flag bypass', () => {
   });
 
   it('still reports not-newer / no-latest under bypass', () => {
-    expect(
-      decidePassiveUpdateTarget('2.0.0', '2.0.0', heldManifest, 'device-a', now, true),
-    ).toMatchObject({
+    expect(decidePassiveUpdateTarget('2.0.0', '2.0.0', heldManifest, 'device-a', now, true)).toMatchObject({
       target: null,
       reason: 'not-newer',
     });

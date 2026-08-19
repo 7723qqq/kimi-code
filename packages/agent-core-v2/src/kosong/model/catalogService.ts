@@ -1,67 +1,10 @@
-/**
- * `kosong/model` domain — `ModelCatalog`, the single place that builds
- * Models.
- *
- * Reads Model / Provider config, resolves the auth closure (provider-level
- * credential or Model-inline override), and assembles the pure-data
- * `Model` plus its `ModelRequester` — cached together by model id. Bound at
- * App scope; resolution is shared across sessions.
- *
- * Two config-driven paths (unchanged from the legacy resolver):
- *   - **Structured** — `Model.providerId` points at a `[providers.*]` entry.
- *     Auth comes from the Provider unless the Model carries an override
- *     (`apiKey` / `oauth`).
- *   - **Flat** — `Model.baseUrl` is inline; the catalog synthesizes a
- *     Provider record keyed by the URL's origin so multiple Models on the
- *     same host converge on the same Provider metadata. Auth comes from the
- *     Model itself.
- *
- * Everything vendor-shaped goes through the registries, never a hardcoded
- * switch: the wire protocol falls back from an explicit `protocol` to the
- * referenced provider vendor's declared `baseProtocol`; endpoint and
- * credential env fallbacks resolve through `resolveProviderEndpoint` against
- * the config env bag; host-header forwarding follows the vendor definition's
- * `hostHeaders`; capability detection is `resolveCapability(protocol, name,
- * providerType)`.
- *
- * Caching (load-bearing): assembled entries are invalidated ONLY by the
- * model/provider config-change events. Tests that mutate config
- * behind the services' backs (bypassing those events) must call
- * `notifyConfigChanged()` to drop the cache — otherwise `get` keeps serving
- * the previous generation's Model. The host-header layers baked into an
- * entry need no invalidation: both are frozen for the process (bootstrap
- * args, and the identity snapshot behind the third-party layer).
- *
- * Inspection: every assembly also captures a `ResolutionTraceCollector`
- * (provenance records + intermediate artifacts, reference-only) alongside the
- * Model in the same cache entry. `inspect(id)` assembles the god object from
- * that trace on demand — same pass, same generation, never a re-resolution.
- *
- * Enumeration & default pointer: `listModels` projects every configured
- * model from the SAME materialization `get` serves (falling back to the
- * config-only projection for models that fail to materialize, so broken
- * config stays visible); `listProviders` / `getProvider` project the
- * provider registry plus credential state. `setDefaultModel` writes the
- * global default-model pointer (through `IModelService`) after a
- * materialization gate — the catalog's only write.
- *
- * Outbound headers: vendors declaring `hostHeaders: 'full'` receive the host
- * headers port's complete set and stay consistent with it — that set is the
- * host's to define, and backends key on the product token it carries (log
- * filtering, rollout gating). Everyone else receives the port's third-party
- * layer, already finished on the app side (at most a `User-Agent`, product
- * token per the configured identity) — this catalog picks a layer, it never
- * edits one.
- */
-
 import { parseKimiCodeCustomHeaders } from '@moonshot-ai/kimi-code-oauth';
 
 import { Disposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
-import { LifecycleScope } from '#/app/scopes';
 import type { ModelCapability } from '#/kosong/contract/capability';
-import { CONFIG_INVALID_ERROR_CODE } from '#/kosong/contract/errors';
 import type { ProviderRequestAuth } from '#/kosong/contract/provider';
 import type { TokenUsage } from '#/kosong/contract/usage';
 import {
@@ -71,17 +14,22 @@ import {
   type ProtocolProviderOptions,
 } from '#/kosong/protocol/protocol';
 
-import type { LATEST_OPUS_PROFILE } from '@moonshot-ai/kosong/providers/anthropic-profile';
+import { CONFIG_INVALID_ERROR_CODE } from '#/kosong/contract/errors';
 import {
+  LATEST_OPUS_PROFILE,
   matchKnownAnthropicModelProfile,
   matchUnknownClaudeProfile,
-} from '@moonshot-ai/kosong/providers/anthropic-profile';
-import { IProviderService, type ProviderConfig } from '../provider/provider';
+} from '../provider/bases/anthropic/anthropic-profile';
+import {
+  IProviderService,
+  type ProviderConfig,
+} from '../provider/provider';
 import {
   explainProviderEndpoint,
   getProviderDefinition,
   resolveProviderEndpoint,
 } from '../provider/providerDefinition';
+
 import {
   type AuthProvider,
   IModelCatalog,
@@ -107,7 +55,6 @@ import {
   TRACE,
 } from './inspection';
 import { IModelService, type ModelRecord } from './model';
-import type { ResolvedModelAuthMaterial } from './model.types';
 import {
   deriveProviderId,
   effectiveModelConfig,
@@ -115,6 +62,7 @@ import {
   resolveModelAuthMaterial,
 } from './modelAuth';
 import { IModelOAuthTokens } from './modelOAuth';
+import type { ResolvedModelAuthMaterial } from './model.types';
 import type { ModelRequester } from './modelRequester';
 import { ModelRequesterImpl } from './modelRequesterImpl';
 import { drivesThinkingThroughTraits } from './thinking';
@@ -129,11 +77,6 @@ interface CatalogEntry {
   readonly trace: ResolutionTraceCollector;
 }
 
-// Connectivity-probe deadline: a ping that outlives this is reported as
-// `ok: false` — a hung wire must not block the caller indefinitely.
-const PING_TIMEOUT_MS = 20_000;
-
-// NOTE: stays Disposable — its own 'get' collides with the Fiber
 export class ModelCatalog extends Disposable implements IModelCatalog {
   declare readonly _serviceBrand: undefined;
 
@@ -195,8 +138,6 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   async ping(id: string): Promise<ModelPingResult> {
     const { requester } = this.entry(id);
     const startedAt = Date.now();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);
     try {
       let text = '';
       let usage: TokenUsage | undefined;
@@ -207,7 +148,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
           tools: [],
           messages: [{ role: 'user', content: [{ type: 'text', text: 'ping' }], toolCalls: [] }],
         },
-        controller.signal,
+        undefined,
         { maxCompletionTokens: 512 },
       )) {
         if (event.type === 'part' && event.part.type === 'text') {
@@ -218,25 +159,13 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
           finishReason = event.providerFinishReason ?? event.rawFinishReason;
         }
       }
-      return {
-        ok: true,
-        durationMs: Date.now() - startedAt,
-        text: text.trim(),
-        finishReason,
-        usage,
-      };
+      return { ok: true, durationMs: Date.now() - startedAt, text: text.trim(), finishReason, usage };
     } catch (error) {
       return {
         ok: false,
         durationMs: Date.now() - startedAt,
-        error: controller.signal.aborted
-          ? `ping timed out after ${PING_TIMEOUT_MS}ms`
-          : error instanceof Error
-            ? error.message
-            : String(error),
+        error: error instanceof Error ? error.message : String(error),
       };
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -279,7 +208,10 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   async setDefaultModel(modelId: string): Promise<SetDefaultModelResponse> {
     const record = this.models.get(modelId);
     if (record === undefined) {
-      throw new Error2(ModelCatalogErrors.codes.MODEL_NOT_FOUND, `model ${modelId} does not exist`);
+      throw new Error2(
+        ModelCatalogErrors.codes.MODEL_NOT_FOUND,
+        `model ${modelId} does not exist`,
+      );
     }
     const model = this.get(modelId);
     await this.models.setDefaultModel(modelId);
@@ -315,7 +247,8 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   }
 
   private providerTypeOf(record: ModelRecord): string | undefined {
-    const providerId = record.providerId ?? record.provider ?? this.providers.getDefaultProvider();
+    const providerId =
+      record.providerId ?? record.provider ?? this.providers.getDefaultProvider();
     return this.providers.get(providerId ?? '')?.type ?? record.protocol;
   }
 
@@ -332,11 +265,8 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     trace.record('model.record', { kind: 'config', detail: '[models.*] section' });
 
     const routingModel = effectiveModelConfig(configuredModel);
-    const {
-      providerConfig,
-      providerName,
-      resolvedBaseUrl: rawBaseUrl,
-    } = this.resolveProviderContext(id, routingModel, trace);
+    const { providerConfig, providerName, resolvedBaseUrl: rawBaseUrl } =
+      this.resolveProviderContext(id, routingModel, trace);
     trace.capture(TRACE.providerConfig, providerConfig);
     trace.capture(TRACE.providerName, providerName);
     trace.capture(TRACE.rawBaseUrl, rawBaseUrl);
@@ -450,7 +380,8 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     readonly providerName: string;
     readonly resolvedBaseUrl: string | undefined;
   } {
-    const providerId = model.providerId ?? model.provider ?? this.providers.getDefaultProvider();
+    const providerId =
+      model.providerId ?? model.provider ?? this.providers.getDefaultProvider();
     if (providerId !== undefined) {
       trace.record('provider', {
         kind: 'config',
@@ -587,7 +518,8 @@ export function resolveOutboundHeaders(
   host: Pick<IHostRequestHeaders, 'headers' | 'thirdPartyHeaders'>,
 ): Readonly<Record<string, string>> {
   const forwardsAll =
-    providerType !== undefined && getProviderDefinition(providerType)?.hostHeaders === 'full';
+    providerType !== undefined &&
+    getProviderDefinition(providerType)?.hostHeaders === 'full';
   const hostLayer = forwardsAll ? host.headers : host.thirdPartyHeaders;
   return { ...parseKimiCodeCustomHeaders(), ...hostLayer, ...customHeaders };
 }
@@ -608,7 +540,8 @@ function resolveModelCapabilities(
     max_context_tokens: maxContextSize,
     max_input_tokens: maxInputSize,
     dynamically_loaded_tools:
-      declared.has('dynamically_loaded_tools') || detected.dynamically_loaded_tools === true,
+      declared.has('dynamically_loaded_tools') ||
+      detected.dynamically_loaded_tools === true,
   };
 }
 
@@ -656,7 +589,9 @@ function buildProtocolProviderOptions(
     }
   }
 
-  return Object.values(options).some((value) => value !== undefined) ? options : undefined;
+  return Object.values(options).some((value) => value !== undefined)
+    ? options
+    : undefined;
 }
 
 function profileForAttribution(

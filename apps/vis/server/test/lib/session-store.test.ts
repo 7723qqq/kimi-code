@@ -1,15 +1,11 @@
 // apps/vis/server/test/lib/session-store.test.ts
 import { describe, it, expect, afterEach } from 'vitest';
-
-import { isSafeAgentId, listSessions, readSessionDetail } from '../../src/lib/session-store';
 import { buildSessionFixture } from '../fixtures/build';
+import { isSafeAgentId, listSessions, readSessionDetail } from '../../src/lib/session-store';
 
 describe('session-store', () => {
   let cleanup: (() => Promise<void>) | null = null;
-  afterEach(async () => {
-    if (cleanup) await cleanup();
-    cleanup = null;
-  });
+  afterEach(async () => { if (cleanup) await cleanup(); cleanup = null; });
 
   it('lists native session with correct timestamps and counts', async () => {
     const { home, cleanup: c } = await buildSessionFixture('sample-main');
@@ -22,7 +18,7 @@ describe('session-store', () => {
     expect(s.lastPrompt).toBe('say hi');
     expect(s.agentCount).toBe(2);
     expect(s.mainAgentExists).toBe(true);
-    expect(s.mainWireRecordCount).toBe(10); // 10 lines in main wire incl. metadata
+    expect(s.mainWireRecordCount).toBe(10);  // 10 lines in main wire incl. metadata
     expect(s.wireProtocolVersion).toBe('1.1');
     expect(s.health).toBe('ok');
     expect(s.workDir).toBe('/tmp/work');
@@ -106,7 +102,10 @@ describe('session-store', () => {
     const wirePath = join(sessionDir, 'agents', 'main', 'wire.jsonl');
     // First line is not a `metadata` record — list health used to stay
     // 'ok' while readAgentWire would fail on open.
-    await writeFile(wirePath, '{"type":"config.update","cwd":"/x","time":1}\n');
+    await writeFile(
+      wirePath,
+      '{"type":"config.update","cwd":"/x","time":1}\n',
+    );
     const sessions = await listSessions(home);
     expect(sessions).toHaveLength(1);
     expect(sessions[0]!.health).toBe('broken_main_wire');
@@ -145,7 +144,7 @@ describe('session-store', () => {
       '{"type":"metadata","protocol_version":"1.1","created_at":1}\n',
     );
     const d = await readSessionDetail(home, 'session_fixture');
-    expect(d!.agents.map((a) => a.agentId).toSorted()).toEqual(['agent-0', 'main']);
+    expect(d!.agents.map((a) => a.agentId).sort()).toEqual(['agent-0', 'main']);
   });
 
   it('rejects session_index entries that point outside KIMI_CODE_HOME', async () => {
@@ -180,7 +179,10 @@ describe('session-store', () => {
     const { join } = await import('node:path');
     // Break the SUBAGENT's wire metadata; main wire stays intact so the
     // session itself remains healthy.
-    await writeFile(join(sessionDir, 'agents', 'agent-0', 'wire.jsonl'), 'not even json\n');
+    await writeFile(
+      join(sessionDir, 'agents', 'agent-0', 'wire.jsonl'),
+      'not even json\n',
+    );
     const d = await readSessionDetail(home, 'session_fixture');
     expect(d).not.toBeNull();
     const sub = d!.agents.find((a) => a.agentId === 'agent-0')!;
@@ -210,7 +212,7 @@ describe('session-store', () => {
     expect(d!.workDir).toBe('/tmp/work');
     // Even with state.json broken, the on-disk agent directories should
     // still be inventoried so users can open wire/context.
-    expect(d!.agents.map((a) => a.agentId).toSorted()).toEqual(['agent-0', 'main']);
+    expect(d!.agents.map((a) => a.agentId).sort()).toEqual(['agent-0', 'main']);
     const main = d!.agents.find((a) => a.agentId === 'main')!;
     expect(main.wireExists).toBe(true);
     expect(main.wireRecordCount).toBe(10);
@@ -222,7 +224,7 @@ describe('session-store', () => {
     const d = await readSessionDetail(home, 'session_fixture');
     expect(d).not.toBeNull();
     expect(d!.workDir).toBe('/tmp/work');
-    expect(d!.agents.map((a) => a.agentId).toSorted()).toEqual(['agent-0', 'main']);
+    expect(d!.agents.map((a) => a.agentId).sort()).toEqual(['agent-0', 'main']);
     const main = d!.agents.find((a) => a.agentId === 'main')!;
     expect(main.type).toBe('main');
     expect(main.parentAgentId).toBeNull();

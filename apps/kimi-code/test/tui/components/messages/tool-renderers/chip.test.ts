@@ -89,13 +89,7 @@ describe('chip registry', () => {
   });
 
   it('CreateGoal chip shows the created status', () => {
-    expect(
-      chipFor(
-        'CreateGoal',
-        { objective: 'Ship feature X' },
-        result('{"goal":{"status":"active"}}'),
-      ),
-    ).toBe('active');
+    expect(chipFor('CreateGoal', { objective: 'Ship feature X' }, result('{"goal":{"status":"active"}}'))).toBe('active');
   });
 
   it('SetGoalBudget has no chip because the budget is in the header argument', () => {

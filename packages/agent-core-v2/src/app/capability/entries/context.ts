@@ -1,14 +1,5 @@
-/**
- * Shared context injected into capability entries. Every field is
- * constructor-wired by `CapabilityService`; tests substitute fakes
- * (temp dirs, fake fetch, fake plugin service) rather than touching the
- * host.
- */
-
 import type { IPluginService } from '#/app/plugin/plugin';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
-
-import type { FetchLike } from '../host';
 
 export interface CapabilityEntryContext {
   readonly platform: NodeJS.Platform;
@@ -17,7 +8,7 @@ export interface CapabilityEntryContext {
   readonly userHomeDir: string;
   readonly plugins: IPluginService;
   readonly hostProcess: IHostProcessService;
-  readonly fetchImpl?: FetchLike;
+  readonly fetchImpl?: typeof fetch;
   readonly applicationsDir?: string;
   readonly webbridgeBaseUrl?: string;
   readonly detectProbeTimeoutMs?: number;

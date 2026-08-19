@@ -1,9 +1,12 @@
-import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 import { z } from 'zod';
 
-export const workspaceIdSchema = z.string().regex(/^wd_[a-z0-9._-]+_[0-9a-f]{12}$/, {
-  message: 'workspace_id must be a wd_<slug>_<hash12> string',
-});
+import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
+
+export const workspaceIdSchema = z
+  .string()
+  .regex(/^wd_[a-z0-9._-]+_[0-9a-f]{12}$/, {
+    message: 'workspace_id must be a wd_<slug>_<hash12> string',
+  });
 
 export type WorkspaceId = z.infer<typeof workspaceIdSchema>;
 

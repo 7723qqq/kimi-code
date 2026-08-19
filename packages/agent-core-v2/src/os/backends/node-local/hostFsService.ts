@@ -1,35 +1,20 @@
-/**
- * `hostFs` domain — `IHostFileSystem` implementation.
- *
- * Reads and writes files on the real local disk through `node:fs/promises`.
- * Bound at App scope.
- */
-
-import { randomBytes } from 'node:crypto';
 import {
   appendFile,
-  chmod,
   lstat,
   open,
   readFile,
   readdir,
   mkdir,
   realpath as nodeRealpath,
-  rename,
   rm,
   stat as nodeStat,
   writeFile,
 } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
-
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { decodeTextWithErrors, type TextDecodeErrors } from '#/_base/execEnv/decodeText';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  type HostDirEntry,
-  type HostFileStat,
-  IHostFileSystem,
-} from '#/os/interface/hostFileSystem';
+
+import { type HostDirEntry, type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { toHostFsError } from '#/os/interface/hostFsErrors';
 
 const READ_CHUNK_SIZE = 64 * 1024;
@@ -73,57 +58,9 @@ export class HostFileSystem implements IHostFileSystem {
 
   async writeText(path: string, data: string): Promise<void> {
     try {
-      await this.atomicWriteText(path, data);
+      await writeFile(path, data, 'utf8');
     } catch (error) {
       throw toHostFsError(error, { path, op: 'write' });
-    }
-  }
-
-  /**
-   * Write text via a temporary file in the same directory followed by rename.
-   * This prevents a crash from leaving a truncated destination. Symlink
-   * targets are written through in-place so the link itself is preserved.
-   */
-  private async atomicWriteText(path: string, data: string): Promise<void> {
-    // Preserve symlink semantics: if the destination is a symlink, write
-    // through it exactly like the previous non-atomic path.
-    try {
-      const st = await lstat(path);
-      // Preserve symlinks and special files (FIFO, device, socket, ...);
-      // atomic rename is only safe for regular files.
-      if (st.isSymbolicLink() || !st.isFile()) {
-        await writeFile(path, data, 'utf8');
-        return;
-      }
-    } catch {
-      // ENOENT or any lstat failure means we can proceed with the atomic path.
-    }
-
-    const dir = dirname(path);
-    const base = basename(path);
-    const tempPath = join(dir, `.${base}.${randomBytes(6).toString('hex')}.tmp`);
-
-    try {
-      const handle = await open(tempPath, 'wx');
-      try {
-        await handle.writeFile(data, { encoding: 'utf8' });
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-
-      // Best-effort permission preservation.
-      try {
-        const st = await nodeStat(path);
-        await chmod(tempPath, st.mode);
-      } catch {
-        // New file or platform limitation: keep default permissions.
-      }
-
-      await rename(tempPath, path);
-    } catch (error) {
-      await rm(tempPath, { force: true }).catch(() => {});
-      throw error;
     }
   }
 
@@ -135,16 +72,17 @@ export class HostFileSystem implements IHostFileSystem {
     }
   }
 
-  async readBytes(path: string, n?: number): Promise<Uint8Array> {
+  async readBytes(path: string, n?: number, offset = 0): Promise<Uint8Array> {
     try {
-      if (n === undefined) {
+      if (n === undefined && offset === 0) {
         const buf = await readFile(path);
         return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
       }
       const fh = await open(path, 'r');
       try {
-        const buf = Buffer.alloc(n);
-        const { bytesRead } = await fh.read(buf, 0, n, 0);
+        const length = n ?? Math.max(0, (await fh.stat()).size - offset);
+        const buf = Buffer.alloc(length);
+        const { bytesRead } = await fh.read(buf, 0, length, offset);
         return buf.subarray(0, bytesRead);
       } finally {
         await fh.close();
@@ -182,7 +120,10 @@ export class HostFileSystem implements IHostFileSystem {
     }
   }
 
-  private async *_readUtf8Lines(path: string, errors: TextDecodeErrors): AsyncGenerator<string> {
+  private async *_readUtf8Lines(
+    path: string,
+    errors: TextDecodeErrors,
+  ): AsyncGenerator<string> {
     const fh = await open(path, 'r');
     try {
       const buf = Buffer.alloc(READ_CHUNK_SIZE);

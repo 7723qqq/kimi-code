@@ -1,22 +1,7 @@
-/**
- * Scenario: the Session-scope agent-profile catalog projection over the
- * App-scope `IAgentProfileRegistry` fold.
- *
- * Exercises `SessionAgentProfileCatalogService` directly: the registry fold
- * is fed through real containers (contributor units on the same
- * `this.provide` path the production loaders take) while the catalog itself
- * is hand-constructed — the suite verifies the projection rules:
- * relevant-entry filtering by the seeded workspace key, priority-ordered
- * name dedup, the builtin-override rule, change-event fan-out, and the read
- * surface (`get` / `list` / `getDefault` / `inspect`). Run:
- * `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog.test.ts`.
- */
-
 import { describe, expect, it } from 'vitest';
 
-import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator } from '#/_base/di/instantiation';
+import { SyncDescriptor } from '#/_base/di/descriptors';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
@@ -26,14 +11,14 @@ import {
   normalizeAgentProfile,
   type AgentProfile,
 } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { BUILTIN_AGENT_PROFILE_SOURCE_ID } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
+import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
+import { SessionAgentProfileCatalogService } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalogService';
 import {
   AGENT_PROFILE_SOURCE_PRIORITY,
   AgentProfileContribution,
   type AgentProfileContributionRecord,
 } from '#/app/agentProfileCatalog/agentProfileContribution';
-import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
-import { BUILTIN_AGENT_PROFILE_SOURCE_ID } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
-import { SessionAgentProfileCatalogService } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalogService';
 
 import { stubLog } from '../../_base/log/stubs';
 

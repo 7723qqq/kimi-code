@@ -71,12 +71,7 @@ function resolveLimits(limits: ScanCodebaseOptions['limits']): ScanCodebaseLimit
 
 async function isInsideGitWorkTree(root: string): Promise<boolean> {
   try {
-    const { stdout } = await execFileAsync('git', [
-      '-C',
-      root,
-      'rev-parse',
-      '--is-inside-work-tree',
-    ]);
+    const { stdout } = await execFileAsync('git', ['-C', root, 'rev-parse', '--is-inside-work-tree']);
     return stdout.trim() === 'true';
   } catch {
     return false;

@@ -13,32 +13,24 @@ vi.mock('#/utils/process/resolve-command', () => ({
 
 describe('classifyByPathHeuristic', () => {
   it('returns null for an npm-style global path (handled by classifyInstallSource)', () => {
-    expect(
-      classifyByPathHeuristic('/usr/local/lib/node_modules/@moonshot-ai/kimi-code'),
-    ).toBeNull();
+    expect(classifyByPathHeuristic('/usr/local/lib/node_modules/@moonshot-ai/kimi-code')).toBeNull();
   });
 
   it('detects pnpm global on macOS', () => {
     expect(
-      classifyByPathHeuristic(
-        '/Users/me/Library/pnpm/global/5/node_modules/@moonshot-ai/kimi-code',
-      ),
+      classifyByPathHeuristic('/Users/me/Library/pnpm/global/5/node_modules/@moonshot-ai/kimi-code'),
     ).toBe('pnpm-global');
   });
 
   it('detects pnpm global on Linux', () => {
     expect(
-      classifyByPathHeuristic(
-        '/home/me/.local/share/pnpm/global/5/node_modules/@moonshot-ai/kimi-code',
-      ),
+      classifyByPathHeuristic('/home/me/.local/share/pnpm/global/5/node_modules/@moonshot-ai/kimi-code'),
     ).toBe('pnpm-global');
   });
 
   it('detects pnpm global on Windows (normalized backslashes)', () => {
     expect(
-      classifyByPathHeuristic(
-        'C:\\Users\\me\\AppData\\Local\\pnpm\\global\\5\\node_modules\\@moonshot-ai/kimi-code',
-      ),
+      classifyByPathHeuristic('C:\\Users\\me\\AppData\\Local\\pnpm\\global\\5\\node_modules\\@moonshot-ai/kimi-code'),
     ).toBe('pnpm-global');
   });
 
@@ -62,17 +54,13 @@ describe('classifyByPathHeuristic', () => {
 
   it('detects homebrew on macOS (Cellar path)', () => {
     expect(
-      classifyByPathHeuristic(
-        '/opt/homebrew/Cellar/kimi-code/0.5.0/libexec/lib/node_modules/@moonshot-ai/kimi-code',
-      ),
+      classifyByPathHeuristic('/opt/homebrew/Cellar/kimi-code/0.5.0/libexec/lib/node_modules/@moonshot-ai/kimi-code'),
     ).toBe('homebrew');
   });
 
   it('detects homebrew on Linux (Linuxbrew)', () => {
     expect(
-      classifyByPathHeuristic(
-        '/home/linuxbrew/.linuxbrew/Cellar/kimi-code/0.5.0/libexec/lib/node_modules/@moonshot-ai/kimi-code',
-      ),
+      classifyByPathHeuristic('/home/linuxbrew/.linuxbrew/Cellar/kimi-code/0.5.0/libexec/lib/node_modules/@moonshot-ai/kimi-code'),
     ).toBe('homebrew');
   });
 
@@ -90,11 +78,7 @@ describe('classifyByPathHeuristic', () => {
 describe('classifyInstallSource (npm prefix matching)', () => {
   it('matches a macOS/Linux npm global package path', () => {
     expect(
-      classifyInstallSource(
-        '/usr/local/lib/node_modules/@moonshot-ai/kimi-code',
-        '/usr/local',
-        'darwin',
-      ),
+      classifyInstallSource('/usr/local/lib/node_modules/@moonshot-ai/kimi-code', '/usr/local', 'darwin'),
     ).toBe('npm-global');
   });
 
@@ -109,7 +93,8 @@ describe('detectInstallSource', () => {
   it('returns pnpm-global when packageRoot matches pnpm heuristic', async () => {
     await expect(
       detectInstallSource({
-        getPackageRoot: () => '/Users/me/Library/pnpm/global/5/node_modules/@moonshot-ai/kimi-code',
+        getPackageRoot: () =>
+          '/Users/me/Library/pnpm/global/5/node_modules/@moonshot-ai/kimi-code',
         getGlobalPrefix: async () => '/usr/local',
         detectNative: () => false,
         platform: 'darwin',

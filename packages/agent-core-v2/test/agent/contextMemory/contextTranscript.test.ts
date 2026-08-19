@@ -1,11 +1,3 @@
-/**
- * Tests for `reduceContextTranscript` — the wire-transcript reducer used by the
- * snapshot and messages endpoints. Mirrors v1 `reduceWireRecords` expectations:
- * compaction keeps the prefix and appends a summary marker; undo removes the
- * tail but stops at compaction summaries / clear floors; clear keeps the
- * transcript but resets the folded view.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -262,11 +254,7 @@ describe('reduceContextTranscript', () => {
       appendMessage(userMessage('q')),
       loopEvent({ type: 'step.begin', uuid: 's1' }),
       loopEvent({ type: 'step.begin', uuid: 's2' }),
-      loopEvent({
-        type: 'content.part',
-        stepUuid: 's2',
-        part: { type: 'text', text: 'recovered' },
-      }),
+      loopEvent({ type: 'content.part', stepUuid: 's2', part: { type: 'text', text: 'recovered' } }),
       loopEvent({ type: 'step.end', uuid: 's2' }),
     ]);
     expect(result.entries.map((m) => m.role)).toEqual(['user', 'assistant']);
@@ -292,12 +280,7 @@ describe('reduceContextTranscript', () => {
       loopEvent({ type: 'content.part', stepUuid: 's3', part: { type: 'text', text: 'answer' } }),
       loopEvent({ type: 'step.end', uuid: 's3' }),
     ]);
-    expect(result.entries.map((m) => m.role)).toEqual([
-      'user',
-      'assistant',
-      'assistant',
-      'assistant',
-    ]);
+    expect(result.entries.map((m) => m.role)).toEqual(['user', 'assistant', 'assistant', 'assistant']);
     expect(result.foldedLength).toBe(4);
   });
 });

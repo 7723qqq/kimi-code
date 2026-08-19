@@ -16,13 +16,13 @@ import {
   OAuthUnauthorizedError,
   RetryableRefreshError,
 } from '../src/errors';
-import { KIMI_CODE_PLATFORM } from '../src/identity';
 import {
   pollDeviceToken,
   refreshAccessToken,
   requestDeviceAuthorization,
   type RefreshOptions,
 } from '../src/oauth';
+import { KIMI_CODE_PLATFORM } from '../src/identity';
 import type { DeviceHeaders, OAuthFlowConfig } from '../src/types';
 
 interface FakeResponse {

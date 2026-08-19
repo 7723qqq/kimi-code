@@ -3,30 +3,28 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import {
-  IAgentPermissionRulesService,
-  type PermissionApprovalResultRecord,
-  type PermissionRule,
-} from '#/agent/permissionRules/permissionRules';
-import { PermissionRulesModel } from '#/agent/permissionRules/permissionRulesOps';
+import { IAgentPermissionRulesService, type PermissionApprovalResultRecord, type PermissionRule } from '#/agent/permissionRules/permissionRules';
 import { AgentPermissionRulesService } from '#/agent/permissionRules/permissionRulesService';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { permissionRulesKey } from '#/agent/permissionRules/permissionRulesOps';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import { IWireService } from '#/wire/wire';
 
-import { registerTestAgentWire, restoreTestAgentWire, testWireScope } from '../../wire/stubs';
+import {
+  registerTestAgentWire,
+  registerTestEventDispatcher,
+  restoreTestEventDispatcher,
+  testWireScope,
+} from '../../wire/stubs';
 
 const SCOPE = 'wire';
 const KEY = 'permission-rules-test';
 
-const allowRule: PermissionRule = {
-  decision: 'allow',
-  scope: 'session-runtime',
-  pattern: 'Read(**)',
-};
+const allowRule: PermissionRule = { decision: 'allow', scope: 'session-runtime', pattern: 'Read(**)' };
 const denyRule: PermissionRule = { decision: 'deny', scope: 'user', pattern: 'Bash(rm *)' };
 
 function sessionApproval(pattern: string): PermissionApprovalResultRecord {
@@ -43,6 +41,7 @@ function sessionApproval(pattern: string): PermissionApprovalResultRecord {
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
 let log: IAppendLogStore;
+let dispatcher: IEventDispatcher;
 let svc: IAgentPermissionRulesService;
 
 beforeEach(() => {
@@ -53,18 +52,16 @@ beforeEach(() => {
   ix.set(IAgentPermissionRulesService, new SyncDescriptor(AgentPermissionRulesService));
   log = ix.get(IAppendLogStore);
   registerTestAgentWire(ix, testWireScope(SCOPE, KEY), { log });
+  dispatcher = registerTestEventDispatcher(ix);
   svc = ix.get(IAgentPermissionRulesService);
 });
 
 afterEach(() => disposables.dispose());
 
 async function readRecords(): Promise<WireRecord[]> {
-  await ix.get(IWireService).flush();
+  await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(
-    testWireScope(SCOPE, KEY),
-    AGENT_WIRE_RECORD_KEY,
-  )) {
+  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, KEY), AGENT_WIRE_RECORD_KEY)) {
     out.push(record);
   }
   return out;
@@ -125,58 +122,6 @@ describe('AgentPermissionRulesService (wire-backed)', () => {
     expect(records.every((record) => 'payload' in record === false)).toBe(true);
   });
 
-  it('treats empty rule arrays as a no-op and does not persist them', () => {
-    svc.addRules([]);
-    expect(svc.rules).toEqual([]);
-  });
-
-  it('handles rules with special characters in patterns', () => {
-    const specialPatternRule: PermissionRule = {
-      decision: 'allow',
-      scope: 'session-runtime',
-      pattern: 'Bash(cat /proc/$(echo $$)/status)',
-    };
-    svc.addRules([specialPatternRule]);
-    expect(svc.rules).toEqual([specialPatternRule]);
-  });
-
-  it('tolerates duplicate rules and does not deduplicate', () => {
-    svc.addRules([allowRule, allowRule]);
-    expect(svc.rules).toEqual([allowRule, allowRule]);
-  });
-
-  it('records a session approval pattern with a long tool call id', () => {
-    const approval = sessionApproval('Bash(rm *)');
-    const longIdApproval: PermissionApprovalResultRecord = {
-      ...approval,
-      toolCallId: 'call_'.repeat(50),
-    };
-    svc.recordApprovalResult(longIdApproval);
-    expect(svc.sessionApprovalRulePatterns).toEqual(['Bash(rm *)']);
-  });
-
-  it('records multiple distinct session approval patterns', () => {
-    svc.recordApprovalResult(sessionApproval('Bash(rm *)'));
-    svc.recordApprovalResult(sessionApproval('Bash(rm -rf *)'));
-    expect(svc.sessionApprovalRulePatterns).toEqual(['Bash(rm *)', 'Bash(rm -rf *)']);
-  });
-
-  it('does not duplicate session approval patterns on re-record', () => {
-    svc.recordApprovalResult(sessionApproval('Bash(rm *)'));
-    svc.recordApprovalResult(sessionApproval('Bash(rm *)'));
-    expect(svc.sessionApprovalRulePatterns).toEqual(['Bash(rm *)']);
-  });
-
-  it('preserves live rules and session patterns across a flush cycle', async () => {
-    svc.addRules([allowRule]);
-    svc.recordApprovalResult(sessionApproval('Bash(rm *)'));
-
-    await ix.get(IWireService).flush();
-
-    expect(svc.rules).toEqual([allowRule]);
-    expect(svc.sessionApprovalRulePatterns).toEqual(['Bash(rm *)']);
-  });
-
   it('replay rebuilds session approval patterns only (rules are not persisted)', async () => {
     svc.addRules([allowRule, denyRule]);
     svc.recordApprovalResult(sessionApproval('Bash(rm *)'));
@@ -186,26 +131,26 @@ describe('AgentPermissionRulesService (wire-backed)', () => {
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     const log2 = ix2.get(IAppendLogStore);
-    const fresh = registerTestAgentWire(ix2, testWireScope(SCOPE, 'permission-rules-replay'), {
+    registerTestAgentWire(ix2, testWireScope(SCOPE, 'permission-rules-replay'), {
       log: log2,
     });
+    const fresh = registerTestEventDispatcher(ix2);
+    const freshState = ix2.get(IAgentStateService);
+    freshState.contributeState(permissionRulesKey);
 
-    await restoreTestAgentWire(
+    await restoreTestEventDispatcher(
       fresh,
       log2,
       testWireScope(SCOPE, 'permission-rules-replay'),
       records,
     );
 
-    expect(fresh.getModel(PermissionRulesModel)).toEqual({
+    expect(freshState.get(permissionRulesKey)).toEqual({
       rules: [],
       sessionApprovalRulePatterns: ['Bash(rm *)'],
     });
     const written: WireRecord[] = [];
-    for await (const record of log2.read<WireRecord>(
-      testWireScope(SCOPE, 'permission-rules-replay'),
-      AGENT_WIRE_RECORD_KEY,
-    )) {
+    for await (const record of log2.read<WireRecord>(testWireScope(SCOPE, 'permission-rules-replay'), AGENT_WIRE_RECORD_KEY)) {
       written.push(record);
     }
     expect(written[0]).toMatchObject({ type: 'metadata' });

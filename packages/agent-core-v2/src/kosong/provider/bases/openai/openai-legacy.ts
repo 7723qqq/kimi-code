@@ -1,37 +1,3 @@
-/**
- * `kosong/provider` domain — OpenAI Chat Completions wire base.
- *
- * The base that actually speaks the Chat Completions wire format — and the
- * vendor host with the widest hook surface. It knows NOTHING about vendors:
- * every vendor deviation arrives as a composed `OpenAIChatCompletionsHooks`
- * set baked into `options.hooks` at construction. The hook consumption style
- * is uniform — "hook first, `undefined` falls back to the base default".
- *
- * Per-turn intent assembly (`_resolveRequestKwargs`) applies overlays in the
- * fixed contract order: cacheKey → sampling → thinking → maxCompletionTokens.
- * The context-window clamp on the completion budget (floor 1) runs BEFORE any
- * hook and cannot be skipped; the 128k ceiling clamp can be taken over by the
- * `withMaxCompletionTokens` hook.
- *
- * Two load-bearing behaviors:
- *
- *  - When `hooks.withThinking` EXISTS, the history-scanning auto-enable of
- *    `reasoning_effort` (issue #1616) is disabled entirely — once a trait
- *    takes over thinking encoding the base must not interfere.
- *  - When `hooks.convertMessage` EXISTS ("trait mode"), the base's
- *    tool-result `extract_text` fallback and tool-declaration-only skip are
- *    handed over to the trait wholesale: every history message is
- *    base-converted, post-processed by the hook, and dropped on `null`.
- *  - A reasoning-only assistant is projected with explicit empty `content`.
- *    The reasoning field remains intact while strict Chat Completions
- *    gateways still see the required `content` or `tool_calls` shape.
- *
- * The SDK client is built with `maxRetries: 0`: the SDK's internal backoff
- * sleep never observes the turn's AbortSignal, so rate-limit / server /
- * connection retry is owned by the engine's step-retry layer (observable and
- * cancellable), never by the SDK.
- */
-
 import OpenAI from 'openai';
 
 import { parseTraceId, type ChatProviderError } from '#/kosong/contract/errors';
@@ -58,32 +24,35 @@ import type { Tool } from '#/kosong/contract/tool';
 import type { TokenUsage } from '#/kosong/contract/usage';
 
 import {
-  mergeRequestHeaders,
-  requireProviderApiKey,
-  resolveAuthBackedClient,
-} from '@moonshot-ai/kosong/providers/request-auth';
-import {
-  normalizeToolCallIdsForProvider,
-  sanitizeToolCallId,
-} from '@moonshot-ai/kosong/providers/tool-call-id';
-import {
   convertChatCompletionStreamToolCall,
   type BufferedChatCompletionToolCall,
-} from '@moonshot-ai/kosong/providers/chat-completions-stream';
+} from './chat-completions-stream';
 import {
   convertContentPart,
   convertOpenAIError,
   convertToolMessageContent,
   extractUsage,
+  hasModelPrefix,
   isFunctionToolCall,
+  isOpenAIReasoningModel,
   normalizeOpenAIFinishReason,
+  OPENAI_REASONING_CAPABILITY,
+  OPENAI_TEXT_TOOL_CAPABILITY,
+  OPENAI_VISION_TOOL_CAPABILITY,
+  OPENAI_VISION_TOOL_PREFIXES,
   type OpenAIContentPart,
   TOOL_RESULT_MEDIA_PLACEHOLDER,
   TOOL_RESULT_MEDIA_PROMPT,
   type ToolMessageConversion,
   toolToOpenAI,
-} from '@moonshot-ai/kosong/providers/openai-common';
-import { ReasoningKeyDialect } from '@moonshot-ai/kosong/providers/reasoning-key';
+} from './openai-common';
+import { ReasoningKeyDialect } from './reasoning-key';
+import {
+  mergeRequestHeaders,
+  requireProviderApiKey,
+  resolveAuthBackedClient,
+} from '../request-auth';
+import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
 
 const CHAT_COMPLETIONS_MAX_OUTPUT_TOKENS_CEILING = 128 * 1024;
 
@@ -128,6 +97,7 @@ export interface OpenAILegacyOptions {
   maxTokens?: number | undefined;
   reasoningKey?: string | undefined;
   offEffort?: string | undefined;
+  thinkingEffort?: ThinkingEffort | undefined;
   httpClient?: unknown;
   defaultHeaders?: Record<string, string>;
   toolMessageConversion?: ToolMessageConversion | undefined;
@@ -520,6 +490,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   private readonly _defaultHeaders: Record<string, string> | undefined;
   private readonly _reasoningKeyDialect: ReasoningKeyDialect;
   private readonly _offEffort: string | undefined;
+  private readonly _thinkingEffort: ThinkingEffort | undefined;
   private readonly _generationKwargs: OpenAILegacyGenerationKwargs;
   private readonly _toolMessageConversion: ToolMessageConversion;
   private readonly _client: OpenAI | undefined;
@@ -546,6 +517,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
         ? normalizedReasoningKey
         : this._hooks?.reasoningKey?.(),
     );
+    this._thinkingEffort = options.thinkingEffort;
     this._offEffort = options.offEffort;
     this._generationKwargs = normalizeGenerationKwargs(
       this._model,
@@ -568,7 +540,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
   }
 
   get thinkingEffort(): ThinkingEffort | null {
-    return null;
+    return this._thinkingEffort ?? null;
   }
 
   get maxCompletionTokens(): number | undefined {
@@ -685,7 +657,9 @@ export class OpenAILegacyChatProvider implements ChatProvider {
       kwargs = { ...kwargs, top_p: options.sampling.topP };
     }
 
-    const thinking = options?.thinking;
+    const thinking =
+      options?.thinking ??
+      (this._thinkingEffort !== undefined ? { effort: this._thinkingEffort } : undefined);
     let explicitThinkingEffort: ThinkingEffort | undefined;
     if (thinking !== undefined) {
       const hooked = this._hooks?.withThinking?.(thinking.effort, { keep: thinking.keep }, kwargs);
@@ -738,7 +712,6 @@ export class OpenAILegacyChatProvider implements ChatProvider {
 
     for (const key of Object.keys(kwargs)) {
       if (kwargs[key] === undefined) {
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
         delete kwargs[key];
       }
     }
@@ -770,4 +743,18 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     }
     return new OpenAI(clientOpts as ConstructorParameters<typeof OpenAI>[0]);
   }
+}
+
+export function getOpenAILegacyModelCapability(modelName: string) {
+  const normalized = modelName.toLowerCase();
+  if (isOpenAIReasoningModel(normalized)) {
+    return OPENAI_REASONING_CAPABILITY;
+  }
+  if (hasModelPrefix(normalized, OPENAI_VISION_TOOL_PREFIXES)) {
+    return OPENAI_VISION_TOOL_CAPABILITY;
+  }
+  if (normalized.startsWith('gpt-3.5-turbo')) {
+    return OPENAI_TEXT_TOOL_CAPABILITY;
+  }
+  return undefined;
 }

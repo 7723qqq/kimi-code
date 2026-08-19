@@ -12,9 +12,9 @@ describe('findInactiveToolPatterns', () => {
   const isKnown = (name: string): boolean => known.has(name);
 
   it('passes literal known tool names and MCP globs', () => {
-    expect(findInactiveToolPatterns(['Read', 'Bash', 'mcp__github__*', 'mcp__*'], isKnown)).toEqual(
-      [],
-    );
+    expect(
+      findInactiveToolPatterns(['Read', 'Bash', 'mcp__github__*', 'mcp__*'], isKnown),
+    ).toEqual([]);
   });
 
   it('flags a name that matches no known tool (typo, wrong case)', () => {
@@ -55,9 +55,9 @@ describe('findInactiveToolPatterns', () => {
 
 describe('literalToolNames', () => {
   it('keeps only literal non-MCP names', () => {
-    expect(literalToolNames(['Read', 'mcp__*', 'Bash*', 'mcp__github__create_issue'])).toEqual([
-      'Read',
-    ]);
+    expect(
+      literalToolNames(['Read', 'mcp__*', 'Bash*', 'mcp__github__create_issue']),
+    ).toEqual(['Read']);
   });
 });
 

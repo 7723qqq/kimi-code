@@ -32,10 +32,14 @@ import {
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
 import { mcpOAuthStoreKey } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { startMcpAuthStatusServer } from './mcp-auth-status-server';
 
+// Every parity test boots two full v2 engines on separate temp homes; on
+// Windows cold starts routinely exceed vitest's 5s default, and the heaviest
+// steer/export scenarios can take 30s+.
+vi.setConfig({ testTimeout: 60_000 });
 /**
  * Pre-write an OAuth token record for a user-global MCP server, mirroring the
  * v2 engine's `<homeDir>/credentials/mcp/<key>-tokens.json` layout (plain-text

@@ -1,10 +1,10 @@
-import { PathSecurityError } from '#/tool/path-access';
 import type {
   ExecutableTool,
   ExecutableToolContext,
   ExecutableToolResult,
   ToolExecution,
 } from '#/tool/toolContract';
+import { PathSecurityError } from '#/tool/path-access';
 
 export type TestExecutableToolContext<Input> = ExecutableToolContext & {
   readonly args: Input;
@@ -32,8 +32,6 @@ export async function executeTool<Input>(
   return execution.execute(executionContext);
 }
 
-function isPromiseLike(
-  value: ToolExecution | Promise<ToolExecution>,
-): value is Promise<ToolExecution> {
+function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }

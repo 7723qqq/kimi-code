@@ -1,25 +1,10 @@
-/**
- * `web` domain — local `UrlFetcher` used when no managed fetch service
- * is configured. GETs URLs with a Chrome-like UA and SSRF hardening: http(s)
- * schemes only; unless `allowPrivateAddresses` is set, IP literals and
- * DNS-resolved addresses in loopback / RFC1918 / link-local / CGNAT / ULA
- * ranges are refused, including IPv4-mapped IPv6 forms; redirects are
- * followed manually with the same validation re-run on every hop; and each
- * request's connection is pinned to the DNS answers validation approved, so
- * a connect-time re-resolution cannot be rebound elsewhere (pinning is
- * skipped for IP literals and for requests a proxy will carry — NO_PROXY
- * bypasses still pin). Oversized bodies are refused; plain texts pass
- * through verbatim and HTML is reduced to its main text.
- */
-
 import { lookup as callbackLookup, type LookupAddress, type LookupOptions } from 'node:dns';
 import { lookup } from 'node:dns/promises';
 import { BlockList, isIP, type LookupFunction } from 'node:net';
 
-import { t } from '@moonshot-ai/kimi-i18n';
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
-import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici';
+import { Agent, type Dispatcher } from 'undici';
 
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 import { Error2, ErrorCodes } from '#/errors';
@@ -47,30 +32,9 @@ const MAX_REDIRECT_HOPS = 10;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-/** Init for connection-pinned requests (undici's `dispatcher` pinning knob). */
-export interface PinnedFetchInit {
-  readonly method?: string;
-  readonly headers?: unknown;
-  readonly signal?: AbortSignal | null;
-  readonly redirect?: unknown;
-  readonly dispatcher?: unknown;
-}
-
-/** Fetch signature for connection-pinned requests (undici-compatible). */
-export type PinnedFetch = (
-  input: string | URL | Request,
-  init?: PinnedFetchInit,
-) => Promise<Response>;
-
 export interface LocalFetchURLProviderOptions {
   userAgent?: string;
   fetchImpl?: typeof fetch;
-  /**
-   * Fetch used for connection-pinned requests (the undici build, since
-   * Node's global fetch rejects an external undici `Agent` dispatcher).
-   * Injectable for tests; defaults to `undici`'s own fetch.
-   */
-  pinnedFetchImpl?: PinnedFetch;
   maxBytes?: number;
   allowPrivateAddresses?: boolean;
 }
@@ -78,14 +42,12 @@ export interface LocalFetchURLProviderOptions {
 export class LocalFetchURLProvider implements UrlFetcher {
   private readonly userAgent: string;
   private readonly fetchImpl: typeof fetch;
-  private readonly pinnedFetchImpl: PinnedFetch;
   private readonly maxBytes: number;
   private readonly allowPrivateAddresses: boolean;
 
   constructor(options: LocalFetchURLProviderOptions = {}) {
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
-    this.pinnedFetchImpl = options.pinnedFetchImpl ?? (undiciFetch as unknown as PinnedFetch);
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.allowPrivateAddresses = options.allowPrivateAddresses ?? false;
   }
@@ -96,16 +58,26 @@ export class LocalFetchURLProvider implements UrlFetcher {
   ): Promise<UrlFetchResult> {
     const dispatchers: Dispatcher[] = [];
     try {
-      const response = await this.requestWithValidatedRedirects(url, options?.signal, dispatchers);
+      const response = await this.requestWithValidatedRedirects(
+        url,
+        options?.signal,
+        dispatchers,
+      );
       return await this.readResponse(response);
     } finally {
-      await Promise.all(dispatchers.map((dispatcher) => dispatcher.close().catch(() => {})));
+      await Promise.all(
+        dispatchers.map((dispatcher) =>
+          dispatcher.close().catch(() => {
+          }),
+        ),
+      );
     }
   }
 
   private async readResponse(response: Response): Promise<UrlFetchResult> {
     if (response.status >= 400) {
-      await response.body?.cancel().catch(() => {});
+      await response.body?.cancel().catch(() => {
+      });
       throw new HttpFetchError(
         response.status,
         `HTTP ${String(response.status)} ${response.statusText}`,
@@ -116,7 +88,8 @@ export class LocalFetchURLProvider implements UrlFetcher {
     if (contentLengthRaw !== null) {
       const cl = Number(contentLengthRaw);
       if (Number.isFinite(cl) && cl > this.maxBytes) {
-        await response.body?.cancel().catch(() => {});
+        await response.body?.cancel().catch(() => {
+        });
         throw new Error2(
           ErrorCodes.WEB_FETCH_FAILED,
           `Response body too large: ${String(cl)} bytes exceeds maxBytes (${String(this.maxBytes)}).`,
@@ -125,7 +98,16 @@ export class LocalFetchURLProvider implements UrlFetcher {
       }
     }
 
-    const body = await readBodyStreamed(response.body, this.maxBytes);
+    const body = await response.text();
+
+    const actualBytes = Buffer.byteLength(body, 'utf8');
+    if (actualBytes > this.maxBytes) {
+      throw new Error2(
+        ErrorCodes.WEB_FETCH_FAILED,
+        `Response body too large: ${String(actualBytes)} bytes exceeds maxBytes (${String(this.maxBytes)}).`,
+        { details: { bytes: actualBytes, maxBytes: this.maxBytes } },
+      );
+    }
 
     const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
     if (contentType.startsWith('text/plain') || contentType.startsWith('text/markdown')) {
@@ -144,29 +126,18 @@ export class LocalFetchURLProvider implements UrlFetcher {
     let redirects = 0;
     for (;;) {
       const target = await resolveSafeFetchTarget(currentUrl, this.allowPrivateAddresses);
-      // Node's global fetch rejects an external undici `Agent` passed as
-      // `dispatcher` (the two undici builds are not wire-compatible), so a
-      // pinned agent fetches through undici's own fetch instead.
-      const pinned = this.pinnedDispatcherFor(target, dispatchers);
-      const response =
-        pinned !== undefined
-          ? ((await this.pinnedFetchImpl(currentUrl, {
-              method: 'GET',
-              headers: { 'User-Agent': this.userAgent },
-              signal,
-              redirect: 'manual',
-              dispatcher: pinned,
-            })) as Response)
-          : await this.fetchImpl(currentUrl, {
-              method: 'GET',
-              headers: { 'User-Agent': this.userAgent },
-              signal,
-              redirect: 'manual',
-            });
+      const response = await this.fetchImpl(currentUrl, {
+        method: 'GET',
+        headers: { 'User-Agent': this.userAgent },
+        signal,
+        redirect: 'manual',
+        dispatcher: this.pinnedDispatcherFor(target, dispatchers) as unknown,
+      } as RequestInit);
       if (!REDIRECT_STATUSES.has(response.status)) return response;
       const location = response.headers.get('location');
       if (location === null) return response;
-      await response.body?.cancel().catch(() => {});
+      await response.body?.cancel().catch(() => {
+      });
       if (redirects >= MAX_REDIRECT_HOPS) {
         throw new Error2(
           ErrorCodes.WEB_FETCH_FAILED,
@@ -192,10 +163,6 @@ export class LocalFetchURLProvider implements UrlFetcher {
     }
     const dispatcher = new Agent({
       connect: { lookup: pinnedLookup(target.host, target.addresses) },
-      // Cap the response body at the provider limit; undici aborts the
-      // request when the stream exceeds it (covers the pinned path, where
-      // `readResponse`'s incremental counter cannot see the bytes).
-      maxResponseSize: this.maxBytes,
     });
     dispatchers.push(dispatcher);
     return dispatcher;
@@ -215,7 +182,8 @@ export class LocalFetchURLProvider implements UrlFetcher {
           return title.length > 0 ? `# ${title}\n\n${text}` : text;
         }
       }
-    } catch {}
+    } catch {
+    }
 
     const { document } = parseHTML(html);
     const titleText = (document.querySelector('title')?.textContent ?? '').trim();
@@ -226,7 +194,10 @@ export class LocalFetchURLProvider implements UrlFetcher {
     const fallbackText = (container?.textContent ?? '').trim();
 
     if (fallbackText.length === 0) {
-      throw new Error(t('toolsV2.fetchUrl.contentExtractionFailed'));
+      throw new Error2(
+        ErrorCodes.WEB_FETCH_FAILED,
+        'Failed to extract meaningful content from the page. The page may require JavaScript to render.',
+      );
     }
 
     return titleText.length > 0 ? `# ${titleText}\n\n${fallbackText}` : fallbackText;
@@ -255,57 +226,18 @@ function isBlockedAddress(address: string): boolean {
   return isIP(normalized) === 6 && PRIVATE_ADDRESS_BLOCKLIST.check(normalized, 'ipv6');
 }
 
-/**
- * Read a response body as UTF-8 text with a hard byte cap: the stream is
- * cancelled as soon as the accumulated bytes exceed `maxBytes` instead of
- * buffering the whole payload first.
- */
-async function readBodyStreamed(
-  body: ReadableStream<Uint8Array> | null,
-  maxBytes: number,
-): Promise<string> {
-  if (body === null) return '';
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        throw new Error2(
-          ErrorCodes.WEB_FETCH_FAILED,
-          `Response body too large: ${String(total)} bytes exceeds maxBytes (${String(maxBytes)}).`,
-          { details: { bytes: total, maxBytes } },
-        );
-      }
-      chunks.push(value);
-    }
-  } catch (error) {
-    await reader.cancel().catch(() => {});
-    throw error;
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
 interface SafeFetchTarget {
   host: string;
   port: string;
   addresses?: LookupAddress[];
 }
 
-async function resolveSafeFetchTarget(
-  url: string,
-  allowPrivate: boolean,
-): Promise<SafeFetchTarget> {
+async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promise<SafeFetchTarget> {
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error2(ErrorCodes.WEB_INVALID_URL, t('toolsV2.fetchUrl.invalidUrl', { url }), {
-      details: { url },
-    });
+    throw new Error2(ErrorCodes.WEB_INVALID_URL, `Invalid URL: "${url}"`, { details: { url } });
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error2(
@@ -320,18 +252,14 @@ async function resolveSafeFetchTarget(
   if (allowPrivate) return { host, port };
   if (isIP(host) !== 0) {
     if (isBlockedAddress(host)) {
-      throw new Error2(
-        ErrorCodes.WEB_PRIVATE_ADDRESS,
-        t('toolsV2.fetchUrl.privateAddress', { host }),
-        {
-          details: { host },
-        },
-      );
+      throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, `Refusing to fetch private address: "${host}"`, {
+        details: { host },
+      });
     }
     return { host, port };
   }
   if (host === 'localhost' || host.endsWith('.localhost')) {
-    throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, t('toolsV2.fetchUrl.privateHost', { host }), {
+    throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, `Refusing to fetch private host: "${host}"`, {
       details: { host },
     });
   }

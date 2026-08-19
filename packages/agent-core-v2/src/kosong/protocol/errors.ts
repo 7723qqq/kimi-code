@@ -1,23 +1,3 @@
-/**
- * `kosong/protocol` domain — wire API failure codes and the boundary
- * translation from raw contract errors to coded `Error2`s.
- *
- * The `ChatProviderError` family is born-coded (see `kosong/contract/errors`):
- * every instance already carries its wire code, so `translateProviderError`'s
- * `isError2` guard passes it through untouched. What remains here is the
- * abort guard and the fallback for errors foreign to the family (plain
- * `Error` / unknown thrown values → `internal`).
- *
- * `translateProviderError`'s FIRST guard is the contract's
- * `throwIfAbortError`: a user cancellation is thrown as the standard abort
- * DOMException and can never be misclassified as a retryable provider
- * failure. The guard throws rather than returns, by design.
- *
- * Side-effect module: importing registers the error domain.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { CoreErrors, registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 import { Error2, isError2 } from '#/_base/errors/errors';
 import {
@@ -51,37 +31,37 @@ export const ProtocolErrors = {
   ],
   info: {
     'provider.rate_limit': {
-      title: t('v2Errors.providerRateLimit'),
+      title: 'Provider rate limit',
       retryable: true,
       public: true,
-      action: t('v2Errors.providerRateLimitAction'),
+      action: 'Retry after the provider rate limit resets.',
     },
     'provider.filtered': {
-      title: t('v2Errors.providerFiltered'),
+      title: 'Provider filtered response',
       retryable: false,
       public: true,
-      action: t('v2Errors.providerFilteredAction'),
+      action: 'Revise the prompt or model configuration to avoid provider safety filtering.',
     },
     'provider.auth_error': {
-      title: t('v2Errors.providerAuthError'),
+      title: 'Provider authentication failed',
       retryable: false,
       public: true,
-      action: t('v2Errors.providerAuthErrorAction'),
+      action: 'Check provider credentials and authentication configuration.',
     },
     'provider.overloaded': {
-      title: t('v2Errors.providerOverloaded'),
+      title: 'Provider overloaded',
       retryable: true,
       public: true,
-      action: t('v2Errors.providerOverloadedAction'),
+      action: 'Retry after the provider recovers from overload.',
     },
     'context.overflow': {
-      title: t('v2Errors.contextOverflow'),
+      title: 'Context overflow',
       retryable: true,
       public: true,
-      action: t('v2Errors.contextOverflowAction'),
+      action: 'Compact the conversation or retry with fewer tokens.',
     },
   },
-} satisfies ErrorDomain;
+} as const satisfies ErrorDomain;
 
 registerErrorDomain(ProtocolErrors);
 

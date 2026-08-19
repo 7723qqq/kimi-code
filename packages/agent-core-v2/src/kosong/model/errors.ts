@@ -1,15 +1,3 @@
-/**
- * `kosong/model` domain — catalog error codes.
- *
- * The codes are intentionally identical to the deleted legacy
- * `app/modelCatalog` domain's (the wire contract branches on them). The
- * error registry keys on the contributing `codes` OBJECT, so the legacy
- * module could never be loaded together with this one — this domain is the
- * sole owner of the codes.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const ModelCatalogErrors = {
@@ -19,16 +7,16 @@ export const ModelCatalogErrors = {
   },
   info: {
     'provider.not_found': {
-      title: t('v2Errors.providerNotFound'),
+      title: 'Provider not found',
       retryable: false,
       public: true,
-      action: t('v2Errors.providerNotFoundAction'),
+      action: 'Check the provider id or configure the provider first.',
     },
     'model.not_found': {
-      title: t('v2Errors.modelNotFound'),
+      title: 'Model not found',
       retryable: false,
       public: true,
-      action: t('v2Errors.modelNotFoundAction'),
+      action: 'Check the model alias or configure the model first.',
     },
   },
 } as const satisfies ErrorDomain;

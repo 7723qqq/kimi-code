@@ -1,71 +1,25 @@
-/**
- * `tools` domain — `BashTool` implementation, the model's shell command
- * runner.
- *
- * Invokes the execution-environment shell (bash, PowerShell, pwsh, or cmd
- * depending on host detection/configuration) through the injected `ISessionProcessRunner`.
- * The command runs with a shell-specific cwd wrapper (`cd`, `Set-Location`,
- * or `cd /d`) inside the environment's working directory.
- *
- * The Rust native bash lifecycle (`tryNativeBashSpawn`) is the primary spawn
- * path — it streams stdout/stderr to an `IProcess` adapter and kills the
- * process tree on demand; when the native module is unavailable the tool
- * falls back to `ISessionProcessRunner` (node-local `child_process`). A
- * terminal-backed runner (the ACP terminal reverse-RPC bridge) always
- * receives the invocation through the runner instead, so the client terminal
- * displays the command.
- *
- * Collaborators injected via constructor:
- *   - `runner`     — `ISessionProcessRunner`, spawns the shell process
- *   - `env`        — `IHostEnvironment`, host OS / shell probe (osKind / shellName / shellPath)
- *   - `ctx`        — `ISessionContext`, session cwd used to render the shell prompt
- *   - `tasks`      — `IAgentTaskService`, owns foreground/detached task
- *                    lifecycle (timeouts, detach, user interrupt)
- *   - `toolPolicy` — `IAgentToolPolicyService`, gates background execution on
- *                    the Task* tools being active
- *   - `config`     — `IConfigService`, task config (auto-background on
- *                    timeout, detach timeout)
- *
- * Hardening:
- *   - `args.timeout` (seconds) arms the manager-owned deadline; a foreground
- *     command whose deadline fires is moved to the background instead of
- *     being killed (unless disabled via config), while the ambient `signal`
- *     always stops the task.
- *   - stdin is closed immediately so interactive commands (`cat`, `read`,
- *     `python -c 'input()'`) receive EOF instead of hanging.
- *   - Two-phase kill is owned by `IAgentTaskService`: SIGTERM → grace → SIGKILL.
- *   - stdout/stderr are captured by `ProcessTask` for task output;
- *     foreground runs pass a callback to collect chunks for this call.
- *
- * Ported from v1. The
- * v1 `process.env` spread is intentionally dropped: v2's `ISessionProcessRunner.exec`
- * already overlays the per-call `env` on `process.env`, so only the
- * noninteractive knobs are passed here.
- *
- * Bound at Agent scope; self-registers via `registerAgentToolService(...)` at module
- * load.
- */
-
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import { userCancellationReason } from '#/_base/utils/abort';
-import { tryNativeBashSpawn } from '#/_base/native-tools';
-import { renderPrompt } from '#/_base/utils/render-prompt';
-import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { resolveAgentTaskConfig } from '#/agent/task/configSection';
 import { IConfigService } from '#/app/config/config';
-import { ISpillService, type SpillRef } from '#/features/spill/spill';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { ISessionProcessRunner, type IProcess } from '#/session/process/processRunner';
+import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
+import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { type ExecutableToolResultBuilderResult, ToolResultBuilder } from '#/tool/result-builder';
-import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import type { ExecutableToolResult, ToolExecution, ToolUpdate } from '#/tool/toolContract';
-import { isSandboxBackendAvailable, resolveSandboxPolicy } from '#/workspace/sandbox/sandbox';
-
+import {
+  type ExecutableToolResultBuilderResult,
+  ToolResultBuilder,
+} from '#/tool/result-builder';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
+import { renderPrompt } from '#/_base/utils/render-prompt';
+import { userCancellationReason } from '#/_base/utils/abort';
+import bashDescriptionTemplate from './bash.md?raw';
+import { ProcessTask } from './process-task';
 import {
   type BashInput,
   BashInputSchema,
@@ -75,9 +29,6 @@ import {
   MAX_BACKGROUND_TIMEOUT_S,
   MAX_TIMEOUT_S,
 } from './bash';
-import bashDescriptionTemplate from './bash.md?raw';
-import { NativeBashProcess } from './native-bash-process';
-import { ProcessTask } from './process-task';
 
 const MS_PER_SECOND = 1000;
 
@@ -98,51 +49,15 @@ function normalizeTimeoutMs(timeout: number | undefined, isBackground: boolean):
   return Math.min(value, timeoutCapS(isBackground)) * MS_PER_SECOND;
 }
 
-async function disposeProcess(proc: IProcess): Promise<void> {
+async function disposeProcess(proc: IHostProcess): Promise<void> {
   try {
     await proc.dispose();
-  } catch {}
+  } catch {
+  }
 }
 
 function renderBashDescription(shellName: string): string {
-  return renderPrompt(bashDescriptionTemplate, {
-    ...SHELL_TIMEOUT_VARS,
-    SHELL_NAME: shellName,
-    SHELL_SEMANTICS: shellSemanticsBlock(shellName),
-  });
-}
-
-function shellSemanticsBlock(shellName: string): string {
-  switch (shellName) {
-    case 'powershell':
-    case 'pwsh':
-      return (
-        '**Shell semantics (PowerShell):**\n' +
-        '- Use PowerShell syntax: `Get-ChildItem` (not `ls`), `Get-Content` (not `cat`), `Set-Location` (not `cd`), `$env:VAR` (not `$VAR`), `$null` (not `/dev/null`).\n' +
-        (shellName === 'pwsh'
-          ? '- `&&` chains commands (PowerShell 7+); `;` separates statements.\n'
-          : '- `;` separates statements; `&&` is NOT supported (Windows PowerShell 5.1) — chain with `if ($LASTEXITCODE -eq 0) { ... }` or issue separate calls.\n') +
-        '- `|` pipes objects, not text — use `Out-String` or `ConvertTo-Json` when you need text output.\n' +
-        '- Environment variables: `$env:NAME` to read, `$env:NAME = "value"` to set.\n' +
-        '- Paths are Windows-style (`C:\\Users\\...`); use `Join-Path` / `Split-Path` instead of string concatenation.\n' +
-        '- `where.exe` (not `which`), `Get-Command` to locate executables.\n'
-      );
-    case 'cmd':
-      return (
-        '**Shell semantics (cmd.exe):**\n' +
-        '- Use cmd syntax: `dir` (not `ls`), `type` (not `cat`), `cd /d` to change drives, `%VAR%` for environment variables.\n' +
-        '- `&&` chains commands; `|` pipes text; `> file` / `>> file` redirect.\n' +
-        '- Paths are Windows-style (`C:\\Users\\...`).\n' +
-        '- `where` (not `which`) to locate executables.\n'
-      );
-    default:
-      return (
-        '**Shell semantics (bash):**\n' +
-        '- POSIX/bash syntax: `ls`, `cat`, `cd`, `$VAR`, `/dev/null`.\n' +
-        '- `&&` chains commands; `|` pipes text; `> file` / `>> file` redirect.\n' +
-        '- `which <command>` to confirm a command exists before relying on it.\n'
-      );
-  }
+  return renderPrompt(bashDescriptionTemplate, { ...SHELL_TIMEOUT_VARS, SHELL_NAME: shellName });
 }
 
 function withoutBackgroundDescription(description: string): string {
@@ -173,28 +88,14 @@ export class BashTool implements IBashTool {
   readonly name = 'Bash' as const;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(BashInputSchema);
 
-  private readonly isWindowsBash: boolean;
-  private readonly isWindowsPowerShell: boolean;
-  private readonly isWindowsCmd: boolean;
-
-  private readonly renderedDescription: string;
-
   constructor(
-    @ISessionProcessRunner private readonly runner: ISessionProcessRunner,
-    @IHostEnvironment private readonly env: IHostEnvironment,
+    @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
     @ISessionContext private readonly ctx: ISessionContext,
+    @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
     @IConfigService private readonly config: IConfigService,
-    @ISpillService private readonly spill?: ISpillService,
-  ) {
-    this.isWindowsBash = this.env.osKind === 'Windows' && this.env.shellName === 'bash';
-    this.isWindowsPowerShell =
-      this.env.osKind === 'Windows' &&
-      (this.env.shellName === 'powershell' || this.env.shellName === 'pwsh');
-    this.isWindowsCmd = this.env.osKind === 'Windows' && this.env.shellName === 'cmd';
-    this.renderedDescription = renderBashDescription(this.env.shellName);
-  }
+  ) {}
 
   private allowBackground(): boolean {
     return (
@@ -215,19 +116,20 @@ export class BashTool implements IBashTool {
   }
 
   get description(): string {
-    if (!this.allowBackground()) return withoutBackgroundDescription(this.renderedDescription);
+    const renderedDescription = renderBashDescription(inspectAgentRuntime(this.runtime).environment.shellName);
+    if (!this.allowBackground()) return withoutBackgroundDescription(renderedDescription);
     if (!this.autoBackgroundOnTimeout()) {
-      return withoutAutoBackgroundOnTimeout(this.renderedDescription);
+      return withoutAutoBackgroundOnTimeout(renderedDescription);
     }
-    return this.renderedDescription;
+    return renderedDescription;
   }
 
   resolveExecution(args: BashInput): ToolExecution {
     const preview = args.command.length > 50 ? `${args.command.slice(0, 50)}…` : args.command;
     return {
       description: args.run_in_background
-        ? t('toolsV2.bash.startingBackground', { preview })
-        : t('toolsV2.bash.running', { preview }),
+        ? `Starting background: ${preview}`
+        : `Running: ${preview}`,
       display: {
         kind: 'command',
         command: args.command,
@@ -242,73 +144,22 @@ export class BashTool implements IBashTool {
     };
   }
 
-  private async spawn(effectiveCwd: string, command: string): Promise<IProcess> {
-    const shellArgs = this.windowsShellArgs(effectiveCwd, command);
-
+  private spawn(
+    processService: IHostProcessService,
+    env: HostEnvironmentInfo,
+    effectiveCwd: string,
+    command: string,
+  ): Promise<IHostProcess> {
+    const shellCwd = env.osKind === 'Windows' ? windowsPathToPosixPath(effectiveCwd) : effectiveCwd;
+    const shellCommand = `cd ${shellQuote(shellCwd)} && ${command}`;
     const noninteractiveEnv: Record<string, string> = {
       NO_COLOR: '1',
       TERM: 'dumb',
       GIT_TERMINAL_PROMPT: process.env['GIT_TERMINAL_PROMPT'] ?? '0',
-      SHELL: this.env.shellPath,
+      SHELL: env.shellPath,
     };
 
-    // A terminal-backed runner (the ACP terminal reverse-RPC bridge) must
-    // receive the Bash invocation so the client terminal displays the command
-    // — the native fast path would bypass it. Only when the runner is a plain
-    // local spawn does the Rust native bash lifecycle take precedence.
-    if (this.runner.terminalBacked !== true) {
-      // Native Rust bash is the primary path; node-local spawn is the fallback.
-      // The callback may only fire once this call returns (TSFN dispatches on
-      // the event loop), so `nativeProc` is always assigned before it runs.
-      let nativeProc: NativeBashProcess | undefined;
-      const spawnResult = tryNativeBashSpawn(
-        { argv: shellArgs, env: noninteractiveEnv },
-        (event) => {
-          nativeProc?.handleEvent(event);
-        },
-      );
-      if (spawnResult !== undefined) {
-        nativeProc = new NativeBashProcess(spawnResult.id, spawnResult.pid);
-        return nativeProc;
-      }
-    }
-
-    return this.runner.exec(shellArgs, { env: noninteractiveEnv });
-  }
-
-  /**
-   * Build the shell invocation for the detected shell.
-   *
-   * - bash (POSIX or Git Bash): `bash -c 'cd <cwd> && <command>'` with the
-   *   cwd quoted for POSIX and converted to a POSIX path on Windows.
-   * - PowerShell: `pwsh|powershell -NoProfile -NonInteractive -Command
-   *   "Set-Location -LiteralPath '<cwd>'; <command>"` — native PowerShell
-   *   semantics, no POSIX emulation.
-   * - cmd: `cmd.exe /d /s /c "cd /d <cwd> && <command>"`.
-   */
-  private windowsShellArgs(effectiveCwd: string, command: string): string[] {
-    if (this.isWindowsPowerShell) {
-      const script = `Set-Location -LiteralPath '${effectiveCwd.replaceAll("'", "''")}'; ${command}`;
-      return [this.env.shellPath, '-NoProfile', '-NonInteractive', '-Command', script];
-    }
-    if (this.isWindowsCmd) {
-      return [
-        this.env.shellPath,
-        '/d',
-        '/s',
-        '/c',
-        `cd /d "${effectiveCwd.replaceAll('"', '""')}" && ${command}`,
-      ];
-    }
-    const shellCwd = this.isWindowsBash ? windowsPathToPosixPath(effectiveCwd) : effectiveCwd;
-    // MSYS2 bash (unlike Git Bash) does not prepend its own /usr/bin to the
-    // inherited Windows PATH in non-login mode, so common commands (ls, grep,
-    // which, ...) would be "command not found". Prepend the standard POSIX
-    // dirs explicitly; harmless on Git Bash / POSIX where they already exist.
-    const pathPrefix = this.isWindowsBash
-      ? 'export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"; '
-      : '';
-    return [this.env.shellPath, '-c', `${pathPrefix}cd ${shellQuote(shellCwd)} && ${command}`];
+    return processService.spawn(env.shellPath, ['-c', shellCommand], { env: noninteractiveEnv });
   }
 
   private async execution(
@@ -320,18 +171,13 @@ export class BashTool implements IBashTool {
     const validationError = this.validateRunRequest(args, signal);
     if (validationError !== undefined) return validationError;
 
-    const effectiveCwd = args.cwd ?? this.ctx.cwd;
-    const policy = resolveSandboxPolicy(this.config, effectiveCwd);
-    if (policy.mode !== 'off' && !isSandboxBackendAvailable()) {
-      return {
-        isError: true,
-        output: t('toolsV2.bash.sandboxBackendUnavailable', { mode: policy.mode }),
-      };
-    }
-
     const startsInBackground = args.run_in_background === true;
     const foregroundTimeoutMs = normalizeTimeoutMs(args.timeout, false);
-    const command = this.rewriteCommandForShell(args.command);
+    const lease = this.runtime.acquire(['process']);
+    const view = new RuntimeWorkspaceView(lease.runtime, this.workspaceCtx);
+    const env = lease.runtime.environment;
+    const command = env.osKind === 'Windows' ? rewriteWindowsNullRedirect(args.command) : args.command;
+    const effectiveCwd = view.resolve(args.cwd ?? view.workDir);
     const description = startsInBackground ? args.description!.trim() : foregroundDescription(args);
     const timeoutMs = startsInBackground
       ? args.disable_timeout
@@ -339,14 +185,12 @@ export class BashTool implements IBashTool {
         : normalizeTimeoutMs(args.timeout, true)
       : foregroundTimeoutMs;
 
-    const spill = this.spill;
-    const builder = new ToolResultBuilder({
-      onTruncated: spill === undefined ? undefined : (fullText) => this.spillSave(spill, fullText),
-    });
-    let proc: IProcess;
+    const builder = new ToolResultBuilder();
+    let proc: IHostProcess;
     try {
-      proc = await this.spawn(effectiveCwd, command);
+      proc = lease.track(await this.spawn(lease.runtime.process!, env, effectiveCwd, command));
     } catch (error) {
+      lease.dispose();
       return {
         isError: true,
         output: error instanceof Error ? error.message : String(error),
@@ -372,7 +216,7 @@ export class BashTool implements IBashTool {
     let taskId: string;
     try {
       taskId = this.tasks.registerTask(
-        new ProcessTask(proc, command, description, onProcessOutput),
+        new ProcessTask(proc, command, description, onProcessOutput, () => lease.dispose()),
         {
           detached: startsInBackground,
           timeoutMs,
@@ -385,6 +229,7 @@ export class BashTool implements IBashTool {
     } catch (error) {
       collectForegroundOutput = false;
       await killSpawnedProcess(proc);
+      lease.dispose();
       return {
         isError: true,
         output: error instanceof Error ? error.message : String(error),
@@ -395,8 +240,8 @@ export class BashTool implements IBashTool {
 
     if (startsInBackground) {
       return this.backgroundStartedResult(taskId, proc, description, {
-        title: t('shell.backgroundStarted'),
-        brief: t('shell.backgroundStartedBrief', { taskId }),
+        title: 'Background task started',
+        brief: `Started ${taskId}`,
       });
     }
 
@@ -407,12 +252,12 @@ export class BashTool implements IBashTool {
         const labels =
           release === 'timeout_detached'
             ? {
-                title: t('shell.commandTimedOutToBackground'),
-                brief: t('shell.backgroundedAfterTimeout', { taskId }),
+                title: 'Command timed out and moved to background',
+                brief: `Backgrounded ${taskId} after timeout`,
               }
             : {
-                title: t('shell.taskMovedToBackground'),
-                brief: t('shell.backgroundedBrief', { taskId }),
+                title: 'Task moved to background',
+                brief: `Backgrounded ${taskId}`,
               };
         return this.backgroundStartedResult(
           taskId,
@@ -430,39 +275,24 @@ export class BashTool implements IBashTool {
     }
   }
 
-  private rewriteCommandForShell(command: string): string {
-    if (this.isWindowsBash) return rewriteWindowsNullRedirect(command);
-    if (this.isWindowsPowerShell) return rewritePowerShellNullRedirect(command);
-    return command;
-  }
-
-  private spillSave(spill: ISpillService, fullText: string): Promise<SpillRef> {
-    return spill.saveText({
-      owner: { sessionId: this.ctx.sessionId },
-      source: { toolName: 'bash', callId: 'foreground', label: 'full-output' },
-      suggestedName: 'bash-output.txt',
-      content: fullText,
-    });
-  }
-
   private validateRunRequest(
     args: BashInput,
     signal: AbortSignal,
   ): ExecutableToolResult | undefined {
-    if (signal.aborted) return { isError: true, output: t('shell.abortedBeforeStart') };
-    if (args.command.length === 0)
-      return { isError: true, output: t('shell.commandCannotBeEmpty') };
+    if (signal.aborted) return { isError: true, output: 'Aborted before command started' };
+    if (args.command.length === 0) return { isError: true, output: 'Command cannot be empty.' };
     if (args.run_in_background !== true) return undefined;
     if (!this.allowBackground()) {
       return {
         isError: true,
-        output: t('shell.backgroundNotAvailable'),
+        output:
+          'Background execution is not available for this agent because TaskOutput and TaskStop are not enabled.',
       };
     }
     if (!args.description?.trim()) {
       return {
         isError: true,
-        output: t('shell.descriptionRequired'),
+        output: 'description is required when run_in_background is true.',
       };
     }
     return undefined;
@@ -470,7 +300,7 @@ export class BashTool implements IBashTool {
 
   private async foregroundCompletionResult(
     taskId: string,
-    proc: IProcess,
+    proc: IHostProcess,
     builder: ToolResultBuilder,
     foregroundTimeoutMs: number,
   ): Promise<ExecutableToolResult> {
@@ -479,29 +309,27 @@ export class BashTool implements IBashTool {
     let result: ExecutableToolResultBuilderResult;
     if (current?.status === 'timed_out') {
       const timeoutLabel = formatTimeoutLabel(foregroundTimeoutMs);
-      result = builder.error(t('shell.killedByTimeout', { label: timeoutLabel }), {
-        brief: t('shell.killedByTimeoutBrief', { label: timeoutLabel }),
+      result = builder.error(`Command killed by timeout (${timeoutLabel})`, {
+        brief: `Killed by timeout (${timeoutLabel})`,
       });
     } else if (
       current?.status === 'killed' &&
       current.stopReason === userCancellationReason().message
     ) {
-      result = builder.error(t('shell.userInterrupt'), { brief: t('shell.userInterrupt') });
+      result = builder.error('Interrupted by user', { brief: 'Interrupted by user' });
     } else if (
       (current?.status === 'failed' || current?.status === 'killed') &&
       current.stopReason !== undefined
     ) {
       result = builder.error(current.stopReason, { brief: current.stopReason });
     } else if (exitCode === 0) {
-      result = builder.ok(t('shell.executedSuccessfully'));
+      result = builder.ok('Command executed successfully.');
     } else {
-      if (builder.nChars === 0)
-        builder.write(t('shell.exitedWithCode', { exitCode: String(exitCode) }));
-      result = builder.error(t('shell.failedWithExitCode', { exitCode: String(exitCode) }), {
-        brief: t('shell.failedWithExitCodeBrief', { exitCode: String(exitCode) }),
+      if (builder.nChars === 0) builder.write(`Process exited with code ${String(exitCode)}`);
+      result = builder.error(`Command failed with exit code: ${String(exitCode)}.`, {
+        brief: `Failed with exit code: ${String(exitCode)}`,
       });
     }
-    await builder.spillFullText();
     return this.addForegroundOutputReference(taskId, result);
   }
 
@@ -513,25 +341,21 @@ export class BashTool implements IBashTool {
     const output = await this.tasks.getOutputSnapshot(taskId, 0);
     if (!output.fullOutputAvailable || output.outputPath === undefined) return result;
 
-    const taskOutputHint = this.allowBackground() ? t('shell.taskOutputHint', { taskId }) : '';
+    const taskOutputHint = this.allowBackground()
+      ? `, or TaskOutput(task_id="${taskId}")`
+      : '';
     const reference =
-      '\n\n' +
-      t('background.fullOutputSaved') +
-      '\n' +
-      t('shell.taskIdLabel', { taskId }) +
-      '\n' +
-      t('shell.outputPathLabel', { path: output.outputPath }) +
-      '\n' +
-      (result.spilled !== undefined ? result.spilled.retrievalHint + '\n' : '') +
-      t('shell.outputSizeLabel', { bytes: String(output.outputSizeBytes) }) +
-      '\n' +
-      t('shell.nextStepReadOutput', { hint: taskOutputHint });
+      `\n\n[Full output saved]\n` +
+      `task_id: ${taskId}\n` +
+      `output_path: ${output.outputPath}\n` +
+      `output_size_bytes: ${String(output.outputSizeBytes)}\n` +
+      `next_step: Use Read with output_path to page through the full log${taskOutputHint}.`;
     return { ...result, output: `${result.output}${reference}` };
   }
 
   private backgroundStartedResult(
     taskId: string,
-    proc: IProcess,
+    proc: IHostProcess,
     description: string,
     labels: { title: string; brief: string },
     builder = new ToolResultBuilder(),
@@ -539,18 +363,13 @@ export class BashTool implements IBashTool {
   ): ExecutableToolResult {
     const status = this.tasks.getTask(taskId)?.status ?? 'running';
     const metadata =
-      t('shell.taskIdLabel', { taskId }) +
-      '\n' +
-      t('shell.pidLabel', { pid: String(proc.pid) }) +
-      '\n' +
-      t('shell.descriptionLabel', { description }) +
-      '\n' +
-      t('shell.statusLabel', { status }) +
-      '\n' +
-      t('shell.automaticNotification') +
-      '\n' +
+      `task_id: ${taskId}\n` +
+      `pid: ${String(proc.pid)}\n` +
+      `description: ${description}\n` +
+      `status: ${status}\n` +
+      `automatic_notification: true\n` +
       this.nextStepLines(scenario) +
-      t('shell.humanShellHint');
+      'human_shell_hint: Tell the human to run /tasks to open the interactive background-task panel.';
 
     const foregroundResult = builder.ok('');
     const foregroundOutput = foregroundResult.output.length > 0 ? foregroundResult.output : '';
@@ -569,24 +388,34 @@ export class BashTool implements IBashTool {
     return result;
   }
 
-  private nextStepLines(scenario: 'background_started' | 'foreground_detached'): string {
+  private nextStepLines(
+    scenario: 'background_started' | 'foreground_detached',
+  ): string {
     if (scenario === 'foreground_detached') {
       const avoid = this.allowBackground()
-        ? t('shell.nextStepWithTaskOutput')
-        : t('shell.nextStepAwaitNoTaskOutput');
+        ? 'do NOT wait, poll, or call TaskOutput on it'
+        : 'do NOT wait or poll';
       return (
         'next_step: The task now runs in the background. You will be automatically notified ' +
         `when it completes — ${avoid}; continue with your current work.\n`
       );
     }
     if (!this.allowBackground()) {
-      return t('shell.nextStepBackgroundStartedNoBg');
+      return 'next_step: You will be automatically notified when it completes.\n';
     }
-    return t('shell.nextStepBackgroundStarted');
+    return (
+      'next_step: The completion arrives automatically in a later turn — do NOT wait, poll, ' +
+      'or call TaskOutput on it; continue with your current work.\n' +
+      'next_step: Use TaskStop only if the task must be cancelled.\n'
+    );
   }
 }
 
-registerAgentToolService(IBashTool, BashTool, { name: 'Bash', domain: 'os/backends' });
+registerAgentToolService(IBashTool, BashTool, {
+  name: 'Bash',
+  domain: 'os/backends',
+  requiredRuntimeCapabilities: ['process'],
+});
 
 function formatTimeoutLabel(timeoutMs: number): string {
   return timeoutMs % 1000 === 0 ? `${String(timeoutMs / 1000)}s` : `${String(timeoutMs)}ms`;
@@ -599,13 +428,14 @@ function foregroundDescription(args: BashInput): string {
   return `Bash: ${preview}`;
 }
 
-function closeProcessStdin(proc: IProcess): void {
+function closeProcessStdin(proc: IHostProcess): void {
   try {
     proc.stdin.end();
-  } catch {}
+  } catch {
+  }
 }
 
-async function killSpawnedProcess(proc: IProcess): Promise<void> {
+async function killSpawnedProcess(proc: IHostProcess): Promise<void> {
   try {
     await proc.kill('SIGTERM');
   } catch {
@@ -637,10 +467,4 @@ const WINDOWS_NUL_REDIRECT = /(\d?&?>+\s*)[Nn][Uu][Ll](?=\s|$|[|&;)\n])/g;
 
 function rewriteWindowsNullRedirect(command: string): string {
   return command.replace(WINDOWS_NUL_REDIRECT, '$1/dev/null');
-}
-
-const POWERSHELL_NUL_REDIRECT = /(\d?&?>+\s*)[Nn][Uu][Ll](?=\s|$|[|&;)\n])/g;
-
-function rewritePowerShellNullRedirect(command: string): string {
-  return command.replace(POWERSHELL_NUL_REDIRECT, '$1$null');
 }

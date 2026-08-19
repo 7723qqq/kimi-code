@@ -169,9 +169,7 @@ describe('handleAddDirCommand', () => {
 
   it('routes /add-dir errors through the slash-command dispatcher error handler', async () => {
     const { host, session, getMountedPanel } = makeHost();
-    session.addAdditionalDir.mockRejectedValueOnce(
-      new Error('workspace.additional_dir must exist and be a directory'),
-    );
+    session.addAdditionalDir.mockRejectedValueOnce(new Error('workspace.additional_dir must exist and be a directory'));
 
     dispatchInput(host, '/add-dir ../other');
     await vi.waitFor(() => {

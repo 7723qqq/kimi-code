@@ -1,14 +1,5 @@
-/**
- * `file` domain — `IFileService` contract and error helpers.
- *
- * Process-global upload store: persists uploaded bytes via `IBlobStore` and
- * their `FileMeta` index in the same store, then hands callers a stream back
- * on download. Bound at App scope.
- */
-
 import type { Readable } from 'node:stream';
 
-import { t } from '@moonshot-ai/kimi-i18n';
 import { z } from 'zod';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
@@ -50,8 +41,19 @@ export interface IFileService {
   delete(fileId: string): Promise<void>;
 }
 
-export const IFileService: ServiceIdentifier<IFileService> =
-  createDecorator<IFileService>('fileService');
+export const IFileService: ServiceIdentifier<IFileService> = createDecorator<IFileService>('fileService');
+
+/**
+ * The upload id shape every `fileId`-addressed store may rely on. Ids are
+ * minted by `IFileService.save` (`f_<uuid>`); anything else is not an upload
+ * and must never reach a storage key — the character whitelist is what keeps
+ * a caller-supplied id from escaping its storage scope (`..`, separators).
+ */
+export const FILE_ID_REGEX = /^f_[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+export function isFileId(value: string): boolean {
+  return FILE_ID_REGEX.test(value);
+}
 
 export const FileErrors = {
   codes: {
@@ -59,10 +61,10 @@ export const FileErrors = {
   },
   info: {
     'file.not_found': {
-      title: t('v2Errors.fileNotFound'),
+      title: 'File not found',
       retryable: false,
       public: true,
-      action: t('v2Errors.fileNotFoundAction'),
+      action: 'Check the file_id or upload the file again.',
     },
   },
 } as const satisfies ErrorDomain;
@@ -81,14 +83,9 @@ export class FileError extends Error2 {
 }
 
 export function fileNotFoundError(fileId: string): FileError {
-  return new FileError(FileErrors.codes.FILE_NOT_FOUND, t('v2Model.fileNotFound', { fileId }), {
-    fileId,
-  });
+  return new FileError(FileErrors.codes.FILE_NOT_FOUND, `file not found: ${fileId}`, { fileId });
 }
 
-export function isFileError(
-  error: unknown,
-  code: (typeof FileErrors.codes)[keyof typeof FileErrors.codes],
-): boolean {
+export function isFileError(error: unknown, code: (typeof FileErrors.codes)[keyof typeof FileErrors.codes]): boolean {
   return error instanceof Error2 && error.code === code;
 }

@@ -99,6 +99,49 @@ describe('MCP OAuth credential identity', () => {
     );
   });
 
+  it('reports token state: missing, live, expired, and refresh-capable grants', async () => {
+    const store = createMemoryMcpOAuthStore();
+    const service = new McpOAuthService({ store });
+
+    await expect(service.tokenState('linear', 'https://a.example.com/mcp')).resolves.toEqual({
+      hasTokens: false,
+      expired: false,
+      hasRefreshToken: false,
+    });
+
+    const live = service.getProvider('linear', 'https://a.example.com/mcp');
+    await live.ready;
+    await live.saveTokens(token('live-token'));
+    await expect(service.tokenState('linear', 'https://a.example.com/mcp')).resolves.toEqual({
+      hasTokens: true,
+      expired: false,
+      hasRefreshToken: false,
+    });
+
+    // An expired grant stamped by `saveTokens` with `obtained_at` in the past.
+    const expiredKey = `${mcpOAuthStoreKey('linear', 'https://b.example.com/mcp')}-tokens.json`;
+    await store.write(expiredKey, {
+      access_token: 'expired-token',
+      token_type: 'Bearer',
+      expires_in: 1,
+      obtained_at: Date.now() - 10_000,
+    });
+    await expect(service.tokenState('linear', 'https://b.example.com/mcp')).resolves.toEqual({
+      hasTokens: true,
+      expired: true,
+      hasRefreshToken: false,
+    });
+
+    const refreshable = service.getProvider('linear', 'https://c.example.com/mcp');
+    await refreshable.ready;
+    await refreshable.saveTokens({ ...token('refresh-token'), refresh_token: 'rt' });
+    await expect(service.tokenState('linear', 'https://c.example.com/mcp')).resolves.toEqual({
+      hasTokens: true,
+      expired: false,
+      hasRefreshToken: true,
+    });
+  });
+
   it('uses stored client redirect URI when no active OAuth callback is running', async () => {
     const provider = new McpOAuthClientProvider({
       serverName: 'notion',

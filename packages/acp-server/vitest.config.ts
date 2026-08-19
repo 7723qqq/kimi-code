@@ -21,6 +21,8 @@ function findPackageRoot(importer: string | undefined): string | undefined {
  * scoped to the importer's owning package. acp-server pulls in
  * `@moonshot-ai/agent-core-v2` source (the full barrel), whose internal `#/foo`
  * imports must resolve against that package's own `src/`.
+ *
+ * Mirrors `packages/server-v2/vitest.config.ts`.
  */
 function hashImportsPlugin(): Plugin {
   return {

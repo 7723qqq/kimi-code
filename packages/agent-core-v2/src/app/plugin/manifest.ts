@@ -300,7 +300,7 @@ async function readSystemPrompt(
         diagnostics,
       });
       if (resolved !== undefined) {
-        const fileStat = await stat(resolved).catch(() => {});
+        const fileStat = await stat(resolved).catch(() => undefined);
         if (fileStat === undefined || !fileStat.isFile()) {
           diagnostics.push({
             severity: 'warn',
@@ -440,7 +440,11 @@ async function listMarkdownFilesRecursive(root: string): Promise<readonly Plugin
   return out;
 }
 
-async function walkMarkdown(root: string, dir: string, out: PluginCommandEntry[]): Promise<void> {
+async function walkMarkdown(
+  root: string,
+  dir: string,
+  out: PluginCommandEntry[],
+): Promise<void> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -533,10 +537,7 @@ function stringField(raw: Record<string, unknown>, key: string): string | undefi
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
-function stringArrayField(
-  raw: Record<string, unknown>,
-  key: string,
-): readonly string[] | undefined {
+function stringArrayField(raw: Record<string, unknown>, key: string): readonly string[] | undefined {
   const value = raw[key];
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === 'string')) {
     return undefined;

@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { matchPermissionRule, parsePattern } from '#/agent/permissionRules/matchesRule';
-import type { PermissionRuleMatchExecution } from '#/agent/permissionRules/matchesRule';
 import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
-import { matchesGlobRuleSubject, matchesPathRuleSubject } from '#/tool/rule-match';
+import {
+  matchPermissionRule,
+  parsePattern,
+} from '#/agent/permissionRules/matchesRule';
+import type { PermissionRuleMatchExecution } from '#/agent/permissionRules/matchesRule';
+import {
+  matchesGlobRuleSubject,
+  matchesPathRuleSubject,
+} from '#/tool/rule-match';
 
 function rule(pattern: string): PermissionRule {
   return { decision: 'allow', scope: 'user', pattern };
@@ -52,9 +58,8 @@ describe('permissionRules/parsePattern', () => {
 
 describe('permissionRules/matchPermissionRule', () => {
   it('matches by tool name only when pattern has no args', () => {
-    expect(
-      matchPermissionRule({ rule: rule('bash'), toolName: 'bash', execution: noArgs }),
-    ).toMatchObject({ strategy: 'tool_name_only', hasRuleArgs: false });
+    expect(matchPermissionRule({ rule: rule('bash'), toolName: 'bash', execution: noArgs }))
+      .toMatchObject({ strategy: 'tool_name_only', hasRuleArgs: false });
   });
 
   it('returns undefined when tool name does not match', () => {
@@ -94,50 +99,36 @@ describe('permissionRules/matchPermissionRule', () => {
   });
 
   it('matches rules against tool-specific argument fields through execution matchers', () => {
-    expect(
-      matches(rule('Bash(git *)'), 'Bash', {
-        matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, 'git status'),
-      }),
-    ).toBe(true);
-    expect(
-      matches(rule('Bash(git *)'), 'Bash', {
-        matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, 'npm test'),
-      }),
-    ).toBe(false);
-    expect(
-      matches(rule('Read(/etc/**)'), 'Read', {
-        matchesRule: (ruleArgs) => matchesPathRuleSubject(ruleArgs, '/etc/passwd'),
-      }),
-    ).toBe(true);
-    expect(
-      matches(rule('Edit(!./src/**)'), 'Edit', {
-        matchesRule: (ruleArgs) =>
-          matchesPathRuleSubject(ruleArgs, '/workspace/README.md', {
-            cwd: '/workspace',
-            pathClass: 'posix',
-          }),
-      }),
-    ).toBe(true);
-    expect(
-      matches(rule('Edit(!./src/**)'), 'Edit', {
-        matchesRule: (ruleArgs) =>
-          matchesPathRuleSubject(ruleArgs, '/workspace/src/a.ts', {
-            cwd: '/workspace',
-            pathClass: 'posix',
-          }),
-      }),
-    ).toBe(false);
-    expect(
-      matches(rule('Agent(review-*)'), 'Agent', {
-        matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, 'review-code'),
-      }),
-    ).toBe(true);
+    expect(matches(rule('Bash(git *)'), 'Bash', {
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, 'git status'),
+    })).toBe(true);
+    expect(matches(rule('Bash(git *)'), 'Bash', {
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, 'npm test'),
+    })).toBe(false);
+    expect(matches(rule('Read(/etc/**)'), 'Read', {
+      matchesRule: (ruleArgs) => matchesPathRuleSubject(ruleArgs, '/etc/passwd'),
+    })).toBe(true);
+    expect(matches(rule('Edit(!./src/**)'), 'Edit', {
+      matchesRule: (ruleArgs) =>
+        matchesPathRuleSubject(ruleArgs, '/workspace/README.md', {
+          cwd: '/workspace',
+          pathClass: 'posix',
+        }),
+    })).toBe(true);
+    expect(matches(rule('Edit(!./src/**)'), 'Edit', {
+      matchesRule: (ruleArgs) =>
+        matchesPathRuleSubject(ruleArgs, '/workspace/src/a.ts', {
+          cwd: '/workspace',
+          pathClass: 'posix',
+        }),
+    })).toBe(false);
+    expect(matches(rule('Agent(review-*)'), 'Agent', {
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, 'review-code'),
+    })).toBe(true);
     expect(matches(rule('mcp__github__*'), 'mcp__github__list_issues', noArgs)).toBe(true);
-    expect(
-      matches(rule('Bash(git *)'), 'Bash', {
-        matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, '42'),
-      }),
-    ).toBe(false);
+    expect(matches(rule('Bash(git *)'), 'Bash', {
+      matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, '42'),
+    })).toBe(false);
     expect(matches(rule('Bad(unclosed'), 'Bad', noArgs)).toBe(false);
   });
 
@@ -150,24 +141,20 @@ describe('permissionRules/matchPermissionRule', () => {
   });
 
   it('matches path rule subjects case-insensitively', () => {
-    expect(
-      matches(rule('Edit(/repo/secrets.env)'), 'Edit', {
-        matchesRule: (ruleArgs) =>
-          matchesPathRuleSubject(ruleArgs, '/repo/Secrets.env', {
-            cwd: '/repo',
-            pathClass: 'posix',
-          }),
-      }),
-    ).toBe(true);
-    expect(
-      matches(rule('Edit(/repo/Sub/**)'), 'Edit', {
-        matchesRule: (ruleArgs) =>
-          matchesPathRuleSubject(ruleArgs, '/repo/sub/a.ts', {
-            cwd: '/repo',
-            pathClass: 'posix',
-          }),
-      }),
-    ).toBe(true);
+    expect(matches(rule('Edit(/repo/secrets.env)'), 'Edit', {
+      matchesRule: (ruleArgs) =>
+        matchesPathRuleSubject(ruleArgs, '/repo/Secrets.env', {
+          cwd: '/repo',
+          pathClass: 'posix',
+        }),
+    })).toBe(true);
+    expect(matches(rule('Edit(/repo/Sub/**)'), 'Edit', {
+      matchesRule: (ruleArgs) =>
+        matchesPathRuleSubject(ruleArgs, '/repo/sub/a.ts', {
+          cwd: '/repo',
+          pathClass: 'posix',
+        }),
+    })).toBe(true);
   });
 
   it('rejects a pattern with only whitespace', () => {

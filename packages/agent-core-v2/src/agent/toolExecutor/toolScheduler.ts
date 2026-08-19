@@ -1,12 +1,3 @@
-/**
- * Stateful execution scheduler for tool calls in one model step.
- *
- * The scheduler owns only execution ordering:
- *   - tasks with non-conflicting resource accesses may overlap
- *   - tasks with conflicting resource accesses wait for the conflicting active tasks
- *   - callers decide whether to drain results in provider order or completion order
- */
-
 import { ToolAccesses } from '#/tool/toolContract';
 
 export interface ToolCallTask<Result> {
@@ -54,7 +45,9 @@ export class ToolScheduler<Result> {
     task: ToolCallTask<Result>,
     candidates: readonly ToolCallTask<Result>[],
   ): boolean {
-    return candidates.some((candidate) => ToolAccesses.conflict(task.accesses, candidate.accesses));
+    return candidates.some((candidate) =>
+      ToolAccesses.conflict(task.accesses, candidate.accesses),
+    );
   }
 
   private start(task: ScheduledToolCallTask<Result>): void {

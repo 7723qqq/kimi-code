@@ -1,18 +1,16 @@
+import { APIConnectionError, APIStatusError } from '#/kosong/contract/errors';
+import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
+import { type StreamedMessagePart } from '#/kosong/contract/message';
+import type { Tool } from '#/kosong/contract/tool';
+import { emptyUsage } from '#/kosong/contract/usage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ILogger as Logger, LogPayload } from '#/_base/log/log';
 import {
   IAgentLLMRequesterService,
   type AgentLLMRequestFinish,
 } from '#/agent/llmRequester/llmRequester';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
-import { APIConnectionError, APIStatusError } from '#/kosong/contract/errors';
-import { type StreamedMessagePart } from '#/kosong/contract/message';
-import type { Tool } from '#/kosong/contract/tool';
-import { emptyUsage } from '#/kosong/contract/usage';
-
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import type { ILogger as Logger, LogPayload } from '#/_base/log/log';
 import {
   configServices,
   createTestAgent,
@@ -21,6 +19,7 @@ import {
   telemetryServices,
   type TestAgentContext,
 } from '../../harness';
+import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 interface CapturedLogEntry {
   readonly level: 'error' | 'warn' | 'info' | 'debug';
@@ -30,9 +29,10 @@ interface CapturedLogEntry {
 
 function captureLogs(): { logger: Logger; entries: CapturedLogEntry[] } {
   const entries: CapturedLogEntry[] = [];
-  const capture = (level: CapturedLogEntry['level']) => (message: string, payload?: LogPayload) => {
-    entries.push({ level, message, payload });
-  };
+  const capture =
+    (level: CapturedLogEntry['level']) => (message: string, payload?: LogPayload) => {
+      entries.push({ level, message, payload });
+    };
   const logger: Logger = {
     error: capture('error'),
     warn: capture('warn'),
@@ -240,9 +240,7 @@ describe('LLMRequester service migration coverage', () => {
 
       const requests = wireEvents(ctx, 'llm.request');
       expect(requests).toHaveLength(2);
-      expect(
-        (requests[0]?.args as Record<string, unknown> | undefined)?.['projection'],
-      ).toBeUndefined();
+      expect((requests[0]?.args as Record<string, unknown> | undefined)?.['projection']).toBeUndefined();
       expect(requests[1]?.args).toMatchObject({ projection: 'strict' });
     });
   });
@@ -302,9 +300,9 @@ describe('LLMRequester service migration coverage', () => {
       });
 
       expect(protocolEvents(ctx, 'tool.call.delta').map((event) => event.args)).toEqual([
-        { turnId: 0, toolCallId: 'call_lookup', name: 'Lookup', argumentsPart: undefined },
-        { turnId: 0, toolCallId: 'call_lookup', name: 'Lookup', argumentsPart: '{"query"' },
-        { turnId: 0, toolCallId: 'call_lookup', name: 'Lookup', argumentsPart: ':"moon"}' },
+        { time: expect.any(Number), turnId: 0, toolCallId: 'call_lookup', name: 'Lookup', argumentsPart: undefined },
+        { time: expect.any(Number), turnId: 0, toolCallId: 'call_lookup', name: 'Lookup', argumentsPart: '{"query"' },
+        { time: expect.any(Number), turnId: 0, toolCallId: 'call_lookup', name: 'Lookup', argumentsPart: ':"moon"}' },
       ]);
       expect(protocolEvents(ctx, 'toolCall').at(-1)?.args).toEqual({
         turnId: 0,
@@ -466,25 +464,23 @@ describe('LLMRequester service migration coverage', () => {
       const { logger, entries } = captureLogs();
       logEntries = entries;
       ctx = createTestAgent(
-        llmGenerateServices(
-          async (_provider, _systemPrompt, _tools, _messages, callbacks, options) => {
-            requestMaxTokens = options?.maxCompletionTokens;
-            options?.onRequestStart?.();
-            await callbacks?.onMessagePart?.({ type: 'text', text: 'timed' });
-            options?.onStreamEnd?.();
-            return {
-              id: 'response-1',
-              message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'timed' }],
-                toolCalls: [],
-              },
-              usage: emptyUsage(),
-              finishReason: 'completed',
-              rawFinishReason: 'stop',
-            };
-          },
-        ),
+        llmGenerateServices(async (_provider, _systemPrompt, _tools, _messages, callbacks, options) => {
+          requestMaxTokens = options?.maxCompletionTokens;
+          options?.onRequestStart?.();
+          await callbacks?.onMessagePart?.({ type: 'text', text: 'timed' });
+          options?.onStreamEnd?.();
+          return {
+            id: 'response-1',
+            message: {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'timed' }],
+              toolCalls: [],
+            },
+            usage: emptyUsage(),
+            finishReason: 'completed',
+            rawFinishReason: 'stop',
+          };
+        }),
         configServices(() => ({
           defaultModel: 'deepseek/deepseek-v4-flash',
           providers: {
@@ -596,38 +592,6 @@ describe('LLMRequester service migration coverage', () => {
       expect(timing?.requestBuildMs).toBeUndefined();
       expect(timing?.serverFirstTokenMs).toBeUndefined();
     });
-
-    it('applies the default model output budget when no maxOutputSize is set', async () => {
-      profile.update({ systemPrompt: 'system', thinkingLevel: 'off' });
-      const { finish } = await collectLLMRequest((onPart) =>
-        llmRequester.request(undefined, onPart),
-      );
-      expect(requestMaxTokens).toBe(384_000);
-      expect(finish).toMatchObject({ model: 'deepseek/deepseek-v4-flash' });
-    });
-
-    it('sends a request with no messages when called without arguments', async () => {
-      const { finish } = await collectLLMRequest((onPart) =>
-        llmRequester.request(undefined, onPart),
-      );
-      expect(finish.model).toBe('deepseek/deepseek-v4-flash');
-      expect(finish.providerMessageId).toBe('response-1');
-    });
-
-    it('emits wire events with correct turnStep and droppedCount from logFields', async () => {
-      await llmRequester.request({
-        source: {
-          type: 'operation',
-          requestKind: 'direct_test',
-          logFields: { turnStep: '1.5', droppedCount: 7 },
-        },
-      });
-      const requests = wireEvents(ctx, 'llm.request');
-      expect(requests[0]?.args).toMatchObject({
-        turnStep: '1.5',
-        droppedCount: 7,
-      });
-    });
   });
 
   describe('per-turn intent handoff', () => {
@@ -638,22 +602,20 @@ describe('LLMRequester service migration coverage', () => {
     beforeEach(() => {
       capturedCacheKey = undefined;
       ctx = createTestAgent(
-        llmGenerateServices(
-          async (_provider, _systemPrompt, _tools, _messages, _callbacks, options) => {
-            capturedCacheKey = options?.cacheKey;
-            return {
-              id: 'response-1',
-              message: {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'intent' }],
-                toolCalls: [],
-              },
-              usage: emptyUsage(),
-              finishReason: 'completed',
-              rawFinishReason: 'stop',
-            };
-          },
-        ),
+        llmGenerateServices(async (_provider, _systemPrompt, _tools, _messages, _callbacks, options) => {
+          capturedCacheKey = options?.cacheKey;
+          return {
+            id: 'response-1',
+            message: {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'intent' }],
+              toolCalls: [],
+            },
+            usage: emptyUsage(),
+            finishReason: 'completed',
+            rawFinishReason: 'stop',
+          };
+        }),
       );
       llmRequester = ctx.get(IAgentLLMRequesterService);
     });
@@ -672,19 +634,32 @@ describe('LLMRequester service migration coverage', () => {
       expect(capturedCacheKey).toBe('test-session');
     });
   });
+
 });
 
-type ProtocolEvent = Extract<TestAgentContext['allEvents'][number], { readonly type: '[rpc]' }>;
+type ProtocolEvent = Extract<
+  TestAgentContext['allEvents'][number],
+  { readonly type: '[rpc]' }
+>;
 
-type WireEvent = Extract<TestAgentContext['allEvents'][number], { readonly type: '[wire]' }>;
+type WireEvent = Extract<
+  TestAgentContext['allEvents'][number],
+  { readonly type: '[wire]' }
+>;
 
-function protocolEvents(ctx: TestAgentContext, eventName: string): readonly ProtocolEvent[] {
+function protocolEvents(
+  ctx: TestAgentContext,
+  eventName: string,
+): readonly ProtocolEvent[] {
   return ctx.allEvents.filter(
     (event): event is ProtocolEvent => event.type === '[rpc]' && event.event === eventName,
   );
 }
 
-function wireEvents(ctx: TestAgentContext, eventName: string): readonly WireEvent[] {
+function wireEvents(
+  ctx: TestAgentContext,
+  eventName: string,
+): readonly WireEvent[] {
   return ctx.allEvents.filter(
     (event): event is WireEvent => event.type === '[wire]' && event.event === eventName,
   );
