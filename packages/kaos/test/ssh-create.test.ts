@@ -10,6 +10,7 @@ interface CreateHarnessState {
   connectConfigs: ConnectConfig[];
   endCalls: number;
   readFileCalls: string[];
+  execCommands: string[];
 }
 
 interface CreateHarnessOptions {
@@ -17,6 +18,9 @@ interface CreateHarnessOptions {
   readFileValues?: Record<string, string>;
   sftp?: SFTPWrapper;
   sftpError?: Error;
+  /** stdout of a mocked `exec` channel; undefined rejects the exec call. */
+  execStdout?: string;
+  execError?: Error;
 }
 
 function makeStats(isDirectory: boolean): SFTPStats {
@@ -37,7 +41,7 @@ function makeStats(isDirectory: boolean): SFTPStats {
   };
 }
 
-function createSuccessfulSftp(): SFTPWrapper {
+function createSuccessfulSftp(bashPath?: string): SFTPWrapper {
   return {
     realpath(path: string, callback: (err: Error | undefined, absPath: string) => void): void {
       if (path === '.') {
@@ -48,6 +52,12 @@ function createSuccessfulSftp(): SFTPWrapper {
     },
     stat(path: string, callback: (err: Error | undefined, stats: SFTPStats) => void): void {
       callback(undefined, makeStats(path !== '/home/tester/file.txt'));
+    },
+    exists(path: string, callback: (exists: boolean) => void): void {
+      // Default: /bin/bash exists (the first candidate), matching the common
+      // remote host; tests override via bashPath ('' = no bash anywhere).
+      const exists = bashPath === '' ? false : (bashPath ?? '/bin/bash') === path;
+      callback(exists);
     },
     end(): void {
       // no-op
@@ -66,7 +76,32 @@ async function loadSSHModule(options: CreateHarnessOptions = {}): Promise<{
     connectConfigs: [],
     endCalls: 0,
     readFileCalls: [],
+    execCommands: [],
   };
+
+  class MockChannel extends EventEmitter {
+    readonly stderr = new EventEmitter();
+
+    constructor(stdout: string) {
+      super();
+      // setTimeout (not queueMicrotask): the exec callback chain resolves the
+      // clientExec promise as a microtask, and listeners are attached only in
+      // the await continuation — a microtask emission would fire before they
+      // exist and drop the events. A macrotask runs after that continuation.
+      setTimeout(() => {
+        this.emit('data', Buffer.from(stdout));
+        this.emit('close', 0);
+      }, 0);
+    }
+
+    close(): void {
+      this.emit('close', 0);
+    }
+
+    signal(): void {
+      // no-op
+    }
+  }
 
   class MockClient extends EventEmitter {
     connect(config: ConnectConfig): void {
@@ -93,6 +128,19 @@ async function loadSSHModule(options: CreateHarnessOptions = {}): Promise<{
         return;
       }
       callback(undefined, options.sftp ?? createSuccessfulSftp());
+    }
+
+    exec(command: string, callback: (err: Error | undefined, channel: unknown) => void): void {
+      state.execCommands.push(command);
+      if (options.execError) {
+        queueMicrotask(() => {
+          callback(options.execError, undefined);
+        });
+        return;
+      }
+      queueMicrotask(() => {
+        callback(undefined, new MockChannel(options.execStdout ?? ''));
+      });
     }
   }
 
@@ -371,5 +419,96 @@ describe('SSHKaos.create()', () => {
     });
 
     expect(yielded).toEqual(['publickey', 'password']);
+  });
+
+  it('probes the remote environment during create() and exposes it as osEnv', async () => {
+    const { SSHKaos, state } = await loadSSHModule({
+      execStdout: 'Linux 6.1.0-test x86_64\n',
+    });
+
+    const ssh = await SSHKaos.create({
+      host: 'example.com',
+      username: 'tester',
+    });
+
+    expect(ssh.osEnv).toEqual({
+      osKind: 'Linux',
+      osArch: 'x86_64',
+      osVersion: '6.1.0-test',
+      shellName: 'bash',
+      shellPath: '/bin/bash',
+    });
+    // One probe round-trip: a single uname exec.
+    expect(state.execCommands).toEqual(['uname -s -r -m']);
+  });
+
+  it('maps Darwin to macOS and falls through bash candidates in order', async () => {
+    const { SSHKaos } = await loadSSHModule({
+      execStdout: 'Darwin 23.4.0 arm64',
+      // /bin/bash missing on the mock host: the probe must land on the
+      // next candidate instead of reporting the first one.
+      sftp: createSuccessfulSftp('/usr/bin/bash'),
+    });
+
+    const ssh = await SSHKaos.create({
+      host: 'example.com',
+      username: 'tester',
+    });
+
+    expect(ssh.osEnv).toMatchObject({
+      osKind: 'macOS',
+      osArch: 'arm64',
+      osVersion: '23.4.0',
+      shellName: 'bash',
+      shellPath: '/usr/bin/bash',
+    });
+  });
+
+  it('falls back to /bin/sh when no bash candidate exists', async () => {
+    const { SSHKaos } = await loadSSHModule({
+      sftp: createSuccessfulSftp(''),
+    });
+
+    const ssh = await SSHKaos.create({
+      host: 'example.com',
+      username: 'tester',
+    });
+
+    expect(ssh.osEnv).toMatchObject({ shellName: 'sh', shellPath: '/bin/sh' });
+  });
+
+  it('keeps create() usable when the uname probe fails (restricted shell)', async () => {
+    const { SSHKaos } = await loadSSHModule({
+      execError: new Error('exec not permitted'),
+    });
+
+    const ssh = await SSHKaos.create({
+      host: 'example.com',
+      username: 'tester',
+    });
+
+    // Best-effort semantics: unknown OS fields, shell still detected via SFTP.
+    expect(ssh.osEnv).toEqual({
+      osKind: 'unknown',
+      osArch: 'unknown',
+      osVersion: 'unknown',
+      shellName: 'bash',
+      shellPath: '/bin/bash',
+    });
+    expect(ssh.getcwd()).toBe('/home/tester');
+  });
+
+  it('withCwd and withEnv propagate the probed osEnv', async () => {
+    const { SSHKaos } = await loadSSHModule({
+      execStdout: 'Linux 6.1.0-test x86_64\n',
+    });
+
+    const ssh = await SSHKaos.create({
+      host: 'example.com',
+      username: 'tester',
+    });
+
+    expect(ssh.withCwd('/tmp').osEnv).toBe(ssh.osEnv);
+    expect(ssh.withEnv({ FOO: 'bar' }).osEnv).toBe(ssh.osEnv);
   });
 });

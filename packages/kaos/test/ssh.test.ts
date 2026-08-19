@@ -6,6 +6,7 @@ import {
   KaosFileNotFoundError,
   KaosPermissionError,
   KaosSSHError,
+  resolveRemoteOsEnv,
   SSHKaos,
 } from '#/ssh';
 import type { StatResult } from '#/types';
@@ -729,6 +730,58 @@ describe('SSHKaos._buildExecCommand', () => {
   it('omits the assignment section entirely when env is an empty object', () => {
     // Matches the behavior of plain exec() — no leading space, no KEY=...
     expect(build(['cmd', 'arg'], '/home/user', {})).toBe('cd /home/user && cmd arg');
+  });
+});
+
+describe('resolveRemoteOsEnv', () => {
+  const candidates = (existing?: string): { path: string; exists: boolean }[] => [
+    { path: '/bin/bash', exists: existing === '/bin/bash' },
+    { path: '/usr/bin/bash', exists: existing === '/usr/bin/bash' },
+    { path: '/usr/local/bin/bash', exists: existing === '/usr/local/bin/bash' },
+  ];
+
+  it('parses uname output in fixed POSIX order (sysname, release, machine)', () => {
+    expect(resolveRemoteOsEnv('Linux 6.1.0-arch x86_64\n', candidates('/bin/bash'))).toEqual({
+      osKind: 'Linux',
+      osVersion: '6.1.0-arch',
+      osArch: 'x86_64',
+      shellName: 'bash',
+      shellPath: '/bin/bash',
+    });
+  });
+
+  it('maps Darwin to macOS and passes other sysnames through verbatim', () => {
+    expect(resolveRemoteOsEnv('Darwin 23.4.0 arm64', candidates()).osKind).toBe('macOS');
+    expect(resolveRemoteOsEnv('FreeBSD 14.0 amd64', candidates()).osKind).toBe('FreeBSD');
+  });
+
+  it('degrades every OS field to unknown when the probe produced nothing', () => {
+    for (const empty of [undefined, '', '   \n ']) {
+      const env = resolveRemoteOsEnv(empty, candidates('/bin/bash'));
+      expect(env.osKind).toBe('unknown');
+      expect(env.osVersion).toBe('unknown');
+      expect(env.osArch).toBe('unknown');
+    }
+  });
+
+  it('picks the first existing bash candidate and falls back to /bin/sh', () => {
+    expect(resolveRemoteOsEnv('Linux 1 1', candidates('/usr/bin/bash'))).toMatchObject({
+      shellName: 'bash',
+      shellPath: '/usr/bin/bash',
+    });
+    expect(resolveRemoteOsEnv('Linux 1 1', candidates())).toMatchObject({
+      shellName: 'sh',
+      shellPath: '/bin/sh',
+    });
+    expect(resolveRemoteOsEnv('Linux 1 1', [])).toMatchObject({
+      shellName: 'sh',
+      shellPath: '/bin/sh',
+    });
+  });
+
+  it('tolerates extra whitespace and extra tokens in uname output', () => {
+    const env = resolveRemoteOsEnv('  Linux   5.15.0   aarch64  extra  ', candidates('/bin/bash'));
+    expect(env).toMatchObject({ osKind: 'Linux', osVersion: '5.15.0', osArch: 'aarch64' });
   });
 });
 

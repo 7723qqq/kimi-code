@@ -427,6 +427,97 @@ function clientExec(client: Client, command: string): Promise<ClientChannel> {
   });
 }
 
+// ── remote environment probe ──────────────────────────────────────────
+
+const REMOTE_PROBE_TIMEOUT_MS = 10_000;
+
+/** Candidate bash paths probed via SFTP, in priority order (mirrors environment.ts). */
+const REMOTE_BASH_CANDIDATES: readonly string[] = [
+  '/bin/bash',
+  '/usr/bin/bash',
+  '/usr/local/bin/bash',
+];
+
+/**
+ * Run a command on the remote host and collect its stdout. Best-effort:
+ * any failure (rejected exec, channel error, timeout) resolves `undefined`
+ * so a restricted remote shell can never break `create()`.
+ */
+async function clientExecText(client: Client, command: string): Promise<string | undefined> {
+  let channel: ClientChannel;
+  try {
+    channel = await clientExec(client, command);
+  } catch {
+    return undefined;
+  }
+  return new Promise<string | undefined>((resolve) => {
+    let out = '';
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    // First signal wins: a timeout fires while buffered data is still
+    // flushing, or 'error' lands after 'close' — later ones are no-ops.
+    const settle = (value: string | undefined): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // eslint-disable-next-line no-multiple-resolved -- the `settled` guard makes double resolution impossible; three event sources (timeout / close / error) must share one resolver.
+      resolve(value);
+    };
+    timer = setTimeout(() => {
+      settle(undefined);
+      channel.close();
+    }, REMOTE_PROBE_TIMEOUT_MS);
+    channel.on('data', (chunk: Buffer) => {
+      out += chunk.toString('utf8');
+    });
+    channel.on('close', () => {
+      settle(out);
+    });
+    channel.on('error', () => {
+      settle(undefined);
+    });
+  });
+}
+
+/**
+ * Derive the remote `Environment` from probe results. Pure so the mapping
+ * (POSIX uname field order, Darwin→macOS, bash→sh fallback) stays
+ * unit-testable without a live SSH transport.
+ *
+ * @param unameOutput stdout of `uname -s -r -m` — `undefined` when the probe
+ *   could not run (restricted shell, timeout, exec rejection).
+ * @param shellCandidates SFTP existence probe results for candidate shell
+ *   paths, in priority order; the first existing entry wins.
+ */
+export function resolveRemoteOsEnv(
+  unameOutput: string | undefined,
+  shellCandidates: readonly { path: string; exists: boolean }[],
+): Environment {
+  let osKind: Environment['osKind'] = 'unknown';
+  let osVersion = 'unknown';
+  let osArch = 'unknown';
+  if (unameOutput !== undefined) {
+    // uname prints in fixed POSIX order — sysname, release, machine —
+    // regardless of flag order.
+    const [sysname, release, machine] = unameOutput.trim().split(/\s+/);
+    if (sysname !== undefined && sysname !== '') {
+      osKind = sysname === 'Darwin' ? 'macOS' : sysname === 'Linux' ? 'Linux' : sysname;
+      osVersion = release ?? 'unknown';
+      osArch = machine ?? 'unknown';
+    }
+  }
+  let shellName: Environment['shellName'] = 'sh';
+  let shellPath = '/bin/sh';
+  for (const candidate of shellCandidates) {
+    if (candidate.exists) {
+      shellName = 'bash';
+      shellPath = candidate.path;
+      break;
+    }
+  }
+  return { osKind, osArch, osVersion, shellName, shellPath };
+}
+
 // ── SSHKaos ────────────────────────────────────────────────────────────
 
 /**
@@ -441,34 +532,38 @@ export class SSHKaos implements Kaos {
   private _cwd: string;
   private readonly _envLayers: readonly Record<string, string>[];
 
-  // Stub: real wiring (probing the remote host via `uname` / `$SHELL` over the
-  // SSH transport) is deferred.
-  get osEnv(): Environment {
-    throw new KaosError(
-      'SSHKaos.osEnv is not yet wired — remote environment probing is not implemented.',
-    );
-  }
+  /**
+   * OS / shell probe of the remote host, captured once during `create()`.
+   * Best-effort: fields fall back to `'unknown'` (and the shell to
+   * `/bin/sh`) when the remote restricts probing.
+   */
+  readonly osEnv: Environment;
 
   private constructor(
     client: Client,
     sftp: SFTPWrapper,
     home: string,
     cwd: string,
+    osEnv: Environment,
     envLayers: readonly Record<string, string>[] = [],
   ) {
     this._client = client;
     this._sftp = sftp;
     this._home = home;
     this._cwd = cwd;
+    this.osEnv = osEnv;
     this._envLayers = envLayers;
   }
 
   withCwd(cwd: string): SSHKaos {
-    return new SSHKaos(this._client, this._sftp, this._home, cwd, this._envLayers);
+    return new SSHKaos(this._client, this._sftp, this._home, cwd, this.osEnv, this._envLayers);
   }
 
   withEnv(env: Record<string, string>): SSHKaos {
-    return new SSHKaos(this._client, this._sftp, this._home, this._cwd, [...this._envLayers, env]);
+    return new SSHKaos(this._client, this._sftp, this._home, this._cwd, this.osEnv, [
+      ...this._envLayers,
+      env,
+    ]);
   }
 
   private _resolvePath(path: string): string {
@@ -535,7 +630,10 @@ export class SSHKaos implements Kaos {
         }
       }
 
-      return new SSHKaos(client, sftp, home, cwd);
+      // Probe the remote OS / shell (best-effort; see resolveRemoteOsEnv).
+      const osEnv = await SSHKaos._probeOsEnv(client, sftp);
+
+      return new SSHKaos(client, sftp, home, cwd, osEnv);
     } catch (error) {
       client.end();
       throw error;
@@ -926,6 +1024,22 @@ export class SSHKaos implements Kaos {
     const command = SSHKaos._buildExecCommand(args, this._cwd, env);
     const channel = await clientExec(this._client, command);
     return new SSHProcess(channel);
+  }
+
+  /**
+   * Probe the remote host's OS / shell over the live SSH transport: one
+   * `uname -s -r -m` exec plus SFTP existence checks on the bash candidates.
+   * Every leg is best-effort — see {@link resolveRemoteOsEnv}.
+   */
+  private static async _probeOsEnv(client: Client, sftp: SFTPWrapper): Promise<Environment> {
+    const [unameOutput, ...bashExists] = await Promise.all([
+      clientExecText(client, 'uname -s -r -m'),
+      ...REMOTE_BASH_CANDIDATES.map((path) => sftpExists(sftp, path)),
+    ]);
+    return resolveRemoteOsEnv(
+      unameOutput,
+      REMOTE_BASH_CANDIDATES.map((path, i) => ({ path, exists: bashExists[i] ?? false })),
+    );
   }
 
   // ── SSH lifecycle ──────────────────────────────────────────────────

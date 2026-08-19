@@ -16,7 +16,7 @@ export interface Kaos {
   /**
    * OS / shell probe describing the target environment. Populated by the
    * concrete Kaos implementation (e.g. `detectEnvironmentFromNode()` for
-   * `LocalKaos`, a remote probe for `SSHKaos`).
+   * `LocalKaos`, a best-effort remote probe during `create()` for `SSHKaos`).
    */
   readonly osEnv: Environment;
 
