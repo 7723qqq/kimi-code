@@ -350,6 +350,26 @@ export interface BackgroundCounts {
   readonly agentTasks: number;
 }
 
+/** Tasks-browser dialog state (store-backed; no component instances). */
+export interface TasksBrowserState {
+  filter: 'all' | 'active';
+  selectedTaskId: string | undefined;
+  tailOutput: string | undefined;
+  tailLoading: boolean;
+  /** Monotonic request id guarding stale tail fetches. */
+  tailRequestId: number;
+  flashMessage: string | undefined;
+  viewer:
+    | {
+        taskId: string;
+        output: string;
+        kind: 'output' | 'activity';
+        /** Last `agentId:version` fed to the activity viewer; polls skip when unchanged. */
+        lastRecordKey?: string;
+      }
+    | undefined;
+}
+
 export type LivePaneMode = 'idle' | 'waiting' | 'thinking' | 'tool' | 'session';
 
 /** The dialog currently open on top of the shell; null when none. */

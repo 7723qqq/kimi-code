@@ -43,6 +43,7 @@ import type {
   QueuedMessage,
   SessionStats,
   StepRetryState,
+  TasksBrowserState,
   TodoItem,
   TranscriptEntry,
   TUIStartupState,
@@ -191,6 +192,8 @@ export interface TuiRuntimeState {
   todoItems: readonly TodoItem[]
   /** Background task counts for the footer badge. */
   backgroundCounts: BackgroundCounts
+  /** Tasks-browser dialog state; undefined when closed. */
+  tasksBrowser: TasksBrowserState | undefined
   /** Terminal capability snapshot (focus, notification support). */
   terminalState: TerminalState
   /** How swarm mode was entered ('task' auto-promotes queued goals). */
@@ -284,6 +287,7 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
   toolOutputExpanded: false,
   todoItems: [],
   backgroundCounts: { bashTasks: 0, agentTasks: 0 },
+  tasksBrowser: undefined,
   terminalState: createTerminalState(),
   swarmModeEntry: undefined,
 }
