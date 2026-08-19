@@ -40,7 +40,9 @@ export const Msys2Prompt: Component<Msys2PromptProps> = (props) => (
     title={t('tui.msys2Prompt.title')}
     hint={t('tui.msys2Prompt.hint')}
     options={MSYS2_OPTIONS}
-    onSelect={(value) => props.onSelect(value as Msys2PromptChoice)}
+    onSelect={(value) => {
+      props.onSelect(value as Msys2PromptChoice)
+    }}
     onCancel={props.onCancel}
   />
 )
