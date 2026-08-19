@@ -56,7 +56,15 @@ describe('todoListStaleReminder', () => {
     const history = Array.from({ length: 10 }, () => assistantMessage());
     const result = todoListStaleReminder({
       history,
-      todos: [{ title: 'Investigate todo reminder', status: 'in_progress' }],
+      todos: [
+        {
+          id: 'T1',
+          parentId: null,
+          kind: 'task',
+          title: 'Investigate todo reminder',
+          status: 'in_progress',
+        },
+      ],
       active: false,
     });
 
@@ -65,8 +73,20 @@ describe('todoListStaleReminder', () => {
 
   it('injects a reminder after enough assistant turns since the last TodoList write', async () => {
     const todos: TodoItem[] = [
-      { title: 'Read current TodoList implementation', status: 'in_progress' },
-      { title: 'Add reminder injector tests', status: 'pending' },
+      {
+        id: 'T1',
+        parentId: null,
+        kind: 'task',
+        title: 'Read current TodoList implementation',
+        status: 'in_progress',
+      },
+      {
+        id: 'T2',
+        parentId: null,
+        kind: 'task',
+        title: 'Add reminder injector tests',
+        status: 'pending',
+      },
     ];
     const history = [todoListWrite(todos), ...Array.from({ length: 10 }, () => assistantMessage())];
     const result = todoListStaleReminder({ history, todos, active: true });
@@ -77,7 +97,9 @@ describe('todoListStaleReminder', () => {
   });
 
   it('does not inject before the assistant-turn threshold', async () => {
-    const todos: TodoItem[] = [{ title: 'Read code', status: 'in_progress' }];
+    const todos: TodoItem[] = [
+      { id: 'T1', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' },
+    ];
     const history = [todoListWrite(todos), ...Array.from({ length: 9 }, () => assistantMessage())];
     const result = todoListStaleReminder({ history, todos, active: true });
 
@@ -85,7 +107,9 @@ describe('todoListStaleReminder', () => {
   });
 
   it('does not inject another reminder before the reminder spacing threshold', async () => {
-    const todos: TodoItem[] = [{ title: 'Read code', status: 'in_progress' }];
+    const todos: TodoItem[] = [
+      { id: 'T1', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' },
+    ];
     const history = [
       todoListWrite(todos),
       ...Array.from({ length: 10 }, () => assistantMessage()),
@@ -98,7 +122,9 @@ describe('todoListStaleReminder', () => {
   });
 
   it('does not treat TodoList query mode as a write', async () => {
-    const todos: TodoItem[] = [{ title: 'Read code', status: 'in_progress' }];
+    const todos: TodoItem[] = [
+      { id: 'T1', parentId: null, kind: 'task', title: 'Read code', status: 'in_progress' },
+    ];
     const history = [
       todoListWrite(todos),
       ...Array.from({ length: 5 }, () => assistantMessage()),

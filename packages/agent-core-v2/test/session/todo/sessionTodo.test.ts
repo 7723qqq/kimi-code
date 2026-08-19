@@ -183,8 +183,8 @@ describe('SessionTodoService', () => {
     expect(service.getTodos()).toEqual([]);
 
     const next: TodoItem[] = [
-      { title: 'a', status: 'pending' },
-      { title: 'b', status: 'in_progress' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'a', status: 'pending' },
+      { id: 'T2', parentId: null, kind: 'task', title: 'b', status: 'in_progress' },
     ];
     service.setTodos(next);
     expect(service.getTodos()).toEqual(next);
@@ -200,18 +200,23 @@ describe('SessionTodoService', () => {
 
     const seen: Array<readonly TodoItem[]> = [];
     const d = service.onDidChange((todos) => seen.push(todos));
-    service.setTodos([{ title: 'x', status: 'pending' }]);
-    service.setTodos([{ title: 'y', status: 'done' }]);
+    service.setTodos([{ id: 'T1', parentId: null, kind: 'task', title: 'x', status: 'pending' }]);
+    service.setTodos([{ id: 'T1', parentId: null, kind: 'task', title: 'y', status: 'done' }]);
     d.dispose();
 
-    expect(seen).toEqual([[{ title: 'x', status: 'pending' }], [{ title: 'y', status: 'done' }]]);
+    expect(seen).toEqual([
+      [{ id: 'T1', parentId: null, kind: 'task', title: 'x', status: 'pending' }],
+      [{ id: 'T1', parentId: null, kind: 'task', title: 'y', status: 'done' }],
+    ]);
   });
 
   it('fires the restored list once when undo changes the main wire state', async () => {
     const main = makeFakeAgent('main');
     const lifecycle = makeLifecycleStub([main.handle]);
     const service = new SessionTodoService(lifecycle.service);
-    service.setTodos([{ title: 'doomed', status: 'in_progress' }]);
+    service.setTodos([
+      { id: 'T1', parentId: null, kind: 'task', title: 'doomed', status: 'in_progress' },
+    ]);
 
     const seen: Array<readonly TodoItem[]> = [];
     const subscription = service.onDidChange((todos) => seen.push(todos));
@@ -222,7 +227,9 @@ describe('SessionTodoService', () => {
     await main.dispatcher.dispatch(new ContextUndone({ turns: 1 }));
     subscription.dispose();
 
-    expect(seen).toEqual([[{ title: 'kept', status: 'pending' }]]);
+    expect(seen).toEqual([
+      [{ id: 'T1', parentId: null, kind: 'task', title: 'kept', status: 'pending' }],
+    ]);
   });
 
   it('appends a tools.update_store record to the main agent wire on setTodos', () => {
@@ -230,13 +237,17 @@ describe('SessionTodoService', () => {
     const lifecycle = makeLifecycleStub([main.handle]);
     const service = new SessionTodoService(lifecycle.service);
 
-    service.setTodos([{ title: 'persist me', status: 'in_progress' }]);
+    service.setTodos([
+      { id: 'T1', parentId: null, kind: 'task', title: 'persist me', status: 'in_progress' },
+    ]);
 
     expect(main.journal).toEqual([
       {
         type: 'tools.update_store',
         key: 'todo',
-        value: [{ title: 'persist me', status: 'in_progress' }],
+        value: [
+          { id: 'T1', parentId: null, kind: 'task', title: 'persist me', status: 'in_progress' },
+        ],
         time: expect.any(Number),
       },
     ]);
@@ -245,7 +256,9 @@ describe('SessionTodoService', () => {
   it('does not append to the wire when the main agent is absent', () => {
     const lifecycle = makeLifecycleStub();
     const service = new SessionTodoService(lifecycle.service);
-    expect(() => service.setTodos([{ title: 'x', status: 'pending' }])).not.toThrow();
+    expect(() =>
+      service.setTodos([{ id: 'T1', parentId: null, kind: 'task', title: 'x', status: 'pending' }]),
+    ).not.toThrow();
     expect(service.getTodos()).toEqual([]);
   });
 
@@ -272,7 +285,9 @@ describe('SessionTodoService', () => {
       { type: 'tools.update_store', key: 'todo', value: [{ title: 'restored', status: 'done' }] },
     ]);
 
-    expect(service.getTodos()).toEqual([{ title: 'restored', status: 'done' }]);
+    expect(service.getTodos()).toEqual([
+      { id: 'T1', parentId: null, kind: 'task', title: 'restored', status: 'done' },
+    ]);
   });
 
   it('disposes per-agent bindings when the agent is disposed', () => {
@@ -314,7 +329,9 @@ describe('SessionTodoService', () => {
       } as unknown as WireRecord,
     ]);
 
-    expect(service.getTodos()).toEqual([{ title: 'valid', status: 'done' }]);
+    expect(service.getTodos()).toEqual([
+      { id: 'T1', parentId: null, kind: 'task', title: 'valid', status: 'done' },
+    ]);
   });
 
   it('treats a non-array todo tools.update_store value as an empty list on replay', async () => {

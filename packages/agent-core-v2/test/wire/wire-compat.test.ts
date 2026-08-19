@@ -10,16 +10,19 @@ import { z } from 'zod';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { Event2 } from '#/app/event/event2';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAgentStateService } from '#/agent/state/agentState';
+import { todoKey } from '#/session/todo/todoOps';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
-import { todoKey } from '#/session/todo/todoOps';
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
@@ -103,7 +106,10 @@ function makeReader(storage: IFileSystemStorageService): IAppendLogStore {
 
 async function collect(log: IAppendLogStore, key: string): Promise<WireRecord[]> {
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
+  for await (const record of log.read<WireRecord>(
+    testWireScope(SCOPE, key),
+    AGENT_WIRE_RECORD_KEY,
+  )) {
     out.push(record);
   }
   return out;
@@ -140,10 +146,7 @@ describe('wire.jsonl round-trip', () => {
     expect(await readRawLines(dir, KEY)).toEqual(records);
 
     const replayTarget = makeContainer(storage, 'replay-target');
-    const withUnknown: WireRecord[] = [
-      ...records,
-      { type: 'compat.unknown.nope', foo: 1 },
-    ];
+    const withUnknown: WireRecord[] = [...records, { type: 'compat.unknown.nope', foo: 1 }];
     const unexpected: unknown[] = [];
     setUnexpectedErrorHandler((error) => unexpected.push(error));
     try {
@@ -161,9 +164,7 @@ describe('wire.jsonl round-trip', () => {
     expect(replayTarget.agentState.get(compatCounterKey)).toEqual(
       live.agentState.get(compatCounterKey),
     );
-    expect(replayTarget.agentState.get(compatTagsKey)).toEqual(
-      live.agentState.get(compatTagsKey),
-    );
+    expect(replayTarget.agentState.get(compatTagsKey)).toEqual(live.agentState.get(compatTagsKey));
   });
 
   it('replays a v1.0-era journal through the full migration chain and heals it to the current version', async () => {
@@ -193,7 +194,7 @@ describe('wire.jsonl round-trip', () => {
 
     expect(legacy.agentState.get(compatCounterKey)).toEqual({ value: 7 });
     expect(legacy.agentState.get(todoKey)).toEqual([
-      { title: 'legacy todo', status: 'pending' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'legacy todo', status: 'pending' },
     ]);
 
     expect(await collect(makeReader(storage), 'legacy')).toEqual([

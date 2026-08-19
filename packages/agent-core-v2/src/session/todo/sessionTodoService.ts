@@ -1,26 +1,21 @@
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  type IAgentScopeHandle,
-  ScopeActivation,
-  registerScopedService,
-} from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
-
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { ContextUndone } from '#/agent/undo/undoService';
-import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { ISessionTodoService } from './sessionTodo';
-import { todoKey, ToolsUpdateStore } from './todoOps';
 import { TODO_LIST_TOOL_NAME, type TodoItem } from './todoItem';
 import { TODO_LIST_REMINDER_VARIANT, todoListStaleReminder } from './todoListReminder';
+import { todoKey, ToolsUpdateStore } from './todoOps';
 
 const MAIN_AGENT_ID = 'main';
 
@@ -33,9 +28,7 @@ export class SessionTodoService extends Service implements ISessionTodoService {
   private readonly agentBindings = new Map<string, IDisposable[]>();
   private lastKnownTodos: readonly TodoItem[] = [];
 
-  constructor(
-    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
-  ) {
+  constructor(@IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService) {
     super();
 
     this._register(
@@ -68,8 +61,13 @@ export class SessionTodoService extends Service implements ISessionTodoService {
 
   setTodos(todos: readonly TodoItem[]): void {
     const next: readonly TodoItem[] = todos.map((todo) => ({
+      id: todo.id,
+      parentId: todo.parentId,
+      kind: todo.kind,
       title: todo.title,
       status: todo.status,
+      progress: todo.progress,
+      description: todo.description,
     }));
     this.dispatchTodoSet(next);
   }
@@ -142,7 +140,15 @@ export class SessionTodoService extends Service implements ISessionTodoService {
 function todoItemsEqual(a: readonly TodoItem[], b: readonly TodoItem[]): boolean {
   return (
     a.length === b.length &&
-    a.every((item, index) => item.title === b[index]?.title && item.status === b[index]?.status)
+    a.every(
+      (item, index) =>
+        item.id === b[index]?.id &&
+        item.parentId === b[index]?.parentId &&
+        item.kind === b[index]?.kind &&
+        item.title === b[index]?.title &&
+        item.status === b[index]?.status &&
+        item.progress === b[index]?.progress,
+    )
   );
 }
 

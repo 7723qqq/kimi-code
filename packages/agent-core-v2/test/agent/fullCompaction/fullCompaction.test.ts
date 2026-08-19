@@ -2901,8 +2901,14 @@ describe('FullCompaction', () => {
 
   it('appends the todo list to the compaction summary', async () => {
     const todos = [
-      { title: 'Fix the auth bug', status: 'in_progress' },
-      { title: 'Add tests', status: 'pending' },
+      {
+        id: 'T1',
+        parentId: null,
+        kind: 'task',
+        title: 'Fix the auth bug',
+        status: 'in_progress',
+      },
+      { id: 'T2', parentId: null, kind: 'task', title: 'Add tests', status: 'pending' },
     ] as const;
     const ctx = testAgent(
       sessionServices((reg) => {
@@ -2943,7 +2949,7 @@ describe('FullCompaction', () => {
     expect(history[2]).toMatchObject({
       role: 'user',
       text: expect.stringContaining(
-        'Compacted summary.\n\n## TODO List\n  [in_progress] Fix the auth bug\n  [pending] Add tests',
+        'Compacted summary.\n\n## TODO List (overall 0/2 · 0%)\n  [in_progress] T1: Fix the auth bug\n  [pending] T2: Add tests',
       ),
     });
     expect(ctx.context.get().at(-1)?.content[0]).toMatchObject({
