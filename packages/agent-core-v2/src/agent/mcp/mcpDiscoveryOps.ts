@@ -47,4 +47,9 @@ export const mcpDiscoveryKey = defineState('mcp.discovery', (): McpDiscoveryStat
   const key = `${e.serverName}\n${e.hash}`;
   if (s.seen.includes(key)) return;
   s.seen = [...s.seen, key];
+  if (s.seen.length > MAX_DISCOVERY_SEEN_KEYS) {
+    s.seen = s.seen.slice(s.seen.length - MAX_DISCOVERY_SEEN_KEYS);
+  }
 });
+
+const MAX_DISCOVERY_SEEN_KEYS = 500;

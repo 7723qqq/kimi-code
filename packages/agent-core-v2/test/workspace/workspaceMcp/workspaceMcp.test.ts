@@ -91,7 +91,7 @@ describe('WorkspaceMcpService', () => {
     vi.restoreAllMocks();
     await manager?.shutdown();
     disposables.dispose();
-    await rm(cwd, { recursive: true, force: true });
+    await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   function mcpConfigStub(): IWorkspaceMcpConfigService {
@@ -422,7 +422,7 @@ describe('WorkspaceMcpService', () => {
       disposers[0]!();
       expect(shutdown).toHaveBeenCalledTimes(1);
       await shutdown.mock.results[0]?.value;
-      await rm(sessionCwd, { recursive: true, force: true });
+      await rm(sessionCwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }, 20000);
 
     it('ignores a session created without ephemeral servers', async () => {

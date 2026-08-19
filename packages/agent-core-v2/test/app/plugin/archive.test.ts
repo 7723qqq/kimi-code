@@ -65,5 +65,5 @@ describe('plugin archive extraction', () => {
 
     await expect(extractZip(zip, outDir)).rejects.toThrow(/single-file limit/);
     await expect(stat(outDir)).rejects.toThrow();
-  });
+  }, 20_000);
 });

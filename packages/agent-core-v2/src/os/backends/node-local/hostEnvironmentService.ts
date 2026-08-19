@@ -28,10 +28,11 @@ export class HostEnvironmentService implements IHostEnvironment {
     this.ready = Promise.all([
       probeHostEnvironmentFromNode().then((info) => {
         this._info = info;
+        return void 0;
       }),
       applyLoginShellPathFromNode(),
     ])
-      .then(() => {})
+      .then(() => void 0)
       .catch((error: unknown) => {
         const translated = this.toHostProcessError(error);
         this._probeError = translated;

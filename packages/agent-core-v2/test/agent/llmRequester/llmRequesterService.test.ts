@@ -7,6 +7,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import {
   IAgentContextProjectorService,
   type MediaStripSnapshot,
@@ -214,6 +215,9 @@ function createService(
   };
 
   ix.stub(IAgentContextMemoryService, context);
+  ix.stub(IAgentMicroCompactionService, {
+    compact: (messages) => messages,
+  });
   ix.stub(IAgentToolSelectService, toolSelect);
   ix.stub(
     IAgentMediaResolverService,

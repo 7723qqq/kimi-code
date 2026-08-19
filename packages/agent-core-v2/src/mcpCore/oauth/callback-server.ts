@@ -46,6 +46,12 @@ export async function startCallbackServer(): Promise<CallbackServer> {
       res.writeHead(404).end();
       return;
     }
+    const address = server.address() as AddressInfo | null;
+    const expectedHost = address !== null ? `127.0.0.1:${address.port}` : undefined;
+    if (expectedHost !== undefined && req.headers.host !== expectedHost) {
+      res.writeHead(404).end();
+      return;
+    }
     let url: URL;
     try {
       url = new URL(req.url, 'http://localhost');

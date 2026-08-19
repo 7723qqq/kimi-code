@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { statSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 
 import { BufferedReadable } from '#/_base/execEnv/bufferedReadable';
@@ -37,6 +39,77 @@ function buildEnv(overrides: Record<string, string> | undefined): Record<string,
     return undefined;
   }
   return { ...(process.env as Record<string, string>), ...overrides };
+}
+
+interface ResolvedSpawn {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly options: SpawnOptions;
+}
+
+function resolveWindowsSpawn(
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+): ResolvedSpawn {
+  if (!isWindows || options.shell !== undefined) {
+    return { command, args, options };
+  }
+  const script = findWindowsScript(command, options.env);
+  if (script === undefined) {
+    return { command, args, options };
+  }
+  const commandLine = [escapeCmdArg(script), ...args.map(escapeCmdArg)].join(' ');
+  return {
+    command: process.env['ComSpec'] ?? 'cmd.exe',
+    args: ['/d', '/s', '/c', `"${commandLine}"`],
+    options: { ...options, windowsVerbatimArguments: true },
+  };
+}
+
+function findWindowsScript(
+  command: string,
+  env: NodeJS.ProcessEnv | undefined,
+): string | undefined {
+  if (/\.(cmd|bat)$/i.test(command)) return command;
+  if (/\.(exe|com)$/i.test(command)) return undefined;
+  const extensions = (env?.['PATHEXT'] ?? process.env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD')
+    .split(';')
+    .map((ext) => ext.trim())
+    .filter((ext) => ext.length > 0);
+  const bases: string[] = [];
+  if (command.includes('/') || command.includes('\\')) {
+    bases.push(command);
+  } else {
+    bases.push(join(process.cwd(), command));
+    const pathValue = env?.['PATH'] ?? process.env['PATH'] ?? '';
+    for (const dir of pathValue.split(';')) {
+      if (dir.length > 0) bases.push(join(dir, command));
+    }
+  }
+  for (const base of bases) {
+    for (const ext of extensions) {
+      const candidate = base + ext;
+      if (!isFile(candidate)) continue;
+      return /\.(cmd|bat)$/i.test(candidate) ? candidate : undefined;
+    }
+  }
+  return undefined;
+}
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function escapeCmdArg(arg: string): string {
+  if (!/[ \t"&|<>^()%!]/.test(arg)) return arg;
+  const escaped = arg.replaceAll('"', '""');
+  const trailing = escaped.match(/\\+$/)?.[0] ?? '';
+  return `"${escaped}${trailing}"`;
 }
 
 function waitForSpawn(child: ChildProcess): Promise<void> {
@@ -104,13 +177,13 @@ class HostProcess implements IHostProcess {
     return this._exitCode;
   }
 
-  async wait(): Promise<number> {
+  wait(): Promise<number> {
     return this._exitPromise;
   }
 
-  async kill(signal?: NodeJS.Signals): Promise<void> {
+  kill(signal?: NodeJS.Signals): Promise<void> {
     if (this.pid <= 0) {
-      return;
+      return Promise.resolve();
     }
 
     if (isWindows) {
@@ -132,13 +205,13 @@ class HostProcess implements IHostProcess {
       process.kill(-this.pid, signal ?? 'SIGTERM');
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
-      if (err.code === 'ESRCH') return;
+      if (err.code === 'ESRCH') return Promise.resolve();
       if (err.code === 'EPERM') {
         try {
           this._child.kill(signal ?? 'SIGTERM');
         } catch {
         }
-        return;
+        return Promise.resolve();
       }
       throw new HostProcessError(
         HostProcessErrorCode.KillFailed,
@@ -149,6 +222,7 @@ class HostProcess implements IHostProcess {
         },
       );
     }
+    return Promise.resolve();
   }
 
   dispose(): void {
@@ -171,7 +245,8 @@ export class HostProcessService implements IHostProcessService {
     options: HostProcessOptions = {},
   ): Promise<IHostProcess> {
     const spawnOptions = buildSpawnOptions(options);
-    const child = spawn(command, args as string[], spawnOptions);
+    const resolved = resolveWindowsSpawn(command, args, spawnOptions);
+    const child = spawn(resolved.command, resolved.args as string[], resolved.options);
     try {
       await waitForSpawn(child);
     } catch (error) {

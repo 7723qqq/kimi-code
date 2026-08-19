@@ -56,8 +56,8 @@ describe('Workspace MCP initialization', () => {
     await manager?.shutdown();
     disposables.dispose();
     await Promise.all([
-      rm(cwd, { recursive: true, force: true }),
-      rm(homeDir, { recursive: true, force: true }),
+      rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
+      rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
     ]);
   });
 

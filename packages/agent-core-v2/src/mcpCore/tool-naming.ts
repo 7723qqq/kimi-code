@@ -18,8 +18,8 @@ export function qualifyMcpToolName(serverName: string, toolName: string): string
 
 function stableHash8(input: string): string {
   let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.codePointAt(i)!;
+  for (const ch of input) {
+    hash ^= ch.codePointAt(0) ?? 0;
     hash = Math.trunc(Math.imul(hash, 0x01000193));
   }
   return hash.toString(16).padStart(8, '0');

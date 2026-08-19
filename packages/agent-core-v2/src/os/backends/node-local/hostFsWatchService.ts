@@ -66,7 +66,7 @@ function createWatchReadiness(): WatchReadiness {
     resolvePromise = resolve;
     rejectPromise = reject;
   });
-  void promise.catch(() => undefined);
+  void promise.catch(() => void 0);
   return {
     promise,
     resolve: () => {
@@ -118,7 +118,7 @@ class HostFsWatchHandle implements IHostFsWatchHandle {
     if (this.disposed) return;
     this.disposed = true;
     this.readiness.resolve();
-    void this.watcher.close().catch(() => undefined);
+    void this.watcher.close().catch(() => void 0);
     this.emitter.dispose();
   }
 }

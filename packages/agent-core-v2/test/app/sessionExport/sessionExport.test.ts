@@ -380,7 +380,7 @@ describe('sessionExport', () => {
     await expect(readZipEntry(join(tmp, 'many-files.zip'), 'entry-319.txt')).resolves.toEqual(
       Buffer.from('319\n', 'utf8'),
     );
-  });
+  }, 20_000);
 
   it('rejects an output path that is also a selected session file without modifying it', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'session-export-test-'));

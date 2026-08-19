@@ -24,16 +24,19 @@
  * throws). The provider treats `undefined` as "not stored".
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
+import { promisify } from 'node:util';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
 import type { McpOAuthStore } from '#/mcpCore/oauth/store';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+
+const execFileAsync = promisify(execFile);
 
 export interface IMcpOAuthStore extends McpOAuthStore {
   readonly _serviceBrand: undefined;
@@ -52,17 +55,17 @@ const IV_LENGTH = 12;
 // back to hostname-only derivation (still better than nothing, and no worse
 // than the previous scheme).
 
-let machineIdCache: string | null | undefined; // undefined = not tried yet
+let machineIdPromise: Promise<string | null> | undefined;
 
-function loadMachineId(): string | undefined {
+async function loadMachineId(): Promise<string | undefined> {
   try {
     if (process.platform === 'win32') {
-      const out = execFileSync(
+      const { stdout } = await execFileAsync(
         'reg.exe',
         ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'],
         { encoding: 'utf8', timeout: 3000, windowsHide: true },
       );
-      return /MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/.exec(out)?.[1];
+      return /MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/.exec(stdout)?.[1];
     }
     for (const p of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
       try {
@@ -73,11 +76,11 @@ function loadMachineId(): string | undefined {
       }
     }
     if (process.platform === 'darwin') {
-      const out = execFileSync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], {
+      const { stdout } = await execFileAsync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], {
         encoding: 'utf8',
         timeout: 3000,
       });
-      return /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(out)?.[1];
+      return /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(stdout)?.[1];
     }
   } catch {
     // fall back to hostname-only derivation
@@ -85,22 +88,24 @@ function loadMachineId(): string | undefined {
   return undefined;
 }
 
-function hostMachineId(): string | undefined {
-  if (machineIdCache === undefined) {
-    machineIdCache = loadMachineId() ?? null;
-  }
-  return machineIdCache ?? undefined;
+function hostMachineId(): Promise<string | undefined> {
+  machineIdPromise ??= loadMachineId().then(
+    (id) => id ?? null,
+    () => null,
+  );
+  return machineIdPromise.then((id) => id ?? undefined);
 }
 
 /** Derive a 32-byte encryption key from host identity + fixed salt. */
-function deriveKey(): Buffer {
+async function deriveKey(): Promise<Buffer> {
   let username: string;
   try {
     username = userInfo().username;
   } catch {
     username = 'unknown-user';
   }
-  const raw = `${hostname()}:${hostMachineId() ?? 'no-machine-id'}:${username}:kimi-code-mcp-oauth-v1`;
+  const machineId = await hostMachineId();
+  const raw = `${hostname()}:${machineId ?? 'no-machine-id'}:${username}:kimi-code-mcp-oauth-v1`;
   return createHash('sha256').update(raw).digest();
 }
 
@@ -110,8 +115,8 @@ interface EncryptedBlob {
   data: string;
 }
 
-function encrypt(value: string): EncryptedBlob {
-  const key = deriveKey();
+async function encrypt(value: string): Promise<EncryptedBlob> {
+  const key = await deriveKey();
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, key, iv);
   const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
@@ -123,8 +128,8 @@ function encrypt(value: string): EncryptedBlob {
   };
 }
 
-function decrypt(blob: EncryptedBlob): string {
-  const key = deriveKey();
+async function decrypt(blob: EncryptedBlob): Promise<string> {
+  const key = await deriveKey();
   const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(blob.iv, 'hex'));
   decipher.setAuthTag(Buffer.from(blob.tag, 'hex'));
   const decrypted = Buffer.concat([
@@ -148,15 +153,15 @@ export function createMcpOAuthStore(docs: IAtomicDocumentStore): McpOAuthStore {
           'tag' in raw &&
           'data' in raw
         ) {
-          return JSON.parse(decrypt(raw as EncryptedBlob)) as T;
+          return JSON.parse(await decrypt(raw as EncryptedBlob)) as T;
         }
         return raw as T;
       } catch {
         return undefined;
       }
     },
-    write(key, data) {
-      const encrypted = encrypt(JSON.stringify(data));
+    async write(key, data) {
+      const encrypted = await encrypt(JSON.stringify(data));
       return docs.set(CREDENTIALS_SCOPE, key, encrypted);
     },
     remove(key) {

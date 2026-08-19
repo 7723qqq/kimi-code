@@ -177,7 +177,9 @@ export async function mcpResultToExecutableOutput(
 
 function serializeStructuredExtras(extras: Record<string, unknown>): string | undefined {
   try {
-    return JSON.stringify(extras).replaceAll('</mcp-structured-result>', '');
+    return JSON.stringify(extras)
+      .replaceAll('</mcp-structured-result>', '')
+      .replaceAll('<mcp-structured-result>', '');
   } catch {
     return undefined;
   }
@@ -250,6 +252,10 @@ function applyTextBudget(parts: readonly ContentPart[]): {
         continue;
       }
       if (size > remaining) {
+        if (part.encrypted !== undefined) {
+          truncated = true;
+          continue;
+        }
         out.push({ type: 'think', think: part.think.slice(0, remaining) });
         remaining = 0;
         truncated = true;

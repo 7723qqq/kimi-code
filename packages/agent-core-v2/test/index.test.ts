@@ -80,6 +80,7 @@ const V1_RECORD_TYPES: ReadonlySet<string> = new Set([
 const V2_ONLY_RECORD_TYPES: ReadonlySet<string> = new Set([
   'tools.reset_active_tools',
   'profile.bind',
+  'micro_compaction.clamp',
 ]);
 
 const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
@@ -188,7 +189,10 @@ describe('v1 wire vocabulary', () => {
 });
 
 describe('conversation-time checkpoint registration', () => {
-  const CHECKPOINT_EXEMPT_STATES: ReadonlySet<string> = new Set(['goalForkNotice']);
+  const CHECKPOINT_EXEMPT_STATES: ReadonlySet<string> = new Set([
+    'goalForkNotice',
+    'microCompaction',
+  ]);
   const CONTEXT_OWNER_STATE = 'contextMemory';
   const CONTEXT_EVENTS: readonly Event2Class[] = [
     ContextAppendMessage,

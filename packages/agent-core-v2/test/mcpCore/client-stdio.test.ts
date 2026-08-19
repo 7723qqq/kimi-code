@@ -5,7 +5,7 @@ import { join } from 'pathe';
 import { describe, expect, it } from 'vitest';
 
 import { Error2 } from '#/errors';
-import { mergeStdioEnv, StdioMcpClient, type StdioMcpClientOptions } from '#/mcpCore/client-stdio';
+import { BoundedTail, mergeStdioEnv, StdioMcpClient, type StdioMcpClientOptions } from '#/mcpCore/client-stdio';
 import type { McpServerStdioConfig } from '#/mcpCore/config-schema';
 import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
@@ -387,5 +387,36 @@ describe('mergeStdioEnv', () => {
     const dir = mkdtempSync(join(tmpdir(), 'kimi-mcp-env-'));
     await rm(dir, { recursive: true, force: true });
     expect(mergeStdioEnv(undefined, { PATH: dir })['PATH']).toBe(dir);
+  });
+});
+
+describe('BoundedTail', () => {
+  it('keeps small chunks untouched until the capacity is exceeded', () => {
+    const tail = new BoundedTail(1024);
+    tail.push('hello');
+    expect(tail.snapshot()).toBe('hello');
+  });
+
+  it('keeps the last capacity bytes of a single overflowing chunk', () => {
+    const tail = new BoundedTail(1024);
+    tail.push('a'.repeat(2048));
+    expect(tail.snapshot()).toBe('a'.repeat(1024));
+  });
+
+  it('keeps the tail across multiple pushes that overflow together', () => {
+    const tail = new BoundedTail(1024);
+    tail.push('x'.repeat(600));
+    tail.push('y'.repeat(600));
+    const snapshot = tail.snapshot();
+    expect(snapshot.endsWith('y'.repeat(600))).toBe(true);
+    expect(Buffer.byteLength(snapshot)).toBeLessThanOrEqual(1024);
+  });
+
+  it('does not split a surrogate pair at the cut boundary', () => {
+    const tail = new BoundedTail(1024);
+    tail.push('a'.repeat(1023) + '😀');
+    const snapshot = tail.snapshot();
+    expect(snapshot.endsWith('😀')).toBe(true);
+    expect(Buffer.byteLength(snapshot)).toBeLessThanOrEqual(1024 + 4);
   });
 });

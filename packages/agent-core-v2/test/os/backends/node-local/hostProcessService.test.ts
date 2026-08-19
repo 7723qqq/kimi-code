@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -80,5 +83,80 @@ describe('HostProcessService', () => {
     await proc.kill('SIGTERM');
     const code = await proc.wait();
     expect(code).not.toBe(0);
+  });
+});
+
+describe.skipIf(process.platform !== 'win32')('HostProcessService (Windows)', () => {
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+  let tempDir: string;
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    ix = createServices(disposables, {
+      additionalServices: (reg) => {
+        reg.define(IHostProcessService, HostProcessService);
+      },
+    });
+    tempDir = mkdtempSync(join(tmpdir(), 'kimi-hostproc-'));
+  });
+
+  afterEach(() => {
+    disposables.dispose();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('runs extensionless .cmd shims found via PATHEXT through cmd.exe', async () => {
+    writeFileSync(join(tempDir, 'fakecmd.cmd'), '@echo fake-ok\r\n');
+    const svc = ix.get(IHostProcessService);
+    const proc = await svc.spawn('fakecmd', [], {
+      env: { PATH: `${tempDir};${process.env['PATH'] ?? ''}` },
+    });
+    const out = await collect(proc.stdout);
+    expect(out.trim()).toBe('fake-ok');
+    expect(await proc.wait()).toBe(0);
+  });
+
+  it('preserves argument boundaries through the cmd.exe wrapper', async () => {
+    writeFileSync(join(tempDir, 'argcmd.cmd'), '@echo off\r\necho [%1][%2]\r\n');
+    const svc = ix.get(IHostProcessService);
+    const proc = await svc.spawn('argcmd', ['hello world', 'x"y'], {
+      env: { PATH: `${tempDir};${process.env['PATH'] ?? ''}` },
+    });
+    const out = await collect(proc.stdout);
+    expect(out).toContain('["hello world"]');
+    expect(out).toContain('["x""y"]');
+    expect(await proc.wait()).toBe(0);
+  });
+
+  it('preserves a trailing backslash inside a quoted argument', async () => {
+    writeFileSync(join(tempDir, 'argcmd.cmd'), '@echo off\r\necho [%1][%2]\r\n');
+    const svc = ix.get(IHostProcessService);
+    const proc = await svc.spawn('argcmd', ['C:\\Program Files\\', 'plain'], {
+      env: { PATH: `${tempDir};${process.env['PATH'] ?? ''}` },
+    });
+    const out = await collect(proc.stdout);
+    expect(out).toContain('["C:\\Program Files\\\\"]');
+    expect(await proc.wait()).toBe(0);
+  });
+
+  it('preserves a quote followed by a trailing backslash', async () => {
+    writeFileSync(join(tempDir, 'argcmd.cmd'), '@echo off\r\necho [%1][%2]\r\n');
+    const svc = ix.get(IHostProcessService);
+    const proc = await svc.spawn('argcmd', ['a"b\\', 'plain'], {
+      env: { PATH: `${tempDir};${process.env['PATH'] ?? ''}` },
+    });
+    const out = await collect(proc.stdout);
+    expect(out).toContain('["a""b\\\\"]');
+    expect(await proc.wait()).toBe(0);
+  });
+
+  it('runs an explicitly named .cmd file through cmd.exe', async () => {
+    writeFileSync(join(tempDir, 'explicit.cmd'), '@echo explicit-ok\r\n');
+    const svc = ix.get(IHostProcessService);
+    const proc = await svc.spawn(join(tempDir, 'explicit.cmd'), []);
+    const out = await collect(proc.stdout);
+    expect(out.trim()).toBe('explicit-ok');
+    expect(await proc.wait()).toBe(0);
   });
 });

@@ -73,7 +73,7 @@ export class StdioMcpClient implements MCPClient {
     try {
       await this.client.connect(
         this.transport,
-        buildRequestOptions(this.startupTimeoutMs, undefined),
+        buildRequestOptions(this.startupTimeoutMs),
       );
     } catch (error) {
       await this.closeStartedClient();
@@ -108,7 +108,7 @@ export class StdioMcpClient implements MCPClient {
   async listTools(): Promise<MCPToolDefinition[]> {
     const result = await this.client.listTools(
       undefined,
-      buildRequestOptions(this.startupTimeoutMs, undefined),
+      buildRequestOptions(this.startupTimeoutMs),
     );
     return result.tools.map(toMcpToolDefinition);
   }
@@ -185,7 +185,11 @@ class RuntimeStdioTransport implements Transport {
     try {
       const base = lease.runtime.path.resolve(this.options.defaultCwd ?? lease.runtime.environment.homeDir);
       const cwd = this.config.cwd === undefined ? base : lease.runtime.path.resolve(base, this.config.cwd);
-      const process = lease.track(await lease.runtime.process!.spawn(
+      const processService = lease.runtime.process;
+      if (processService === undefined) {
+        throw new Error2(ErrorCodes.NOT_IMPLEMENTED, 'process capability is not available');
+      }
+      const process = lease.track(await processService.spawn(
         this.config.command,
         this.config.args,
         { cwd, env: mergeStdioEnv(this.config.env) },
@@ -273,15 +277,24 @@ class RuntimeStdioTransport implements Transport {
   }
 }
 
-class BoundedTail {
+export class BoundedTail {
   private buffer = '';
   constructor(private readonly capacity: number) {}
 
   push(chunk: string): void {
     this.buffer += chunk;
-    if (this.buffer.length > this.capacity) {
-      this.buffer = this.buffer.slice(this.buffer.length - this.capacity);
+    if (Buffer.byteLength(this.buffer) <= this.capacity) return;
+    let start = 0;
+    let bytes = Buffer.byteLength(this.buffer);
+    while (bytes > this.capacity && start < this.buffer.length) {
+      const code = this.buffer.codePointAt(start);
+      const size = code === undefined ? 1 : code > 0xffff ? 4 : code >= 0x800 ? 3 : code >= 0x80 ? 2 : 1;
+      bytes -= size;
+      start += code !== undefined && code > 0xffff ? 2 : 1;
     }
+    const code = this.buffer.codePointAt(start);
+    if (code !== undefined && code >= 0xdc00 && code <= 0xdfff && start > 0) start -= 1;
+    this.buffer = this.buffer.slice(start);
   }
 
   snapshot(): string {

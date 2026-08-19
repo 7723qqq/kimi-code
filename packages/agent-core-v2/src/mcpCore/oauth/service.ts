@@ -129,17 +129,19 @@ export class McpOAuthService {
         );
       }
     } catch (error) {
-      await callbackServer.close().catch(() => undefined);
+      await callbackServer.close().catch(() => {});
       provider.resetFlow();
       if (error instanceof AlreadyAuthorizedError) throw error;
       throw wrapAuthError(`failed to start OAuth flow for "${serverName}"`, error);
     }
 
     let settled = false;
+    const flowController = new AbortController();
     const cancel = async (): Promise<void> => {
       if (settled) return;
       settled = true;
-      await callbackServer.close().catch(() => undefined);
+      flowController.abort();
+      await callbackServer.close().catch(() => {});
       provider.resetFlow();
     };
 
@@ -148,8 +150,17 @@ export class McpOAuthService {
         throw new Error2(ErrorCodes.MCP_OAUTH_FAILED, 'OAuth flow already completed or cancelled');
       }
       try {
+        const signals = [flowController.signal, opts.signal].filter(
+          (signal): signal is AbortSignal => signal !== undefined,
+        );
+        const signal =
+          signals.length === 0
+            ? undefined
+            : signals.length === 1
+              ? signals[0]
+              : AbortSignal.any(signals);
         const { code, state } = await callbackServer.waitForCode({
-          signal: opts.signal,
+          signal,
           timeoutMs: opts.timeoutMs,
         });
         const expectedState = provider.expectedState();
@@ -175,7 +186,7 @@ export class McpOAuthService {
         throw wrapAuthError(`OAuth flow for "${serverName}" failed`, error);
       }
       settled = true;
-      await callbackServer.close().catch(() => undefined);
+      await callbackServer.close().catch(() => {});
       provider.resetFlow();
     };
 

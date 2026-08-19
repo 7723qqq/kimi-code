@@ -37,8 +37,12 @@ console.log(`==> Native build (profile=${profile})`);
 
 if (profile === 'release' && process.env[BUILT_IN_CATALOG_ENV] === undefined) {
   const catalogPath = resolve(nativeIntermediatesDir(), 'built-in-catalog.json');
-  await run(process.execPath, [resolve(appRoot, 'scripts/update-catalog.mjs'), '--out', catalogPath]);
-  process.env[BUILT_IN_CATALOG_ENV] = catalogPath;
+  try {
+    await run(process.execPath, [resolve(appRoot, 'scripts/update-catalog.mjs'), '--out', catalogPath]);
+    process.env[BUILT_IN_CATALOG_ENV] = catalogPath;
+  } catch (error) {
+    console.warn(`Built-in catalog unavailable (${String(error)}); continuing without it`);
+  }
 }
 
 await runBundleStep();

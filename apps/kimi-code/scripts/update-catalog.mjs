@@ -7,8 +7,9 @@
  * placeholder so the generated catalog is not committed.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const scriptDir = import.meta.dirname;
 const outFile = resolveOutputFile(process.argv.slice(2));
@@ -72,14 +73,27 @@ function stripProvider(provider) {
 }
 
 async function fetchCatalog(url) {
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const raw = await res.json();
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+  let raw;
+  if (url.startsWith("file://")) {
+    raw = readFileSync(fileURLToPath(url), "utf-8");
+  } else if (!url.includes("://")) {
+    raw = readFileSync(isAbsolute(url) ? url : resolve(process.cwd(), url), "utf-8");
+  } else {
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    raw = await res.text();
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`invalid JSON: ${error.message}`);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error("invalid payload shape");
   }
   const stripped = {};
-  for (const [k, v] of Object.entries(raw)) {
+  for (const [k, v] of Object.entries(parsed)) {
     const p = stripProvider(v);
     if (p !== undefined && Object.keys(p).length > 0) stripped[k] = p;
   }
@@ -88,7 +102,16 @@ async function fetchCatalog(url) {
 
 async function main() {
   console.log(`Fetching ${modelsUrl} ...`);
-  const json = await fetchCatalog(modelsUrl);
+  let json;
+  try {
+    json = await fetchCatalog(modelsUrl);
+  } catch (error) {
+    if (existsSync(outFile)) {
+      console.warn(`Failed to fetch catalog (${error.message}); keeping existing ${outFile}`);
+      return;
+    }
+    throw error;
+  }
   mkdirSync(dirname(outFile), { recursive: true });
   writeFileSync(outFile, json, "utf-8");
   console.log(`Wrote ${outFile} (${(json.length / 1024).toFixed(0)} KB JSON)`);

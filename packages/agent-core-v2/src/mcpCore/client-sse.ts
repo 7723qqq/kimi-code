@@ -1,7 +1,7 @@
 import { ErrorCodes, Error2 } from '#/errors';
 import type { McpServerSseConfig } from './config-schema';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import { UnauthorizedError, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { SSEClientTransport, SseError } from '@modelcontextprotocol/sdk/client/sse.js';
 
 import {
@@ -68,7 +68,7 @@ export class SseMcpClient implements MCPClient {
     try {
       await this.client.connect(
         this.transport,
-        buildRequestOptions(this.startupTimeoutMs, undefined),
+        buildRequestOptions(this.startupTimeoutMs),
       );
     } catch (error) {
       await this.closeStartedClient();
@@ -99,7 +99,7 @@ export class SseMcpClient implements MCPClient {
   async listTools(): Promise<MCPToolDefinition[]> {
     const result = await this.client.listTools(
       undefined,
-      buildRequestOptions(this.startupTimeoutMs, undefined),
+      buildRequestOptions(this.startupTimeoutMs),
     );
     return result.tools.map(toMcpToolDefinition);
   }
@@ -155,6 +155,7 @@ export class SseMcpClient implements MCPClient {
 }
 
 export function isTerminalSseTransportError(error: Error): boolean {
+  if (error instanceof UnauthorizedError) return true;
   if (error.name === 'UnauthorizedError') return true;
   return error instanceof SseError && error.code !== undefined;
 }

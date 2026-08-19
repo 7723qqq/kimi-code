@@ -1,7 +1,7 @@
 import { ErrorCodes, Error2 } from '#/errors';
 import type { McpServerHttpConfig } from './config-schema';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import { UnauthorizedError, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 import {
@@ -68,7 +68,7 @@ export class HttpMcpClient implements MCPClient {
     try {
       await this.client.connect(
         this.transport,
-        buildRequestOptions(this.startupTimeoutMs, undefined),
+        buildRequestOptions(this.startupTimeoutMs),
       );
     } catch (error) {
       await this.closeStartedClient();
@@ -99,7 +99,7 @@ export class HttpMcpClient implements MCPClient {
   async listTools(): Promise<MCPToolDefinition[]> {
     const result = await this.client.listTools(
       undefined,
-      buildRequestOptions(this.startupTimeoutMs, undefined),
+      buildRequestOptions(this.startupTimeoutMs),
     );
     return result.tools.map(toMcpToolDefinition);
   }
@@ -155,6 +155,7 @@ export class HttpMcpClient implements MCPClient {
 }
 
 export function isTerminalTransportError(error: Error): boolean {
+  if (error instanceof UnauthorizedError) return true;
   if (error.name === 'UnauthorizedError') return true;
   if (/Maximum reconnection attempts/i.test(error.message)) return true;
   return false;

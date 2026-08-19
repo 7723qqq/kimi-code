@@ -3,6 +3,8 @@ import type { McpServerConfig } from './config-schema';
 import type { ILogger as Logger } from '#/_base/log/log';
 import type { Tool } from '#/kosong/contract/tool';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
+import type { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 import { abortable } from '#/_base/utils/abort';
 import { HttpMcpClient } from './client-http';
@@ -84,7 +86,7 @@ export interface McpDefaultTimeouts {
 export interface McpConnectionManagerOptions {
   readonly envLookup?: (name: string) => string | undefined;
   readonly stdioCwd?: string;
-  readonly runtimeResolver?: import('#/workspace/workspaceInstance/workspaceInstanceManager').IRuntimeResolver;
+  readonly runtimeResolver?: IRuntimeResolver;
   readonly workspaceId?: string;
   readonly runtimeId?: string;
   readonly requireStdioRuntimeId?: boolean;
@@ -487,7 +489,11 @@ export class McpConnectionManager implements McpConnectionView {
     for (const listener of this.listeners) {
       try {
         listener(view);
-      } catch {
+      } catch (error) {
+        this.log.error('mcp status listener threw', {
+          server: view.name,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   }
@@ -522,12 +528,13 @@ function computeEnabledNames(config: McpServerConfig, tools: readonly Tool[]): S
 }
 
 function isUnauthorizedLikeError(error: unknown): boolean {
+  if (error instanceof UnauthorizedError) return true;
   if (!(error instanceof Error)) return false;
   if (error.name === 'UnauthorizedError') return true;
   const code = (error as { code?: unknown }).code;
   if (typeof code === 'number' && code === 401) return true;
   if (typeof code === 'string' && code === '401') return true;
-  return /\b401\b/.test(error.message) || /unauthorized/i.test(error.message);
+  return false;
 }
 
 function formatStartupError(error: unknown, client: RuntimeMcpClient | undefined): string {
