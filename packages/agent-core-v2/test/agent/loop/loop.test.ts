@@ -786,6 +786,43 @@ describe('Agent loop', () => {
 
     expect(prompts).toEqual([undefined, 'hi']);
   });
+
+  it('carries session-media prompt attachments on turn.started', async () => {
+    const payloads: Array<readonly { kind: string; fileId: string }[] | undefined> = [];
+    const subscription = ctx.get(IEventBus).subscribe(TurnStarted, (event) => {
+      payloads.push(event.promptAttachments);
+    });
+    ctx.mockNextResponse({ type: 'text', text: 'seen' });
+
+    const turn = (
+      await loop.enqueue(
+        new MessageStepRequest(
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', imageUrl: { url: 'kimi-file://file_1', id: 'file_1' } },
+              { type: 'video_url', videoUrl: { url: 'kimi-file://file_2', id: 'file_2' } },
+              { type: 'image_url', imageUrl: { url: 'https://example.com/no-id.png' } },
+              { type: 'image_url', imageUrl: { url: 'ms://provider-blob', id: 'prov_1' } },
+              { type: 'text', text: 'look' },
+            ],
+            toolCalls: [],
+            origin: { kind: 'user' },
+          },
+          { admission: 'newTurn' },
+        ),
+      ).assigned
+    ).turn;
+    await turn.result;
+    subscription.dispose();
+
+    expect(payloads).toEqual([
+      [
+        { kind: 'image', fileId: 'file_1' },
+        { kind: 'video', fileId: 'file_2' },
+      ],
+    ]);
+  });
 });
 
 describe('turn telemetry', () => {
