@@ -27,7 +27,7 @@ describe('terminal focus tracking', () => {
     const state = { focused: true };
     expect(handleTerminalFocusInput(state, '')).toBeUndefined();
     expect(state.focused).toBe(true);
-    expect(handleTerminalFocusInput(state, '\u001b')).toBeUndefined();
+    expect(handleTerminalFocusInput(state, '\u001B')).toBeUndefined();
     expect(state.focused).toBe(true);
   });
 

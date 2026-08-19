@@ -55,7 +55,7 @@ const minimized = ref(false);
 // Title by kind
 // ---------------------------------------------------------------------------
 
-const titleKinds = [
+const titleKinds = new Set([
   'shell',
   'diff',
   'file',
@@ -66,10 +66,10 @@ const titleKinds = [
   'todo',
   'plan_review',
   'generic',
-];
+]);
 
 function title(): string {
-  const kind = titleKinds.includes(props.block.kind) ? props.block.kind : 'generic';
+  const kind = titleKinds.has(props.block.kind) ? props.block.kind : 'generic';
   return t(`approval.title.${kind}`);
 }
 

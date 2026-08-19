@@ -57,12 +57,12 @@ describe('GutterContainer', () => {
 
   it('keeps a leading OSC 133 zone marker at byte 0, before the gutter', () => {
     const c = new GutterContainer(2, 2);
-    const marked = `\x1b]133;A\x07content`;
-    const doubleMarked = `\x1b]133;B\x07\x1b]133;C\x07last`;
+    const marked = `\x1B]133;A\x07content`;
+    const doubleMarked = `\x1B]133;B\x07\x1B]133;C\x07last`;
     c.addChild(new FakeChild(() => [marked, doubleMarked]));
     expect(c.render(20)).toEqual([
-      `\x1b]133;A\x07  content`,
-      `\x1b]133;B\x07\x1b]133;C\x07  last`,
+      `\x1B]133;A\x07  content`,
+      `\x1B]133;B\x07\x1B]133;C\x07  last`,
     ]);
   });
 });

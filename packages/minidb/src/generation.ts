@@ -107,7 +107,7 @@ export function textDocsFile(name: string): string {
 /** Index names land in file names; keep the same sanitization the legacy
  *  root postings path used so both locations agree. */
 export function sanitizeIndexName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  return name.replaceAll(/[^a-zA-Z0-9_.-]/g, '_');
 }
 
 /** Generation directory id: monotonically increasing, zero-padded so

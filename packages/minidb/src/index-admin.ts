@@ -62,8 +62,8 @@ export class IndexAdmin<V> {
    *  via `skipTextIndex`: they get neither a staged builder nor feeding. */
   async rebuildAllIndexes(opts: { skipTextIndex?: (name: string) => boolean } = {}): Promise<void> {
     const dtB = this.deps.dt.beginRebuild();
-    const secB = this.deps.indexes.indexes.size ? this.deps.indexes.beginRebuild() : null;
-    const cmpB = this.deps.compound.indexes.size ? this.deps.compound.beginRebuild() : null;
+    const secB = this.deps.indexes.indexes.size > 0 ? this.deps.indexes.beginRebuild() : null;
+    const cmpB = this.deps.compound.indexes.size > 0 ? this.deps.compound.beginRebuild() : null;
     const textBs: { b: TextIndexBuild }[] = [];
     for (const [name, ti] of this.deps.textRegistry.text) {
       if (opts.skipTextIndex?.(name)) continue;

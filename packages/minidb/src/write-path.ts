@@ -217,7 +217,7 @@ export class WritePath<V> {
       // re-check (every violation-creating writer is serialized out).
       const run = async (): Promise<void> => {
         const op = this.prepareSet(key, value, { ttl, dt });
-        if (this.deps.indexes.size && this.deps.indexable(op.canonical)) this.deps.indexes.checkUnique(op.pk, op.canonical);
+        if (this.deps.indexes.size > 0 && this.deps.indexable(op.canonical)) this.deps.indexes.checkUnique(op.pk, op.canonical);
         await this.deps.memoryGuard.ensureMemoryFor([op]);
         await this.retryOnWalSeal(() => this.commitSetOp(op));
       };
@@ -370,7 +370,7 @@ export class WritePath<V> {
       // a WAL-seal retry of the commit needs no re-check.
       const run = async (): Promise<void> => {
         const prepared = ops.map((o) => this.prepareOp(o));
-        if (this.deps.indexes.size) {
+        if (this.deps.indexes.size > 0) {
           this.deps.indexes.checkUniqueBatch(
             prepared.map((o) => ({
               pk: o.pk,
@@ -493,7 +493,7 @@ export class WritePath<V> {
     // tokenizer — or one producing an overlong term — rejects the write here,
     // before the store/delta/buildQueue can be polluted (reviews #24/#27).
     let textTokens: Map<TextIndex, readonly string[] | null> | null = null;
-    if (this.deps.textRegistry.text.size) {
+    if (this.deps.textRegistry.text.size > 0) {
       textTokens = new Map();
       for (const ti of this.deps.textRegistry.text.values()) {
         textTokens.set(ti, this.deps.indexable(canonical) ? ti.prepareAdd(canonical) : null);
@@ -543,7 +543,7 @@ export class WritePath<V> {
       this.deps.store().set(op.key, op.value!, op.expireAt, op.dtNorm);
       this.deps.dt.set(op.pk, op.dtNorm);
       this.deps.compound.add(op.pk, op.canonical, op.dtNorm);
-      if (this.deps.indexes.size) {
+      if (this.deps.indexes.size > 0) {
         if (this.deps.indexable(oldDoc)) this.deps.indexes.remove(op.pk, oldDoc);
         if (this.deps.indexable(op.canonical)) this.deps.indexes.add(op.pk, op.canonical);
       }
@@ -571,7 +571,7 @@ export class WritePath<V> {
         this.deps.memoryGuard.access.delete(op.pk);
         this.deps.dt.del(op.pk);
         this.deps.compound.remove(op.pk);
-        if (this.deps.indexes.size && this.deps.indexable(oldDoc)) this.deps.indexes.remove(op.pk, oldDoc);
+        if (this.deps.indexes.size > 0 && this.deps.indexable(oldDoc)) this.deps.indexes.remove(op.pk, oldDoc);
         for (const ti of this.deps.textRegistry.text.values()) ti.remove(op.pk);
       }
     }
@@ -620,7 +620,7 @@ export class WritePath<V> {
     // checkpoint replay: abort it (expected churn, never an error).
     const gb = this.deps.generationBuilder.genBuild;
     if (gb) gb.aborted = true;
-    if (this.deps.indexes.size) this.deps.indexes.remove(pk, undefined);
+    if (this.deps.indexes.size > 0) this.deps.indexes.remove(pk, undefined);
     for (const ti of this.deps.textRegistry.text.values()) ti.remove(pk);
     this.deps.dt.del(pk);
     this.deps.compound.remove(pk);
@@ -660,13 +660,13 @@ export class WritePath<V> {
     // Old doc for derived-index removal; decoded before the overwrite, like
     // applyOp. This get also lazy-reaps an expired old record, whose onExpire
     // hook then removes its derived entries for us.
-    const oldDoc = this.deps.indexes.size ? this.deps.decode(this.deps.store().get(pk)) : undefined;
+    const oldDoc = this.deps.indexes.size > 0 ? this.deps.decode(this.deps.store().get(pk)) : undefined;
     if (op.type === TYPE_DEL) {
       if (!this.deps.store().del(pk)) return;
       this.deps.memoryGuard.access.delete(pk);
       this.deps.dt.del(pk);
       this.deps.compound.remove(pk);
-      if (this.deps.indexes.size && this.deps.indexable(oldDoc)) this.deps.indexes.remove(pk, oldDoc);
+      if (this.deps.indexes.size > 0 && this.deps.indexable(oldDoc)) this.deps.indexes.remove(pk, oldDoc);
       for (const ti of this.deps.textRegistry.text.values()) ti.remove(pk);
       return;
     }
@@ -681,10 +681,10 @@ export class WritePath<V> {
     this.deps.dt.set(pk, op.dt);
     // Values are only decoded when a value-derived index exists (all of them
     // require the json codec): with none, recovery never copies them either.
-    if (this.deps.indexes.size || this.deps.textRegistry.text.size || this.deps.compound.size) {
+    if (this.deps.indexes.size > 0 || this.deps.textRegistry.text.size > 0 || this.deps.compound.size > 0) {
       const doc = this.deps.decode(buf)!;
       this.deps.compound.add(pk, doc, op.dt);
-      if (this.deps.indexes.size) {
+      if (this.deps.indexes.size > 0) {
         if (this.deps.indexable(oldDoc)) this.deps.indexes.remove(pk, oldDoc);
         if (this.deps.indexable(doc)) this.deps.indexes.add(pk, doc);
       }

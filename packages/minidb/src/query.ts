@@ -14,7 +14,7 @@ function tokenizePath(path: Path): (string | number)[] {
   const tokens: (string | number)[] = [];
   for (const seg of String(path).split('.')) {
     let s = seg;
-    while (s.length) {
+    while (s.length > 0) {
       const m = s.match(/^([^[]*)\[(\d+)\](.*)$/);
       if (m) {
         if (m[1]) tokens.push(m[1]);
@@ -54,7 +54,7 @@ export function setPath(obj: Doc, path: Path, value: unknown): Doc {
 
 /** Keep only the given paths (inclusion). Returns a new object. */
 export function project(doc: Doc, paths?: readonly string[]): Doc {
-  if (!paths || !paths.length) return doc;
+  if (!paths || paths.length === 0) return doc;
   const out: Record<string, unknown> = {};
   for (const p of paths) {
     const v = getPath(doc, p);

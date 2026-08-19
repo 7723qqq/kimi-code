@@ -454,7 +454,7 @@ function splitObjectFields(body: string): Map<string, string> {
   for (const part of splitTopLevel(body)) {
     const keyMatch = /^([$\w]+|'[^']+'|"[^"]+")\s*:/.exec(part);
     if (keyMatch?.[1] !== undefined) {
-      const key = keyMatch[1].replace(/^['"]|['"]$/g, '');
+      const key = keyMatch[1].replaceAll(/^['"]|['"]$/g, '');
       fields.set(key, part.slice(keyMatch[0].length).trim());
     } else if (part.startsWith('...')) {
       fields.set(part, '');
@@ -556,7 +556,7 @@ function splitTsTypeFields(body: string): Map<string, TsField> {
   for (const part of splitTopLevel(body, [';', ','])) {
     const m = /^(?:readonly\s+)?([$\w]+|'[^']+'|"[^"]+")\s*(\?)?\s*:\s*(.+)$/.exec(part);
     if (m?.[1] !== undefined && m[3] !== undefined) {
-      fields.set(m[1].replace(/^['"]|['"]$/g, ''), {
+      fields.set(m[1].replaceAll(/^['"]|['"]$/g, ''), {
         type: m[3].trim(),
         optional: m[2] !== undefined,
       });

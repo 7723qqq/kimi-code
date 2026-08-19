@@ -249,7 +249,7 @@ export class GenFileWriter {
 
   private async flush(): Promise<void> {
     if (this.chunks.length === 0) return;
-    const bufs = this.chunks.splice(0, this.chunks.length);
+    const bufs = this.chunks.splice(0);
     this.queued = 0;
     for (const b of bufs) this.crc = crc32(b, this.crc);
     // Index-based consumption walk: a flush can carry tens of thousands of

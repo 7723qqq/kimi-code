@@ -21,9 +21,9 @@ function simpleGlobMatch(value: string, pattern: string, nocase = false): boolea
   if (!pattern.includes('*') && !pattern.includes('?')) return value === pattern;
 
   const reStr = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*')
-    .replace(/\?/g, '.');
+    .replaceAll(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replaceAll(/\*/g, '.*')
+    .replaceAll(/\?/g, '.');
   try {
     return new RegExp(`^${reStr}$`, nocase ? 'i' : undefined).test(value);
   } catch {

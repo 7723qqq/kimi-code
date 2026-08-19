@@ -40,7 +40,7 @@ class RespParser {
   }
 
   *feed(chunk: Buffer): Generator<Buffer[]> {
-    this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk;
+    this.buf = this.buf.length > 0 ? Buffer.concat([this.buf, chunk]) : chunk;
     if (this.buf.length > this.maxBuf) {
       // Drop the buffered oversized request before reporting: without the
       // reset every later chunk would fail with the same error and the giant
@@ -48,7 +48,7 @@ class RespParser {
       this.buf = Buffer.alloc(0);
       throw new Error(`RESP request too large (>${this.maxBuf} bytes)`);
     }
-    while (this.buf.length) {
+    while (this.buf.length > 0) {
       const parsed = this.tryParse();
       if (!parsed) break;
       yield parsed;

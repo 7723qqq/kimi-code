@@ -69,7 +69,7 @@ export function normDt(dt?: Record<string, number | string> | null): Record<stri
     const ms = typeof v === 'number' ? v : Date.parse(v);
     if (Number.isFinite(ms)) out[k] = ms;
   }
-  return Object.keys(out).length ? out : null;
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 export async function fileSize(file: string): Promise<number> {

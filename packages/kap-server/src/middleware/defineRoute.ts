@@ -4,7 +4,7 @@ import { jsonSchema, openApiDocumentJsonSchema } from './schema';
 import { validateBody, validateParams, validateQuery } from './validate';
 
 function toFastifyPath(openApiPath: string): string {
-  return openApiPath.replace(/\{([^}]+)\}/g, ':$1');
+  return openApiPath.replaceAll(/\{([^}]+)\}/g, ':$1');
 }
 
 function buildErrorEnvelopeSchema(

@@ -179,7 +179,7 @@ function checkFile(file) {
     seen.add(key);
     if (c.jsdoc && keptStarts.has(c.pos)) continue;
     const line = text.slice(0, c.pos).split('\n').length;
-    const snippet = text.slice(c.pos, Math.min(c.end, c.pos + 60)).replace(/\s+/g, ' ');
+    const snippet = text.slice(c.pos, Math.min(c.end, c.pos + 60)).replaceAll(/\s+/g, ' ');
     if (/(?:oxlint|eslint)-disable/.test(snippet)) continue;
     const isDirective = /@ts-(expect-error|ignore|nocheck)|prettier-ignore|istanbul|c8 ignore/.test(
       snippet,
@@ -195,7 +195,7 @@ for (const pkg of PACKAGES) {
     const root = path.join(ROOT, pkg, dir);
     if (!fs.existsSync(root)) continue;
     const stack = [root];
-    while (stack.length) {
+    while (stack.length > 0) {
       const d = stack.pop();
       for (const e of fs.readdirSync(d, { withFileTypes: true })) {
         const p = path.join(d, e.name);
