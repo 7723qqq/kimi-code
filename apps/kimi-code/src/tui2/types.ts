@@ -171,6 +171,13 @@ export interface ToolCallBlockData {
    *  arguments finished streaming. Renderer flips the header verb to
    *  "Truncated" and stops showing the in-progress argument preview. */
   truncated?: boolean;
+  /** Terminal status of a backgrounded agent task, pushed from `task.terminated`. */
+  backgroundStatus?: {
+    status: 'completed' | 'failed' | 'timed_out' | 'killed' | 'lost';
+    errorText?: string;
+  };
+  /** Set when a foreground subagent card is detached to background (Ctrl+B). */
+  backgrounded?: boolean;
 }
 
 export interface ToolResultBlockData {
@@ -284,6 +291,9 @@ export interface TranscriptEntry {
   expanded?: boolean;
   /** Transcript-navigation mode: whether this entry is the focused one. */
   navigated?: boolean;
+  /** Grouping key for tool-call entries (Agent/Read groups); entries sharing
+   *  a key render as one group. */
+  groupKey?: string;
   toolCallData?: ToolCallBlockData;
   backgroundAgentStatus?: BackgroundAgentStatusData;
   compactionData?: CompactionTranscriptData;
@@ -293,6 +303,8 @@ export interface TranscriptEntry {
    * (distinct from real model-authored text; lets rendering avoid localizing /
    * string-matching the message content to pick the goal-completion card). */
   goalCompletionData?: boolean;
+  /** Swarm-mode entry/exit marker data. */
+  swarmData?: { state: 'entered' | 'ended' };
   imageAttachmentIds?: readonly number[];
   skillActivationId?: string;
   skillName?: string;
@@ -314,6 +326,18 @@ export interface WorkflowRunData {
 }
 
 export const MAX_VISIBLE_RUNS = 5;
+
+/** A todo item shown in the todo panel (TodoList tool). */
+export interface TodoItem {
+  readonly title: string;
+  readonly status: 'pending' | 'in_progress' | 'done';
+}
+
+/** Background task counts for the footer badge. */
+export interface BackgroundCounts {
+  readonly bashTasks: number;
+  readonly agentTasks: number;
+}
 
 export type LivePaneMode = 'idle' | 'waiting' | 'thinking' | 'tool' | 'session';
 

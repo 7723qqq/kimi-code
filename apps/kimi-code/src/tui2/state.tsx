@@ -34,13 +34,16 @@ import type {
 } from './config'
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types'
 import type { ThemeName } from './theme'
+import { createTerminalState, type TerminalState } from './utils/terminal-state'
 import type {
   ActiveDialog,
+  BackgroundCounts,
   BannerState,
   LivePaneMode,
   QueuedMessage,
   SessionStats,
   StepRetryState,
+  TodoItem,
   TranscriptEntry,
   TUIStartupState,
   WorkflowRunData,
@@ -184,6 +187,12 @@ export interface TuiRuntimeState {
   externalEditorRunning: boolean
   /** Whether tool outputs render expanded. */
   toolOutputExpanded: boolean
+  /** Todo items from the TodoList tool (todo panel). */
+  todoItems: readonly TodoItem[]
+  /** Background task counts for the footer badge. */
+  backgroundCounts: BackgroundCounts
+  /** Terminal capability snapshot (focus, notification support). */
+  terminalState: TerminalState
   /** How swarm mode was entered ('task' auto-promotes queued goals). */
   swarmModeEntry: 'manual' | 'task' | undefined
 }
@@ -273,6 +282,9 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
   },
   externalEditorRunning: false,
   toolOutputExpanded: false,
+  todoItems: [],
+  backgroundCounts: { bashTasks: 0, agentTasks: 0 },
+  terminalState: createTerminalState(),
   swarmModeEntry: undefined,
 }
 
