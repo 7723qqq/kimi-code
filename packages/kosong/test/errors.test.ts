@@ -1,5 +1,3 @@
-import { describe, expect, it } from 'vitest';
-
 import {
   APIConnectionError,
   APIContextOverflowError,
@@ -10,12 +8,14 @@ import {
   APIStatusError,
   APITimeoutError,
   ChatProviderError,
+  isImageFormatError,
   isProviderRateLimitError,
   isRecoverableRequestStructureError,
   isRetryableGenerateError,
   isToolExchangeAdjacencyError,
   normalizeAPIStatusError,
 } from '#/errors';
+import { describe, expect, it } from 'vitest';
 
 describe('ChatProviderError', () => {
   it('is an instance of Error', () => {
@@ -127,9 +127,7 @@ describe('APIRequestTooLargeError', () => {
 
   it('is not retryable', () => {
     expect(
-      isRetryableGenerateError(
-        new APIRequestTooLargeError(413, 'Request exceeds the maximum size.'),
-      ),
+      isRetryableGenerateError(new APIRequestTooLargeError(413, 'Request exceeds the maximum size.')),
     ).toBe(false);
   });
 });
@@ -141,7 +139,19 @@ describe('isRetryableGenerateError', () => {
     expect(isRetryableGenerateError(new APIEmptyResponseError('empty'))).toBe(true);
   });
 
-  it.each([429, 500, 502, 503, 504])('treats HTTP %i as retryable', (statusCode) => {
+  it('does not retry empty responses blocked by the provider content filter', () => {
+    expect(
+      isRetryableGenerateError(new APIEmptyResponseError('filtered', { finishReason: 'filtered' })),
+    ).toBe(false);
+    expect(
+      isRetryableGenerateError(new APIEmptyResponseError('empty', { finishReason: 'completed' })),
+    ).toBe(true);
+    expect(
+      isRetryableGenerateError(new APIEmptyResponseError('empty', { finishReason: null })),
+    ).toBe(true);
+  });
+
+  it.each([408, 409, 429, 500, 502, 503, 504, 529])('treats HTTP %i as retryable', (statusCode) => {
     expect(isRetryableGenerateError(new APIStatusError(statusCode, 'retryable'))).toBe(true);
   });
 
@@ -149,47 +159,19 @@ describe('isRetryableGenerateError', () => {
     expect(isRetryableGenerateError(new APIStatusError(statusCode, 'non-retryable'))).toBe(false);
   });
 
-  it('retries APIStatusError by HTTP status alone (no message-wording matching)', () => {
-    // Message-based matching for APIStatusError was removed: retry is decided
-    // purely by the status code now. Transient wording (Xunfei reverse-proxy
-    // codes, "overloaded") no longer overrides a non-retryable status, and a
-    // retryable status retries regardless of the body wording.
-    expect(
-      isRetryableGenerateError(
-        new APIStatusError(
-          200,
-          'Anthropic error: Xunfei claude request failed with Sid: cht000d code: 10012, msg: EngineInternalError:1105',
-        ),
-      ),
-    ).toBe(false);
-    expect(
-      isRetryableGenerateError(
-        new APIStatusError(
-          400,
-          'Anthropic error: Xunfei claude request failed with code: 10110, msg: service busy',
-        ),
-      ),
-    ).toBe(false);
-    expect(
-      isRetryableGenerateError(
-        new APIStatusError(
-          500,
-          'Xunfei claude request failed with Sid: cht000d7d0f@dx19f12b3c265b958312 code: 11210, msg: NotEnoughCvError',
-        ),
-      ),
-    ).toBe(true);
-    expect(isRetryableGenerateError(new APIStatusError(400, 'server is overloaded'))).toBe(false);
+  it('propagates retryAfterMs through normalizeAPIStatusError onto the typed error', () => {
+    const rateLimited = normalizeAPIStatusError(429, 'rate limited', 'req-1', 12_500);
+    expect(rateLimited).toBeInstanceOf(APIProviderRateLimitError);
+    expect(rateLimited.retryAfterMs).toBe(12_500);
+
+    const generic = normalizeAPIStatusError(503, 'bad gateway', null, 3_000);
+    expect(generic).toBeInstanceOf(APIStatusError);
+    expect(generic.retryAfterMs).toBe(3_000);
   });
 
-  it('does not retry APIStatusError with non-transient 4xx message', () => {
-    expect(
-      isRetryableGenerateError(
-        new APIStatusError(
-          400,
-          'Anthropic error: Xunfei claude request failed with code: 10001, msg: invalid api key',
-        ),
-      ),
-    ).toBe(false);
+  it('defaults retryAfterMs to null when no retry-after header is present', () => {
+    expect(new APIStatusError(429, 'x').retryAfterMs).toBeNull();
+    expect(normalizeAPIStatusError(429, 'x').retryAfterMs).toBeNull();
   });
 
   it('does not retry context overflow or unknown errors', () => {
@@ -200,182 +182,15 @@ describe('isRetryableGenerateError', () => {
     expect(isRetryableGenerateError('boom')).toBe(false);
   });
 
-  it('retries content moderation 500s (known regression: no longer excluded from retry)', () => {
-    // Regression: the content-moderation message exclusion was dropped, so a
-    // content-moderation 500/503 is now retried by its retryable status.
-    expect(
-      isRetryableGenerateError(
-        new APIStatusError(500, 'sensitive_words_detected (request id: abc123)'),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(new APIStatusError(500, 'content filter blocked the request')),
-    ).toBe(true);
-    expect(isRetryableGenerateError(new APIStatusError(503, 'blocked by safety policy'))).toBe(
+  it('retries an unclassified base ChatProviderError as a transient fallback', () => {
+    // An upstream gateway that forwards the original failure only as text (no
+    // usable HTTP status) surfaces as a base ChatProviderError. It must be
+    // retried rather than failing the run on the first blip — while typed
+    // 4xx / context-overflow / request-too-large (all APIStatusError) stay
+    // non-retryable on their dedicated recovery paths.
+    expect(isRetryableGenerateError(new ChatProviderError('unclassified upstream failure'))).toBe(
       true,
     );
-  });
-
-  it('retries ChatProviderError with engine-busy / overloaded message', () => {
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with RecvFromEngineError:Engine Busy',
-        ),
-      ),
-    ).toBe(true);
-    expect(isRetryableGenerateError(new ChatProviderError('server is overloaded'))).toBe(true);
-    expect(isRetryableGenerateError(new ChatProviderError('too much load on the server'))).toBe(
-      true,
-    );
-  });
-
-  it('retries ChatProviderError with rate-limit message', () => {
-    expect(isRetryableGenerateError(new ChatProviderError('rate limited, try again'))).toBe(true);
-    expect(isRetryableGenerateError(new ChatProviderError('too many requests'))).toBe(true);
-    expect(isRetryableGenerateError(new ChatProviderError('quota exceeded'))).toBe(true);
-  });
-
-  it('retries ChatProviderError with stream-interrupted message', () => {
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: {"error":{"type":"new_api_error","message":"upstream stream ended without protocol terminator (eof)"},"type":"error"}',
-        ),
-      ),
-    ).toBe(true);
-    expect(isRetryableGenerateError(new ChatProviderError('stream terminated unexpectedly'))).toBe(
-      true,
-    );
-    expect(isRetryableGenerateError(new ChatProviderError('upstream stream closed'))).toBe(true);
-  });
-
-  it('retries ChatProviderError with Xunfei reverse-proxy failure message', () => {
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: {"error":{"message":"Xunfei claude request failed with Sid: abc123 code: 11210, msg: internal error"}}',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: {"error":{"message":"Xunfei claude request failed with Sid: cht000d code: 10012, msg: EngineInternalError:1105|{\\"Code\\":1105,\\"Message\\":\\"The system is busy, please try again later.\\"}"}}',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10009, msg: failed to connect to engine',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10222, msg: engine network error',
-        ),
-      ),
-    ).toBe(true);
-  });
-
-  it('retries ChatProviderError with Xunfei failure messages via the unclassified fallback', () => {
-    // Xunfei code classification was removed: any base ChatProviderError that
-    // is not a typed status error is treated as transient and retried.
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10001, msg: invalid api key',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei request failed with code: 10002, msg: insufficient balance',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10015, msg: appid in blacklist',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10001, msg: invalid api key. Also saw code: 11210 earlier',
-        ),
-      ),
-    ).toBe(true);
-  });
-
-  it('retries ChatProviderError with additional transient Xunfei codes', () => {
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10006, msg: concurrent connection',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10007, msg: traffic limited',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10008, msg: capacity insufficient',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10010, msg: engine queue',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10011, msg: send data error',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 10223, msg: LB no node',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 11202, msg: second rate limit',
-        ),
-      ),
-    ).toBe(true);
-    expect(
-      isRetryableGenerateError(
-        new ChatProviderError(
-          'Anthropic error: Xunfei claude request failed with code: 11203, msg: concurrent rate limit',
-        ),
-      ),
-    ).toBe(true);
-  });
-
-  it('retries ChatProviderError with unknown message via the fallback safety net', () => {
-    expect(isRetryableGenerateError(new ChatProviderError('something went wrong'))).toBe(true);
-    expect(isRetryableGenerateError(new ChatProviderError('invalid api key'))).toBe(true);
   });
 });
 
@@ -454,31 +269,6 @@ describe('normalizeAPIStatusError', () => {
   });
 
   it.each([
-    [
-      500,
-      'Xunfei claude request failed with Sid: cht000d7d0f@dx19f12b3c265b958312 code: 11210, msg: NotEnoughCvError',
-    ],
-    [500, 'Xunfei claude request failed with code: 11202, msg: second-level rate limit'],
-    [500, 'Xunfei claude request failed with code: 11203, msg: concurrent rate limit'],
-  ])('keeps %i with Xunfei rate-limit code as plain APIStatusError', (statusCode, message) => {
-    const error = normalizeAPIStatusError(statusCode, message, 'req-rl');
-    expect(error).toBeInstanceOf(APIStatusError);
-    expect(error).not.toBeInstanceOf(APIProviderRateLimitError);
-    expect(error.statusCode).toBe(statusCode);
-    expect(error.requestId).toBe('req-rl');
-  });
-
-  it('keeps 500 with non-rate-limit Xunfei code as APIStatusError', () => {
-    const error = normalizeAPIStatusError(
-      500,
-      'Xunfei claude request failed with code: 10012, msg: engine internal error',
-    );
-    expect(error).toBeInstanceOf(APIStatusError);
-    expect(error).not.toBeInstanceOf(APIProviderRateLimitError);
-    expect(error.statusCode).toBe(500);
-  });
-
-  it.each([
     // Moonshot / Kimi 413 observed in the field when accumulated media pushed
     // the request body over the provider's byte ceiling.
     [413, 'Request exceeds the maximum size'],
@@ -504,10 +294,7 @@ describe('normalizeAPIStatusError', () => {
   it('keeps a 413 with token-overflow wording as APIContextOverflowError', () => {
     // Vertex phrases prompt-too-long as a 413; that is a token problem
     // (recoverable by compaction), not a request-body-size problem.
-    const error = normalizeAPIStatusError(
-      413,
-      'prompt is too long: 210000 tokens > 200000 maximum',
-    );
+    const error = normalizeAPIStatusError(413, 'prompt is too long: 210000 tokens > 200000 maximum');
     expect(error).toBeInstanceOf(APIContextOverflowError);
     expect(error).not.toBeInstanceOf(APIRequestTooLargeError);
   });
@@ -574,9 +361,7 @@ describe('isToolExchangeAdjacencyError', () => {
       isToolExchangeAdjacencyError(new APIStatusError(400, MOONSHOT_TOOL_CALL_ID_NOT_FOUND)),
     ).toBe(true);
     expect(
-      isToolExchangeAdjacencyError(
-        new APIStatusError(400, "tool_call_id 'call_abc123' is not found"),
-      ),
+      isToolExchangeAdjacencyError(new APIStatusError(400, "tool_call_id 'call_abc123' is not found")),
     ).toBe(true);
   });
 
@@ -747,9 +532,7 @@ describe('isRecoverableRequestStructureError', () => {
 
   it('does not match context overflow, auth, or non-status errors', () => {
     expect(
-      isRecoverableRequestStructureError(
-        new APIContextOverflowError(400, 'context length exceeded'),
-      ),
+      isRecoverableRequestStructureError(new APIContextOverflowError(400, 'context length exceeded')),
     ).toBe(false);
     expect(isRecoverableRequestStructureError(new APIStatusError(401, 'unauthorized'))).toBe(false);
     expect(isRecoverableRequestStructureError(new APIStatusError(400, 'Bad request'))).toBe(false);
@@ -786,20 +569,125 @@ describe('isProviderRateLimitError', () => {
     expect(isProviderRateLimitError('APIStatusError: 401 unauthorized')).toBe(false);
     expect(isProviderRateLimitError(new Error('context length exceeded'))).toBe(false);
   });
+});
 
-  it('does not match non-rate-limit Xunfei codes', () => {
+describe('isImageFormatError', () => {
+  it('matches documented provider image format/data rejections', () => {
+    // OpenAI
     expect(
-      isProviderRateLimitError(
+      isImageFormatError(
+        new APIStatusError(400, 'The image data you provided does not represent a valid image'),
+      ),
+    ).toBe(true);
+    // Anthropic media_type enum violation
+    expect(
+      isImageFormatError(
         new APIStatusError(
-          500,
-          'Xunfei claude request failed with code: 10012, msg: engine internal error',
+          400,
+          "messages.0.content.1.image.source.base64.media_type: Input should be 'image/jpeg'",
+        ),
+      ),
+    ).toBe(true);
+    // Anthropic decode failure
+    expect(isImageFormatError(new APIStatusError(400, 'Could not process image'))).toBe(true);
+    // Moonshot/Kimi (from the Kimi Code error reference)
+    expect(
+      isImageFormatError(
+        new APIStatusError(400, 'Invalid request: unsupported image url: /tmp/photo.avif'),
+      ),
+    ).toBe(true);
+    expect(isImageFormatError(new APIStatusError(400, 'unsupported image format'))).toBe(true);
+    // Gemini
+    expect(isImageFormatError(new APIStatusError(400, 'Unable to process input image'))).toBe(true);
+    expect(
+      isImageFormatError(
+        new APIStatusError(400, 'The mime_type must accurately match the actual image format'),
+      ),
+    ).toBe(true);
+  });
+
+  it('matches kosong client-side image whitelist throws', () => {
+    expect(
+      isImageFormatError(new ChatProviderError('Unsupported media type for base64 image: image/avif')),
+    ).toBe(true);
+    expect(
+      isImageFormatError(
+        new ChatProviderError('Invalid data URL for image: data:image/avif;BASE64,AAA'),
+      ),
+    ).toBe(true);
+  });
+
+  it('does not match a non-image 400, an unrelated status, or overflow/413 subclasses', () => {
+    expect(isImageFormatError(new APIStatusError(400, 'max_tokens must be positive'))).toBe(false);
+    expect(isImageFormatError(new APIStatusError(422, 'image is bad'))).toBe(false);
+    expect(isImageFormatError(new APIStatusError(401, 'invalid api key'))).toBe(false);
+    expect(
+      isImageFormatError(new APIContextOverflowError(400, 'context length exceeded for image model')),
+    ).toBe(false);
+    expect(
+      isImageFormatError(new APIRequestTooLargeError(413, 'image request too large')),
+    ).toBe(false);
+    expect(isImageFormatError(new ChatProviderError('connection reset'))).toBe(false);
+    expect(isImageFormatError(new Error('image is bad'))).toBe(false);
+  });
+
+  it('does not match image count/size/support errors that stripping media cannot fix', () => {
+    // Stripping media to zero would let these requests "succeed" with the
+    // model blind to the user's images — hiding the real error. They must
+    // surface instead of triggering a media-stripped resend.
+    expect(isImageFormatError(new APIStatusError(400, 'too many images in request'))).toBe(false);
+    expect(
+      isImageFormatError(new APIStatusError(400, 'image dimension 5000 exceeds maximum 2048')),
+    ).toBe(false);
+    expect(
+      isImageFormatError(new APIStatusError(400, 'image input is disabled for this model')),
+    ).toBe(false);
+    expect(isImageFormatError(new APIStatusError(400, 'image_url is not allowed'))).toBe(false);
+    // Documented provider messages that are image-shaped but not
+    // format/data errors: Anthropic's per-image size cap, Moonshot's
+    // capability code, Gemini's unsupported-inlineData rejection.
+    expect(
+      isImageFormatError(
+        new APIStatusError(
+          400,
+          'messages.44.content.1.image.source.base64: image exceeds 5 MB maximum: 11641928 bytes > 5242880 bytes',
         ),
       ),
     ).toBe(false);
+    expect(isImageFormatError(new APIStatusError(400, 'Image Input Not Supported'))).toBe(false);
     expect(
-      isProviderRateLimitError(
-        new Error('Xunfei claude request failed with code: 10001, msg: invalid api key'),
+      isImageFormatError(new APIStatusError(400, "`inlineData` isn't supported by this model.")),
+    ).toBe(false);
+    // Video/audio media_type errors are NOT image errors: they must surface
+    // (no conversion-guidance path exists for video) instead of triggering a
+    // blind media-stripped resend.
+    expect(
+      isImageFormatError(
+        new APIStatusError(
+          400,
+          "messages.0.content.1.video.source.base64.media_type: Input should be 'video/mp4'",
+        ),
       ),
+    ).toBe(false);
+    // Bare "media type" phrasings for audio/video inputs likewise surface.
+    expect(
+      isImageFormatError(new APIStatusError(400, 'unsupported media type for audio input')),
+    ).toBe(false);
+    expect(isImageFormatError(new APIStatusError(400, 'invalid media type'))).toBe(false);
+  });
+
+  it('is excluded from the transient-retry fallback so dedicated recovery fires first', () => {
+    // A base ChatProviderError is normally retried as an unclassified
+    // transient; image-format errors must not be, or the run would burn the
+    // retry budget on an identical request before reaching the media strip.
+    expect(isRetryableGenerateError(new ChatProviderError('transient blip'))).toBe(true);
+    expect(
+      isRetryableGenerateError(
+        new ChatProviderError('Unsupported media type for base64 image: image/avif'),
+      ),
+    ).toBe(false);
+    expect(
+      isRetryableGenerateError(new APIStatusError(400, 'unsupported image format')),
     ).toBe(false);
   });
 });
