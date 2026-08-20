@@ -23,7 +23,7 @@ import { Show } from 'solid-js'
 import { getCapabilities } from '@moonshot-ai/pi-tui'
 
 import { currentTheme } from '../../theme'
-import type { ImageAttachment } from '../../../tui/utils/image-attachment-store'
+import type { ImageAttachment } from '../../utils/image-attachment-store'
 import type { ColorInput } from '@opentui/core'
 
 import { Box } from '../common/box'

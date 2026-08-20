@@ -22,8 +22,8 @@ import type { ColorInput, KeyEvent } from '@opentui/core'
 
 import { t } from '#/i18n'
 
-import { highlightLines, langFromPath } from '../../../tui/components/media/code-highlight'
-import { renderDiffLinesClustered } from '../../../tui/components/media/diff-preview'
+import { highlightLines, langFromPath } from '../media/code-highlight'
+import { renderDiffLinesClustered } from '../media/diff-preview'
 import type {
   DiffDisplayBlock,
   FileContentDisplayBlock,

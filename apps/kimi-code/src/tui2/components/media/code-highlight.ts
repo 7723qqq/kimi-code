@@ -13,7 +13,7 @@ import { extname } from 'node:path'
 
 import { highlight, supportsLanguage } from 'cli-highlight'
 
-import { codeHighlightTheme } from '../../../tui/theme/highlight-theme'
+import { codeHighlightTheme } from '../../theme/highlight-cli-theme';
 
 const EXT_LANG_MAP: Record<string, string> = {
   ts: 'typescript',

@@ -21,7 +21,7 @@ import { t } from '#/i18n'
 
 import { currentTheme } from '../../theme'
 import { isPrintableChar, printableChar } from '../../utils/printable-key'
-import { renderDiffLines } from '../../../tui/components/media/diff-preview'
+import { renderDiffLines } from '../media/diff-preview'
 
 import { Box } from '../common/box'
 import { Text } from '../common/text'
