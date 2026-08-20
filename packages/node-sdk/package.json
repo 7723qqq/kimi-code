@@ -1,34 +1,32 @@
 {
   "name": "@moonshot-ai/kimi-code-sdk",
-  "version": "0.18.0",
+  "version": "0.19.1",
   "private": true,
   "description": "TypeScript SDK for the Kimi Code Agent",
-  "keywords": [
-    "agent",
-    "api",
-    "kimi",
-    "sdk",
-    "typescript"
-  ],
-  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/node-sdk#readme",
-  "bugs": {
-    "url": "https://github.com/MoonshotAI/kimi-code/issues"
-  },
   "license": "MIT",
   "author": "Moonshot AI",
+  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/node-sdk#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MoonshotAI/kimi-code.git",
     "directory": "packages/node-sdk"
   },
+  "bugs": {
+    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+  },
+  "keywords": [
+    "kimi",
+    "sdk",
+    "typescript",
+    "agent",
+    "api"
+  ],
   "files": [
     "dist",
     "README.md"
   ],
   "type": "module",
   "imports": {
-    "#/legacy": "./src/legacy/index.ts",
-    "#/config-local": "./src/config-local/index.ts",
     "#/*": "./src/*.ts"
   },
   "exports": {
@@ -38,6 +36,7 @@
     }
   },
   "publishConfig": {
+    "access": "public",
     "exports": {
       ".": {
         "types": "./dist/index.d.mts",
@@ -45,14 +44,13 @@
         "default": "./dist/index.mjs"
       }
     },
-    "access": "public",
     "provenance": true
   },
   "scripts": {
     "build": "tsdown && pnpm run build:dts",
     "build:dts": "node scripts/build-dts.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "node -e \"const fs = require('node:fs'); for (const p of ['dist', '.tmp-api-extractor']) fs.rmSync(p, { recursive: true, force: true })\""
+    "clean": "rm -rf dist .tmp-api-extractor"
   },
   "dependencies": {
     "@antfu/utils": "^9.3.0",
@@ -61,15 +59,13 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@moonshot-ai/agent-core": "workspace:^",
     "@moonshot-ai/agent-core-v2": "workspace:^",
     "@moonshot-ai/kaos": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
-    "@moonshot-ai/kimi-i18n": "workspace:^",
     "@moonshot-ai/klient": "workspace:^",
     "@moonshot-ai/kosong": "workspace:^",
-    "@moonshot-ai/protocol": "workspace:^",
     "@types/yazl": "^2.4.6",
-    "jimp": "^1.6.1",
-    "pathe": "^2.0.3"
+    "jimp": "^1.6.1"
   }
 }
