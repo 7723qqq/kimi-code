@@ -9,14 +9,14 @@
 import { accessSync, constants as fsConstants, readdirSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 
-import {
-  CombinedAutocompleteProvider,
-  fuzzyMatch,
-  type AutocompleteItem,
-  type AutocompleteProvider,
-  type AutocompleteSuggestions,
-  type SlashCommand,
-} from '@moonshot-ai/pi-tui';
+import { CombinedAutocompleteProvider } from '../../utils/combined-autocomplete';
+import { fuzzyMatch } from '../../utils/fuzzy';
+import type {
+  AutocompleteItem,
+  AutocompleteProvider,
+  AutocompleteSuggestions,
+  SlashCommand,
+} from '../../utils/autocomplete';
 
 const PATH_DELIMITERS = new Set([' ', '\t', '"', "'", '=']);
 const MAX_FALLBACK_SCAN = 2000;
