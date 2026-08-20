@@ -56,21 +56,21 @@ import {
   type PrintBackgroundMode,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import type { GoalUpdated } from '@moonshot-ai/agent-core-v2/agent/goal/goalOps';
+import { createKimiDefaultHeaders, createKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
+import type { GoalUpdated } from '@moonshot-ai/agent-core-v2';
+import type { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import type {
   AssistantDelta,
   ThinkingDelta,
   ToolCallDelta,
 } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import type { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/stepRetry/stepRetryService';
+import type { HookResult } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
 import type {
   ToolCallStarted,
   ToolProgress,
   ToolResultEvent,
 } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
-import type { HookResult } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
-import { createKimiDefaultHeaders, createKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
 import { resolve } from 'pathe';
 
 import {
@@ -78,7 +78,6 @@ import {
   CLI_USER_AGENT_PRODUCT,
   PROMPT_CLEANUP_TIMEOUT_MS,
 } from '#/constant/app';
-import { t } from '#/i18n';
 
 import {
   formatGoalSummaryText,
@@ -87,6 +86,15 @@ import {
   parseHeadlessGoalCreate,
   type HeadlessGoalCreate,
 } from '../goal-prompt';
+import {
+  type PromptRunIO,
+  configuredModel,
+  installPromptTerminationCleanup,
+  raceWithTimeout,
+  requireConfiguredModel,
+} from '../run-prompt';
+import { createKimiCodeHostIdentity } from '../version';
+
 import { resolveOutputFormat } from '../options';
 import type { CLIOptions, PromptOutputFormat } from '../options';
 import {
@@ -97,14 +105,6 @@ import {
   writeExperimentalVersion,
   writeResumeHint,
 } from '../prompt-render';
-import {
-  type PromptRunIO,
-  configuredModel,
-  installPromptTerminationCleanup,
-  raceWithTimeout,
-  requireConfiguredModel,
-} from '../run-prompt';
-import { createKimiCodeHostIdentity } from '../version';
 
 const PROMPT_UI_MODE = 'print';
 /** Re-check `goalActive` at least this often while waiting for goal turns. */
@@ -451,8 +451,8 @@ async function runNativeTurn(
       const completion = await handle.completion;
       throw new Error(
         completion.state === 'blocked'
-          ? t('tui.statusMessages.promptBlocked')
-          : t('tui.statusMessages.promptTurnCannotStart'),
+          ? 'Prompt hook blocked the request.'
+          : 'Prompt turn could not be started',
       );
     }
     const result = await turn.result;
@@ -728,7 +728,9 @@ export interface PrintBackgroundPolicyInput {
  * The steer ceiling deadline is set once on entry, so goal/cron waiting
  * consumes the same budget.
  */
-export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInput): Promise<void> {
+export async function applyPrintBackgroundPolicy(
+  input: PrintBackgroundPolicyInput,
+): Promise<void> {
   const deadline = input.now() + input.ceilingS * 1000;
   let turns = 0;
   // Cron anti-spin guard: the last fire time seen already in the past. Two
@@ -808,11 +810,11 @@ export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInp
 
 function formatTurnEndingFailure(ending: PrintTurnEnding): string {
   if (ending.error?.code === 'provider.filtered') {
-    return t('tui.statusMessages.policyBlocked');
+    return 'Provider safety policy blocked the response.';
   }
   if (ending.error !== undefined) return `${ending.error.code}: ${ending.error.message}`;
   if (ending.reason === 'blocked') {
-    return t('tui.statusMessages.promptBlocked');
+    return 'Prompt hook blocked the request.';
   }
   return `Prompt turn ended with reason: ${ending.reason}`;
 }
@@ -865,7 +867,7 @@ function formatNativeTurnFailure(result: LoopRunResult): string {
   if (result.type === 'failed') {
     const error = result.error as { readonly code?: string; readonly message?: string } | undefined;
     if (error?.code === 'provider.filtered') {
-      return t('tui.statusMessages.policyBlocked');
+      return 'Provider safety policy blocked the response.';
     }
     if (error?.code !== undefined) {
       return `${error.code}: ${error.message ?? ''}`.trimEnd();
