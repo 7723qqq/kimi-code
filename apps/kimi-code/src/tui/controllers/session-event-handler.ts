@@ -113,7 +113,11 @@ export interface SessionEventHost {
   track(event: string, props?: Record<string, unknown>): void;
   recordSessionActivity(): void;
   noteStepUsage(usage: TokenUsage | undefined): void;
-  noteStepCacheStats(usage: TokenUsage | undefined, streamDurationMs: number | undefined): void;
+  noteStepCacheStats(
+    usage: TokenUsage | undefined,
+    streamDurationMs: number | undefined,
+    serverDecodeMs: number | undefined,
+  ): void;
   noteSessionTurnStarted(): void;
   noteSessionStepCompleted(
     usage: TokenUsage | undefined,
@@ -522,7 +526,7 @@ export class SessionEventHandler {
     this.host.streamingUI.flushNow();
     this.clearStepRetry();
     this.host.noteStepUsage(event.usage);
-    this.host.noteStepCacheStats(event.usage, event.llmStreamDurationMs);
+    this.host.noteStepCacheStats(event.usage, event.llmStreamDurationMs, event.llmServerDecodeMs);
     this.host.noteSessionStepCompleted(
       event.usage,
       event.llmStreamDurationMs,

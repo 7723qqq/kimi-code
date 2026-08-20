@@ -50,6 +50,7 @@ import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { startupTrace } from '#/utils/startup-trace';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
+import { computeSmoothedTokenSpeed, pickDecodeMs } from '#/tui/utils/token-speed';
 
 import { BannerProvider } from './banner/banner-provider';
 import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
@@ -378,6 +379,11 @@ export class KimiTUI {
   /** In-flight lazy session creation (v2 engine), shared by concurrent first-use triggers. */
   private ensureSessionPromise: Promise<Session | undefined> | null = null;
   private readonly cacheHint = new CacheHintController(this);
+  /** EMA of the throughput readout shown in the footer; null until the first
+   *  usable per-step sample lands. Held on the host (not AppState) so its
+   *  updates do not trigger re-renders — only the resulting smoothed value
+   *  reaches the footer via `appState.tokenSpeed`. */
+  private tokenSpeedEma: number | null = null;
   /** Staged prompt media lifecycle (daemon uploads + cache copies) — see StagingLeaseTracker. */
   private readonly staging: StagingLeaseTracker;
   private readonly approvalController = new ApprovalController();
@@ -3526,11 +3532,15 @@ export class KimiTUI {
 
   /**
    * Per-step cache-hit and output-speed accounting for the footer readout:
-   * accumulate cache hit/miss input tokens for the live hit rate, and use
-   * the step's stream duration to compute the latest output speed
-   * (tokens/second).
+   * accumulate cache hit/miss input tokens for the live hit rate, and fold
+   * the step's decode-window + output-token count into the EMA that backs
+   * `appState.tokenSpeed`.
    */
-  noteStepCacheStats(usage: TokenUsage | undefined, streamDurationMs: number | undefined): void {
+  noteStepCacheStats(
+    usage: TokenUsage | undefined,
+    streamDurationMs: number | undefined,
+    serverDecodeMs: number | undefined,
+  ): void {
     const patch: Partial<AppState> = {};
     if (usage !== undefined) {
       const read = usage.inputCacheRead ?? 0;
@@ -3550,13 +3560,16 @@ export class KimiTUI {
         patch.cacheOtherTokens = this.state.appState.cacheOtherTokens + (usage.inputOther ?? 0);
       }
     }
-    if (
-      usage !== undefined &&
-      (usage.output ?? 0) > 0 &&
-      streamDurationMs !== undefined &&
-      streamDurationMs > 0
-    ) {
-      patch.tokenSpeed = (usage.output! / streamDurationMs) * 1000;
+    // Prefer the provider-reported decode window over the wall-clock stream
+    // duration: a batched SSE response (or prompt-cache hit) collapses the
+    // wall-clock between first and last event to a few ms and would otherwise
+    // surface thousands of tok/s. Fall back to the stream duration only when
+    // the provider stream omitted the decode accounting split.
+    const decodeMs = pickDecodeMs(serverDecodeMs, streamDurationMs);
+    const next = computeSmoothedTokenSpeed(this.tokenSpeedEma, usage?.output ?? 0, decodeMs);
+    if (next !== null) {
+      this.tokenSpeedEma = next;
+      patch.tokenSpeed = next;
     }
     if (Object.keys(patch).length > 0) {
       this.setAppState(patch);
