@@ -40,7 +40,13 @@ import type { CliRenderer } from '@opentui/core'
 export interface RunKimiTui2Options {
   readonly harness: ConstructorParameters<typeof KimiTUI>[0]
   readonly startupInput: ConstructorParameters<typeof KimiTUI>[1]
-  readonly onExit?: (exitCode?: number) => Promise<void>
+  /**
+   * Called when the TUI shuts down. Receives the live host so the caller
+   * (CLI shell) can read session/exit state without ordering the callback
+   * after `runKimiTui2` resolves — in a real terminal `runKimiTui2` only
+   * returns after the renderer is destroyed, which happens after exit.
+   */
+  readonly onExit?: (host: KimiTUI, exitCode?: number) => Promise<void>
   readonly exitForegroundTask?: (exitCode: number) => Promise<void>
 }
 
@@ -159,8 +165,11 @@ export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiT
   }
 
   const host = new KimiTUI(options.harness, options.startupInput, terminal)
-  if (options.onExit !== undefined) host.onExit = options.onExit
   host.exitForegroundTask = options.exitForegroundTask
+  const onExit = options.onExit
+  if (onExit !== undefined) {
+    host.onExit = (exitCode?: number) => onExit(host, exitCode)
+  }
 
   const ShellView = Shell(renderer, host)
   const renderPromise = render(
