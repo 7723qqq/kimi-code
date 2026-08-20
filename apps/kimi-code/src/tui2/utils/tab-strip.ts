@@ -9,7 +9,7 @@
  * Status: REAL (tui2). Mirrors `tui/utils/tab-strip.ts`.
  */
 
-import { visibleWidth } from '@moonshot-ai/pi-tui';
+import { visibleWidth } from './width';
 import chalk from 'chalk';
 
 import type { ColorPalette } from '../theme/colors';

@@ -19,7 +19,7 @@
 
 import type { Component } from 'solid-js'
 import { createSignal, onCleanup, onMount } from 'solid-js'
-import { visibleWidth } from '@moonshot-ai/pi-tui'
+import { visibleWidth } from '../../utils/width'
 import type { ColorInput } from '@opentui/core'
 
 import {

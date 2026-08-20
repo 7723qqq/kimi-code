@@ -7,7 +7,7 @@
  * Status: REAL (tui2). Mirrors `tui/easter-eggs/dance.ts`.
  */
 
-import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
+import { truncateToWidth, visibleWidth } from '../utils/width';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';

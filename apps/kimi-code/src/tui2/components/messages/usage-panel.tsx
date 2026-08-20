@@ -24,7 +24,7 @@
 import type { Component, JSX } from 'solid-js'
 import { formatDuration } from '@moonshot-ai/kimi-code-oauth'
 import type { SessionUsage, TokenUsage } from '@moonshot-ai/kimi-code-sdk'
-import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui'
+import { truncateToWidth, visibleWidth } from '../../utils/width'
 
 import { t } from '#/i18n'
 import { currentTheme } from '../../theme'
