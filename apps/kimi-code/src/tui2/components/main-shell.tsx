@@ -8,25 +8,18 @@
  * host (KimiTUI) is responsible for routing key events through the
  * keymap and for handling app-level commands (Ctrl+G, Ctrl+O, etc.).
  *
- * Component structure:
+ * Layout:
  *   ┌─────────────────────────────────────────────────────────┐
- *   │ Banner (banner-provider)                                  │
+ *   │ Banner                                                  │
  *   ├──────────────────────────────┬──────────────────────────┤
- *   │                              │                          │
- *   │   Transcript (transcript)    │   Pane (right column):    │
- *   │   - assistant / user / tool  │   - queue / agent /       │
- *   │   - thinking / status       │     activity / btw /      │
- *   │                              │     help / diff-review    │
- *   │                              │                          │
+ *   │ Transcript (left column)      │ Panes (right column)     │
  *   ├──────────────────────────────┴──────────────────────────┤
- *   │ Editor (custom-editor)                                   │
+ *   │ Active dialog (mounted when activeDialog is set)         │
  *   ├─────────────────────────────────────────────────────────┤
- *   │ Footer (footer)                                          │
+ *   │ Editor                                                   │
+ *   ├─────────────────────────────────────────────────────────┤
+ *   │ Footer                                                  │
  *   └─────────────────────────────────────────────────────────┘
- *
- * Dialogs (approval / question / session-picker / etc.) mount on top
- * of the shell via `store.state.activeDialog`; the shell renders a
- * single dialog slot that the host switches based on that slice.
  *
  * Status: REAL (tui2). Top-level shell view.
  */
@@ -37,6 +30,7 @@ import type { ColorInput } from '@opentui/core'
 
 import { useTui2Store } from '../context'
 import { currentTheme } from '../theme'
+import type { TranscriptEntry } from '../types'
 
 import { Banner } from './chrome/banner'
 import { Footer } from './chrome/footer'
@@ -56,7 +50,6 @@ import { StatusMessageView } from './messages/status-message'
 
 import { ApprovalPanel } from './dialogs/approval-panel'
 import { QuestionDialog } from './dialogs/question-dialog'
-import { ChoicePicker } from './dialogs/choice-picker'
 import { ThemeSelector } from './dialogs/theme-selector'
 import { LocaleSelector } from './dialogs/locale-selector'
 import { PermissionSelector } from './dialogs/permission-selector'
@@ -80,60 +73,58 @@ import { WhichKey } from './dialogs/which-key'
 import { Box } from './common/box'
 import { Text } from './common/text'
 
+const LEFT_COL_RATIO = 0.7
+const NOOP = (): void => {}
+
 export interface MainShellProps {
-  /** Width of the terminal in columns. */
+  /** Terminal width in columns. */
   readonly width: number
-  /** Height of the terminal in rows. */
+  /** Terminal height in rows. */
   readonly height: number
-  /** Active pane mode (idle / waiting / thinking / composing / tool). */
+  /** Activity pane mode (idle hides the pane). */
   readonly activityMode: 'idle' | 'waiting' | 'thinking' | 'composing' | 'tool'
-  /** Tips for the activity pane. */
   readonly activityTip?: string
   readonly activityDetail?: string
-  /** Editor placeholder. */
-  readonly editorPlaceholder?: string
-  /** Whether the editor is focused. */
   readonly editorFocused?: boolean
-  /** Editor value / change / submit callbacks. */
-  readonly editorValue?: string
+  readonly editorPlaceholder?: string
   readonly onEditorChange?: (value: string) => void
   readonly onEditorSubmit?: (value: string) => void
-  /** Footer / help hint copy. */
-  readonly footerHint?: string
 }
+
+const leftWidth = (total: number): number => Math.floor(total * LEFT_COL_RATIO)
+const rightWidth = (total: number): number => total - leftWidth(total)
+
+const FULLSCREEN_DIALOGS = new Set([
+  'session-picker',
+  'model-selector',
+  'plugins-selector',
+  'help',
+  'task-output-viewer',
+  'agent-activity-viewer',
+  'approval-preview',
+])
 
 export const MainShell: Component<MainShellProps> = (props) => {
   const store = useTui2Store()
   const borderFg = (): ColorInput => currentTheme.color('border')
 
-  const transcriptEntries = (): readonly { id: string; kind: string }[] =>
-    store.state.transcript
+  const transcript = (): readonly TranscriptEntry[] => store.state.transcript
   const showRightPane = (): boolean => {
     const dialog = store.state.activeDialog
-    if (dialog === null) return true
-    // Most dialogs are full-screen overlays; only the light ones (settings
-    // selector, help, etc.) leave the right pane visible. For now we keep
-    // the right pane visible for any non-fullscreen dialog.
-    return !['session-picker', 'model-selector', 'plugins-selector', 'help'].includes(dialog)
+    return dialog === null || !FULLSCREEN_DIALOGS.has(dialog)
   }
 
   return (
     <Box flexDirection="column" width="100%" height="100%">
-      {/* Banner */}
       <Banner state={store.state.banner} />
 
-      {/* Main body: transcript + (optional) right pane */}
       <Box flexDirection="row" flexGrow={1}>
-        {/* Transcript column */}
-        <Box flexDirection="column" flexGrow={1} width={Math.floor(props.width * 0.7)}>
-          <For each={transcriptEntries()}>
-            {(entry) => <TranscriptEntry entry={entry} width={Math.floor(props.width * 0.7)} />}
-          </For>
+        <Box flexDirection="column" flexGrow={1} width={leftWidth(props.width)}>
+          <For each={transcript()}>{(entry) => <TranscriptEntryView entry={entry} />}</For>
         </Box>
 
-        {/* Right column: panes / dialog sidecar */}
         <Show when={showRightPane()}>
-          <Box flexDirection="column" width={Math.floor(props.width * 0.3)}>
+          <Box flexDirection="column" width={rightWidth(props.width)}>
             <Show when={store.state.queuePane !== undefined}>
               <QueuePane
                 messages={store.state.queuePane?.messages ?? []}
@@ -153,27 +144,24 @@ export const MainShell: Component<MainShellProps> = (props) => {
               />
             </Show>
             <Show when={store.state.btwPanelOpen}>
-              <BtwPanel width={Math.floor(props.width * 0.3)} />
+              <BtwPanel width={rightWidth(props.width)} />
             </Show>
             <Show when={store.state.diffReviewItems !== undefined}>
               <DiffReviewPane
                 items={store.state.diffReviewItems?.items ?? []}
-                width={Math.floor(props.width * 0.3)}
+                width={rightWidth(props.width)}
               />
             </Show>
           </Box>
         </Show>
       </Box>
 
-      {/* Border between body and editor */}
       <Box>
         <Text fg={borderFg()}>─</Text>
       </Box>
 
-      {/* Active dialog slot */}
       <ActiveDialogSlot />
 
-      {/* Editor */}
       <CustomEditor
         placeholder={props.editorPlaceholder}
         focused={props.editorFocused ?? true}
@@ -181,8 +169,7 @@ export const MainShell: Component<MainShellProps> = (props) => {
         onSubmit={props.onEditorSubmit}
       />
 
-      {/* Footer */}
-      <Footer hint={props.footerHint} />
+      <Footer />
     </Box>
   )
 }
@@ -191,44 +178,41 @@ export const MainShell: Component<MainShellProps> = (props) => {
 // Transcript entry dispatcher
 // ---------------------------------------------------------------------------
 
-const TranscriptEntry: Component<{ entry: { id: string; kind: string }; width: number }> = (
-  props,
-) => {
-  const kind = (): string => props.entry.kind
-  return (
-    <Show when={true}>
-      {(() => {
-        switch (kind()) {
-          case 'user':
-            return <UserMessageView content={(props.entry as { content: string }).content} />
-          case 'assistant':
-            return (
-              <AssistantMessageView
-                content={(props.entry as { content: string }).content}
-                expanded
-                mode="finalized"
-              />
-            )
-          case 'thinking':
-            return (
-              <ThinkingView
-                content={(props.entry as { content: string }).content}
-                mode="finalized"
-                expanded={false}
-              />
-            )
-          case 'plan':
-            return <PlanBox plan={(props.entry as unknown as { plan: unknown }).plan} />
-          case 'goal':
-            return <GoalPanel goal={(props.entry as unknown as { goal: unknown }).goal} />
-          case 'status':
-            return <StatusMessageView kind={(props.entry as unknown as { kind: string }).kind} />
-          default:
-            return null
-        }
-      })()}
-    </Show>
-  )
+const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
+  switch (props.entry.kind) {
+    case 'user':
+      return <UserMessageView content={props.entry.content} bullet={props.entry.bullet} />
+    case 'assistant':
+      return (
+        <AssistantMessageView
+          content={props.entry.content}
+          expanded={props.entry.expanded}
+          mode="finalized"
+        />
+      )
+    case 'thinking':
+      return (
+        <ThinkingView
+          content={props.entry.content}
+          mode="finalized"
+          expanded={props.entry.expanded}
+        />
+      )
+    case 'status':
+      return (
+        <StatusMessageView
+          kind={props.entry.detail ?? 'info'}
+        />
+      )
+    case 'goal':
+      return props.entry.goalData !== undefined ? (
+        <GoalPanel goal={props.entry.goalData} />
+      ) : null
+    case 'welcome':
+      return <PlanBox plan={{ steps: [], summary: props.entry.content }} />
+    default:
+      return null
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -245,8 +229,8 @@ const ActiveDialogSlot: Component = () => {
           sessions={store.state.sessionPicker?.sessions ?? []}
           loading={store.state.sessionPicker?.loading ?? false}
           currentSessionId={store.state.sessionPicker?.currentSessionId ?? ''}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'model-selector'}>
@@ -254,135 +238,131 @@ const ActiveDialogSlot: Component = () => {
           models={store.state.modelSelector?.models ?? {}}
           currentValue={store.state.modelSelector?.currentValue ?? ''}
           currentThinkingEffort={store.state.modelSelector?.currentThinkingEffort ?? 'off'}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'plugins-selector'}>
         <PluginsSelector
           installed={store.state.pluginsSelector?.installed ?? []}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'theme-selector'}>
         <ThemeSelector
           currentValue={store.state.themeSelector?.currentValue ?? 'auto'}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'locale-selector'}>
         <LocaleSelector
           currentValue={store.state.localeSelector?.currentValue ?? 'en'}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'permission-selector'}>
         <PermissionSelector
           currentValue={store.state.permissionSelector?.currentValue ?? 'manual'}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'editor-selector'}>
         <EditorSelector
           currentValue={store.state.editorSelector?.currentValue ?? ''}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'update-preference'}>
         <UpdatePreferenceSelector
           currentValue={store.state.updatePreference?.currentValue ?? true}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'msys2-prompt'}>
-        <Msys2Prompt onSelect={() => {}} onCancel={() => {}} />
+        <Msys2Prompt onSelect={NOOP} onCancel={NOOP} />
       </Show>
       <Show when={dialog() === 'trust-prompt'}>
         <TrustPrompt
           workDir={store.state.trustPrompt?.workDir ?? ''}
           gatedMcpServers={store.state.trustPrompt?.gatedMcpServers ?? []}
-          onSelect={() => {}}
+          onSelect={NOOP}
         />
       </Show>
       <Show when={dialog() === 'settings-selector'}>
-        <SettingsSelector onSelect={() => {}} onCancel={() => {}} />
+        <SettingsSelector onSelect={NOOP} onCancel={NOOP} />
       </Show>
       <Show when={dialog() === 'cache-hint'}>
         <CacheHintDialog
           idleSeconds={store.state.cacheHint?.idleSeconds ?? 0}
           totalTokens={store.state.cacheHint?.totalTokens ?? 0}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'goal-queue-manager'}>
         <GoalStartPermissionPrompt
           mode={store.state.goalQueue?.mode ?? 'manual'}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'undo-selector'}>
         <UndoSelector
           choices={store.state.undoSelector?.choices ?? []}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'effort-selector'}>
         <EffortSelector
           efforts={store.state.effortSelector?.efforts ?? []}
           currentValue={store.state.effortSelector?.currentValue ?? 'off'}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'help'}>
         <HelpPanel
           commands={store.state.helpPanel?.commands ?? []}
           width={store.state.helpPanel?.width ?? 80}
-          onClose={() => {}}
+          onClose={NOOP}
         />
       </Show>
       <Show when={dialog() === 'which-key'}>
-        <WhichKey onClose={() => {}} />
+        <WhichKey onClose={NOOP} />
       </Show>
       <Show when={dialog() === 'start-permission-prompt'}>
         <StartPermissionPrompt
           title={store.state.startPermission?.title ?? ''}
           noticeLines={store.state.startPermission?.noticeLines ?? []}
           options={store.state.startPermission?.options ?? []}
-          onSelect={() => {}}
-          onCancel={() => {}}
+          onSelect={NOOP}
+          onCancel={NOOP}
         />
       </Show>
       <Show when={dialog() === 'swarm-start-permission-prompt'}>
-        <SwarmStartPermissionPrompt onSelect={() => {}} onCancel={() => {}} />
+        <SwarmStartPermissionPrompt onSelect={NOOP} onCancel={NOOP} />
       </Show>
       <Show when={dialog() === 'approval-panel'}>
         <ApprovalPanel
           request={store.state.approval?.request}
           width={store.state.approval?.width ?? 80}
-          onResponse={() => {}}
+          onResponse={NOOP}
         />
       </Show>
       <Show when={dialog() === 'question-dialog'}>
         <QuestionDialog
           request={store.state.question?.request}
           width={store.state.question?.width ?? 80}
-          onAnswer={() => {}}
+          onAnswer={NOOP}
         />
       </Show>
     </Show>
   )
 }
-
-// Re-export ChoicePicker so it can be referenced from the host's keymap
-// when wiring slash-command dispatch (e.g. `/theme` opens the dialog).
-export { ChoicePicker }
