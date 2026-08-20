@@ -25,6 +25,7 @@ import type {
   PermissionMode,
   ProviderConfig,
   ThinkingEffort,
+  WorkspaceTrustMcpServerInfo,
 } from '@moonshot-ai/kimi-code-sdk'
 
 import type {
@@ -34,6 +35,13 @@ import type {
 } from './config'
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types'
 import type { SessionRow } from './components/dialogs/session-picker'
+import type { HelpPanelCommand } from './components/dialogs/help-panel'
+import type { PluginsPanelTabId } from './components/dialogs/plugins-selector'
+import type {
+  StartPermissionChoice,
+  StartPermissionOption,
+} from './components/dialogs/start-permission-prompt'
+import type { Locale } from '#/i18n'
 import type { ThemeName } from './theme'
 import { createTerminalState, type TerminalState } from './utils/terminal-state'
 import type {
@@ -122,6 +130,16 @@ export interface TuiRuntimeState {
   }
   /** Editor draft text (mirrors the input line; also used by BTW busy notice). */
   editorDraft: string
+  /** Command-layer editor replacement: when set, MainShell renders this
+   *  component instead of the editor (mirrors v1 `mountEditorReplacement`).
+   *  Set by slash commands that open a picker / input dialog; cleared by
+   *  the command's onSelect / onCancel callbacks. */
+  editorReplacement:
+    | {
+        readonly component: (props: Record<string, unknown>) => import('solid-js').JSX.Element
+        readonly props: Record<string, unknown>
+      }
+    | undefined
   /** Editor border highlight state (plan/bash/slash context). */
   editorBorderHighlighted: boolean
   /** Editor border color token. */
@@ -192,6 +210,71 @@ export interface TuiRuntimeState {
   startupState: TUIStartupState
   /** The dialog currently open on top of the shell; null when none. */
   activeDialog: ActiveDialog
+  /** Session picker dialog state; undefined when closed. */
+  sessionPicker:
+    | {
+        readonly sessions: readonly SessionRow[]
+        readonly loading: boolean
+        readonly currentSessionId: string
+      }
+    | undefined
+  /** Model selector dialog state; undefined when closed. */
+  modelSelector:
+    | {
+        readonly models: Record<string, ModelAlias>
+        readonly currentValue: string
+        readonly currentThinkingEffort: ThinkingEffort
+      }
+    | undefined
+  /** Theme selector dialog state; undefined when closed. */
+  themeSelector: { readonly currentValue: ThemeName } | undefined
+  /** Locale selector dialog state; undefined when closed. */
+  localeSelector: { readonly currentValue: Locale } | undefined
+  /** Permission selector dialog state; undefined when closed. */
+  permissionSelector: { readonly currentValue: PermissionMode } | undefined
+  /** Editor selector dialog state; undefined when closed. */
+  editorSelector: { readonly currentValue: string } | undefined
+  /** Update-preference selector dialog state; undefined when closed. */
+  updatePreference: { readonly currentValue: boolean } | undefined
+  /** Trust-prompt dialog state; undefined when closed. */
+  trustPrompt:
+    | {
+        readonly workDir: string
+        readonly gatedMcpServers: readonly WorkspaceTrustMcpServerInfo[]
+      }
+    | undefined
+  /** Help panel dialog state; undefined when closed. */
+  helpPanel:
+    | {
+        readonly commands: readonly HelpPanelCommand[]
+        readonly width: number
+      }
+    | undefined
+  /** Start-permission prompt dialog state; undefined when closed. */
+  startPermission:
+    | {
+        readonly title: string
+        readonly noticeLines: readonly string[]
+        readonly options: readonly StartPermissionOption<StartPermissionChoice>[]
+        readonly chosen?: StartPermissionChoice
+      }
+    | undefined
+  /** Effort selector dialog state; undefined when closed. */
+  effortSelector:
+    | {
+        readonly efforts: readonly ThinkingEffort[]
+        readonly currentValue: ThinkingEffort
+      }
+    | undefined
+  /** Queue pane state; undefined hides the pane. */
+  queuePane:
+    | {
+        readonly messages: readonly QueuedMessage[]
+        readonly isCompacting: boolean
+        readonly isStreaming: boolean
+        readonly canSteerImmediately: boolean
+      }
+    | undefined
   /** Choices for the open undo selector; undefined when none. */
   undoChoices: readonly { id: string; count: number; input: string; label: string }[] | undefined
   /** Goal-queue manager dialog state; undefined when closed. */
@@ -208,7 +291,7 @@ export interface TuiRuntimeState {
     installedIds: ReadonlySet<string>
     capabilities: readonly import('@moonshot-ai/kimi-code-sdk').CapabilityStatus[]
     catalogIsDefault: boolean
-    initialTab?: string
+    initialTab?: PluginsPanelTabId
     selectedId?: string
     pluginHint?: { id: string; text: string }
     marketplace?: { plugins: readonly unknown[]; source: string }
@@ -309,6 +392,7 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
     scrollOffset: 0,
   },
   editorDraft: '',
+  editorReplacement: undefined,
   editorBorderHighlighted: false,
   editorBorderToken: 'border',
   autocompleteProvider: undefined,
@@ -360,6 +444,18 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
   banner: null,
   startupState: 'pending',
   activeDialog: null,
+  sessionPicker: undefined,
+  modelSelector: undefined,
+  themeSelector: undefined,
+  localeSelector: undefined,
+  permissionSelector: undefined,
+  editorSelector: undefined,
+  updatePreference: undefined,
+  trustPrompt: undefined,
+  helpPanel: undefined,
+  startPermission: undefined,
+  effortSelector: undefined,
+  queuePane: undefined,
   undoChoices: undefined,
   goalQueueManager: undefined,
   pluginsPanel: null,

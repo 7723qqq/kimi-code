@@ -9,11 +9,16 @@ import type { PermissionMode } from '@moonshot-ai/kimi-code-sdk';
 import { t } from '#/i18n';
 
 import {
-  SwarmStartPermissionPromptComponent,
+  SwarmStartPermissionPrompt,
   type SwarmStartPermissionChoice,
 } from '../components/dialogs/swarm-start-permission-prompt';
 import type { SwarmModeMarkerState } from '../components/messages/swarm-markers';
 import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
+import {
+  asReplacement,
+  mountEditorReplacement,
+  restoreEditor,
+} from '../utils/editor-replacement';
 import { formatErrorMessage } from '../utils/event-payload';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { SlashCommandHost } from './dispatch';
@@ -71,14 +76,16 @@ function showSwarmStartPermissionPrompt(
     host.store.setState('swarmStartContext', { prompt: commandText })
     host.store.setState('activeDialog', 'swarm-start-permission-prompt')
   } else {
-    host.mountEditorReplacement(
-      new SwarmStartPermissionPromptComponent({
-        onSelect: (choice) => {
-          host.restoreEditor();
+    mountEditorReplacement(
+      host,
+      asReplacement(SwarmStartPermissionPrompt),
+      {
+        onSelect: (choice: SwarmStartPermissionChoice) => {
+          restoreEditor(host);
           void onSelect(choice);
         },
         onCancel: cancelStart,
-      }),
+      },
     )
   }
 }

@@ -23,28 +23,29 @@ import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from
 import type { AppState } from '../types';
 
 import {
-  AstronSettingsComponent,
+  AstronSettingsView,
   ASTRON_DEFAULT_SETTINGS,
   type AstronSettings,
 } from '../components/dialogs/astron-settings';
-import { EditorSelectorComponent } from '../components/dialogs/editor-selector';
-import { EffortSelectorComponent } from '../components/dialogs/effort-selector';
+import { EditorSelector } from '../components/dialogs/editor-selector';
+import { EffortSelector } from '../components/dialogs/effort-selector';
 import {
-  ExperimentsSelectorComponent,
+  ExperimentsSelector,
   type ExperimentalFeatureDraftChange,
 } from '../components/dialogs/experiments-selector';
-import { LocaleSelectorComponent } from '../components/dialogs/locale-selector';
+import { LocaleSelector } from '../components/dialogs/locale-selector';
 import { modelDisplayName, segmentsFor } from '../components/dialogs/model-selector';
-import { PermissionSelectorComponent } from '../components/dialogs/permission-selector';
+import { PermissionSelector } from '../components/dialogs/permission-selector';
 import {
-  SettingsSelectorComponent,
+  SettingsSelector,
   type SettingsSelection,
 } from '../components/dialogs/settings-selector';
-import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
-import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
-import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
+import { TabbedModelSelector } from '../components/dialogs/tabbed-model-selector';
+import { ThemeSelector } from '../components/dialogs/theme-selector';
+import { UpdatePreferenceSelector } from '../components/dialogs/update-preference-selector';
 import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
+import { asReplacement, mountEditorReplacement } from '../utils/editor-replacement';
 import { formatErrorMessage } from '../utils/event-payload';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import type { SlashCommandHost } from './dispatch';
@@ -361,25 +362,27 @@ function showEffortPicker(
   const liveEffort = host.state.appState.thinkingEffort;
   const currentValue = segments.includes(liveEffort) ? liveEffort : (segments[0] ?? 'off');
   const alias = host.state.appState.model;
-  host.mountEditorReplacement(
-    new EffortSelectorComponent({
+  mountEditorReplacement(
+    host,
+    asReplacement(EffortSelector),
+    {
       efforts: segments,
       currentValue,
       warning: hasConversationHistory(host)
         ? t('tui.messages.configEffortCachedWarning')
         : undefined,
-      onSelect: (effort) => {
+      onSelect: (effort: ThinkingEffort) => {
         host.restoreEditor();
         void performModelSwitch(host, alias, effort, true);
       },
-      onSessionOnlySelect: (effort) => {
+      onSessionOnlySelect: (effort: ThinkingEffort) => {
         host.restoreEditor();
         void performModelSwitch(host, alias, effort, false);
       },
       onCancel: () => {
         host.restoreEditor();
       },
-    }),
+    },
   );
 }
 
@@ -389,17 +392,19 @@ function showEffortPicker(
 
 function showEditorPicker(host: SlashCommandHost): void {
   const currentValue = host.state.appState.editorCommand ?? '';
-  host.mountEditorReplacement(
-    new EditorSelectorComponent({
+  mountEditorReplacement(
+    host,
+    asReplacement(EditorSelector),
+    {
       currentValue,
-      onSelect: (value) => {
+      onSelect: (value: string) => {
         host.restoreEditor();
         void applyEditorChoice(host, value);
       },
       onCancel: () => {
         host.restoreEditor();
       },
-    }),
+    },
   );
 }
 
@@ -500,8 +505,10 @@ export function showModelPicker(
     );
     return;
   }
-  host.mountEditorReplacement(
-    new TabbedModelSelectorComponent({
+  mountEditorReplacement(
+    host,
+    asReplacement(TabbedModelSelector),
+    {
       models,
       currentValue: host.state.appState.model,
       selectedValue,
@@ -509,18 +516,18 @@ export function showModelPicker(
       warning: hasConversationHistory(host)
         ? t('tui.messages.configModelCachedWarning')
         : undefined,
-      onSelect: ({ alias, thinking }) => {
+      onSelect: ({ alias, thinking }: { alias: string; thinking: ThinkingEffort }) => {
         host.restoreEditor();
         void performModelSwitch(host, alias, thinking, true);
       },
-      onSessionOnlySelect: ({ alias, thinking }) => {
+      onSessionOnlySelect: ({ alias, thinking }: { alias: string; thinking: ThinkingEffort }) => {
         host.restoreEditor();
         void performModelSwitch(host, alias, thinking, false);
       },
       onCancel: () => {
         host.restoreEditor();
       },
-    }),
+    },
   );
 }
 
@@ -676,8 +683,10 @@ function showSecondaryModelPicker(
   currentValue: string,
   selectedValue?: string,
 ): void {
-  host.mountEditorReplacement(
-    new TabbedModelSelectorComponent({
+  mountEditorReplacement(
+    host,
+    asReplacement(TabbedModelSelector),
+    {
       models,
       currentValue,
       selectedValue,
@@ -686,14 +695,14 @@ function showSecondaryModelPicker(
       // hides the Thinking footer instead of offering a no-op choice.
       thinkingControl: false,
       title: t('tui.dialogs.modelSelector.secondaryTitle'),
-      onSelect: ({ alias }) => {
+      onSelect: ({ alias }: { alias: string }) => {
         host.restoreEditor();
         void performSecondaryModelSave(host, alias);
       },
       onCancel: () => {
         host.restoreEditor();
       },
-    }),
+    },
   );
 }
 
@@ -729,17 +738,19 @@ async function performSecondaryModelSave(host: SlashCommandHost, alias: string):
 }
 
 function showThemePicker(host: SlashCommandHost): void {
-  host.mountEditorReplacement(
-    new ThemeSelectorComponent({
+  mountEditorReplacement(
+    host,
+    asReplacement(ThemeSelector),
+    {
       currentValue: host.state.appState.theme,
-      onSelect: (value) => {
+      onSelect: (value: ThemeName) => {
         host.restoreEditor();
         void applyThemeChoice(host, value);
       },
       onCancel: () => {
         host.restoreEditor();
       },
-    }),
+    },
   );
 }
 
@@ -785,17 +796,19 @@ async function applyThemeChoice(host: SlashCommandHost, theme: ThemeName): Promi
 }
 
 export function showLocalePicker(host: SlashCommandHost): void {
-  host.mountEditorReplacement(
-    new LocaleSelectorComponent({
+  mountEditorReplacement(
+    host,
+    asReplacement(LocaleSelector),
+    {
       currentValue: getLocale(),
-      onSelect: (locale) => {
+      onSelect: (locale: Locale) => {
         host.restoreEditor();
         void applyLocaleChoice(host, locale);
       },
       onCancel: () => {
         host.restoreEditor();
       },
-    }),
+    },
   );
 }
 
@@ -824,32 +837,36 @@ async function applyLocaleChoice(host: SlashCommandHost, locale: Locale): Promis
 }
 
 export function showPermissionPicker(host: SlashCommandHost): void {
-  host.mountEditorReplacement(
-    new PermissionSelectorComponent({
+  mountEditorReplacement(
+    host,
+    asReplacement(PermissionSelector),
+    {
       currentValue: host.state.appState.permissionMode,
-      onSelect: (value) => {
+      onSelect: (value: PermissionMode) => {
         host.restoreEditor();
         void applyPermissionChoice(host, value);
       },
       onCancel: () => {
         host.restoreEditor();
       },
-    }),
+    },
   );
 }
 
 export function showUpdatePreferencePicker(host: SlashCommandHost): void {
-  host.mountEditorReplacement(
-    new UpdatePreferenceSelectorComponent({
+  mountEditorReplacement(
+    host,
+    asReplacement(UpdatePreferenceSelector),
+    {
       currentValue: host.state.appState.upgrade.autoInstall,
-      onSelect: (value) => {
+      onSelect: (value: boolean) => {
         host.restoreEditor();
         void applyUpdatePreferenceChoice(host, value);
       },
       onCancel: () => {
         host.restoreEditor();
       },
-    }),
+    },
   );
 }
 
@@ -886,16 +903,18 @@ export async function showAstronSettingsPanel(host: SlashCommandHost): Promise<v
         ? astron.searchDisable
         : ASTRON_DEFAULT_SETTINGS.searchDisable,
   };
-  host.mountEditorReplacement(
-    new AstronSettingsComponent({
+  mountEditorReplacement(
+    host,
+    asReplacement(AstronSettingsView),
+    {
       initial,
-      onSave: (settings) => {
+      onSave: (settings: AstronSettings) => {
         void saveAstronSettings(host, settings);
       },
       onCancel: () => {
         host.restoreEditor();
       },
-    }),
+    },
   );
 }
 
@@ -977,16 +996,18 @@ function mountExperimentsPanel(
   host: SlashCommandHost,
   features: readonly ExperimentalFeatureState[],
 ): void {
-  host.mountEditorReplacement(
-    new ExperimentsSelectorComponent({
+  mountEditorReplacement(
+    host,
+    asReplacement(ExperimentsSelector),
+    {
       features,
-      onApply: (changes) => {
+      onApply: (changes: readonly ExperimentalFeatureDraftChange[]) => {
         void applyExperimentalFeatureChanges(host, changes);
       },
       onCancel: () => {
         host.restoreEditor();
       },
-    }),
+    },
   );
 }
 
@@ -1068,15 +1089,17 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
 }
 
 export function showSettingsSelector(host: SlashCommandHost): void {
-  host.mountEditorReplacement(
-    new SettingsSelectorComponent({
-      onSelect: (value) => {
+  mountEditorReplacement(
+    host,
+    asReplacement(SettingsSelector),
+    {
+      onSelect: (value: SettingsSelection) => {
         handleSettingsSelection(host, value);
       },
       onCancel: () => {
         host.restoreEditor();
       },
-    }),
+    },
   );
 }
 

@@ -6,8 +6,13 @@
  */
 import { t } from '#/i18n';
 
-import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
+import { ChoicePicker } from '../components/dialogs/choice-picker';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
+import {
+  asReplacement,
+  mountEditorReplacement,
+  restoreEditor,
+} from '../utils/editor-replacement';
 import type { SlashCommandHost } from './dispatch';
 import { slashBusyMessage, slashCommandBusyReason } from './resolve';
 
@@ -51,8 +56,10 @@ export async function handleAddDirCommand(host: SlashCommandHost, args: string):
     }
   }
 
-  host.mountEditorReplacement(
-    new ChoicePickerComponent({
+  mountEditorReplacement(
+    host,
+    asReplacement(ChoicePicker),
+    {
       title: t('tui.statusMessages.addDirTitle', { path: input }),
       hint: t('tui.statusMessages.addDirHint'),
       options: [
@@ -69,14 +76,14 @@ export async function handleAddDirCommand(host: SlashCommandHost, args: string):
           label: t('tui.statusMessages.addDirNo'),
         },
       ],
-      onSelect: (value) => {
+      onSelect: (value: string) => {
         void handleAddDirChoice(host, session.id, input, value as AddDirChoice);
       },
       onCancel: () => {
-        host.restoreEditor();
+        restoreEditor(host);
         host.showStatus(t('tui.statusMessages.addDirDidNotAdd', { path: input }));
       },
-    }),
+    },
   );
 }
 

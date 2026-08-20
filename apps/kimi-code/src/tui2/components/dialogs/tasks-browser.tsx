@@ -326,7 +326,7 @@ export const TasksBrowser: Component<TasksBrowserProps> = (props) => {
                   </Box>
                   <Show when={tk.kind === 'agent'}>
                     <Box>
-                      <Text fg={textMutedFg()}>{`  ${t('tui.dialogs.tasksBrowser.kindAgent', { agentName: tk.agentName ?? '' })}`}</Text>
+                      <Text fg={textMutedFg()}>{`  ${t('tui.dialogs.tasksBrowser.kindAgent', { agentName: tk.kind === 'agent' ? tk.subagentType ?? tk.agentId ?? '' : '' })}`}</Text>
                     </Box>
                   </Show>
                   <Show when={stopArmed() === tk.taskId}>

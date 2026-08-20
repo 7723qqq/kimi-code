@@ -3,6 +3,11 @@
  * feedback / api-key / base-url / catalog-provider / model selection dialogs.
  *
  * Status: REAL (tui2). Self-contained; no v1 re-export.
+ *
+ * Dialogs open through the response store's editor-replacement slot
+ * (`mountEditorReplacement`), which MainShell renders in the editor
+ * position; the Promise resolves from the component's onSelect / onCancel
+ * callbacks.
  */
 import { capabilitiesForModel } from '@moonshot-ai/kimi-code-oauth';
 import type {
@@ -21,31 +26,43 @@ import {
 import { t } from '#/i18n';
 
 import {
-  ApiKeyInputDialogComponent,
+  ApiKeyInputDialog,
   type ApiKeyInputResult,
 } from '../components/dialogs/api-key-input-dialog';
-import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/choice-picker';
+import { ChoicePicker, type ChoiceOption } from '../components/dialogs/choice-picker';
 import {
-  FeedbackInputDialogComponent,
+  FeedbackInputDialog,
   type FeedbackInputDialogResult,
 } from '../components/dialogs/feedback-input-dialog';
-import { ModelSelectorComponent } from '../components/dialogs/model-selector';
-import { PlatformSelectorComponent } from '../components/dialogs/platform-selector';
+import { ModelSelector } from '../components/dialogs/model-selector';
+import { PlatformSelector } from '../components/dialogs/platform-selector';
+import {
+  asReplacement,
+  mountEditorReplacement,
+  restoreEditor,
+} from '../utils/editor-replacement';
 import type { SlashCommandHost } from './dispatch';
 
 export function promptPlatformSelection(host: SlashCommandHost): Promise<string | undefined> {
   return new Promise((resolve) => {
-    const selector = new PlatformSelectorComponent({
-      onSelect: (platformId) => {
-        host.restoreEditor();
-        resolve(platformId);
+    if (host.store === undefined) {
+      resolve(undefined);
+      return;
+    }
+    mountEditorReplacement(
+      host,
+      asReplacement(PlatformSelector),
+      {
+        onSelect: (platformId: string) => {
+          restoreEditor(host);
+          resolve(platformId);
+        },
+        onCancel: () => {
+          restoreEditor(host);
+          resolve(undefined);
+        },
       },
-      onCancel: () => {
-        host.restoreEditor();
-        resolve(undefined);
-      },
-    });
-    host.mountEditorReplacement(selector);
+    );
   });
 }
 
@@ -55,20 +72,27 @@ export function promptLogoutProviderSelection(
   currentValue: string | undefined,
 ): Promise<string | undefined> {
   return new Promise((resolve) => {
-    const picker = new ChoicePickerComponent({
-      title: t('tui.statusMessages.selectProviderToLogout'),
-      options,
-      currentValue,
-      onSelect: (value) => {
-        host.restoreEditor();
-        resolve(value);
+    if (host.store === undefined) {
+      resolve(undefined);
+      return;
+    }
+    mountEditorReplacement(
+      host,
+      asReplacement(ChoicePicker),
+      {
+        title: t('tui.statusMessages.selectProviderToLogout'),
+        options,
+        currentValue,
+        onSelect: (value: string) => {
+          restoreEditor(host);
+          resolve(value);
+        },
+        onCancel: () => {
+          restoreEditor(host);
+          resolve(undefined);
+        },
       },
-      onCancel: () => {
-        host.restoreEditor();
-        resolve(undefined);
-      },
-    });
-    host.mountEditorReplacement(picker);
+    );
   });
 }
 
@@ -80,11 +104,20 @@ export function promptFeedbackInput(
   host: SlashCommandHost,
 ): Promise<FeedbackPromptResult | undefined> {
   return new Promise((resolve) => {
-    const dialog = new FeedbackInputDialogComponent((result: FeedbackInputDialogResult) => {
-      host.restoreEditor();
-      resolve(result.kind === 'ok' ? { value: result.value } : undefined);
-    });
-    host.mountEditorReplacement(dialog);
+    if (host.store === undefined) {
+      resolve(undefined);
+      return;
+    }
+    mountEditorReplacement(
+      host,
+      asReplacement(FeedbackInputDialog),
+      {
+        onDone: (result: FeedbackInputDialogResult) => {
+          restoreEditor(host);
+          resolve(result.kind === 'ok' ? { value: result.value } : undefined);
+        },
+      },
+    );
   });
 }
 
@@ -115,19 +148,26 @@ export function promptFeedbackAttachment(
   host: SlashCommandHost,
 ): Promise<FeedbackAttachmentLevel | undefined> {
   return new Promise((resolve) => {
-    const picker = new ChoicePickerComponent({
-      title: t('tui.statusMessages.shareDiagnosticInfo'),
-      options: getFeedbackAttachmentOptions(),
-      onSelect: (value) => {
-        host.restoreEditor();
-        resolve(value as FeedbackAttachmentLevel);
+    if (host.store === undefined) {
+      resolve(undefined);
+      return;
+    }
+    mountEditorReplacement(
+      host,
+      asReplacement(ChoicePicker),
+      {
+        title: t('tui.statusMessages.shareDiagnosticInfo'),
+        options: getFeedbackAttachmentOptions(),
+        onSelect: (value: string) => {
+          restoreEditor(host);
+          resolve(value as FeedbackAttachmentLevel);
+        },
+        onCancel: () => {
+          restoreEditor(host);
+          resolve(undefined);
+        },
       },
-      onCancel: () => {
-        host.restoreEditor();
-        resolve(undefined);
-      },
-    });
-    host.mountEditorReplacement(picker);
+    );
   });
 }
 
@@ -137,15 +177,22 @@ export function promptApiKey(
   subtitleLines: readonly string[] = [t('tui.statusMessages.apiKeySavedTo')],
 ): Promise<string | undefined> {
   return new Promise((resolve) => {
-    const dialog = new ApiKeyInputDialogComponent(
-      platformName,
-      subtitleLines,
-      (result: ApiKeyInputResult) => {
-        host.restoreEditor();
-        resolve(result.kind === 'ok' ? result.value : undefined);
+    if (host.store === undefined) {
+      resolve(undefined);
+      return;
+    }
+    mountEditorReplacement(
+      host,
+      asReplacement(ApiKeyInputDialog),
+      {
+        platformName,
+        subtitleLines,
+        onDone: (result: ApiKeyInputResult) => {
+          restoreEditor(host);
+          resolve(result.kind === 'ok' ? result.value : undefined);
+        },
       },
     );
-    host.mountEditorReplacement(dialog);
   });
 }
 
@@ -160,20 +207,25 @@ export function promptBaseUrl(
   platformName: string,
 ): Promise<string | undefined> {
   return new Promise((resolve) => {
-    const dialog = new ApiKeyInputDialogComponent(
-      platformName,
-      ['The catalog declares no endpoint for this provider — enter its base URL.'],
-      (result: ApiKeyInputResult) => {
-        host.restoreEditor();
-        resolve(result.kind === 'ok' ? result.value : undefined);
-      },
+    if (host.store === undefined) {
+      resolve(undefined);
+      return;
+    }
+    mountEditorReplacement(
+      host,
+      asReplacement(ApiKeyInputDialog),
       {
+        platformName,
+        subtitleLines: ['The catalog declares no endpoint for this provider — enter its base URL.'],
+        onDone: (result: ApiKeyInputResult) => {
+          restoreEditor(host);
+          resolve(result.kind === 'ok' ? result.value : undefined);
+        },
         title: `Enter base URL for ${platformName}`,
         mask: false,
         emptyHint: 'Base URL cannot be empty.',
       },
     );
-    host.mountEditorReplacement(dialog);
   });
 }
 
@@ -182,6 +234,10 @@ export function promptCatalogProviderSelection(
   catalog: Catalog,
 ): Promise<string | undefined> {
   return new Promise((resolve) => {
+    if (host.store === undefined) {
+      resolve(undefined);
+      return;
+    }
     const options: ChoiceOption[] = Object.entries(catalog)
       .filter(([, entry]) => resolveCatalogImport(entry).kind !== 'invalid')
       .map(([id, entry]) => ({
@@ -197,20 +253,23 @@ export function promptCatalogProviderSelection(
       return;
     }
 
-    const picker = new ChoicePickerComponent({
-      title: t('tui.statusMessages.selectProviderTitle'),
-      options,
-      searchable: true,
-      onSelect: (value) => {
-        host.restoreEditor();
-        resolve(value);
+    mountEditorReplacement(
+      host,
+      asReplacement(ChoicePicker),
+      {
+        title: t('tui.statusMessages.selectProviderTitle'),
+        options,
+        searchable: true,
+        onSelect: (value: string) => {
+          restoreEditor(host);
+          resolve(value);
+        },
+        onCancel: () => {
+          restoreEditor(host);
+          resolve(undefined);
+        },
       },
-      onCancel: () => {
-        host.restoreEditor();
-        resolve(undefined);
-      },
-    });
-    host.mountEditorReplacement(picker);
+    );
   });
 }
 
@@ -255,23 +314,30 @@ export function runModelSelector(
   modelDict: Record<string, ModelAlias>,
 ): Promise<{ alias: string; thinking: ThinkingEffort } | undefined> {
   return new Promise((resolve) => {
+    if (host.store === undefined) {
+      resolve(undefined);
+      return;
+    }
     const firstAlias = Object.keys(modelDict)[0] ?? '';
     const caps = modelDict[firstAlias]?.capabilities ?? [];
     const initialThinking = caps.includes('always_thinking') || caps.includes('thinking');
-    const selector = new ModelSelectorComponent({
-      models: modelDict,
-      currentValue: firstAlias,
-      currentThinkingEffort: initialThinking ? 'on' : 'off',
-      searchable: true,
-      onSelect: ({ alias, thinking }) => {
-        host.restoreEditor();
-        resolve({ alias, thinking });
+    mountEditorReplacement(
+      host,
+      asReplacement(ModelSelector),
+      {
+        models: modelDict,
+        currentValue: firstAlias,
+        currentThinkingEffort: initialThinking ? 'on' : 'off',
+        searchable: true,
+        onSelect: ({ alias, thinking }: { alias: string; thinking: ThinkingEffort }) => {
+          restoreEditor(host);
+          resolve({ alias, thinking });
+        },
+        onCancel: () => {
+          restoreEditor(host);
+          resolve(undefined);
+        },
       },
-      onCancel: () => {
-        host.restoreEditor();
-        resolve(undefined);
-      },
-    });
-    host.mountEditorReplacement(selector);
+    );
   });
 }

@@ -397,6 +397,7 @@ export type ActiveDialog =
   | 'cache-hint'
   | 'editor-selector'
   | 'effort-selector'
+  | 'experiments-selector'
   | 'goal-queue-edit'
   | 'goal-queue-manager'
   | 'goal-start-permission-prompt'

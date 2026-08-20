@@ -20,7 +20,7 @@
 import type { Component } from 'solid-js'
 import { Show } from 'solid-js'
 
-import { getCapabilities } from '@opentui/core'
+import { getCapabilities } from '@moonshot-ai/pi-tui'
 
 import { currentTheme } from '../../theme'
 import type { ImageAttachment } from '../../../tui/utils/image-attachment-store'
@@ -29,7 +29,6 @@ import type { ColorInput } from '@opentui/core'
 import { Box } from '../common/box'
 import { Text } from '../common/text'
 
-const MAX_IMAGE_ROWS = 12
 const MAX_IMAGE_WIDTH = 40
 
 export interface ImageThumbnailProps {
@@ -54,10 +53,8 @@ export const ImageThumbnail: Component<ImageThumbnailProps> = (props) => {
         }
       >
         <image
-          src={`data:${props.attachment.mime};base64,${Buffer.from(props.attachment.bytes).toString('base64')}`}
-          maxHeightCells={MAX_IMAGE_ROWS}
-          maxWidthCells={Math.max(1, Math.min(MAX_IMAGE_WIDTH, props.width - 2))}
-          filename={props.attachment.placeholder}
+          source={`data:${props.attachment.mime};base64,${Buffer.from(props.attachment.bytes).toString('base64')}`}
+          fit="fit"
         />
       </Show>
     </Box>

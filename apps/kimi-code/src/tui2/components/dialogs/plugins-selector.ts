@@ -1,8 +1,10 @@
 /**
- * TUI2 plugins selector — forwarding layer.
+ * TUI2 plugins-selector — forwarding layer.
  *
- * Status: REAL (tui2). Forwards to `plugins-selector.tsx`. Covers the full
- * PluginsPanel (Installed / Official / Third-party / Custom tabs), the MCP
- * sub-selector, and the remove / install-trust confirmation dialogs.
+ * Status: REAL (tui2). Forwards to `plugins-selector.tsx`.
  */
-export * from './plugins-selector.tsx'
+export * from './plugins-selector.tsx';
+export { PluginsPanel as PluginsPanelComponent } from './plugins-selector.tsx';
+export { PluginMcpSelector as PluginMcpSelectorComponent } from './plugins-selector.tsx';
+export { PluginRemoveConfirm as PluginRemoveConfirmComponent } from './plugins-selector.tsx';
+export { PluginInstallTrustConfirm as PluginInstallTrustConfirmComponent } from './plugins-selector.tsx';

@@ -71,7 +71,6 @@ export const ApiKeyInputDialog: Component<ApiKeyInputDialogProps> = (props) => {
   const borderFg = (): ColorInput => currentTheme.color('primary')
   const titleFg = (): ColorInput => currentTheme.color('textStrong')
   const subtitleFg = (): ColorInput => currentTheme.color('textDim')
-  const inputFg = (): ColorInput => currentTheme.color('text')
   const innerWidth = ROW_INNER_WIDTH + ROW_PADDING * 2
   const horizontalBorder = (glyph: string, n: number): string =>
     `${glyph}${glyph.repeat(n)}${glyph}`
@@ -131,7 +130,7 @@ export const ApiKeyInputDialog: Component<ApiKeyInputDialogProps> = (props) => {
         <Text fg={borderFg()}>{'│'}</Text>
         <Text>{' '.repeat(ROW_PADDING)}</Text>
         <input
-          fg={inputFg()}
+          
           focused
           placeholder={t('tui.dialogs.apiKeyInput.placeholder')}
           onInput={setValue}

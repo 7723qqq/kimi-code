@@ -77,14 +77,17 @@ type Row = SourceRow | AddRow
 
 function readCustomRegistrySource(provider: unknown): CustomRegistrySource | undefined {
   if (typeof provider !== 'object' || provider === null) return undefined
-  const candidate = provider as Record<string, unknown>
-  if (typeof candidate['url'] !== 'string' || typeof candidate['apiKey'] !== 'string') {
-    return undefined
+  const source = (provider as { readonly source?: unknown }).source
+  if (typeof source !== 'object' || source === null) return undefined
+  const candidate = source as {
+    readonly kind?: unknown
+    readonly url?: unknown
+    readonly apiKey?: unknown
   }
-  return {
-    url: candidate['url'],
-    apiKey: candidate['apiKey'],
-  }
+  if (candidate.kind !== 'apiJson') return undefined
+  if (typeof candidate.url !== 'string' || candidate.url.length === 0) return undefined
+  if (typeof candidate.apiKey !== 'string') return undefined
+  return { kind: 'apiJson', url: candidate.url, apiKey: candidate.apiKey }
 }
 
 function buildRows(props: ProviderManagerProps): readonly Row[] {
@@ -267,6 +270,10 @@ export const ProviderManager: Component<ProviderManagerProps> = (props) => {
           {(row, vi) => {
             const realIndex = (): number => page().start + vi()
             const selected = (): boolean => realIndex() === selectedIndex()
+            // Narrow the discriminated union once; <Show> children cannot see
+            // the when-condition narrowing, so the rows that need source-only
+            // fields read from this variable.
+            const sourceRow = row.kind === 'source' ? row : undefined
             return (
               <>
                 <Box flexDirection="row">
@@ -277,19 +284,19 @@ export const ProviderManager: Component<ProviderManagerProps> = (props) => {
                   >
                     {row.label}
                   </Text>
-                  <Show when={row.kind === 'source' && row.hasActive}>
+                  <Show when={sourceRow !== undefined && sourceRow.hasActive}>
                     <Text fg={successFg()}>{`  ${getCurrentMark()}`}</Text>
                   </Show>
-                  <Show when={row.kind === 'source' && row.baseUrl !== undefined}>
-                    <Text fg={textMutedFg()}>{`  ${row.baseUrl ?? ''}`}</Text>
+                  <Show when={sourceRow !== undefined && sourceRow.baseUrl !== undefined}>
+                    <Text fg={textMutedFg()}>{`  ${sourceRow?.baseUrl ?? ''}`}</Text>
                   </Show>
                   <Show when={row.kind === 'add'}>
                     <Text fg={accentFg()}>{`  ${t('tui.dialogs.providerManager.addHint')}`}</Text>
                   </Show>
                 </Box>
-                <Show when={row.kind === 'source' && row.providerIds.length > 1}>
+                <Show when={sourceRow !== undefined && sourceRow.providerIds.length > 1}>
                   <Box>
-                    <Text fg={textMutedFg()}>{`    ${row.providerIds.join(', ')}`}</Text>
+                    <Text fg={textMutedFg()}>{`    ${sourceRow ? sourceRow.providerIds.join(', ') : ''}`}</Text>
                   </Box>
                 </Show>
               </>

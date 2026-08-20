@@ -227,13 +227,16 @@ function ShowInfo(props: { info: BackgroundTaskInfo | undefined }): unknown {
   const textMutedFg = (): ColorInput => currentTheme.color('textMuted')
   if (props.info === undefined) return null
   const info = props.info
+  // Narrow the discriminated union once; <Show> children cannot see the
+  // when-condition narrowing.
+  const processInfo = info.kind === 'process' ? info : undefined
   return (
     <Box flexDirection="row">
       <Text>{'  '}</Text>
       <Text fg={currentTheme.color(statusColorToken(info.status))}>{statusLabel(info.status)}</Text>
-      <Show when={info.kind === 'process' && info.exitCode !== null}>
+      <Show when={processInfo !== undefined && processInfo.exitCode !== null}>
         <Text fg={textMutedFg()}>
-          {`  ${t('tui.dialogs.taskOutputViewer.exitCode', { code: String(info.exitCode) })}`}
+          {`  ${t('tui.dialogs.taskOutputViewer.exitCode', { code: String(processInfo?.exitCode ?? '') })}`}
         </Text>
       </Show>
       <Show when={info.description !== undefined && info.description.length > 0}>
@@ -241,8 +244,4 @@ function ShowInfo(props: { info: BackgroundTaskInfo | undefined }): unknown {
       </Show>
     </Box>
   )
-}
-
-function Show(_props: { when: boolean; children: unknown }): unknown {
-  return null
 }

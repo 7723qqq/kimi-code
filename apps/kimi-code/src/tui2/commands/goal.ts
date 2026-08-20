@@ -276,7 +276,7 @@ async function showGoalQueueManager(
   );
 }
 
-async function handleGoalQueueManagerAction(
+export async function handleGoalQueueManagerAction(
   host: SlashCommandHost,
   action: GoalQueueManagerAction,
 ): Promise<GoalQueueSnapshot | void> {
@@ -346,7 +346,7 @@ async function showGoalQueueEditDialog(host: SlashCommandHost, goalId: string): 
   );
 }
 
-async function handleGoalQueueEditResult(
+export async function handleGoalQueueEditResult(
   host: SlashCommandHost,
   result: GoalQueueEditResult,
 ): Promise<void> {

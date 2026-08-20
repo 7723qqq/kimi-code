@@ -87,6 +87,9 @@ export const CompactionView: Component<CompactionViewProps> = (props) => {
   const textDimFg = (): ColorInput => currentTheme.color('textDim')
   const titleFg = (): ColorInput => currentTheme.color('primary')
 
+  // Snapshot the signal once so <Show> children and chained
+  // accesses narrow correctly (repeated state() calls are not narrowed).
+  const s = state()
   return (
     <Box flexDirection="column">
       {/* Top margin */}
@@ -95,13 +98,13 @@ export const CompactionView: Component<CompactionViewProps> = (props) => {
       </Box>
       {/* Header */}
       <Show
-        when={state().done}
+        when={s.done}
         fallback={
           <Show
-            when={state().canceled}
+            when={s.canceled}
             fallback={
               <Box flexDirection="row">
-                <Text fg={state().blinkOn ? textFg() : textDimFg()}>{STATUS_BULLET}</Text>
+                <Text fg={s.blinkOn ? textFg() : textDimFg()}>{STATUS_BULLET}</Text>
                 <Text fg={titleFg()} attributes={currentTheme.attributes('bold')}>
                   {` ${t('tui.dialogs.compaction.compacting')}`}
                 </Text>
@@ -125,18 +128,18 @@ export const CompactionView: Component<CompactionViewProps> = (props) => {
           <Text fg={successFg()} attributes={currentTheme.attributes('bold')}>
             {` ${t('tui.dialogs.compaction.complete')}`}
           </Text>
-          <Show when={state().tokensBefore !== undefined && state().tokensAfter !== undefined}>
+          <Show when={s.tokensBefore !== undefined && s.tokensAfter !== undefined}>
             <Text fg={textDimFg()}>
               {` ${t('tui.dialogs.compaction.detailTokens', {
-                before: state().tokensBefore ?? 0,
-                after: state().tokensAfter ?? 0,
+                before: s.tokensBefore ?? 0,
+                after: s.tokensAfter ?? 0,
               })}`}
             </Text>
           </Show>
-          <Show when={state().summary !== undefined && state().summary.length > 0}>
+          <Show when={s.summary !== undefined && s.summary.length > 0}>
             <Text fg={textDimFg()}>
               {` ${t('tui.dialogs.compaction.shortcutHint', {
-                action: state().expanded
+                action: s.expanded
                   ? t('tui.dialogs.compaction.hide')
                   : t('tui.dialogs.compaction.show'),
               })}`}
@@ -151,8 +154,8 @@ export const CompactionView: Component<CompactionViewProps> = (props) => {
         </Box>
       </Show>
       {/* Optional summary (expanded) */}
-      <Show when={state().expanded && state().summary !== undefined && state().summary.length > 0}>
-        <For each={(state().summary ?? '').split('\n')}>
+      <Show when={s.expanded && s.summary !== undefined && s.summary.length > 0}>
+        <For each={(s.summary ?? '').split('\n')}>
           {(line) => (
             <Box>
               <Text fg={textDimFg()}>{`  ${line}`}</Text>

@@ -98,7 +98,7 @@ export type DialogResult =
   | { readonly kind: 'approval-panel'; readonly response: ApprovalPanelResponse }
   | {
       readonly kind: 'question-dialog'
-      readonly method: QuestionSubmissionMethod
+      readonly method?: QuestionSubmissionMethod
       readonly answers: readonly string[]
     }
 

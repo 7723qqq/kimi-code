@@ -205,7 +205,7 @@ export const CustomRegistryImportDialog: Component<CustomRegistryImportDialogPro
           fallback={<Text fg={inputFg()}>{urlValue()}</Text>}
         >
           <input
-            fg={inputFg()}
+            
             focused
             placeholder={t('tui.dialogs.customRegistryImport.urlPlaceholder')}
             onInput={setUrlValue}
@@ -239,7 +239,7 @@ export const CustomRegistryImportDialog: Component<CustomRegistryImportDialogPro
           fallback={<Text fg={inputFg()}>{tokenValue()}</Text>}
         >
           <input
-            fg={inputFg()}
+            
             focused
             placeholder={t('tui.dialogs.customRegistryImport.tokenPlaceholder')}
             onInput={setTokenValue}

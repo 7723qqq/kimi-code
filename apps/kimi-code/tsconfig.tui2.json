@@ -11,6 +11,7 @@
     "noEmit": true
   },
   "include": [
+    "src/prompt-modules.d.ts",
     "src/tui2/**/*.ts",
     "src/tui2/**/*.tsx",
     "test/tui2/**/*.ts",

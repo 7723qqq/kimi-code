@@ -722,7 +722,6 @@ export const PluginsPanel: Component<PluginsPanelOptions> = (props) => {
       case 'custom':
         return handleCustomTabKey(event)
     }
-    void handleInstalledInput
   }
 
   function handleInstalledTabKey(event: KeyEvent): void {
@@ -1233,4 +1232,3 @@ const MarketplaceList: Component<MarketplaceListProps> = (props) => {
 // Reference unused imports / symbols to satisfy lint.
 void formatPluginSourceLabel
 void pluginTrustLabel
-void _primaryFg

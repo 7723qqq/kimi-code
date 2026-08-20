@@ -1,10 +1,10 @@
 /**
  * TUI2 diff preview — forwarding layer.
  *
- * Status: REAL (tui2, minimal). The implementation lives in
- * `diff-preview.ts` (utility code, not JSX). This file exists only to
- * satisfy the tui2 mirror invariant; it intentionally does not
- * re-export to keep the lint graph acyclic (a self-export would cycle).
+ * The diff-line computation is framework-agnostic utility code (the v1
+ * implementation has no pi-tui component dependency), so the tui2 module
+ * forwards to v1 until a dedicated tui2 implementation lands.
+ *
+ * Status: STUB (tui2). Re-exports v1.
  */
-export type { DiffLine, DiffLineKind, RenderDiffLinesOptions } from './diff-preview.js' // oxlint-disable-line import/no-self-import
-export { computeDiffLines, renderDiffLines, renderDiffLinesClustered } from './diff-preview.js' // oxlint-disable-line import/no-self-import
+export * from '../../../tui/components/media/diff-preview'

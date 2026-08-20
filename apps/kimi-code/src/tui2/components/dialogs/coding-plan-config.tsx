@@ -94,17 +94,19 @@ function fieldLabel(key: string): string {
 }
 
 export const CodingPlanConfig: Component<CodingPlanConfigProps> = (props) => {
-  const [fields, setFields] = createSignal<Record<string, string>>(() => {
+  const [fields, setFields] = createSignal<Record<string, string>>(buildInitialFields(props))
+  const [selectedField, setSelectedField] = createSignal(0)
+  const [errorMsg, setErrorMsg] = createSignal('')
+
+  function buildInitialFields(current: CodingPlanConfigProps): Record<string, string> {
     const initial: Record<string, string> = {}
     for (const key of FIELD_ORDER) {
-      const value = props.currentConfig[key]
+      const value = current.currentConfig[key]
       initial[key] =
         value === undefined ? '' : typeof value === 'string' ? value : displayConfigValue(value)
     }
     return initial
-  })
-  const [selectedField, setSelectedField] = createSignal(0)
-  const [errorMsg, setErrorMsg] = createSignal('')
+  }
 
   function updateField(key: string, mutator: (current: string) => string): void {
     setFields((prev) => ({ ...prev, [key]: mutator(prev[key] ?? '') }))

@@ -26,17 +26,22 @@ import { createKimiCodeUserAgent } from '#/cli/version';
 import { t } from '#/i18n';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
 
-import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
+import { ChoicePicker } from '../components/dialogs/choice-picker';
 import {
-  CustomRegistryImportDialogComponent,
+  CustomRegistryImportDialog,
   type CustomRegistryImportResult,
 } from '../components/dialogs/custom-registry-import';
 import {
-  ProviderManagerComponent,
+  ProviderManager,
   type ProviderManagerOptions,
 } from '../components/dialogs/provider-manager';
-import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
+import { TabbedModelSelector } from '../components/dialogs/tabbed-model-selector';
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '../constant/kimi-tui';
+import {
+  asReplacement,
+  mountEditorReplacement,
+  restoreEditor,
+} from '../utils/editor-replacement';
 import { formatErrorMessage } from '../utils/event-payload';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import { effectiveModelForHost } from './config';
@@ -49,8 +54,7 @@ import { promptApiKey, promptBaseUrl, promptCatalogProviderSelection } from './p
 
 export async function handleProviderCommand(host: SlashCommandHost): Promise<void> {
   const options = buildProviderManagerOptions(host);
-  const component = new ProviderManagerComponent(options);
-  host.mountEditorReplacement(component);
+  mountEditorReplacement(host, asReplacement(ProviderManager), options as unknown as Record<string, unknown>);
 }
 
 function buildProviderManagerOptions(host: SlashCommandHost): ProviderManagerOptions {
@@ -65,7 +69,7 @@ function buildProviderManagerOptions(host: SlashCommandHost): ProviderManagerOpt
         );
       });
     },
-    onDeleteSource: (providerIds) => {
+    onDeleteSource: (providerIds: readonly string[]) => {
       void handleProviderManagerDeleteSource(host, providerIds).catch((error: unknown) => {
         host.showError(
           t('tui.statusMessages.removeProviderFailedGeneric', { error: formatErrorMessage(error) }),
@@ -133,28 +137,34 @@ async function handleProviderAdd(host: SlashCommandHost): Promise<void> {
 
 function reopenProviderManager(host: SlashCommandHost): void {
   const options = buildProviderManagerOptions(host);
-  const component = new ProviderManagerComponent(options);
-  host.mountEditorReplacement(component);
+  mountEditorReplacement(host, asReplacement(ProviderManager), options as unknown as Record<string, unknown>);
 }
 
 function promptProviderAddSource(host: SlashCommandHost): Promise<'known' | 'custom' | undefined> {
   return new Promise((resolve) => {
-    const picker = new ChoicePickerComponent({
-      title: t('tui.statusMessages.addProviderTitle'),
-      options: [
-        { value: 'known', label: t('tui.statusMessages.knownThirdPartyProvider') },
-        { value: 'custom', label: t('tui.statusMessages.customRegistryOption') },
-      ],
-      onSelect: (value) => {
-        host.restoreEditor();
-        resolve(value === 'known' || value === 'custom' ? value : undefined);
+    if (host.store === undefined) {
+      resolve(undefined);
+      return;
+    }
+    mountEditorReplacement(
+      host,
+      asReplacement(ChoicePicker),
+      {
+        title: t('tui.statusMessages.addProviderTitle'),
+        options: [
+          { value: 'known', label: t('tui.statusMessages.knownThirdPartyProvider') },
+          { value: 'custom', label: t('tui.statusMessages.customRegistryOption') },
+        ],
+        onSelect: (value: string) => {
+          restoreEditor(host);
+          resolve(value === 'known' || value === 'custom' ? value : undefined);
+        },
+        onCancel: () => {
+          restoreEditor(host);
+          resolve(undefined);
+        },
       },
-      onCancel: () => {
-        host.restoreEditor();
-        resolve(undefined as never);
-      },
-    });
-    host.mountEditorReplacement(picker);
+    );
   });
 }
 
@@ -293,23 +303,26 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   const mergedModels = { ...stateModels };
   delete mergedModels[SECONDARY_DERIVED_MODEL_ALIAS];
 
-  const selector = new TabbedModelSelectorComponent({
-    models: mergedModels,
-    currentValue: host.state.appState.model,
-    selectedValue: Object.keys(mergedModels).find((a) => a.startsWith(`${providerId}/`)),
-    currentThinkingEffort: host.state.appState.thinkingEffort,
-    initialTabId: providerId,
-    onSelect: ({ alias, thinking }) => {
-      host.restoreEditor();
-      void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
-        host.showError(`Set default model failed: ${formatErrorMessage(error)}`);
-      });
+  mountEditorReplacement(
+    host,
+    asReplacement(TabbedModelSelector),
+    {
+      models: mergedModels,
+      currentValue: host.state.appState.model,
+      selectedValue: Object.keys(mergedModels).find((a) => a.startsWith(`${providerId}/`)),
+      currentThinkingEffort: host.state.appState.thinkingEffort,
+      initialTabId: providerId,
+      onSelect: ({ alias, thinking }: { alias: string; thinking: ThinkingEffort }) => {
+        restoreEditor(host);
+        void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
+          host.showError(`Set default model failed: ${formatErrorMessage(error)}`);
+        });
+      },
+      onCancel: () => {
+        restoreEditor(host);
+      },
     },
-    onCancel: () => {
-      host.restoreEditor();
-    },
-  });
-  host.mountEditorReplacement(selector);
+  );
 }
 
 async function setDefaultModel(
@@ -393,23 +406,26 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
   const firstNewProvider = firstNewAlias
     ? stateModels[firstNewAlias]?.provider
     : addedProviderIds[0];
-  const selector = new TabbedModelSelectorComponent({
-    models: stateModels,
-    currentValue: host.state.appState.model,
-    selectedValue: firstNewAlias,
-    currentThinkingEffort: host.state.appState.thinkingEffort,
-    initialTabId: firstNewProvider,
-    onSelect: ({ alias, thinking }) => {
-      host.restoreEditor();
-      void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
-        host.showError(`Set default model failed: ${formatErrorMessage(error)}`);
-      });
+  mountEditorReplacement(
+    host,
+    asReplacement(TabbedModelSelector),
+    {
+      models: stateModels,
+      currentValue: host.state.appState.model,
+      selectedValue: firstNewAlias,
+      currentThinkingEffort: host.state.appState.thinkingEffort,
+      initialTabId: firstNewProvider,
+      onSelect: ({ alias, thinking }: { alias: string; thinking: ThinkingEffort }) => {
+        restoreEditor(host);
+        void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
+          host.showError(`Set default model failed: ${formatErrorMessage(error)}`);
+        });
+      },
+      onCancel: () => {
+        restoreEditor(host);
+      },
     },
-    onCancel: () => {
-      host.restoreEditor();
-    },
-  });
-  host.mountEditorReplacement(selector);
+  );
   return true;
 }
 
@@ -417,10 +433,19 @@ function promptCustomRegistryImport(
   host: SlashCommandHost,
 ): Promise<{ readonly url: string; readonly apiKey: string } | undefined> {
   return new Promise((resolve) => {
-    const dialog = new CustomRegistryImportDialogComponent((result: CustomRegistryImportResult) => {
-      host.restoreEditor();
-      resolve(result.kind === 'ok' ? result.value : undefined);
-    });
-    host.mountEditorReplacement(dialog);
+    if (host.store === undefined) {
+      resolve(undefined);
+      return;
+    }
+    mountEditorReplacement(
+      host,
+      asReplacement(CustomRegistryImportDialog),
+      {
+        onDone: (result: CustomRegistryImportResult) => {
+          restoreEditor(host);
+          resolve(result.kind === 'ok' ? result.value : undefined);
+        },
+      },
+    );
   });
 }

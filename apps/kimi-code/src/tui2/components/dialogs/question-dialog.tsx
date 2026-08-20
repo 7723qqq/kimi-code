@@ -25,6 +25,7 @@ import { t } from '#/i18n'
 
 import type {
   PendingQuestion,
+  QuestionPanelItem,
   QuestionPanelResponse,
   QuestionSubmissionMethod,
 } from '../../reverse-rpc/types'
@@ -70,7 +71,7 @@ export interface QuestionDialogProps {
 }
 
 export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
-  const questions = (): PendingQuestion['questions'] => props.request.questions
+  const questions = (): readonly QuestionPanelItem[] => props.request.data.questions
   const questionCount = (): number => questions().length
   const isMultiSelect = (qIdx: number): boolean => questions()[qIdx]?.multi_select === true
   const isOnSubmitTab = (): boolean => currentTab() === questionCount()
@@ -82,11 +83,11 @@ export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
   const [_lastMethod, setLastMethod] = createSignal<QuestionSubmissionMethod | undefined>(undefined)
 
   // Per-question cursors + selected indices + "Other" text buffers.
-  const [cursors, setCursors] = createSignal<number[]>(() => questions().map(() => 0))
-  const [selections, setSelections] = createSignal<readonly (readonly number[])[]>(() =>
-    questions().map(() => []),
+  const [cursors, setCursors] = createSignal<number[]>(questions().map(() => 0))
+  const [selections, setSelections] = createSignal<readonly (readonly number[])[]>(
+    questions().map<readonly number[]>(() => []),
   )
-  const [otherTexts, setOtherTexts] = createSignal<string[]>(() => questions().map(() => ''))
+  const [otherTexts, setOtherTexts] = createSignal<string[]>(questions().map(() => ''))
 
   function ensureTabInBounds(): void {
     const total = questionCount() + 1
@@ -175,7 +176,7 @@ export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
   }
 
   function cancel(): void {
-    props.onAnswer({ method: 'cancel', answers: [] })
+    props.onAnswer({ answers: [] })
   }
 
   function applyKey(event: KeyEvent): void {
@@ -238,8 +239,8 @@ export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
       if (event.name === 'return' || event.name === 'enter' || event.name === 'space') {
         event.stopPropagation()
         if (submitActionIdx() === 0) {
-          setLastMethod('submit')
-          submitAll('submit')
+          setLastMethod('enter')
+          submitAll('enter')
         } else {
           cancel()
         }
@@ -394,7 +395,7 @@ export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
 // ---------------------------------------------------------------------------
 
 interface QuestionBodyProps {
-  readonly question: PendingQuestion['questions'][number]
+  readonly question: QuestionPanelItem
   readonly qIdx: number
   readonly cursorIdx: number
   readonly selected: readonly number[]
@@ -406,12 +407,12 @@ interface QuestionBodyProps {
 
 const QuestionBody: Component<QuestionBodyProps> = (props) => {
   const textFg = (): ColorInput => currentTheme.color('text')
-  const _textDimFg = (): ColorInput => currentTheme.color('textDim')
+  const textDimFg = (): ColorInput => currentTheme.color('textDim')
   const textMutedFg = (): ColorInput => currentTheme.color('textMuted')
   const titleFg = (): ColorInput => currentTheme.color('primary')
   const titleAttrs = (): number => currentTheme.attributes('bold')
-  const _accentFg = (): ColorInput => currentTheme.color('accent')
-  const _successFg = (): ColorInput => currentTheme.color('success')
+  const accentFg = (): ColorInput => currentTheme.color('accent')
+  const successFg = (): ColorInput => currentTheme.color('success')
 
   const cursorIdx = (): number => props.cursorIdx
   const selected = (): readonly number[] => props.selected
@@ -474,7 +475,7 @@ const QuestionBody: Component<QuestionBodyProps> = (props) => {
 // ---------------------------------------------------------------------------
 
 interface SubmitTabProps {
-  readonly questions: PendingQuestion['questions']
+  readonly questions: readonly QuestionPanelItem[]
   readonly answers: readonly string[]
   readonly width: number
   readonly submitActionIdx: number
@@ -487,8 +488,8 @@ const SubmitTab: Component<SubmitTabProps> = (props) => {
   const textMutedFg = (): ColorInput => currentTheme.color('textMuted')
   const titleFg = (): ColorInput => currentTheme.color('primary')
   const titleAttrs = (): number => currentTheme.attributes('bold')
-  const _accentFg = (): ColorInput => currentTheme.color('accent')
-  const _warningFg = (): ColorInput => currentTheme.color('warning')
+  const accentFg = (): ColorInput => currentTheme.color('accent')
+  const warningFg = (): ColorInput => currentTheme.color('warning')
 
   return (
       <Box flexDirection="column">
@@ -537,8 +538,5 @@ const SubmitTab: Component<SubmitTabProps> = (props) => {
 }
 
 // Touch unused locals to satisfy lint.
-void accentFg
-void successFg
-void warningFg
 void MAX_BODY_LINES
 void NUMBER_KEYS

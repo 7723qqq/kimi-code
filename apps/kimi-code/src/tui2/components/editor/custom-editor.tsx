@@ -37,7 +37,6 @@ export const CustomEditor: Component<CustomEditorProps> = (props) => {
   const titleFg = (): ColorInput => currentTheme.color('primary')
   const titleAttrs = (): number => currentTheme.attributes('bold')
   const hintFg = (): ColorInput => currentTheme.color('textMuted')
-  const inputFg = (): ColorInput => currentTheme.color('text')
 
   return (
     <Box flexDirection="column">
@@ -56,12 +55,12 @@ export const CustomEditor: Component<CustomEditorProps> = (props) => {
         <Text fg={borderFg()}>{'│'}</Text>
         <Text>{' '}</Text>
         <input
-          fg={inputFg()}
           focused={props.focused ?? true}
           placeholder={props.placeholder ?? t('tui.dialogs.editor.placeholder')}
-          value={props.value}
           onInput={(v) => props.onChange?.(v)}
-          onSubmit={() => props.onSubmit?.(props.value ?? '')}
+          onSubmit={(v) => {
+            if (typeof v === 'string') props.onSubmit?.(v)
+          }}
         />
         <Text>{' '}</Text>
         <Text fg={borderFg()}>{'│'}</Text>

@@ -69,7 +69,9 @@ function hostToDispatch(host: KimiTUI): DialogDispatch {
  */
 export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
   const store = useTui2Store()
-  const [termSize] = createSignal(renderer.getTerminalSize())
+  // opentui's CliRenderer does not yet expose a size getter; the shell lays
+  // out with these defaults until the renderer surfaces terminal dimensions.
+  const [termSize] = createSignal({ width: 80, height: 24 })
   const [editorValue, setEditorValue] = createSignal('')
   const dispatch = hostToDispatch(host)
 
@@ -97,7 +99,7 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
         dispatch={dispatch}
         width={termSize().width}
         height={termSize().height}
-        activityMode={store.state.activityMode}
+        activityMode={store.state.activityMode === 'idle' ? 'hidden' : store.state.activityMode}
         activityTip={store.state.activityTip}
         activityDetail={store.state.activityDetail}
         editorValue={editorValue()}
@@ -125,7 +127,7 @@ export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiT
   // controller only needs write / setTitle / setProgress to keep its
   // existing surface.
   const terminal = {
-    write: (data: string) => renderer.writeOut(data),
+    write: (data: string) => process.stdout.write(data),
     setTitle: (title: string) => renderer.setTerminalTitle(title),
     setProgress: (_active: boolean) => {
       /* opentui has no progress indicator yet */
@@ -136,8 +138,9 @@ export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiT
   if (options.onExit !== undefined) host.onExit = options.onExit
   host.exitForegroundTask = options.exitForegroundTask
 
+  const ShellView = Shell(renderer, host)
   const renderPromise = render(
-    () => <KeymapProvider keymap={keymap}><Shell renderer={renderer} host={host} /></KeymapProvider>,
+    () => <KeymapProvider keymap={keymap}><ShellView /></KeymapProvider>,
     renderer,
   )
 

@@ -33,12 +33,15 @@
 import type { Component } from 'solid-js';
 import { For, Show } from 'solid-js';
 
+import type { ColorInput } from '@opentui/core';
+
 import { useTui2Store } from '../context';
 import type { DialogDispatch, DialogKind, DialogResult } from '../dispatch';
+import type { TuiRuntimeState } from '../state';
 import { currentTheme } from '../theme';
 import type { TranscriptEntry } from '../types';
-import { Banner } from './chrome/banner';
-import { Footer } from './chrome/footer';
+import { BannerComponent } from './chrome/banner';
+import { FooterView } from './chrome/footer';
 import { Box } from './common/box';
 import { Text } from './common/text';
 import { ApprovalPanel } from './dialogs/approval-panel';
@@ -52,7 +55,7 @@ import { LocaleSelector } from './dialogs/locale-selector';
 import { ModelSelector } from './dialogs/model-selector';
 import { Msys2Prompt } from './dialogs/msys2-prompt';
 import { PermissionSelector } from './dialogs/permission-selector';
-import { PluginsSelector } from './dialogs/plugins-selector';
+import { PluginsPanel } from './dialogs/plugins-selector';
 import { QuestionDialog } from './dialogs/question-dialog';
 import { SessionPicker } from './dialogs/session-picker';
 import { SettingsSelector } from './dialogs/settings-selector';
@@ -65,12 +68,12 @@ import { UpdatePreferenceSelector } from './dialogs/update-preference-selector';
 import { WhichKey } from './dialogs/which-key';
 import { CustomEditor } from './editor/custom-editor';
 import { AssistantMessageView } from './messages/assistant-message';
-import { GoalPanel } from './messages/goal-panel';
-import { PlanBox } from './messages/plan-box';
+import { GoalSetMessageView } from './messages/goal-panel';
+import { PlanBoxView } from './messages/plan-box';
 import { StatusMessageView } from './messages/status-message';
 import { ThinkingView } from './messages/thinking';
 import { UserMessageView } from './messages/user-message';
-import { ActivityPane } from './panes/activity-pane';
+import { ActivityPane, type ActivityPaneMode } from './panes/activity-pane';
 import { AgentPane } from './panes/agent-pane';
 import { BtwPanel } from './panes/btw-panel';
 import { DiffReviewPane } from './panes/diff-review-pane';
@@ -91,8 +94,8 @@ export interface MainShellProps {
   readonly width: number;
   /** Terminal height in rows. */
   readonly height: number;
-  /** Activity pane mode (idle hides the pane). */
-  readonly activityMode: 'idle' | 'waiting' | 'thinking' | 'composing' | 'tool';
+  /** Activity pane mode (hidden hides the pane). */
+  readonly activityMode: ActivityPaneMode;
   readonly activityTip?: string;
   readonly activityDetail?: string;
   readonly editorFocused?: boolean;
@@ -121,7 +124,9 @@ export const MainShell: Component<MainShellProps> = (props) => {
 
   return (
     <Box flexDirection="column" width="100%" height="100%">
-      <Banner state={store.state.banner} />
+      <Show when={store.state.banner !== null}>
+        <BannerComponent state={store.state.banner!} />
+      </Show>
 
       <Box flexDirection="row" flexGrow={1}>
         <Box flexDirection="column" flexGrow={1} width={leftWidth(props.width)}>
@@ -138,22 +143,22 @@ export const MainShell: Component<MainShellProps> = (props) => {
                 canSteerImmediately={store.state.queuePane?.canSteerImmediately ?? false}
               />
             </Show>
-            <Show when={store.state.agentPane !== undefined}>
-              <AgentPane items={store.state.agentPane?.items ?? []} />
+            <Show when={store.state.agentPaneItems.length > 0}>
+              <AgentPane items={store.state.agentPaneItems} />
             </Show>
-            <Show when={props.activityMode !== 'idle'}>
+            <Show when={props.activityMode !== 'hidden'}>
               <ActivityPane
                 mode={props.activityMode}
                 tip={props.activityTip}
                 detail={props.activityDetail}
               />
             </Show>
-            <Show when={store.state.btwPanelOpen}>
+            <Show when={store.state.btwPanel.active}>
               <BtwPanel width={rightWidth(props.width)} />
             </Show>
-            <Show when={store.state.diffReviewItems !== undefined}>
+            <Show when={store.state.diffReviewItems.length > 0}>
               <DiffReviewPane
-                items={store.state.diffReviewItems?.items ?? []}
+                items={store.state.diffReviewItems}
                 width={rightWidth(props.width)}
               />
             </Show>
@@ -167,16 +172,39 @@ export const MainShell: Component<MainShellProps> = (props) => {
 
       <ActiveDialogSlot dispatch={props.dispatch} />
 
-      <CustomEditor
-        placeholder={props.editorPlaceholder}
-        focused={props.editorFocused ?? true}
-        value={props.editorValue}
-        onChange={props.onEditorChange}
-        onSubmit={props.onEditorSubmit}
-      />
+      <Show
+        when={store.state.editorReplacement === undefined}
+        fallback={<EditorReplacementSlot />}
+      >
+        <CustomEditor
+          placeholder={props.editorPlaceholder}
+          focused={props.editorFocused ?? true}
+          onChange={props.onEditorChange}
+          onSubmit={props.onEditorSubmit}
+        />
+      </Show>
 
-      <Footer />
+      <FooterView />
     </Box>
+  );
+};
+
+/** Renders the command-layer editor replacement (v1 `mountEditorReplacement`
+ *  equivalent): a slash command set `store.state.editorReplacement` with a
+ *  component + props; the shell renders it in the editor slot until the
+ *  command clears it. */
+const EditorReplacementSlot: Component = () => {
+  const store = useTui2Store();
+  const replacement = (): NonNullable<TuiRuntimeState['editorReplacement']> | undefined =>
+    store.state.editorReplacement ?? undefined;
+  return (
+    <Show when={replacement() !== undefined}>
+      {(() => {
+        const r = replacement()!;
+        const Comp = r.component as Component<Record<string, unknown>>;
+        return <Comp {...r.props} />;
+      })()}
+    </Show>
   );
 };
 
@@ -189,13 +217,7 @@ const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
     case 'user':
       return <UserMessageView content={props.entry.content} bullet={props.entry.bullet} />;
     case 'assistant':
-      return (
-        <AssistantMessageView
-          content={props.entry.content}
-          expanded={props.entry.expanded}
-          mode="finalized"
-        />
-      );
+      return <AssistantMessageView content={props.entry.content} />;
     case 'thinking':
       return (
         <ThinkingView
@@ -205,11 +227,13 @@ const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
         />
       );
     case 'status':
-      return <StatusMessageView kind={props.entry.detail ?? 'info'} />;
+      return <StatusMessageView content={props.entry.content} color={props.entry.color} />;
     case 'goal':
-      return props.entry.goalData !== undefined ? <GoalPanel goal={props.entry.goalData} /> : null;
+      if (props.entry.goalData === undefined) return null;
+      if (props.entry.goalData.kind === 'created') return <GoalSetMessageView />;
+      return <StatusMessageView content={props.entry.content} />;
     case 'welcome':
-      return <PlanBox plan={{ steps: [], summary: props.entry.content }} />;
+      return <PlanBoxView plan={props.entry.content} borderHex={currentTheme.hex('border')} />;
     default:
       return null;
   }
@@ -238,7 +262,7 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
           sessions={store.state.sessionPicker?.sessions ?? []}
           loading={store.state.sessionPicker?.loading ?? false}
           currentSessionId={store.state.sessionPicker?.currentSessionId ?? ''}
-          onSelect={(sessionId) => select({ kind: 'session-picker', sessionId })}
+          onSelect={(session) => select({ kind: 'session-picker', sessionId: session.id })}
           onCancel={() => cancel('session-picker')}
         />
       </Show>
@@ -252,8 +276,13 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
         />
       </Show>
       <Show when={dialog() === 'plugins-selector'}>
-        <PluginsSelector
-          installed={store.state.pluginsSelector?.installed ?? []}
+        <PluginsPanel
+          installed={store.state.pluginsPanel?.installed ?? []}
+          installedIds={store.state.pluginsPanel?.installedIds ?? new Set<string>()}
+          catalogIsDefault={store.state.pluginsPanel?.catalogIsDefault}
+          initialTab={store.state.pluginsPanel?.initialTab}
+          selectedId={store.state.pluginsPanel?.selectedId}
+          pluginHint={store.state.pluginsPanel?.pluginHint}
           onSelect={(s) => {
             // Forward the full payload to the host. Each kind of action
             // carries the pluginId (and, for toggles, the desired enabled
@@ -278,13 +307,9 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
                 select({ kind: 'plugins-selector', action: { kind: 'reload' } });
                 return;
               case 'install':
-                // Install rows open an external auth flow; host wires it.
-                void s;
-                return;
               case 'install-source':
-                void s;
-                return;
               case 'open-url':
+                // Install rows open an external auth flow; host wires it.
                 void s;
                 return;
             }
@@ -348,8 +373,8 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
       </Show>
       <Show when={dialog() === 'cache-hint'}>
         <CacheHintDialog
-          idleSeconds={store.state.cacheHint?.idleSeconds ?? 0}
-          totalTokens={store.state.cacheHint?.totalTokens ?? 0}
+          idleSeconds={store.state.cacheHintDialog?.idleSeconds ?? 0}
+          totalTokens={store.state.cacheHintDialog?.totalTokens ?? 0}
           onSelect={(action) => select({ kind: 'cache-hint', action })}
           onCancel={() => cancel('cache-hint')}
         />
@@ -379,7 +404,7 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
       </Show>
       <Show when={dialog() === 'undo-selector'}>
         <UndoSelector
-          choices={store.state.undoSelector?.choices ?? []}
+          choices={store.state.undoChoices ?? []}
           onSelect={(choice) =>
             select({ kind: 'undo-selector', count: choice.count, input: choice.input })
           }
@@ -419,17 +444,17 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
           onCancel={() => cancel('swarm-start-permission-prompt')}
         />
       </Show>
-      <Show when={dialog() === 'approval-panel'}>
+      <Show when={dialog() === 'approval-panel' && store.state.livePane.pendingApproval !== null}>
         <ApprovalPanel
-          request={store.state.approval?.request}
-          width={store.state.approval?.width ?? 80}
+          request={store.state.livePane.pendingApproval!}
+          width={80}
           onResponse={(response) => select({ kind: 'approval-panel', response })}
         />
       </Show>
-      <Show when={dialog() === 'question-dialog'}>
+      <Show when={dialog() === 'question-dialog' && store.state.livePane.pendingQuestion !== null}>
         <QuestionDialog
-          request={store.state.question?.request}
-          width={store.state.question?.width ?? 80}
+          request={store.state.livePane.pendingQuestion!}
+          width={80}
           onAnswer={(r) =>
             select({ kind: 'question-dialog', method: r.method, answers: r.answers })
           }

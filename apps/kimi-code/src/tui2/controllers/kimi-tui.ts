@@ -66,12 +66,13 @@ import {
 } from '../commands';
 import * as slashCommands from '../commands/dispatch';
 import type { SlashCommandHost } from '../commands/dispatch';
+import { currentTuiConfig } from '../commands/config';
 import { pickRandomWorkingTip } from '../components/chrome/working-tips';
 import { defaultThinkingEffortFor } from '../components/dialogs/model-selector';
 import type { Msys2PromptChoice } from '../components/dialogs/msys2-prompt';
 import type { SessionRow } from '../components/dialogs/session-picker';
 import type { TrustPromptChoice } from '../components/dialogs/trust-prompt';
-import type { TuiConfig } from '../config';
+import { saveTuiConfig, type TuiConfig } from '../config';
 import {
   getLlmNotSetMessage,
   getNoActiveSessionMessage,
@@ -85,10 +86,12 @@ import type {
   DialogResult as DialogResultLike,
   GoalQueueEditResult,
   GoalQueueManagerAction,
+  PluginAction,
 } from '../dispatch';
 import { installRainbowDance } from '../easter-eggs/dance';
 import { createEventBus, type Tui2EventBus } from '../event';
 import { ApprovalController } from '../reverse-rpc/approval/controller';
+import { adaptPanelResponse } from '../reverse-rpc/approval/adapter';
 import { createApprovalRequestHandler } from '../reverse-rpc/approval/handler';
 import { registerReverseRPCHandlers } from '../reverse-rpc/index';
 import { QuestionController } from '../reverse-rpc/question/controller';
@@ -340,9 +343,12 @@ export class KimiTUI {
     const list = this.store.state.sessionPicker?.sessions ?? [];
     const target = list.find((s) => s.id === sessionId);
     if (target === undefined) return;
-    const session = await this.ensureSession();
-    if (session === undefined) return;
-    await this.switchToSession(target, `switched to ${target.id.slice(0, 12)}`);
+    const session = await this.harness.resumeSession({
+      id: target.id,
+      additionalDirs: [...this.store.state.additionalDirs],
+      replayTurnLimit: REPLAY_TURN_LIMIT,
+    });
+    await this.switchToSession(session, `switched to ${target.id.slice(0, 12)}`);
   }
 
   /** Apply the chosen model alias + thinking effort to the live session. */
@@ -356,7 +362,7 @@ export class KimiTUI {
     if (session !== undefined) {
       try {
         await session.setModel(alias);
-        await session.setThinkingEffort(effort);
+        await session.setThinking(effort);
         await this.syncRuntimeState(session);
       } catch {
         // Non-fatal: the store is updated; the next turn picks the new
@@ -369,17 +375,19 @@ export class KimiTUI {
   public async pluginAction(action: PluginAction): Promise<void> {
     switch (action.kind) {
       case 'toggle':
-        this.store.setState('pluginsSelector', {
-          ...this.store.state.pluginsSelector,
-          installed: this.store.state.pluginsSelector.installed.map((p) =>
+        this.store.setState('pluginsPanel', {
+          ...this.store.state.pluginsPanel,
+          installed: (this.store.state.pluginsPanel?.installed ?? []).map((p) =>
             p.id === action.id ? { ...p, enabled: action.enabled } : p,
           ),
         });
         return;
       case 'remove':
-        this.store.setState('pluginsSelector', {
-          ...this.store.state.pluginsSelector,
-          installed: this.store.state.pluginsSelector.installed.filter((p) => p.id !== action.id),
+        this.store.setState('pluginsPanel', {
+          ...this.store.state.pluginsPanel,
+          installed: (this.store.state.pluginsPanel?.installed ?? []).filter(
+            (p) => p.id !== action.id,
+          ),
         });
         return;
       case 'reload':
@@ -429,10 +437,13 @@ export class KimiTUI {
       ...this.store.state.editorSelector,
       currentValue: command,
     });
-    // Persist through the harness config so Ctrl-G uses the new command
-    // across sessions / restarts.
+    // Persist through tui.toml so Ctrl-G uses the new command across
+    // sessions / restarts.
     try {
-      await this.harness.setConfig({ kimi_code: { tui: { external_editor: command } } });
+      await saveTuiConfig({
+        ...currentTuiConfig({ state: { appState: this.store.state } }),
+        editorCommand: command.length > 0 ? command : null,
+      });
     } catch {
       // Non-fatal: the in-memory config is updated regardless.
     }
@@ -445,7 +456,10 @@ export class KimiTUI {
       currentValue: enabled,
     });
     try {
-      await this.harness.setConfig({ kimi_code: { tui: { update_check: enabled } } });
+      await saveTuiConfig({
+        ...currentTuiConfig({ state: { appState: this.store.state } }),
+        upgrade: { autoInstall: enabled },
+      });
     } catch {
       // Non-fatal.
     }
@@ -478,7 +492,7 @@ export class KimiTUI {
       case 'upgrade':
         this.store.setState('updatePreference', {
           ...this.store.state.updatePreference,
-          currentValue: !this.store.state.updatePreference.currentValue,
+          currentValue: !(this.store.state.updatePreference?.currentValue ?? true),
         });
         return;
       case 'usage':
@@ -548,7 +562,7 @@ export class KimiTUI {
     const session = this.session;
     if (session !== undefined) {
       try {
-        await session.setThinkingEffort(effort);
+        await session.setThinking(effort);
         await this.syncRuntimeState(session);
       } catch {
         // Store state is the source of truth; session picks it up next turn.
@@ -622,7 +636,7 @@ export class KimiTUI {
         await this.pickSettingsAction(result.value);
         return;
       case 'cache-hint':
-        await this.cacheHint.handleSelection(result.action);
+        this.cacheHint.resolveDialog(result.action);
         return;
       case 'goal-queue-manager':
         await this.pickGoalQueueAction(result.action);
@@ -646,12 +660,12 @@ export class KimiTUI {
         await this.pickSwarmStartPermission(result.choice);
         return;
       case 'approval-panel':
-        this.approvalController.respond(result.response);
+        this.approvalController.respond(adaptPanelResponse(result.response));
         return;
       case 'question-dialog':
         this.questionController.respond({
           method: result.method,
-          answers: result.answers,
+          answers: [...result.answers],
         });
         return;
       case 'help':
