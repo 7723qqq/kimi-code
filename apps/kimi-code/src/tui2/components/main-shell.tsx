@@ -31,10 +31,11 @@
  */
 
 import type { Component } from 'solid-js'
-import { createSignal, For, Show } from 'solid-js'
+import { For, Show } from 'solid-js'
 
 import { useTui2Store } from '../context'
 import type { DialogDispatch, DialogKind, DialogResult } from '../dispatch'
+import { currentTheme } from '../theme'
 import type { TranscriptEntry } from '../types'
 
 import { Banner } from './chrome/banner'
@@ -113,7 +114,7 @@ const rightWidth = (total: number): number => total - leftWidth(total)
 
 export const MainShell: Component<MainShellProps> = (props) => {
   const store = useTui2Store()
-  const borderFg = (): string => currentThemeFg('border')
+  const borderFg = (): ColorInput => currentTheme.color('border')
 
   const transcript = (): readonly TranscriptEntry[] => store.state.transcript
   const showRightPane = (): boolean => {
@@ -254,20 +255,38 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
         <PluginsSelector
           installed={store.state.pluginsSelector?.installed ?? []}
           onSelect={(s) => {
-            // The plugins panel emits several action shapes; the dispatch
-            // protocol only covers the top-level toggles here. Detailed
-            // sub-flows (MCP / remove / reload / details / install) are
-            // handled inside the panel's own callback tree.
-            if (s.kind === 'toggle') {
-              select({ kind: 'plugins-selector', action: 'toggle' })
-            } else if (s.kind === 'remove') {
-              select({ kind: 'plugins-selector', action: 'remove' })
-            } else if (s.kind === 'mcp') {
-              select({ kind: 'plugins-selector', action: 'mcp' })
-            } else if (s.kind === 'details') {
-              select({ kind: 'plugins-selector', action: 'details' })
-            } else {
-              select({ kind: 'plugins-selector', action: 'reload' })
+            // Forward the full payload to the host. Each kind of action
+            // carries the pluginId (and, for toggles, the desired enabled
+            // state) so the host can apply it.
+            switch (s.kind) {
+              case 'toggle':
+                select({
+                  kind: 'plugins-selector',
+                  action: { kind: 'toggle', id: s.id, enabled: s.enabled },
+                })
+                return
+              case 'remove':
+                select({ kind: 'plugins-selector', action: { kind: 'remove', id: s.id } })
+                return
+              case 'mcp':
+                select({ kind: 'plugins-selector', action: { kind: 'mcp', id: s.id } })
+                return
+              case 'details':
+                select({ kind: 'plugins-selector', action: { kind: 'details', id: s.id } })
+                return
+              case 'reload':
+                select({ kind: 'plugins-selector', action: { kind: 'reload' } })
+                return
+              case 'install':
+                // Install rows open an external auth flow; host wires it.
+                void s
+                return
+              case 'install-source':
+                void s
+                return
+              case 'open-url':
+                void s
+                return
             }
           }}
           onCancel={() => cancel('plugins-selector')}
@@ -400,11 +419,5 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
   )
 }
 
-// Tiny shim so the existing `currentTheme.fg(token)` call site below
-// doesn't need a second import for a single string.
-import { currentTheme } from '../theme'
-const currentThemeFg = (token: 'border' | 'borderFocus' | 'primary' | 'text' | 'textDim' | 'textMuted'): string => {
-  const input = currentTheme.color(token as Parameters<typeof currentTheme.color>[0])
-  return typeof input === 'string' ? input : String(input)
-}
-void createSignal
+// `currentTheme` is imported at the top of the file (for the color tokens
+// used in the render helpers below). No additional shim is needed.

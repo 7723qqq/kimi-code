@@ -8,7 +8,7 @@
  * the host wired in.
  */
 
-import { describe, expectTypeOf, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { NOOP_DISPATCH, type DialogDispatch, type DialogKind, type DialogResult } from '@/tui2/dispatch'
 

@@ -59,10 +59,17 @@ export type DialogKind =
   | 'question-dialog'
 
 /** Discriminated union of every selectable dialog result. */
+export type PluginAction =
+  | { readonly kind: 'toggle'; readonly id: string; readonly enabled: boolean }
+  | { readonly kind: 'remove'; readonly id: string }
+  | { readonly kind: 'mcp'; readonly id: string }
+  | { readonly kind: 'details'; readonly id: string }
+  | { readonly kind: 'reload' }
+
 export type DialogResult =
   | { readonly kind: 'session-picker'; readonly sessionId: string }
   | { readonly kind: 'model-selector'; readonly alias: string; readonly effort: ThinkingEffort }
-  | { readonly kind: 'plugins-selector'; readonly action: 'toggle' | 'remove' | 'mcp' | 'details' | 'reload' }
+  | { readonly kind: 'plugins-selector'; readonly action: PluginAction }
   | { readonly kind: 'theme-selector'; readonly themeName: string }
   | { readonly kind: 'locale-selector'; readonly locale: Locale }
   | { readonly kind: 'permission-selector'; readonly mode: PermissionMode }

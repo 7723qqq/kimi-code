@@ -26,9 +26,11 @@ import type {
   PromptPart,
   Session,
   SkillSummary,
+  ThinkingEffort,
   TokenUsage,
   WorkspaceTrustInfo,
 } from '@moonshot-ai/kimi-code-sdk';
+import type { Locale } from '#/i18n';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
 import { deleteAllKittyImages, getCapabilities } from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
@@ -313,23 +315,221 @@ export class KimiTUI {
    */
   public exitForegroundTask: ((exitCode: number) => Promise<void>) | undefined;
 
+  // -----------------------------------------------------------------------
+  // Public actions invoked by `applyDialogResult` below. Each method
+  // performs the smallest useful side effect on the host (config
+  // mutation, session switch, controller dispatch). The "complete
+  // side effect" is what the matching v1 controller does; for now
+  // each method is the minimal viable stub that the dialog actually
+  // *does* something — the rest is follow-up work.
+  // -----------------------------------------------------------------------
+
+  /** Switch to the chosen session (closes the picker, kicks the switch). */
+  public async pickSession(sessionId: string): Promise<void> {
+    const list = this.store.state.sessionPicker?.sessions ?? []
+    const target = list.find((s) => s.id === sessionId)
+    if (target === undefined) return
+    const session = await this.ensureSession()
+    if (session === undefined) return
+    await this.switchToSession(target, `switched to ${target.id.slice(0, 12)}`)
+  }
+
+  /** Apply the chosen model alias + thinking effort to the live session. */
+  public async pickModel(alias: string, effort: ThinkingEffort): Promise<void> {
+    const session = this.session
+    if (session === undefined) return
+    this.store.setState('modelSelector', {
+      ...this.store.state.modelSelector,
+      currentValue: alias,
+      currentThinkingEffort: effort,
+    })
+    // The selected model / effort now lives in the store; the session
+    // picks it up on its next turn. We don't re-create the session here
+    // — that path is owned by the streaming controller.
+    void session
+    void this.syncRuntimeState()
+  }
+
+  /** Apply a plugin-panel action with the full payload. */
+  public async pluginAction(action: PluginAction): Promise<void> {
+    switch (action.kind) {
+      case 'toggle':
+        this.store.setState('pluginsSelector', {
+          ...this.store.state.pluginsSelector,
+          installed: this.store.state.pluginsSelector.installed.map((p) =>
+            p.id === action.id ? { ...p, enabled: action.enabled } : p,
+          ),
+        })
+        return
+      case 'remove':
+        this.store.setState('pluginsSelector', {
+          ...this.store.state.pluginsSelector,
+          installed: this.store.state.pluginsSelector.installed.filter(
+            (p) => p.id !== action.id,
+          ),
+        })
+        return
+      case 'reload':
+        await this.refreshPluginCommands()
+        return
+      case 'details':
+      case 'mcp':
+        // The details / mcp sub-flows open additional modals; that wiring
+        // lands in a follow-up.
+        return
+    }
+  }
+
+  /** Apply the chosen locale. */
+  public async pickLocale(locale: Locale): Promise<void> {
+    this.store.setState('localeSelector', {
+      ...this.store.state.localeSelector,
+      currentValue: locale,
+    })
+  }
+
+  /** Apply the chosen permission mode. */
+  public async pickPermissionMode(mode: PermissionMode): Promise<void> {
+    this.store.setState('permissionSelector', {
+      ...this.store.state.permissionSelector,
+      currentValue: mode,
+    })
+  }
+
+  /** Apply the chosen external-editor command. */
+  public async pickEditorCommand(command: string): Promise<void> {
+    this.store.setState('editorSelector', {
+      ...this.store.state.editorSelector,
+      currentValue: command,
+    })
+  }
+
+  /** Apply the chosen update-preference flag. */
+  public async pickUpdatePreference(enabled: boolean): Promise<void> {
+    this.store.setState('updatePreference', {
+      ...this.store.state.updatePreference,
+      currentValue: enabled,
+    })
+  }
+
+  /** Apply the chosen settings sub-action. */
+  public async pickSettingsAction(value: string): Promise<void> {
+    // The settings selector is the entry point into the other pickers
+    // (model / theme / editor / ...). When a non-meta value is picked
+    // we open the matching sub-dialog.
+    switch (value) {
+      case 'model':
+        this.store.setState('activeDialog', 'model-selector')
+        return
+      case 'theme':
+        this.store.setState('activeDialog', 'theme-selector')
+        return
+      case 'editor':
+        this.store.setState('activeDialog', 'editor-selector')
+        return
+      case 'language':
+        this.store.setState('activeDialog', 'locale-selector')
+        return
+      case 'permission':
+        this.store.setState('activeDialog', 'permission-selector')
+        return
+      case 'experiments':
+        this.store.setState('activeDialog', 'experiments-selector')
+        return
+      case 'upgrade':
+        this.store.setState('updatePreference', {
+          ...this.store.state.updatePreference,
+          currentValue: !this.store.state.updatePreference.currentValue,
+        })
+        return
+      case 'usage':
+        this.store.setState('activeDialog', 'help')
+        return
+      case 'github_token':
+        // External auth flow — opens the system browser. Stays dismiss-only
+        // until a follow-up lands the credential entry modal.
+        return
+    }
+  }
+
+  /** Apply the chosen goal-queue choice. */
+  public async pickGoalStartChoice(
+    choice: 'auto' | 'yolo' | 'manual' | 'cancel',
+  ): Promise<void> {
+    this.store.setState('goalQueue', {
+      ...this.store.state.goalQueue,
+      chosen: choice,
+    })
+  }
+
+  /** Apply the chosen undo-selector choice (restore target). */
+  public async pickUndoChoice(choiceId: string): Promise<void> {
+    this.store.setState('undoSelector', {
+      ...this.store.state.undoSelector,
+      chosen: choiceId,
+    })
+  }
+
+  /** Apply the chosen effort to the live session. */
+  public async pickEffort(effort: ThinkingEffort): Promise<void> {
+    this.store.setState('effortSelector', {
+      ...this.store.state.effortSelector,
+      currentValue: effort,
+    })
+  }
+
+  /** Apply the chosen startup permission. */
+  public async pickStartPermission(
+    choice: 'auto' | 'yolo' | 'manual' | 'cancel',
+  ): Promise<void> {
+    this.store.setState('startPermission', {
+      ...this.store.state.startPermission,
+      chosen: choice,
+    })
+  }
+
+  /** Apply the chosen swarm-startup permission. */
+  public async pickSwarmStartPermission(
+    choice: 'auto' | 'yolo' | 'manual',
+  ): Promise<void> {
+    this.store.setState('swarmStartPermission', {
+      ...this.store.state.swarmStartPermission,
+      chosen: choice,
+    })
+  }
+
   /**
    * Apply a dialog result emitted by the MainShell's `DialogDispatch`.
-   * Routes the result to the matching controller / session call and
-   * dismisses the active dialog. Public so the run.tsx adapter can wire
-   * MainShell to KimiTUI without leaking the host's internals.
-   *
-   * The switch is intentionally permissive: every kind dismisses the
-   * dialog (so the shell never gets stuck on a closed dialog), and
-   * the routes that the host has controller methods for are wired
-   * directly. The remaining kinds are no-ops in this revision and
-   * will be wired in a follow-up — the protocol itself is stable.
+   * Routes the result to the matching public action and dismisses the
+   * active dialog. Public so the run.tsx adapter can wire MainShell to
+   * KimiTUI without leaking the host's internals.
    */
   public async applyDialogResult(result: DialogResultLike): Promise<void> {
     this.store.setState('activeDialog', null)
     switch (result.kind) {
+      case 'session-picker':
+        await this.pickSession(result.sessionId)
+        return
+      case 'model-selector':
+        await this.pickModel(result.alias, result.effort)
+        return
+      case 'plugins-selector':
+        await this.pluginAction(result.action)
+        return
       case 'theme-selector':
         await this.applyTheme(result.themeName as ThemeName)
+        return
+      case 'locale-selector':
+        await this.pickLocale(result.locale)
+        return
+      case 'permission-selector':
+        await this.pickPermissionMode(result.mode)
+        return
+      case 'editor-selector':
+        await this.pickEditorCommand(result.command)
+        return
+      case 'update-preference':
+        await this.pickUpdatePreference(result.enabled)
         return
       case 'msys2-prompt':
         this.msys2PromptResolver?.(result.choice)
@@ -339,8 +539,26 @@ export class KimiTUI {
         this.trustPromptResolver?.(result.choice)
         this.trustPromptResolver = undefined
         return
+      case 'settings-selector':
+        await this.pickSettingsAction(result.value)
+        return
       case 'cache-hint':
         await this.cacheHint.handleSelection(result.action)
+        return
+      case 'goal-queue-manager':
+        await this.pickGoalStartChoice(result.choice)
+        return
+      case 'undo-selector':
+        await this.pickUndoChoice(result.choiceId)
+        return
+      case 'effort-selector':
+        await this.pickEffort(result.effort)
+        return
+      case 'start-permission-prompt':
+        await this.pickStartPermission(result.choice)
+        return
+      case 'swarm-start-permission-prompt':
+        await this.pickSwarmStartPermission(result.choice)
         return
       case 'approval-panel':
         this.approvalController.respond(result.response)
@@ -351,23 +569,9 @@ export class KimiTUI {
           answers: result.answers,
         })
         return
-      case 'session-picker':
-      case 'model-selector':
-      case 'plugins-selector':
-      case 'locale-selector':
-      case 'permission-selector':
-      case 'editor-selector':
-      case 'update-preference':
-      case 'settings-selector':
-      case 'goal-queue-manager':
-      case 'undo-selector':
-      case 'effort-selector':
-      case 'start-permission-prompt':
-      case 'swarm-start-permission-prompt':
       case 'help':
       case 'which-key':
-        // Per-kind controller wiring lands in a follow-up. The dialog is
-        // dismissed above; the user can re-open via the slash command.
+        // Display-only; close already happened above.
         return
     }
   }
@@ -1816,6 +2020,29 @@ export class KimiTUI {
       goal: goalResult.goal,
     });
     this.syncAdditionalDirs(session);
+    this.syncActivityPaneState();
+  }
+
+  /**
+   * Compute the live activity-pane mode + tip + detail and write them
+   * back to the tui2 store. The MainShell reads from the store, so a
+   * single refresh of this method propagates to the activity pane.
+   * Cheap (no I/O) and safe to call from any render-relevant path.
+   */
+  syncActivityPaneState(): void {
+    const effective = this.resolveActivityPaneMode();
+    const next: typeof this.store.state.activityMode =
+      effective === 'hidden' || effective === 'session'
+        ? 'idle'
+        : (effective as 'idle' | 'waiting' | 'thinking' | 'composing' | 'tool')
+    if (this.store.state.activityMode !== next) {
+      this.store.setState('activityMode', next)
+    }
+    const tip = loadingTipKind(effective)
+    const tipText = tip === undefined ? undefined : t(`tui.loadingTips.${tip}.text`)
+    if (this.store.state.activityTip !== tipText) {
+      this.store.setState('activityTip', tipText)
+    }
   }
 
   // Apply --auto/--yolo/--plan startup flags to a resumed session. The resumed

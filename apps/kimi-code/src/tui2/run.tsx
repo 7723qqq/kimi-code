@@ -61,14 +61,11 @@ function hostToDispatch(host: KimiTUI): DialogDispatch {
 }
 
 /**
- * The default Shell wires the base keymap to a no-op submit handler
- * and mounts the MainShell with a host-bound dispatch.
- *
- * The real submit path lives in the KimiTUI editor-keyboard controller
- * (started in parallel by `runKimiTui2`). The keymap stub keeps the
- * boot check happy: pressing Enter in the boot-check terminal echoes
- * the typed text into the transcript slice (visible in the next frame)
- * and clears the editor.
+ * The default Shell wires the base keymap to the host's editor-keyboard
+ * controller and mounts the MainShell with a host-bound dispatch. Pressing
+ * Enter in the editor forwards the typed text to
+ * `host.sendNormalUserInput`; the host owns extraction, image
+ * substitution, and the actual session.sendMessage call.
  */
 export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
   const store = useTui2Store()
@@ -78,21 +75,13 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
 
   const handlers: Tui2CommandHandlers = {
     'tui2.send': () => {
-      const v = editorValue().trim()
+      const v = editorValue()
       if (v.length === 0) return
-      // Boot-check only: stamp the typed text into the transcript so the
-      // boot smoke-test has something to render. The real path lives in
-      // KimiTUI.editorKeyboard.
-      store.setState('transcript', (entries) => [
-        ...entries,
-        {
-          id: `user-${Date.now()}`,
-          kind: 'user' as const,
-          renderMode: 'plain' as const,
-          content: v,
-          modelText: false,
-        },
-      ])
+      // Real send path: hand the text to the host. The host extracts
+      // image attachments, builds the prompt parts, and routes through
+      // session.sendMessage. The editor buffer is cleared on the host's
+      // side once the message is accepted.
+      void host.sendNormalUserInput(v)
       setEditorValue('')
     },
     'tui2.cancel': () => setEditorValue(''),
@@ -114,20 +103,12 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
         editorValue={editorValue()}
         onEditorChange={setEditorValue}
         onEditorSubmit={(text) => {
-          // Boot-check path: emit a transcript entry. The real host
-          // editor-keyboard controller takes over once `host.start()` has
-          // mounted; its submit handler is wired to `host.sendNormalUserInput`
-          // (or a queue-side equivalent) instead.
-          store.setState('transcript', (entries) => [
-            ...entries,
-            {
-              id: `user-${Date.now()}`,
-              kind: 'user' as const,
-              renderMode: 'plain' as const,
-              content: text,
-              modelText: false,
-            },
-          ])
+          // Defensive: the keymap also drives tui2.send. The explicit
+          // submit path is used by the input renderable's own onSubmit
+          // (e.g. mouse click on Enter), so route through the same
+          // host call to avoid a duplicate transcript entry.
+          if (text.length === 0) return
+          void host.sendNormalUserInput(text)
           setEditorValue('')
         }}
       />
