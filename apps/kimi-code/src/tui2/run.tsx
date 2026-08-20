@@ -124,27 +124,25 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
   useBindings(() => buildBaseLayer(handlers))
 
   return (
-    <Tui2ProviderStack store={store}>
-      <MainShell
-        dispatch={dispatch}
-        width={termSize().width}
-        height={termSize().height}
-        activityMode={store.state.activityMode === 'idle' ? 'hidden' : store.state.activityMode}
-        activityTip={store.state.activityTip}
-        activityDetail={store.state.activityDetail}
-        onEditorChange={(text) => {
-          store.setState('editorDraft', text)
-          editorKeyboard.handleChange(text)
-        }}
-        onEditorSubmit={(text) => {
-          // The input renderable's own submit path (e.g. mouse click on
-          // Enter) — route through the same send path as the keymap.
-          if (text.trim().length === 0) return
-          store.setState('editorDraft', '')
-          editorKeyboard.handleSubmit(text)
-        }}
-      />
-    </Tui2ProviderStack>
+    <MainShell
+      dispatch={dispatch}
+      width={termSize().width}
+      height={termSize().height}
+      activityMode={store.state.activityMode === 'idle' ? 'hidden' : store.state.activityMode}
+      activityTip={store.state.activityTip}
+      activityDetail={store.state.activityDetail}
+      onEditorChange={(text) => {
+        store.setState('editorDraft', text)
+        editorKeyboard.handleChange(text)
+      }}
+      onEditorSubmit={(text) => {
+        // The input renderable's own submit path (e.g. mouse click on
+        // Enter) — route through the same send path as the keymap.
+        if (text.trim().length === 0) return
+        store.setState('editorDraft', '')
+        editorKeyboard.handleSubmit(text)
+      }}
+    />
   )
 }
 
@@ -173,7 +171,16 @@ export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiT
 
   const ShellView = Shell(renderer, host)
   const renderPromise = render(
-    () => <KeymapProvider keymap={keymap}><ShellView /></KeymapProvider>,
+    () => (
+      <KeymapProvider keymap={keymap}>
+        {/* The store provider must wrap every consumer (including the Shell's
+            own useTui2Store()); mounting it inside the Shell would leave the
+            store out of scope for the Shell function body itself. */}
+        <Tui2ProviderStack store={store}>
+          <ShellView />
+        </Tui2ProviderStack>
+      </KeymapProvider>
+    ),
     renderer,
   )
 

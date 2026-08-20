@@ -8,10 +8,16 @@
 //   node scripts/tui2/build-entry.mjs          # default: dist/tui2/tui2-entry[.exe]
 //   node scripts/tui2/build-entry.mjs --outfile dist/tui2/kimi-tui2
 //
+// The solid transform MUST be applied at build time: opentui/solid's
+// bun-plugin rewrites `solid-js/dist/server.js` to the reactive client build
+// and lazifies JSX children through babel-preset-solid. Without it the
+// bundled binary crashes with "Tui2StoreProvider missing" (providers mount
+// before their consumers). `bunfig.toml` preload only covers `bun run`,
+// not `bun build`, so the plugin is passed explicitly here.
+//
 // Success prints the output path; the binary replies to the boot check with
 // `TUI2_ENTRY_BOOT_OK`.
 
-import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 import { fileURLToPath } from 'node:url';
@@ -25,10 +31,14 @@ const outfile = process.argv.includes('--outfile')
 const ext = process.platform === 'win32' ? '.exe' : '';
 const output = `${outfile}${ext}`;
 
-execFileSync(
-  'bun',
-  ['build', srcEntry, '--compile', '--outfile', output],
-  { stdio: 'inherit', cwd: appRoot },
-);
+const solidPlugin = (await import('@opentui/solid/bun-plugin')).default;
+
+await Bun.build({
+  entrypoints: [srcEntry],
+  target: 'bun',
+  outfile: output,
+  compile: true,
+  plugins: [solidPlugin],
+});
 
 process.stdout.write(`TUI2 entry bundled to ${output}\n`);

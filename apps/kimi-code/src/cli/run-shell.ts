@@ -63,6 +63,18 @@ export async function runShell(
   // currently re-exports the v1 surface, so this is behaviour-preserving —
   // it just wires the routing so the rollout switch is real.
   const tuiVariant = resolveTuiVariant();
+  if (tuiVariant === 'v2') {
+    // Register the opentui/solid bun-plugin *before* any tui2 module (incl.
+    // `state.tsx` with its JSX provider) is loaded. The plugin rewrites
+    // `solid-js/dist/server.js` to the reactive client build and applies
+    // babel-preset-solid so JSX children are lazy accessors; without it
+    // providers mount before consumers and `useTui2Store()` throws
+    // "Tui2StoreProvider missing". This requires Bun (node:ffi is needed by
+    // opentui anyway).
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error -- `@opentui/solid/preload` ships no type declarations (Bun-only).
+    await import('@opentui/solid/preload');
+  }
   const tuiEntry = await (tuiVariant === 'v2'
     ? import('#/tui2/index')
     : import('#/tui/index'));

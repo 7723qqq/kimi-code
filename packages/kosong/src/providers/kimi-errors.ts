@@ -1,4 +1,4 @@
-import { APIProviderQuotaExhaustedError, parseRetryAfterMs, parseTraceId } from '#/errors';
+import { APIProviderQuotaExhaustedError, parseRetryAfterMs, parseTraceId } from '../errors';
 
 // Structured error `type`/`code` value that means the Moonshot account's
 // quota or balance is exhausted (as opposed to a transient rate limit): the
