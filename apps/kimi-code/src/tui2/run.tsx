@@ -37,11 +37,47 @@ export interface RunKimiTui2Result {
   readonly host: KimiTUI
 }
 
+/**
+ * The default Shell wires the base keymap to no-op submit/cancel
+ * handlers — the real submit path lives in the KimiTUI editor-keyboard
+ * controller, which is mounted by the host in parallel. The Shell is
+ * exported so a future commit can override it (e.g. an instrumented
+ * keymap, a debug panel, a custom provider stack).
+ */
+export const Shell = (renderer: CliRenderer) => () => {
+  const store = useTui2Store()
+  const [termSize] = createSignal(renderer.getTerminalSize())
+  const handlers: Tui2CommandHandlers = {
+    'tui2.send': () => {
+      /* real send lives in KimiTUI.editorKeyboard */
+    },
+    'tui2.cancel': () => {
+      /* no-op */
+    },
+    'tui2.exit': () => {
+      /* handled by the renderer's exit flow */
+    },
+  }
+  useBindings(() => buildBaseLayer(handlers))
+  return (
+    <Tui2ProviderStack store={store}>
+      <MainShell
+        width={termSize().width}
+        height={termSize().height}
+        activityMode="idle"
+      />
+    </Tui2ProviderStack>
+  )
+}
+
 export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiTui2Result> {
   const renderer = await createCliRenderer({ screenMode: 'main-screen', exitOnCtrlC: false })
   const store = createTui2Store({})
   const keymap = createTui2Keymap(renderer)
 
+  // Tui2Terminal adapter — opentui owns the terminal directly, the
+  // controller only needs write / setTitle / setProgress to keep its
+  // existing surface.
   const terminal = {
     write: (data: string) => renderer.writeOut(data),
     setTitle: (title: string) => renderer.setTerminalTitle(title),
@@ -54,57 +90,7 @@ export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiT
   if (options.onExit !== undefined) host.onExit = options.onExit
   host.exitForegroundTask = options.exitForegroundTask
 
-  const Shell = () => {
-    const s = useTui2Store()
-    const [editorValue, setEditorValue] = createSignal('')
-    const handlers: Tui2CommandHandlers = {
-      'tui2.send': () => {
-        const v = editorValue()
-        if (v.length === 0) return
-        s.setState('transcript', (entries) => [
-          ...entries,
-          {
-            id: `user-${Date.now()}`,
-            kind: 'user' as const,
-            renderMode: 'plain' as const,
-            content: v,
-            modelText: false,
-          },
-        ])
-        setEditorValue('')
-      },
-      'tui2.cancel': () => setEditorValue(''),
-      'tui2.exit': () => {
-        // handled by the renderer's exit flow; no-op here for boot check
-      },
-    }
-    useBindings(() => buildBaseLayer(handlers))
-    const termSize = renderer.getTerminalSize()
-    return (
-      <Tui2ProviderStack store={s}>
-        <MainShell
-          width={termSize.width}
-          height={termSize.height}
-          activityMode="idle"
-          editorFocused
-          editorValue={editorValue()}
-          onEditorChange={setEditorValue}
-          onEditorSubmit={(_v) => {
-            /* delegated to KimiTUI host */
-          }}
-        />
-      </Tui2ProviderStack>
-    )
-  }
-
-  const renderPromise = render(
-    () => (
-      <KeymapProvider keymap={keymap}>
-        <Shell />
-      </KeymapProvider>
-    ),
-    renderer,
-  )
+  const renderPromise = render(() => <KeymapProvider keymap={keymap}><Shell renderer={renderer} /></KeymapProvider>, renderer)
 
   if (process.env['KIMI_TUI2_BOOT_CHECK'] === '1') {
     setTimeout(() => {
