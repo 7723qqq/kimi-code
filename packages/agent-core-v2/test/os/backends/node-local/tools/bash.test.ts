@@ -624,6 +624,8 @@ function createFakeTaskService(options: { maxRunningTasks?: number } = {}): {
       return service.stopAll(reason);
     },
 
+    drainWrites: async (): Promise<void> => Promise.resolve(),
+
     async wait(taskId: string, timeoutMs = 30_000): Promise<AgentTaskInfo | undefined> {
       const entry = tasks.get(taskId);
       if (entry === undefined) return undefined;

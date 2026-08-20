@@ -239,6 +239,10 @@ class FakeTaskService implements IAgentTaskService {
     return this.stopAll(reason);
   }
 
+  async drainWrites(): Promise<void> {
+    return Promise.resolve();
+  }
+
   async wait(
     taskId: string,
     timeoutMs?: number,

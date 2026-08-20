@@ -91,6 +91,8 @@ export interface IAgentTaskService {
   stopByUser(taskId: string): Promise<AgentTaskInfo | undefined>;
   stopAll(reason?: string): Promise<readonly AgentTaskInfo[]>;
   stopAllOnExit(reason: string): Promise<readonly AgentTaskInfo[]>;
+  /** Wait for every live task's queued output writes to land. */
+  drainWrites(): Promise<void>;
   wait(
     taskId: string,
     timeoutMs?: number,

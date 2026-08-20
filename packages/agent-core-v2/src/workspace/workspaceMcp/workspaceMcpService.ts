@@ -1,12 +1,14 @@
 import { ref, type LiveRef } from '#/_base/di/instantiation';
-import { Disposable } from '#/_base/di/lifecycle';
+import { Disposable, toDisposable } from '#/_base/di/lifecycle';
 import { ILogService } from '#/_base/log/log';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { IOAuthCredentialsCoordinator } from '#/app/mcpConfig/oauthCoordinator';
 import { IMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 import { McpConnectionManager, type McpConnectionView } from '#/mcpCore/connection-manager';
+import type { McpOAuthCredentialsChangedEvent } from '#/mcpCore/oauth/coordinator';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { ISessionEphemeralMcpServers } from '#/session/mcp/ephemeralMcpServers';
 import { MergedMcpConnectionView } from '#/session/mcp/mergedConnectionView';
@@ -40,6 +42,7 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
     @IRuntimeResolver private readonly runtimeResolver: IRuntimeResolver,
     @IWorkspaceMcpConfigService private readonly mcpConfig: IWorkspaceMcpConfigService,
     @IMcpOAuthStore oauthStore: IMcpOAuthStore,
+    @IOAuthCredentialsCoordinator coordinator: IOAuthCredentialsCoordinator,
     @ILogService private readonly log: ILogService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
@@ -52,7 +55,15 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
     this.oauthService = new McpOAuthService({
       store: oauthStore,
       resolveClientName: this.resolveClientName,
+      coordinator,
     });
+    this._register(
+      toDisposable(
+        coordinator.onCredentialsChanged((event) => {
+          this.handleCredentialChange(event);
+        }),
+      ),
+    );
     this.manager = new McpConnectionManager({
       log: this.log,
       oauthService: this.oauthService,
@@ -64,6 +75,7 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
       resolveClientName: this.resolveClientName,
     });
     this._register({ dispose: () => void this.manager.shutdown() });
+    this._register({ dispose: () => void this.oauthService.shutdown() });
     this._register(
       this.mcpConfig.onDidChange((change) => {
         this.scheduleApply(change);
@@ -99,6 +111,25 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
 
   connectionManager(): McpConnectionManager {
     return this.manager;
+  }
+
+  /**
+   * Credential lifecycle events from any `McpOAuthService` sharing this
+   * app's coordinator. Tokens landing rescue needs-auth/failed connections;
+   * invalidation forces live connections to reconnect so the connect path
+   * flips them to needs-auth instead of serving stale-token tools.
+   */
+  private handleCredentialChange(event: McpOAuthCredentialsChangedEvent): void {
+    const entry = this.manager.get(event.serverName);
+    if (entry === undefined) return;
+    const shouldReconnect =
+      event.kind === 'updated'
+        ? entry.status === 'needs-auth' || entry.status === 'failed'
+        : entry.status === 'connected' || entry.status === 'pending';
+    if (!shouldReconnect) return;
+    void this.manager.reconnectAndJoin(event.serverName).catch((error: unknown) => {
+      this.log.warn(`mcp reconnect after oauth change failed: ${String(error)}`);
+    });
   }
 
   sessionHandle(): ISessionMcpHandle {
@@ -192,6 +223,11 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
   private async initialize(): Promise<void> {
     await this.mcpConfig.ready;
     await this.identity.resolved();
+    // Re-arm proactive refresh timers for every stored credential, so tokens
+    // refresh shortly before expiry even when no connection triggered a 401.
+    await this.oauthService.sweepProactiveRefresh().catch((error: unknown) => {
+      this.log.warn(`mcp oauth proactive-refresh sweep failed: ${String(error)}`);
+    });
     const servers = this.mcpConfig.servers();
     if (Object.keys(servers).length === 0) return;
     await this.manager.connectAll(servers);

@@ -2549,8 +2549,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const server = await this.resolveAppMcpServer(locator);
     const config = requireRemoteMcpConfig(server.runtimeName, server.config);
     const oauth = await this.globalMcpOAuthService();
-    // No `IMcpAuthCoordinator` on this engine: live sessions are not
-    // notified about the invalidation (v1 propagates via its OAuth events).
+    // The engine's App-scope coordinator reconnects live sessions on
+    // credential invalidation, flipping doomed connections to needs-auth.
     await oauth.invalidate(server.runtimeName, config.url);
   }
 

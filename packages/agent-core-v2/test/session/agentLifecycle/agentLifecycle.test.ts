@@ -434,6 +434,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(IAgentTaskService, {
       _serviceBrand: undefined,
       stopAllOnExit,
+      drainWrites: vi.fn(async () => {}),
     } as unknown as IAgentTaskService);
     ix.stub(IAgentFullCompactionService, {
       _serviceBrand: undefined,
@@ -739,7 +740,7 @@ describe('AgentLifecycleService', () => {
     );
     expect(
       agentContextOf(main).space.use(TodoAgentModelDefinition, (model) => model.items()),
-    ).toEqual([{ title: 'bridged', status: 'pending' }]);
+    ).toEqual([{ id: 'T1', parentId: null, kind: 'task', title: 'bridged', status: 'pending' }]);
     expect(state.get(interactionKey).get('i1')).toMatchObject({
       id: 'i1',
       kind: 'question',

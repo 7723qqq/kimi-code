@@ -167,6 +167,10 @@ export function createMcpOAuthStore(docs: IAtomicDocumentStore): McpOAuthStore {
     remove(key) {
       return docs.delete(CREDENTIALS_SCOPE, key);
     },
+    async list(suffix) {
+      const keys = await docs.list(CREDENTIALS_SCOPE);
+      return keys.filter((key) => key.endsWith(suffix));
+    },
   };
 }
 
@@ -189,6 +193,10 @@ export class McpOAuthStoreAdapter implements IMcpOAuthStore {
 
   remove(key: string): Promise<void> {
     return this.delegate.remove(key);
+  }
+
+  list(suffix: string): Promise<readonly string[]> {
+    return this.delegate.list(suffix);
   }
 }
 

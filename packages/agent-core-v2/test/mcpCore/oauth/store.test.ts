@@ -130,6 +130,7 @@ describe('MCP OAuth credential identity', () => {
       hasTokens: true,
       expired: true,
       hasRefreshToken: false,
+      expiresAt: expect.any(Number),
     });
 
     const refreshable = service.getProvider('linear', 'https://c.example.com/mcp');

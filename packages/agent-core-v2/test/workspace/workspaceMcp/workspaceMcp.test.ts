@@ -21,6 +21,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { IOAuthCredentialsCoordinator } from '#/app/mcpConfig/oauthCoordinator';
 import { IMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
@@ -126,6 +127,11 @@ describe('WorkspaceMcpService', () => {
         });
         reg.defineInstance(IWorkspaceMcpConfigService, mcpConfigStub());
         reg.definePartialInstance(IMcpOAuthStore, createMemoryMcpOAuthStore());
+        reg.definePartialInstance(IOAuthCredentialsCoordinator, {
+          notifyCredentialsChanged: () => {},
+          notifyCredentialsInvalidated: () => {},
+          onCredentialsChanged: () => () => {},
+        });
         reg.defineInstance(ILogService, stubLog());
         reg.defineInstance(ITelemetryService, noopTelemetryService);
         reg.definePartialInstance(ISessionManager, {

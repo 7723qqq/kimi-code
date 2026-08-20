@@ -30,8 +30,19 @@ export function mcpOAuthStoreKey(serverName: string, serverUrl: string | URL): s
   return `${safeName}-${digest}`;
 }
 
+/** Sidecar `<key>-meta.json` suffix; the service scans these on startup. */
+export const META_SUFFIX = '-meta.json';
+
+/** Sidecar `<key>-meta.json` record mapping a store key back to its server. */
+export interface McpOAuthStoreMeta {
+  readonly serverName: string;
+  readonly serverUrl: string;
+}
+
 export interface McpOAuthStore {
   read<T>(key: string): Promise<T | undefined>;
   write(key: string, data: unknown): Promise<void>;
   remove(key: string): Promise<void>;
+  /** Store keys ending with `suffix`; empty when nothing matches. */
+  list(suffix: string): Promise<readonly string[]>;
 }

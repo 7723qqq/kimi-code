@@ -55,6 +55,9 @@ export function createMemoryMcpOAuthStore(): McpOAuthStore {
     async remove(key: string): Promise<void> {
       data.delete(key);
     },
+    async list(suffix: string): Promise<readonly string[]> {
+      return [...data.keys()].filter((key) => key.endsWith(suffix));
+    },
   };
 }
 

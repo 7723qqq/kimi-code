@@ -13,6 +13,7 @@ import { SseMcpClient } from './client-sse';
 import type { UnexpectedCloseReason } from './client-shared';
 import { StdioMcpClient } from './client-stdio';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
+import { createMcpOAuthFetch } from '#/mcpCore/oauth/provider';
 import { assertMcpInputSchema, type MCPClient, type MCPToolDefinition } from './types';
 
 export type McpServerStatus = 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth' | 'removed';
@@ -406,19 +407,25 @@ export class McpConnectionManager implements McpConnectionView {
       });
     }
     if (config.transport === 'sse') {
+      const oauthProvider = await this.resolveOAuthProvider(config, name);
       return new SseMcpClient(config, {
         startupTimeoutMs,
         toolCallTimeoutMs,
         envLookup: this.options.envLookup,
-        oauthProvider: await this.resolveOAuthProvider(config, name),
+        oauthProvider,
+        // Serialize refresh-grant token requests (and their SDK callbacks)
+        // per credential so concurrent 401s cannot race a rotating token.
+        fetch: createMcpOAuthFetch(oauthProvider, undefined),
         clientName,
       });
     }
+    const oauthProvider = await this.resolveOAuthProvider(config, name);
     return new HttpMcpClient(config, {
       startupTimeoutMs,
       toolCallTimeoutMs,
       envLookup: this.options.envLookup,
-      oauthProvider: await this.resolveOAuthProvider(config, name),
+      oauthProvider,
+      fetch: createMcpOAuthFetch(oauthProvider, undefined),
       clientName,
     });
   }

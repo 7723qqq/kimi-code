@@ -23,6 +23,8 @@ export interface McpOAuthCredentialsCoordinator {
 }
 
 export class McpOAuthCoordinator implements McpOAuthCredentialsCoordinator {
+  declare readonly _serviceBrand: undefined;
+
   private readonly listeners = new Set<(event: McpOAuthCredentialsChangedEvent) => void>();
 
   notifyCredentialsChanged(serverName: string, serverUrl: string | URL): void {

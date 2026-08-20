@@ -1293,3 +1293,143 @@ describe('Agent task notification XML', () => {
     expect(text).not.toContain('should stay out of the XML');
   });
 });
+
+describe('AgentTaskService output drain', () => {
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+
+  function buildIx(bytes: IFileSystemStorageService): TestInstantiationService {
+    const ix = disposables.add(new TestInstantiationService());
+    ix.stub(ILogService, stubLog());
+    ix.stub(IAgentConversationUndoParticipantRegistry, {
+      register: () => toDisposable(() => {}),
+      list: () => [],
+    });
+    ix.stub(IWireService, stubWireService());
+    ix.stub(IAgentContextInjectorService, {
+      register: () => toDisposable(() => {}),
+    });
+    ix.stub(ITaskService, {
+      run: () => {
+        throw new Error('ITaskService.run is not used by this test');
+      },
+      defer: () => {
+        throw new Error('ITaskService.defer is not used by this test');
+      },
+    });
+    ix.stub(IAgentContextMemoryService, stubContextMemory());
+    ix.stub(ITelemetryService, { track: () => {}, track2: () => {} });
+    ix.stub(IAgentToolRegistryService, {
+      register: () => toDisposable(() => {}),
+    });
+    ix.stub(IAgentLoopService, stubLoopWithHooks());
+    ix.stub(IConfigRegistry, { registerSection: () => {} });
+    ix.stub(IConfigService, {
+      get: (() => undefined) as IConfigService['get'],
+    });
+    ix.stub(
+      ISessionContext,
+      makeSessionContext({
+        sessionId: 'test-session',
+        workspaceId: 'test-ws',
+        sessionDir: '/tmp/test-session',
+        sessionScope: 'sessions/test-ws/test-session',
+        cwd: '/tmp/test-session',
+      }),
+    );
+    ix.stub(
+      IAgentScopeContext,
+      makeAgentScopeContext({
+        agentId: 'main',
+        agentScope: 'sessions/test-ws/test-session/agents/main',
+      }),
+    );
+    ix.stub(IAtomicDocumentStore, {
+      get: async () => undefined,
+      set: async () => {},
+      delete: async () => {},
+      list: async () => [],
+    });
+    ix.stub(IFileSystemStorageService, bytes);
+    ix.stub(IAgentBlobService, noopBlob);
+    registerAgentEventBus(ix, disposables);
+    ix.set(IAgentStateService, new AgentStateService());
+    ix.set(IEventDispatcher, new SyncDescriptor(EventDispatcherService));
+    ix.set(IAgentTaskService, new SyncDescriptor(AgentTaskService));
+    return ix;
+  }
+
+  function gatedBytes(): {
+    bytes: IFileSystemStorageService;
+    releaseAppend: () => void;
+    appendCalls: () => number;
+  } {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let appendCalls = 0;
+    return {
+      bytes: {
+        _serviceBrand: undefined,
+        read: async () => undefined,
+        readStream: async function* () {},
+        write: async () => {},
+        writeStream: async () => {},
+        append: async () => {
+          appendCalls += 1;
+          await gate;
+        },
+        list: async () => [],
+        delete: async () => {},
+        size: async () => undefined,
+        pathFor: () => undefined,
+        flush: async () => {},
+        close: async () => {},
+      },
+      releaseAppend: () => {
+        release();
+      },
+      appendCalls: () => appendCalls,
+    };
+  }
+
+  function outputTask(): AgentTask {
+    return {
+      ...fakeProcessTask(),
+      start: ({ appendOutput }) => {
+        appendOutput('hello output');
+        return new Promise<void>(() => {});
+      },
+    };
+  }
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+  });
+
+  afterEach(() => disposables.dispose());
+
+  it('drainWrites() waits for every live task output queue', async () => {
+    const { bytes, releaseAppend, appendCalls } = gatedBytes();
+    const ix = buildIx(bytes);
+    const svc = ix.get(IAgentTaskService);
+
+    svc.registerTask(outputTask());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(appendCalls()).toBe(1);
+
+    const drained = svc.drainWrites();
+    let done = false;
+    await Promise.race([
+      drained.then(() => {
+        done = true;
+      }),
+      new Promise((resolve) => setTimeout(resolve, 20)),
+    ]);
+    expect(done).toBe(false);
+
+    releaseAppend();
+    await drained;
+  });
+});

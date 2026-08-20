@@ -905,6 +905,19 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     return reason;
   }
 
+  /**
+   * Wait for every live task's queued output writes to land, so a session
+   * close cannot cut `output.log` tails short. Persisted metadata writes are
+   * already awaited by the stop paths.
+   */
+  async drainWrites(): Promise<void> {
+    await Promise.all(
+      Array.from(this.tasks.values())
+        .filter((entry) => !TERMINAL_STATUSES.has(entry.status))
+        .map((entry) => entry.outputWriteQueue),
+    );
+  }
+
   private assertCanRegister(detached: boolean): void {
     const maxRunningTasks = resolveAgentTaskConfig(this.config)?.maxRunningTasks;
     if (maxRunningTasks === undefined) return;
@@ -1041,6 +1054,9 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const foregroundRelease = entry.foregroundRelease;
     if (entry.outputPersistStarted) {
       await this.persistLive(entry);
+      // Flush queued output appends before terminal effects fire, so
+      // notifications can reference the completed output log.
+      await entry.outputWriteQueue;
     } else {
       entry.pendingOutput = [];
       entry.pendingOutputBytes = 0;

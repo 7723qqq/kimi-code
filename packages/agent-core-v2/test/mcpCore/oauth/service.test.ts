@@ -22,6 +22,10 @@ class MemoryStore implements McpOAuthStore {
     this.data.delete(key);
     return Promise.resolve();
   }
+
+  list(suffix: string): Promise<readonly string[]> {
+    return Promise.resolve([...this.data.keys()].filter((key) => key.endsWith(suffix)));
+  }
 }
 
 function startOAuthServer(): Promise<{ url: string; close: () => Promise<void> }> {
