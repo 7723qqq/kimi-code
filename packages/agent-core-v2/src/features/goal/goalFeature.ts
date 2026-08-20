@@ -1,6 +1,5 @@
 import { ScopeActivation } from '#/_base/di/instantiation';
 import { LifecycleScope } from '#/app/scopes';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { Feature } from '#/features/feature';
 import { registerFeature } from '#/features/featureRegistry';
 
@@ -31,22 +30,18 @@ export class GoalFeature extends Feature {
     this.contributeTool(ICreateGoalTool, CreateGoalTool, {
       name: 'CreateGoal',
       domain: 'goal',
-      when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
     });
     this.contributeTool(IGetGoalTool, GetGoalTool, {
       name: 'GetGoal',
       domain: 'goal',
-      when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
     });
     this.contributeTool(ISetGoalBudgetTool, SetGoalBudgetTool, {
       name: 'SetGoalBudget',
       domain: 'goal',
-      when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
     });
     this.contributeTool(IUpdateGoalTool, UpdateGoalTool, {
       name: 'UpdateGoal',
       domain: 'goal',
-      when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
     });
   }
 }

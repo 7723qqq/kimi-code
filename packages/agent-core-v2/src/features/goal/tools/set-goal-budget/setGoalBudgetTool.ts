@@ -1,4 +1,6 @@
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
 import { type ToolExecution } from '#/tool/toolContract';
 
 import { IAgentGoalService } from '#/features/goal/goal';
@@ -20,9 +22,14 @@ export class SetGoalBudgetTool implements ISetGoalBudgetTool {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(SetGoalBudgetToolInputSchema);
 
-  constructor(@IAgentGoalService private readonly goal: IAgentGoalService) {}
+  constructor(
+    @IAgentGoalService private readonly goal: IAgentGoalService,
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+  ) {}
 
   resolveExecution(args: SetGoalBudgetToolInput): ToolExecution {
+    const denied = mainAgentOnlyExecution(this.scopeContext, GOAL_MAIN_AGENT_ONLY);
+    if (denied !== undefined) return denied;
     const normalizedArgs = normalizeBudgetInput(args);
     const budget = budgetLimitsFromInput(normalizedArgs);
     const goalAtResolution = this.goal.getGoal().goal;

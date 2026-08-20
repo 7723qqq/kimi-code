@@ -225,6 +225,8 @@ import {
   type InteractionResolution,
 } from '#/session/interaction/interaction';
 import type { IHostProcess } from '#/os/interface/hostProcess';
+import { IHostClock } from '#/os/interface/hostClock';
+import type { EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { ISessionQuestionService, type QuestionResult } from '#/session/question/question';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionSwarmService } from '#/features/swarm/session/sessionSwarm';
@@ -254,6 +256,25 @@ const MOCK_PROVIDER = {
 interface TestModelProviderOptions {
   readonly promptCacheKey?: string;
   readonly kimiRequestHeaders?: Record<string, string>;
+}
+
+function disclosedTestEnvironment(clock: IHostClock, cwd: string): EnvironmentDisclosureSnapshot {
+  const timeZone = clock.timeZone();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(clock.now());
+  const part = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((candidate) => candidate.type === type)?.value ?? '';
+  return {
+    cwd,
+    date: {
+      disclosed: true,
+      value: { localDate: `${part('year')}-${part('month')}-${part('day')}`, timeZone },
+    },
+  };
 }
 
 interface KimiConfig {
@@ -1602,6 +1623,10 @@ export class AgentTestContext {
       modelAlias: provider.model,
       systemPrompt: DEFAULT_TEST_SYSTEM_PROMPT,
       thinkingLevel: 'off',
+      environmentDisclosure: disclosedTestEnvironment(
+        this.get(IHostClock),
+        this.get(ISessionContext).cwd,
+      ),
     });
 
     if (tools.length > 0) {

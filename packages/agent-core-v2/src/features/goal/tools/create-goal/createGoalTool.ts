@@ -2,6 +2,8 @@ import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
 import { type ToolExecution } from '#/tool/toolContract';
 
 import { IAgentGoalService } from '#/features/goal/goal';
@@ -23,9 +25,12 @@ export class CreateGoalTool implements ICreateGoalTool {
   constructor(
     @IAgentGoalService private readonly goal: IAgentGoalService,
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
   ) {}
 
   resolveExecution(args: CreateGoalToolInput): ToolExecution {
+    const denied = mainAgentOnlyExecution(this.scopeContext, GOAL_MAIN_AGENT_ONLY);
+    if (denied !== undefined) return denied;
     const goalAtResolution = this.goal.getGoal().goal;
     return {
       description: 'Creating a goal',
