@@ -9,13 +9,6 @@ import { ErrorCodes, isKimiError, type PermissionMode } from '@moonshot-ai/kimi-
 
 import { t } from '#/i18n';
 
-// tui2: the tui2 dialogs render from the store; the v1 components remain
-// only as the non-store fallback path.
-import {
-  GoalQueueEditDialogComponent,
-  GoalQueueManagerComponent,
-} from '../../tui/components/dialogs/goal-queue-manager';
-import { GoalStartPermissionPromptComponent } from '../../tui/components/dialogs/goal-start-permission-prompt';
 import type {
   GoalQueueEditResult,
   GoalQueueManagerAction,
@@ -243,37 +236,14 @@ async function showGoalQueueManager(
 
   host.track('goal_queue_manage');
   // tui2: the dialog renders from `store.state.activeDialog`.
-  if (host.store !== undefined) {
-    host.store.setState('goalQueueManager', {
-      goals: snapshot.goals,
-      selectedGoalId,
-      editingGoalId: undefined,
-    });
-    host.store.setState('activeDialog', 'goal-queue-manager');
-    return;
-  }
-
-  host.mountEditorReplacement(
-    new GoalQueueManagerComponent({
-      goals: snapshot.goals,
-      selectedGoalId,
-      onAction: async (action) => {
-        try {
-          return await handleGoalQueueManagerAction(host, action);
-        } catch (error) {
-          host.showError(
-            t('tui.statusMessages.failedToUpdateUpcomingGoals', {
-              error: formatErrorMessage(error),
-            }),
-          );
-          return undefined;
-        }
-      },
-      onCancel: () => {
-        host.restoreEditor();
-      },
-    }),
-  );
+  const store = host.store;
+  if (store === undefined) return;
+  store.setState('goalQueueManager', {
+    goals: snapshot.goals,
+    selectedGoalId,
+    editingGoalId: undefined,
+  });
+  store.setState('activeDialog', 'goal-queue-manager');
 }
 
 export async function handleGoalQueueManagerAction(
@@ -320,30 +290,14 @@ async function showGoalQueueEditDialog(host: SlashCommandHost, goalId: string): 
   }
 
   // tui2: the edit dialog renders from `store.state.activeDialog`.
-  if (host.store !== undefined) {
-    host.store.setState('goalQueueManager', {
-      goals: snapshot.goals,
-      selectedGoalId: goalId,
-      editingGoalId: goalId,
-    });
-    host.store.setState('activeDialog', 'goal-queue-edit');
-    return;
-  }
-
-  host.mountEditorReplacement(
-    new GoalQueueEditDialogComponent({
-      goal,
-      onDone: (result) => {
-        void handleGoalQueueEditResult(host, result).catch((error: unknown) => {
-          host.showError(
-            t('tui.statusMessages.failedToUpdateUpcomingGoal', {
-              error: formatErrorMessage(error),
-            }),
-          );
-        });
-      },
-    }),
-  );
+  const store = host.store;
+  if (store === undefined) return;
+  store.setState('goalQueueManager', {
+    goals: snapshot.goals,
+    selectedGoalId: goalId,
+    editingGoalId: goalId,
+  });
+  store.setState('activeDialog', 'goal-queue-edit');
 }
 
 export async function handleGoalQueueEditResult(
@@ -361,16 +315,14 @@ export async function handleGoalQueueEditResult(
   });
   host.track('goal_queue_update');
   // tui2: refresh the list in the store and reopen the manager.
-  if (host.store !== undefined) {
-    host.store.setState('goalQueueManager', {
-      goals: snapshot.goals,
-      selectedGoalId: result.goalId,
-      editingGoalId: undefined,
-    });
-    host.store.setState('activeDialog', 'goal-queue-manager');
-    return;
-  }
-  await showGoalQueueManager(host, result.goalId);
+  const store = host.store;
+  if (store === undefined) return;
+  store.setState('goalQueueManager', {
+    goals: snapshot.goals,
+    selectedGoalId: result.goalId,
+    editingGoalId: undefined,
+  });
+  store.setState('activeDialog', 'goal-queue-manager');
 }
 
 export async function createGoal(
@@ -389,7 +341,7 @@ export async function createGoal(
     host.state.appState.permissionMode === 'manual' ||
     host.state.appState.permissionMode === 'yolo'
   ) {
-    showGoalStartPermissionPrompt(host, parsed, rawArgs ?? parsed.objective, options);
+    showGoalStartPermissionPrompt(host, parsed, rawArgs ?? parsed.objective);
     return false;
   }
 
@@ -400,40 +352,18 @@ function showGoalStartPermissionPrompt(
   host: GoalCommandHost,
   parsed: Extract<ParsedGoalCommand, { kind: 'create' }>,
   rawArgs: string,
-  options: GoalStartOptions,
 ): void {
-  const commandText = `/goal ${rawArgs.trim()}`;
-  const cancelStart = (): void => {
-    host.restoreInputText(commandText);
-    host.showStatus(t('tui.statusMessages.goalNotStarted'));
-  };
+  const store = host.store;
+  if (store === undefined) return;
   // tui2: the dialog renders from `store.state.activeDialog`; the choice
   // is resolved through the host's `pickGoalStartChoice` (which reads the
-  // saved context from the store). This path replaces the v1
-  // `mountEditorReplacement` flow.
-  if (host.store !== undefined) {
-    host.store.setState('goalStartContext', {
-      parsed: { objective: parsed.objective, replace: parsed.replace },
-      rawArgs,
-      mode: host.state.appState.permissionMode === 'yolo' ? 'yolo' : 'manual',
-    });
-    host.store.setState('activeDialog', 'goal-start-permission-prompt');
-  } else {
-    host.mountEditorReplacement(
-      new GoalStartPermissionPromptComponent({
-        mode: host.state.appState.permissionMode === 'yolo' ? 'yolo' : 'manual',
-        onSelect: (choice) => {
-          if (choice === 'cancel') {
-            cancelStart();
-            return;
-          }
-          host.restoreEditor();
-          void startGoalWithPermission(host, parsed, choice, options);
-        },
-        onCancel: cancelStart,
-      }),
-    );
-  }
+  // saved context from the store).
+  store.setState('goalStartContext', {
+    parsed: { objective: parsed.objective, replace: parsed.replace },
+    rawArgs,
+    mode: host.state.appState.permissionMode === 'yolo' ? 'yolo' : 'manual',
+  });
+  store.setState('activeDialog', 'goal-start-permission-prompt');
 }
 
 /** Resolve the open goal-start permission dialog (called by the host
