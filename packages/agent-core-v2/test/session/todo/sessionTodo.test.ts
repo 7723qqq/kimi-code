@@ -249,10 +249,10 @@ describe('SessionTodoService', () => {
     await runtime.service.setTodos(sub.context, [{ id: '', parentId: null, kind: 'task', title: 'sub todo', status: 'done' }]);
 
     expect(await runtime.service.getTodos(main.context)).toEqual([
-      { id: '', parentId: null, kind: 'task', title: 'main todo', status: 'pending' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'main todo', status: 'pending' },
     ]);
     expect(await runtime.service.getTodos(sub.context)).toEqual([
-      { id: '', parentId: null, kind: 'task', title: 'sub todo', status: 'done' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'sub todo', status: 'done' },
     ]);
     expect(main.activeReminders()).toBe(1);
     expect(sub.activeReminders()).toBe(1);
@@ -290,8 +290,8 @@ describe('SessionTodoService', () => {
     subscription.dispose();
 
     expect(seen).toEqual([
-      { agent: main.context, todos: [{ id: '', parentId: null, kind: 'task', title: 'a', status: 'pending' }] },
-      { agent: sub.context, todos: [{ id: '', parentId: null, kind: 'task', title: 'b', status: 'done' }] },
+      { agent: main.context, todos: [{ id: 'T1', parentId: null, kind: 'task', title: 'a', status: 'pending' }] },
+      { agent: sub.context, todos: [{ id: 'T1', parentId: null, kind: 'task', title: 'b', status: 'done' }] },
     ]);
     runtime.dispose();
   });
@@ -310,7 +310,7 @@ describe('SessionTodoService', () => {
     await main.dispatcher.dispatch(new ContextUndone({ agentId: 'main', turns: 1 }));
     subscription.dispose();
 
-    expect(seen).toEqual([[{ id: '', parentId: null, kind: 'task', title: 'kept', status: 'pending' }]]);
+    expect(seen).toEqual([[{ id: 'T1', parentId: null, kind: 'task', title: 'kept', status: 'pending' }]]);
     runtime.dispose();
   });
 
@@ -335,7 +335,7 @@ describe('SessionTodoService', () => {
       { type: 'tools.update_store', key: 'todo', value: [{ id: '', parentId: null, kind: 'task', title: 'restored', status: 'done' }] },
     ]);
     expect(await runtime.service.getTodos(main.context)).toEqual([
-      { id: '', parentId: null, kind: 'task', title: 'restored', status: 'done' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'restored', status: 'done' },
     ]);
     runtime.dispose();
   });
@@ -357,7 +357,7 @@ describe('SessionTodoService', () => {
       } as unknown as WireRecord,
     ]);
 
-    expect(await runtime.service.getTodos(main.context)).toEqual([{ id: '', parentId: null, kind: 'task', title: 'valid', status: 'done' }]);
+    expect(await runtime.service.getTodos(main.context)).toEqual([{ id: 'T1', parentId: null, kind: 'task', title: 'valid', status: 'done' }]);
     runtime.dispose();
   });
 
@@ -395,7 +395,7 @@ describe('SessionTodoService', () => {
     expect(await runtime.service.getTodos(second.context)).toEqual([]);
     await runtime.service.setTodos(second.context, [{ id: '', parentId: null, kind: 'task', title: 'new', status: 'done' }]);
     expect(await runtime.service.getTodos(second.context)).toEqual([
-      { id: '', parentId: null, kind: 'task', title: 'new', status: 'done' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'new', status: 'done' },
     ]);
     runtime.dispose();
   });

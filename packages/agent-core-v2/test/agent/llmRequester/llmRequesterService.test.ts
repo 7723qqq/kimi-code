@@ -22,6 +22,7 @@ import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
 import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
+import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IConfigService } from '#/app/config/config';
 import type { Event2 } from '#/app/event/event2';
@@ -235,6 +236,14 @@ function createService(
     });
   }
   ix.stub(ISessionTokenCountingService, tokenCounting);
+  ix.stub(IAgentMicroCompactionService, {
+    _serviceBrand: undefined,
+    config: undefined as never,
+    setConfig: () => {},
+    detect: () => {},
+    compact: (messages: readonly ContextMessage[]) => messages,
+    reset: () => {},
+  } as unknown as IAgentMicroCompactionService);
   ix.stub(IAgentToolRegistryService, tools);
   ix.stub(IAgentProfileService, profile);
   ix.stub(ISessionUsageService, usage);

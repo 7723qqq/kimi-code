@@ -100,6 +100,7 @@ const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
   'cron.delete',
   'cron.cursor',
   'token_counting.turn_recorded',
+'micro_compaction.clamp',
 ]);
 
 describe('v1 wire vocabulary', () => {
@@ -183,7 +184,15 @@ describe('v1 wire vocabulary', () => {
 
     const freshAgent = ix2.get(IAgentScopeContext).agentContext;
     expect(freshAgent.space.use(TodoAgentModelDefinition, (model) => model.items())).toEqual([
-      { title: 'restore me', status: 'in_progress' },
+      {
+        id: 'T1',
+        kind: 'task',
+        parentId: null,
+        title: 'restore me',
+        status: 'in_progress',
+        description: undefined,
+        progress: undefined,
+      },
     ]);
   });
 });
@@ -191,6 +200,9 @@ describe('v1 wire vocabulary', () => {
 describe('conversation-time checkpoint registration', () => {
   const CHECKPOINT_EXEMPT_STATES: ReadonlySet<string> = new Set([
     'goalForkNotice',
+    // Clamps itself through the context.spliced → micro_compaction.clamp
+    // pipeline on undo; a generic rollback would fight that fold.
+    'microCompaction',
   ]);
   const CONTEXT_OWNER_STATE = 'contextMemory';
   const CONTEXT_EVENTS: readonly Event2Class[] = [

@@ -28,15 +28,10 @@ import { LifecycleScope } from '#/app/scopes';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 
-import { GOAL_JUDGE_PROFILE_NAME } from './judgeAgentProfile';
 import {
   JUDGE_SYSTEM_PROMPT,
   buildJudgeUserPrompt,
-  buildJudgeVerificationPrompt,
 } from './judgePrompt';
-
-/** Timeout for the judge subagent run (ms). */
-const JUDGE_SUBAGENT_TIMEOUT_MS = 60_000;
 
 /** Simplified retry prompt when the first response could not be parsed. */
 const RETRY_SYSTEM_PROMPT = `You are a judge. Return ONLY a JSON object with fields "ok" (boolean) and "reason" (string). No other text.`;
@@ -92,48 +87,17 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
    */
   private async evaluateViaSubagent(
     goal: GoalSnapshot,
-    signal?: AbortSignal,
+    _signal?: AbortSignal,
   ): Promise<JudgeVerdict | undefined> {
-    const prompt = buildJudgeVerificationPrompt(
-      goal.objective,
-      goal.completionCriterion,
-      this.sessionContext.cwd,
-    );
-
     this.log.debug('goal.judge.subagent.start', { goalId: goal.goalId });
-
-    try {
-      // Create an abort controller that races the provided signal with a timeout.
-      const timeoutController = new AbortController();
-      const timeout = setTimeout(
-        () => timeoutController.abort(new Error('Judge subagent timed out')),
-        JUDGE_SUBAGENT_TIMEOUT_MS,
-      );
-
-      const combinedSignal = signal
-        ? AbortSignal.any([signal, timeoutController.signal])
-        : timeoutController.signal;
-
-      try {
-        // TODO(#3083-fork): subagent spawning by profile name requires lifecycle wiring
-        // that fork's goal judge service doesn't have. Fall back to transcript-only
-        // judging for now; restore subagent execution once IAgentLifecycleService is
-        // injected here.
-        this.log.debug('goal.judge.subagent.skipped', {
-          goalId: goal.goalId,
-          reason: 'subagent-by-profile not yet wired in fork',
-        });
-        return undefined;
-      } finally {
-        clearTimeout(timeout);
-      }
-    } catch (error) {
-      this.log.warn('goal.judge.subagent.failed', {
-        goalId: goal.goalId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-
+    // TODO(#3083-fork): subagent spawning by profile name requires lifecycle wiring
+    // that fork's goal judge service doesn't have. Fall back to transcript-only
+    // judging for now; restore subagent execution once IAgentLifecycleService is
+    // injected here.
+    this.log.debug('goal.judge.subagent.skipped', {
+      goalId: goal.goalId,
+      reason: 'subagent-by-profile not yet wired in fork',
+    });
     return undefined;
   }
 

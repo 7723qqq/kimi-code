@@ -60,7 +60,7 @@ describe('TodoListTool', () => {
   });
 
   it('query mode renders the current list without mutating it', async () => {
-    const { tool, getTodos } = makeTool([{ id: '', parentId: null, kind: 'task', title: 'existing', status: 'in_progress' }]);
+    const { tool, getTodos } = makeTool([{ id: 'T1', parentId: null, kind: 'task', title: 'existing', status: 'in_progress' }]);
 
     const result = await executeTool(tool, {
       turnId: 1,
@@ -71,15 +71,15 @@ describe('TodoListTool', () => {
 
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Current todo list');
-    expect(result.output).toContain('[in_progress] existing');
-    expect(getTodos()).toEqual([{ id: '', parentId: null, kind: 'task', title: 'existing', status: 'in_progress' }]);
+    expect(result.output).toContain('[in_progress] T1: existing');
+    expect(getTodos()).toEqual([{ id: 'T1', parentId: null, kind: 'task', title: 'existing', status: 'in_progress' }]);
   });
 
   it('write mode replaces the list and defensively copies todos into the service', async () => {
     const { tool, getTodos } = makeTool();
     const todos: TodoItem[] = [
-      { id: '', parentId: null, kind: 'task', title: 'first', status: 'pending' },
-      { id: '', parentId: null, kind: 'task', title: 'second', status: 'in_progress' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'first', status: 'pending' },
+      { id: 'T2', parentId: null, kind: 'task', title: 'second', status: 'in_progress' },
     ];
 
     const result = await executeTool(tool, {
@@ -92,20 +92,20 @@ describe('TodoListTool', () => {
 
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Todo list updated');
-    expect(result.output).toContain('[pending] first');
-    expect(result.output).toContain('[in_progress] second');
+    expect(result.output).toContain('[pending] T1: first');
+    expect(result.output).toContain('[in_progress] T2: second');
     expect(result.output).toContain(
       'Ensure that you continue to use the todo list to track progress.',
     );
     expect(result.output).toContain('exactly one task in_progress');
     expect(getTodos()).toEqual([
-      { id: '', parentId: null, kind: 'task', title: 'first', status: 'pending' },
-      { id: '', parentId: null, kind: 'task', title: 'second', status: 'in_progress' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'first', status: 'pending' },
+      { id: 'T2', parentId: null, kind: 'task', title: 'second', status: 'in_progress' },
     ]);
   });
 
   it('renders a done todo with a marker matching the status enum value', async () => {
-    const { tool } = makeTool([{ id: '', parentId: null, kind: 'task', title: 'shipped', status: 'done' }]);
+    const { tool } = makeTool([{ id: 'T1', parentId: null, kind: 'task', title: 'shipped', status: 'done' }]);
 
     const result = await executeTool(tool, {
       turnId: 1,
@@ -115,7 +115,7 @@ describe('TodoListTool', () => {
     });
 
     expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('[done] shipped');
+    expect(result.output).toContain('[done] T1: shipped');
     expect(result.output).not.toContain('[completed]');
   });
 

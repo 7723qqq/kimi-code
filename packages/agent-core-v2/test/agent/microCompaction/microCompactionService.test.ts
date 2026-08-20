@@ -38,8 +38,9 @@ import {
 } from '#/agent/microCompaction/microCompactionOps';
 import { AgentMicroCompactionService } from '#/agent/microCompaction/microCompactionService';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import type { Event2 } from '#/app/event/event2';
 import { type Event2Class } from '#/app/event/event2';
 import type { IEventBus } from '#/app/event/eventBus';
@@ -179,8 +180,20 @@ function createUnit(
 
   ix.stub(IFlagService, { enabled: () => flagEnabled });
   ix.stub(IAgentContextMemoryService, { get: () => history });
-  ix.stub(IAgentTokenCountingService, {
+  ix.stub(ISessionTokenCountingService, {
+    _serviceBrand: undefined,
+    strategy: 'measured+estimated',
     get: () => ({ size: contextSize, measured: 0, estimated: 0 }),
+    measured: () => {},
+    latestMeasured: () => 0,
+    statusSize: () => contextSize,
+    recordTruncation: () => {},
+    rebase: () => {},
+    requestSize: () => 0,
+    estimateText: () => 0,
+    estimateMessage: () => 0,
+    estimateMessages: () => 0,
+    estimateTools: () => 0,
   });
   ix.stub(IAgentProfileService, {
     data: () => ({
@@ -197,6 +210,8 @@ function createUnit(
     eventBus,
   });
   const dispatcher = registerTestEventDispatcher(ix);
+  // eslint-disable-next-line no-console
+  console.log('DBG scope:', ix.get(IAgentScopeContext));
   const agentState = ix.get(IAgentStateService);
   ix.set(IAgentMicroCompactionService, new SyncDescriptor(AgentMicroCompactionService));
   const svc = ix.get(IAgentMicroCompactionService);
@@ -213,7 +228,7 @@ function createUnit(
     hooks,
     splice: (start, deleteCount) =>
       void dispatcher.dispatch(
-        new ContextSpliced({ agentId: 'main', start, deleteCount, messages: [] }),
+        new ContextSpliced({ agentId: 'test-agent', start, deleteCount, messages: [] }),
       ),
   };
 }
@@ -462,13 +477,13 @@ describe('AgentMicroCompactionService', () => {
     void dispatcher.dispatch(new MicroCompactionApplied({ cutoff: 5 }));
     expect(agentState.get(microCompactionKey).cutoff).toBe(5);
 
-    void dispatcher.dispatch(new ContextClear({ agentId: 'main' }));
+    void dispatcher.dispatch(new ContextClear({ agentId: 'test-agent' }));
     expect(agentState.get(microCompactionKey).cutoff).toBe(0);
 
     void dispatcher.dispatch(new MicroCompactionApplied({ cutoff: 5 }));
     void dispatcher.dispatch(
       new ContextApplyCompaction({
-        agentId: 'main',
+        agentId: 'test-agent',
         summary: 'Summary.',
         compactedCount: 1,
       }),

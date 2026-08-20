@@ -196,7 +196,7 @@ describe('wire.jsonl round-trip', () => {
       legacy.ix
         .get(IAgentScopeContext)
         .agentContext.space.use(TodoAgentModelDefinition, (model) => model.items()),
-    ).toEqual([{ title: 'legacy todo', status: 'pending' }]);
+    ).toEqual([{ id: 'T1', parentId: null, kind: 'task', title: 'legacy todo', status: 'pending' }]);
 
     expect(await collect(makeReader(storage), 'legacy')).toEqual([
       { type: 'metadata', protocol_version: WIRE_PROTOCOL_VERSION, created_at: 1 },

@@ -10,6 +10,8 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import { SwarmInjection } from './injection/swarmInjection';
 import { IAgentSwarmService, type SwarmModeTrigger } from './swarm';
 import { SwarmModeEnter, SwarmModeExit, swarmKey } from '../swarmOps';
@@ -32,6 +34,17 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
     this._register(
       instantiation.createInstance(SwarmInjection, {
         getTrigger: () => this.agentState.get(swarmKey),
+      }),
+    );
+    this._register(
+      toolExecutor.onBeforeExecuteTool((event) => {
+        if (!this.isActive) return;
+        if (event.toolCall.name !== 'Agent') return;
+        event.veto(
+          denyToolExecution(
+            this.toolApproval.formatDenyMessage(agentDeniedInSwarmModeMessage()),
+          ),
+        );
       }),
     );
     this._register(
@@ -82,6 +95,10 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
     const trigger = this.agentState.get(swarmKey);
     return trigger === 'task' || trigger === 'tool';
   }
+}
+
+function agentDeniedInSwarmModeMessage(): string {
+  return t('toolsV2.swarm.agentDeniedInSwarmMode');
 }
 
 function multipleAgentSwarmDeniedMessage(hasOtherToolCalls: boolean): string {

@@ -41,7 +41,7 @@ import {
   toKimiErrorPayload,
   type KimiErrorPayload,
 } from '#/errors';
-import { inputTotal } from '#/kosong/contract/usage';
+
 import { IEventBus } from '#/app/event/eventBus';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
@@ -646,17 +646,16 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
 
   async recordTokenUsage(tokenDelta: number): Promise<GoalSnapshot | null> {
     this.assertSupportedAgent();
-    return this.accountTokenUsage(0, tokenDelta);
+    return this.accountTokenUsage(tokenDelta);
   }
 
   private accountTokenUsage(
-    inputDelta: number,
-    outputDelta: number,
+    tokenDelta: number,
     goalId?: string,
   ): GoalSnapshot | null {
     const state = this.goalState;
     if (state === null || state.status !== 'active' || !matchesGoal(state, goalId)) return null;
-const tokensUsed = state.tokensUsed + Math.max(0, inputDelta) + Math.max(0, outputDelta);
+    const tokensUsed = state.tokensUsed + Math.max(0, tokenDelta);
     void this.dispatcher.dispatch(new GoalUpdate({ agentId: this.agentContext.agentId, tokensUsed }));
     const next = this.requireState();
     return this.blockIfBudgetReached(next) ?? this.toSnapshot(next);
@@ -729,7 +728,7 @@ const tokensUsed = state.tokensUsed + Math.max(0, inputDelta) + Math.max(0, outp
     if (source?.type !== 'turn') return;
     const goalId = this.goalDrivenTurns.get(source.turnId);
     if (goalId === undefined) return;
-    this.accountTokenUsage(inputTotal(ctx.usage), ctx.usage.output, goalId);
+    this.accountTokenUsage(ctx.usage.output, goalId);
   }
 
   private handleAfterStep(ctx: AfterStepContext): void {

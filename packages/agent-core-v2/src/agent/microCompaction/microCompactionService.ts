@@ -21,8 +21,8 @@ import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext, agentContextOfScope } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
 import { IEventBus } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
@@ -30,6 +30,7 @@ import type { MicroCompactionFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { estimateTokensForContentParts, estimateTokensForMessages } from '#/kosong/contract/tokens';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 
 import { MICRO_COMPACTION_FLAG_ID } from './flag';
 import {
@@ -62,7 +63,8 @@ export class AgentMicroCompactionService
   constructor(
     @IFlagService private readonly flags: IFlagService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    @IAgentTokenCountingService private readonly tokenCounting: IAgentTokenCountingService,
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
+    @ISessionTokenCountingService private readonly tokenCounting: ISessionTokenCountingService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentLoopService private readonly loop: IAgentLoopService,
     @IAgentStateService private readonly agentState: IAgentStateService,
@@ -115,7 +117,7 @@ export class AgentMicroCompactionService
     const modelCapabilities = this.profile.data().modelCapabilities;
     const maxContextTokens =
       modelCapabilities.max_input_tokens ?? modelCapabilities.max_context_tokens;
-    const contextTokens = this.tokenCounting.get().size;
+    const contextTokens = this.tokenCounting.get(agentContextOfScope(this.scopeContext)).size;
     const contextUsageRatio =
       maxContextTokens !== undefined && maxContextTokens > 0 ? contextTokens / maxContextTokens : 1;
     if (contextUsageRatio < config.minContextUsageRatio) return;

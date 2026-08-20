@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 17 keys · Agent: 94 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 17 keys · Agent: 95 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -105,6 +105,7 @@
 //     mcp.mcpToolsByServer                            src/agent/mcp/mcpService.ts
 //     media.registeredKey                             src/agent/media/mediaToolsRegistrar.ts
 //     media.resolved                                  src/agent/media/mediaResolverService.ts
+//     microCompaction                                 src/agent/microCompaction/microCompactionOps.ts
 //     permissionMode                                  src/agent/permissionMode/permissionModeOps.ts
 //     permissionMode.configured                       src/agent/permissionMode/permissionModeOps.ts
 //     permissionMode.lastMode                         src/agent/permissionMode/injection/permissionModeInjection.ts
@@ -1286,6 +1287,11 @@ export interface AgentStateSnapshot {
   }>;
   // src/agent/media/mediaToolsRegistrar.ts
   'media.registeredKey': string | undefined;
+  // src/agent/microCompaction/microCompactionOps.ts
+  // replayable · durable — folds: MicroCompactionApplied, MicroCompactionClamped, ContextClear, ContextApplyCompaction
+  'microCompaction': /* MicroCompactionState — packages/agent-core-v2/src/agent/microCompaction/microCompactionOps.ts */ {
+    readonly cutoff: number;
+  };
   // src/agent/permissionMode/injection/permissionModeInjection.ts
   'permissionMode.lastMode': 'manual' | 'auto' | 'yolo' | undefined;
   // src/agent/permissionMode/permissionModeOps.ts
@@ -1500,9 +1506,11 @@ export interface AgentStateSnapshot {
     readonly goalId: string;
     readonly objective: string;
     readonly completionCriterion?: string;
-    readonly status: /* GoalStatus — packages/agent-core-v2/src/features/goal/types.ts */ 'blocked' | 'active' | 'paused' | 'complete';
+    readonly status: /* GoalStatus — packages/agent-core-v2/src/features/goal/types.ts */ 'blocked' | 'active' | 'paused' | 'complete' | 'budget_limited' | 'usage_limited';
     readonly turnsUsed: number;
     readonly tokensUsed: number;
+    readonly inputTokensUsed: number;
+    readonly outputTokensUsed: number;
     readonly wallClockMs: number;
     readonly wallClockResumedAt?: number;
     readonly budgetLimits: /* GoalBudgetLimits — packages/agent-core-v2/src/features/goal/types.ts */ {
@@ -1511,6 +1519,8 @@ export interface AgentStateSnapshot {
       readonly wallClockBudgetMs?: number;
     };
     readonly terminalReason?: string;
+    readonly createdAt: number;
+    readonly updatedAt: number;
   } | null;
   // replayable · durable — folds: GoalCreate, GoalClear, GoalForked, ContextAppendMessage
   'goalForkNotice': /* GoalForkNoticeState — packages/agent-core-v2/src/features/goal/goalOps.ts */ {
