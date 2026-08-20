@@ -13,6 +13,8 @@ This repository is a personal fork of Kimi Code. Report vulnerabilities as follo
 - **Fork-specific code** (i18n, Team, Rust native tools, MCP auto-reconnect, and any other local additions): open a private GitHub Security Advisory on this fork — https://github.com/7723qqq/kimi-code/security/advisories/new
 - **Upstream code** (anything that also exists in MoonshotAI/kimi-code): report via the upstream advisory process — https://github.com/MoonshotAI/kimi-code/security/advisories/new, or email code@moonshot.ai (include "[security]" in the subject)
 
+> If you are unsure which channel applies, prefer the upstream advisory — upstream has broader visibility and can coordinate with fork maintainers. Mention the fork (`7723qqq/kimi-code`) in the report so the right people get looped in.
+
 ## What to Include
 
 - Affected version (output of `kimi --version`)

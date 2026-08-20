@@ -1,4 +1,6 @@
-# Goal 功能拆分
+# Goal 功能拆分 (`agent-core-v2` 内部设计规范)
+
+> 内部设计规范 — 面向 `agent-core-v2` 的 goal mode 维护者和贡献者，说明其工作流、统计/预算、和用户交互模型。不面向最终用户；用户面向的 goal 文档在 `docs/en/guides/` 和 `docs/zh/guides/`。如需新增或修改 goal 实现，请先通读本文件再动手。
 
 本文把 agent-core 中 goal mode 的能力拆成三部分：
 

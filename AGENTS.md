@@ -11,7 +11,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 0.36.1 (the main CLI app)
+- **Version**: `@moonshot-ai/kimi-code` 0.37.2 (the main CLI app)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -22,6 +22,8 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
 - **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (`pnpm dev:cli`, tsx running `src/main.ts`); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): MCP auto-reconnect with bounded exponential backoff (`mcpCore/connection-manager.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
+
+> For a user-facing summary of these additions, see `README.md` → "What's Different in This Fork" (and its Chinese mirror `README.zh-CN.md` → "本 Fork 新增特性").
 
 ---
 
@@ -207,6 +209,7 @@ scripts/
   check-locale-keys.mjs         — Check locale key coverage
   check-locale-placeholders.cjs — Validate i18n placeholder consistency
   check-nix-workspace.mjs       — Validate flake.nix vs workspace membership
+  check-no-comments.mjs         — Enforce no-comment policy (agent-core-v2, kap-server, transcript)
   check-service-naming.mjs      — Check service naming conventions
   check-t-call-coverage.mjs     — Check t() call coverage
   scan-hardcoded[-v2].mjs       — Scan for hardcoded strings (i18n compliance)
@@ -286,6 +289,8 @@ pnpm -C apps/kimi-web run build
 pnpm -C apps/kimi-web run dev
 ```
 
+To run a local build inside `~/.kimi-code/` instead of the released binary (PowerShell on Windows, bash on Linux), see [`CONTRIBUTING.md` → "Deploy to local `.kimi-code` for testing"](CONTRIBUTING.md#deploy-to-local-kimi-code-for-testing).
+
 ### CI pipeline
 
 GitHub Actions (`ci.yml`) runs on every PR and push to `main`:
@@ -324,6 +329,7 @@ Additional workflows: `_native-build.yml`, `docs-deploy.yml`, `manual-native-bun
 - `packages/kosong/src/providers/` gets relaxed unsafety rules
 - For full config with all overrides, see `.oxlintrc.json`
 - Ignored: `dist/`, `dist-web/`, `coverage/`, `node_modules/`, `apps/*/scripts/`, `docs/smoke-archive/`, `packages/pi-tui/`, `*.generated.ts`, `参考目录/`
+- **Package publishing lint (`lint:pkg`)**: `publint` + `attw` on `@moonshot-ai/kimi-code`. Invoked only by `pnpm publish` (the publish pipeline), not by the CI lint job — keep this in mind when chasing lint failures locally.
 
 ### TypeScript Config (root `tsconfig.json`)
 
@@ -477,7 +483,7 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 - Before making code changes, read the relevant code and the most recent constraints, and follow the nearest `AGENTS.md` in the directory tree.
 - Keep changes focused. Do not slip in unrelated refactors along the way.
 - When committing, do not add any co-author attribution, and do not reveal the identity of the agent in commit messages, PR descriptions, or any explanatory text.
-- 每次提交必须同步远程仓库。禁止只提交到本地而不推送。每次 `git commit` 之后必须立即执行 `git push`，确保本地和远程（`origin`）始终保持一致。任何分支上的工作（包括功能分支、修复分支、实验性分支）在提交后都应推送，避免本地代码丢失或远程仓库落后。
+- Push every commit to `origin` immediately after `git commit`. Never let local and remote diverge — applies to feature, fix, and experimental branches alike, so local work is never lost and the remote does not fall behind.
 
 ## Workflow Requirements
 

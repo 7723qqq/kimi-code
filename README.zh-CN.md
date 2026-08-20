@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/zh/)
 
-[Documentation](https://moonshotai.github.io/kimi-code/zh/) · [Issues](https://github.com/MoonshotAI/kimi-code/issues) · [English](README.md)
+[Documentation](https://moonshotai.github.io/kimi-code/zh/) · [Issues](https://github.com/7723qqq/kimi-code/issues) · [English](README.md)
 
 
 > ⚠️ **个人实验性 fork**，基于 [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code)。与 Moonshot AI 无关，仅供个人使用。请勿将本 fork 的 PR 提交到上游。
@@ -18,6 +18,8 @@
 - **⚡ Rust 原生工具加速**：性能关键工具（grep、glob、edit、read、write、bash、token 统计、输出截断）用 Rust 重写为原生 Node addon，显著快于 JS 实现。
 - **🪟 Windows 启动脚本**：`start-native.bat` 一键启动原生 CLI；`start-desktop.bat` 用于构建并启动本地 vendored 桌面壳（仅当 `apps/kimi-desktop` 存在时可用）。
 - 其他多项修复和体验优化。
+
+如需了解面向贡献者的更深入说明与集成细节，请参见根目录 `AGENTS.md` → "Fork-specific additions vs upstream"（中文语境参见对应章节）。
 
 ## 什么是 Kimi Code CLI
 
@@ -129,7 +131,7 @@ pnpm build      # 构建所有包
 
 ## 社区
 
-- [Issues](https://github.com/MoonshotAI/kimi-code/issues)
+- [Issues](https://github.com/7723qqq/kimi-code/issues)
 - 安全漏洞反馈，请见 [SECURITY.md](SECURITY.md)。
 
 ## 致谢

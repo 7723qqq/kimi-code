@@ -1,7 +1,7 @@
 # Kimi Code CLI
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/en/) <br>
-[Documentation](https://moonshotai.github.io/kimi-code/en/) · [Issues](https://github.com/MoonshotAI/kimi-code/issues) · [中文](README.zh-CN.md)
+[Documentation](https://moonshotai.github.io/kimi-code/en/) · [Issues](https://github.com/7723qqq/kimi-code/issues) · [中文](README.zh-CN.md)
 
 > ⚠️ **This is a personal experimental fork** of [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code). Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -16,6 +16,8 @@ Compared to upstream, this fork adds:
 - **⚡ Rust Native Tools.** Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as native Node addon, significantly faster than JS.
 - **🪟 Windows launchers.** `start-native.bat` launches the native CLI; `start-desktop.bat` builds/launches a locally vendored desktop shell when present.
 - Various other fixes and QoL improvements.
+
+For a deeper, contributor-facing breakdown of these additions and how they integrate with the rest of the project, see `AGENTS.md` → "Fork-specific additions vs upstream".
 
 ## What is Kimi Code CLI
 
@@ -126,7 +128,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
 
 ## Community
 
-- [Issues](https://github.com/MoonshotAI/kimi-code/issues)
+- [Issues](https://github.com/7723qqq/kimi-code/issues)
 - For security vulnerabilities, see [SECURITY.md](SECURITY.md).
 
 ## Acknowledgements
