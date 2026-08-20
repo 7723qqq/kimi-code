@@ -31,8 +31,9 @@ import type {
   WorkspaceTrustInfo,
 } from '@moonshot-ai/kimi-code-sdk';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
-import { deleteAllKittyImages, getCapabilities } from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
+
+import { deleteAllKittyImages, getCapabilities } from '../utils/terminal-image';
 
 import {
   createMsys2PromptDeps,

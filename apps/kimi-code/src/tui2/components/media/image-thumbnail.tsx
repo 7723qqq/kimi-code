@@ -20,7 +20,7 @@
 import type { Component } from 'solid-js'
 import { Show } from 'solid-js'
 
-import { getCapabilities } from '@moonshot-ai/pi-tui'
+import { getCapabilities } from '../../utils/terminal-image'
 
 import { currentTheme } from '../../theme'
 import type { ImageAttachment } from '../../utils/image-attachment-store'

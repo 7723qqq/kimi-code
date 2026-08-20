@@ -19,7 +19,6 @@ import type {
   TokenUsage,
 } from '@moonshot-ai/kimi-code-sdk';
 import { log } from '@moonshot-ai/kimi-code-sdk';
-import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 
 /** Narrowed event shapes consumed by the private handlers below. */
 type StatusUpdatedEvent = Extract<Event, { type: 'agent.status.updated' }>;
@@ -131,7 +130,7 @@ export interface SessionEventHost {
   ): void;
   noteSessionToolCompleted(deltaMs: number): void;
   noteCompactionFinished(): void;
-  mountEditorReplacement(panel: Component & Focusable): void;
+  mountEditorReplacement(panel: unknown): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
