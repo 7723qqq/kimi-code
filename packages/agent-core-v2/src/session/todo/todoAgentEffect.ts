@@ -3,13 +3,14 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import { defineAgentEffect, type AgentEffectContext } from '#/state/agentEffect';
 
 import type { TodoItem } from './todoItem';
-import { todoListStaleReminder } from './todoListReminder';
+import { todoActiveReminder, todoListStaleReminder } from './todoListReminder';
 
 export interface TodoAgentEffectContext extends AgentEffectContext {
   getTodos(): readonly TodoItem[];
   getHistory(): readonly ContextMessage[];
   isToolActive(): boolean;
   registerReminder(provider: () => string | undefined): IDisposable;
+  registerActiveReminder(provider: () => string | undefined): IDisposable;
   subscribeChange(listener: (todos: readonly TodoItem[]) => void): IDisposable;
   subscribeUndo(listener: () => void): IDisposable;
   onChange(todos: readonly TodoItem[]): void;
@@ -26,6 +27,9 @@ export const TodoAgentEffectDefinition = defineAgentEffect({
         todos: context.getTodos(),
       }),
     );
+    const active = context.registerActiveReminder(() =>
+      context.isToolActive() ? todoActiveReminder(context.getTodos()) : undefined,
+    );
     const change = context.subscribeChange((todos) => {
       lastKnown = todos;
     });
@@ -38,6 +42,7 @@ export const TodoAgentEffectDefinition = defineAgentEffect({
       dispose: () => {
         undo.dispose();
         change.dispose();
+        active.dispose();
         reminder.dispose();
       },
     };
@@ -47,6 +52,14 @@ export const TodoAgentEffectDefinition = defineAgentEffect({
 function todoItemsEqual(a: readonly TodoItem[], b: readonly TodoItem[]): boolean {
   return (
     a.length === b.length &&
-    a.every((item, index) => item.title === b[index]?.title && item.status === b[index]?.status)
+    a.every(
+      (item, index) =>
+        item.title === b[index]?.title &&
+        item.status === b[index]?.status &&
+        item.progress === b[index]?.progress &&
+        item.description === b[index]?.description &&
+        item.kind === b[index]?.kind &&
+        item.parentId === b[index]?.parentId,
+    )
   );
 }

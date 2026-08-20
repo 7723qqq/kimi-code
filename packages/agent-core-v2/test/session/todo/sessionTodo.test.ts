@@ -34,7 +34,7 @@ import { TodoAgentEffectDefinition } from '#/session/todo/todoAgentEffect';
 import { TodoAgentModelDefinition } from '#/session/todo/todoAgentModel';
 import { SessionTodoService } from '#/session/todo/sessionTodoService';
 import { type TodoItem } from '#/session/todo/todoItem';
-import { TODO_LIST_REMINDER_VARIANT } from '#/session/todo/todoListReminder';
+import { TODO_ACTIVE_REMINDER_VARIANT, TODO_LIST_REMINDER_VARIANT } from '#/session/todo/todoListReminder';
 import { AgentEffectContribution } from '#/state/agentEffect';
 import { AgentModelContribution } from '#/state/agentModel';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -244,7 +244,7 @@ describe('SessionTodoService', () => {
     expect(main.registeredVariants).toEqual([]);
     expect(sub.registeredVariants).toEqual([]);
     await runtime.service.setTodos(main.context, [{ id: '', parentId: null, kind: 'task', title: 'main todo', status: 'pending' }]);
-    expect(main.registeredVariants).toEqual([TODO_LIST_REMINDER_VARIANT]);
+    expect(main.registeredVariants).toEqual([TODO_LIST_REMINDER_VARIANT, TODO_ACTIVE_REMINDER_VARIANT]);
     expect(sub.registeredVariants).toEqual([]);
     await runtime.service.setTodos(sub.context, [{ id: '', parentId: null, kind: 'task', title: 'sub todo', status: 'done' }]);
 
@@ -254,8 +254,8 @@ describe('SessionTodoService', () => {
     expect(await runtime.service.getTodos(sub.context)).toEqual([
       { id: 'T1', parentId: null, kind: 'task', title: 'sub todo', status: 'done' },
     ]);
-    expect(main.activeReminders()).toBe(1);
-    expect(sub.activeReminders()).toBe(1);
+    expect(main.activeReminders()).toBe(2);
+    expect(sub.activeReminders()).toBe(2);
     runtime.dispose();
   });
 
@@ -373,7 +373,7 @@ describe('SessionTodoService', () => {
     await nextTick();
 
     expect(main.activeReminders()).toBe(0);
-    expect(sub.activeReminders()).toBe(1);
+    expect(sub.activeReminders()).toBe(2);
     await expect(runtime.service.getTodos(main.context)).rejects.toThrow('Agent main:1 is stale');
     runtime.dispose();
   });
@@ -404,7 +404,7 @@ describe('SessionTodoService', () => {
     const main = makeFakeAgent('main');
     const runtime = makeTodoRuntime(makeLifecycleStub([main.handle]));
     await runtime.service.getTodos(main.context);
-    expect(main.activeReminders()).toBe(1);
+    expect(main.activeReminders()).toBe(2);
 
     runtime.withdrawDefinitions();
     await nextTick();

@@ -133,6 +133,112 @@ describe('TodoListTool', () => {
     expect(getTodos()).toEqual([]);
   });
 
+  it('write mode preserves progress and description', async () => {
+    const { tool, getTodos } = makeTool();
+
+    await executeTool(tool, {
+      turnId: 1,
+      toolCallId: 'call_1',
+      args: {
+        todos: [
+          { id: '', parentId: null, kind: 'task', title: 'Fix bug', status: 'in_progress', progress: 40, description: 'auth flow' },
+        ],
+      },
+      signal,
+    });
+
+    expect(getTodos()).toEqual([
+      { id: '', parentId: null, kind: 'task', title: 'Fix bug', status: 'in_progress', progress: 40, description: 'auth flow' },
+    ]);
+  });
+
+  it('updates mode patches status and progress in place', async () => {
+    const { tool, getTodos } = makeTool([
+      { id: 'T1', parentId: null, kind: 'task', title: 'Fix bug', status: 'pending' },
+    ]);
+
+    const result = await executeTool(tool, {
+      turnId: 1,
+      toolCallId: 'call_1',
+      args: { updates: [{ id: 'T1', status: 'in_progress', progress: 60 }] },
+      signal,
+    });
+
+    expect(result.isError ?? false).toBe(false);
+    expect(getTodos()).toEqual([
+      { id: 'T1', parentId: null, kind: 'task', title: 'Fix bug', status: 'in_progress', progress: 60 },
+    ]);
+  });
+
+  it('updates mode preserves untouched fields including progress', async () => {
+    const { tool, getTodos } = makeTool([
+      { id: 'T1', parentId: null, kind: 'task', title: 'Fix bug', status: 'in_progress', progress: 25, description: 'auth flow' },
+    ]);
+
+    await executeTool(tool, {
+      turnId: 1,
+      toolCallId: 'call_1',
+      args: { updates: [{ id: 'T1', status: 'in_progress' }] },
+      signal,
+    });
+
+    expect(getTodos()).toEqual([
+      { id: 'T1', parentId: null, kind: 'task', title: 'Fix bug', status: 'in_progress', progress: 25, description: 'auth flow' },
+    ]);
+  });
+
+  it('updates mode reports unknown ids with the current list', async () => {
+    const { tool } = makeTool([
+      { id: 'T1', parentId: null, kind: 'task', title: 'Fix bug', status: 'pending' },
+    ]);
+
+    const result = await executeTool(tool, {
+      turnId: 1,
+      toolCallId: 'call_1',
+      args: { updates: [{ id: 'T2', status: 'done' }] },
+      signal,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('T2');
+    expect(result.output).toContain('T1');
+  });
+
+  it('updates and todos are mutually exclusive', async () => {
+    const { tool, getTodos } = makeTool();
+
+    const result = await executeTool(tool, {
+      turnId: 1,
+      toolCallId: 'call_1',
+      args: {
+        todos: [{ id: '', parentId: null, kind: 'task', title: 'x', status: 'pending' }],
+        updates: [{ id: 'T1', status: 'done' }],
+      },
+      signal,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getTodos()).toEqual([]);
+  });
+
+  it('empty updates is a no-op that returns the current list', async () => {
+    const { tool, getTodos } = makeTool([
+      { id: 'T1', parentId: null, kind: 'task', title: 'Fix bug', status: 'pending' },
+    ]);
+
+    const result = await executeTool(tool, {
+      turnId: 1,
+      toolCallId: 'call_1',
+      args: { updates: [] },
+      signal,
+    });
+
+    expect(result.isError ?? false).toBe(false);
+    expect(getTodos()).toEqual([
+      { id: 'T1', parentId: null, kind: 'task', title: 'Fix bug', status: 'pending' },
+    ]);
+  });
+
   it('resolveExecution description reflects the mode', () => {
     const { tool } = makeTool();
     const readExecution = tool.resolveExecution({});
@@ -151,5 +257,11 @@ describe('TodoListTool', () => {
     expect(readExecution.description).toBe('Reading todo list');
     expect(clearExecution.description).toBe('Clearing todo list');
     expect(updateExecution.description).toBe('Updating todo list');
+    const updateExec = tool.resolveExecution({
+      updates: [{ id: 'T1', status: 'done' }],
+    });
+    expect((updateExec as { description: string }).description).toBe(
+      'Applying incremental todo updates',
+    );
   });
 });

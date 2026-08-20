@@ -25,7 +25,7 @@ import { ISessionTodoService, type TodoChange } from './sessionTodo';
 import { TodoAgentEffectDefinition } from './todoAgentEffect';
 import { TodoAgentModelDefinition } from './todoAgentModel';
 import { TODO_LIST_TOOL_NAME, type TodoItem } from './todoItem';
-import { TODO_LIST_REMINDER_VARIANT } from './todoListReminder';
+import { TODO_ACTIVE_REMINDER_VARIANT, TODO_LIST_REMINDER_VARIANT } from './todoListReminder';
 
 export class SessionTodoService extends Service implements ISessionTodoService {
   declare readonly _serviceBrand: undefined;
@@ -108,6 +108,10 @@ export class SessionTodoService extends Service implements ISessionTodoService {
       getHistory: () => memory.get(),
       isToolActive: () => toolPolicy.isToolActive(TODO_LIST_TOOL_NAME, 'builtin'),
       registerReminder: (provider) => injector.register(TODO_LIST_REMINDER_VARIANT, provider),
+      registerActiveReminder: (provider) =>
+        injector.register(TODO_ACTIVE_REMINDER_VARIANT, ({ isNewTurn }) =>
+          isNewTurn ? provider() : undefined,
+        ),
       subscribeChange: (listener) =>
         this.onDidChange((change) => {
           if (change.agent === agent) listener(change.todos);
