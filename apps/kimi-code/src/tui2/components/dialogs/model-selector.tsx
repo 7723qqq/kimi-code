@@ -25,7 +25,7 @@ import {
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk'
 
-import { fuzzyFilter } from '@moonshot-ai/pi-tui'
+import { fuzzyFilter } from '../../utils/fuzzy'
 
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../../../constant/app'
 import { t } from '#/i18n'

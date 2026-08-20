@@ -19,7 +19,7 @@ import type { ColorInput, KeyEvent } from '@opentui/core'
 
 import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk'
 
-import { fuzzyFilter } from '@moonshot-ai/pi-tui'
+import { fuzzyFilter } from '../../utils/fuzzy'
 
 import { t } from '#/i18n'
 

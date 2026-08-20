@@ -40,7 +40,7 @@ import { createMemo, createSignal, For, Show } from 'solid-js'
 import { useKeyboard } from '@opentui/solid'
 import type { ColorInput, KeyEvent } from '@opentui/core'
 
-import { fuzzyFilter } from '@moonshot-ai/pi-tui'
+import { fuzzyFilter } from '../../utils/fuzzy'
 
 import { t } from '#/i18n'
 
