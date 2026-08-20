@@ -24,3 +24,12 @@ When NOT to use:
 - Pure research/exploration tasks
 
 Once you are in plan mode, a reminder walks you through the workflow (explore → design → write the plan file → `ExitPlanMode`) and enforces read-only access. For non-trivial tasks where you are unsure of the codebase structure or relevant code paths, use `Agent(subagent_type="explore")` to investigate first when the `Agent` tool is available.
+
+**Plan file structure for automatic TodoList seeding.** Writing the plan in a structured form lets the system build the initial todo list for you as soon as the plan is approved, so you can start executing immediately instead of recreating the steps in TodoList yourself. Use this structure in the plan file (markdown):
+
+- Each phase is a `## <phase name>` or `### <phase name>` heading — it becomes a `milestone` (first = start, last = finish, middle = phase).
+- Under each phase, list concrete steps as `- <step text>` or `1. <step text>` — each becomes a leaf task (parentId = the milestone id).
+- A completed step `- [x] <text>` seeds `status: 'done'`; a pending step `- [ ] <text>` or a bare `- <text>` seeds `status: 'pending'`.
+- Steps at the top level (no preceding heading) and paragraphs without a list are ignored — you can use them for rationale that should not become a todo.
+
+If the plan lacks this structure, the todo list is not seeded automatically and the post-plan-mode reminder will nudge you to build it via TodoList. If a todo list already exists for this agent at the moment of plan approval, the existing list is left untouched for the same reason.

@@ -181,6 +181,10 @@ export interface PlanEnterResolvedEvent {
   outcome: 'auto_approved';
 }
 
+export interface PlanToTodoConvertedEvent {
+  item_count: number;
+}
+
 export interface CompactionFinishedEvent {
   turn_id?: number;
   source: 'manual' | 'auto';
@@ -636,6 +640,13 @@ export const telemetryEventDefinitions = {
     comment: 'A request to enter plan mode is resolved.',
     properties: {
       outcome: 'How the request was resolved',
+    },
+  }),
+  plan_to_todo_converted: defineAgentTelemetryEvent<PlanToTodoConvertedEvent>({
+    owner: 'kimi-code',
+    comment: 'Plan-mode exit seeded the todo list from the approved plan.',
+    properties: {
+      item_count: 'Number of todo items written (milestones + leaves).',
     },
   }),
   compaction_finished: defineAgentTelemetryEvent<CompactionFinishedEvent>({

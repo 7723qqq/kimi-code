@@ -25,6 +25,7 @@ import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionTodoService } from '#/session/todo/sessionTodo';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { ContextUndone } from '#/agent/undo/undoService';
@@ -35,6 +36,7 @@ import {
   type PlanFilePath,
 } from './plan';
 import { ExitPlanModeReview } from './exitPlanModeReview';
+import { tryConvertPlanToTodos } from './planToTodoConverter';
 import {
   PlanModeCancel,
   PlanModeEnter,
@@ -61,8 +63,9 @@ export class AgentPlanService extends Service implements IAgentPlanService {
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
     @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
-    @ITelemetryService telemetry: ITelemetryService,
+    @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentStateService private readonly agentState: IAgentStateService,
+    @ISessionTodoService private readonly todo: ISessionTodoService,
   ) {
     super();
     this.agentState.contributeState(planKey);
@@ -196,6 +199,20 @@ export class AgentPlanService extends Service implements IAgentPlanService {
   exit(id?: string): void {
     void this.dispatcher.dispatch(new PlanModeExit({ agentId: this.agentCtx.agentId, id }));
     this.telemetryContext.set({ mode: 'agent' });
+    void this.maybeSeedTodoFromPlan();
+  }
+
+  private async maybeSeedTodoFromPlan(): Promise<void> {
+    const planData = await this.status();
+    if (planData === null) return;
+    const outcome = await tryConvertPlanToTodos(planData, this.todo, this.agentCtx.agentContext);
+    if (outcome.kind === 'converted') {
+      this.telemetry.track2('plan_to_todo_converted', {
+        item_count: outcome.count,
+      });
+    }
+    // skipped: silent. The exit reminder already nudges the model to build
+    // the list manually when conversion is not applicable.
   }
 
   async recordRevision(): Promise<void> {
