@@ -43,7 +43,7 @@ import {
   setUserShellPath,
   shouldPromptMsys2,
 } from '#/cli/msys2-prompt';
-import { getLocale, t } from '#/i18n';
+import { getLocale, setLocale, t } from '#/i18n';
 import type { MigrationScreenResult } from '#/migration/index';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
@@ -336,18 +336,22 @@ export class KimiTUI {
 
   /** Apply the chosen model alias + thinking effort to the live session. */
   public async pickModel(alias: string, effort: ThinkingEffort): Promise<void> {
-    const session = this.session
-    if (session === undefined) return
     this.store.setState('modelSelector', {
       ...this.store.state.modelSelector,
       currentValue: alias,
       currentThinkingEffort: effort,
     })
-    // The selected model / effort now lives in the store; the session
-    // picks it up on its next turn. We don't re-create the session here
-    // — that path is owned by the streaming controller.
-    void session
-    void this.syncRuntimeState()
+    const session = this.session
+    if (session !== undefined) {
+      try {
+        await session.setModel(alias)
+        await session.setThinkingEffort(effort)
+        await this.syncRuntimeState(session)
+      } catch {
+        // Non-fatal: the store is updated; the next turn picks the new
+        // model up even if the immediate call failed.
+      }
+    }
   }
 
   /** Apply a plugin-panel action with the full payload. */
@@ -386,6 +390,9 @@ export class KimiTUI {
       ...this.store.state.localeSelector,
       currentValue: locale,
     })
+    // Update the i18n module so subsequent `t(...)` calls render in the
+    // chosen language. The store update alone wouldn't refresh UI copy.
+    setLocale(locale)
   }
 
   /** Apply the chosen permission mode. */
@@ -394,6 +401,17 @@ export class KimiTUI {
       ...this.store.state.permissionSelector,
       currentValue: mode,
     })
+    // Push the change to the live session so subsequent tool calls honor
+    // it. Without this the store would drift from the session state.
+    const session = this.session
+    if (session !== undefined) {
+      try {
+        await session.setPermission(mode)
+      } catch {
+        // Session may not be ready yet (boot phase). The store change
+        // is still applied; the session picks it up on the next turn.
+      }
+    }
   }
 
   /** Apply the chosen external-editor command. */
@@ -402,6 +420,13 @@ export class KimiTUI {
       ...this.store.state.editorSelector,
       currentValue: command,
     })
+    // Persist through the harness config so Ctrl-G uses the new command
+    // across sessions / restarts.
+    try {
+      await this.harness.setConfig({ kimi_code: { tui: { external_editor: command } } })
+    } catch {
+      // Non-fatal: the in-memory config is updated regardless.
+    }
   }
 
   /** Apply the chosen update-preference flag. */
@@ -410,6 +435,11 @@ export class KimiTUI {
       ...this.store.state.updatePreference,
       currentValue: enabled,
     })
+    try {
+      await this.harness.setConfig({ kimi_code: { tui: { update_check: enabled } } })
+    } catch {
+      // Non-fatal.
+    }
   }
 
   /** Apply the chosen settings sub-action. */
@@ -476,6 +506,15 @@ export class KimiTUI {
       ...this.store.state.effortSelector,
       currentValue: effort,
     })
+    const session = this.session
+    if (session !== undefined) {
+      try {
+        await session.setThinkingEffort(effort)
+        await this.syncRuntimeState(session)
+      } catch {
+        // Store state is the source of truth; session picks it up next turn.
+      }
+    }
   }
 
   /** Apply the chosen startup permission. */
