@@ -80,7 +80,7 @@ export type DialogResult =
   | { readonly kind: 'settings-selector'; readonly value: string }
   | { readonly kind: 'cache-hint'; readonly action: 'compact' | 'new' | 'continue' | 'never' }
   | { readonly kind: 'goal-queue-manager'; readonly choice: 'auto' | 'yolo' | 'manual' | 'cancel' }
-  | { readonly kind: 'undo-selector'; readonly choiceId: string }
+  | { readonly kind: 'undo-selector'; readonly count: number; readonly input: string }
   | { readonly kind: 'effort-selector'; readonly effort: ThinkingEffort }
   | { readonly kind: 'help' }
   | { readonly kind: 'which-key' }

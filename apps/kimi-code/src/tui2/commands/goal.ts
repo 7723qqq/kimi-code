@@ -370,20 +370,60 @@ function showGoalStartPermissionPrompt(
     host.restoreInputText(commandText);
     host.showStatus(t('tui.statusMessages.goalNotStarted'));
   };
-  host.mountEditorReplacement(
-    new GoalStartPermissionPromptComponent({
-      mode: host.state.appState.permissionMode === 'yolo' ? 'yolo' : 'manual',
-      onSelect: (choice) => {
-        if (choice === 'cancel') {
-          cancelStart();
-          return;
-        }
-        host.restoreEditor();
-        void startGoalWithPermission(host, parsed, choice, options);
-      },
-      onCancel: cancelStart,
-    }),
-  );
+  // tui2: the dialog renders from `store.state.activeDialog`; the choice
+  // is resolved through the host's `pickGoalStartChoice` (which reads the
+  // saved context from the store). This path replaces the v1
+  // `mountEditorReplacement` flow.
+  if (host.store !== undefined) {
+    host.store.setState('goalStartContext', {
+      parsed: { objective: parsed.objective, replace: parsed.replace },
+      rawArgs,
+    })
+    host.store.setState('activeDialog', 'goal-queue-manager')
+  } else {
+    host.mountEditorReplacement(
+      new GoalStartPermissionPromptComponent({
+        mode: host.state.appState.permissionMode === 'yolo' ? 'yolo' : 'manual',
+        onSelect: (choice) => {
+          if (choice === 'cancel') {
+            cancelStart()
+            return
+          }
+          host.restoreEditor()
+          void startGoalWithPermission(host, parsed, choice, options)
+        },
+        onCancel: cancelStart,
+      }),
+    )
+  }
+}
+
+/** Resolve the open goal-queue dialog (called by the host when the
+ *  user picks a permission in the goal-queue-manager dialog). Reads the
+ *  context stored by `showGoalStartPermissionPrompt` and runs the
+ *  original goal-start flow. */
+export async function resolveGoalStartPermissionChoice(
+  host: GoalCommandHost,
+  choice: GoalStartPermissionChoice,
+): Promise<void> {
+  const store = host.store
+  if (store === undefined) return
+  const context = store.state.goalStartContext
+  store.setState('activeDialog', null)
+  store.setState('goalStartContext', undefined)
+  if (context === undefined) return
+  const parsed: Extract<ParsedGoalCommand, { kind: 'create' }> = {
+    kind: 'create',
+    objective: context.parsed.objective,
+    ...(context.parsed.replace !== undefined ? { replace: context.parsed.replace } : {}),
+  } as Extract<ParsedGoalCommand, { kind: 'create' }>
+  if (choice === 'cancel') {
+    host.restoreInputText(`/goal ${context.rawArgs.trim()}`)
+    host.showStatus(t('tui.statusMessages.goalNotStarted'))
+    return
+  }
+  host.restoreEditor()
+  await startGoalWithPermission(host, parsed, choice, {})
 }
 
 async function startGoalWithPermission(

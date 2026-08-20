@@ -64,15 +64,43 @@ function showSwarmStartPermissionPrompt(
     host.restoreInputText(commandText);
     host.showStatus(cancelStatus);
   };
-  host.mountEditorReplacement(
-    new SwarmStartPermissionPromptComponent({
-      onSelect: (choice) => {
-        host.restoreEditor();
-        void onSelect(choice);
-      },
-      onCancel: cancelStart,
-    }),
-  );
+  // tui2: render from store state; the choice resolves through the
+  // host's pickSwarmStartPermission (which reads the saved prompt from
+  // the store).
+  if (host.store !== undefined) {
+    host.store.setState('swarmStartContext', { prompt: commandText })
+    host.store.setState('activeDialog', 'swarm-start-permission-prompt')
+  } else {
+    host.mountEditorReplacement(
+      new SwarmStartPermissionPromptComponent({
+        onSelect: (choice) => {
+          host.restoreEditor();
+          void onSelect(choice);
+        },
+        onCancel: cancelStart,
+      }),
+    )
+  }
+}
+
+/** Resolve the open swarm-start dialog (called by the host when the
+ *  user picks a permission in the swarm-start-permission-prompt dialog).
+ *  Reads the saved prompt from the store and runs the original
+ *  swarm-start flow. */
+export async function resolveSwarmStartPermissionChoice(
+  host: SlashCommandHost,
+  choice: SwarmStartPermissionChoice,
+): Promise<void> {
+  const store = host.store
+  if (store === undefined) return
+  const context = store.state.swarmStartContext
+  store.setState('activeDialog', null)
+  store.setState('swarmStartContext', undefined)
+  if (context === undefined) return
+  if (choice === 'auto' || choice === 'yolo') {
+    if (!(await setPermissionForSwarm(host, choice))) return
+  }
+  await startSwarmTask(host, context.prompt)
 }
 
 async function startSwarmWithPermission(

@@ -249,6 +249,13 @@ export interface TuiRuntimeState {
   activityMode: 'idle' | 'waiting' | 'thinking' | 'composing' | 'tool'
   /** Current activity-pane detail (e.g. step retry error). */
   activityDetail: string | undefined
+  /** Pending goal-start context (set by `showGoalStartPermissionPrompt`).
+   *  Read by the pick-method when the user picks a permission choice. */
+  goalStartContext:
+    | { readonly parsed: { readonly objective: string; readonly replace?: boolean }; readonly rawArgs: string }
+    | undefined
+  /** Pending swarm-start context (set by `showSwarmStartPermissionPrompt`). */
+  swarmStartContext: { readonly prompt: string } | undefined
   /** Tasks-browser dialog state; undefined when closed. */
   tasksBrowser: TasksBrowserState | undefined
   /** Terminal capability snapshot (focus, notification support). */
@@ -363,6 +370,8 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
   activityTip: undefined,
   activityMode: 'idle',
   activityDetail: undefined,
+  goalStartContext: undefined,
+  swarmStartContext: undefined,
   tasksBrowser: undefined,
   terminalState: createTerminalState(),
   swarmModeEntry: undefined,

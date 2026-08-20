@@ -486,17 +486,23 @@ export class KimiTUI {
   public async pickGoalStartChoice(
     choice: 'auto' | 'yolo' | 'manual' | 'cancel',
   ): Promise<void> {
-    this.store.setState('goalQueue', {
-      ...this.store.state.goalQueue,
-      chosen: choice,
-    })
+    const { resolveGoalStartPermissionChoice } = await import('../commands/goal')
+    await resolveGoalStartPermissionChoice(
+      this as unknown as Parameters<typeof resolveGoalStartPermissionChoice>[0],
+      choice,
+    )
   }
 
   /** Apply the chosen undo-selector choice (restore target). */
-  public async pickUndoChoice(choiceId: string): Promise<void> {
-    this.store.setState('undoSelector', {
-      ...this.store.state.undoSelector,
-      chosen: choiceId,
+  public async pickUndoChoice(count: number, input: string): Promise<void> {
+    // The full payload (count + input text) is needed to actually restore
+    // the editor buffer and trim the transcript. We delegate to the
+    // existing `resolveUndoSelectorChoice` in `commands/undo.ts` so the
+    // session/undo-history + store-trim logic runs unchanged.
+    const { resolveUndoSelectorChoice } = await import('../commands/undo')
+    resolveUndoSelectorChoice(this as unknown as Parameters<typeof resolveUndoSelectorChoice>[0], {
+      count,
+      input,
     })
   }
 
@@ -531,10 +537,11 @@ export class KimiTUI {
   public async pickSwarmStartPermission(
     choice: 'auto' | 'yolo' | 'manual',
   ): Promise<void> {
-    this.store.setState('swarmStartPermission', {
-      ...this.store.state.swarmStartPermission,
-      chosen: choice,
-    })
+    const { resolveSwarmStartPermissionChoice } = await import('../commands/swarm')
+    await resolveSwarmStartPermissionChoice(
+      this as unknown as Parameters<typeof resolveSwarmStartPermissionChoice>[0],
+      choice,
+    )
   }
 
   /**
@@ -588,7 +595,7 @@ export class KimiTUI {
         await this.pickGoalStartChoice(result.choice)
         return
       case 'undo-selector':
-        await this.pickUndoChoice(result.choiceId)
+        await this.pickUndoChoice(result.count, result.input)
         return
       case 'effort-selector':
         await this.pickEffort(result.effort)

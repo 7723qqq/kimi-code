@@ -364,7 +364,9 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
       <Show when={dialog() === 'undo-selector'}>
         <UndoSelector
           choices={store.state.undoSelector?.choices ?? []}
-          onSelect={(choice) => select({ kind: 'undo-selector', choiceId: choice.id })}
+          onSelect={(choice) =>
+            select({ kind: 'undo-selector', count: choice.count, input: choice.input })
+          }
           onCancel={() => cancel('undo-selector')}
         />
       </Show>
