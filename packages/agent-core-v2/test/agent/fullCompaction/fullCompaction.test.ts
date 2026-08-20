@@ -1,7 +1,5 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import * as posixPath from 'node:path/posix';
-import * as win32Path from 'node:path/win32';
 import { join } from 'pathe';
 
 import { UNKNOWN_CAPABILITY } from '#/kosong/contract/capability';
@@ -293,7 +291,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 3_302,
+        tokens_before: 3_220,
         tokens_after: expect.any(Number),
         duration_ms: expect.any(Number),
         compacted_count: 6,
@@ -353,7 +351,7 @@ describe('FullCompaction', () => {
       writeFileSync(join(workDir, 'AGENTS.md'), 'old project instructions', 'utf-8');
       const ctx = testAgent(
         execEnvServices({ hostFs: new HostFileSystem() }),
-        hostEnvironmentServices(homeDir, runtimePathClass),
+        hostEnvironmentServices(homeDir),
         { autoConfigure: false, cwd: workDir },
       );
       ctx.configureRuntimeModel(CATALOGUED_PROVIDER, CATALOGUED_MODEL_CAPABILITIES);
@@ -572,7 +570,7 @@ describe('FullCompaction', () => {
       session_id: 'test-session',
       cwd: dir,
       trigger: 'auto',
-      token_count: 3_302,
+      token_count: 3_220,
     });
     expect(post).toMatchObject({
       hook_event_name: 'PostCompact',
@@ -658,7 +656,7 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 15_180,
+        tokens_before: 14_898,
         retry_count: 1,
         trace_id: 'trace-compact-1',
       }),
@@ -1041,7 +1039,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 15_180,
+        tokens_before: 14_898,
         duration_ms: expect.any(Number),
         round: 1,
         retry_count: 0,
@@ -1266,7 +1264,7 @@ describe('FullCompaction', () => {
       event: 'compaction_failed',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 15_180,
+        tokens_before: 14_898,
         duration_ms: expect.any(Number),
         retry_count: 4,
         error_type: 'APIConnectionError',
@@ -1639,8 +1637,8 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'auto',
-        tokens_before: 3_309,
-        tokens_after: 3_293,
+        tokens_before: 3_227,
+        tokens_after: 3_211,
         compacted_count: 7,
         retry_count: 0,
       }),
@@ -2901,14 +2899,8 @@ describe('FullCompaction', () => {
 
   it('appends the todo list to the compaction summary', async () => {
     const todos = [
-      {
-        id: 'T1',
-        parentId: null,
-        kind: 'task',
-        title: 'Fix the auth bug',
-        status: 'in_progress',
-      },
-      { id: 'T2', parentId: null, kind: 'task', title: 'Add tests', status: 'pending' },
+      { title: 'Fix the auth bug', status: 'in_progress' },
+      { title: 'Add tests', status: 'pending' },
     ] as const;
     const ctx = testAgent(
       sessionServices((reg) => {
@@ -2949,7 +2941,7 @@ describe('FullCompaction', () => {
     expect(history[2]).toMatchObject({
       role: 'user',
       text: expect.stringContaining(
-        'Compacted summary.\n\n## TODO List (overall 0/2 · 0%)\n  [in_progress] T1: Fix the auth bug\n  [pending] T2: Add tests',
+        'Compacted summary.\n\n## TODO List\n  [in_progress] Fix the auth bug\n  [pending] Add tests',
       ),
     });
     expect(ctx.context.get().at(-1)?.content[0]).toMatchObject({
@@ -2989,12 +2981,9 @@ function countEvents(events: ReturnType<TestAgentContext['newEvents']>, type: st
   }).length;
 }
 
-const runtimePath = process.platform === 'win32' ? win32Path : posixPath;
-const runtimePathClass = process.platform === 'win32' ? 'win32' : 'posix';
-
 function exactCompactionRefreshPrompt(workDir: string, agentsMd: string): string {
   return [
-    `cwd:${runtimePath.resolve(workDir)}`,
+    `cwd:${workDir}`,
     'os:Linux',
     'shell:bash:/bin/bash',
     `agents:<!-- From: ${join(workDir, 'AGENTS.md')} -->\n${agentsMd}`,
@@ -3180,7 +3169,7 @@ function hookPayloadLoggerCommand(logPath: string): string {
     '});',
   ].join('');
   writeFileSync(scriptPath, script);
-  return `"${process.execPath}" "${scriptPath}"`;
+  return `${process.execPath} ${scriptPath}`;
 }
 
 function readHookPayloads(logPath: string): Array<Record<string, unknown>> {

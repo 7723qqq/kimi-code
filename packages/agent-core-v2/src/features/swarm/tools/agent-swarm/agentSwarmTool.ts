@@ -1,8 +1,10 @@
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import {
+  rootDelegationExtras,
   subagentAllowlistFor,
   subagentTypeNotAllowedMessage,
+  withoutDelegatingTargets,
 } from '#/app/agentProfileCatalog/profile-shared';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
@@ -143,7 +145,14 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     if ((args.items?.length ?? 0) > 0) {
       await this.catalog.ready;
       const own = this.profile.data();
-      const allowlist = subagentAllowlistFor(this.catalog, own);
+      const extras =
+        this.callerAgentId === 'main'
+          ? rootDelegationExtras(this.catalog, own, this.catalog.list())
+          : undefined;
+      let allowlist = subagentAllowlistFor(this.catalog, own, extras);
+      if (allowlist !== undefined && own.subagents === undefined) {
+        allowlist = withoutDelegatingTargets(this.catalog, allowlist);
+      }
       if (allowlist !== undefined && !allowlist.includes(profileName)) {
         throw new Error2(
           ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
