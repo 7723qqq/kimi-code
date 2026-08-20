@@ -1051,3 +1051,11 @@ export abstract class SDKRpcClientBase {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/**
+ * Input for `switchRuntime` — the session id and the target runtime id.
+ * Derived from `SessionIdRpcInput` with the extra `runtimeId` field.
+ */
+export interface SwitchSessionRuntimeRpcInput extends SessionIdRpcInput {
+  readonly runtimeId: string;
+}

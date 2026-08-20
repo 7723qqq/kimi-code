@@ -542,3 +542,32 @@ export type ResumedSessionState = Pick<
 >;
 
 export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState {}
+
+/**
+ * Runtime binding snapshot returned by `getRuntime` / `switchRuntime`. The v2
+ * runtime binding is identified by a stable `binding` (e.g. `local` / `worktree`)
+ * and may have a `runtime` attached when one is active.
+ */
+export interface AgentRuntimeBinding {
+  readonly binding: string;
+  readonly available: boolean;
+  readonly runtime?: string;
+  readonly workspaceId?: string;
+}
+
+/**
+ * Unified management-plane view of a global MCP server. Plugin, project, and
+ * user entries are normalized into this shape for RPC consumers.
+ */
+export interface McpManagedServerInfo {
+  readonly name: string;
+  readonly source: 'plugin' | 'project' | 'user' | 'caller';
+  readonly kind: 'stdio' | 'http' | 'sse';
+  readonly enabled: boolean;
+  readonly state: 'connected' | 'needs-auth' | 'failed' | 'disabled' | 'pending' | 'removed';
+  readonly config: Record<string, unknown>;
+  readonly auth?: { readonly state: 'authorized' | 'unauthorized' | 'unsupported' };
+  readonly toolCount?: number;
+  readonly lastError?: string;
+  readonly redactedKeys?: readonly string[];
+}

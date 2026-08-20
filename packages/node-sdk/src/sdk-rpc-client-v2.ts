@@ -143,15 +143,15 @@ import { join } from 'node:path';
 
 import {
   ensureConfigFile,
-  ErrorCodes,
-  HookDefSchema,
-  KimiError,
   limitAgentReplayByTurns,
-  noopTelemetryClient,
-  type AgentContextData,
-  type BeginGlobalMcpServerAuthResult,
-  type ExperimentalFeatureState,
-} from '@moonshot-ai/agent-core';
+} from '#/legacy/config-helpers';
+import { KimiError } from '#/legacy/kimi-error';
+import { noopTelemetryClient } from '#/legacy/telemetry';
+import { type BeginGlobalMcpServerAuthResult } from '#/types';
+import { ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
+import { HookDefSchema } from '@moonshot-ai/agent-core-v2/features/externalHooks/configSection';
+import { type AgentContextData } from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
+import { type ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2/app/flag/flag';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { MCP_SECTION, type McpSection } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
 import { IAgentIdentity } from '@moonshot-ai/agent-core-v2/app/agentIdentity/agentIdentity';

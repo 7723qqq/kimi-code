@@ -227,10 +227,95 @@ function persistedEntry(server: GlobalMcpServerConfig): McpServerConfig {
   return entry;
 }
 
-function normalizeServerName(name: string): string {
+export function normalizeServerName(name: string): string {
   const normalized = name.trim();
   if (normalized.length > 0) return normalized;
   throw new KimiError(ErrorCodes.REQUEST_INVALID, 'MCP server name cannot be empty');
+}
+
+/**
+ * Parse an inline MCP server config (raw JSON object or string) into the
+ * canonical `GlobalMcpServerConfig` shape. Accepts both an object with the
+ * `type`/`command`/`args`/`url` etc. fields, and a string form used by some
+ * legacy clients. Throws on missing required fields.
+ */
+export function parseInlineMcpServer(
+  server: Record<string, unknown> | string,
+): GlobalMcpServerConfig {
+  if (typeof server === 'string') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(server);
+    } catch {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'Inline MCP server must be a JSON object or a JSON-encoded string',
+      );
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Inline MCP server must be a JSON object');
+    }
+    server = parsed as Record<string, unknown>;
+  }
+  const name = typeof server['name'] === 'string' ? (server['name'] as string) : '';
+  if (name.length === 0) {
+    throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Inline MCP server is missing `name`');
+  }
+  const type = server['type'];
+  if (type === 'stdio') {
+    const command = server['command'];
+    if (typeof command !== 'string' || command.length === 0) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `Inline MCP server "${name}" is missing stdio \`command\``,
+      );
+    }
+    const args = Array.isArray(server['args']) ? (server['args'] as readonly string[]) : [];
+    return { name, type: 'stdio', command, args, env: readEnv(server['env']) };
+  }
+  if (type === 'http' || type === 'sse' || server['url'] !== undefined) {
+    const url = server['url'];
+    if (typeof url !== 'string' || url.length === 0) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `Inline MCP server "${name}" is missing \`url\``,
+      );
+    }
+    const remote: McpRemoteServerConfig = {
+      name,
+      type: type === 'sse' ? 'sse' : 'http',
+      url,
+      headers: readStringRecord(server['headers']),
+    };
+    if (server['oauth'] !== undefined && typeof server['oauth'] === 'object') {
+      Object.assign(remote, { oauth: server['oauth'] });
+    }
+    return remote;
+  }
+  throw new KimiError(
+    ErrorCodes.REQUEST_INVALID,
+    `Inline MCP server "${name}" must declare \`type\` ("stdio" or "http"/"sse")`,
+  );
+}
+
+function readEnv(value: unknown): Record<string, string> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function readStringRecord(value: unknown): Record<string, string> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function serverNotFound(name: string): KimiError {
