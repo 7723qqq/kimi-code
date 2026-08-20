@@ -19,16 +19,35 @@ import type { Tui2Store } from '@/tui2/state'
 
 interface Harness {
   readonly controller: ReturnType<typeof createBtwPanelController>
+  readonly host: BtwPanelHost
   readonly storeState: { current: Record<string, unknown> }
   readonly session: Session
   readonly harness: KimiHarness
   /** Queue the events that the host routes into the panel via `routeEvent`.
    *  Used to observe the bus subscription if the controller subscribes. */
   readonly routedEvents: Event[]
+  /** The teardown returned by the mock bus subscription. */
+  readonly busTeardown: ReturnType<typeof vi.fn>
 }
 
 function setupHarness(opts?: { sessionPrompt?: ReturnType<typeof vi.fn> }): Harness {
-  const storeState: { current: Record<string, unknown> } = { current: {} }
+  // The real store always boots the `btwPanel` slice (closed); the controller
+  // reads `state.btwPanel` unconditionally, so the mock mirrors that.
+  const storeState: { current: Record<string, unknown> } = {
+    current: {
+      btwPanel: {
+        active: false,
+        agentId: '',
+        answer: '',
+        thinking: '',
+        running: false,
+        done: false,
+        failed: null,
+        transientNotice: null,
+        scrollOffset: 0,
+      },
+    },
+  }
   const setState = vi.fn((key: string, value: unknown) => {
     storeState.current = { ...storeState.current, [key]: value }
   })
@@ -66,10 +85,11 @@ function setupHarness(opts?: { sessionPrompt?: ReturnType<typeof vi.fn> }): Harn
   } as unknown as KimiHarness
 
   const routedEvents: Event[] = []
+  const busTeardown = vi.fn(() => undefined)
   const bus = {
     subscribe: vi.fn((handler: (e: Event) => boolean) => {
       routedEvents.push = handler as never // not used; the controller calls handler directly via routeEvent
-      return () => undefined
+      return busTeardown
     }),
   }
 
@@ -82,7 +102,7 @@ function setupHarness(opts?: { sessionPrompt?: ReturnType<typeof vi.fn> }): Harn
   }
 
   const controller = createBtwPanelController(host)
-  return { controller, storeState, session, harness, routedEvents }
+  return { controller, host, storeState, session, harness, routedEvents, busTeardown }
 }
 
 function panel(harness: Harness): Record<string, unknown> {
@@ -245,5 +265,142 @@ describe('createBtwPanelController streaming accumulation', () => {
     expect(p['answer']).toBe('')
     expect(p['thinking']).toBe('')
     expect(p['running']).toBe(false)
+  })
+})
+
+/**
+ * Behavioral coverage — the control-flow semantics beyond the spread fix:
+ * idle submit, cancellation routing, no-session failure, turn-end status
+ * mapping, and boundary return values.
+ */
+describe('createBtwPanelController behavior', () => {
+  it('sendUserInput() while idle submits the prompt to the session', async () => {
+    const h = setupHarness()
+    h.controller.open('agent-1', 'first')
+    h.controller.routeEvent({ type: 'turn.ended', agentId: 'agent-1', reason: 'completed' } as Event)
+
+    const handled = h.controller.sendUserInput('second')
+    expect(handled).toBe(true)
+    expect(h.session.prompt).toHaveBeenCalledWith('second')
+  })
+
+  it('sendUserInput() when the panel is closed returns false', () => {
+    const h = setupHarness()
+    expect(h.controller.sendUserInput('x')).toBe(false)
+  })
+
+  it('submitPrompt() with no session marks the panel failed', () => {
+    const h = setupHarness()
+    ;(h.host as { session: Session | undefined }).session = undefined
+
+    h.controller.open('agent-1', 'hi')
+
+    const p = panel(h)
+    expect(p['running']).toBe(false)
+    expect(p['failed']).toBeTruthy()
+  })
+
+  it('submitPrompt() surfaces a rejected session prompt as a failure', async () => {
+    const h = setupHarness({ sessionPrompt: vi.fn(async () => {
+      throw new Error('network down')
+    }) })
+    h.controller.open('agent-1', 'hi')
+
+    await vi.waitFor(() => {
+      expect(panel(h)['running']).toBe(false)
+    })
+    expect(String(panel(h)['failed'])).toContain('network down')
+  })
+
+  it('closeOrCancel() while running cancels the agent and resets', async () => {
+    const h = setupHarness()
+    h.controller.open('agent-1', 'hi')
+
+    const handled = h.controller.closeOrCancel()
+    expect(handled).toBe(true)
+    expect(h.session.cancel).toHaveBeenCalled()
+
+    const p = panel(h)
+    expect(p['active']).toBe(false)
+    expect(p['running']).toBe(false)
+  })
+
+  it('closeOrCancel() when the panel is closed returns false', () => {
+    const h = setupHarness()
+    expect(h.controller.closeOrCancel()).toBe(false)
+  })
+
+  it('cancelRunning() while running cancels and reports handled', async () => {
+    const h = setupHarness()
+    h.controller.open('agent-1', 'hi')
+
+    expect(h.controller.cancelRunning()).toBe(true)
+    expect(h.session.cancel).toHaveBeenCalled()
+  })
+
+  it('cancelRunning() when idle returns false', () => {
+    const h = setupHarness()
+    h.controller.open('agent-1', 'hi')
+    h.controller.routeEvent({ type: 'turn.ended', agentId: 'agent-1', reason: 'completed' } as Event)
+    expect(h.controller.cancelRunning()).toBe(false)
+  })
+
+  it('scroll() down at offset 0 is a no-op that reports unhandled', () => {
+    const h = setupHarness()
+    h.controller.open('agent-1', 'hi')
+    expect(h.controller.scroll('down')).toBe(false)
+    expect(panel(h)['scrollOffset']).toBe(0)
+  })
+
+  it('scroll() when the panel is closed returns false', () => {
+    const h = setupHarness()
+    expect(h.controller.scroll('up')).toBe(false)
+  })
+
+  it('routeEvent() when the panel is closed returns false', () => {
+    const h = setupHarness()
+    const handled = h.controller.routeEvent({ type: 'assistant.delta', agentId: 'agent-1', delta: 'x' } as Event)
+    expect(handled).toBe(false)
+  })
+
+  it('turn.ended (cancelled) maps to the interrupted notice', () => {
+    const h = setupHarness()
+    h.controller.open('agent-1', 'hi')
+    h.controller.routeEvent({ type: 'turn.ended', agentId: 'agent-1', reason: 'cancelled' } as Event)
+    const p = panel(h)
+    expect(p['failed']).toBeTruthy()
+    expect(p['running']).toBe(false)
+  })
+
+  it('turn.ended (blocked) maps to the blocked notice', () => {
+    const h = setupHarness()
+    h.controller.open('agent-1', 'hi')
+    h.controller.routeEvent({ type: 'turn.ended', agentId: 'agent-1', reason: 'blocked' } as Event)
+    expect(panel(h)['failed']).toBeTruthy()
+  })
+
+  it('turn.ended with an error formats the code into the failure', () => {
+    const h = setupHarness()
+    h.controller.open('agent-1', 'hi')
+    h.controller.routeEvent({
+      type: 'turn.ended',
+      agentId: 'agent-1',
+      reason: 'failed',
+      error: { code: 'api_error', message: 'boom' },
+    } as Event)
+    expect(String(panel(h)['failed'])).toContain('api_error')
+  })
+
+  it('clear() while running cancels the agent', async () => {
+    const h = setupHarness()
+    h.controller.open('agent-1', 'hi')
+    h.controller.clear()
+    expect(h.session.cancel).toHaveBeenCalled()
+  })
+
+  it('dispose() detaches the bus subscription', () => {
+    const h = setupHarness()
+    h.controller.dispose()
+    expect(h.busTeardown).toHaveBeenCalled()
   })
 })

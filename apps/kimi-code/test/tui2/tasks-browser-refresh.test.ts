@@ -45,7 +45,21 @@ function setupHarness(initialTasks: readonly BackgroundTaskInfo[]): Harness {
     initialTasks.map((task) => [task.taskId, task]),
   )
   const storeState: { current: Record<string, unknown> } = { current: {} }
+  // Mirror the real store: SolidJS `setState(key, object)` merges the fields
+  // into the existing slice **in place** (the slice reference stays stable),
+  // which the controller's identity guards (`loadTail`'s `current !==
+  // browser`, `refreshList`'s same check) depend on. `undefined` deletes the
+  // key; primitives replace it.
   const setState = vi.fn((key: string, value: unknown) => {
+    const existing = storeState.current[key]
+    if (value === undefined) {
+      delete storeState.current[key]
+      return
+    }
+    if (typeof value === 'object' && value !== null && typeof existing === 'object' && existing !== null) {
+      Object.assign(existing, value)
+      return
+    }
     storeState.current = { ...storeState.current, [key]: value }
   })
   const store: Tui2Store = {
@@ -61,10 +75,9 @@ function setupHarness(initialTasks: readonly BackgroundTaskInfo[]): Harness {
         return
       }
       if (typeof slice === 'object') {
-        storeState.current = {
-          ...storeState.current,
-          [key]: { ...(slice as object), ...(partial as object) },
-        }
+        // In-place merge, exactly like the real store's `{ ...slice,
+        // ...partial }` → SolidJS `mergeStoreNode` (same reference).
+        Object.assign(slice, partial)
       }
     },
   } as unknown as Tui2Store
@@ -277,5 +290,166 @@ describe('TasksBrowserController.patchTasksBrowser', () => {
     // resurrect it.
     expect(() => harness.controller.closeOutputViewer()).not.toThrow()
     expect(harness.storeState.current['tasksBrowser']).toBeUndefined()
+  })
+})
+
+/**
+ * Behavioral coverage — the control-flow semantics beyond the spread fix:
+ * show() guards and selection, open/close dialog ownership, select / filter /
+ * refresh / stop / openOutput / loadTail routing and their boundary returns.
+ *
+ * `show()` arms a 1s poll interval; fake timers keep the workers from
+ * lingering, and each case drives the real controller against the mock host.
+ */
+describe('TasksBrowserController behavior', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function browser(harness: ReturnType<typeof setupHarness>): Record<string, unknown> {
+    return harness.storeState.current['tasksBrowser'] as Record<string, unknown>
+  }
+
+  it('show() with no session reports an error and opens nothing', async () => {
+    const harness = setupHarness([])
+    const showError = vi.fn()
+    ;(harness.host as { showError: (m: string) => void }).showError = showError
+    ;(harness.host as { session: Session | undefined }).session = undefined
+
+    await harness.controller.show()
+
+    expect(showError).toHaveBeenCalled()
+    expect(browser(harness)).toBeUndefined()
+    expect(harness.storeState.current['activeDialog']).toBeUndefined()
+  })
+
+  it('show() picks a running task as the initial selection', async () => {
+    const harness = setupHarness([makeTask('a'), makeTask('b')])
+    harness.backgroundTasks.set('a', { ...makeTask('a'), status: 'completed' } as BackgroundTaskInfo)
+    harness.backgroundTasks.set('b', { ...makeTask('b'), status: 'running' } as BackgroundTaskInfo)
+
+    await harness.controller.show()
+
+    expect(browser(harness)['selectedTaskId']).toBe('b')
+    expect(browser(harness)['filter']).toBe('all')
+  })
+
+  it('show() is a no-op when the dialog is already open', async () => {
+    const harness = setupHarness([makeTask('a')])
+    await harness.controller.show()
+    const listTasks = harness.host.session?.listBackgroundTasks as ReturnType<typeof vi.fn>
+    const callsBefore = listTasks.mock.calls.length
+
+    await harness.controller.show()
+
+    expect(listTasks.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('toggleFilter() cycles the filter between all and active', async () => {
+    const harness = setupHarness([makeTask('a')])
+    await harness.controller.show()
+    expect(browser(harness)['filter']).toBe('all')
+
+    harness.controller.toggleFilter()
+    expect(browser(harness)['filter']).toBe('active')
+
+    harness.controller.toggleFilter()
+    expect(browser(harness)['filter']).toBe('all')
+  })
+
+  it('select() on the already-selected task does not reload the tail', async () => {
+    const harness = setupHarness([makeTask('a')])
+    await harness.controller.show()
+    const getOutput = harness.host.session?.getBackgroundTaskOutput as ReturnType<typeof vi.fn>
+    const callsBefore = getOutput.mock.calls.length
+
+    harness.controller.select('a')
+
+    expect(getOutput.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('refresh() flashes a refreshing banner', async () => {
+    const harness = setupHarness([makeTask('a')])
+    await harness.controller.show()
+
+    harness.controller.refresh()
+
+    expect(browser(harness)['flashMessage']).toBeTruthy()
+  })
+
+  it('stop() calls the session stop and refreshes the list', async () => {
+    const harness = setupHarness([makeTask('a')])
+    await harness.controller.show()
+    const stopBackgroundTask = harness.host.session?.stopBackgroundTask as ReturnType<typeof vi.fn>
+
+    await harness.controller.stop('a')
+
+    expect(stopBackgroundTask).toHaveBeenCalledWith('a', { reason: 'User initiated stop' })
+  })
+
+  it('stop() with no session flashes a notice', async () => {
+    const harness = setupHarness([makeTask('a')])
+    await harness.controller.show()
+    ;(harness.host as { session: Session | undefined }).session = undefined
+
+    await harness.controller.stop('a')
+
+    expect(browser(harness)['flashMessage']).toBeTruthy()
+  })
+
+  it('openOutput() fetches output and attaches an output viewer', async () => {
+    const harness = setupHarness([makeTask('a')])
+    await harness.controller.show()
+
+    await harness.controller.openOutput('a')
+
+    expect(browser(harness)['viewer']).toEqual({ taskId: 'a', output: 'sample output', kind: 'output' })
+  })
+
+  it('openOutput() with no session flashes a notice and opens nothing', async () => {
+    const harness = setupHarness([makeTask('a')])
+    await harness.controller.show()
+    ;(harness.host as { session: Session | undefined }).session = undefined
+
+    await harness.controller.openOutput('a')
+
+    expect(browser(harness)['flashMessage']).toBeTruthy()
+    expect(browser(harness)['viewer']).toBeUndefined()
+  })
+
+  it('openOutput() while a viewer is open is a no-op', async () => {
+    const harness = setupHarness([makeTask('a')])
+    await harness.controller.show()
+    await harness.controller.openOutput('a')
+    const getOutput = harness.host.session?.getBackgroundTaskOutput as ReturnType<typeof vi.fn>
+    const callsBefore = getOutput.mock.calls.length
+
+    await harness.controller.openOutput('a')
+
+    expect(getOutput.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('loadTail() populates tailOutput when the request resolves', async () => {
+    const harness = setupHarness([makeTask('a')])
+    await harness.controller.show()
+    await Promise.resolve()
+
+    expect(browser(harness)['tailLoading']).toBe(false)
+    expect(browser(harness)['tailOutput']).toBe('sample output')
+  })
+
+  it('close() also closes an open viewer and releases the dialog slot', async () => {
+    const harness = setupHarness([makeTask('a')])
+    await harness.controller.show()
+    await harness.controller.openOutput('a')
+    expect(browser(harness)['viewer']).toBeDefined()
+
+    harness.controller.close()
+
+    expect(browser(harness)).toBeUndefined()
+    expect(harness.storeState.current['activeDialog']).toBeNull()
   })
 })
