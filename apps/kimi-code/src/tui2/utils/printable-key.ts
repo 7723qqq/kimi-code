@@ -11,7 +11,7 @@
  * Status: REAL (tui2). Mirrors `tui/utils/printable-key.ts`.
  */
 
-import { decodeKittyPrintable } from '@moonshot-ai/pi-tui';
+import { decodeKittyPrintable } from './keys';
 
 export function printableChar(data: string): string {
   return decodeKittyPrintable(data) ?? data;

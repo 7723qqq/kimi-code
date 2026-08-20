@@ -7,8 +7,8 @@
  * Status: REAL (tui2). Mirrors `tui/utils/searchable-list.ts`.
  */
 
-import { fuzzyFilter, Key, matchesKey } from '@moonshot-ai/pi-tui';
-
+import { fuzzyFilter } from './fuzzy';
+import { Key, matchesKey } from './keys';
 import { pageView, type PageView } from './paging';
 import { isPrintableChar, printableChar } from './printable-key';
 
