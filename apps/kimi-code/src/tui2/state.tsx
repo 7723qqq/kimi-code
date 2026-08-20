@@ -528,7 +528,7 @@ export interface Tui2StoreInit {
 }
 
 export function createTui2Store(input?: Tui2StoreInit): Tui2Store {
-  const [state, setState] = createStore<TuiRuntimeState>({
+  const init: TuiRuntimeState = {
     ...INITIAL_RUNTIME,
     workDir: input?.workDir ?? process.cwd(),
     additionalDirs: [...(input?.additionalDirs ?? [])],
@@ -548,7 +548,13 @@ export function createTui2Store(input?: Tui2StoreInit): Tui2Store {
     statusLine: input?.statusLine,
     agentProfile: input?.agentProfile,
     agentFiles: input?.agentFiles,
-  })
+  }
+  // `...INITIAL_RUNTIME` is a shallow copy — its nested object slices
+  // (transcriptNav, livePane, btwPanel, ...) stay shared references across
+  // store instances. SolidJS createStore keeps that shared leaf in place, so
+  // mutating one store's nested slice would leak into another fresh store.
+  // Deep-clone so every store owns its own nested state.
+  const [state, setState] = createStore<TuiRuntimeState>(structuredClone(init))
   return {
     state,
     setState,

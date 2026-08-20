@@ -4,7 +4,8 @@
     "allowJs": true,
     "experimentalDecorators": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "#/*": ["./src/*"]
     }
   },
   "include": ["src", "test"]

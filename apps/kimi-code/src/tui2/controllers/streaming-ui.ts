@@ -809,8 +809,7 @@ export class StreamingUIController {
     }
 
     if (cur.groupKey !== undefined) {
-      this.patchEntry(entry.id, { groupKey: cur.groupKey });
-      this.host.pushTranscriptEntry(entry);
+      this.host.pushTranscriptEntry({ ...entry, groupKey: cur.groupKey });
       return true;
     }
 
@@ -822,9 +821,8 @@ export class StreamingUIController {
     }
     const groupKey = `agent:${String(turnId ?? '')}:${String(step)}`;
     this.patchEntry(solo, { groupKey });
-    this.patchEntry(entry.id, { groupKey });
     this._pendingAgentGroup = { step, turnId, groupKey };
-    this.host.pushTranscriptEntry(entry);
+    this.host.pushTranscriptEntry({ ...entry, groupKey });
     return true;
   }
 
@@ -850,8 +848,7 @@ export class StreamingUIController {
     }
 
     if (cur.groupKey !== undefined) {
-      this.patchEntry(entry.id, { groupKey: cur.groupKey });
-      this.host.pushTranscriptEntry(entry);
+      this.host.pushTranscriptEntry({ ...entry, groupKey: cur.groupKey });
       return true;
     }
 
@@ -863,9 +860,8 @@ export class StreamingUIController {
     }
     const groupKey = `read:${String(turnId ?? '')}:${String(step)}`;
     this.patchEntry(solo, { groupKey });
-    this.patchEntry(entry.id, { groupKey });
     this._pendingReadGroup = { step, turnId, groupKey };
-    this.host.pushTranscriptEntry(entry);
+    this.host.pushTranscriptEntry({ ...entry, groupKey });
     return true;
   }
 

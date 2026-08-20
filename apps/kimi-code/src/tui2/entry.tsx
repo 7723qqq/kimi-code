@@ -74,6 +74,16 @@ export async function runTui2(input?: { workDir?: string }): Promise<void> {
   const store = createTui2Store({ workDir: input?.workDir })
   const keymap = createTui2Keymap(renderer)
 
+  // opentui's `render()` only resolves once the renderer is destroyed, so the
+  // boot-check destroy must run on a timer that is scheduled *before* we await
+  // render — gating it behind `await render` would deadlock (render never
+  // resolves until destroy is called).
+  if (process.env['KIMI_TUI2_BOOT_CHECK'] === '1') {
+    setTimeout(() => {
+      renderer.destroy()
+      process.stdout.write('TUI2_ENTRY_BOOT_OK\n')
+    }, 300)
+  }
   await render(
     () => (
       <KeymapProvider keymap={keymap}>
@@ -84,14 +94,6 @@ export async function runTui2(input?: { workDir?: string }): Promise<void> {
     ),
     renderer,
   )
-  if (process.env['KIMI_TUI2_BOOT_CHECK'] === '1') {
-    renderer.requestRender()
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 300)
-    })
-    renderer.destroy()
-    process.stdout.write('TUI2_ENTRY_BOOT_OK\n')
-  }
 }
 
 if (import.meta.main) {
