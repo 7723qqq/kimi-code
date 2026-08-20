@@ -38,6 +38,9 @@ describe('tui2 dispatch protocol', () => {
       | 'swarm-start-permission-prompt'
       | 'approval-panel'
       | 'question-dialog'
+      | 'tasks-browser'
+      | 'plugins-confirm'
+      | 'plugins-mcp'
     >()
   })
 

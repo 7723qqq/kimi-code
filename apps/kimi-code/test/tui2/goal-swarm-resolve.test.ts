@@ -130,7 +130,9 @@ describe('tui2 goal/swarm/undo resolve flow', () => {
     host.store.state['undoChoices'] = [
       { id: 'undo:3', count: 3, input: 'retry', label: 'undo 3' },
     ]
-    await resolveUndoSelectorChoice(host as never, {
+    // resolveUndoSelectorChoice is sync up to the fire-and-forget
+    // undoByCount promise; the dialog is dismissed synchronously here.
+    resolveUndoSelectorChoice(host as never, {
       count: 3,
       input: 'retry',
     })
@@ -138,6 +140,9 @@ describe('tui2 goal/swarm/undo resolve flow', () => {
     // transcript the undo call short-circuits, but the dispatch path
     // (activeDialog := null) still completes — that's what we test here.
     expect(host.store.state['activeDialog']).toBeNull()
+    // Flush the fire-and-forget undoByCount microtask so the assertion
+    // below doesn't race with it.
+    await Promise.resolve()
   })
 
   it('resolveUndoSelectorChoice with null restores the editor without undoing', async () => {
@@ -145,7 +150,7 @@ describe('tui2 goal/swarm/undo resolve flow', () => {
     host.store.state['undoChoices'] = [
       { id: 'undo:2', count: 2, input: 'x', label: 'undo 2' },
     ]
-    await resolveUndoSelectorChoice(host as never, null)
+    resolveUndoSelectorChoice(host as never, null)
     expect(host.calls).toContain('restoreEditor')
     expect(host.undoHistory).not.toHaveBeenCalled()
   })

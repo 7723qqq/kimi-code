@@ -35,6 +35,7 @@ import type { GoalStartPermissionChoice } from './components/dialogs/goal-start-
 import type { QuestionPanelResponse as QDialogResponse } from './components/dialogs/question-dialog'
 import type { PluginRemoveConfirmResult } from './components/dialogs/plugins-selector'
 import type { PluginInstallTrustConfirmResult } from './components/dialogs/plugins-selector'
+import type { PluginMcpSelection } from './components/dialogs/plugins-selector'
 
 /** The full set of dialogs the shell can render. */
 export type DialogKind =
@@ -61,6 +62,9 @@ export type DialogKind =
   | 'swarm-start-permission-prompt'
   | 'approval-panel'
   | 'question-dialog'
+  | 'tasks-browser'
+  | 'plugins-confirm'
+  | 'plugins-mcp'
 
 /** Discriminated union of every selectable dialog result. */
 export type PluginAction =
@@ -72,6 +76,8 @@ export type PluginAction =
 
 export type DialogResult =
   | { readonly kind: 'session-picker'; readonly sessionId: string }
+  | { readonly kind: 'session-picker-scope-toggle'; readonly sessionId: string }
+  | { readonly kind: 'session-picker-load-more' }
   | { readonly kind: 'model-selector'; readonly alias: string; readonly effort: ThinkingEffort }
   | { readonly kind: 'plugins-selector'; readonly action: PluginAction }
   | { readonly kind: 'theme-selector'; readonly themeName: string }
@@ -101,6 +107,20 @@ export type DialogResult =
       readonly method?: QuestionSubmissionMethod
       readonly answers: readonly string[]
     }
+  | {
+      readonly kind: 'tasks-browser'
+      readonly action:
+        | 'select'
+        | 'toggle-filter'
+        | 'refresh'
+        | 'stop'
+        | 'open-output'
+        | 'close-viewer'
+        | 'cancel'
+      readonly taskId?: string
+    }
+  | { readonly kind: 'plugins-confirm'; readonly confirmed: boolean }
+  | { readonly kind: 'plugins-mcp'; readonly selection: PluginMcpSelection }
 
 /**
  * The host-facing side of the dialog protocol. Implementations route
@@ -122,6 +142,7 @@ export const NOOP_DISPATCH: DialogDispatch = {
 export type { ApprovalPanelResponse, QDialogResponse, QuestionSubmissionMethod, QuestionPanelResponse }
 export type { GoalQueueEditResult, GoalQueueManagerAction, GoalStartPermissionChoice }
 export type { ModelAlias }
+export type { PluginMcpSelection }
 
 // Re-export plugin-side confirm results (the host uses these when the
 // user picks a "remove" / "install" action inside the plugins panel).

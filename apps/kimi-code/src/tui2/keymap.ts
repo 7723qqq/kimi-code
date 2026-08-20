@@ -23,8 +23,18 @@ export type Tui2Keymap = Keymap<Renderable, KeyEvent>
 export const COMMANDS = {
   send: 'tui2.send',
   cancel: 'tui2.cancel',
+  /** Ctrl+C: cancel the in-flight stream / arm the exit confirmation. */
+  cancelStream: 'tui2.cancelStream',
   exit: 'tui2.exit',
   focusEditor: 'tui2.editor.focus',
+  /** Ctrl+E: open the external $EDITOR with the draft. */
+  externalEditor: 'tui2.editor.external',
+  /** Ctrl+O: toggle tool output expansion. */
+  toggleToolOutput: 'tui2.tool.output',
+  /** Ctrl+S: send the oldest queued message (steer / drain). */
+  sendQueued: 'tui2.queue.send',
+  /** Ctrl+T: toggle the todo panel expansion. */
+  toggleTodoExpand: 'tui2.todo.expand',
   switchModel: 'tui2.model.switch',
   sessions: 'tui2.sessions',
   newSession: 'tui2.session.new',
@@ -57,8 +67,13 @@ export function buildCommands(handlers: Tui2CommandHandlers): readonly Command<R
 /** Default key → command bindings for the base mode. */
 export function buildBaseBindings(): Layer<Renderable, KeyEvent>['bindings'] {
   return [
+    { key: 'ctrl+c', command: COMMANDS.cancelStream },
     { key: 'ctrl+d', command: COMMANDS.exit },
+    { key: 'ctrl+e', command: COMMANDS.externalEditor },
     { key: 'ctrl+m', command: COMMANDS.switchModel },
+    { key: 'ctrl+o', command: COMMANDS.toggleToolOutput },
+    { key: 'ctrl+s', command: COMMANDS.sendQueued },
+    { key: 'ctrl+t', command: COMMANDS.toggleTodoExpand },
     { key: 'ctrl+l', command: COMMANDS.sessions },
     { key: 'ctrl+n', command: COMMANDS.newSession },
     { key: 'escape', command: COMMANDS.cancel },

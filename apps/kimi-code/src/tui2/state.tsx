@@ -489,6 +489,21 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
 export interface Tui2Store {
   readonly state: TuiRuntimeState
   readonly setState: SetStoreFunction<TuiRuntimeState>
+  /**
+   * Patch a subset of `state[key]` while preserving sibling fields. SolidJS
+   * `createStore` setters replace at the given path; a bare
+   * `setState(key, { foo: x })` wipes every other field on that slice. Use
+   * this helper for every partial write — it spreads the current slice and
+   * merges the partial on top.
+   *
+   * No-op when the slice is `null`, `undefined`, or a primitive (e.g. the
+   * `editorDraft` string). Callers that need a different guard should check
+   * the slice themselves.
+   */
+  readonly patch: <K extends keyof TuiRuntimeState>(
+    key: K,
+    partial: Partial<TuiRuntimeState[K]>,
+  ) => void
 }
 
 export interface Tui2StoreInit {
@@ -534,7 +549,25 @@ export function createTui2Store(input?: Tui2StoreInit): Tui2Store {
     agentProfile: input?.agentProfile,
     agentFiles: input?.agentFiles,
   })
-  return { state, setState }
+  return {
+    state,
+    setState,
+    patch(key, partial) {
+      const slice = state[key]
+      if (slice === null) return
+      if (slice === undefined) {
+        // Bootstrap case: install the partial as the initial slice.
+        setState(key, partial as TuiRuntimeState[typeof key])
+        return
+      }
+      if (typeof slice === 'object') {
+        setState(key, { ...slice, ...partial } as TuiRuntimeState[typeof key])
+        return
+      }
+      // Primitive slice (string / number / boolean): callers wanting to
+      // overwrite should use setState directly.
+    },
+  }
 }
 
 const Ctx = createContext<Tui2Store>()

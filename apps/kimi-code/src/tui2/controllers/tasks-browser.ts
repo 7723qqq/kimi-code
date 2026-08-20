@@ -61,6 +61,7 @@ export class TasksBrowserController {
     const filter: TasksBrowserState['filter'] = 'all';
     const selectedTaskId = this.pickInitialSelection(tasks, filter);
     this.host.setTasksBrowser({
+      tasks,
       filter,
       selectedTaskId,
       tailOutput: undefined,
@@ -69,9 +70,12 @@ export class TasksBrowserController {
       flashMessage: undefined,
       viewer: undefined,
     });
+    // Surface the dialog through the dialog slot so the shell can render it
+    // uniformly with the other controller-managed dialogs.
+    this.host.store.setState('activeDialog', 'tasks-browser');
 
     this.pollTimer = setInterval(() => {
-      void this.refresh({ silent: true });
+      void this.refreshList({ silent: true });
     }, 1000);
 
     if (selectedTaskId !== undefined) {
@@ -86,6 +90,11 @@ export class TasksBrowserController {
     if (this.pollTimer !== undefined) clearInterval(this.pollTimer);
     this.pollTimer = undefined;
     this.host.setTasksBrowser(undefined);
+    // Only release the dialog slot if we still own it — never clobber a
+    // different dialog that has taken the slot since close started.
+    if (this.host.store.state.activeDialog === 'tasks-browser') {
+      this.host.store.setState('activeDialog', null);
+    }
   }
 
   repaint(): void {
@@ -95,6 +104,21 @@ export class TasksBrowserController {
     // subscribers, so this is a cheap way to force a re-render after a change
     // that mutated nested fields directly.
     this.host.store.setState('tasksBrowser', { ...browser });
+  }
+
+  /**
+   * Patch a subset of `tasksBrowser` while preserving sibling fields. SolidJS
+   * `createStore` setters replace at the given path, so a bare
+   * `setState('tasksBrowser', { foo: x })` would wipe filter / selectedTaskId
+   * / tailOutput / viewer / flashMessage on every partial write. Delegates
+   * to `host.store.patch` (the shared store-level helper) so the same
+   * invariant lives in exactly one place.
+   *
+   * No-op when the dialog slice is closed; callers that need a different
+   * guard should check the slice themselves.
+   */
+  private patchTasksBrowser(partial: Partial<TasksBrowserState>): void {
+    this.host.store.patch('tasksBrowser', partial);
   }
 
   async refreshOutputViewer(opts: { silent?: boolean } = {}): Promise<void> {
@@ -121,7 +145,7 @@ export class TasksBrowserController {
     const current = store.state.tasksBrowser?.viewer;
     if (current === undefined || current !== viewer) return;
     if (output === viewer.output) return;
-    store.setState('tasksBrowser', {
+    this.patchTasksBrowser({
       viewer: { ...viewer, output },
     });
   }
@@ -147,7 +171,7 @@ export class TasksBrowserController {
     return candidates.find((task) => task.status === 'running')?.taskId ?? candidates[0]!.taskId;
   }
 
-  private async refresh(opts: { silent?: boolean } = {}): Promise<void> {
+  private async refreshList(opts: { silent?: boolean } = {}): Promise<void> {
     if (this.refreshing) return;
     this.refreshing = true;
     try {
@@ -173,6 +197,17 @@ export class TasksBrowserController {
         return;
       }
       if (store.state.tasksBrowser !== browser) return;
+      // Snapshot the host task map into the store so the shell can render the
+      // list without reaching into the host.
+      if (store.state.tasksBrowser !== undefined) {
+        // SolidJS createStore setters replace at the given path; spread the
+        // existing state so filter / selectedTaskId / tailOutput / viewer /
+        // flashMessage survive the refresh.
+        store.setState('tasksBrowser', {
+          ...store.state.tasksBrowser,
+          tasks: [...this.host.backgroundTasks.values()],
+        });
+      }
       this.syncAgentPreview();
       this.repaint();
     } finally {
@@ -192,17 +227,18 @@ export class TasksBrowserController {
       info.agentId,
     );
     if (record === undefined) return;
-    this.host.store.setState('tasksBrowser', {
+    this.patchTasksBrowser({
       tailOutput: formatSubagentActivityPreview(record, this.host.session?.workDir),
       tailLoading: false,
     });
   }
 
-  private handleSelect(taskId: string): void {
+  /** Select a task (updates the selection + tail preview). */
+  select(taskId: string): void {
     const browser = this.host.store.state.tasksBrowser;
     if (browser === undefined) return;
     if (browser.selectedTaskId === taskId) return;
-    this.host.store.setState('tasksBrowser', {
+    this.patchTasksBrowser({
       selectedTaskId: taskId,
       tailOutput: undefined,
       tailLoading: true,
@@ -210,20 +246,23 @@ export class TasksBrowserController {
     this.loadTail(taskId);
   }
 
-  private handleToggleFilter(): void {
+  /** Cycle the filter between all / active. */
+  toggleFilter(): void {
     const browser = this.host.store.state.tasksBrowser;
     if (browser === undefined) return;
-    this.host.store.setState('tasksBrowser', {
+    this.patchTasksBrowser({
       filter: browser.filter === 'all' ? 'active' : 'all',
     });
   }
 
-  private handleRefresh(): void {
+  /** Force a refresh of the task list. */
+  refresh(): void {
     this.flash(t('tui.messages.tasksRefreshing'), 600);
-    void this.refresh();
+    void this.refreshList();
   }
 
-  private async handleStop(taskId: string): Promise<void> {
+  /** Stop a background task (with user-facing flash). */
+  async stop(taskId: string): Promise<void> {
     const browser = this.host.store.state.tasksBrowser;
     if (browser === undefined) return;
 
@@ -236,14 +275,15 @@ export class TasksBrowserController {
     this.flash(t('tui.messages.tasksStopping', { taskId }), 1500);
     try {
       await session.stopBackgroundTask(taskId, { reason: 'User initiated stop' });
-      await this.refresh({ silent: true });
+      await this.refreshList({ silent: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.flash(t('tui.messages.tasksStopFailed', { message }));
     }
   }
 
-  private async handleOpenOutput(taskId: string): Promise<void> {
+  /** Open the output viewer for a task. */
+  async openOutput(taskId: string): Promise<void> {
     const { store } = this.host;
     const browser = store.state.tasksBrowser;
     if (browser === undefined) return;
@@ -283,7 +323,7 @@ export class TasksBrowserController {
     // leak its poll timer.
     if (current === undefined || current !== browser || current.viewer !== undefined) return;
 
-    store.setState('tasksBrowser', {
+    this.patchTasksBrowser({
       viewer: { taskId, output, kind: 'output' },
     });
     this.viewerPollTimer = setInterval(() => {
@@ -300,7 +340,7 @@ export class TasksBrowserController {
     const browser = store.state.tasksBrowser;
     if (browser === undefined || browser.viewer !== undefined) return;
 
-    store.setState('tasksBrowser', {
+    this.patchTasksBrowser({
       viewer: {
         taskId,
         output: formatSubagentActivityPreview(record, this.host.session?.workDir),
@@ -332,7 +372,7 @@ export class TasksBrowserController {
     const recordKey =
       record === undefined ? undefined : `${record.agentId}:${String(record.version)}`;
     if (recordKey === viewer.lastRecordKey) return;
-    store.setState('tasksBrowser', {
+    this.patchTasksBrowser({
       viewer: {
         ...viewer,
         output: record === undefined ? '' : formatSubagentActivityPreview(record, this.host.session?.workDir),
@@ -354,7 +394,7 @@ export class TasksBrowserController {
         info.agentId,
       );
       if (record !== undefined) {
-        store.setState('tasksBrowser', {
+        this.patchTasksBrowser({
           tailOutput: formatSubagentActivityPreview(record, this.host.session?.workDir),
           tailLoading: false,
         });
@@ -364,47 +404,49 @@ export class TasksBrowserController {
 
     const session = this.host.session;
     if (session === undefined) {
-      store.setState('tasksBrowser', { tailLoading: false });
+      this.patchTasksBrowser({ tailLoading: false });
       return;
     }
 
     const requestId = (browser.tailRequestId ?? 0) + 1;
-    store.setState('tasksBrowser', { tailRequestId: requestId });
+    this.patchTasksBrowser({ tailRequestId: requestId });
     void session
       .getBackgroundTaskOutput(taskId, { tail: 4000 })
       .then((output) => {
-        const current = store.state.tasksBrowser;
+        const current = this.host.store.state.tasksBrowser;
         if (current === undefined) return;
         if (current !== browser || current.tailRequestId !== requestId) return;
         if (current.selectedTaskId !== taskId) return;
-        store.setState('tasksBrowser', { tailOutput: output, tailLoading: false });
+        this.patchTasksBrowser({ tailOutput: output, tailLoading: false });
       })
       .catch(() => {
-        const current = store.state.tasksBrowser;
+        const current = this.host.store.state.tasksBrowser;
         if (current === undefined) return;
         if (current !== browser || current.tailRequestId !== requestId) return;
         if (current.selectedTaskId !== taskId) return;
-        store.setState('tasksBrowser', { tailOutput: '', tailLoading: false });
+        this.patchTasksBrowser({ tailOutput: '', tailLoading: false });
       });
   }
 
   private flash(message: string, durationMs = 2500): void {
-    const browser = this.host.store.state.tasksBrowser;
-    if (browser === undefined) return;
-    this.host.store.setState('tasksBrowser', { flashMessage: message });
+    if (this.host.store.state.tasksBrowser === undefined) return;
+    this.patchTasksBrowser({ flashMessage: message });
     setTimeout(() => {
-      const current = this.host.store.state.tasksBrowser;
-      if (current !== browser) return;
-      this.host.store.setState('tasksBrowser', { flashMessage: undefined });
+      // Unconditional clear: any later flash() will overwrite this message
+      // and schedule its own timeout. The previous identity-based guard
+      // never fired after `patchTasksBrowser` started replacing the slice
+      // reference, which left stale banners on screen indefinitely.
+      this.patchTasksBrowser({ flashMessage: undefined });
     }, durationMs);
   }
 
-  private closeOutputViewer(): void {
+  /** Close the output viewer and return to the task list. */
+  closeOutputViewer(): void {
     const browser = this.host.store.state.tasksBrowser;
     if (browser === undefined || browser.viewer === undefined) return;
     if (this.viewerPollTimer !== undefined) clearInterval(this.viewerPollTimer);
     this.viewerPollTimer = undefined;
-    this.host.store.setState('tasksBrowser', { viewer: undefined });
+    this.patchTasksBrowser({ viewer: undefined });
   }
 }
 

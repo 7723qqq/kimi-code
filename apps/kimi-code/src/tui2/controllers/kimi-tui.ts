@@ -66,7 +66,8 @@ import {
 } from '../commands';
 import * as slashCommands from '../commands/dispatch';
 import type { SlashCommandHost } from '../commands/dispatch';
-import { currentTuiConfig } from '../commands/config';
+import { currentTuiConfig, showExperimentsPanel, showModelPicker } from '../commands/config';
+import { handlePluginMcpSelection, resolvePluginConfirm } from '../commands/plugins';
 import { pickRandomWorkingTip } from '../components/chrome/working-tips';
 import { defaultThinkingEffortFor } from '../components/dialogs/model-selector';
 import type { Msys2PromptChoice } from '../components/dialogs/msys2-prompt';
@@ -262,6 +263,13 @@ export class KimiTUI {
   readonly options: KimiTUIOptions;
   session: Session | undefined;
   store: Tui2Store;
+  /** Stable ui mode label for telemetry. The v1 host reads this from
+   *  `state.ui.mode`; v2 has no pi-tui state and currently returns a
+   *  constant — swap in the real store-derived value when the opentui
+   *  shell exposes a fullscreen/inline mode. */
+  get uiMode(): string {
+    return 'opentui'
+  }
   /** In-flight lazy session creation (v2 engine), shared by concurrent first-use triggers. */
   private ensureSessionPromise: Promise<Session | undefined> | null = null;
   private readonly cacheHint: CacheHintController;
@@ -472,7 +480,9 @@ export class KimiTUI {
     // we open the matching sub-dialog.
     switch (value) {
       case 'model':
-        this.store.setState('activeDialog', 'model-selector');
+        // Full tabbed picker with the model list — the activeDialog
+        // model-selector branch has no `models` data source.
+        showModelPicker(this);
         return;
       case 'theme':
         this.store.setState('activeDialog', 'theme-selector');
@@ -487,7 +497,9 @@ export class KimiTUI {
         this.store.setState('activeDialog', 'permission-selector');
         return;
       case 'experiments':
-        this.store.setState('activeDialog', 'experiments-selector');
+        // Mounted through the editor-replacement slot (same path as
+        // /experiments); activeDialog has no experiments-selector branch.
+        void showExperimentsPanel(this);
         return;
       case 'upgrade':
         this.store.setState('updatePreference', {
@@ -594,14 +606,27 @@ export class KimiTUI {
    * KimiTUI without leaking the host's internals.
    */
   public async applyDialogResult(result: DialogResultLike): Promise<void> {
-    // Goal-queue actions keep the manager open; every other result
-    // dismisses the active dialog.
-    if (result.kind !== 'goal-queue-manager') {
+    // Goal-queue actions, task-browser actions, the plugin MCP picker and
+    // session-picker paging keep their dialog open (the host drives
+    // dismissal); every other result dismisses the active dialog.
+    const keepsOpen =
+      result.kind === 'goal-queue-manager' ||
+      result.kind === 'tasks-browser' ||
+      result.kind === 'plugins-mcp' ||
+      result.kind === 'session-picker-scope-toggle' ||
+      result.kind === 'session-picker-load-more';
+    if (!keepsOpen) {
       this.store.setState('activeDialog', null);
     }
     switch (result.kind) {
       case 'session-picker':
         await this.pickSession(result.sessionId);
+        return;
+      case 'session-picker-scope-toggle':
+        await this.toggleSessionPickerScope(result.sessionId);
+        return;
+      case 'session-picker-load-more':
+        await this.loadMoreSessions();
         return;
       case 'model-selector':
         await this.pickModel(result.alias, result.effort);
@@ -671,6 +696,37 @@ export class KimiTUI {
       case 'help':
       case 'which-key':
         // Display-only; close already happened above.
+        return;
+      case 'tasks-browser':
+        switch (result.action) {
+          case 'select':
+            if (result.taskId !== undefined) this.tasksBrowserController.select(result.taskId);
+            return;
+          case 'toggle-filter':
+            this.tasksBrowserController.toggleFilter();
+            return;
+          case 'refresh':
+            this.tasksBrowserController.refresh();
+            return;
+          case 'stop':
+            if (result.taskId !== undefined) void this.tasksBrowserController.stop(result.taskId);
+            return;
+          case 'open-output':
+            if (result.taskId !== undefined) void this.tasksBrowserController.openOutput(result.taskId);
+            return;
+          case 'close-viewer':
+            this.tasksBrowserController.closeOutputViewer();
+            return;
+          case 'cancel':
+            this.tasksBrowserController.close();
+            return;
+        }
+        return;
+      case 'plugins-confirm':
+        resolvePluginConfirm(this, result.confirmed);
+        return;
+      case 'plugins-mcp':
+        void handlePluginMcpSelection(this, result.selection);
         return;
     }
   }
@@ -1422,7 +1478,7 @@ export class KimiTUI {
       content: '',
     };
     this.shellOutputStreams.set(commandId, { entry: outputEntry });
-    this.store.setState('shellOutputs', {
+    this.store.patch('shellOutputs', {
       [commandId]: { content: '', finished: false },
     });
     // Treat command execution as a streaming phase so input queues, the activity
@@ -1450,7 +1506,7 @@ export class KimiTUI {
     if (text.length === 0) return;
     const current = this.store.state.shellOutputs[event.commandId];
     if (current === undefined) return;
-    this.store.setState('shellOutputs', {
+    this.store.patch('shellOutputs', {
       [event.commandId]: { ...current, content: current.content + text },
     });
   }
@@ -1461,7 +1517,7 @@ export class KimiTUI {
     stream.taskId = event.taskId;
     const current = this.store.state.shellOutputs[event.commandId];
     if (current === undefined) return;
-    this.store.setState('shellOutputs', {
+    this.store.patch('shellOutputs', {
       [event.commandId]: { ...current, taskId: event.taskId },
     });
   }
@@ -1493,7 +1549,7 @@ export class KimiTUI {
     const formatted = formatBashOutputForDisplay(stdout, stderr, isError);
     stream.entry.content = formatted.text;
     stream.entry.color = formatted.color;
-    this.store.setState('shellOutputs', {
+    this.store.patch('shellOutputs', {
       [commandId]: { content: formatted.text, finished: true },
     });
     this.shellOutputStreams.delete(commandId);
@@ -1505,7 +1561,8 @@ export class KimiTUI {
     }
   }
 
-  private drainOneQueuedMessage(): void {
+  /** Send the oldest queued message (Ctrl+S). No-op when the queue is empty. */
+  drainOneQueuedMessage(): void {
     const item = this.shiftQueuedMessage();
     if (item === undefined) return;
     const session = this.session;
@@ -1904,7 +1961,7 @@ export class KimiTUI {
   }
 
   patchLivePane(patch: Partial<LivePaneState>): void {
-    this.store.setState('livePane', patch);
+    this.store.patch('livePane', patch);
     this.updateActivityPane();
   }
 
@@ -2851,14 +2908,13 @@ export class KimiTUI {
         : effectiveMode === 'shell' || effectiveMode === 'composing'
           ? 'waiting'
           : effectiveMode;
-    this.store.setState('livePane', { mode: paneMode });
+    this.patchLivePane({ mode: paneMode });
   }
 
   toggleActivityPane(): void {
-    this.store.setState('livePane', {
+    this.patchLivePane({
       activityPaneVisible: !this.store.state.livePane.activityPaneVisible,
     });
-    this.updateActivityPane();
   }
 
   /** Toggle the right-side agent status panel (leader+p). */
@@ -2986,7 +3042,7 @@ export class KimiTUI {
     // Finalize the card as backgrounded and drop the stream so the eventual
     // runShellCommand resolution is a no-op instead of overwriting this view.
     stream.entry.content = t('tui.messages.shellRun.backgrounded');
-    this.store.setState('shellOutputs', {
+    this.store.patch('shellOutputs', {
       [commandId]: { content: t('tui.messages.shellRun.backgrounded'), finished: true },
     });
     this.shellOutputStreams.delete(commandId);
@@ -3122,7 +3178,7 @@ export class KimiTUI {
     if (!this.store.state.terminalState.supportsProgress) return;
     if (this.store.state.terminalState.progressActive === active) return;
     this.terminal.setProgress(active);
-    this.store.setState('terminalState', { progressActive: active });
+    this.store.patch('terminalState', { progressActive: active });
   }
 
   // =========================================================================
@@ -3386,12 +3442,38 @@ export class KimiTUI {
     this.store.setState('activeDialog', 'session-picker');
   }
 
-  private async toggleSessionPickerScope(_selectedSessionId: string): Promise<void> {
+  /** Toggle the session picker between cwd / all scope (Ctrl+A in the picker). */
+  async toggleSessionPickerScope(_selectedSessionId: string): Promise<void> {
     const requestToken = ++this.sessionPickerScopeRequestToken;
     const nextScope = this.store.state.sessionsScope === 'cwd' ? 'all' : 'cwd';
     await this.fetchSessions(nextScope);
     if (requestToken !== this.sessionPickerScopeRequestToken) return;
     if (this.store.state.activeDialog !== 'session-picker') return;
+  }
+
+  /** Load the next page of sessions and append it to the picker list. */
+  async loadMoreSessions(): Promise<void> {
+    const before = this.store.state.sessionsNextCursor;
+    if (before === undefined) return;
+    if (this.store.state.sessionsLoadingMore) return;
+    const scope = this.store.state.sessionsScope;
+    this.store.setState('sessionsLoadingMore', true);
+    try {
+      const page = await this.harness.listSessionsPage({
+        workDir: scope === 'all' ? undefined : this.store.state.workDir,
+        limit: SESSION_LIST_PAGE_SIZE,
+        before,
+      });
+      this.store.setState('sessionsNextCursor', page.nextCursor);
+      this.store.setState(
+        'sessions',
+        [...this.store.state.sessions, ...sessionRowsForPicker(page.items, this.store.state.sessionId, this.hasSessionContent())],
+      );
+    } catch (error) {
+      log.warn('failed to load more sessions', { error: String(error) });
+    } finally {
+      this.store.setState('sessionsLoadingMore', false);
+    }
   }
 
   hideSessionPicker(): void {

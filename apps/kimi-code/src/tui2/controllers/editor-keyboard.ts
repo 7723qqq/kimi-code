@@ -684,7 +684,7 @@ export class EditorKeyboardController {
       // terminal.stop() cleared the OSC 9;4 progress indicator while the
       // app-side progressActive flag still reads true; resync so a turn that
       // was streaming while the editor was open gets its progress back.
-      host.store.setState('terminalState', { progressActive: false });
+      host.store.patch('terminalState', { progressActive: false });
       host.updateActivityPane();
       host.setExternalEditorRunning(false);
     }

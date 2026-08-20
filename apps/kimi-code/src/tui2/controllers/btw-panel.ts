@@ -41,12 +41,44 @@ export interface BtwPanelController {
 }
 
 /**
+ * The shape of the `btwPanel` slice. Mirrors the inline type declared at
+ * `state.tsx:btwPanel`. Kept local so the controller and its tests can
+ * reference a single source of truth.
+ */
+type BtwPanelSlice = {
+  active: boolean;
+  agentId: string;
+  answer: string;
+  thinking: string;
+  running: boolean;
+  done: boolean;
+  failed: string | null;
+  transientNotice: string | null;
+  scrollOffset: number;
+};
+
+/**
  * Create a BTW panel controller over a host (store + event bus + session).
  * The panel state lives in `store.state.btwPanel`; events routed by
  * `routeEvent` mutate it in place.
  */
 export function createBtwPanelController(host: BtwPanelHost): BtwPanelController {
   const { store, bus } = host;
+
+  /**
+   * Patch a subset of the `btwPanel` slice while preserving sibling fields.
+   * SolidJS `createStore` setters replace at the given path; a bare
+   * `setState('btwPanel', { answer: x })` would wipe `active` / `running` /
+   * `thinking` etc., which the streaming event handler depends on. The
+   * panel accumulates answer and thinking across many `assistant.delta` /
+   * `thinking.delta` events, so every partial write must preserve them.
+   *
+   * Delegates to `store.patch` (the shared store-level helper) so the
+   * spread invariant lives in exactly one place.
+   */
+  const patchBtwPanel = (partial: Partial<BtwPanelSlice>): void => {
+    store.patch('btwPanel', partial);
+  };
 
   const resetPanel = (): void => {
     store.setState('btwPanel', {
@@ -107,7 +139,7 @@ export function createBtwPanelController(host: BtwPanelHost): BtwPanelController
     const active = store.state.btwPanel;
     if (!active.active) return false;
     if (active.running) {
-      store.setState('btwPanel', {
+      patchBtwPanel({
         transientNotice: t('tui.statusMessages.btwBusyNotice'),
       });
       store.setState('editorDraft', text);
@@ -123,7 +155,7 @@ export function createBtwPanelController(host: BtwPanelHost): BtwPanelController
     const offset = active.scrollOffset;
     const next = direction === 'up' ? offset + 1 : Math.max(0, offset - 1);
     if (next === offset) return false;
-    store.setState('btwPanel', { scrollOffset: next });
+    patchBtwPanel({ scrollOffset: next });
     return true;
   };
 
@@ -133,19 +165,19 @@ export function createBtwPanelController(host: BtwPanelHost): BtwPanelController
 
     switch (event.type) {
       case 'assistant.delta':
-        store.setState('btwPanel', { answer: active.answer + event.delta });
+        patchBtwPanel({ answer: active.answer + event.delta });
         return true;
       case 'thinking.delta':
-        store.setState('btwPanel', { thinking: active.thinking + event.delta });
+        patchBtwPanel({ thinking: active.thinking + event.delta });
         return true;
       case 'hook.result':
-        store.setState('btwPanel', { answer: active.answer + formatHookResultPlain(event) });
+        patchBtwPanel({ answer: active.answer + formatHookResultPlain(event) });
         return true;
       case 'turn.ended':
         if (event.reason === 'completed') {
-          store.setState('btwPanel', { running: false, done: true });
+          patchBtwPanel({ running: false, done: true });
         } else {
-          store.setState('btwPanel', { running: false, failed: formatBtwTurnEnd(event) });
+          patchBtwPanel({ running: false, failed: formatBtwTurnEnd(event) });
         }
         return true;
       default:
@@ -156,11 +188,11 @@ export function createBtwPanelController(host: BtwPanelHost): BtwPanelController
   const submitPrompt = (agentId: string, prompt: string): void => {
     const session = host.session;
     if (session === undefined) {
-      store.setState('btwPanel', { running: false, failed: getNoActiveSessionMessage() });
+      patchBtwPanel({ running: false, failed: getNoActiveSessionMessage() });
       return;
     }
     void withInteractiveAgent(agentId, () => session.prompt(prompt)).catch((error: unknown) => {
-      store.setState('btwPanel', {
+      patchBtwPanel({
         running: false,
         failed: t('tui.messages.btwSendFailed', { error: formatErrorMessage(error) }),
       });

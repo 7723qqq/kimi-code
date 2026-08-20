@@ -371,6 +371,8 @@ export interface DiffReviewItem {
 
 /** Tasks-browser dialog state (store-backed; no component instances). */
 export interface TasksBrowserState {
+  /** Latest task list snapshot (kept in sync by the tasks-browser controller). */
+  tasks: readonly import('@moonshot-ai/kimi-code-sdk').BackgroundTaskInfo[];
   filter: 'all' | 'active';
   selectedTaskId: string | undefined;
   tailOutput: string | undefined;

@@ -12,6 +12,12 @@
  * host (`host.applyDialogResult` / `host.cancelDialog`). Tests and
  * alternative entry points can swap the Shell for a custom view.
  *
+ * Editor state follows the response store: the input renderable's
+ * onChange writes `store.state.editorDraft` and the editor-keyboard
+ * controller's `handleChange`; submit routes through
+ * `editorKeyboard.handleSubmit` so history, image extraction, bash-mode
+ * and slash-command dispatch all run on the real send path.
+ *
  * Status: REAL (tui2). New file — no v1 counterpart.
  */
 
@@ -23,9 +29,11 @@ import { KeymapProvider, useBindings } from '@opentui/keymap/solid'
 import { Tui2ProviderStack, useTui2Store } from './context'
 import { buildBaseLayer, createTui2Keymap, type Tui2CommandHandlers, type Tui2Keymap } from './keymap'
 import { createTui2Store, type Tui2Store } from './state'
+import { showModelPicker } from './commands/config'
 import { MainShell } from './components/main-shell'
 import { KimiTUI } from './controllers/kimi-tui'
 import type { DialogDispatch, DialogResult } from './dispatch'
+import type { SlashCommandHost } from './commands/dispatch'
 
 import type { CliRenderer } from '@opentui/core'
 
@@ -62,33 +70,49 @@ function hostToDispatch(host: KimiTUI): DialogDispatch {
 
 /**
  * The default Shell wires the base keymap to the host's editor-keyboard
- * controller and mounts the MainShell with a host-bound dispatch. Pressing
- * Enter in the editor forwards the typed text to
- * `host.sendNormalUserInput`; the host owns extraction, image
- * substitution, and the actual session.sendMessage call.
+ * controller and mounts the MainShell with a host-bound dispatch. Editor
+ * text lives in `store.state.editorDraft`; Enter (or the keymap send
+ * command) routes through `editorKeyboard.handleSubmit`, which owns
+ * history, image extraction, bash-mode and slash-command dispatch.
  */
 export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
   const store = useTui2Store()
   // opentui's CliRenderer does not yet expose a size getter; the shell lays
   // out with these defaults until the renderer surfaces terminal dimensions.
   const [termSize] = createSignal({ width: 80, height: 24 })
-  const [editorValue, setEditorValue] = createSignal('')
   const dispatch = hostToDispatch(host)
+  const editorKeyboard = host.editorKeyboard
+
+  const submitDraft = (): void => {
+    const v = store.state.editorDraft
+    if (v.trim().length === 0) return
+    store.setState('editorDraft', '')
+    editorKeyboard.handleSubmit(v)
+  }
 
   const handlers: Tui2CommandHandlers = {
-    'tui2.send': () => {
-      const v = editorValue()
-      if (v.length === 0) return
-      // Real send path: hand the text to the host. The host extracts
-      // image attachments, builds the prompt parts, and routes through
-      // session.sendMessage. The editor buffer is cleared on the host's
-      // side once the message is accepted.
-      void host.sendNormalUserInput(v)
-      setEditorValue('')
+    'tui2.send': submitDraft,
+    'tui2.cancel': () => editorKeyboard.handleEscape(),
+    'tui2.cancelStream': () => editorKeyboard.handleCtrlC(),
+    'tui2.exit': () => editorKeyboard.handleCtrlD(),
+    'tui2.editor.focus': () => {
+      // opentui keeps the input focused while no dialog is open; nothing to
+      // do here (kept so the command catalog is complete).
     },
-    'tui2.cancel': () => setEditorValue(''),
-    'tui2.exit': () => {
-      /* handled by the renderer's exit flow */
+    'tui2.model.switch': () => {
+      // Full tabbed model picker via the editor-replacement slot.
+      showModelPicker(host as unknown as SlashCommandHost)
+    },
+    'tui2.editor.external': () => editorKeyboard.handleOpenExternalEditor(),
+    'tui2.tool.output': () => editorKeyboard.handleToggleToolExpand(),
+    'tui2.queue.send': () => host.drainOneQueuedMessage(),
+    'tui2.todo.expand': () => editorKeyboard.handleToggleTodoExpand(),
+    'tui2.sessions': () => void host.showSessionPicker(),
+    'tui2.session.new': () => void host.showSessionPicker(),
+    'tui2.help': () => host.showHelpPanel(),
+    'tui2.status': () => {
+      // Footer status-line toggling is not wired yet; kept as a no-op so
+      // the binding exists in the catalog.
     },
   }
   useBindings(() => buildBaseLayer(handlers))
@@ -102,16 +126,16 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
         activityMode={store.state.activityMode === 'idle' ? 'hidden' : store.state.activityMode}
         activityTip={store.state.activityTip}
         activityDetail={store.state.activityDetail}
-        editorValue={editorValue()}
-        onEditorChange={setEditorValue}
+        onEditorChange={(text) => {
+          store.setState('editorDraft', text)
+          editorKeyboard.handleChange(text)
+        }}
         onEditorSubmit={(text) => {
-          // Defensive: the keymap also drives tui2.send. The explicit
-          // submit path is used by the input renderable's own onSubmit
-          // (e.g. mouse click on Enter), so route through the same
-          // host call to avoid a duplicate transcript entry.
-          if (text.length === 0) return
-          void host.sendNormalUserInput(text)
-          setEditorValue('')
+          // The input renderable's own submit path (e.g. mouse click on
+          // Enter) — route through the same send path as the keymap.
+          if (text.trim().length === 0) return
+          store.setState('editorDraft', '')
+          editorKeyboard.handleSubmit(text)
         }}
       />
     </Tui2ProviderStack>

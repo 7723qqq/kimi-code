@@ -358,6 +358,11 @@ export class KimiTUI {
   readonly options: KimiTUIOptions;
   session: Session | undefined;
   state: TUIState;
+  /** Stable ui mode label for telemetry. The v2 host exposes the equivalent as
+   *  a constant `uiMode` getter; v1 reads from the pi-tui state directly. */
+  get uiMode(): string {
+    return this.state.ui.mode
+  }
   /** In-flight lazy session creation (v2 engine), shared by concurrent first-use triggers. */
   private ensureSessionPromise: Promise<Session | undefined> | null = null;
   private readonly cacheHint = new CacheHintController(this);

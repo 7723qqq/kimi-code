@@ -55,12 +55,19 @@ import { LocaleSelector } from './dialogs/locale-selector';
 import { ModelSelector } from './dialogs/model-selector';
 import { Msys2Prompt } from './dialogs/msys2-prompt';
 import { PermissionSelector } from './dialogs/permission-selector';
-import { PluginsPanel } from './dialogs/plugins-selector';
+import {
+  PluginInstallTrustConfirm,
+  PluginMcpSelector,
+  PluginRemoveConfirm,
+  PluginsPanel,
+} from './dialogs/plugins-selector';
 import { QuestionDialog } from './dialogs/question-dialog';
 import { SessionPicker } from './dialogs/session-picker';
 import { SettingsSelector } from './dialogs/settings-selector';
 import { StartPermissionPrompt } from './dialogs/start-permission-prompt';
 import { SwarmStartPermissionPrompt } from './dialogs/swarm-start-permission-prompt';
+import { TaskOutputViewer } from './dialogs/task-output-viewer';
+import { TasksBrowser } from './dialogs/tasks-browser';
 import { ThemeSelector } from './dialogs/theme-selector';
 import { TrustPrompt } from './dialogs/trust-prompt';
 import { UndoSelector } from './dialogs/undo-selector';
@@ -104,8 +111,6 @@ export interface MainShellProps {
    *  route the typed text anywhere — the host's editor-keyboard
    *  controller owns the send path. */
   readonly onEditorSubmit?: (text: string) => void;
-  /** Current editor text (controlled by the host for persistence). */
-  readonly editorValue?: string;
   readonly onEditorChange?: (value: string) => void;
 }
 
@@ -146,10 +151,10 @@ export const MainShell: Component<MainShellProps> = (props) => {
             <Show when={store.state.agentPaneItems.length > 0}>
               <AgentPane items={store.state.agentPaneItems} />
             </Show>
-            <Show when={props.activityMode !== 'hidden'}>
+            <Show when={props.activityMode !== 'hidden' || store.state.progressSpinner !== null}>
               <ActivityPane
-                mode={props.activityMode}
-                tip={props.activityTip}
+                mode={store.state.progressSpinner !== null ? 'waiting' : props.activityMode}
+                tip={store.state.progressSpinner?.label ?? props.activityTip}
                 detail={props.activityDetail}
               />
             </Show>
@@ -259,10 +264,17 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
     <Show when={dialog() !== null}>
       <Show when={dialog() === 'session-picker'}>
         <SessionPicker
-          sessions={store.state.sessionPicker?.sessions ?? []}
-          loading={store.state.sessionPicker?.loading ?? false}
-          currentSessionId={store.state.sessionPicker?.currentSessionId ?? ''}
+          sessions={store.state.sessions}
+          loading={store.state.loadingSessions}
+          currentSessionId={store.state.sessionId}
+          scope={store.state.sessionsScope}
+          hasMore={store.state.sessionsNextCursor !== undefined}
+          loadingMore={store.state.sessionsLoadingMore}
           onSelect={(session) => select({ kind: 'session-picker', sessionId: session.id })}
+          onToggleScope={(sessionId) =>
+            select({ kind: 'session-picker-scope-toggle', sessionId })
+          }
+          onLoadMore={() => select({ kind: 'session-picker-load-more' })}
           onCancel={() => cancel('session-picker')}
         />
       </Show>
@@ -459,6 +471,79 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
             select({ kind: 'question-dialog', method: r.method, answers: r.answers })
           }
         />
+      </Show>
+      <Show when={dialog() === 'plugins-confirm' && store.state.pluginConfirm !== null}>
+        {(() => {
+          const confirm = store.state.pluginConfirm!;
+          if (confirm.kind === 'remove') {
+            return (
+              <PluginRemoveConfirm
+                id={confirm.id}
+                displayName={confirm.displayName}
+                onDone={(result) =>
+                  select({ kind: 'plugins-confirm', confirmed: result.kind === 'confirm' })
+                }
+              />
+            );
+          }
+          return (
+            <PluginInstallTrustConfirm
+              label={confirm.label}
+              onDone={(result) =>
+                select({ kind: 'plugins-confirm', confirmed: result.kind === 'confirm' })
+              }
+            />
+          );
+        })()}
+      </Show>
+      <Show when={dialog() === 'plugins-mcp' && store.state.pluginMcpPicker !== null}>
+        <PluginMcpSelector
+          info={store.state.pluginMcpPicker!.info}
+          selectedServer={store.state.pluginMcpPicker!.selectedServer}
+          serverHint={store.state.pluginMcpPicker!.serverHint}
+          onSelect={(selection) => select({ kind: 'plugins-mcp', selection })}
+          onCancel={() => cancel('plugins-mcp')}
+        />
+      </Show>
+      <Show when={dialog() === 'tasks-browser' && store.state.tasksBrowser !== undefined}>
+        {(() => {
+          const browser = store.state.tasksBrowser!;
+          if (browser.viewer !== undefined) {
+            const info = browser.tasks.find((task) => task.taskId === browser.viewer!.taskId);
+            return (
+              <TaskOutputViewer
+                taskId={browser.viewer.taskId}
+                info={info}
+                output={browser.viewer.output}
+                viewRows={24}
+                width={80}
+                onClose={() => select({ kind: 'tasks-browser', action: 'close-viewer' })}
+              />
+            );
+          }
+          return (
+            <TasksBrowser
+              tasks={browser.tasks}
+              filter={browser.filter}
+              selectedTaskId={browser.selectedTaskId}
+              tailOutput={browser.tailOutput}
+              tailLoading={browser.tailLoading}
+              flashMessage={browser.flashMessage}
+              width={80}
+              height={24}
+              onSelect={(taskId) => select({ kind: 'tasks-browser', action: 'select', taskId })}
+              onToggleFilter={() => select({ kind: 'tasks-browser', action: 'toggle-filter' })}
+              onRefresh={() => select({ kind: 'tasks-browser', action: 'refresh' })}
+              onCancel={() => select({ kind: 'tasks-browser', action: 'cancel' })}
+              onStopConfirmed={(taskId) =>
+                select({ kind: 'tasks-browser', action: 'stop', taskId })
+              }
+              onOpenOutput={(taskId) =>
+                select({ kind: 'tasks-browser', action: 'open-output', taskId })
+              }
+            />
+          );
+        })()}
       </Show>
     </Show>
   );
