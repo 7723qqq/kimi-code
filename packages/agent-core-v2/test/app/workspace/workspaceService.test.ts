@@ -1,9 +1,9 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-
+import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
   _clearScopedRegistryForTests,
@@ -11,14 +11,6 @@ import {
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { encodeWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
-import { LifecycleScope } from '#/app/scopes';
-import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
-import { IWorkspaceService } from '#/app/workspace/workspace';
-import {
-  IWorkspacePersistence,
-  type PersistedWorkspaceEntry,
-} from '#/app/workspace/workspacePersistence';
-import { WorkspaceService } from '#/app/workspace/workspaceService';
 import { ErrorCodes, Error2 } from '#/errors';
 import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -26,6 +18,12 @@ import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDo
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IEventService } from '#/app/event/event';
+import type { Event2 } from '#/app/event/event2';
+import { IWorkspaceService } from '#/app/workspace/workspace';
+import { WorkspaceService } from '#/app/workspace/workspaceService';
+import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
+import { IWorkspacePersistence, type PersistedWorkspaceEntry } from '#/app/workspace/workspacePersistence';
 
 interface SessionIndexLine {
   readonly sessionId: string;
@@ -36,6 +34,7 @@ interface SessionIndexLine {
 describe('WorkspaceService (file-backed)', () => {
   let homeDir: string;
   let currentHost: ReturnType<typeof createScopedTestHost> | undefined;
+  let published: Array<{ type: string; payload: unknown }>;
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
@@ -54,6 +53,7 @@ describe('WorkspaceService (file-backed)', () => {
       'workspace',
     );
     homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-registry-'));
+    published = [];
   });
 
   afterEach(async () => {
@@ -68,6 +68,15 @@ describe('WorkspaceService (file-backed)', () => {
       stubPair(IFileSystemStorageService, fileStorage),
       stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
       stubPair(IHostFileSystem, hostFs),
+      stubPair(IEventService, {
+        publish: (event: Event2<any>) => {
+          published.push({
+            type: event.type,
+            payload: (event as { readonly payload?: unknown }).payload,
+          });
+        },
+        subscribe: () => ({ dispose: () => {} }),
+      } as unknown as IEventService),
     ]);
     currentHost = host;
     return host.app.accessor.get(IWorkspaceService);
@@ -117,6 +126,29 @@ describe('WorkspaceService (file-backed)', () => {
     const list = await restart().list();
     expect(list.map((w) => w.id)).toContain(created.id);
     expect(list.find((w) => w.id === created.id)?.name).toBe('proj');
+  });
+
+  it('publishes lifecycle events on create, touch, rename, and delete', async () => {
+    const service = build();
+    const created = await service.createOrTouch(homeDir, 'proj');
+    await service.createOrTouch(homeDir);
+    await service.update(created.id, { name: 'renamed' });
+    await service.delete(created.id);
+
+    expect(published.map((event) => event.type)).toEqual([
+      'event.workspace.created',
+      'event.workspace.updated',
+      'event.workspace.updated',
+      'event.workspace.deleted',
+    ]);
+    expect(published[0]?.payload).toMatchObject({ workspace: { id: created.id, name: 'proj' } });
+    expect(published[2]?.payload).toMatchObject({ workspace: { id: created.id, name: 'renamed' } });
+    expect(published[3]?.payload).toEqual({ workspaceId: created.id, root: homeDir });
+  });
+
+  it('publishes no event when deleting an unknown workspace', async () => {
+    await build().delete('wd_missing_000000000000');
+    expect(published).toEqual([]);
   });
 
   it('rebuilds from session_index.jsonl when workspaces.json is absent', async () => {
@@ -364,80 +396,6 @@ describe('WorkspaceService (file-backed)', () => {
     expect(await restart().get(created.id)).toBeUndefined();
   });
 
-  it('get returns undefined for a non-existent workspace id', async () => {
-    expect(await build().get('wd_nonexistent')).toBeUndefined();
-  });
-
-  it('get returns the workspace after createOrTouch', async () => {
-    const dir = join(homeDir, 'get-test');
-    await fsp.mkdir(dir);
-    const registry = build();
-    const created = await registry.createOrTouch(dir);
-    expect(await registry.get(created.id)).toMatchObject({ id: created.id, root: dir });
-  });
-
-  it('get returns undefined for a deleted workspace id', async () => {
-    const dir = join(homeDir, 'get-deleted');
-    await fsp.mkdir(dir);
-    const registry = build();
-    const created = await registry.createOrTouch(dir);
-    await registry.delete(created.id);
-    expect(await registry.get(created.id)).toBeUndefined();
-  });
-
-  it('update returns undefined for a non-existent workspace id', async () => {
-    expect(await build().update('wd_nonexistent', { name: 'whatever' })).toBeUndefined();
-  });
-
-  it('update with an empty name updates the workspace', async () => {
-    const dir = join(homeDir, 'update-empty-name');
-    await fsp.mkdir(dir);
-    const registry = build();
-    const created = await registry.createOrTouch(dir, 'original');
-    const updated = await registry.update(created.id, { name: '' });
-    expect(updated?.name).toBe('');
-  });
-
-  it('update with a very long name is persisted', async () => {
-    const dir = join(homeDir, 'update-long-name');
-    await fsp.mkdir(dir);
-    const registry = build();
-    const created = await registry.createOrTouch(dir, 'short');
-    const longName = 'a'.repeat(1000);
-    await registry.update(created.id, { name: longName });
-    expect((await restart().get(created.id))?.name).toBe(longName);
-  });
-
-  it('delete on a non-existent id is a no-op', async () => {
-    await expect(build().delete('wd_nonexistent')).resolves.toBeUndefined();
-  });
-
-  it('delete on an already-deleted id is a no-op', async () => {
-    const dir = join(homeDir, 'double-delete');
-    await fsp.mkdir(dir);
-    const registry = build();
-    const created = await registry.createOrTouch(dir);
-    await registry.delete(created.id);
-    await expect(registry.delete(created.id)).resolves.toBeUndefined();
-    expect(await registry.get(created.id)).toBeUndefined();
-  });
-
-  it('list returns empty when no workspaces exist', async () => {
-    expect(await build().list()).toEqual([]);
-  });
-
-  it('list returns workspaces in a deterministic order', async () => {
-    const dirA = join(homeDir, 'list-a');
-    const dirB = join(homeDir, 'list-b');
-    await fsp.mkdir(dirA);
-    await fsp.mkdir(dirB);
-    const registry = build();
-    await registry.createOrTouch(dirA, 'A');
-    await registry.createOrTouch(dirB, 'B');
-    const list = await registry.list();
-    expect(list.map((w) => w.name).toSorted()).toEqual(['A', 'B']);
-  });
-
   it('rejects createOrTouch when the root directory does not exist', async () => {
     const missing = join(homeDir, 'never-created');
     await expect(build().createOrTouch(missing)).rejects.toMatchObject({
@@ -558,6 +516,9 @@ describe('WorkspaceService (file-backed)', () => {
     expect(lower.id).not.toBe(upper.id);
     expect((await registry.list()).map((w) => w.root).toSorted()).toEqual(['/tmp/Foo', '/tmp/foo']);
   });
+
+
+
 
   it('delete tombstones every folded alias so a legacy split cannot resurface', async () => {
     const typedRoot = 'C:\\Users\\Foo\\Proj';

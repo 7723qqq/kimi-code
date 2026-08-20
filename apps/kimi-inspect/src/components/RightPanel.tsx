@@ -1,16 +1,16 @@
 /**
  * Right dock — the single right-hand column of the chat view. Merges what
- * used to be two separate columns (the transcript audit panel docked inside
- * the chat view, and the agent inspector on the far right) into one tabbed
- * column: `Audit` replays how the visible transcript store was built, entry
- * by entry; `Agent` hosts the agent switcher, the Plan lookup card, and the
- * agent Service panels; `State` reads the active agent's registered
- * plain-data state through `IAgentStateService.snapshot()` (the same live
- * diff-tree view as the session State tab in `SessionPane`, shared via
- * `StateCard`). Tabs switch with `hidden` instead of unmounting, so
- * panel-local state (the audit timeline position, Plan lookup input/results,
- * expanded Service panels, the state tree's open rows) survives tab
- * switches.
+ * used to be three separate columns (the transcript audit panel docked
+ * inside the chat view, the agent inspector on the far right, and the
+ * session pane next to the session list) into one tabbed column: `Audit`
+ * replays how the visible transcript store was built, entry by entry;
+ * `Agent` hosts the agent switcher, the Plan lookup card, and the agent
+ * Service panels; `State` reads the active agent's registered plain-data
+ * state through `IAgentStateService.snapshot()`; `Session` embeds
+ * `SessionPane` (session Services / State tabs). Tabs switch with `hidden`
+ * instead of unmounting, so panel-local state (the audit timeline position,
+ * Plan lookup input/results, expanded Service panels, the state tree's open
+ * rows) survives tab switches.
  */
 
 import { IAgentStateService } from '@moonshot-ai/agent-core-v2/agent/state/agentState';
@@ -18,13 +18,13 @@ import { useState } from 'react';
 
 import type { AuditTrail } from '../audit/trail';
 import { useConnection } from '../connection';
-import { t } from '../i18n';
 import { Badge } from '../ui';
 import { AuditPanel } from './audit/AuditPanel';
 import { Inspector } from './Inspector';
+import { SessionPane } from './SessionPane';
 import { StateCard } from './StateCard';
 
-type Tab = 'audit' | 'agent' | 'state';
+type Tab = 'audit' | 'agent' | 'state' | 'session';
 
 export function RightPanel({
   sessionId,
@@ -46,15 +46,15 @@ export function RightPanel({
   return (
     <div className="flex h-full w-[440px] shrink-0 flex-col border-l border-neutral-800 bg-neutral-900/30">
       <div className="flex border-b border-neutral-800 text-[11px]">
-        {(['audit', 'agent', 'state'] as const).map((id) => (
+        {(['audit', 'agent', 'state', 'session'] as const).map((t) => (
           <button
-            key={id}
+            key={t}
             className={`flex-1 px-2 py-2 font-medium uppercase tracking-wider ${
-              tab === id ? 'bg-neutral-800 text-sky-400' : 'text-neutral-500 hover:text-neutral-300'
+              tab === t ? 'bg-neutral-800 text-sky-400' : 'text-neutral-500 hover:text-neutral-300'
             }`}
-            onClick={() => setTab(id)}
+            onClick={() => setTab(t)}
           >
-            {id === 'audit' ? 'Audit' : id === 'agent' ? 'Agent' : 'State'}
+            {t === 'audit' ? 'Audit' : t === 'agent' ? 'Agent' : t === 'state' ? 'State' : 'Session'}
           </button>
         ))}
       </div>
@@ -64,7 +64,7 @@ export function RightPanel({
         ) : (
           <div className="p-3 text-[12px] text-neutral-600">
             {sessionId === null
-              ? t('inspector.noSessionSelected')
+              ? 'No session selected.'
               : 'Loading transcript — the audit trail appears once the channel is up.'}
           </div>
         )}
@@ -81,7 +81,7 @@ export function RightPanel({
         <div className="p-3">
           {sessionId === null || !ready ? (
             <div className="text-[12px] text-neutral-600">
-              {sessionId === null ? t('inspector.noSessionSelected') : t('chat.loadingSession')}
+              {sessionId === null ? 'No session selected.' : 'Loading session…'}
             </div>
           ) : (
             <StateCard
@@ -96,6 +96,9 @@ export function RightPanel({
             />
           )}
         </div>
+      </div>
+      <div className={tab === 'session' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
+        <SessionPane sessionId={sessionId} ready={ready} />
       </div>
     </div>
   );
