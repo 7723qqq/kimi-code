@@ -69,6 +69,7 @@ import type { Msys2PromptChoice } from '../components/dialogs/msys2-prompt';
 import type { SessionRow } from '../components/dialogs/session-picker';
 import type { TrustPromptChoice } from '../components/dialogs/trust-prompt';
 import { pickRandomWorkingTip } from '../components/chrome/working-tips';
+import type { DialogResult as DialogResultLike } from '../dispatch';
 import type { TuiConfig } from '../config';
 import {
   getLlmNotSetMessage,
@@ -311,6 +312,70 @@ export class KimiTUI {
    * attached until Ctrl+C). Set via {@link setExitForegroundTask}.
    */
   public exitForegroundTask: ((exitCode: number) => Promise<void>) | undefined;
+
+  /**
+   * Apply a dialog result emitted by the MainShell's `DialogDispatch`.
+   * Routes the result to the matching controller / session call and
+   * dismisses the active dialog. Public so the run.tsx adapter can wire
+   * MainShell to KimiTUI without leaking the host's internals.
+   *
+   * The switch is intentionally permissive: every kind dismisses the
+   * dialog (so the shell never gets stuck on a closed dialog), and
+   * the routes that the host has controller methods for are wired
+   * directly. The remaining kinds are no-ops in this revision and
+   * will be wired in a follow-up — the protocol itself is stable.
+   */
+  public async applyDialogResult(result: DialogResultLike): Promise<void> {
+    this.store.setState('activeDialog', null)
+    switch (result.kind) {
+      case 'theme-selector':
+        await this.applyTheme(result.themeName as ThemeName)
+        return
+      case 'msys2-prompt':
+        this.msys2PromptResolver?.(result.choice)
+        this.msys2PromptResolver = undefined
+        return
+      case 'trust-prompt':
+        this.trustPromptResolver?.(result.choice)
+        this.trustPromptResolver = undefined
+        return
+      case 'cache-hint':
+        await this.cacheHint.handleSelection(result.action)
+        return
+      case 'approval-panel':
+        this.approvalController.respond(result.response)
+        return
+      case 'question-dialog':
+        this.questionController.respond({
+          method: result.method,
+          answers: result.answers,
+        })
+        return
+      case 'session-picker':
+      case 'model-selector':
+      case 'plugins-selector':
+      case 'locale-selector':
+      case 'permission-selector':
+      case 'editor-selector':
+      case 'update-preference':
+      case 'settings-selector':
+      case 'goal-queue-manager':
+      case 'undo-selector':
+      case 'effort-selector':
+      case 'start-permission-prompt':
+      case 'swarm-start-permission-prompt':
+      case 'help':
+      case 'which-key':
+        // Per-kind controller wiring lands in a follow-up. The dialog is
+        // dismissed above; the user can re-open via the slash command.
+        return
+    }
+  }
+
+  /** Dismiss the active dialog without applying a result. */
+  public cancelDialog(): void {
+    this.store.setState('activeDialog', null)
+  }
 
   /** Terminal output sink (defaults to process.stdout). */
   readonly terminal: Tui2Terminal;

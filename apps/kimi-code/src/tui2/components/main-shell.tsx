@@ -8,6 +8,12 @@
  * host (KimiTUI) is responsible for routing key events through the
  * keymap and for handling app-level commands (Ctrl+G, Ctrl+O, etc.).
  *
+ * Dialog results are routed back to the host through the `dispatch`
+ * prop (a `DialogDispatch`). The shell never calls into the host
+ * directly — it only knows the dialog kind + the result payload. The
+ * host translates those into the matching controller call and dismisses
+ * the dialog by setting `store.state.activeDialog` to `null`.
+ *
  * Layout:
  *   ┌─────────────────────────────────────────────────────────┐
  *   │ Banner                                                  │
@@ -25,11 +31,10 @@
  */
 
 import type { Component } from 'solid-js'
-import { For, Show } from 'solid-js'
-import type { ColorInput } from '@opentui/core'
+import { createSignal, For, Show } from 'solid-js'
 
 import { useTui2Store } from '../context'
-import { currentTheme } from '../theme'
+import type { DialogDispatch, DialogKind, DialogResult } from '../dispatch'
 import type { TranscriptEntry } from '../types'
 
 import { Banner } from './chrome/banner'
@@ -74,9 +79,16 @@ import { Box } from './common/box'
 import { Text } from './common/text'
 
 const LEFT_COL_RATIO = 0.7
-const NOOP = (): void => {}
+const FULLSCREEN_DIALOGS = new Set<DialogKind>([
+  'session-picker',
+  'model-selector',
+  'plugins-selector',
+  'help',
+])
 
 export interface MainShellProps {
+  /** Dispatch protocol to route dialog results back to the host. */
+  readonly dispatch: DialogDispatch
   /** Terminal width in columns. */
   readonly width: number
   /** Terminal height in rows. */
@@ -87,31 +99,26 @@ export interface MainShellProps {
   readonly activityDetail?: string
   readonly editorFocused?: boolean
   readonly editorPlaceholder?: string
+  /** Called when the user submits the editor (Enter). The shell does NOT
+   *  route the typed text anywhere — the host's editor-keyboard
+   *  controller owns the send path. */
+  readonly onEditorSubmit?: (text: string) => void
+  /** Current editor text (controlled by the host for persistence). */
+  readonly editorValue?: string
   readonly onEditorChange?: (value: string) => void
-  readonly onEditorSubmit?: (value: string) => void
 }
 
 const leftWidth = (total: number): number => Math.floor(total * LEFT_COL_RATIO)
 const rightWidth = (total: number): number => total - leftWidth(total)
 
-const FULLSCREEN_DIALOGS = new Set([
-  'session-picker',
-  'model-selector',
-  'plugins-selector',
-  'help',
-  'task-output-viewer',
-  'agent-activity-viewer',
-  'approval-preview',
-])
-
 export const MainShell: Component<MainShellProps> = (props) => {
   const store = useTui2Store()
-  const borderFg = (): ColorInput => currentTheme.color('border')
+  const borderFg = (): string => currentThemeFg('border')
 
   const transcript = (): readonly TranscriptEntry[] => store.state.transcript
   const showRightPane = (): boolean => {
     const dialog = store.state.activeDialog
-    return dialog === null || !FULLSCREEN_DIALOGS.has(dialog)
+    return dialog === null || !FULLSCREEN_DIALOGS.has(dialog as DialogKind)
   }
 
   return (
@@ -160,11 +167,12 @@ export const MainShell: Component<MainShellProps> = (props) => {
         <Text fg={borderFg()}>─</Text>
       </Box>
 
-      <ActiveDialogSlot />
+      <ActiveDialogSlot dispatch={props.dispatch} />
 
       <CustomEditor
         placeholder={props.editorPlaceholder}
         focused={props.editorFocused ?? true}
+        value={props.editorValue}
         onChange={props.onEditorChange}
         onSubmit={props.onEditorSubmit}
       />
@@ -199,11 +207,7 @@ const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
         />
       )
     case 'status':
-      return (
-        <StatusMessageView
-          kind={props.entry.detail ?? 'info'}
-        />
-      )
+      return <StatusMessageView kind={props.entry.detail ?? 'info'} />
     case 'goal':
       return props.entry.goalData !== undefined ? (
         <GoalPanel goal={props.entry.goalData} />
@@ -219,9 +223,13 @@ const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
 // Active dialog slot
 // ---------------------------------------------------------------------------
 
-const ActiveDialogSlot: Component = () => {
+const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
   const store = useTui2Store()
-  const dialog = (): string | null => store.state.activeDialog
+  const dialog = (): DialogKind | null => (store.state.activeDialog as DialogKind | null)
+  const dispatch = props.dispatch
+  const select = (result: DialogResult): void => dispatch.select(result)
+  const cancel = (kind: DialogKind): void => dispatch.cancel(kind)
+
   return (
     <Show when={dialog() !== null}>
       <Show when={dialog() === 'session-picker'}>
@@ -229,8 +237,8 @@ const ActiveDialogSlot: Component = () => {
           sessions={store.state.sessionPicker?.sessions ?? []}
           loading={store.state.sessionPicker?.loading ?? false}
           currentSessionId={store.state.sessionPicker?.currentSessionId ?? ''}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(sessionId) => select({ kind: 'session-picker', sessionId })}
+          onCancel={() => cancel('session-picker')}
         />
       </Show>
       <Show when={dialog() === 'model-selector'}>
@@ -238,131 +246,165 @@ const ActiveDialogSlot: Component = () => {
           models={store.state.modelSelector?.models ?? {}}
           currentValue={store.state.modelSelector?.currentValue ?? ''}
           currentThinkingEffort={store.state.modelSelector?.currentThinkingEffort ?? 'off'}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(s) => select({ kind: 'model-selector', alias: s.alias, effort: s.thinking })}
+          onCancel={() => cancel('model-selector')}
         />
       </Show>
       <Show when={dialog() === 'plugins-selector'}>
         <PluginsSelector
           installed={store.state.pluginsSelector?.installed ?? []}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(s) => {
+            // The plugins panel emits several action shapes; the dispatch
+            // protocol only covers the top-level toggles here. Detailed
+            // sub-flows (MCP / remove / reload / details / install) are
+            // handled inside the panel's own callback tree.
+            if (s.kind === 'toggle') {
+              select({ kind: 'plugins-selector', action: 'toggle' })
+            } else if (s.kind === 'remove') {
+              select({ kind: 'plugins-selector', action: 'remove' })
+            } else if (s.kind === 'mcp') {
+              select({ kind: 'plugins-selector', action: 'mcp' })
+            } else if (s.kind === 'details') {
+              select({ kind: 'plugins-selector', action: 'details' })
+            } else {
+              select({ kind: 'plugins-selector', action: 'reload' })
+            }
+          }}
+          onCancel={() => cancel('plugins-selector')}
         />
       </Show>
       <Show when={dialog() === 'theme-selector'}>
         <ThemeSelector
           currentValue={store.state.themeSelector?.currentValue ?? 'auto'}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(themeName) => select({ kind: 'theme-selector', themeName })}
+          onCancel={() => cancel('theme-selector')}
         />
       </Show>
       <Show when={dialog() === 'locale-selector'}>
         <LocaleSelector
           currentValue={store.state.localeSelector?.currentValue ?? 'en'}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(locale) => select({ kind: 'locale-selector', locale })}
+          onCancel={() => cancel('locale-selector')}
         />
       </Show>
       <Show when={dialog() === 'permission-selector'}>
         <PermissionSelector
           currentValue={store.state.permissionSelector?.currentValue ?? 'manual'}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(mode) => select({ kind: 'permission-selector', mode })}
+          onCancel={() => cancel('permission-selector')}
         />
       </Show>
       <Show when={dialog() === 'editor-selector'}>
         <EditorSelector
           currentValue={store.state.editorSelector?.currentValue ?? ''}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(command) => select({ kind: 'editor-selector', command })}
+          onCancel={() => cancel('editor-selector')}
         />
       </Show>
       <Show when={dialog() === 'update-preference'}>
         <UpdatePreferenceSelector
           currentValue={store.state.updatePreference?.currentValue ?? true}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(enabled) => select({ kind: 'update-preference', enabled })}
+          onCancel={() => cancel('update-preference')}
         />
       </Show>
       <Show when={dialog() === 'msys2-prompt'}>
-        <Msys2Prompt onSelect={NOOP} onCancel={NOOP} />
+        <Msys2Prompt
+          onSelect={(choice) => select({ kind: 'msys2-prompt', choice })}
+          onCancel={() => cancel('msys2-prompt')}
+        />
       </Show>
       <Show when={dialog() === 'trust-prompt'}>
         <TrustPrompt
           workDir={store.state.trustPrompt?.workDir ?? ''}
           gatedMcpServers={store.state.trustPrompt?.gatedMcpServers ?? []}
-          onSelect={NOOP}
+          onSelect={(choice) => select({ kind: 'trust-prompt', choice })}
         />
       </Show>
       <Show when={dialog() === 'settings-selector'}>
-        <SettingsSelector onSelect={NOOP} onCancel={NOOP} />
+        <SettingsSelector
+          onSelect={(value) => select({ kind: 'settings-selector', value })}
+          onCancel={() => cancel('settings-selector')}
+        />
       </Show>
       <Show when={dialog() === 'cache-hint'}>
         <CacheHintDialog
           idleSeconds={store.state.cacheHint?.idleSeconds ?? 0}
           totalTokens={store.state.cacheHint?.totalTokens ?? 0}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(action) => select({ kind: 'cache-hint', action })}
+          onCancel={() => cancel('cache-hint')}
         />
       </Show>
       <Show when={dialog() === 'goal-queue-manager'}>
         <GoalStartPermissionPrompt
           mode={store.state.goalQueue?.mode ?? 'manual'}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(choice) => select({ kind: 'goal-queue-manager', choice })}
+          onCancel={() => cancel('goal-queue-manager')}
         />
       </Show>
       <Show when={dialog() === 'undo-selector'}>
         <UndoSelector
           choices={store.state.undoSelector?.choices ?? []}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(choice) => select({ kind: 'undo-selector', choiceId: choice.id })}
+          onCancel={() => cancel('undo-selector')}
         />
       </Show>
       <Show when={dialog() === 'effort-selector'}>
         <EffortSelector
           efforts={store.state.effortSelector?.efforts ?? []}
           currentValue={store.state.effortSelector?.currentValue ?? 'off'}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(effort) => select({ kind: 'effort-selector', effort })}
+          onCancel={() => cancel('effort-selector')}
         />
       </Show>
       <Show when={dialog() === 'help'}>
         <HelpPanel
           commands={store.state.helpPanel?.commands ?? []}
           width={store.state.helpPanel?.width ?? 80}
-          onClose={NOOP}
+          onClose={() => cancel('help')}
         />
       </Show>
       <Show when={dialog() === 'which-key'}>
-        <WhichKey onClose={NOOP} />
+        <WhichKey onClose={() => cancel('which-key')} />
       </Show>
       <Show when={dialog() === 'start-permission-prompt'}>
         <StartPermissionPrompt
           title={store.state.startPermission?.title ?? ''}
           noticeLines={store.state.startPermission?.noticeLines ?? []}
           options={store.state.startPermission?.options ?? []}
-          onSelect={NOOP}
-          onCancel={NOOP}
+          onSelect={(choice) => select({ kind: 'start-permission-prompt', choice })}
+          onCancel={() => cancel('start-permission-prompt')}
         />
       </Show>
       <Show when={dialog() === 'swarm-start-permission-prompt'}>
-        <SwarmStartPermissionPrompt onSelect={NOOP} onCancel={NOOP} />
+        <SwarmStartPermissionPrompt
+          onSelect={(choice) => select({ kind: 'swarm-start-permission-prompt', choice })}
+          onCancel={() => cancel('swarm-start-permission-prompt')}
+        />
       </Show>
       <Show when={dialog() === 'approval-panel'}>
         <ApprovalPanel
           request={store.state.approval?.request}
           width={store.state.approval?.width ?? 80}
-          onResponse={NOOP}
+          onResponse={(response) => select({ kind: 'approval-panel', response })}
         />
       </Show>
       <Show when={dialog() === 'question-dialog'}>
         <QuestionDialog
           request={store.state.question?.request}
           width={store.state.question?.width ?? 80}
-          onAnswer={NOOP}
+          onAnswer={(r) => select({ kind: 'question-dialog', method: r.method, answers: r.answers })}
         />
       </Show>
     </Show>
   )
 }
+
+// Tiny shim so the existing `currentTheme.fg(token)` call site below
+// doesn't need a second import for a single string.
+import { currentTheme } from '../theme'
+const currentThemeFg = (token: 'border' | 'borderFocus' | 'primary' | 'text' | 'textDim' | 'textMuted'): string => {
+  const input = currentTheme.color(token as Parameters<typeof currentTheme.color>[0])
+  return typeof input === 'string' ? input : String(input)
+}
+void createSignal

@@ -245,6 +245,10 @@ export interface TuiRuntimeState {
   shellOutputs: Record<string, { content: string; taskId?: string; finished?: boolean }>
   /** Current activity-pane loading tip. */
   activityTip: string | undefined
+  /** Current activity-pane mode (driven by the host controller). */
+  activityMode: 'idle' | 'waiting' | 'thinking' | 'composing' | 'tool'
+  /** Current activity-pane detail (e.g. step retry error). */
+  activityDetail: string | undefined
   /** Tasks-browser dialog state; undefined when closed. */
   tasksBrowser: TasksBrowserState | undefined
   /** Terminal capability snapshot (focus, notification support). */
@@ -357,6 +361,8 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
   progressSpinner: null,
   shellOutputs: {},
   activityTip: undefined,
+  activityMode: 'idle',
+  activityDetail: undefined,
   tasksBrowser: undefined,
   terminalState: createTerminalState(),
   swarmModeEntry: undefined,

@@ -59,8 +59,9 @@ export const CustomEditor: Component<CustomEditorProps> = (props) => {
           fg={inputFg()}
           focused={props.focused ?? true}
           placeholder={props.placeholder ?? t('tui.dialogs.editor.placeholder')}
+          value={props.value}
           onInput={(v) => props.onChange?.(v)}
-          onSubmit={() => props.onSubmit?.(/* value available via signal */ '')}
+          onSubmit={() => props.onSubmit?.(props.value ?? '')}
         />
         <Text>{' '}</Text>
         <Text fg={borderFg()}>{'│'}</Text>
