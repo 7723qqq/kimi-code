@@ -1,17 +1,30 @@
+/**
+ * rg-locator — hybrid ripgrep binary resolution.
+ *
+ * Lookup order (first hit wins):
+ *   1. System PATH (`which rg`) — fastest, respects developer setup
+ *   2. Bundled vendor binary (hook; not wired yet — `getVendorRgPath` is a stub)
+ *   3. `<KIMI_CODE_HOME>/bin/rg` — persistent cache for this app.
+ *   4. CDN download to <KIMI_CODE_HOME>/bin/ — one-off bootstrap
+ *
+ * If steps 1-4 all fail, callers receive a structured error they can
+ * turn into a user-facing "install ripgrep" hint instead of the naked
+ * `spawn rg ENOENT`.
+ */
+
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
+import { basename, join } from 'pathe';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import { kimiRegionProfile, resolveKimiRegion } from '@moonshot-ai/kimi-code-oauth';
 import { extract as extractTar } from 'tar';
 import { type Entry, fromBuffer as yauzlFromBuffer } from 'yauzl';
-import { basename, join } from 'pathe';
 
-import { abortable } from '#/_base/utils/abort';
-import { ErrorCodes, Error2 } from '#/errors';
+import { abortable } from '../../utils/abort';
 
 const RG_VERSION = '15.0.0';
 const DOWNLOAD_TIMEOUT_MS = 600_000;
@@ -41,94 +54,62 @@ export interface RgResolution {
   readonly source: RgResolutionSource;
 }
 
-export interface RgProbe {
-  exec(args: readonly string[]): Promise<{ readonly exitCode: number }>;
-}
-
 export interface EnsureRgPathOptions {
   readonly shareDir?: string | undefined;
+  /**
+   * Cancels this caller's wait. A shared bootstrap download that is already in
+   * progress may continue so other callers can still use the same result.
+   */
   readonly signal?: AbortSignal | undefined;
-  readonly allowCachedFallback?: boolean;
 }
 
-function rgBinaryName(): string {
-  return process.platform === 'win32' ? 'rg.exe' : 'rg';
-}
-
-function getShareDir(): string {
-  const override = process.env['KIMI_CODE_HOME'];
-  if (override !== undefined && override !== '') return override;
-  return join(homedir(), '.kimi-code');
-}
-
-export function getShareBinRgPath(): string {
-  return join(getShareDir(), 'bin', rgBinaryName());
-}
-
-function rgBaseUrl(): string {
-  return `${kimiRegionProfile(resolveKimiRegion()).cdnBase}/rg`;
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted === true) {
-    throw new DOMException('Aborted', 'AbortError');
-  }
-}
-
-export function ensureRgPath(
-  probe: RgProbe,
-  options: EnsureRgPathOptions = {},
-): Promise<RgResolution> {
-  if (options.signal?.aborted === true) {
-    return Promise.reject(new DOMException('Aborted', 'AbortError'));
-  }
-  const shareDir = options.shareDir ?? getShareDir();
-  const resolution = resolveRgPath(probe, shareDir, options);
+/**
+ * Resolve the absolute path to a usable `rg` binary, downloading it
+ * into `<shareDir>/bin/` if necessary. Multiple concurrent callers are
+ * serialized by a module-level lock so the download happens at most
+ * once per process.
+ */
+export async function ensureRgPath(options: EnsureRgPathOptions = {}): Promise<RgResolution> {
+  options.signal?.throwIfAborted();
+  const resolution = resolveRgPath(options.shareDir ?? getShareDir(), options.signal);
   return options.signal === undefined ? resolution : abortable(resolution, options.signal);
 }
 
 async function resolveRgPath(
-  probe: RgProbe,
   shareDir: string,
-  options: EnsureRgPathOptions,
+  signal?: AbortSignal | undefined,
 ): Promise<RgResolution> {
-  const existing = await findExistingRg(probe, shareDir, options.allowCachedFallback === true);
+  const existing = await findExistingRg(shareDir);
   if (existing) return existing;
-  throwIfAborted(options.signal);
-  if (options.allowCachedFallback === true) {
-    return downloadRgWithLock(probe, shareDir);
-  }
-  throw new Error2(ErrorCodes.OS_FS_UNAVAILABLE, 'ripgrep (rg) is not available on PATH');
+  signal?.throwIfAborted();
+  return downloadRgWithLock(shareDir);
 }
 
-export async function findExistingRg(
-  _probe: RgProbe,
-  shareDir: string = getShareDir(),
-  allowCachedFallback = true,
-): Promise<RgResolution | undefined> {
-  const system = await findRgOnPath();
-  if (system !== undefined) return { path: system, source: 'system-path' };
-
-  if (allowCachedFallback) {
-    const vendorPath = getVendorRgPath(rgBinaryName());
-    if (vendorPath !== undefined && (await isExecutableFile(vendorPath))) {
-      return { path: vendorPath, source: 'vendor' };
-    }
-    const cachePath = join(shareDir, 'bin', rgBinaryName());
-    if (await isExecutableFile(cachePath)) {
-      return { path: cachePath, source: 'share-bin-cached' };
-    }
+/**
+ * Pure-lookup variant for test harnesses that want to assert on the
+ * resolution order without triggering a real download.
+ */
+export async function findExistingRg(shareDir: string): Promise<RgResolution | undefined> {
+  const binName = rgBinaryName();
+  const systemRg = await whichRg();
+  if (systemRg !== undefined) return { path: systemRg, source: 'system-path' };
+  const vendorPath = getVendorRgPath(binName);
+  if (vendorPath !== undefined && (await isExecutableFile(vendorPath))) {
+    return { path: vendorPath, source: 'vendor' };
   }
-
+  const cachePath = join(shareDir, 'bin', binName);
+  if (await isExecutableFile(cachePath)) {
+    return { path: cachePath, source: 'share-bin-cached' };
+  }
   return undefined;
 }
 
 let downloadPromise: Promise<RgResolution> | undefined;
-function downloadRgWithLock(probe: RgProbe, shareDir: string): Promise<RgResolution> {
+async function downloadRgWithLock(shareDir: string): Promise<RgResolution> {
   if (downloadPromise !== undefined) return downloadPromise;
   downloadPromise = (async () => {
     try {
-      const existing = await findExistingRg(probe, shareDir, true);
+      const existing = await findExistingRg(shareDir);
       if (existing) return existing;
       const binPath = await downloadAndInstallRg(shareDir);
       return { path: binPath, source: 'share-bin-downloaded' };
@@ -139,30 +120,54 @@ function downloadRgWithLock(probe: RgProbe, shareDir: string): Promise<RgResolut
   return downloadPromise;
 }
 
+function rgBinaryName(): string {
+  return process.platform === 'win32' ? 'rg.exe' : 'rg';
+}
+
+// Resolved per download so the region follows env changes; this tool-layer
+// module has no access to the persisted config, so resolution is
+// env override > install marker > cn default.
+function rgBaseUrl(): string {
+  return `${kimiRegionProfile(resolveKimiRegion()).cdnBase}/rg`;
+}
+
+function getShareDir(): string {
+  const override = process.env['KIMI_CODE_HOME'];
+  if (override !== undefined && override !== '') return override;
+  return join(homedir(), '.kimi-code');
+}
+
 function getVendorRgPath(_binName: string): string | undefined {
   return undefined;
 }
 
-async function findRgOnPath(): Promise<string | undefined> {
+async function whichRg(): Promise<string | undefined> {
   const pathEnv = process.env['PATH'] ?? '';
   const sep = process.platform === 'win32' ? ';' : ':';
   const binName = rgBinaryName();
   for (const dir of pathEnv.split(sep)) {
     if (dir === '') continue;
     const candidate = join(dir, binName);
-    if (await isExecutableFile(candidate)) return candidate;
+    try {
+      const st = await stat(candidate);
+      if (st.isFile()) return candidate;
+    } catch {
+      /* not here, try next */
+    }
   }
   return undefined;
 }
 
-async function isExecutableFile(path: string): Promise<boolean> {
+async function isExecutableFile(p: string): Promise<boolean> {
   try {
-    return (await stat(path)).isFile();
+    const st = await stat(p);
+    return st.isFile();
   } catch {
     return false;
   }
 }
 
+/** @internal for tests — rust-style `<arch>-<vendor>-<os>` target triple. */
 export function detectTarget(): string | undefined {
   const arch = process.arch === 'x64' ? 'x86_64' : process.arch === 'arm64' ? 'aarch64' : undefined;
   if (arch === undefined) return undefined;
@@ -178,23 +183,20 @@ export function detectTarget(): string | undefined {
 async function downloadAndInstallRg(shareDir: string): Promise<string> {
   const target = detectTarget();
   if (target === undefined) {
-    throw new Error2(
-      ErrorCodes.OS_FS_UNAVAILABLE,
+    throw new Error(
       `Unsupported platform/arch for ripgrep download: ${process.platform}/${process.arch}`,
-      { details: { platform: process.platform, arch: process.arch } },
     );
   }
 
+  // Windows ripgrep releases ship as `.zip`; macOS / Linux as `.tar.gz`.
+  // The extraction branch inside the try block handles the format-specific
+  // unpack; the fetch + download-to-tmp pipeline is identical.
   const isWindows = target.includes('windows');
   const archiveExt = isWindows ? 'zip' : 'tar.gz';
   const archiveName = `ripgrep-${RG_VERSION}-${target}.${archiveExt}`;
   const expectedSha256 = RG_ARCHIVE_SHA256[archiveName];
   if (expectedSha256 === undefined) {
-    throw new Error2(
-      ErrorCodes.OS_FS_UNAVAILABLE,
-      `No pinned SHA-256 is configured for ripgrep archive ${archiveName}`,
-      { details: { archiveName } },
-    );
+    throw new Error(`No pinned SHA-256 is configured for ripgrep archive ${archiveName}`);
   }
   const url = `${rgBaseUrl()}/${archiveName}`;
 
@@ -217,21 +219,24 @@ async function downloadAndInstallRg(shareDir: string): Promise<string> {
       clearTimeout(timeoutHandle);
     }
     if (!resp.ok || resp.body === null) {
-      throw new Error2(
-        ErrorCodes.OS_FS_UNAVAILABLE,
-        `Failed to download ripgrep: HTTP ${String(resp.status)} ${resp.statusText}`,
-        { details: { url, status: resp.status, statusText: resp.statusText } },
-      );
+      throw new Error(`Failed to download ripgrep: HTTP ${String(resp.status)} ${resp.statusText}`);
     }
     const write = createWriteStream(archivePath);
+    // Readable.fromWeb is typed as accepting a web ReadableStream; the
+    // undici/fetch body matches that shape at runtime.
     await pipeline(Readable.fromWeb(resp.body as never), write);
     await verifyArchiveChecksum(archivePath, archiveName, expectedSha256);
 
     if (isWindows) {
       await extractRgFromZip(archivePath, destination);
+      // Windows does not need `chmod +x`: execution is gated by the
+      // `.exe` extension + NTFS ACLs, which are already correct.
     } else {
       const extractDir = join(tmp, 'extract');
       await mkdir(extractDir, { recursive: true });
+      // tar.gz uses hard-coded prefix because the CDN's tar.gz layout is stable
+      // and known from upstream releases; zip branch uses basename matching as
+      // a looser contract so a CDN prefix change doesn't silently fall through.
       await extractTar({
         file: archivePath,
         cwd: extractDir,
@@ -240,11 +245,9 @@ async function downloadAndInstallRg(shareDir: string): Promise<string> {
       });
       const extracted = join(extractDir, `ripgrep-${RG_VERSION}-${target}`, rgBinaryName());
       if (!existsSync(extracted)) {
-        throw new Error2(
-          ErrorCodes.OS_FS_UNAVAILABLE,
+        throw new Error(
           `Ripgrep archive did not contain expected binary at ${extracted}. ` +
             'CDN content may have changed.',
-          { details: { path: extracted } },
         );
       }
       const installDir = await mkdtemp(join(binDir, '.rg-install-'));
@@ -263,6 +266,7 @@ async function downloadAndInstallRg(shareDir: string): Promise<string> {
   }
 }
 
+/** @internal for tests — fail closed before extracting downloaded bytes. */
 export async function verifyArchiveChecksum(
   archivePath: string,
   archiveName: string,
@@ -272,32 +276,35 @@ export async function verifyArchiveChecksum(
     .update(await readFile(archivePath))
     .digest('hex');
   if (actualSha256 !== expectedSha256) {
-    throw new Error2(
-      ErrorCodes.OS_FS_UNAVAILABLE,
+    throw new Error(
       `Ripgrep archive checksum mismatch for ${archiveName}: expected ${expectedSha256}, ` +
         `got ${actualSha256}. CDN content may have changed.`,
-      { details: { archiveName, expectedSha256, actualSha256 } },
     );
   }
 }
 
+/**
+ * Read the downloaded `.zip` at `archivePath`, find the `rg.exe` entry
+ * (basename match), and stream it out to `destination`. Throws with
+ * the shared "CDN content may have
+ * changed" sentinel when the archive holds no matching entry — same
+ * failure semantics as the tar.gz path's `existsSync(extracted)` gate
+ * so callers see a single actionable message.
+ */
 export async function extractRgFromZip(archivePath: string, destination: string): Promise<void> {
   const buf = await readFile(archivePath);
-  const binName = rgBinaryName();
+  const binName = rgBinaryName(); // 'rg.exe' on win32
   await new Promise<void>((resolve, reject) => {
     yauzlFromBuffer(buf, { lazyEntries: true }, (openErr, zipfile) => {
       if (openErr !== null || zipfile === undefined) {
-        reject(
-          new Error2(
-            ErrorCodes.OS_FS_UNAVAILABLE,
-            `Failed to open ripgrep archive: ${openErr?.message ?? 'unknown error'}`,
-            { cause: openErr ?? undefined },
-          ),
-        );
+        reject(new Error(`Failed to open ripgrep archive: ${openErr?.message ?? 'unknown error'}`));
         return;
       }
       let found = false;
       const onEntry = (entry: Entry): void => {
+        // Match on basename (not full path) — keeps the matcher robust
+        // against CDN repackaging tweaks (e.g. an unexpected
+        // `ripgrep-X.Y.Z-TARGET/` prefix change).
         if (basename(entry.fileName) !== binName) {
           zipfile.readEntry();
           return;
@@ -306,11 +313,7 @@ export async function extractRgFromZip(archivePath: string, destination: string)
         zipfile.openReadStream(entry, (streamErr, stream) => {
           if (streamErr !== null) {
             reject(
-              new Error2(
-                ErrorCodes.OS_FS_UNAVAILABLE,
-                `Failed to read ${entry.fileName} from archive: ${streamErr.message}`,
-                { cause: streamErr },
-              ),
+              new Error(`Failed to read ${entry.fileName} from archive: ${streamErr.message}`),
             );
             zipfile.close();
             return;
@@ -323,26 +326,22 @@ export async function extractRgFromZip(archivePath: string, destination: string)
               resolve();
             } catch (error) {
               zipfile.close();
-              reject(
-                new Error2(
-                  ErrorCodes.OS_FS_UNAVAILABLE,
-                  error instanceof Error ? error.message : String(error),
-                  { cause: error },
-                ),
-              );
+              reject(error instanceof Error ? error : new Error(String(error)));
             }
           })();
         });
       };
       zipfile.on('entry', onEntry);
       zipfile.on('end', () => {
+        // With lazyEntries:true, `end` fires only after readEntry() is called
+        // for every central-directory entry. We stop calling readEntry() once
+        // `found` becomes true, so `end` only reaches this branch on the
+        // not-found path.
         if (!found) {
           reject(
-            new Error2(
-              ErrorCodes.OS_FS_UNAVAILABLE,
+            new Error(
               `Ripgrep archive did not contain expected binary '${binName}'. ` +
                 'CDN content may have changed.',
-              { details: { binary: binName } },
             ),
           );
         }
@@ -355,10 +354,14 @@ export async function extractRgFromZip(archivePath: string, destination: string)
   });
 }
 
+/**
+ * User-facing error message to show when `ensureRgPath` throws. Kept
+ * in one place so the Grep / Glob / Bash plumbing can reuse it.
+ */
 export function rgUnavailableMessage(cause: unknown): string {
   const detail =
     cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : 'unknown error';
-  const shareBin = getShareBinRgPath();
+  const shareBin = join(getShareDir(), 'bin', rgBinaryName());
   return (
     `ripgrep (rg) is not available and the automatic bootstrap failed.\n` +
     `\n` +

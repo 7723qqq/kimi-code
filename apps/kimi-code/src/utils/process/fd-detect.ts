@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
   createWriteStream,
@@ -15,15 +15,11 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import { log } from '@moonshot-ai/kimi-code-sdk';
-
-import { KIMI_CODE_CDN_BASE } from '#/constant/app';
-import { t } from '#/i18n';
+import { kimiCodeCdnBase } from '#/constant/app';
 import { getBinDir } from '#/utils/paths';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 const CANDIDATES = ['fd', 'fdfind'];
-const FD_BASE_URL = `${KIMI_CODE_CDN_BASE}/fd`;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 const FD_ARCHIVE_SHA256: Record<string, string> = {
@@ -53,10 +49,7 @@ export async function ensureFdPath(): Promise<string | null> {
 
   try {
     return await downloadFd();
-  } catch (error) {
-    // The fallback to a system fd binary is intentional, but a silent
-    // download failure would hide network/CDN problems — keep a log trail.
-    log.warn('failed to download managed fd binary', { error });
+  } catch {
     return null;
   }
 }
@@ -127,7 +120,7 @@ async function downloadFd(): Promise<string | null> {
   const archivePath = join(extractDir, assetName);
 
   try {
-    const downloadUrl = `${FD_BASE_URL}/${assetName}`;
+    const downloadUrl = `${kimiCodeCdnBase()}/fd/${assetName}`;
     await downloadFile(downloadUrl, archivePath);
     verifyArchive(archivePath, expectedSha256);
     extractArchive(archivePath, extractDir, assetName);
@@ -160,7 +153,7 @@ async function downloadFile(url: string, dest: string): Promise<void> {
     throw new Error(`Failed to download fd: ${response.status}`);
   }
   if (response.body === null) {
-    throw new Error(t('tui.statusMessages.fdDownloadEmptyResponse'));
+    throw new Error('Failed to download fd: empty response body');
   }
   await pipeline(Readable.fromWeb(response.body), createWriteStream(dest));
 }

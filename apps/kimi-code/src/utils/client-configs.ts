@@ -1,14 +1,14 @@
 import { join } from 'node:path';
 
-import { kimiCodeBaseUrl } from '@moonshot-ai/kimi-code-oauth';
 import { z } from 'zod';
 
 import { getCacheDir } from '#/utils/paths';
 import { readJsonFile, writeJsonFile } from '#/utils/persistence';
+import { currentKimiProfile, currentKimiRegion } from '#/utils/region';
 
 /**
  * Generic client for the public client-configs endpoint:
- * `POST {kimiCodeBaseUrl}/client_configs {"name": "<config name>"}` returns
+ * `POST {baseUrl}/client_configs {"name": "<config name>"}` returns
  * `{ name, config: <payload> }`, where the payload shape is config-specific
  * and validated by the caller-supplied schema.
  *
@@ -24,8 +24,19 @@ const CLIENT_CONFIGS_PATH = '/client_configs';
 /** Cache validity per config name: 1 day. */
 const CONFIG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 5000;
-/** Upper bound on the number of named configs cached in-process. */
-const CONFIG_CACHE_MAX_ENTRIES = 64;
+
+/** The endpoint's API base: the env override keeps winning (custom/internal
+    envs); otherwise the active region profile, so a global login's token is
+    not sent to the mainland-China deployment. */
+function clientConfigsBaseUrl(): string {
+  return (process.env['KIMI_CODE_BASE_URL'] ?? currentKimiProfile().baseUrl).replace(/\/+$/, '');
+}
+
+/** Cache entries are partitioned by region so a login switch never serves
+    the other deployment's cached config. */
+function cacheKeyFor(name: string): string {
+  return `${currentKimiRegion()}:${name}`;
+}
 
 export interface ClientConfigFetchOptions {
   /** Managed OAuth token; sent as Bearer when present. The endpoint is
@@ -42,23 +53,6 @@ export interface ClientConfigFetchOptions {
 
 const cache = new Map<string, { readonly fetchedAt: number; readonly data: unknown }>();
 
-/** Insert or replace a cache entry, evicting the oldest when full.
- *  Always moves the entry to the MRU position (Map insertion-order tail)
- *  so that frequently-accessed configs survive eviction. */
-function touchCache(
-  name: string,
-  entry: { readonly fetchedAt: number; readonly data: unknown },
-): void {
-  if (cache.size >= CONFIG_CACHE_MAX_ENTRIES && !cache.has(name)) {
-    const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
-  }
-  // delete+set ensures the entry moves to the end (MRU position) even
-  // when the key already existed (Map.set alone preserves old order).
-  cache.delete(name);
-  cache.set(name, entry);
-}
-
 const cacheFileEnvelopeSchema = z.object({
   version: z.literal(1),
   fetchedAt: z.number(),
@@ -68,7 +62,7 @@ const cacheFileEnvelopeSchema = z.object({
 function cacheFileFor(name: string, options: ClientConfigFetchOptions): string | undefined {
   if (options.cacheFile === null) return undefined;
   if (options.cacheFile !== undefined) return options.cacheFile;
-  return join(getCacheDir(), 'client-configs', `${name.replaceAll(/[^a-zA-Z0-9_-]/g, '_')}.json`);
+  return join(getCacheDir(), 'client-configs', `${cacheKeyFor(name).replaceAll(/[^a-zA-Z0-9_-]/g, '_')}.json`);
 }
 
 /** Fresh disk entry, or undefined when missing/stale/invalid. */
@@ -115,19 +109,10 @@ export async function getClientConfig<S extends z.ZodType>(
   options: ClientConfigFetchOptions = {},
 ): Promise<z.infer<S> | undefined> {
   const now = options.now ?? Date.now();
-  const hit = cache.get(name);
+  const key = cacheKeyFor(name);
+  const hit = cache.get(key);
   if (hit !== undefined && now - hit.fetchedAt < CONFIG_CACHE_TTL_MS) {
-    // Re-validate against the caller's schema (same as the disk layer and
-    // peekClientConfig): a hit that no longer parses is treated as a miss so
-    // the entry cannot poison a differently-shaped read.
-    const parsed = schema.safeParse(hit.data);
-    if (parsed.success) {
-      // LRU touch: refresh position so frequently-used configs survive.
-      cache.delete(name);
-      cache.set(name, hit);
-      return parsed.data;
-    }
-    cache.delete(name);
+    return hit.data as z.infer<S>;
   }
   const file = cacheFileFor(name, options);
   if (file !== undefined) {
@@ -135,13 +120,13 @@ export async function getClientConfig<S extends z.ZodType>(
     if (diskHit !== undefined) {
       // Warm the in-process layer with the original fetch time, so the entry
       // still expires a day after it was actually fetched.
-      touchCache(name, diskHit);
+      cache.set(key, diskHit);
       return diskHit.data;
     }
   }
   const data = await fetchClientConfig(name, schema, options);
   if (data === undefined) return undefined;
-  touchCache(name, { fetchedAt: now, data });
+  cache.set(key, { fetchedAt: now, data });
   if (file !== undefined) await writeDiskCache(file, data, now);
   return data;
 }
@@ -152,7 +137,7 @@ export function refreshClientConfigInBackground<S extends z.ZodType>(
   schema: S,
   options: ClientConfigFetchOptions = {},
 ): void {
-  void getClientConfig(name, schema, options).catch(() => {});
+  void getClientConfig(name, schema, options).catch(() => undefined);
 }
 
 /**
@@ -165,11 +150,8 @@ export function peekClientConfig<S extends z.ZodType>(
   schema: S,
   now: number = Date.now(),
 ): z.infer<S> | undefined {
-  const hit = cache.get(name);
+  const hit = cache.get(cacheKeyFor(name));
   if (hit === undefined || now - hit.fetchedAt >= CONFIG_CACHE_TTL_MS) return undefined;
-  // LRU touch: refresh position on peek too, since a peek implies usage.
-  cache.delete(name);
-  cache.set(name, hit);
   const parsed = schema.safeParse(hit.data);
   return parsed.success ? (parsed.data as z.infer<S>) : undefined;
 }
@@ -188,7 +170,7 @@ export async function fetchClientConfig<S extends z.ZodType>(
     headers['authorization'] = `Bearer ${options.accessToken}`;
   }
   try {
-    const response = await fetchFn(`${kimiCodeBaseUrl()}${CLIENT_CONFIGS_PATH}`, {
+    const response = await fetchFn(`${clientConfigsBaseUrl()}${CLIENT_CONFIGS_PATH}`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ name }),
@@ -214,6 +196,6 @@ export function resetClientConfigCache(name?: string): void {
   if (name === undefined) {
     cache.clear();
   } else {
-    cache.delete(name);
+    cache.delete(cacheKeyFor(name));
   }
 }

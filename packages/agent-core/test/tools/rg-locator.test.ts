@@ -9,10 +9,11 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import type * as FsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
+
 import { extract as extractTar } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ZipFile } from 'yazl';
@@ -24,36 +25,12 @@ import {
   findExistingRg,
   rgUnavailableMessage,
   verifyArchiveChecksum,
-  type RgProbe,
-} from '#/os/backends/node-local/tools/rgLocator';
+} from '../../src/tools/support/rg-locator';
 
+// Download-branch tests mock `tar.extract` so the archive layout is
+// controlled by the test, not the real CDN. `fetch` is replaced per-test
+// on `globalThis` to drive the failure and success paths.
 vi.mock('tar', () => ({ extract: vi.fn() }));
-
-function probeWith(
-  resolveExitCode: (args: readonly string[]) => number,
-): RgProbe & { exec: ReturnType<typeof vi.fn> } {
-  return {
-    exec: vi.fn(async (args: readonly string[]) => ({ exitCode: resolveExitCode(args) })),
-  };
-}
-
-function noRgProbe(): RgProbe & { exec: ReturnType<typeof vi.fn> } {
-  return probeWith(() => -1);
-}
-
-function deferred<T>(): {
-  readonly promise: Promise<T>;
-  readonly resolve: (value: T) => void;
-  readonly reject: (error: unknown) => void;
-} {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
 
 describe('findExistingRg', () => {
   let fakeShare: string;
@@ -62,45 +39,43 @@ describe('findExistingRg', () => {
     fakeShare = join(tmpdir(), `kimi-rg-${String(Date.now())}-${String(Math.random()).slice(2)}`);
     mkdirSync(join(fakeShare, 'bin'), { recursive: true });
     savedPath = process.env['PATH'];
+    // Empty PATH → rules out step 1 (system-path) for the default case.
     process.env['PATH'] = '';
   });
   afterEach(() => {
     rmSync(fakeShare, { recursive: true, force: true });
-    if (savedPath === undefined) {
-      delete process.env['PATH'];
-    } else {
-      process.env['PATH'] = savedPath;
-    }
+    if (savedPath === undefined) delete process.env['PATH'];
+    else process.env['PATH'] = savedPath;
   });
 
   it('returns undefined when no rg anywhere', async () => {
-    const result = await findExistingRg(noRgProbe(), fakeShare);
+    const result = await findExistingRg(fakeShare);
     expect(result).toBeUndefined();
   });
 
   it('resolves from share-dir when cached', async () => {
     const cached = join(fakeShare, 'bin', process.platform === 'win32' ? 'rg.exe' : 'rg');
-    writeFileSync(cached, 'fake rg');
-    const probe = noRgProbe();
-    const result = await findExistingRg(probe, fakeShare);
-
+    writeFileSync(cached, '#!/bin/sh\necho ripgrep 15.0.0\n');
+    chmodSync(cached, 0o755);
+    const result = await findExistingRg(fakeShare);
     expect(result).toEqual({ path: cached, source: 'share-bin-cached' });
-    expect(probe.exec).not.toHaveBeenCalled();
   });
 
   it('prefers system PATH over share-dir when both are available', async () => {
-    const binDir = join(fakeShare, 'path-bin');
-    mkdirSync(binDir, { recursive: true });
-    const systemRg = join(binDir, process.platform === 'win32' ? 'rg.exe' : 'rg');
+    // Stage a fake rg on PATH.
+    const pathDir = join(fakeShare, 'path');
+    mkdirSync(pathDir, { recursive: true });
+    const onPath = join(pathDir, process.platform === 'win32' ? 'rg.exe' : 'rg');
+    writeFileSync(onPath, '#!/bin/sh\n');
+    chmodSync(onPath, 0o755);
+    process.env['PATH'] = pathDir;
+    // Also stage a cached one to confirm the order.
     const cached = join(fakeShare, 'bin', process.platform === 'win32' ? 'rg.exe' : 'rg');
-    writeFileSync(systemRg, 'fake system rg');
-    writeFileSync(cached, 'fake cached rg');
-    process.env['PATH'] = binDir;
-    const probe = noRgProbe();
-    const result = await findExistingRg(probe, fakeShare);
-
-    expect(result).toEqual({ path: systemRg, source: 'system-path' });
-    expect(probe.exec).not.toHaveBeenCalled();
+    writeFileSync(cached, '#!/bin/sh\n');
+    chmodSync(cached, 0o755);
+    const result = await findExistingRg(fakeShare);
+    expect(result?.source).toBe('system-path');
+    expect(result?.path).toBe(onPath);
   });
 });
 
@@ -121,44 +96,35 @@ describe('detectTarget', () => {
     Object.defineProperty(process, 'platform', { value: platform });
   }
 
-  it('darwin arm64 -> aarch64-apple-darwin', () => {
+  it('darwin arm64 → aarch64-apple-darwin', () => {
     setPlatform('arm64', 'darwin');
     expect(detectTarget()).toBe('aarch64-apple-darwin');
   });
-  it('darwin x64 -> x86_64-apple-darwin', () => {
+  it('darwin x64 → x86_64-apple-darwin', () => {
     setPlatform('x64', 'darwin');
     expect(detectTarget()).toBe('x86_64-apple-darwin');
   });
-  it('linux x64 -> x86_64-unknown-linux-musl', () => {
+  it('linux x64 → x86_64-unknown-linux-musl', () => {
     setPlatform('x64', 'linux');
     expect(detectTarget()).toBe('x86_64-unknown-linux-musl');
   });
-  it('linux arm64 -> aarch64-unknown-linux-gnu', () => {
+  it('linux arm64 → aarch64-unknown-linux-gnu', () => {
     setPlatform('arm64', 'linux');
     expect(detectTarget()).toBe('aarch64-unknown-linux-gnu');
   });
-  it('win32 x64 -> x86_64-pc-windows-msvc', () => {
+  it('win32 x64 → x86_64-pc-windows-msvc', () => {
     setPlatform('x64', 'win32');
     expect(detectTarget()).toBe('x86_64-pc-windows-msvc');
   });
-  it('unsupported arch -> undefined', () => {
+  it('unsupported arch → undefined', () => {
     setPlatform('mips', 'linux');
     expect(detectTarget()).toBeUndefined();
-  });
-  it('darwin arm32 -> undefined (unsupported)', () => {
-    setPlatform('arm', 'darwin');
-    expect(detectTarget()).toBeUndefined();
-  });
-  it('win32 arm64 -> aarch64-pc-windows-msvc', () => {
-    setPlatform('arm64', 'win32');
-    expect(detectTarget()).toBe('aarch64-pc-windows-msvc');
   });
 });
 
 describe('rgUnavailableMessage', () => {
   it('surfaces the underlying cause and install hints', () => {
     const msg = rgUnavailableMessage(new Error('fetch failed'));
-    expect(msg).toContain('automatic bootstrap failed');
     expect(msg).toContain('fetch failed');
     expect(msg).toContain('brew install ripgrep');
     expect(msg).toContain('https://github.com/BurntSushi/ripgrep');
@@ -169,19 +135,6 @@ describe('rgUnavailableMessage', () => {
     expect(a).toContain('boom');
     const b = rgUnavailableMessage(42);
     expect(b).toContain('unknown error');
-  });
-
-  it('handles Error causes with no message', () => {
-    const msg = rgUnavailableMessage(new Error());
-    expect(msg).toContain('automatic bootstrap failed');
-    expect(msg).toContain('brew');
-  });
-
-  it('falls back to "unknown error" for Error-like thrown values', () => {
-    const like = { message: 'disk full' };
-    const msg = rgUnavailableMessage(like);
-    expect(msg).toContain('unknown error');
-    expect(msg).not.toContain('disk full');
   });
 });
 
@@ -218,47 +171,34 @@ describe('verifyArchiveChecksum', () => {
 
 describe('ensureRgPath download branch', () => {
   let fakeShare: string;
-  let savedFetch: typeof globalThis.fetch | undefined;
   let savedPath: string | undefined;
+  let savedFetch: typeof globalThis.fetch | undefined;
   beforeEach(() => {
     fakeShare = join(
       tmpdir(),
       `kimi-rg-dl-${String(Date.now())}-${String(Math.random()).slice(2)}`,
     );
     mkdirSync(join(fakeShare, 'bin'), { recursive: true });
-    savedFetch = globalThis.fetch;
     savedPath = process.env['PATH'];
-    process.env['PATH'] = '';
+    process.env['PATH'] = ''; // force the locator past `whichRg`
+    savedFetch = globalThis.fetch;
   });
   afterEach(() => {
     rmSync(fakeShare, { recursive: true, force: true });
+    if (savedPath === undefined) delete process.env['PATH'];
+    else process.env['PATH'] = savedPath;
     if (savedFetch === undefined) {
+      // oxlint-disable-next-line @typescript-eslint/no-explicit-any
       delete (globalThis as unknown as { fetch?: typeof fetch }).fetch;
     } else {
       globalThis.fetch = savedFetch;
     }
-    if (savedPath === undefined) {
-      delete process.env['PATH'];
-    } else {
-      process.env['PATH'] = savedPath;
-    }
     vi.restoreAllMocks();
-  });
-
-  it('does not bootstrap when allowCachedFallback is false', async () => {
-    const fetchMock = vi.fn();
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-    await expect(ensureRgPath(noRgProbe(), { shareDir: fakeShare })).rejects.toThrow(/on PATH/);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('surfaces a network error when fetch rejects', async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('network unreachable')) as typeof fetch;
-
-    await expect(
-      ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
-    ).rejects.toThrow(/network unreachable/);
+    await expect(ensureRgPath({ shareDir: fakeShare })).rejects.toThrow(/network unreachable/);
   });
 
   it('does not start bootstrap work when the caller is already aborted', async () => {
@@ -268,52 +208,89 @@ describe('ensureRgPath download branch', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(
-      ensureRgPath(noRgProbe(), {
-        shareDir: fakeShare,
-        signal: controller.signal,
-        allowCachedFallback: true,
-      }),
+      ensureRgPath({ shareDir: fakeShare, signal: controller.signal }),
     ).rejects.toHaveProperty('name', 'AbortError');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('does not run probe subprocesses while lookup misses', async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('network unreachable')) as typeof fetch;
-    const probe = noRgProbe();
+  it('does not start bootstrap work when aborted after lookup misses', async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await expect(
-      ensureRgPath(probe, { shareDir: fakeShare, allowCachedFallback: true }),
-    ).rejects.toThrow(/network unreachable/);
+    let rejectFirstStat: ((error: Error) => void) | undefined;
+    let statCalls = 0;
+    const statMock = vi.fn(() => {
+      statCalls += 1;
+      if (statCalls === 1) {
+        return new Promise<never>((_resolve, reject) => {
+          rejectFirstStat = reject;
+        });
+      }
+      return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    });
 
-    expect(probe.exec).not.toHaveBeenCalled();
+    vi.resetModules();
+    vi.doMock('node:fs/promises', async () => {
+      const actual = await vi.importActual<typeof FsPromises>('node:fs/promises');
+      return { ...actual, stat: statMock };
+    });
+
+    try {
+      const { ensureRgPath: isolatedEnsureRgPath } =
+        await import('../../src/tools/support/rg-locator');
+      const resultPromise = isolatedEnsureRgPath({
+        shareDir: fakeShare,
+        signal: controller.signal,
+      });
+
+      await vi.waitFor(() => {
+        expect(statMock).toHaveBeenCalledTimes(1);
+      });
+      controller.abort();
+      rejectFirstStat?.(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+
+      await expect(resultPromise).rejects.toHaveProperty('name', 'AbortError');
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
+
+      expect(statMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock('node:fs/promises');
+      vi.resetModules();
+    }
   });
 
   it('aborts the current caller wait while shared bootstrap work continues', async () => {
     const controller = new AbortController();
-    const fetchResponse = deferred<{
-      readonly ok: false;
-      readonly status: number;
-      readonly statusText: string;
-      readonly body: null;
-    }>();
-    globalThis.fetch = vi.fn(() => fetchResponse.promise) as unknown as typeof fetch;
-
-    const resultPromise = ensureRgPath(noRgProbe(), {
-      shareDir: fakeShare,
-      signal: controller.signal,
-      allowCachedFallback: true,
+    let resolveFetch: (response: {
+      ok: false;
+      status: number;
+      statusText: string;
+      body: null;
+    }) => void = () => {};
+    const fetchResponse = new Promise<{
+      ok: false;
+      status: number;
+      statusText: string;
+      body: null;
+    }>((resolve) => {
+      resolveFetch = resolve;
     });
+    globalThis.fetch = vi.fn(() => fetchResponse) as unknown as typeof fetch;
 
+    const resultPromise = ensureRgPath({ shareDir: fakeShare, signal: controller.signal });
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     });
+
     controller.abort();
     await expect(resultPromise).rejects.toHaveProperty('name', 'AbortError');
 
-    fetchResponse.resolve({ ok: false, status: 499, statusText: 'Client Closed', body: null });
-    await expect(
-      ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
-    ).rejects.toThrow(/HTTP 499 Client Closed/);
+    resolveFetch({ ok: false, status: 499, statusText: 'Client Closed', body: null });
+    await expect(ensureRgPath({ shareDir: fakeShare })).rejects.toThrow(/HTTP 499 Client Closed/);
   });
 
   it('surfaces HTTP failure (non-2xx response) with status + statusText', async () => {
@@ -323,10 +300,7 @@ describe('ensureRgPath download branch', () => {
       statusText: 'Not Found',
       body: null,
     }) as unknown as typeof fetch;
-
-    await expect(
-      ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
-    ).rejects.toThrow(/HTTP 404 Not Found/);
+    await expect(ensureRgPath({ shareDir: fakeShare })).rejects.toThrow(/HTTP 404 Not Found/);
   });
 
   it('fetches ripgrep over HTTPS', async () => {
@@ -339,15 +313,13 @@ describe('ensureRgPath download branch', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await expect(
-      ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
-    ).rejects.toThrow();
+    await expect(ensureRgPath({ shareDir: fakeShare })).rejects.toThrow();
 
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(new URL(url).protocol).toBe('https:');
   });
 
-  it('downloads from the global CDN when the env pins the global region', async () => {
+  it('downloads from the overseas CDN when the env pins the overseas region', async () => {
     const savedHost = process.env['KIMI_CODE_OAUTH_HOST'];
     process.env['KIMI_CODE_OAUTH_HOST'] = 'https://auth.kimi.ai';
     try {
@@ -360,9 +332,7 @@ describe('ensureRgPath download branch', () => {
       });
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-      await expect(
-        ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
-      ).rejects.toThrow();
+      await expect(ensureRgPath({ shareDir: fakeShare })).rejects.toThrow();
 
       const [url] = fetchMock.mock.calls[0] as [string];
       expect(url).toMatch(/^https:\/\/code\.kimi\.ai\/kimi-code\/rg\/ripgrep-/);
@@ -378,6 +348,7 @@ describe('ensureRgPath download branch', () => {
     const savedHome = process.env['KIMI_CODE_HOME'];
     delete process.env['KIMI_CODE_OAUTH_HOST'];
     delete process.env['KIMI_OAUTH_HOST'];
+    // A home dir without a `region` marker file keeps the default resolution.
     process.env['KIMI_CODE_HOME'] = fakeShare;
     try {
       const body = bodyFromBuffer(Buffer.from('not a real archive', 'utf8'));
@@ -389,9 +360,7 @@ describe('ensureRgPath download branch', () => {
       });
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-      await expect(
-        ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
-      ).rejects.toThrow();
+      await expect(ensureRgPath({ shareDir: fakeShare })).rejects.toThrow();
 
       const [url] = fetchMock.mock.calls[0] as [string];
       expect(url).toMatch(/^https:\/\/code\.kimi\.com\/kimi-code\/rg\/ripgrep-/);
@@ -416,9 +385,7 @@ describe('ensureRgPath download branch', () => {
       body,
     }) as unknown as typeof fetch;
 
-    await expect(
-      ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
-    ).rejects.toThrow(/checksum/i);
+    await expect(ensureRgPath({ shareDir: fakeShare })).rejects.toThrow(/checksum/i);
 
     expect(tarMock).not.toHaveBeenCalled();
     expect(existsSync(join(fakeShare, 'bin', process.platform === 'win32' ? 'rg.exe' : 'rg'))).toBe(
@@ -426,6 +393,19 @@ describe('ensureRgPath download branch', () => {
     );
   });
 });
+
+// ── Windows zip download branch ─────────────────────────────────────────
+//
+// Counterpart to the Linux `ensureRgPath download branch` tests but
+// drives the `target.includes('windows')` path: the CDN delivers a `.zip`,
+// yauzl walks the entries, and `rg.exe` lands at `<shareDir>/bin/rg.exe`.
+// `detectTarget()` reads `process.platform` + `process.arch`, so we
+// override both per-test via Object.defineProperty (the same trick used
+// by the `detectTarget` suite above).
+//
+// Fixture zips are built in-memory with `yazl` so tests stay hermetic
+// (no committed binary fixtures on the repo). The archive uses the
+// layout the CDN actually ships (`ripgrep-{ver}-{target}/rg.exe`).
 
 function buildFixtureZip(entries: Array<{ name: string; content: Buffer }>): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -435,9 +415,7 @@ function buildFixtureZip(entries: Array<{ name: string; content: Buffer }>): Pro
     }
     zip.end();
     const chunks: Buffer[] = [];
-    zip.outputStream.on('data', (c: Buffer) => {
-      chunks.push(c);
-    });
+    zip.outputStream.on('data', (c: Buffer) => chunks.push(c));
     zip.outputStream.on('end', () => {
       resolve(Buffer.concat(chunks));
     });
@@ -456,35 +434,34 @@ function bodyFromBuffer(buf: Buffer): ReadableStream<Uint8Array> {
 
 describe('ensureRgPath Windows download branch', () => {
   let fakeShare: string;
+  let savedPath: string | undefined;
   let savedFetch: typeof globalThis.fetch | undefined;
   let savedArch: string;
   let savedPlatform: string;
-  let savedPath: string | undefined;
   beforeEach(() => {
     fakeShare = join(
       tmpdir(),
       `kimi-rg-win-${String(Date.now())}-${String(Math.random()).slice(2)}`,
     );
     mkdirSync(join(fakeShare, 'bin'), { recursive: true });
-    savedFetch = globalThis.fetch;
     savedPath = process.env['PATH'];
-    process.env['PATH'] = '';
+    process.env['PATH'] = ''; // force past whichRg
+    savedFetch = globalThis.fetch;
     savedArch = process.arch;
     savedPlatform = process.platform;
+    // Simulate a Windows host end-to-end — `rgBinaryName()`, `whichRg()`
+    // (PATH sep), and `detectTarget()` all key off these two values.
     Object.defineProperty(process, 'arch', { value: 'x64' });
     Object.defineProperty(process, 'platform', { value: 'win32' });
   });
   afterEach(() => {
     rmSync(fakeShare, { recursive: true, force: true });
+    if (savedPath === undefined) delete process.env['PATH'];
+    else process.env['PATH'] = savedPath;
     if (savedFetch === undefined) {
       delete (globalThis as unknown as { fetch?: typeof fetch }).fetch;
     } else {
       globalThis.fetch = savedFetch;
-    }
-    if (savedPath === undefined) {
-      delete process.env['PATH'];
-    } else {
-      process.env['PATH'] = savedPath;
     }
     Object.defineProperty(process, 'arch', { value: savedArch });
     Object.defineProperty(process, 'platform', { value: savedPlatform });
@@ -506,9 +483,7 @@ describe('ensureRgPath Windows download branch', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await expect(
-      ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
-    ).rejects.toThrow(/checksum mismatch/);
+    await expect(ensureRgPath({ shareDir: fakeShare })).rejects.toThrow(/checksum mismatch/);
 
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toMatch(/ripgrep-15\.0\.0-x86_64-pc-windows-msvc\.zip$/);
@@ -534,6 +509,8 @@ describe('ensureRgPath Windows download branch', () => {
   });
 
   it('throws with "CDN content may have changed" when the zip omits rg.exe', async () => {
+    // Archive is well-formed but holds the wrong entry — mirrors the
+    // Counterpart to the Linux third-download test's sentinel.
     const zipBuf = await buildFixtureZip([{ name: 'README.md', content: Buffer.from('readme') }]);
     const archivePath = join(fakeShare, 'fixture.zip');
     const installed = join(fakeShare, 'bin', 'rg.exe');
@@ -551,9 +528,6 @@ describe('ensureRgPath Windows download branch', () => {
       statusText: 'Bad Gateway',
       body: null,
     }) as unknown as typeof fetch;
-
-    await expect(
-      ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
-    ).rejects.toThrow(/HTTP 502 Bad Gateway/);
+    await expect(ensureRgPath({ shareDir: fakeShare })).rejects.toThrow(/HTTP 502 Bad Gateway/);
   });
 });

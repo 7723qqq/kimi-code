@@ -10,23 +10,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
+import { Command } from 'commander';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { handleExport, registerExportCommand } from '#/cli/sub/export';
+import { refreshKimiRegion } from '#/utils/region';
+import type { ExportDeps } from '#/cli/sub/export';
 import type {
   ExportSessionInput,
   ExportSessionManifest,
   ExportSessionResult,
   SessionSummary,
 } from '@moonshot-ai/kimi-code-sdk';
-import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { handleExport, registerExportCommand } from '#/cli/sub/export';
-import type { ExportDeps } from '#/cli/sub/export';
 
 let tmp: string;
 
 type CreateKimiDeviceId = typeof createKimiDeviceIdFn;
 
 const mocks = vi.hoisted(() => ({
+  kimiHarnessConstructor: vi.fn(),
   kimiHarnessV2Constructor: vi.fn(),
   harnessEnsureConfigFile: vi.fn(),
   harnessGetConfig: vi.fn(async () => ({
@@ -70,6 +72,10 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
   return {
     ...actual,
     resolveKimiHome: mocks.resolveKimiHome,
+    createKimiHarness: (...args: unknown[]) => {
+      mocks.kimiHarnessConstructor(...args);
+      return createFakeHarness(args[0] as { readonly homeDir?: string } | undefined);
+    },
     createKimiHarnessV2: (...args: unknown[]) => {
       mocks.kimiHarnessV2Constructor(...args);
       return createFakeHarness(args[0] as { readonly homeDir?: string } | undefined);
@@ -97,11 +103,19 @@ vi.mock('@moonshot-ai/kimi-telemetry', () => ({
 }));
 
 beforeEach(() => {
+  // Pin the legacy engine so the default-deps cases keep exercising the legacy
+  // SDK harness this suite asserts on; the routing cases below re-stub it.
+  vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '1');
+  // Pin region to cn: the telemetry endpoint assertion must not follow the
+  // dev machine's own login/marker state.
+  vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+  refreshKimiRegion();
   tmp = mkdtempSync(join(tmpdir(), 'kimi-export-'));
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  refreshKimiRegion();
   rmSync(tmp, { recursive: true, force: true });
   vi.clearAllMocks();
   mocks.harnessGetConfig.mockResolvedValue({
@@ -229,16 +243,7 @@ describe('kimi export', () => {
     expect(exitCodes).toEqual([]);
     expect(stderr).toEqual([]);
     expect(listedWorkDirs).toEqual([]);
-    expect(exportInputs).toEqual([
-      {
-        id: 'ses_test123456',
-        outputPath: output,
-        includeGlobalLog: true,
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
-    ]);
+    expect(exportInputs).toEqual([{ id: 'ses_test123456', outputPath: output, includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
     expect(stdout.join('').trim()).toBe(output);
   });
 
@@ -247,15 +252,7 @@ describe('kimi export', () => {
 
     await runExport(deps, { sessionId: 'session_default_output' });
 
-    expect(exportInputs).toEqual([
-      {
-        id: 'session_default_output',
-        includeGlobalLog: true,
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
-    ]);
+    expect(exportInputs).toEqual([{ id: 'session_default_output', includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
     expect(stdout.join('').trim()).toBe(join(tmp, 'session_default_output.zip'));
   });
 
@@ -293,16 +290,7 @@ describe('kimi export', () => {
     await runExport(deps, { output });
 
     expect(exitCodes).toEqual([]);
-    expect(exportInputs).toEqual([
-      {
-        id: 'ses_fallback',
-        outputPath: output,
-        includeGlobalLog: true,
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
-    ]);
+    expect(exportInputs).toEqual([{ id: 'ses_fallback', outputPath: output, includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
     expect(stdout.join('').trim()).toBe(output);
   });
 
@@ -344,16 +332,7 @@ describe('kimi export', () => {
     await runExport(deps, { output: join(tmp, 'yes.zip'), yes: true });
 
     expect(exitCodes).toEqual([]);
-    expect(exportInputs).toEqual([
-      {
-        id: 'ses_yes',
-        outputPath: join(tmp, 'yes.zip'),
-        includeGlobalLog: true,
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
-    ]);
+    expect(exportInputs).toEqual([{ id: 'ses_yes', outputPath: join(tmp, 'yes.zip'), includeGlobalLog: true, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
   });
 
   it('describes the user-facing command without implementation details', () => {
@@ -379,14 +358,7 @@ describe('kimi export', () => {
     await program.parseAsync(['node', 'kimi', 'export', '--no-include-global-log', '-y']);
 
     expect(exitCodes).toEqual([]);
-    expect(exportInputs).toEqual([
-      {
-        id: 'ses_global_log',
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
-    ]);
+    expect(exportInputs).toEqual([{ id: 'ses_global_log', version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } }]);
     expect(stdout.join('').trim()).toBe(join(tmp, 'ses_global_log.zip'));
   });
 
@@ -409,13 +381,7 @@ describe('kimi export', () => {
 
     expect(exitCodes).toEqual([]);
     expect(exportInputs).toEqual([
-      {
-        id: 'ses_after_id',
-        outputPath: output,
-        version: '1.0.0-test',
-        installSource: 'npm-global',
-        shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' },
-      },
+      { id: 'ses_after_id', outputPath: output, version: '1.0.0-test', installSource: 'npm-global', shellEnv: { term: 'xterm-256color', shell: '/bin/zsh' } },
     ]);
   });
 
@@ -435,7 +401,6 @@ describe('kimi export', () => {
       exit: ((code: number) => {
         throw new ExitCalled(code);
       }) as ExportDeps['exit'],
-      getInstallSource: async () => 'test',
       getShellEnv: () => ({ term: 'xterm-256color', shell: '/bin/zsh' }),
     });
 
@@ -443,7 +408,7 @@ describe('kimi export', () => {
       from: 'node',
     });
 
-    expect(mocks.kimiHarnessV2Constructor).toHaveBeenCalledWith(
+    expect(mocks.kimiHarnessConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
         telemetry: {
           track: mocks.telemetryTrack,
@@ -467,8 +432,14 @@ describe('kimi export', () => {
       uiMode: 'shell',
       model: 'k2',
       sessionId: undefined,
+      endpoint: expect.any(Function),
       getAccessToken: expect.any(Function),
     });
+    // The endpoint resolver defers to the active region profile at flush time.
+    const telemetryOptions = mocks.initializeTelemetry.mock.calls[0]![0] as {
+      endpoint: () => string;
+    };
+    expect(telemetryOptions.endpoint()).toBe('https://telemetry-logs.kimi.com/v1/event');
     expect(mocks.initializeTelemetry.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.harnessExportSession.mock.invocationCallOrder[0]!,
     );
@@ -507,8 +478,6 @@ describe('kimi export', () => {
       exit: ((code: number) => {
         throw new ExitCalled(code);
       }) as ExportDeps['exit'],
-      getInstallSource: async () => 'test',
-      getShellEnv: () => ({ shell: 'test' }),
     });
 
     await program.parseAsync(['node', 'kimi', 'export', 'ses_disabled', '--output', output], {
@@ -549,8 +518,6 @@ describe('kimi export', () => {
       exit: ((code: number) => {
         throw new ExitCalled(code);
       }) as ExportDeps['exit'],
-      getInstallSource: async () => 'test',
-      getShellEnv: () => ({ shell: 'test' }),
     });
 
     await program.parseAsync(['node', 'kimi', 'export', 'ses_first_launch', '--output', output], {
@@ -563,9 +530,9 @@ describe('kimi export', () => {
       expect.objectContaining({ onFirstLaunch: expect.any(Function) }),
     );
     expect(mocks.createKimiDeviceId.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.kimiHarnessV2Constructor.mock.invocationCallOrder[0]!,
+      mocks.kimiHarnessConstructor.mock.invocationCallOrder[0]!,
     );
-    expect(mocks.kimiHarnessV2Constructor).toHaveBeenCalledWith(
+    expect(mocks.kimiHarnessConstructor).toHaveBeenCalledWith(
       expect.objectContaining({ homeDir: '/tmp/kimi-export-home' }),
     );
     expect(mocks.harnessTrack).toHaveBeenCalledWith('first_launch');
@@ -574,7 +541,8 @@ describe('kimi export', () => {
     );
   });
 
-  it('builds the v2 harness', async () => {
+  it('builds the v2 harness by default', async () => {
+    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '');
     const program = new Command('kimi');
     const output = join(tmp, 'v2-engine.zip');
     mocks.harnessExportSession.mockResolvedValue(makeResult('ses_v2_engine', output));
@@ -590,8 +558,6 @@ describe('kimi export', () => {
       exit: ((code: number) => {
         throw new ExitCalled(code);
       }) as ExportDeps['exit'],
-      getInstallSource: async () => 'test',
-      getShellEnv: () => ({ shell: 'test' }),
     });
 
     await program.parseAsync(['node', 'kimi', 'export', 'ses_v2_engine', '--output', output], {
@@ -599,11 +565,39 @@ describe('kimi export', () => {
     });
 
     expect(mocks.kimiHarnessV2Constructor).toHaveBeenCalledTimes(1);
+    expect(mocks.kimiHarnessConstructor).not.toHaveBeenCalled();
     expect(mocks.harnessExportSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'ses_v2_engine', outputPath: output }),
     );
-    // Real default deps (telemetry bootstrap, npm global-prefix detection,
-    // shell-env detection) do child-process I/O that can exceed the default 5s
-    // timeout under load, so give this case a larger per-test budget.
-  }, 30_000);
+  });
+
+  it('builds the legacy harness when the legacy flag is truthy', async () => {
+    vi.stubEnv('KIMI_CODE_LEGACY_FLAG', '1');
+    const program = new Command('kimi');
+    const output = join(tmp, 'legacy-engine.zip');
+    mocks.harnessExportSession.mockResolvedValue(makeResult('ses_legacy_engine', output));
+
+    registerExportCommand(program, {
+      cwd: () => tmp,
+      stdout: {
+        write: () => true,
+      },
+      stderr: {
+        write: () => true,
+      },
+      exit: ((code: number) => {
+        throw new ExitCalled(code);
+      }) as ExportDeps['exit'],
+    });
+
+    await program.parseAsync(['node', 'kimi', 'export', 'ses_legacy_engine', '--output', output], {
+      from: 'node',
+    });
+
+    expect(mocks.kimiHarnessConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.kimiHarnessV2Constructor).not.toHaveBeenCalled();
+    expect(mocks.harnessExportSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ses_legacy_engine', outputPath: output }),
+    );
+  });
 });

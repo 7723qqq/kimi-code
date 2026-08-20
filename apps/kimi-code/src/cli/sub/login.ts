@@ -10,13 +10,19 @@ import type { Command } from 'commander';
 
 import { t } from '#/i18n';
 
-import { runLoginFlow } from './login-flow';
+import { parseRegionFlag, runLoginFlow } from './login-flow';
 
 export function registerLoginCommand(parent: Command): void {
   parent
     .command('login')
     .description(t('cli.commandDescriptions.login'))
-    .action(async () => {
-      await runLoginFlow();
+    .option(
+      '--region <region>',
+      'Login region: "mainland-cn" (kimi.com) or "global" (kimi.ai).',
+    )
+    .action(async (opts: { region?: string }) => {
+      await runLoginFlow({
+        region: opts.region === undefined ? undefined : parseRegionFlag(opts.region),
+      });
     });
 }
