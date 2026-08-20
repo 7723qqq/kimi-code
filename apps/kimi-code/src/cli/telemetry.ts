@@ -124,9 +124,14 @@ function readServerTelemetryConfig(
     const { config, fileError } = loadRuntimeConfigSafe(configPath);
     // A broken config fails the server on its own inside KimiCore; for
     // telemetry just degrade to "enabled, no model" so we never block startup.
-    if (fileError !== undefined) return {};
-    return config;
+    if (fileError !== undefined) {
+      return { defaultModel: undefined, telemetry: undefined };
+    }
+    return {
+      defaultModel: config.defaultModel,
+      telemetry: config.telemetry,
+    };
   } catch {
-    return {};
+    return { defaultModel: undefined, telemetry: undefined };
   }
 }

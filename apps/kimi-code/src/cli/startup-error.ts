@@ -30,10 +30,16 @@ export function formatStartupError(
   }
 
   const lines = [
-    errorStyle(t('startup.error.title', { title: resolveErrorTitle(error.code) })),
+    errorStyle(
+      t('startup.error.title', {
+        title: resolveErrorTitle(
+          (error as { readonly code: Parameters<typeof resolveErrorTitle>[0] }).code,
+        ),
+      }),
+    ),
     '',
     errorStyle(t('startup.error.messageLabel')),
-    errorStyle(error.message),
+    errorStyle((error as { readonly message: string }).message),
   ];
 
   return `${lines.join('\n')}\n`;

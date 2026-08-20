@@ -435,7 +435,7 @@ async function startGoal(
       replace: parsed.replace,
     });
   } catch (error) {
-    if (isKimiError(error) && error.code === ErrorCodes.GOAL_ALREADY_EXISTS) {
+    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_ALREADY_EXISTS) {
       host.showError(t('tui.statusMessages.goalAlreadyActive'));
       return false;
     }
@@ -461,7 +461,7 @@ async function pauseGoal(host: SlashCommandHost): Promise<void> {
     await session.pauseGoal();
     if (isStreaming(host)) await session.cancel();
   } catch (error) {
-    if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
+    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND) {
       host.showStatus(t('tui.statusMessages.noGoalToPause'));
       return;
     }
@@ -481,7 +481,7 @@ async function resumeGoal(host: SlashCommandHost): Promise<void> {
   try {
     await host.requireSession().resumeGoal();
   } catch (error) {
-    if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
+    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND) {
       host.showStatus(t('tui.statusMessages.noGoalToResume'));
       return;
     }
@@ -498,7 +498,7 @@ async function cancelGoal(host: SlashCommandHost): Promise<void> {
     await session.cancelGoal();
     if (isStreaming(host)) await session.cancel();
   } catch (error) {
-    if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
+    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND) {
       host.showStatus(t('tui.statusMessages.noGoalToCancel'));
       return;
     }

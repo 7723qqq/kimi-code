@@ -185,7 +185,8 @@ export async function handleProviderList(deps: ProviderDeps, opts: ListOptions):
   }
 
   const modelsByProvider = new Map<string, string[]>();
-  for (const [alias, model] of Object.entries(config.models ?? {})) {
+  const modelEntries = (config.models ?? {}) as Record<string, { readonly provider: string }>;
+  for (const [alias, model] of Object.entries(modelEntries)) {
     const list = modelsByProvider.get(model.provider) ?? [];
     list.push(alias);
     modelsByProvider.set(model.provider, list);
@@ -620,7 +621,8 @@ function sanitizeProvidersForOutput(
   providers: KimiConfig['providers'],
 ): Record<string, Record<string, unknown>> {
   const out: Record<string, Record<string, unknown>> = {};
-  for (const [id, provider] of Object.entries(providers)) {
+  const providerEntries = providers as Record<string, Record<string, unknown>>;
+  for (const [id, provider] of Object.entries(providerEntries)) {
     const copy: Record<string, unknown> = { ...provider };
     delete copy['apiKey'];
     const source = copy['source'];

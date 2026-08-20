@@ -6,7 +6,7 @@
  */
 
 import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
-import type { KimiRegion } from '@moonshot-ai/kimi-code-oauth';
+import type { DeviceAuthorization, KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { openUrl } from '#/utils/open-url';
@@ -40,7 +40,7 @@ export async function runLoginFlow(options: { region?: KimiRegion } = {}): Promi
     const result = await harness.auth.login(undefined, {
       signal: controller.signal,
       region,
-      onDeviceCode: (data) => {
+      onDeviceCode: (data: DeviceAuthorization) => {
         const url = data.verificationUriComplete || data.verificationUri;
         // Print the manual fallback before attempting to open the user's
         // browser so headless/browser-opener failures never hide the URL
