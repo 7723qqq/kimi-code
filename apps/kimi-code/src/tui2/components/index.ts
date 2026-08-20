@@ -1,11 +1,45 @@
-// TUI2 SKELETON -- placeholder.
-//
-// Mirrors: tui/components/index.ts
-// Re-exports the v1 surface so the skeleton compiles and resolves imports.
-// Replace the body of this file with a real tui2 implementation when
-// migrating the matching component, controller, or utility. The skeleton
-// keeps the same exported names so callers can swap imports one file at
-// a time without churning the rest of the tree.
-//
-// Status: PLACEHOLDER (re-export only). Do not add new behavior here.
-export * from '../../tui/components/index.ts';
+/**
+ * TUI2 components barrel — mirrors `tui/components/index.ts`.
+ *
+ * Status: REAL (tui2).
+ */
+export * from './chrome/device-code-box';
+export * from './chrome/footer';
+export * from './chrome/moon-loader';
+export * from './chrome/todo-panel';
+export * from './chrome/welcome';
+export * from './dialogs/approval-panel';
+export * from './dialogs/choice-picker';
+export * from './dialogs/compaction';
+export * from './dialogs/editor-selector';
+export * from './dialogs/experiments-selector';
+export * from './dialogs/goal-queue-manager';
+export * from './dialogs/goal-start-permission-prompt';
+export * from './dialogs/help-panel';
+export * from './dialogs/model-selector';
+export * from './dialogs/permission-selector';
+export * from './dialogs/question-dialog';
+export * from './dialogs/session-picker';
+export * from './dialogs/settings-selector';
+export * from './dialogs/theme-selector';
+export * from './editor/custom-editor';
+export * from './editor/file-mention-provider';
+export * from './media/code-highlight';
+export * from './media/diff-preview';
+export * from './media/image-thumbnail';
+export * from './messages/agent-group';
+export * from './messages/agent-swarm-progress';
+export * from './messages/assistant-message';
+export * from './messages/background-agent-status';
+export * from './messages/plan-box';
+export * from './messages/read-group';
+export * from './messages/shell-execution';
+export * from './messages/skill-activation';
+export * from './messages/status-message';
+export * from './messages/swarm-markers';
+export * from './messages/thinking';
+export * from './messages/tool-call';
+export * from './messages/usage-panel';
+export * from './messages/user-message';
+export * from './panes/activity-pane';
+export * from './panes/queue-pane';

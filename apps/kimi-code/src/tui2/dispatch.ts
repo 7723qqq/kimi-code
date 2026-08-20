@@ -30,6 +30,8 @@ import type { Locale } from '#/i18n'
 import type { PermissionMode, ThinkingEffort, ModelAlias } from '@moonshot-ai/kimi-code-sdk'
 import type { QuestionSubmissionMethod, QuestionPanelResponse } from './reverse-rpc/types'
 import type { ApprovalPanelResponse } from './components/dialogs/approval-panel'
+import type { GoalQueueEditResult, GoalQueueManagerAction } from './components/dialogs/goal-queue-manager'
+import type { GoalStartPermissionChoice } from './components/dialogs/goal-start-permission-prompt'
 import type { QuestionPanelResponse as QDialogResponse } from './components/dialogs/question-dialog'
 import type { PluginRemoveConfirmResult } from './components/dialogs/plugins-selector'
 import type { PluginInstallTrustConfirmResult } from './components/dialogs/plugins-selector'
@@ -49,6 +51,8 @@ export type DialogKind =
   | 'settings-selector'
   | 'cache-hint'
   | 'goal-queue-manager'
+  | 'goal-queue-edit'
+  | 'goal-start-permission-prompt'
   | 'undo-selector'
   | 'effort-selector'
   | 'help'
@@ -79,7 +83,12 @@ export type DialogResult =
   | { readonly kind: 'trust-prompt'; readonly choice: 'trust' | 'distrust' }
   | { readonly kind: 'settings-selector'; readonly value: string }
   | { readonly kind: 'cache-hint'; readonly action: 'compact' | 'new' | 'continue' | 'never' }
-  | { readonly kind: 'goal-queue-manager'; readonly choice: 'auto' | 'yolo' | 'manual' | 'cancel' }
+  | { readonly kind: 'goal-queue-manager'; readonly action: GoalQueueManagerAction }
+  | { readonly kind: 'goal-queue-edit'; readonly result: GoalQueueEditResult }
+  | {
+      readonly kind: 'goal-start-permission-prompt'
+      readonly choice: GoalStartPermissionChoice
+    }
   | { readonly kind: 'undo-selector'; readonly count: number; readonly input: string }
   | { readonly kind: 'effort-selector'; readonly effort: ThinkingEffort }
   | { readonly kind: 'help' }
@@ -111,6 +120,7 @@ export const NOOP_DISPATCH: DialogDispatch = {
 
 // Re-export common types so callers don't need to dig through dialog files.
 export type { ApprovalPanelResponse, QDialogResponse, QuestionSubmissionMethod, QuestionPanelResponse }
+export type { GoalQueueEditResult, GoalQueueManagerAction, GoalStartPermissionChoice }
 export type { ModelAlias }
 
 // Re-export plugin-side confirm results (the host uses these when the

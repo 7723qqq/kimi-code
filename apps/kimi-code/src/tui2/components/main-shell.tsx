@@ -30,97 +30,94 @@
  * Status: REAL (tui2). Top-level shell view.
  */
 
-import type { Component } from 'solid-js'
-import { For, Show } from 'solid-js'
+import type { Component } from 'solid-js';
+import { For, Show } from 'solid-js';
 
-import { useTui2Store } from '../context'
-import type { DialogDispatch, DialogKind, DialogResult } from '../dispatch'
-import { currentTheme } from '../theme'
-import type { TranscriptEntry } from '../types'
+import { useTui2Store } from '../context';
+import type { DialogDispatch, DialogKind, DialogResult } from '../dispatch';
+import { currentTheme } from '../theme';
+import type { TranscriptEntry } from '../types';
+import { Banner } from './chrome/banner';
+import { Footer } from './chrome/footer';
+import { Box } from './common/box';
+import { Text } from './common/text';
+import { ApprovalPanel } from './dialogs/approval-panel';
+import { CacheHintDialog } from './dialogs/cache-hint-dialog';
+import { EditorSelector } from './dialogs/editor-selector';
+import { EffortSelector } from './dialogs/effort-selector';
+import { GoalQueueEditDialog, GoalQueueManagerDialog } from './dialogs/goal-queue-manager';
+import { GoalStartPermissionPrompt } from './dialogs/goal-start-permission-prompt';
+import { HelpPanel } from './dialogs/help-panel';
+import { LocaleSelector } from './dialogs/locale-selector';
+import { ModelSelector } from './dialogs/model-selector';
+import { Msys2Prompt } from './dialogs/msys2-prompt';
+import { PermissionSelector } from './dialogs/permission-selector';
+import { PluginsSelector } from './dialogs/plugins-selector';
+import { QuestionDialog } from './dialogs/question-dialog';
+import { SessionPicker } from './dialogs/session-picker';
+import { SettingsSelector } from './dialogs/settings-selector';
+import { StartPermissionPrompt } from './dialogs/start-permission-prompt';
+import { SwarmStartPermissionPrompt } from './dialogs/swarm-start-permission-prompt';
+import { ThemeSelector } from './dialogs/theme-selector';
+import { TrustPrompt } from './dialogs/trust-prompt';
+import { UndoSelector } from './dialogs/undo-selector';
+import { UpdatePreferenceSelector } from './dialogs/update-preference-selector';
+import { WhichKey } from './dialogs/which-key';
+import { CustomEditor } from './editor/custom-editor';
+import { AssistantMessageView } from './messages/assistant-message';
+import { GoalPanel } from './messages/goal-panel';
+import { PlanBox } from './messages/plan-box';
+import { StatusMessageView } from './messages/status-message';
+import { ThinkingView } from './messages/thinking';
+import { UserMessageView } from './messages/user-message';
+import { ActivityPane } from './panes/activity-pane';
+import { AgentPane } from './panes/agent-pane';
+import { BtwPanel } from './panes/btw-panel';
+import { DiffReviewPane } from './panes/diff-review-pane';
+import { QueuePane } from './panes/queue-pane';
 
-import { Banner } from './chrome/banner'
-import { Footer } from './chrome/footer'
-import { QueuePane } from './panes/queue-pane'
-import { AgentPane } from './panes/agent-pane'
-import { ActivityPane } from './panes/activity-pane'
-import { BtwPanel } from './panes/btw-panel'
-import { DiffReviewPane } from './panes/diff-review-pane'
-import { CustomEditor } from './editor/custom-editor'
-
-import { AssistantMessageView } from './messages/assistant-message'
-import { UserMessageView } from './messages/user-message'
-import { ThinkingView } from './messages/thinking'
-import { PlanBox } from './messages/plan-box'
-import { GoalPanel } from './messages/goal-panel'
-import { StatusMessageView } from './messages/status-message'
-
-import { ApprovalPanel } from './dialogs/approval-panel'
-import { QuestionDialog } from './dialogs/question-dialog'
-import { ThemeSelector } from './dialogs/theme-selector'
-import { LocaleSelector } from './dialogs/locale-selector'
-import { PermissionSelector } from './dialogs/permission-selector'
-import { EditorSelector } from './dialogs/editor-selector'
-import { UpdatePreferenceSelector } from './dialogs/update-preference-selector'
-import { Msys2Prompt } from './dialogs/msys2-prompt'
-import { TrustPrompt } from './dialogs/trust-prompt'
-import { SettingsSelector } from './dialogs/settings-selector'
-import { CacheHintDialog } from './dialogs/cache-hint-dialog'
-import { SessionPicker } from './dialogs/session-picker'
-import { ModelSelector } from './dialogs/model-selector'
-import { PluginsSelector } from './dialogs/plugins-selector'
-import { StartPermissionPrompt } from './dialogs/start-permission-prompt'
-import { GoalStartPermissionPrompt } from './dialogs/goal-start-permission-prompt'
-import { SwarmStartPermissionPrompt } from './dialogs/swarm-start-permission-prompt'
-import { EffortSelector } from './dialogs/effort-selector'
-import { UndoSelector } from './dialogs/undo-selector'
-import { HelpPanel } from './dialogs/help-panel'
-import { WhichKey } from './dialogs/which-key'
-
-import { Box } from './common/box'
-import { Text } from './common/text'
-
-const LEFT_COL_RATIO = 0.7
+const LEFT_COL_RATIO = 0.7;
 const FULLSCREEN_DIALOGS = new Set<DialogKind>([
   'session-picker',
   'model-selector',
   'plugins-selector',
   'help',
-])
+]);
 
 export interface MainShellProps {
   /** Dispatch protocol to route dialog results back to the host. */
-  readonly dispatch: DialogDispatch
+  readonly dispatch: DialogDispatch;
   /** Terminal width in columns. */
-  readonly width: number
+  readonly width: number;
   /** Terminal height in rows. */
-  readonly height: number
+  readonly height: number;
   /** Activity pane mode (idle hides the pane). */
-  readonly activityMode: 'idle' | 'waiting' | 'thinking' | 'composing' | 'tool'
-  readonly activityTip?: string
-  readonly activityDetail?: string
-  readonly editorFocused?: boolean
-  readonly editorPlaceholder?: string
+  readonly activityMode: 'idle' | 'waiting' | 'thinking' | 'composing' | 'tool';
+  readonly activityTip?: string;
+  readonly activityDetail?: string;
+  readonly editorFocused?: boolean;
+  readonly editorPlaceholder?: string;
   /** Called when the user submits the editor (Enter). The shell does NOT
    *  route the typed text anywhere — the host's editor-keyboard
    *  controller owns the send path. */
-  readonly onEditorSubmit?: (text: string) => void
+  readonly onEditorSubmit?: (text: string) => void;
   /** Current editor text (controlled by the host for persistence). */
-  readonly editorValue?: string
-  readonly onEditorChange?: (value: string) => void
+  readonly editorValue?: string;
+  readonly onEditorChange?: (value: string) => void;
 }
 
-const leftWidth = (total: number): number => Math.floor(total * LEFT_COL_RATIO)
-const rightWidth = (total: number): number => total - leftWidth(total)
+const leftWidth = (total: number): number => Math.floor(total * LEFT_COL_RATIO);
+const rightWidth = (total: number): number => total - leftWidth(total);
 
 export const MainShell: Component<MainShellProps> = (props) => {
-  const store = useTui2Store()
-  const borderFg = (): ColorInput => currentTheme.color('border')
+  const store = useTui2Store();
+  const borderFg = (): ColorInput => currentTheme.color('border');
 
-  const transcript = (): readonly TranscriptEntry[] => store.state.transcript
+  const transcript = (): readonly TranscriptEntry[] => store.state.transcript;
   const showRightPane = (): boolean => {
-    const dialog = store.state.activeDialog
-    return dialog === null || !FULLSCREEN_DIALOGS.has(dialog as DialogKind)
-  }
+    const dialog = store.state.activeDialog;
+    return dialog === null || !FULLSCREEN_DIALOGS.has(dialog as DialogKind);
+  };
 
   return (
     <Box flexDirection="column" width="100%" height="100%">
@@ -180,8 +177,8 @@ export const MainShell: Component<MainShellProps> = (props) => {
 
       <Footer />
     </Box>
-  )
-}
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Transcript entry dispatcher
@@ -190,7 +187,7 @@ export const MainShell: Component<MainShellProps> = (props) => {
 const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
   switch (props.entry.kind) {
     case 'user':
-      return <UserMessageView content={props.entry.content} bullet={props.entry.bullet} />
+      return <UserMessageView content={props.entry.content} bullet={props.entry.bullet} />;
     case 'assistant':
       return (
         <AssistantMessageView
@@ -198,7 +195,7 @@ const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
           expanded={props.entry.expanded}
           mode="finalized"
         />
-      )
+      );
     case 'thinking':
       return (
         <ThinkingView
@@ -206,30 +203,33 @@ const TranscriptEntryView: Component<{ entry: TranscriptEntry }> = (props) => {
           mode="finalized"
           expanded={props.entry.expanded}
         />
-      )
+      );
     case 'status':
-      return <StatusMessageView kind={props.entry.detail ?? 'info'} />
+      return <StatusMessageView kind={props.entry.detail ?? 'info'} />;
     case 'goal':
-      return props.entry.goalData !== undefined ? (
-        <GoalPanel goal={props.entry.goalData} />
-      ) : null
+      return props.entry.goalData !== undefined ? <GoalPanel goal={props.entry.goalData} /> : null;
     case 'welcome':
-      return <PlanBox plan={{ steps: [], summary: props.entry.content }} />
+      return <PlanBox plan={{ steps: [], summary: props.entry.content }} />;
     default:
-      return null
+      return null;
   }
-}
+};
 
 // ---------------------------------------------------------------------------
 // Active dialog slot
 // ---------------------------------------------------------------------------
 
 const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
-  const store = useTui2Store()
-  const dialog = (): DialogKind | null => (store.state.activeDialog as DialogKind | null)
-  const dispatch = props.dispatch
-  const select = (result: DialogResult): void => dispatch.select(result)
-  const cancel = (kind: DialogKind): void => dispatch.cancel(kind)
+  const store = useTui2Store();
+  const dialog = (): DialogKind | null => store.state.activeDialog as DialogKind | null;
+  const dispatch = props.dispatch;
+  const select = (result: DialogResult): void => dispatch.select(result);
+  const cancel = (kind: DialogKind): void => dispatch.cancel(kind);
+  const editingGoal = (): import('../goal-queue-store').UpcomingGoal | undefined => {
+    const qm = store.state.goalQueueManager;
+    if (qm === undefined || qm.editingGoalId === undefined) return undefined;
+    return qm.goals.find((goal) => goal.id === qm.editingGoalId);
+  };
 
   return (
     <Show when={dialog() !== null}>
@@ -263,30 +263,30 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
                 select({
                   kind: 'plugins-selector',
                   action: { kind: 'toggle', id: s.id, enabled: s.enabled },
-                })
-                return
+                });
+                return;
               case 'remove':
-                select({ kind: 'plugins-selector', action: { kind: 'remove', id: s.id } })
-                return
+                select({ kind: 'plugins-selector', action: { kind: 'remove', id: s.id } });
+                return;
               case 'mcp':
-                select({ kind: 'plugins-selector', action: { kind: 'mcp', id: s.id } })
-                return
+                select({ kind: 'plugins-selector', action: { kind: 'mcp', id: s.id } });
+                return;
               case 'details':
-                select({ kind: 'plugins-selector', action: { kind: 'details', id: s.id } })
-                return
+                select({ kind: 'plugins-selector', action: { kind: 'details', id: s.id } });
+                return;
               case 'reload':
-                select({ kind: 'plugins-selector', action: { kind: 'reload' } })
-                return
+                select({ kind: 'plugins-selector', action: { kind: 'reload' } });
+                return;
               case 'install':
                 // Install rows open an external auth flow; host wires it.
-                void s
-                return
+                void s;
+                return;
               case 'install-source':
-                void s
-                return
+                void s;
+                return;
               case 'open-url':
-                void s
-                return
+                void s;
+                return;
             }
           }}
           onCancel={() => cancel('plugins-selector')}
@@ -354,12 +354,28 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
           onCancel={() => cancel('cache-hint')}
         />
       </Show>
-      <Show when={dialog() === 'goal-queue-manager'}>
+      <Show when={dialog() === 'goal-start-permission-prompt'}>
         <GoalStartPermissionPrompt
-          mode={store.state.goalQueue?.mode ?? 'manual'}
-          onSelect={(choice) => select({ kind: 'goal-queue-manager', choice })}
+          mode={store.state.goalStartContext?.mode ?? 'manual'}
+          onSelect={(choice) => select({ kind: 'goal-start-permission-prompt', choice })}
+          onCancel={() => cancel('goal-start-permission-prompt')}
+        />
+      </Show>
+      <Show when={dialog() === 'goal-queue-manager'}>
+        <GoalQueueManagerDialog
+          goals={store.state.goalQueueManager?.goals ?? []}
+          selectedGoalId={store.state.goalQueueManager?.selectedGoalId}
+          onAction={(action) => select({ kind: 'goal-queue-manager', action })}
           onCancel={() => cancel('goal-queue-manager')}
         />
+      </Show>
+      <Show when={dialog() === 'goal-queue-edit'}>
+        <Show when={editingGoal() !== undefined}>
+          <GoalQueueEditDialog
+            goal={editingGoal()!}
+            onDone={(result) => select({ kind: 'goal-queue-edit', result })}
+          />
+        </Show>
       </Show>
       <Show when={dialog() === 'undo-selector'}>
         <UndoSelector
@@ -414,12 +430,14 @@ const ActiveDialogSlot: Component<{ dispatch: DialogDispatch }> = (props) => {
         <QuestionDialog
           request={store.state.question?.request}
           width={store.state.question?.width ?? 80}
-          onAnswer={(r) => select({ kind: 'question-dialog', method: r.method, answers: r.answers })}
+          onAnswer={(r) =>
+            select({ kind: 'question-dialog', method: r.method, answers: r.answers })
+          }
         />
       </Show>
     </Show>
-  )
-}
+  );
+};
 
 // `currentTheme` is imported at the top of the file (for the color tokens
 // used in the render helpers below). No additional shim is needed.

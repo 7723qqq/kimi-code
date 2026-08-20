@@ -30,12 +30,10 @@ import type {
   TokenUsage,
   WorkspaceTrustInfo,
 } from '@moonshot-ai/kimi-code-sdk';
-import type { Locale } from '#/i18n';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
 import { deleteAllKittyImages, getCapabilities } from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
 
-import type { CLIOptions } from '#/cli/options';
 import {
   createMsys2PromptDeps,
   installMsys2,
@@ -43,6 +41,8 @@ import {
   setUserShellPath,
   shouldPromptMsys2,
 } from '#/cli/msys2-prompt';
+import type { CLIOptions } from '#/cli/options';
+import type { Locale } from '#/i18n';
 import { getLocale, setLocale, t } from '#/i18n';
 import type { MigrationScreenResult } from '#/migration/index';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
@@ -66,12 +66,11 @@ import {
 } from '../commands';
 import * as slashCommands from '../commands/dispatch';
 import type { SlashCommandHost } from '../commands/dispatch';
+import { pickRandomWorkingTip } from '../components/chrome/working-tips';
 import { defaultThinkingEffortFor } from '../components/dialogs/model-selector';
 import type { Msys2PromptChoice } from '../components/dialogs/msys2-prompt';
 import type { SessionRow } from '../components/dialogs/session-picker';
 import type { TrustPromptChoice } from '../components/dialogs/trust-prompt';
-import { pickRandomWorkingTip } from '../components/chrome/working-tips';
-import type { DialogResult as DialogResultLike } from '../dispatch';
 import type { TuiConfig } from '../config';
 import {
   getLlmNotSetMessage,
@@ -82,16 +81,11 @@ import {
   SESSIONLESS_STARTUP_NOTICE,
 } from '../constant/kimi-tui';
 import { MAX_TERMINAL_TITLE_LENGTH } from '../constant/terminal';
-import { AuthFlowController } from './auth-flow';
-import { createBtwPanelController, type BtwPanelController } from './btw-panel';
-import { createCacheHintController, type CacheHintController } from './cache-hint-controller';
-import { createClipboardImageHintController, type ClipboardImageHintController } from './clipboard-image-hint';
-import { EditorKeyboardController } from './editor-keyboard';
-import { SessionEventHandler } from './session-event-handler';
-import { SessionReplayRenderer } from './session-replay';
-import { StreamingUIController } from './streaming-ui';
-import { TasksBrowserController } from './tasks-browser';
-import { createWorkflowPanelController, type WorkflowPanelController } from './workflow-panel';
+import type {
+  DialogResult as DialogResultLike,
+  GoalQueueEditResult,
+  GoalQueueManagerAction,
+} from '../dispatch';
 import { installRainbowDance } from '../easter-eggs/dance';
 import { createEventBus, type Tui2EventBus } from '../event';
 import { ApprovalController } from '../reverse-rpc/approval/controller';
@@ -100,10 +94,10 @@ import { registerReverseRPCHandlers } from '../reverse-rpc/index';
 import { QuestionController } from '../reverse-rpc/question/controller';
 import { createQuestionAskHandler } from '../reverse-rpc/question/handler';
 import type { ApprovalPanelData, QuestionPanelData } from '../reverse-rpc/types';
-import { currentTheme, getColorPalette, getBuiltInPalette, isBuiltInTheme } from '../theme';
-import type { ColorToken, ResolvedTheme, ThemeName } from '../theme';
 import { createTui2Store, type Tui2Store } from '../state';
 import type { TuiRuntimeState } from '../state';
+import { currentTheme, getColorPalette, getBuiltInPalette, isBuiltInTheme } from '../theme';
+import type { ColorToken, ResolvedTheme, ThemeName } from '../theme';
 import {
   INITIAL_LIVE_PANE,
   type ActiveDialog,
@@ -154,7 +148,19 @@ import {
   groupTurns,
   turnsToTrim,
 } from '../utils/transcript-window';
-
+import { AuthFlowController } from './auth-flow';
+import { createBtwPanelController, type BtwPanelController } from './btw-panel';
+import { createCacheHintController, type CacheHintController } from './cache-hint-controller';
+import {
+  createClipboardImageHintController,
+  type ClipboardImageHintController,
+} from './clipboard-image-hint';
+import { EditorKeyboardController } from './editor-keyboard';
+import { SessionEventHandler } from './session-event-handler';
+import { SessionReplayRenderer } from './session-replay';
+import { StreamingUIController } from './streaming-ui';
+import { TasksBrowserController } from './tasks-browser';
+import { createWorkflowPanelController, type WorkflowPanelController } from './workflow-panel';
 
 export interface KimiTUIStartupInput {
   readonly cliOptions: CLIOptions;
@@ -172,7 +178,12 @@ export interface KimiTUIStartupInput {
   readonly engineV2?: boolean;
 }
 
-type EffectiveActivityPaneMode = AppState['streamingPhase'] | 'idle' | 'session' | 'hidden' | 'tool';
+type EffectiveActivityPaneMode =
+  | AppState['streamingPhase']
+  | 'idle'
+  | 'session'
+  | 'hidden'
+  | 'tool';
 type LoadingTipKind = 'moon' | 'composing';
 
 function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
@@ -326,12 +337,12 @@ export class KimiTUI {
 
   /** Switch to the chosen session (closes the picker, kicks the switch). */
   public async pickSession(sessionId: string): Promise<void> {
-    const list = this.store.state.sessionPicker?.sessions ?? []
-    const target = list.find((s) => s.id === sessionId)
-    if (target === undefined) return
-    const session = await this.ensureSession()
-    if (session === undefined) return
-    await this.switchToSession(target, `switched to ${target.id.slice(0, 12)}`)
+    const list = this.store.state.sessionPicker?.sessions ?? [];
+    const target = list.find((s) => s.id === sessionId);
+    if (target === undefined) return;
+    const session = await this.ensureSession();
+    if (session === undefined) return;
+    await this.switchToSession(target, `switched to ${target.id.slice(0, 12)}`);
   }
 
   /** Apply the chosen model alias + thinking effort to the live session. */
@@ -340,13 +351,13 @@ export class KimiTUI {
       ...this.store.state.modelSelector,
       currentValue: alias,
       currentThinkingEffort: effort,
-    })
-    const session = this.session
+    });
+    const session = this.session;
     if (session !== undefined) {
       try {
-        await session.setModel(alias)
-        await session.setThinkingEffort(effort)
-        await this.syncRuntimeState(session)
+        await session.setModel(alias);
+        await session.setThinkingEffort(effort);
+        await this.syncRuntimeState(session);
       } catch {
         // Non-fatal: the store is updated; the next turn picks the new
         // model up even if the immediate call failed.
@@ -363,24 +374,22 @@ export class KimiTUI {
           installed: this.store.state.pluginsSelector.installed.map((p) =>
             p.id === action.id ? { ...p, enabled: action.enabled } : p,
           ),
-        })
-        return
+        });
+        return;
       case 'remove':
         this.store.setState('pluginsSelector', {
           ...this.store.state.pluginsSelector,
-          installed: this.store.state.pluginsSelector.installed.filter(
-            (p) => p.id !== action.id,
-          ),
-        })
-        return
+          installed: this.store.state.pluginsSelector.installed.filter((p) => p.id !== action.id),
+        });
+        return;
       case 'reload':
-        await this.refreshPluginCommands()
-        return
+        await this.refreshPluginCommands();
+        return;
       case 'details':
       case 'mcp':
         // The details / mcp sub-flows open additional modals; that wiring
         // lands in a follow-up.
-        return
+        return;
     }
   }
 
@@ -389,10 +398,10 @@ export class KimiTUI {
     this.store.setState('localeSelector', {
       ...this.store.state.localeSelector,
       currentValue: locale,
-    })
+    });
     // Update the i18n module so subsequent `t(...)` calls render in the
     // chosen language. The store update alone wouldn't refresh UI copy.
-    setLocale(locale)
+    setLocale(locale);
   }
 
   /** Apply the chosen permission mode. */
@@ -400,13 +409,13 @@ export class KimiTUI {
     this.store.setState('permissionSelector', {
       ...this.store.state.permissionSelector,
       currentValue: mode,
-    })
+    });
     // Push the change to the live session so subsequent tool calls honor
     // it. Without this the store would drift from the session state.
-    const session = this.session
+    const session = this.session;
     if (session !== undefined) {
       try {
-        await session.setPermission(mode)
+        await session.setPermission(mode);
       } catch {
         // Session may not be ready yet (boot phase). The store change
         // is still applied; the session picks it up on the next turn.
@@ -419,11 +428,11 @@ export class KimiTUI {
     this.store.setState('editorSelector', {
       ...this.store.state.editorSelector,
       currentValue: command,
-    })
+    });
     // Persist through the harness config so Ctrl-G uses the new command
     // across sessions / restarts.
     try {
-      await this.harness.setConfig({ kimi_code: { tui: { external_editor: command } } })
+      await this.harness.setConfig({ kimi_code: { tui: { external_editor: command } } });
     } catch {
       // Non-fatal: the in-memory config is updated regardless.
     }
@@ -434,9 +443,9 @@ export class KimiTUI {
     this.store.setState('updatePreference', {
       ...this.store.state.updatePreference,
       currentValue: enabled,
-    })
+    });
     try {
-      await this.harness.setConfig({ kimi_code: { tui: { update_check: enabled } } })
+      await this.harness.setConfig({ kimi_code: { tui: { update_check: enabled } } });
     } catch {
       // Non-fatal.
     }
@@ -449,48 +458,72 @@ export class KimiTUI {
     // we open the matching sub-dialog.
     switch (value) {
       case 'model':
-        this.store.setState('activeDialog', 'model-selector')
-        return
+        this.store.setState('activeDialog', 'model-selector');
+        return;
       case 'theme':
-        this.store.setState('activeDialog', 'theme-selector')
-        return
+        this.store.setState('activeDialog', 'theme-selector');
+        return;
       case 'editor':
-        this.store.setState('activeDialog', 'editor-selector')
-        return
+        this.store.setState('activeDialog', 'editor-selector');
+        return;
       case 'language':
-        this.store.setState('activeDialog', 'locale-selector')
-        return
+        this.store.setState('activeDialog', 'locale-selector');
+        return;
       case 'permission':
-        this.store.setState('activeDialog', 'permission-selector')
-        return
+        this.store.setState('activeDialog', 'permission-selector');
+        return;
       case 'experiments':
-        this.store.setState('activeDialog', 'experiments-selector')
-        return
+        this.store.setState('activeDialog', 'experiments-selector');
+        return;
       case 'upgrade':
         this.store.setState('updatePreference', {
           ...this.store.state.updatePreference,
           currentValue: !this.store.state.updatePreference.currentValue,
-        })
-        return
+        });
+        return;
       case 'usage':
-        this.store.setState('activeDialog', 'help')
-        return
+        this.store.setState('activeDialog', 'help');
+        return;
       case 'github_token':
         // External auth flow — opens the system browser. Stays dismiss-only
         // until a follow-up lands the credential entry modal.
-        return
+        return;
     }
   }
 
   /** Apply the chosen goal-queue choice. */
-  public async pickGoalStartChoice(
-    choice: 'auto' | 'yolo' | 'manual' | 'cancel',
-  ): Promise<void> {
-    const { resolveGoalStartPermissionChoice } = await import('../commands/goal')
+  public async pickGoalStartChoice(choice: 'auto' | 'yolo' | 'manual' | 'cancel'): Promise<void> {
+    const { resolveGoalStartPermissionChoice } = await import('../commands/goal');
     await resolveGoalStartPermissionChoice(
       this as unknown as Parameters<typeof resolveGoalStartPermissionChoice>[0],
       choice,
-    )
+    );
+  }
+
+  /** Apply a goal-queue action (move/delete/edit). Move/delete refresh
+   *  the stored list and keep the manager open; edit opens the edit
+   *  dialog. */
+  public async pickGoalQueueAction(action: GoalQueueManagerAction): Promise<void> {
+    const { handleGoalQueueManagerAction } = await import('../commands/goal');
+    const snapshot = await handleGoalQueueManagerAction(
+      this as unknown as Parameters<typeof handleGoalQueueManagerAction>[0],
+      action,
+    );
+    if (snapshot !== undefined) {
+      this.store.setState('goalQueueManager', {
+        ...this.store.state.goalQueueManager,
+        goals: snapshot.goals,
+      });
+    }
+  }
+
+  /** Apply the edit-dialog result (save/cancel) and return to the manager. */
+  public async pickGoalQueueEditResult(result: GoalQueueEditResult): Promise<void> {
+    const { handleGoalQueueEditResult } = await import('../commands/goal');
+    await handleGoalQueueEditResult(
+      this as unknown as Parameters<typeof handleGoalQueueEditResult>[0],
+      result,
+    );
   }
 
   /** Apply the chosen undo-selector choice (restore target). */
@@ -499,11 +532,11 @@ export class KimiTUI {
     // the editor buffer and trim the transcript. We delegate to the
     // existing `resolveUndoSelectorChoice` in `commands/undo.ts` so the
     // session/undo-history + store-trim logic runs unchanged.
-    const { resolveUndoSelectorChoice } = await import('../commands/undo')
+    const { resolveUndoSelectorChoice } = await import('../commands/undo');
     resolveUndoSelectorChoice(this as unknown as Parameters<typeof resolveUndoSelectorChoice>[0], {
       count,
       input,
-    })
+    });
   }
 
   /** Apply the chosen effort to the live session. */
@@ -511,12 +544,12 @@ export class KimiTUI {
     this.store.setState('effortSelector', {
       ...this.store.state.effortSelector,
       currentValue: effort,
-    })
-    const session = this.session
+    });
+    const session = this.session;
     if (session !== undefined) {
       try {
-        await session.setThinkingEffort(effort)
-        await this.syncRuntimeState(session)
+        await session.setThinkingEffort(effort);
+        await this.syncRuntimeState(session);
       } catch {
         // Store state is the source of truth; session picks it up next turn.
       }
@@ -524,24 +557,20 @@ export class KimiTUI {
   }
 
   /** Apply the chosen startup permission. */
-  public async pickStartPermission(
-    choice: 'auto' | 'yolo' | 'manual' | 'cancel',
-  ): Promise<void> {
+  public async pickStartPermission(choice: 'auto' | 'yolo' | 'manual' | 'cancel'): Promise<void> {
     this.store.setState('startPermission', {
       ...this.store.state.startPermission,
       chosen: choice,
-    })
+    });
   }
 
   /** Apply the chosen swarm-startup permission. */
-  public async pickSwarmStartPermission(
-    choice: 'auto' | 'yolo' | 'manual',
-  ): Promise<void> {
-    const { resolveSwarmStartPermissionChoice } = await import('../commands/swarm')
+  public async pickSwarmStartPermission(choice: 'auto' | 'yolo' | 'manual'): Promise<void> {
+    const { resolveSwarmStartPermissionChoice } = await import('../commands/swarm');
     await resolveSwarmStartPermissionChoice(
       this as unknown as Parameters<typeof resolveSwarmStartPermissionChoice>[0],
       choice,
-    )
+    );
   }
 
   /**
@@ -551,80 +580,90 @@ export class KimiTUI {
    * KimiTUI without leaking the host's internals.
    */
   public async applyDialogResult(result: DialogResultLike): Promise<void> {
-    this.store.setState('activeDialog', null)
+    // Goal-queue actions keep the manager open; every other result
+    // dismisses the active dialog.
+    if (result.kind !== 'goal-queue-manager') {
+      this.store.setState('activeDialog', null);
+    }
     switch (result.kind) {
       case 'session-picker':
-        await this.pickSession(result.sessionId)
-        return
+        await this.pickSession(result.sessionId);
+        return;
       case 'model-selector':
-        await this.pickModel(result.alias, result.effort)
-        return
+        await this.pickModel(result.alias, result.effort);
+        return;
       case 'plugins-selector':
-        await this.pluginAction(result.action)
-        return
+        await this.pluginAction(result.action);
+        return;
       case 'theme-selector':
-        await this.applyTheme(result.themeName as ThemeName)
-        return
+        await this.applyTheme(result.themeName as ThemeName);
+        return;
       case 'locale-selector':
-        await this.pickLocale(result.locale)
-        return
+        await this.pickLocale(result.locale);
+        return;
       case 'permission-selector':
-        await this.pickPermissionMode(result.mode)
-        return
+        await this.pickPermissionMode(result.mode);
+        return;
       case 'editor-selector':
-        await this.pickEditorCommand(result.command)
-        return
+        await this.pickEditorCommand(result.command);
+        return;
       case 'update-preference':
-        await this.pickUpdatePreference(result.enabled)
-        return
+        await this.pickUpdatePreference(result.enabled);
+        return;
       case 'msys2-prompt':
-        this.msys2PromptResolver?.(result.choice)
-        this.msys2PromptResolver = undefined
-        return
+        this.msys2PromptResolver?.(result.choice);
+        this.msys2PromptResolver = undefined;
+        return;
       case 'trust-prompt':
-        this.trustPromptResolver?.(result.choice)
-        this.trustPromptResolver = undefined
-        return
+        this.trustPromptResolver?.(result.choice);
+        this.trustPromptResolver = undefined;
+        return;
       case 'settings-selector':
-        await this.pickSettingsAction(result.value)
-        return
+        await this.pickSettingsAction(result.value);
+        return;
       case 'cache-hint':
-        await this.cacheHint.handleSelection(result.action)
-        return
+        await this.cacheHint.handleSelection(result.action);
+        return;
       case 'goal-queue-manager':
-        await this.pickGoalStartChoice(result.choice)
-        return
+        await this.pickGoalQueueAction(result.action);
+        return;
+      case 'goal-queue-edit':
+        await this.pickGoalQueueEditResult(result.result);
+        return;
+      case 'goal-start-permission-prompt':
+        await this.pickGoalStartChoice(result.choice);
+        return;
       case 'undo-selector':
-        await this.pickUndoChoice(result.count, result.input)
-        return
+        await this.pickUndoChoice(result.count, result.input);
+        return;
       case 'effort-selector':
-        await this.pickEffort(result.effort)
-        return
+        await this.pickEffort(result.effort);
+        return;
       case 'start-permission-prompt':
-        await this.pickStartPermission(result.choice)
-        return
+        await this.pickStartPermission(result.choice);
+        return;
       case 'swarm-start-permission-prompt':
-        await this.pickSwarmStartPermission(result.choice)
-        return
+        await this.pickSwarmStartPermission(result.choice);
+        return;
       case 'approval-panel':
-        this.approvalController.respond(result.response)
-        return
+        this.approvalController.respond(result.response);
+        return;
       case 'question-dialog':
         this.questionController.respond({
           method: result.method,
           answers: result.answers,
-        })
-        return
+        });
+        return;
       case 'help':
       case 'which-key':
         // Display-only; close already happened above.
-        return
+        return;
     }
   }
 
   /** Dismiss the active dialog without applying a result. */
   public cancelDialog(): void {
-    this.store.setState('activeDialog', null)
+    this.store.setState('activeDialog', null);
   }
 
   /** Terminal output sink (defaults to process.stdout). */
@@ -1537,8 +1576,7 @@ export class KimiTUI {
   }
 
   private supportsCurrentModelCapability(capability: string): boolean {
-    const capabilities =
-      this.store.state.availableModels[this.store.state.model]?.capabilities;
+    const capabilities = this.store.state.availableModels[this.store.state.model]?.capabilities;
     if (capabilities === undefined) return true;
     return capabilities.includes(capability);
   }
@@ -2080,14 +2118,14 @@ export class KimiTUI {
     const next: typeof this.store.state.activityMode =
       effective === 'hidden' || effective === 'session'
         ? 'idle'
-        : (effective as 'idle' | 'waiting' | 'thinking' | 'composing' | 'tool')
+        : (effective as 'idle' | 'waiting' | 'thinking' | 'composing' | 'tool');
     if (this.store.state.activityMode !== next) {
-      this.store.setState('activityMode', next)
+      this.store.setState('activityMode', next);
     }
-    const tip = loadingTipKind(effective)
-    const tipText = tip === undefined ? undefined : t(`tui.loadingTips.${tip}.text`)
+    const tip = loadingTipKind(effective);
+    const tipText = tip === undefined ? undefined : t(`tui.loadingTips.${tip}.text`);
     if (this.store.state.activityTip !== tipText) {
-      this.store.setState('activityTip', tipText)
+      this.store.setState('activityTip', tipText);
     }
   }
 
@@ -2180,11 +2218,7 @@ export class KimiTUI {
       this.store.setState('sessionsNextCursor', page.nextCursor);
       this.store.setState(
         'sessions',
-        sessionRowsForPicker(
-          page.items,
-          this.store.state.sessionId,
-          this.hasSessionContent(),
-        ),
+        sessionRowsForPicker(page.items, this.store.state.sessionId, this.hasSessionContent()),
       );
     } catch (error) {
       // The picker must keep working (it renders the empty state), but a
@@ -2475,7 +2509,10 @@ export class KimiTUI {
       }
     }
 
-    this.store.setState('transcript', entries.filter((e) => !toRemove.has(e)));
+    this.store.setState(
+      'transcript',
+      entries.filter((e) => !toRemove.has(e)),
+    );
     return true;
   }
 
@@ -2569,7 +2606,11 @@ export class KimiTUI {
         renderMode: 'plain',
         content: '',
         stepSummary: true,
-        stepSummaryCounts: { thinking: thinkingCount, tool: toolCount, assistant: assistantMergeCount },
+        stepSummaryCounts: {
+          thinking: thinkingCount,
+          tool: toolCount,
+          assistant: assistantMergeCount,
+        },
       });
     }
     for (let i = turnStart + 1; i < entries.length; i++) {
@@ -2653,7 +2694,11 @@ export class KimiTUI {
             renderMode: 'plain',
             content: '',
             stepSummary: true,
-            stepSummaryCounts: { thinking: thinkingCount, tool: toolCount, assistant: assistantMergeCount },
+            stepSummaryCounts: {
+              thinking: thinkingCount,
+              tool: toolCount,
+              assistant: assistantMergeCount,
+            },
           });
         }
         for (let i = turnStart + 1; i < turnEnd; i++) {
@@ -3014,7 +3059,10 @@ export class KimiTUI {
     const isBash = this.store.state.inputMode === 'bash';
     const highlighted = this.store.state.planMode || isBash || trimmed.startsWith('/');
     this.store.setState('editorBorderHighlighted', highlighted);
-    this.store.setState('editorBorderToken', isBash ? 'shellMode' : highlighted ? 'primary' : 'border');
+    this.store.setState(
+      'editorBorderToken',
+      isBash ? 'shellMode' : highlighted ? 'primary' : 'border',
+    );
   }
 
   async applyTheme(themeName: ThemeName, resolved?: ResolvedTheme): Promise<void> {
@@ -3237,9 +3285,7 @@ export class KimiTUI {
         const switched = setUserShellPath(result.bashPath, deps);
         spinner.stop({ ok: true, label: t('tui.msys2Prompt.installSuccess') });
         this.showStatus(
-          switched
-            ? t('tui.msys2Prompt.restartHint')
-            : t('tui.msys2Prompt.installSuccessNoSwitch'),
+          switched ? t('tui.msys2Prompt.restartHint') : t('tui.msys2Prompt.installSuccessNoSwitch'),
         );
         await markPrompted(deps);
       } else {

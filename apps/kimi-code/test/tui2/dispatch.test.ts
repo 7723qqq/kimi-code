@@ -28,6 +28,8 @@ describe('tui2 dispatch protocol', () => {
       | 'settings-selector'
       | 'cache-hint'
       | 'goal-queue-manager'
+      | 'goal-queue-edit'
+      | 'goal-start-permission-prompt'
       | 'undo-selector'
       | 'effort-selector'
       | 'help'

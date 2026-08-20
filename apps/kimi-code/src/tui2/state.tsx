@@ -194,6 +194,14 @@ export interface TuiRuntimeState {
   activeDialog: ActiveDialog
   /** Choices for the open undo selector; undefined when none. */
   undoChoices: readonly { id: string; count: number; input: string; label: string }[] | undefined
+  /** Goal-queue manager dialog state; undefined when closed. */
+  goalQueueManager:
+    | {
+        goals: readonly import('./goal-queue-store').UpcomingGoal[]
+        selectedGoalId?: string
+        editingGoalId?: string
+      }
+    | undefined
   /** Plugins panel dialog state; null when closed. */
   pluginsPanel: {
     installed: readonly import('@moonshot-ai/kimi-code-sdk').PluginSummary[]
@@ -252,7 +260,11 @@ export interface TuiRuntimeState {
   /** Pending goal-start context (set by `showGoalStartPermissionPrompt`).
    *  Read by the pick-method when the user picks a permission choice. */
   goalStartContext:
-    | { readonly parsed: { readonly objective: string; readonly replace?: boolean }; readonly rawArgs: string }
+    | {
+        readonly parsed: { readonly objective: string; readonly replace?: boolean }
+        readonly rawArgs: string
+        readonly mode: 'yolo' | 'manual'
+      }
     | undefined
   /** Pending swarm-start context (set by `showSwarmStartPermissionPrompt`). */
   swarmStartContext: { readonly prompt: string } | undefined
@@ -349,6 +361,7 @@ export const INITIAL_RUNTIME: TuiRuntimeState = {
   startupState: 'pending',
   activeDialog: null,
   undoChoices: undefined,
+  goalQueueManager: undefined,
   pluginsPanel: null,
   pluginMcpPicker: null,
   pluginConfirm: null,
