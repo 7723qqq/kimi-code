@@ -4,22 +4,25 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { UserCancellationError } from '#/_base/utils/abort';
-import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ErrorCodes, Error2 } from '#/errors';
-import { ISessionInitService } from '#/features/sessionInit/sessionInit';
-import { SessionInitService } from '#/features/sessionInit/sessionInitService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
+import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { ErrorCodes, Error2 } from '#/errors';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionInitService } from '#/features/sessionInit/sessionInit';
+import { SessionInitService } from '#/features/sessionInit/sessionInitService';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+import { stubAgentContext } from '../../agent/agentContext/stubs';
 
 const WORK_DIR = '/project';
 const AGENTS_MD = 'latest project instructions';
@@ -57,10 +60,12 @@ describe('SessionInitService', () => {
         onWillStartAgentTask: { run: vi.fn(async () => {}) },
       },
       notifyAgentTaskStopped: vi.fn(),
-      get: vi.fn((id: string) => handles[id]),
+      get: vi.fn((context: AgentContext) => handles[context.agentId]),
+      findAgentHandle: vi.fn((agentId: string) => handles[agentId]),
+      list: vi.fn(() => Object.values(handles)),
       create: vi.fn(async () => handles['agent-0']),
-      run: vi.fn(async (agentId: string) => ({
-        agentId,
+      run: vi.fn(async (agent: AgentContext) => ({
+        agentId: agent.agentId,
         turn: {},
         completion: runCompletion,
       })),
@@ -69,10 +74,6 @@ describe('SessionInitService', () => {
     run = lifecycle.run;
 
     const eventBus = { publish: vi.fn((event: unknown) => events.push(event)) };
-    const dispatcher = {
-      flush,
-      dispatch: vi.fn((event: unknown) => events.push(event)),
-    };
     const telemetry = { track: vi.fn(), track2: vi.fn() };
     const profile = {
       data: () => ({ modelAlias: 'mock-model', thinkingLevel: 'off' }),
@@ -89,10 +90,17 @@ describe('SessionInitService', () => {
           if (id === IAgentPermissionModeService) return permissionMode;
           if (id === IAgentSystemReminderService) return { appendSystemReminder: appendReminder };
           if (id === IAgentAgentsMdReminderService) return { seedInjected };
-          if (id === IEventDispatcher) return dispatcher;
+          if (id === IEventDispatcher) {
+            return {
+              flush,
+              dispatch: async (event: unknown) => {
+                eventBus.publish(event);
+              },
+            };
+          }
           if (id === IEventBus) return eventBus;
           if (id === ITelemetryService) return telemetry;
-          return;
+          return undefined;
         },
       },
     };
@@ -100,10 +108,16 @@ describe('SessionInitService', () => {
       id: 'agent-0',
       accessor: {
         get: (id: unknown) => {
+          if (id === IAgentScopeContext) {
+            return {
+              agentId: 'agent-0',
+              agentContext: stubAgentContext('agent-0', 1),
+            };
+          }
           if (id === IAgentPermissionModeService) return permissionMode;
           if (id === IAgentProfileService)
             return { republishStatus, getEffectiveThinkingLevel: () => 'off' };
-          return;
+          return undefined;
         },
       },
     };
@@ -151,7 +165,7 @@ describe('SessionInitService', () => {
 
     expect(run).toHaveBeenCalledTimes(1);
     const runArgs = run.mock.calls[0]!;
-    expect(runArgs[0]).toBe('agent-0');
+    expect(runArgs[0]).toMatchObject({ agentId: 'agent-0', generation: 1 });
     expect(runArgs[1]).toMatchObject({ kind: 'prompt' });
     expect((runArgs[1] as { prompt: string }).prompt).toContain('Task requirements:');
 
@@ -197,7 +211,7 @@ describe('SessionInitService', () => {
     }));
     const svc = ix.get(ISessionInitService);
 
-    const error = await svc.generateAgentsMd().catch((error) => error);
+    const error = await svc.generateAgentsMd().catch((e) => e);
     expect(error).toBeInstanceOf(Error2);
     expect((error as Error2).code).toBe(ErrorCodes.SESSION_INIT_FAILED);
     expect((error as Error2).message).toContain('coder exploded');
@@ -205,12 +219,12 @@ describe('SessionInitService', () => {
 
   it('throws AGENT_NOT_FOUND when the main agent is missing', async () => {
     const lifecycle = ix.get(IAgentLifecycleService) as unknown as {
-      get: ReturnType<typeof vi.fn>;
+      list: ReturnType<typeof vi.fn>;
     };
-    lifecycle.get.mockReturnValue(undefined);
+    lifecycle.list.mockReturnValue([]);
     const svc = ix.get(ISessionInitService);
 
-    const error = await svc.generateAgentsMd().catch((error) => error);
+    const error = await svc.generateAgentsMd().catch((e) => e);
     expect(error).toBeInstanceOf(Error2);
     expect((error as Error2).code).toBe(ErrorCodes.AGENT_NOT_FOUND);
   });
@@ -229,7 +243,7 @@ describe('SessionInitService', () => {
     await vi.waitFor(() => expect(run).toHaveBeenCalled());
     svc.cancelInit();
 
-    const error = await pending.catch((error) => error);
+    const error = await pending.catch((e) => e);
     expect(error).toBeInstanceOf(UserCancellationError);
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: 'subagent.failed', subagentId: 'agent-0' }),

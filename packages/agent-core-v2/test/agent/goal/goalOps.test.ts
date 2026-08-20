@@ -3,34 +3,31 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import {
-  resetUnexpectedErrorHandler,
-  setUnexpectedErrorHandler,
-} from '#/_base/errors/unexpectedError';
+import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
 import { Event } from '#/_base/event';
+import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
+import { EventBusService } from '#/app/event/eventBusService';
+import { IConfigService } from '#/app/config/config';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentGoalService } from '#/agent/goal/goal';
 import { IGoalDeadlineScheduler } from '#/agent/goal/goalDeadlineScheduler';
 import { GoalDeadlineSchedulerService } from '#/agent/goal/goalDeadlineSchedulerService';
-import { goalKey } from '#/agent/goal/goalOps';
 import { AgentGoalService } from '#/agent/goal/goalService';
+import { goalKey } from '#/agent/goal/goalOps';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentSystemReminderService } from '#/agent/systemReminder/systemReminder';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentUsageService } from '#/agent/usage/usage';
-import { IConfigService } from '#/app/config/config';
-import { IEventBus } from '#/app/event/eventBus';
-import { EventBusService } from '#/app/event/eventBusService';
+import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import type { IEventDispatcher } from '#/state/eventDispatcher';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import {
@@ -39,6 +36,7 @@ import {
   restoreTestEventDispatcher,
   testWireScope,
 } from '../../wire/stubs';
+import { stubAgentContext } from '../agentContext/stubs';
 
 const SCOPE = 'wire';
 const KEY = 'goal-test';
@@ -123,9 +121,9 @@ function buildHost(key: string): {
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
   ix.set(IEventBus, new SyncDescriptor(EventBusService));
   ix.stub(IAgentLoopService, createLoopStub());
-  ix.stub(IAgentUsageService, {
+  ix.stub(ISessionUsageService, {
     onDidRecord: Event.None,
-  } as unknown as IAgentUsageService);
+  } as unknown as ISessionUsageService);
   ix.stub(IAgentContextMemoryService, createContextStub());
   ix.stub(IAgentContextInjectorService, createInjectorStub());
   ix.stub(IAgentSystemReminderService, createSystemReminderStub());
@@ -138,13 +136,16 @@ function buildHost(key: string): {
     log: ix.get(IAppendLogStore),
     eventBus: ix.get(IEventBus),
   });
-  const dispatcher = registerTestEventDispatcher(ix);
-  const agentState = ix.get(IAgentStateService);
-  ix.stub(IAgentScopeContext, {
+  const mainScopeContext: IAgentScopeContext = {
     _serviceBrand: undefined,
     agentId: 'main',
+    agentContext: stubAgentContext('main', 1),
     scope: () => 'wire/agents/main',
-  });
+  };
+  ix.stub(IAgentScopeContext, mainScopeContext);
+  (ix.get(IEventBus) as ISessionEventBus).activateAgent(mainScopeContext.agentContext);
+  const dispatcher = registerTestEventDispatcher(ix);
+  const agentState = ix.get(IAgentStateService);
   ix.set(IAgentGoalService, new SyncDescriptor(AgentGoalService));
   return {
     dispatcher,
@@ -170,10 +171,7 @@ afterEach(() => disposables.dispose());
 async function readRecords(key = KEY): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(
-    testWireScope(SCOPE, key),
-    AGENT_WIRE_RECORD_KEY,
-  )) {
+  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, key), AGENT_WIRE_RECORD_KEY)) {
     out.push(record);
   }
   return out;
@@ -347,10 +345,7 @@ describe('AgentGoalService (wire-backed)', () => {
 
       expect(agentState.get(goalKey)).toMatchObject({ status: 'paused' });
       expect(unexpected).toContainEqual(
-        expect.objectContaining({
-          code: 'wire.unknown_record',
-          details: { type: 'goal.update', index: 1 },
-        }),
+        expect.objectContaining({ code: 'wire.unknown_record', details: { type: 'goal.update', index: 1 } }),
       );
     } finally {
       resetUnexpectedErrorHandler();
@@ -368,10 +363,7 @@ describe('AgentGoalService (wire-backed)', () => {
 
       expect(agentState.get(goalKey)).toMatchObject({ status: 'paused' });
       expect(unexpected).toContainEqual(
-        expect.objectContaining({
-          code: 'wire.unknown_record',
-          details: { type: 'goal.update', index: 1 },
-        }),
+        expect.objectContaining({ code: 'wire.unknown_record', details: { type: 'goal.update', index: 1 } }),
       );
     } finally {
       resetUnexpectedErrorHandler();
@@ -409,16 +401,21 @@ describe('AgentGoalService (wire-backed)', () => {
     const unexpected: unknown[] = [];
     setUnexpectedErrorHandler((error) => unexpected.push(error));
     try {
-      await restoreTestEventDispatcher(dispatcher, log, testWireScope(SCOPE, KEY), [
-        null,
-        [],
-        {
-          type: 'goal.create',
-          goalId: 'goal-1',
-          objective: 'work',
-          budgetLimits: { unexpected: true },
-        },
-      ] as unknown as WireRecord[]);
+      await restoreTestEventDispatcher(
+        dispatcher,
+        log,
+        testWireScope(SCOPE, KEY),
+        [
+          null,
+          [],
+          {
+            type: 'goal.create',
+            goalId: 'goal-1',
+            objective: 'work',
+            budgetLimits: { unexpected: true },
+          },
+        ] as unknown as WireRecord[],
+      );
 
       expect(agentState.get(goalKey)).toBeNull();
       expect(unexpected).toHaveLength(3);

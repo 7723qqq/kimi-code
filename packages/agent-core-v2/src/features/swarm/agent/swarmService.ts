@@ -1,20 +1,18 @@
-import { t } from '@moonshot-ai/kimi-i18n';
-
-import { IInstantiationService } from '#/_base/di/instantiation';
 import { Service } from '#/_base/di/service';
+import { IInstantiationService } from '#/_base/di/instantiation';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { TurnEnded } from '#/agent/loop/turnOps';
-import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IEventBus } from '#/app/event/eventBus';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import { SwarmModeEnter, SwarmModeExit, swarmKey } from '../swarmOps';
 import { SwarmInjection } from './injection/swarmInjection';
-import type { IAgentSwarmService } from './swarm';
-import { type SwarmModeTrigger } from './swarm';
+import { IAgentSwarmService, type SwarmModeTrigger } from './swarm';
+import { SwarmModeEnter, SwarmModeExit, swarmKey } from '../swarmOps';
 
 export class AgentSwarmService extends Service implements IAgentSwarmService {
   declare readonly _serviceBrand: undefined;
@@ -26,6 +24,7 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
+    @IAgentScopeContext private readonly agentCtx: IAgentScopeContext,
     @IAgentStateService private readonly agentState: IAgentStateService,
   ) {
     super();
@@ -61,29 +60,17 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
         );
       }),
     );
-    // Hard enforcement counterpart to the soft enter-reminder constraint:
-    // while swarm mode is active, a single-shot `Agent` call is denied — the
-    // `AgentSwarm` tool is the supported dispatch path.
-    this._register(
-      toolExecutor.onBeforeExecuteTool((event) => {
-        if (!this.isActive) return;
-        if (event.toolCall.name !== 'Agent') return;
-        event.veto(
-          denyToolExecution(this.toolApproval.formatDenyMessage(agentDeniedInSwarmModeMessage())),
-        );
-      }),
-    );
   }
 
   enter(trigger: SwarmModeTrigger): void {
     if (this.agentState.get(swarmKey) !== null) return;
-    void this.dispatcher.dispatch(new SwarmModeEnter({ trigger }));
+    void this.dispatcher.dispatch(new SwarmModeEnter({ agentId: this.agentCtx.agentId, trigger }));
   }
 
   exit(): void {
     if (this.agentState.get(swarmKey) === null) return;
     const history = this.context.get();
-    void this.dispatcher.dispatch(new SwarmModeExit({}));
+    void this.dispatcher.dispatch(new SwarmModeExit({ agentId: this.agentCtx.agentId }));
     this.context.publishTrailingRemoval(history);
   }
 
@@ -113,8 +100,4 @@ function mixedAgentSwarmDeniedMessage(): string {
     'AgentSwarm must be the only tool call in a model response. Retry with a single AgentSwarm ' +
     'call by itself, then call any other tools after it returns.'
   );
-}
-
-function agentDeniedInSwarmModeMessage(): string {
-  return t('toolsV2.swarm.agentDeniedInSwarmMode');
 }

@@ -13,48 +13,49 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  drainQueryStoreDisposals,
-  drainSessionIndexMirror,
-  HostProcessError,
-  IHostRequestHeaders,
-  ISessionLifecycleService,
-  ISessionManager,
-  IWorkspaceLifecycleService,
-  OsProcessErrors,
-} from '@moonshot-ai/agent-core-v2';
-import {
   FileTokenStorage,
   resolveKimiCodeOAuthRef,
   resolveKimiTokenStorageName,
 } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-// Each test boots a full v2 engine (DI container, fs watchers, minidb); on
-// Windows cold starts routinely exceed vitest's 5s default.
-vi.setConfig({ testTimeout: 60_000 });
-
-import type { KimiHarness } from '#/index';
 import {
+  buildDaemonFileUrl,
   createKimiHarnessV2,
   ErrorCodes,
+  isDaemonFileUrl,
+  KimiHarness,
   removeProviderFromConfig,
   SDKRpcClientV2,
   type Event,
   type KimiConfig,
 } from '#/index';
 import { foldAgentWireReplay } from '#/v2/resume-replay';
+import {
+  drainQueryStoreDisposals,
+  drainSessionIndexMirror,
+  getLiveSessionById,
+  agentContextOf,
+  HostProcessError,
+  IAgentLifecycleService,
+  IHostRequestHeaders,
+  ISessionManager,
+  ISessionTodoService,
+  OsProcessErrors,
+} from '@moonshot-ai/agent-core-v2';
 
+import { McpOAuthService } from '../../agent-core/src/mcp/oauth/service';
+
+import { TEST_IDENTITY } from './test-identity';
 import { startMcpAuthStatusServer } from './mcp-auth-status-server';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
-import { TEST_IDENTITY } from './test-identity';
 
 const hostEnvProbe = vi.hoisted(() => ({ failWithMissingShell: false }));
 
 vi.mock('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe', async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe')
-    >();
+  const actual = await importOriginal<
+    typeof import('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe')
+  >();
   return {
     ...actual,
     probeHostEnvironmentFromNode: () =>
@@ -76,7 +77,7 @@ afterEach(async () => {
   await drainSessionIndexMirror();
   await drainQueryStoreDisposals();
   for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -116,6 +117,98 @@ async function sessionDirExists(homeDir: string, sessionId: string): Promise<boo
 }
 
 describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
+  it('exposes the validated runtime binding through Session', async () => {
+    const { harness } = await makeHarness();
+    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const session = await harness.createSession({ id: 'ses_runtime', workDir });
+    try {
+      const binding = await session.getRuntime();
+      expect(binding.runtimeId).toBe('local');
+      expect(binding.workspaceId.length).toBeGreaterThan(0);
+      await expect(session.switchRuntime('missing-runtime')).rejects.toThrow(/missing-runtime/);
+      expect(await session.getRuntime()).toEqual(binding);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('reports global MCP authorization from the persisted v2 credential store', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const statusServer = await startMcpAuthStatusServer();
+    const authorizedUrl = 'https://authorized.example.test/mcp';
+    const requiredUrl = 'https://required.example.test/mcp';
+    const externalOAuth = new McpOAuthService({ kimiHomeDir: homeDir });
+    await externalOAuth
+      .getProvider('oauth-authorized', authorizedUrl)
+      .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
+    await externalOAuth
+      .getProvider('sse', statusServer.oauthUrl)
+      .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer' });
+    await writeFile(
+      join(homeDir, 'mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          stdio: { command: 'local-command' },
+          plain: { transport: 'http', url: statusServer.plainUrl },
+          detected: { transport: 'http', url: statusServer.oauthUrl },
+          sse: { transport: 'sse', url: statusServer.oauthUrl },
+          'sse-oauth': { transport: 'sse', url: statusServer.oauthUrl, auth: 'oauth' },
+          bearer: {
+            transport: 'http',
+            url: 'https://bearer.example.test/mcp',
+            bearerTokenEnvVar: 'EXAMPLE_MCP_TOKEN',
+          },
+          'oauth-required': {
+            transport: 'http',
+            url: requiredUrl,
+            auth: 'oauth',
+          },
+          'oauth-authorized': {
+            transport: 'http',
+            url: authorizedUrl,
+            auth: 'oauth',
+          },
+        },
+      }),
+      'utf-8',
+    );
+    const harness = createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
+        { name: 'stdio', authStatus: 'not-applicable' },
+        { name: 'plain', authStatus: 'not-applicable' },
+        { name: 'detected', authStatus: 'oauth-required' },
+        { name: 'sse', authStatus: 'not-applicable' },
+        { name: 'sse-oauth', authStatus: 'oauth-required' },
+        { name: 'bearer', authStatus: 'bearer-token' },
+        { name: 'oauth-required', authStatus: 'oauth-required' },
+        { name: 'oauth-authorized', authStatus: 'oauth-authorized' },
+      ]);
+
+      await externalOAuth
+        .getProvider('oauth-required', requiredUrl)
+        .saveTokens({ access_token: 'new-test-access-token', token_type: 'Bearer' });
+      await externalOAuth.invalidate('oauth-authorized', authorizedUrl, 'tokens');
+
+      await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
+        { name: 'stdio', authStatus: 'not-applicable' },
+        { name: 'plain', authStatus: 'not-applicable' },
+        { name: 'detected', authStatus: 'oauth-required' },
+        { name: 'sse', authStatus: 'not-applicable' },
+        { name: 'sse-oauth', authStatus: 'oauth-required' },
+        { name: 'bearer', authStatus: 'bearer-token' },
+        { name: 'oauth-required', authStatus: 'oauth-authorized' },
+        { name: 'oauth-authorized', authStatus: 'oauth-required' },
+      ]);
+    } finally {
+      await harness.close();
+      await statusServer.close();
+    }
+  }, 15_000);
+
   it('seeds the host request headers (User-Agent + X-Msh-*) into the engine', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
     tempDirs.push(homeDir);
@@ -185,6 +278,32 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
         expect(typeof feature.enabled).toBe('boolean');
         expect(typeof feature.defaultEnabled).toBe('boolean');
       }
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('uploadFile stores bytes through the klient files facade', async () => {
+    const { harness } = await makeHarness();
+    try {
+      const bytes = new Uint8Array([137, 80, 78, 71]);
+      const meta = await harness.uploadFile(bytes, {
+        name: 'pixel.png',
+        mimeType: 'image/png',
+        expiresInSec: 60,
+      });
+      expect(meta.id.startsWith('f_')).toBe(true);
+      expect(meta.name).toBe('pixel.png');
+      expect(meta.media_type).toBe('image/png');
+      expect(meta.size).toBe(bytes.length);
+      expect(typeof meta.created_at).toBe('string');
+      expect(typeof meta.expires_at).toBe('string');
+
+      // Re-export smoke only — helper behavior is pinned by agent-core-v2's
+      // mediaRef tests.
+      expect(isDaemonFileUrl(buildDaemonFileUrl(meta.id))).toBe(true);
+      await harness.deleteFile(meta.id);
+      await expect(harness.deleteFile(meta.id)).rejects.toThrow(/file not found/);
     } finally {
       await harness.close();
     }
@@ -288,10 +407,7 @@ key = "${titleOAuthRef.key}"
           sessionId: session.id,
           agentId: 'main',
           title: 'Generated title',
-          // Fork event shape nests the engine payload under `patch`.
-          patch: expect.objectContaining({
-            patch: expect.objectContaining({ title: 'Generated title', isCustomTitle: false }),
-          }),
+          patch: { title: 'Generated title', isCustomTitle: false },
         }),
       ]);
     } finally {
@@ -467,7 +583,7 @@ key = "${titleOAuthRef.key}"
       ]);
 
       const outcomes = [first, second].map((result) => result.status);
-      expect(outcomes.toSorted()).toEqual(['fulfilled', 'rejected']);
+      expect(outcomes.sort()).toEqual(['fulfilled', 'rejected']);
       const rejection = [first, second].find((result) => result.status === 'rejected');
       expect((rejection as PromiseRejectedResult).reason).toMatchObject({
         code: 'session.already_exists',
@@ -550,10 +666,7 @@ key = "${titleOAuthRef.key}"
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     tempDirs.push(workDir);
     await writeSkill(join(homeDir, 'skills', 'demo-user-skill'), 'demo-user-skill');
-    await writeSkill(
-      join(workDir, '.kimi-code', 'skills', 'demo-project-skill'),
-      'demo-project-skill',
-    );
+    await writeSkill(join(workDir, '.kimi-code', 'skills', 'demo-project-skill'), 'demo-project-skill');
     try {
       const skills = await harness.listWorkspaceSkills(workDir);
       const byName = new Map(skills.map((skill) => [skill.name, skill]));
@@ -579,10 +692,7 @@ key = "${titleOAuthRef.key}"
     tempDirs.push(explicitBase);
     const explicitDir = join(explicitBase, 'skills');
     await writeSkill(join(homeDir, 'skills', 'demo-user-skill'), 'demo-user-skill');
-    await writeSkill(
-      join(workDir, '.kimi-code', 'skills', 'demo-project-skill'),
-      'demo-project-skill',
-    );
+    await writeSkill(join(workDir, '.kimi-code', 'skills', 'demo-project-skill'), 'demo-project-skill');
     await writeSkill(join(explicitDir, 'demo-explicit-skill'), 'demo-explicit-skill');
     const harness = createKimiHarnessV2({
       homeDir,
@@ -764,6 +874,43 @@ key = "${titleOAuthRef.key}"
       await harness.close();
     }
   });
+
+  it('serves getTodos from the live session todo state', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
+    tempDirs.push(workDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      await client.createSession({ id: 'ses_todos', workDir });
+      expect(await client.getTodos({ sessionId: 'ses_todos' })).toEqual([]);
+
+      const handle = getLiveSessionById(client.engineAccessor, 'ses_todos');
+      expect(handle).toBeDefined();
+      const main = await handle!.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
+      await handle!.accessor.get(ISessionTodoService).setTodos(agentContextOf(main), [
+        { title: 'write tests', status: 'in_progress' },
+        { title: 'ship it', status: 'pending' },
+      ]);
+
+      expect(await client.getTodos({ sessionId: 'ses_todos' })).toEqual([
+        { title: 'write tests', status: 'in_progress' },
+        { title: 'ship it', status: 'pending' },
+      ]);
+
+      const served = await client.getTodos({ sessionId: 'ses_todos' });
+      const stored = await handle!
+        .accessor.get(ISessionTodoService)
+        .getTodos(agentContextOf(main));
+      expect(served).not.toBe(stored);
+      expect(served[0]).not.toBe(stored[0]);
+      await expect(client.getTodos({ sessionId: 'ses_missing' })).rejects.toMatchObject({
+        code: ErrorCodes.SESSION_NOT_FOUND,
+      });
+    } finally {
+      await client.close();
+    }
+  });
 });
 
 describe('SDKRpcClientV2 workspace trust', () => {
@@ -803,13 +950,7 @@ describe('SDKRpcClientV2 workspace trust', () => {
       expect(info.gatedMcpServers).toEqual([
         { name: 'http-server', transport: 'http', url: 'https://example.test/mcp' },
         { name: 'nested-server', transport: 'stdio', command: 'nested-cmd' },
-        {
-          name: 'root-server',
-          transport: 'stdio',
-          command: 'root-cmd',
-          args: ['--safe'],
-          cwd: '/tmp/root',
-        },
+        { name: 'root-server', transport: 'stdio', command: 'root-cmd', args: ['--safe'], cwd: '/tmp/root' },
       ]);
       const serialized = JSON.stringify(info);
       expect(serialized).not.toContain('hidden');
@@ -879,20 +1020,9 @@ describe('foldAgentWireReplay', () => {
         time: 1004,
       },
       // A v2-only op the v1 restore switch does not know: ignored.
-      {
-        type: 'profile.bind',
-        profileName: 'agent',
-        systemPrompt: 'x',
-        thinkingEffort: 'off',
-        disallowedTools: [],
-        time: 1005,
-      },
+      { type: 'profile.bind', profileName: 'agent', systemPrompt: 'x', thinkingEffort: 'off', disallowedTools: [], time: 1005 },
     ];
-    await writeFile(
-      wirePath,
-      records.map((record) => JSON.stringify(record)).join('\n') + '\n',
-      'utf-8',
-    );
+    await writeFile(wirePath, records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf-8');
     const folded = await foldAgentWireReplay(wirePath);
     expect(folded.replay).toEqual([
       {
@@ -1089,8 +1219,7 @@ describe('removeProviderFromConfig', () => {
   });
 });
 
-async function writeSkill(dir: string, name: string): Promise<void> {
-  await mkdir(dir, { recursive: true });
+async function writeSkill(dir: string, name: string): Promise<void> {  await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, 'SKILL.md'),
     `---\nname: ${name}\ndescription: Skill ${name} for the escape-hatch test\n---\n\nBody of ${name}.\n`,

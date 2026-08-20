@@ -134,7 +134,12 @@ describe('AgentPermissionModeService (wire-backed)', () => {
 
     const records = await readRecords();
     expect(records).toEqual([
-      { type: 'permission.set_mode', mode: 'auto', time: expect.any(Number) },
+      {
+        type: 'permission.set_mode',
+        agentId: 'test-agent',
+        mode: 'auto',
+        time: expect.any(Number),
+      },
     ]);
     expect('payload' in records[0]!).toBe(false);
   });
@@ -143,7 +148,12 @@ describe('AgentPermissionModeService (wire-backed)', () => {
     svc.setMode('manual');
 
     expect(await readRecords()).toEqual([
-      { type: 'permission.set_mode', mode: 'manual', time: expect.any(Number) },
+      {
+        type: 'permission.set_mode',
+        agentId: 'test-agent',
+        mode: 'manual',
+        time: expect.any(Number),
+      },
     ]);
   });
 

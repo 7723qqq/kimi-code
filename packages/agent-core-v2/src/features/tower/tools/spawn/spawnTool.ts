@@ -2,13 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentTaskService } from '#/agent/task/task';
-import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
 import {
   GitError,
   MISSIONS_DIR,
@@ -23,7 +20,16 @@ import {
 } from '#/features/tower/protocol/index';
 import { IAgentTowerService, TOWER_WORKER_PROFILE } from '#/features/tower/tower';
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
+import { IConfigService } from '#/app/config/config';
+import { IFlagService } from '#/app/flag/flag';
 import { IModelCatalog } from '#/kosong/model/catalog';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import {
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { subagentLabels } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -34,15 +40,10 @@ import {
 } from '#/session/subagent/configSection';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import {
-  type ExecutableToolContext,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
 
-import type { ITowerSpawnTool } from './spawn';
-import { TowerSpawnToolInputSchema, type TowerSpawnToolInput } from './spawn';
+import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
+
+import { ITowerSpawnTool, TowerSpawnToolInputSchema, type TowerSpawnToolInput } from './spawn';
 import DESCRIPTION from './spawn.md?raw';
 
 type SubagentBinding = ReturnType<typeof resolveSubagentBinding>;
@@ -265,7 +266,7 @@ export class TowerSpawnTool implements ITowerSpawnTool {
     controller: AbortController,
     binding: SubagentBinding | undefined,
   ): Promise<SubagentHandle> {
-    const requester = this.lifecycle.get(this.callerAgentId);
+    const requester = this.lifecycle.findAgentHandle(this.callerAgentId);
     if (requester === undefined) {
       throw new Error(`Caller agent "${this.callerAgentId}" does not exist`);
     }
@@ -297,7 +298,7 @@ export class TowerSpawnTool implements ITowerSpawnTool {
     });
 
     const run = await this.subagents.run(
-      agentId,
+      agentContextOf(created),
       { kind: 'prompt', prompt },
       { signal: controller.signal },
     );
@@ -397,3 +398,4 @@ export class TowerSpawnTool implements ITowerSpawnTool {
     );
   }
 }
+

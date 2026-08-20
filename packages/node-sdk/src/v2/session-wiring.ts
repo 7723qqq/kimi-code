@@ -1,19 +1,3 @@
-import {
-  IAgentLifecycleService,
-  IAgentProfileService,
-  IAgentTokenCountingService,
-  IAgentUsageService,
-  IEventBus,
-  ISessionApprovalService,
-  ISessionInteractionService,
-  ISessionQuestionService,
-  MAIN_AGENT_ID,
-  type IAgentScopeHandle,
-  type IDisposable,
-  type Interaction,
-  type ISessionScopeHandle,
-} from '@moonshot-ai/agent-core-v2';
-
 /**
  * Per-live-session event/interaction wiring for the v2 client.
  *
@@ -23,15 +7,10 @@ import {
  *
  * 1. Event forwarding: subscribe every live agent's `IEventBus` (the agents
  *   present at wiring time plus every later `onDidCreate`, so subagents that
- *   appear mid-turn are covered) and push each native `DomainEvent` through
- *   into the client's `receiveEvent`, stamped with the owning
- *   `sessionId` / `agentId` — the v2 engine's per-agent bus carries neither.
- *   Delivery stays synchronous, in-emission-order, matching v1's push model.
- *   No type dropping or renaming happens here anymore: the SDK event channel
- *   now exposes the v2 `DomainEvent` union verbatim (task lifecycle events
- *   keep their `task.*` spelling, and v2-only facts like
- *   `permission.approval.*` / `prompt.*` / `agent.activity.updated` are
- *   visible to hosts).
+ *   appear mid-turn are covered) and push each event through
+ *   {@link translateDomainEvent} into the client's `receiveEvent` — the same
+ *   synchronous, in-emission-order delivery v1's push model has (both engines
+ *   dispatch to listeners inside the emitter's call stack).
  * 2. The approval / question / user-tool bridge: v1's engine calls the
  *   client's `requestApproval` / `requestQuestion` / `toolCall` callbacks
  *   (push), where v2 parks a pending interaction in the session's interaction
@@ -46,19 +25,36 @@ import {
 import type {
   ApprovalRequest,
   ApprovalResponse,
-  DomainEvent,
   Event,
   QuestionRequest,
   QuestionResult,
   ToolCallRequest,
   ToolCallResponse,
   ToolInputDisplay,
-} from '#/events';
+} from '@moonshot-ai/agent-core';
+import {
+  agentContextOf,
+  IAgentLifecycleService,
+  IAgentProfileService,
+  IEventBus,
+  ISessionApprovalService,
+  ISessionInteractionService,
+  ISessionQuestionService,
+  ISessionTokenCountingService,
+  ISessionUsageService,
+  MAIN_AGENT_ID,
+  type Event2,
+  type IAgentScopeHandle,
+  type IDisposable,
+  type Interaction,
+  type ISessionScopeHandle,
+} from '@moonshot-ai/agent-core-v2';
+
+import { translateDomainEvent } from '#/v2/event-mapper';
 
 /**
  * The client surface the wiring drives — the base class's own public methods,
- * so the v1 handler semantics are reused rather than re-implemented. Events
- * are delivered stamped with `sessionId` / `agentId` (see {@link Event}).
+ * so the v1 handler semantics are reused rather than re-implemented.
  */
 export interface SessionEventSink {
   receiveEvent(event: Event): void;
@@ -123,11 +119,12 @@ export class SessionEventWiring {
     );
     const lifecycle = session.accessor.get(IAgentLifecycleService);
     this.disposables.push(
-      lifecycle.onDidCreate((agent) => {
-        this.attachAgent(agent);
+      lifecycle.onDidCreate((context) => {
+        const handle = lifecycle.get(context);
+        if (handle !== undefined) this.attachAgent(handle);
       }),
-      lifecycle.onDidDispose((agentId) => {
-        this.detachAgent(agentId);
+      lifecycle.onDidDispose((context) => {
+        this.detachAgent(context.agentId);
       }),
     );
     for (const agent of lifecycle.list()) {
@@ -156,8 +153,8 @@ export class SessionEventWiring {
       agent.accessor.get(IEventBus).subscribe((event) => {
         const enriched =
           event.type === 'agent.status.updated' ? withStatusSnapshot(agent, event) : event;
-        // oxlint-disable-next-line typescript-eslint/no-misused-spread -- the engine event is a class instance; the SDK stream carries plain protocol-shaped objects, so the spread intentionally drops the prototype.
-        this.sink.receiveEvent({ ...enriched, sessionId, agentId } as unknown as Event);
+        const translated = translateDomainEvent(enriched, sessionId, agentId);
+        if (translated !== undefined) this.sink.receiveEvent(translated);
       }),
     );
   }
@@ -172,12 +169,6 @@ export class SessionEventWiring {
   private bridgeNewPendingInteractions(): void {
     if (this.disposed) return;
     const pending = this.session.accessor.get(ISessionInteractionService).listPending();
-    const pendingIds = new Set(pending.map((interaction) => interaction.id));
-    // Forget ids that are no longer pending (they've resolved and left the
-    // pending set), so the dedupe set stays bounded over a long session.
-    for (const id of this.bridgedInteractionIds) {
-      if (!pendingIds.has(id)) this.bridgedInteractionIds.delete(id);
-    }
     for (const interaction of pending) {
       if (this.bridgedInteractionIds.has(interaction.id)) continue;
       this.bridgedInteractionIds.add(interaction.id);
@@ -279,26 +270,25 @@ export class SessionEventWiring {
  * two client-facing packages so the core engine stays free of v1
  * wire-compatibility concerns.
  */
-function withStatusSnapshot(agent: IAgentScopeHandle, event: DomainEvent): DomainEvent {
+function withStatusSnapshot(agent: IAgentScopeHandle, event: Event2<any>): Event2<any> {
   const profile = agent.accessor.get(IAgentProfileService) as IAgentProfileService | undefined;
-  const usageService = agent.accessor.get(IAgentUsageService) as IAgentUsageService | undefined;
-  const tokenCounting = agent.accessor.get(IAgentTokenCountingService) as
-    | IAgentTokenCountingService
+  const usageService = agent.accessor.get(ISessionUsageService) as ISessionUsageService | undefined;
+  const tokenCounting = agent.accessor.get(ISessionTokenCountingService) as
+    | ISessionTokenCountingService
     | undefined;
   if (profile === undefined || usageService === undefined || tokenCounting === undefined) {
     return event;
   }
   // Externally reported context size, resolved by the `[token_counting]`
-  // strategy inside the service (`IAgentTokenCountingService.statusSize`).
-  const contextTokens = tokenCounting.statusSize();
+  // strategy inside the service (`ISessionTokenCountingService.statusSize`).
+  const context = agentContextOf(agent);
+  const contextTokens = tokenCounting.statusSize(context);
   const capabilities = profile.getModelCapabilities();
   const maxContextTokens = capabilities.max_input_tokens ?? capabilities.max_context_tokens;
-  return {
-    // oxlint-disable-next-line typescript-eslint/no-misused-spread -- the engine event is a class instance; the SDK stream carries plain protocol-shaped objects, so the spread intentionally drops the prototype.
-    ...event,
-    usage: usageService.status(),
+  return Object.assign({}, event, {
+    usage: usageService.status(context),
     contextTokens,
     maxContextTokens,
     model: profile.getModel(),
-  } as unknown as DomainEvent;
+  }) as unknown as Event2<any>;
 }

@@ -4,38 +4,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { ILogService } from '#/_base/log/log';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import {
   IAgentContextProjectorService,
   type MediaStripSnapshot,
   type ProjectionPolicy,
 } from '#/agent/contextProjector/contextProjector';
 import { AgentContextProjectorService } from '#/agent/contextProjector/contextProjectorService';
-import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { AgentLLMRequesterService } from '#/agent/llmRequester/llmRequesterService';
-import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
+import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { IAgentTokenCountingService } from '#/agent/tokenCounting/tokenCounting';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
-import { IAgentUsageService } from '#/agent/usage/usage';
+import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
+import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IConfigService } from '#/app/config/config';
 import type { Event2 } from '#/app/event/event2';
-import type { IEventBus } from '#/app/event/eventBus';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { Error2, ErrorCodes } from '#/errors';
-import type { ModelCapability } from '#/kosong/contract/capability';
+import { IEventBus } from '#/app/event/eventBus';
 import {
   APIConnectionError,
   APIEmptyResponseError,
   APIRequestTooLargeError,
   APIStatusError,
 } from '#/kosong/contract/errors';
+import { emptyUsage, type TokenUsage } from '#/kosong/contract/usage';
 import {
   isToolCall,
   type Message,
@@ -43,7 +40,7 @@ import {
   type ToolCall,
 } from '#/kosong/contract/message';
 import type { ThinkingEffort } from '#/kosong/contract/provider';
-import { emptyUsage, type TokenUsage } from '#/kosong/contract/usage';
+import type { ModelCapability } from '#/kosong/contract/capability';
 import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import { IModelService } from '#/kosong/model/model';
 import {
@@ -51,10 +48,13 @@ import {
   type ModelRequestInput,
   type ModelRequester,
 } from '#/kosong/model/modelRequester';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ILogService } from '#/_base/log/log';
+import { Error2, ErrorCodes } from '#/errors';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { WireRecord } from '#/wire/record';
-
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+
 import {
   recordingWireLog,
   registerTestAgentWire,
@@ -127,7 +127,8 @@ function createRequester(
         calls.value === 1
           ? firstCallError === null
             ? undefined
-            : (firstCallError ?? new APIStatusError(400, 'messages: `tool_use` ids must be unique'))
+            : (firstCallError ??
+              new APIStatusError(400, 'messages: `tool_use` ids must be unique'))
           : subsequentCallErrors[calls.value - 2];
       if (error !== undefined) throw error;
       yield {
@@ -186,11 +187,16 @@ function createService(
   const measuredCalls: { readonly messages: number; readonly usage: TokenUsage }[] = [];
   const tokenCounting = {
     get: () => ({ size: 0, measured: 0, estimated: 0 }),
-    measured: (input: readonly Message[], _output: readonly Message[], usage: TokenUsage) => {
+    measured: (
+      _agent: AgentContext,
+      input: readonly Message[],
+      _output: readonly Message[],
+      usage: TokenUsage,
+    ) => {
       measuredCalls.push({ messages: input.length, usage });
     },
   };
-  const usage = { record: () => undefined, status: () => ({}) };
+  const usage = { record: () => Promise.resolve(), status: () => ({}) };
   const context = {
     get: () => options.contextMessages ?? history,
   };
@@ -215,26 +221,23 @@ function createService(
   };
 
   ix.stub(IAgentContextMemoryService, context);
-  ix.stub(IAgentMicroCompactionService, {
-    compact: (messages) => messages,
-  });
   ix.stub(IAgentToolSelectService, toolSelect);
-  ix.stub(
-    IAgentMediaResolverService,
-    options.mediaResolver ?? { resolve: async (messages) => messages },
-  );
+  ix.stub(IAgentMediaResolverService, options.mediaResolver ?? { resolve: async (messages) => messages });
   if (projector === undefined) {
-    ix.set(IAgentContextProjectorService, new SyncDescriptor(AgentContextProjectorService));
+    ix.set(
+      IAgentContextProjectorService,
+      new SyncDescriptor(AgentContextProjectorService),
+    );
   } else {
     ix.stub(IAgentContextProjectorService, {
       captureMediaStripSnapshot: () => testSnapshot,
       ...projector,
     });
   }
-  ix.stub(IAgentTokenCountingService, tokenCounting);
+  ix.stub(ISessionTokenCountingService, tokenCounting);
   ix.stub(IAgentToolRegistryService, tools);
   ix.stub(IAgentProfileService, profile);
-  ix.stub(IAgentUsageService, usage);
+  ix.stub(ISessionUsageService, usage);
   ix.stub(IConfigService, config);
   ix.stub(ILogService, log);
   ix.stub(ITelemetryService, telemetry);
@@ -359,10 +362,7 @@ describe('AgentLLMRequesterService media-stripped resend', () => {
   it('resends once with the media-stripped projection after an image-format 400', async () => {
     const calls = { value: 0 };
     const projection = recordProjectionCalls();
-    const { service } = createService(
-      createRequester(calls, IMAGE_FORMAT_400),
-      projection.projector,
-    );
+    const { service } = createService(createRequester(calls, IMAGE_FORMAT_400), projection.projector);
 
     const result = await service.request();
 
@@ -374,10 +374,7 @@ describe('AgentLLMRequesterService media-stripped resend', () => {
   it('keeps later steps of the same turn on the stripped projection', async () => {
     const calls = { value: 0 };
     const projection = recordProjectionCalls();
-    const { service } = createService(
-      createRequester(calls, IMAGE_FORMAT_400),
-      projection.projector,
-    );
+    const { service } = createService(createRequester(calls, IMAGE_FORMAT_400), projection.projector);
 
     await service.request({ source: { type: 'turn', turnId: 1, step: 1 } });
     expect(calls.value).toBe(2);
@@ -471,7 +468,12 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
       toolCalls: [],
     });
     const { service } = createService(
-      createRequester(calls, BODY_TOO_LARGE_413, [BODY_TOO_LARGE_413], capturedInputs),
+      createRequester(
+        calls,
+        BODY_TOO_LARGE_413,
+        [BODY_TOO_LARGE_413],
+        capturedInputs,
+      ),
       undefined,
     );
 
@@ -480,7 +482,10 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
       source: { type: 'turn', turnId: 1, step: 1 },
     });
     await service.request({
-      messages: [imageMessage(oldUrl, 'rejected-id'), imageMessage(newUrl, 'recovery-id')],
+      messages: [
+        imageMessage(oldUrl, 'rejected-id'),
+        imageMessage(newUrl, 'recovery-id'),
+      ],
       source: { type: 'turn', turnId: 1, step: 2 },
     });
 
@@ -500,9 +505,9 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
       projection.projector,
     );
 
-    await expect(service.request({ source: { type: 'turn', turnId: 1, step: 1 } })).rejects.toBe(
-      BODY_TOO_LARGE_413,
-    );
+    await expect(
+      service.request({ source: { type: 'turn', turnId: 1, step: 1 } }),
+    ).rejects.toBe(BODY_TOO_LARGE_413);
     expect(calls.value).toBe(3);
     expect(projection.calls).toEqual(['normal', 'degraded', 'stripped']);
   });
@@ -510,10 +515,7 @@ describe('AgentLLMRequesterService media-degraded resend', () => {
   it('keeps later steps of the same turn on the degraded projection', async () => {
     const calls = { value: 0 };
     const projection = recordProjectionCalls();
-    const { service } = createService(
-      createRequester(calls, BODY_TOO_LARGE_413),
-      projection.projector,
-    );
+    const { service } = createService(createRequester(calls, BODY_TOO_LARGE_413), projection.projector);
 
     await service.request({ source: { type: 'turn', turnId: 1, step: 1 } });
     expect(calls.value).toBe(2);
@@ -578,9 +580,7 @@ describe('AgentLLMRequesterService combined recovery projections', () => {
     ]);
     await dispatcher.flush();
     expect(
-      records
-        .filter((record) => record.type === 'llm.request')
-        .map((record) => record['projection']),
+      records.filter((record) => record.type === 'llm.request').map((record) => record['projection']),
     ).toEqual([undefined, 'strict', 'strict-media-degraded', 'strict-media-stripped']);
   });
 
@@ -658,13 +658,9 @@ describe('AgentLLMRequesterService trace id', () => {
     const headersArrived = createControlledPromise<void>();
     const releaseStream = createControlledPromise<void>();
     Object.defineProperty(requester, 'request', {
-      value: async function* (
-        _input: unknown,
-        _signal: unknown,
-        requestOptions: {
-          onTraceId?: (traceId: string | null) => void;
-        },
-      ) {
+      value: async function* (_input: unknown, _signal: unknown, requestOptions: {
+        onTraceId?: (traceId: string | null) => void;
+      }) {
         requestOptions.onTraceId?.('trace-req-1');
         headersArrived.resolve();
         await releaseStream;
@@ -778,9 +774,7 @@ describe('AgentLLMRequesterService trace id', () => {
 describe('AgentLLMRequesterService media resolver wiring', () => {
   it('resolves the projected messages through the DI-injected media resolver', async () => {
     const requester = createRequester({ value: 0 }, null);
-    const resolve = vi.fn(
-      async (messages: readonly Message[], _requester: ModelRequester) => messages,
-    );
+    const resolve = vi.fn(async (messages: readonly Message[], _requester: ModelRequester) => messages);
     const { service } = createService(requester, undefined, {
       mediaResolver: { resolve },
     });
@@ -793,7 +787,9 @@ describe('AgentLLMRequesterService media resolver wiring', () => {
 });
 
 describe('AgentLLMRequesterService tool call id normalization', () => {
-  function createScriptedRequester(script: { ids: string[]; error?: Error }[]): ModelRequester {
+  function createScriptedRequester(
+    script: { ids: string[]; error?: Error }[],
+  ): ModelRequester {
     const base = createRequester({ value: 0 });
     let callIndex = 0;
     return {
@@ -898,15 +894,19 @@ describe('AgentLLMRequesterService tool call id normalization', () => {
   });
 
   it('rewrites an id that already exists in the restored context', async () => {
-    const { service } = createService(createScriptedRequester([{ ids: ['Bash_0'] }]), undefined, {
-      contextMessages: [
-        {
-          role: 'assistant',
-          content: [],
-          toolCalls: [{ type: 'function', id: 'Bash_0', name: 'Bash', arguments: '{}' }],
-        },
-      ],
-    });
+    const { service } = createService(
+      createScriptedRequester([{ ids: ['Bash_0'] }]),
+      undefined,
+      {
+        contextMessages: [
+          {
+            role: 'assistant',
+            content: [],
+            toolCalls: [{ type: 'function', id: 'Bash_0', name: 'Bash', arguments: '{}' }],
+          },
+        ],
+      },
+    );
 
     const result = await service.request();
     expect(result.message.toolCalls[0]!.id).toBe('Bash_0__2');
