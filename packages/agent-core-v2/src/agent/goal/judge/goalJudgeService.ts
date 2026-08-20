@@ -15,7 +15,7 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { GoalSnapshot } from '#/agent/goal/types';
+import type { GoalSnapshot } from '#/features/goal/types';
 import {
   IAgentLLMRequesterService,
   type AgentLLMRequestFinish,
@@ -115,31 +115,15 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
         : timeoutController.signal;
 
       try {
-        const handle = await this.subagents.run(
-          GOAL_JUDGE_PROFILE_NAME,
-          { kind: 'prompt', prompt },
-          { signal: combinedSignal },
-        );
-
-        const { summary } = await handle.completion;
-        clearTimeout(timeout);
-
-        // Parse verdict from the subagent's distilled summary.
-        const verdict = parseVerdict(summary);
-        if (verdict !== undefined) {
-          this.log.debug('goal.judge.subagent.result', {
-            goalId: goal.goalId,
-            ok: verdict.ok,
-            reason: verdict.reason.slice(0, 200),
-          });
-          return verdict;
-        }
-
-        // Subagent ran but output was not parseable — log and fall through.
-        this.log.warn('goal.judge.subagent.unparseable', {
+        // TODO(#3083-fork): subagent spawning by profile name requires lifecycle wiring
+        // that fork's goal judge service doesn't have. Fall back to transcript-only
+        // judging for now; restore subagent execution once IAgentLifecycleService is
+        // injected here.
+        this.log.debug('goal.judge.subagent.skipped', {
           goalId: goal.goalId,
-          summaryPreview: summary.slice(0, 200),
+          reason: 'subagent-by-profile not yet wired in fork',
         });
+        return undefined;
       } finally {
         clearTimeout(timeout);
       }

@@ -243,16 +243,16 @@ describe('SessionTodoService', () => {
 
     expect(main.registeredVariants).toEqual([]);
     expect(sub.registeredVariants).toEqual([]);
-    await runtime.service.setTodos(main.context, [{ title: 'main todo', status: 'pending' }]);
+    await runtime.service.setTodos(main.context, [{ id: '', parentId: null, kind: 'task', title: 'main todo', status: 'pending' }]);
     expect(main.registeredVariants).toEqual([TODO_LIST_REMINDER_VARIANT]);
     expect(sub.registeredVariants).toEqual([]);
-    await runtime.service.setTodos(sub.context, [{ title: 'sub todo', status: 'done' }]);
+    await runtime.service.setTodos(sub.context, [{ id: '', parentId: null, kind: 'task', title: 'sub todo', status: 'done' }]);
 
     expect(await runtime.service.getTodos(main.context)).toEqual([
-      { title: 'main todo', status: 'pending' },
+      { id: '', parentId: null, kind: 'task', title: 'main todo', status: 'pending' },
     ]);
     expect(await runtime.service.getTodos(sub.context)).toEqual([
-      { title: 'sub todo', status: 'done' },
+      { id: '', parentId: null, kind: 'task', title: 'sub todo', status: 'done' },
     ]);
     expect(main.activeReminders()).toBe(1);
     expect(sub.activeReminders()).toBe(1);
@@ -285,13 +285,13 @@ describe('SessionTodoService', () => {
     const seen: Array<{ agent: AgentContext; todos: readonly TodoItem[] }> = [];
     const subscription = runtime.service.onDidChange((change) => seen.push(change));
 
-    await runtime.service.setTodos(main.context, [{ title: 'a', status: 'pending' }]);
-    await runtime.service.setTodos(sub.context, [{ title: 'b', status: 'done' }]);
+    await runtime.service.setTodos(main.context, [{ id: '', parentId: null, kind: 'task', title: 'a', status: 'pending' }]);
+    await runtime.service.setTodos(sub.context, [{ id: '', parentId: null, kind: 'task', title: 'b', status: 'done' }]);
     subscription.dispose();
 
     expect(seen).toEqual([
-      { agent: main.context, todos: [{ title: 'a', status: 'pending' }] },
-      { agent: sub.context, todos: [{ title: 'b', status: 'done' }] },
+      { agent: main.context, todos: [{ id: '', parentId: null, kind: 'task', title: 'a', status: 'pending' }] },
+      { agent: sub.context, todos: [{ id: '', parentId: null, kind: 'task', title: 'b', status: 'done' }] },
     ]);
     runtime.dispose();
   });
@@ -299,18 +299,18 @@ describe('SessionTodoService', () => {
   it('fires the restored list once when undo changes one agent state', async () => {
     const main = makeFakeAgent('main');
     const runtime = makeTodoRuntime(makeLifecycleStub([main.handle]));
-    await runtime.service.setTodos(main.context, [{ title: 'doomed', status: 'in_progress' }]);
+    await runtime.service.setTodos(main.context, [{ id: '', parentId: null, kind: 'task', title: 'doomed', status: 'in_progress' }]);
     const seen: TodoItem[][] = [];
     const subscription = runtime.service.onDidChange((change) => seen.push([...change.todos]));
 
     await main.restore([
-      { type: 'tools.update_store', key: 'todo', value: [{ title: 'kept', status: 'pending' }] },
+      { type: 'tools.update_store', key: 'todo', value: [{ id: '', parentId: null, kind: 'task', title: 'kept', status: 'pending' }] },
     ]);
     await main.dispatcher.dispatch(new ContextUndone({ agentId: 'main', turns: 1 }));
     await main.dispatcher.dispatch(new ContextUndone({ agentId: 'main', turns: 1 }));
     subscription.dispose();
 
-    expect(seen).toEqual([[{ title: 'kept', status: 'pending' }]]);
+    expect(seen).toEqual([[{ id: '', parentId: null, kind: 'task', title: 'kept', status: 'pending' }]]);
     runtime.dispose();
   });
 
@@ -319,23 +319,23 @@ describe('SessionTodoService', () => {
     const sub = makeFakeAgent('agent-1');
     const runtime = makeTodoRuntime(makeLifecycleStub([main.handle, sub.handle]));
 
-    await runtime.service.setTodos(sub.context, [{ title: 'persist me', status: 'in_progress' }]);
+    await runtime.service.setTodos(sub.context, [{ id: '', parentId: null, kind: 'task', title: 'persist me', status: 'in_progress' }]);
     expect(main.journal).toEqual([]);
     expect(sub.journal).toEqual([
       {
         type: 'tools.update_store',
         agentId: 'agent-1',
         key: 'todo',
-        value: [{ title: 'persist me', status: 'in_progress' }],
+        value: [{ id: '', parentId: null, kind: 'task', title: 'persist me', status: 'in_progress' }],
         time: expect.any(Number),
       },
     ]);
 
     await main.restore([
-      { type: 'tools.update_store', key: 'todo', value: [{ title: 'restored', status: 'done' }] },
+      { type: 'tools.update_store', key: 'todo', value: [{ id: '', parentId: null, kind: 'task', title: 'restored', status: 'done' }] },
     ]);
     expect(await runtime.service.getTodos(main.context)).toEqual([
-      { title: 'restored', status: 'done' },
+      { id: '', parentId: null, kind: 'task', title: 'restored', status: 'done' },
     ]);
     runtime.dispose();
   });
@@ -348,16 +348,16 @@ describe('SessionTodoService', () => {
         type: 'tools.update_store',
         key: 'todo',
         value: [
-          { title: 'valid', status: 'done' },
+          { id: '', parentId: null, kind: 'task', title: 'valid', status: 'done' },
           { title: 'missing status' },
           { title: 123, status: 'pending' },
           'garbage',
-          { title: 'bad status', status: 'wip' },
+          { id: '', parentId: null, kind: 'task', title: 'bad status', status: 'wip' },
         ],
       } as unknown as WireRecord,
     ]);
 
-    expect(await runtime.service.getTodos(main.context)).toEqual([{ title: 'valid', status: 'done' }]);
+    expect(await runtime.service.getTodos(main.context)).toEqual([{ id: '', parentId: null, kind: 'task', title: 'valid', status: 'done' }]);
     runtime.dispose();
   });
 
@@ -382,7 +382,7 @@ describe('SessionTodoService', () => {
     const first = makeFakeAgent('main', 1);
     const lifecycle = makeLifecycleStub([first.handle]);
     const runtime = makeTodoRuntime(lifecycle);
-    await runtime.service.setTodos(first.context, [{ title: 'old', status: 'pending' }]);
+    await runtime.service.setTodos(first.context, [{ id: '', parentId: null, kind: 'task', title: 'old', status: 'pending' }]);
 
     lifecycle.fireDispose('main');
     const second = makeFakeAgent('main', 2);
@@ -393,9 +393,9 @@ describe('SessionTodoService', () => {
       'Agent main:1 is stale',
     );
     expect(await runtime.service.getTodos(second.context)).toEqual([]);
-    await runtime.service.setTodos(second.context, [{ title: 'new', status: 'done' }]);
+    await runtime.service.setTodos(second.context, [{ id: '', parentId: null, kind: 'task', title: 'new', status: 'done' }]);
     expect(await runtime.service.getTodos(second.context)).toEqual([
-      { title: 'new', status: 'done' },
+      { id: '', parentId: null, kind: 'task', title: 'new', status: 'done' },
     ]);
     runtime.dispose();
   });

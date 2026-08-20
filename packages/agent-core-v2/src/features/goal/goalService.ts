@@ -656,7 +656,7 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
   ): GoalSnapshot | null {
     const state = this.goalState;
     if (state === null || state.status !== 'active' || !matchesGoal(state, goalId)) return null;
-const tokensUsed = state.tokensUsed + Math.max(0, tokenDelta);
+const tokensUsed = state.tokensUsed + Math.max(0, inputDelta) + Math.max(0, outputDelta);
     void this.dispatcher.dispatch(new GoalUpdate({ agentId: this.agentContext.agentId, tokensUsed }));
     const next = this.requireState();
     return this.blockIfBudgetReached(next) ?? this.toSnapshot(next);

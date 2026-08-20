@@ -69,13 +69,9 @@ export class SessionTodoService extends Service implements ISessionTodoService {
 
   async setTodos(agent: AgentContext, todos: readonly TodoItem[]): Promise<void> {
     this.requireDefinitions();
-    const next: readonly TodoItem[] = todos.map((todo) => ({
-      title: todo.title,
-      status: todo.status,
-    }));
     const space = agentSpaceOf(agent);
     this.ensureEffect(agent);
-    await space.use(TodoAgentModelDefinition, (model) => model.replaceAll(next));
+    await space.use(TodoAgentModelDefinition, (model) => model.replaceAll(todos));
     this.fireChange(agent, space.use(TodoAgentModelDefinition, (model) => model.items()));
   }
 

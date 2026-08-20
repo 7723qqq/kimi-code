@@ -2,6 +2,7 @@ import type { AgentContext } from '#/agent/agentContext/agentContext';
 import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
 import type { TokenUsage } from '#/kosong/contract/usage';
 
+import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { type ErrorCode } from '#/errors';
 import { Error2 } from '#/_base/errors/errors';
 
@@ -30,3 +31,12 @@ export interface UsageRecordedContext {
   readonly usage: Readonly<TokenUsage>;
   readonly source?: AgentLLMRequestSource;
 }
+
+export interface IAgentUsageService {
+  readonly _serviceBrand: undefined;
+  status(): UsageStatus;
+  record(ctx: UsageRecordedContext): void;
+}
+
+export const IAgentUsageService: ServiceIdentifier<IAgentUsageService> =
+  createDecorator<IAgentUsageService>('agentUsageService');

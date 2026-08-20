@@ -19,6 +19,7 @@ import { Service } from '#/_base/di/service';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { IAgentUsageService } from '#/agent/usage/usage';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { LifecycleScope } from '#/app/scopes';
@@ -135,7 +136,11 @@ export class PersistentSubagentService extends Service implements IPersistentSub
         { details: { agentId } },
       );
     }
-    const run = await this.subagents.run(agentId, { kind: 'prompt', prompt }, { signal });
+    const run = await this.subagents.run(
+      agentContextOf(child),
+      { kind: 'prompt', prompt },
+      { signal },
+    );
     const { summary } = await mirrorAgentRun(caller, run, {
       profileName: entry.profileName,
       prompt,
@@ -147,20 +152,23 @@ export class PersistentSubagentService extends Service implements IPersistentSub
   private getPersistentUsage(ownerAgentId: string, agentId: string): TokenUsage | undefined {
     const entry = this.persistentChildren.get(agentId);
     if (entry === undefined || entry.callerAgentId !== ownerAgentId) return undefined;
-    const child = this.lifecycle.get(agentId);
-    if (child === undefined) return undefined;
-    return child.accessor.get(IAgentUsageService).status().total;
+    const handle = this.lifecycle.findAgentHandle(agentId);
+    if (handle === undefined) return undefined;
+    return handle.accessor.get(IAgentUsageService).status().total;
   }
 
   private async destroyPersistent(ownerAgentId: string, agentId: string): Promise<void> {
     const entry = this.persistentChildren.get(agentId);
     if (entry === undefined || entry.callerAgentId !== ownerAgentId) return;
     this.persistentChildren.delete(agentId);
-    await this.lifecycle.remove(agentId);
+    const handle = this.lifecycle.findAgentHandle(agentId);
+    if (handle !== undefined) {
+      await this.lifecycle.remove(agentContextOf(handle));
+    }
   }
 
   private requireAgent(agentId: string, _label: string): IAgentScopeHandle {
-    const handle = this.lifecycle.get(agentId);
+    const handle = this.lifecycle.findAgentHandle(agentId);
     if (handle === undefined) {
       throw new Error2(ErrorCodes.AGENT_NOT_FOUND, t('v2Errors.subagentNotFound', { agentId }), {
         details: { agentId },

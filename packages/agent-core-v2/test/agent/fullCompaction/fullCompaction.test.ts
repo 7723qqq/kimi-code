@@ -2929,8 +2929,8 @@ describe('FullCompaction', () => {
 
   it('appends the todo list to the compaction summary', async () => {
     const todos = [
-      { title: 'Fix the auth bug', status: 'in_progress' },
-      { title: 'Add tests', status: 'pending' },
+      { id: '', parentId: null, kind: 'task', title: 'Fix the auth bug', status: 'in_progress' },
+      { id: '', parentId: null, kind: 'task', title: 'Add tests', status: 'pending' },
     ] as const;
     const ctx = testAgent(
       sessionServices((reg) => {

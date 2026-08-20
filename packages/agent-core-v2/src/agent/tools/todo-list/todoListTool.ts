@@ -49,6 +49,9 @@ export class TodoListTool implements ITodoListTool {
         }
 
         const next: readonly TodoItem[] = args.todos.map((todo) => ({
+          id: todo.id ?? '',
+          parentId: todo.parentId ?? null,
+          kind: todo.kind ?? 'task',
           title: todo.title,
           status: todo.status,
         }));

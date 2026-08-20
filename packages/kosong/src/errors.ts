@@ -620,3 +620,52 @@ function getStatusCode(error: unknown): number | undefined {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/**
+ * Stub: provider overloaded (e.g. 529 from upstream overload).
+ */
+export class APIProviderOverloadedError extends ChatProviderError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'APIProviderOverloadedError';
+  }
+}
+
+/**
+ * Stub: provider rejected video upload.
+ */
+export class VideoUploadUnsupportedError extends ChatProviderError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VideoUploadUnsupportedError';
+  }
+}
+
+/**
+ * Stub: classify an API error by status code or message pattern.
+ */
+export function classifyApiError(error: unknown): ChatProviderError {
+  if (error instanceof ChatProviderError) return error;
+  const message = errorMessage(error);
+  return classifyBaseApiError(message);
+}
+
+/**
+ * Stub: detect provider-overload HTTP status.
+ */
+export function isProviderOverloadStatusError(statusCode: number, message: string): boolean {
+  if (statusCode !== 529 && statusCode !== 503) return false;
+  return /overloaded|too many requests/i.test(message);
+}
+
+/**
+ * Stub: sanitize provider status error message.
+ */
+export function sanitizeStatusErrorMessage(message: string): string {
+  return message.replace(/<[^>]*>/g, '').trim();
+}
+
+/**
+ * Stub: provider API error code used as the error code for Error2.
+ */
+export const PROVIDER_API_ERROR_CODE = 'PROVIDER_API_ERROR';

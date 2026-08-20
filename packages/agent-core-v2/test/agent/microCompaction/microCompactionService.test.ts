@@ -212,7 +212,9 @@ function createUnit(
     telemetryRecords,
     hooks,
     splice: (start, deleteCount) =>
-      void dispatcher.dispatch(new ContextSpliced({ start, deleteCount, messages: [] })),
+      void dispatcher.dispatch(
+        new ContextSpliced({ agentId: 'main', start, deleteCount, messages: [] }),
+      ),
   };
 }
 
@@ -460,12 +462,16 @@ describe('AgentMicroCompactionService', () => {
     void dispatcher.dispatch(new MicroCompactionApplied({ cutoff: 5 }));
     expect(agentState.get(microCompactionKey).cutoff).toBe(5);
 
-    void dispatcher.dispatch(new ContextClear({}));
+    void dispatcher.dispatch(new ContextClear({ agentId: 'main' }));
     expect(agentState.get(microCompactionKey).cutoff).toBe(0);
 
     void dispatcher.dispatch(new MicroCompactionApplied({ cutoff: 5 }));
     void dispatcher.dispatch(
-      new ContextApplyCompaction({ summary: 'Summary.', compactedCount: 1 }),
+      new ContextApplyCompaction({
+        agentId: 'main',
+        summary: 'Summary.',
+        compactedCount: 1,
+      }),
     );
     expect(agentState.get(microCompactionKey).cutoff).toBe(0);
   });

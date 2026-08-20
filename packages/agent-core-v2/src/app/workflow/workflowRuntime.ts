@@ -23,6 +23,7 @@ import { join, resolve, isAbsolute } from 'pathe';
 
 import type { ILogService } from '#/_base/log/log';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';
 import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -326,8 +327,8 @@ async function spawnAgent(
   // caller agent's bound model (mirrors the Agent tool in
   // session/subagent/tools/agent.ts). Passing anything that is not a
   // configured model alias makes IModelResolver.resolve throw.
-  const caller = deps.lifecycle.get(deps.callerAgentId);
-  const callerData = caller?.accessor.get(IAgentProfileService).data();
+  const callerHandle = deps.lifecycle.findAgentHandle(deps.callerAgentId);
+  const callerData = callerHandle?.accessor.get(IAgentProfileService).data();
   const modelAlias = opts.model ?? callerData?.modelAlias;
   if (modelAlias === undefined) {
     throw new Error(t('v2Errors.callerAgentNoModel'));
@@ -353,7 +354,7 @@ async function spawnAgent(
 
   try {
     const runHandle = await subagents.run(
-      handle.id,
+      agentContextOf(handle),
       { kind: 'prompt', prompt: fullPrompt },
       { signal },
     );
@@ -367,7 +368,7 @@ async function spawnAgent(
     return summary;
   } finally {
     // Clean up the subagent.
-    await lifecycle.remove(handle.id).catch(() => {});
+    await lifecycle.remove(agentContextOf(handle)).catch(() => {});
   }
 }
 

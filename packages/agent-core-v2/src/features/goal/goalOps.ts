@@ -81,6 +81,8 @@ export interface GoalCreate {
   readonly status?: GoalStatus;
   readonly actor?: GoalActor;
   readonly budgetLimits?: GoalBudgetLimits;
+  readonly createdAt?: number;
+  readonly updatedAt?: number;
 }
 
 const goalUpdateSchema = z
@@ -113,10 +115,13 @@ export interface GoalUpdate {
   readonly reason?: string;
   readonly turnsUsed?: number;
   readonly tokensUsed?: number;
+  readonly inputTokensUsed?: number;
+  readonly outputTokensUsed?: number;
   readonly wallClockMs?: number;
   readonly wallClockResumedAt?: number;
   readonly budgetLimits?: GoalBudgetLimits;
   readonly actor?: GoalActor;
+  readonly updatedAt?: number;
 }
 
 const goalClearSchema = z.object({ agentId: z.string() });
