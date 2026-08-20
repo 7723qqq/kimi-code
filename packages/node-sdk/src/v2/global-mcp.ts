@@ -607,3 +607,56 @@ export async function inspectAppMcpServerDescriptors(
     await manager?.shutdown();
   }
 }
+
+/**
+ * Stub: parse a reconnect-time MCP server config (the shape returned by a
+ * running session that the client wants to attach back to). Forks return the
+ * server unchanged; the v2 client is responsible for filling any missing
+ * fields when persisting.
+ */
+export function parseReconnectMcpServerConfig(server: unknown): McpServerConfig {
+  if (server === null || typeof server !== 'object') {
+    throw new KimiError(
+      ErrorCodes.REQUEST_INVALID,
+      'Reconnect MCP server config must be a JSON object',
+    );
+  }
+  return server as McpServerConfig;
+}
+
+/**
+ * Stub: require that the given (name, config) is an OAuth-typed MCP server
+ * and return it narrowed to `McpRemoteServerConfig`. Throws when the
+ * declared `type` is not oauth-capable.
+ */
+export function requireOAuthMcpConfig(
+  name: string,
+  config: McpServerConfig,
+): McpRemoteServerConfig {
+  const remote = requireRemoteMcpConfig(name, config);
+  if (remote.oauth === undefined) {
+    throw new KimiError(
+      ErrorCodes.REQUEST_INVALID,
+      `MCP server "${name}" is not configured for OAuth login`,
+    );
+  }
+  return remote;
+}
+
+/**
+ * Stub: require that the given (name, config) is a remote MCP server and
+ * return it narrowed to `McpRemoteServerConfig`. Throws when the type is
+ * stdio.
+ */
+export function requireRemoteMcpConfig(
+  name: string,
+  config: McpServerConfig,
+): McpRemoteServerConfig {
+  if ((config as { type?: string }).type === 'stdio') {
+    throw new KimiError(
+      ErrorCodes.REQUEST_INVALID,
+      `MCP server "${name}" is stdio, not a remote server`,
+    );
+  }
+  return config as McpRemoteServerConfig;
+}

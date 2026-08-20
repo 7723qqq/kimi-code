@@ -278,7 +278,6 @@ import type {
   AddAdditionalDirResult,
   AgentCommandInfo,
   AgentRuntimeBinding,
-  AppMcpServerInspection,
   BackgroundTaskInfo,
   CapabilityStatus,
   CompactOptions,
@@ -305,7 +304,6 @@ import type {
   McpManagedServerInfo,
   McpServerConfig,
   McpServerInfo,
-  McpServerLocator,
   McpStartupMetrics,
   McpTestResult,
   OAuthRefreshOutcome,
@@ -350,8 +348,10 @@ import {
   sanitizeAppMcpServerInspection,
   selectAppMcpServerDescriptors,
   standaloneMcpTestResult,
+  type AppMcpServerInspection,
   type AppMcpServerRuntimeDescriptor,
   type AppMcpServerRuntimeInspection,
+  type McpServerLocator,
 } from '#/v2/global-mcp';
 import {
   normalizeWorkDir,
