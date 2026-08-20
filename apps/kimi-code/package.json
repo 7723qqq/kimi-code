@@ -74,6 +74,8 @@
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:tui2": "tsc -p tsconfig.tui2.json --noEmit",
+    "build:tui2": "node scripts/tui2/build-entry.mjs",
+    "dev:tui2": "bun src/tui2/entry.tsx",
     "test": "pnpm -w run build:packages && vitest run",
     "e2e": "pnpm -w run build:packages && KIMI_E2E=1 vitest run test/e2e",
     "e2e:real": "pnpm -w run build:packages && KIMI_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts",
