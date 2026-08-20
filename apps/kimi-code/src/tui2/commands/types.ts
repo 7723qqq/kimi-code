@@ -6,7 +6,7 @@
  * Status: REAL (tui2). Mirrors `tui/commands/types.ts`.
  */
 
-import type { AutocompleteItem, SlashCommand } from '@moonshot-ai/pi-tui';
+import type { AutocompleteItem, SlashCommand } from '../utils/autocomplete';
 
 /** Experimental-flag id surfaced by the engine's flag registry. */
 export type FlagId = string;

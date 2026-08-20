@@ -9,12 +9,12 @@
 import { readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 
-import type { AutocompleteItem } from '@moonshot-ai/pi-tui';
 import { basename, dirname, join, relative, resolve } from 'pathe';
 
 import { t } from '#/i18n';
 
 import { completeLeadingArg, type ArgCompletionSpec } from './complete-args';
+import type { AutocompleteItem } from '../utils/autocomplete';
 import type { KimiSlashCommand, SlashCommandAvailability } from './types';
 
 /** Map hyphenated command names to i18n keys under `tui.slashCommands.<key>`. */

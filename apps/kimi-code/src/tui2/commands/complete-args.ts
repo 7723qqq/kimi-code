@@ -7,7 +7,7 @@
  * Status: REAL (tui2). Mirrors `tui/commands/complete-args.ts`.
  */
 
-import type { AutocompleteItem } from '@moonshot-ai/pi-tui';
+import type { AutocompleteItem } from '../utils/autocomplete';
 
 /**
  * A completable token (subcommand or flag) for a slash command's argument
