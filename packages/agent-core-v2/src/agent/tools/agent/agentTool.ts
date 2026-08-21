@@ -63,15 +63,19 @@ import {
   formatSubagentTimeoutDescription,
   resolveSubagentBinding,
   resolveSubagentTimeoutMs,
+  stripSubagentForkParameter,
   stripSubagentModelParameter,
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
+import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
+import { forkIncompatibility } from '#/session/subagent/forkCompat';
 import {
   BACKGROUND_AGENT_UNAVAILABLE,
   DEFAULT_PROFILE_NAME,
   ISubagentTool,
   RESUME_WITH_TYPE_UNAVAILABLE,
   RESUMED_LABEL,
+  SUBAGENT_FORK_FLAG_REQUIRED,
   SUBAGENT_STOPPED_MESSAGE,
   SubagentToolInputSchema,
   USER_INTERRUPTED_SUBAGENT_MESSAGE,
@@ -91,9 +95,12 @@ export class SubagentTool implements ISubagentTool {
   readonly name: string = 'Agent';
 
   get parameters(): Record<string, unknown> {
-    return exposesSubagentModelChoice(this.config, this.flags)
+    const baseParameters = exposesSubagentModelChoice(this.config, this.flags)
       ? SUBAGENT_TOOL_PARAMETERS
       : SUBAGENT_TOOL_PARAMETERS_NO_MODEL;
+    return this.flags.enabled(SUBAGENT_FORK_FLAG_ID)
+      ? baseParameters
+      : stripSubagentForkParameter(baseParameters);
   }
 
   private readonly callerAgentId: string;
@@ -224,10 +231,21 @@ export class SubagentTool implements ISubagentTool {
       return { output: RESUME_WITH_TYPE_UNAVAILABLE, isError: true };
     }
 
+    if (args.fork === true && !this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
+      return { output: SUBAGENT_FORK_FLAG_REQUIRED, isError: true };
+    }
+
+    const forkError = forkIncompatibility(args);
+    if (forkError !== undefined) {
+      return { output: forkError, isError: true };
+    }
+
     const profileNameForDisplay =
       resumeAgentId !== undefined && resumeAgentId.length > 0
         ? this.resumeProfileName(resumeAgentId) ?? RESUMED_LABEL
-        : requestedProfileName ?? DEFAULT_PROFILE_NAME;
+        : args.fork === true
+          ? (this.profile.data().profileName ?? DEFAULT_PROFILE_NAME)
+          : requestedProfileName ?? DEFAULT_PROFILE_NAME;
     const prefix = args.run_in_background === true ? 'Launching background' : 'Launching';
     return {
       description: `${prefix} ${profileNameForDisplay} agent: ${args.description}`,
@@ -285,18 +303,18 @@ export class SubagentTool implements ISubagentTool {
       profileName = resumed.profileName ?? RESUMED_LABEL;
       displayModel = resumed.modelAlias;
     } else {
-      const requestedProfileName = args.subagent_type?.length
-        ? args.subagent_type
-        : DEFAULT_PROFILE_NAME;
+      const isFork = args.fork === true;
+      const requestedProfileName = isFork
+        ? (this.profile.data().profileName ?? DEFAULT_PROFILE_NAME)
+        : args.subagent_type?.length
+          ? args.subagent_type
+          : DEFAULT_PROFILE_NAME;
       await this.catalog.ready;
       const own = this.profile.data();
-      const allowlist = this.effectiveAllowlist(own, this.catalog.list());
-      if (allowlist !== undefined && !allowlist.includes(requestedProfileName)) {
-        throw new Error2(
-          ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
-          subagentTypeNotAllowedMessage(requestedProfileName, allowlist),
-          { details: { profileName: requestedProfileName, allowlist } },
-        );
+      if (own.modelAlias === undefined) {
+        throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, 'Caller agent has no model bound', {
+          details: { agentId: this.callerAgentId },
+        });
       }
       const profile = this.catalog.get(requestedProfileName);
       if (profile === undefined) {
@@ -304,29 +322,40 @@ export class SubagentTool implements ISubagentTool {
           details: { profileName: requestedProfileName },
         });
       }
-      if (own.modelAlias === undefined) {
-        throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, 'Caller agent has no model bound', {
-          details: { agentId: this.callerAgentId },
-        });
+      // Fork inherits the caller's profile, so the subagents allowlist does
+      // not apply — self-inheritance is not a delegation.
+      if (!isFork) {
+        const allowlist = this.effectiveAllowlist(own, this.catalog.list());
+        if (allowlist !== undefined && !allowlist.includes(requestedProfileName)) {
+          throw new Error2(
+            ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
+            subagentTypeNotAllowedMessage(requestedProfileName, allowlist),
+            { details: { profileName: requestedProfileName, allowlist } },
+          );
+        }
       }
       const binding = resolveSubagentBinding(
         this.config,
         this.flags,
         { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-        args.model,
+        isFork ? undefined : args.model,
       );
       let created: IAgentScopeHandle;
       try {
         this.modelCatalog.get(binding.model);
-        created = await this.lifecycle.create({
-          binding: {
-            profile: profile.name,
-            model: binding.model,
-            thinking: binding.thinking,
-          },
-          labels: subagentLabels(this.callerAgentId),
-          runtimeId: runtime.identity.runtimeId,
-        });
+        if (isFork) {
+          created = await this.lifecycle.fork(this.callerAgent);
+        } else {
+          created = await this.lifecycle.create({
+            binding: {
+              profile: profile.name,
+              model: binding.model,
+              thinking: binding.thinking,
+            },
+            labels: subagentLabels(this.callerAgentId),
+            runtimeId: runtime.identity.runtimeId,
+          });
+        }
       } catch (error) {
         throw wrapSubagentModelError(error, binding.model, own.modelAlias);
       }
@@ -337,11 +366,13 @@ export class SubagentTool implements ISubagentTool {
       agentId = created.id;
       profileName = profile.name;
       displayModel = binding.model;
-      promptText = await applyProfilePromptPrefix(profile, args.prompt, {
-        cwd: this.workspace.workDir,
-        process: runtime.process!,
-        log: this.log,
-      });
+      promptText = isFork
+        ? args.prompt
+        : await applyProfilePromptPrefix(profile, args.prompt, {
+            cwd: this.workspace.workDir,
+            process: runtime.process!,
+            log: this.log,
+          });
     }
 
     const target = this.lifecycle.findAgentHandle(agentId);

@@ -23,6 +23,7 @@ export interface AgentSpawnAttemptOptions extends AgentRunAttemptOptions {
   readonly profileName: string;
   readonly swarmItem?: string;
   readonly binding?: { readonly model: string; readonly thinking?: string };
+  readonly fork?: boolean;
 }
 
 export type AgentRunAttemptHandle = {
@@ -293,6 +294,7 @@ export class AgentRunBatch<T> {
           profileName: task.profileName,
           swarmItem: task.swarmItem,
           binding: task.binding,
+          fork: task.kind === 'spawn' ? task.fork : undefined,
           ...runOptions,
         };
         handle = await this.launcher.spawn(spawnOptions);

@@ -455,6 +455,7 @@ export * from '#/session/subagent/subagentService';
 import '#/session/subagent/flag';
 export * from '#/session/subagent/subagentModelsValidation';
 import '#/session/subagent/subagentModelsValidationService';
+export * from '#/session/subagent/forkCompat';
 export * from '#/agent/tools/agent/subagent-task';
 export { AGENT_RUN_PROMPT_ORIGIN } from '#/session/subagent/runAgentTurn';
 export * from '#/session/subagent/mirrorAgentRun';

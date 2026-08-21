@@ -17,8 +17,11 @@ import {
   exposesSubagentModelChoice,
   resolveSubagentBinding,
   resolveSubagentTimeoutMs,
+  stripSubagentForkParameter,
   stripSubagentModelParameter,
 } from '#/session/subagent/configSection';
+import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
+import { forkIncompatibility } from '#/session/subagent/forkCompat';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   ToolAccesses,
@@ -40,6 +43,8 @@ const DEFAULT_SUBAGENT_TYPE = 'coder';
 
 const AGENT_SWARM_PARAMETERS = toInputJsonSchema(AgentSwarmToolInputSchema);
 const AGENT_SWARM_PARAMETERS_NO_MODEL = stripSubagentModelParameter(AGENT_SWARM_PARAMETERS);
+const AGENT_SWARM_PARAMETERS_NO_FORK = stripSubagentForkParameter(AGENT_SWARM_PARAMETERS);
+const AGENT_SWARM_PARAMETERS_NO_MODEL_NO_FORK = stripSubagentForkParameter(AGENT_SWARM_PARAMETERS_NO_MODEL);
 
 interface AgentSwarmSpawnSpec {
   readonly kind: 'spawn';
@@ -72,9 +77,12 @@ export class AgentSwarmTool implements IAgentSwarmTool {
   readonly name = 'AgentSwarm' as const;
 
   get parameters(): Record<string, unknown> {
-    return exposesSubagentModelChoice(this.config, this.flags)
-      ? AGENT_SWARM_PARAMETERS
-      : AGENT_SWARM_PARAMETERS_NO_MODEL;
+    const exposesModel = exposesSubagentModelChoice(this.config, this.flags);
+    const forkEnabled = this.flags.enabled(SUBAGENT_FORK_FLAG_ID);
+    if (exposesModel && forkEnabled) return AGENT_SWARM_PARAMETERS;
+    if (exposesModel) return AGENT_SWARM_PARAMETERS_NO_FORK;
+    if (forkEnabled) return AGENT_SWARM_PARAMETERS_NO_MODEL;
+    return AGENT_SWARM_PARAMETERS_NO_MODEL_NO_FORK;
   }
 
   private readonly callerAgentId: string;
@@ -103,6 +111,20 @@ export class AgentSwarmTool implements IAgentSwarmTool {
   }
 
   resolveExecution(args: AgentSwarmToolInput): ToolExecution {
+    if (args.fork === true && !this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
+      return {
+        output: 'The fork parameter requires the KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK flag to be enabled.',
+        isError: true,
+      };
+    }
+    const forkError = forkIncompatibility({
+      fork: args.fork,
+      subagent_type: args.subagent_type,
+      model: args.model,
+    });
+    if (forkError !== undefined) {
+      return { output: forkError, isError: true };
+    }
     const agentCount = (args.items?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;
     return {
       accesses: ToolAccesses.all(),
@@ -140,9 +162,12 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     signal: AbortSignal,
     toolCallId: string,
   ): Promise<string> {
-    const profileName = normalizeOptionalString(args.subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
+    const isFork = args.fork === true;
+    const profileName = isFork
+      ? (this.profile.data().profileName ?? DEFAULT_SUBAGENT_TYPE)
+      : normalizeOptionalString(args.subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
     let binding: { model: string; thinking?: string } | undefined;
-    if ((args.items?.length ?? 0) > 0) {
+    if ((args.items?.length ?? 0) > 0 && !isFork) {
       await this.catalog.ready;
       const own = this.profile.data();
       const extras =
@@ -205,6 +230,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
         ...common,
         kind: 'spawn' as const,
         binding,
+        ...(isFork ? { fork: true } : {}),
       };
     });
     const results = await this.swarmService.run({

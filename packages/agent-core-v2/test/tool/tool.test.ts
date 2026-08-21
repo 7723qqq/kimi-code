@@ -36,7 +36,7 @@ import {
   type SubagentToolInput,
 } from '#/agent/tools/agent/agent';
 import { DEFAULT_SUBAGENT_TIMEOUT_MS, SECONDARY_MODEL_SECTION, SUBAGENT_SECTION } from '#/session/subagent/configSection';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
+import { SECONDARY_MODEL_FLAG_ID, SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import { Error2, ErrorCodes } from '#/errors';
 import { runAgentTurn } from '#/session/subagent/runAgentTurn';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
@@ -99,6 +99,13 @@ function secondaryModelFlags(enabled = true): TestAgentServiceOverride {
   return appService(
     IFlagService,
     stubFlag((id) => enabled && id === SECONDARY_MODEL_FLAG_ID),
+  );
+}
+
+function subagentForkFlags(enabled = true): TestAgentServiceOverride {
+  return appService(
+    IFlagService,
+    stubFlag((id) => enabled && id === SUBAGENT_FORK_FLAG_ID),
   );
 }
 
@@ -2430,6 +2437,125 @@ describe('Agent tool execution contract', () => {
 
     expect(result).toMatchObject({ isError: true });
     expect(result.output).toContain('subagent error: Agent timed out after 1 second.');
+  });
+
+  describe('fork: true parameter', () => {
+    it('rejects fork when the experimental flag is off', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const context = createAgentToolContext(lifecycle);
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Continue the work',
+        description: 'Fork to continue',
+        fork: true,
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain('KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK');
+      expect(lifecycle.fork).not.toHaveBeenCalled();
+      expect(lifecycle.create).not.toHaveBeenCalled();
+    });
+
+    it('calls lifecycle.fork and skips the allowlist when the flag is on', async () => {
+      const forkedId = 'agent-forked';
+      const lifecycle = createAgentLifecycleStub();
+      // Stub fork: throw a recognizable marker so the test can verify the
+      // call happened without having to mock the full subagent turn.
+      const forkMarker = new Error('fork-routed');
+      (lifecycle.fork as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        throw forkMarker;
+      });
+      // Allowlist excludes 'coder' but the call uses fork — the allowlist must be skipped.
+      const context = createAgentToolContext(
+        lifecycle,
+        subagentForkFlags(true),
+        sessionService(ISessionAgentProfileCatalog, allowlistCatalog(['explore'])),
+      );
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Continue the work',
+        description: 'Fork to continue',
+        fork: true,
+      });
+
+      expect(lifecycle.fork).toHaveBeenCalledWith(
+        context.get(IAgentScopeContext).agentContext,
+      );
+      expect(lifecycle.create).not.toHaveBeenCalled();
+      // The throw surfaces in the result output — assert the marker is there
+      // so we know the call actually went through fork and not somewhere else.
+      expect(result.output).toContain('fork-routed');
+    });
+
+    it('rejects fork combined with subagent_type', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const context = createAgentToolContext(lifecycle, subagentForkFlags(true));
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Continue the work',
+        description: 'Fork to continue',
+        fork: true,
+        subagent_type: 'explore',
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain('Cannot use fork with subagent_type');
+      expect(lifecycle.fork).not.toHaveBeenCalled();
+    });
+
+    it('rejects fork combined with model', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const context = createAgentToolContext(lifecycle, subagentForkFlags(true));
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Continue the work',
+        description: 'Fork to continue',
+        fork: true,
+        model: 'provider/fast',
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain('Cannot use fork with model');
+      expect(lifecycle.fork).not.toHaveBeenCalled();
+    });
+
+    it('rejects fork combined with resume', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const context = createAgentToolContext(lifecycle, subagentForkFlags(true));
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Continue the work',
+        description: 'Fork to continue',
+        fork: true,
+        resume: 'agent-existing',
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain('Cannot use fork with resume');
+      expect(lifecycle.fork).not.toHaveBeenCalled();
+    });
+
+    it('strips the fork parameter from the advertised schema when the flag is off', () => {
+      ctx = createTestAgent();
+
+      const properties = agentTool(ctx).parameters as Record<string, unknown>;
+
+      expect((properties['properties'] as Record<string, unknown>)).not.toHaveProperty('fork');
+      expect((properties['properties'] as Record<string, unknown>)).toHaveProperty('prompt');
+    });
+
+    it('exposes the fork parameter in the advertised schema when the flag is on', () => {
+      ctx = createTestAgent(subagentForkFlags(true));
+
+      const properties = agentTool(ctx).parameters as Record<string, unknown>;
+      const props = properties['properties'] as Record<
+        string,
+        { type?: string; description?: string }
+      >;
+
+      expect(props['fork']?.type).toBe('boolean');
+      expect(props['fork']?.description).toContain('KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK');
+    });
   });
 });
 

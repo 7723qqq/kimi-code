@@ -1181,4 +1181,115 @@ describe('AgentSwarmTool', () => {
     );
     expect(result.isError).toBeUndefined();
   });
+
+  describe('fork: true parameter', () => {
+    it('rejects fork when the experimental flag is off', () => {
+      const host = mockSwarmHost();
+      const swarmMode = mockSwarmMode();
+      const tool = new AgentSwarmTool(
+        host.swarmService,
+        makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }),
+        swarmMode,
+        stubConfig(),
+        stubFlag(false),
+        stubSwarmCatalog(),
+        stubCallerProfile(),
+      );
+
+      const execution = tool.resolveExecution({
+        description: 'Review files',
+        prompt_template: 'Review {{item}}',
+        items: ['src/a.ts'],
+        fork: true,
+      });
+
+      expect(execution.isError).toBe(true);
+      if (execution.isError === true) {
+        expect(execution.output).toContain('KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK');
+      }
+      expect(host.swarmService.run).not.toHaveBeenCalled();
+    });
+
+    it('rejects fork combined with subagent_type', () => {
+      const host = mockSwarmHost();
+      const swarmMode = mockSwarmMode();
+      const tool = new AgentSwarmTool(
+        host.swarmService,
+        makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }),
+        swarmMode,
+        stubConfig(),
+        stubFlag(true),
+        stubSwarmCatalog(),
+        stubCallerProfile(),
+      );
+
+      const execution = tool.resolveExecution({
+        description: 'Review files',
+        prompt_template: 'Review {{item}}',
+        items: ['src/a.ts'],
+        subagent_type: 'explore',
+        fork: true,
+      });
+
+      expect(execution.isError).toBe(true);
+      if (execution.isError === true) {
+        expect(execution.output).toContain('Cannot use fork with subagent_type');
+      }
+      expect(host.swarmService.run).not.toHaveBeenCalled();
+    });
+
+    it('rejects fork combined with model', () => {
+      const host = mockSwarmHost();
+      const swarmMode = mockSwarmMode();
+      const tool = new AgentSwarmTool(
+        host.swarmService,
+        makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }),
+        swarmMode,
+        stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap' } }),
+        stubFlag(true),
+        stubSwarmCatalog(),
+        stubCallerProfile(),
+      );
+
+      const execution = tool.resolveExecution({
+        description: 'Review files',
+        prompt_template: 'Review {{item}}',
+        items: ['src/a.ts'],
+        model: 'provider/fast',
+        fork: true,
+      });
+
+      expect(execution.isError).toBe(true);
+      if (execution.isError === true) {
+        expect(execution.output).toContain('Cannot use fork with model');
+      }
+      expect(host.swarmService.run).not.toHaveBeenCalled();
+    });
+
+    it('does not reject a clean fork: true call when the flag is on', () => {
+      const host = mockSwarmHost();
+      const swarmMode = mockSwarmMode();
+      const tool = new AgentSwarmTool(
+        host.swarmService,
+        makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }),
+        swarmMode,
+        stubConfig(),
+        stubFlag(true),
+        stubSwarmCatalog(),
+        stubCallerProfile(),
+      );
+
+      // We don't need the spawn to succeed end-to-end; just assert the
+      // resolveExecution path does not reject a clean fork.
+      const execution = tool.resolveExecution({
+        description: 'Review files',
+        prompt_template: 'Review {{item}}',
+        items: ['src/a.ts'],
+        fork: true,
+      });
+
+      expect(execution).toBeDefined();
+      expect(execution.isError).toBeFalsy();
+    });
+  });
 });

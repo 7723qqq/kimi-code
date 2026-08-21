@@ -42,6 +42,12 @@ export const AgentSwarmToolInputSchema = z
       .describe(
         'Map of existing subagent agent_id to the prompt used to resume that subagent. These resumed subagents are launched before new item-based subagents.',
       ),
+    fork: z
+      .boolean()
+      .optional()
+      .describe(
+        'When true, start each item-spawned subagent from a snapshot of the calling agent\'s completed conversation history instead of from zero context. The forked subagent shares the caller\'s profile, model, and tool set so the prompt prefix cache is reused. Requires the KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK flag. Cannot be combined with subagent_type or model — the fork inherits both from the caller. Resumed subagents are never forked.',
+      ),
     model: z
       .string()
       .optional()

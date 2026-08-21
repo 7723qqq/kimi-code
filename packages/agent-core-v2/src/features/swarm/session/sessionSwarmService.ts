@@ -25,6 +25,7 @@ import { wrapSubagentModelError } from '#/session/subagent/configSection';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { IAgentRuntimeBindingService } from '#/agent/runtimeBinding/runtimeBinding';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -147,15 +148,23 @@ export class SessionSwarmService implements ISessionSwarmService {
     let child: IAgentScopeHandle;
     try {
       this.modelCatalog.get(binding.model);
-      child = await this.lifecycle.create({
-        binding: {
-          profile: profile.name,
-          model: binding.model,
-          thinking: binding.thinking,
-        },
-        labels: subagentLabels(callerAgentId, { swarmItem: options.swarmItem }),
-        runtimeId: callerRuntime.runtimeId,
-      });
+      if (options.fork === true) {
+        // Fork inherits the caller's profile, model, and tool set; the
+        // caller-side binding is applied inside fork() via the
+        // caller's IAgentProfileService snapshot, so we don't pass a
+        // binding override here.
+        child = await this.lifecycle.fork(caller.accessor.get(IAgentScopeContext).agentContext);
+      } else {
+        child = await this.lifecycle.create({
+          binding: {
+            profile: profile.name,
+            model: binding.model,
+            thinking: binding.thinking,
+          },
+          labels: subagentLabels(callerAgentId, { swarmItem: options.swarmItem }),
+          runtimeId: callerRuntime.runtimeId,
+        });
+      }
     } catch (error) {
       throw wrapSubagentModelError(error, binding.model, callerData.modelAlias);
     }
@@ -174,17 +183,23 @@ export class SessionSwarmService implements ISessionSwarmService {
       runInBackground: options.runInBackground,
       model: binding.model,
     });
-    const lease = this.runtimeResolver.acquire(callerRuntime, ['process']);
     let promptText: string;
-    try {
-      const view = new RuntimeWorkspaceView(lease.runtime, { workDir: this.sessionContext.cwd });
-      promptText = await applyProfilePromptPrefix(profile, options.prompt, {
-        cwd: view.workDir,
-        process: lease.runtime.process!,
-        log: this.log,
-      });
-    } finally {
-      lease.dispose();
+    if (options.fork === true) {
+      // The fork already inherits the caller's history; use the prompt as-is
+      // without prepending a profile-specific prefix.
+      promptText = options.prompt;
+    } else {
+      const lease = this.runtimeResolver.acquire(callerRuntime, ['process']);
+      try {
+        const view = new RuntimeWorkspaceView(lease.runtime, { workDir: this.sessionContext.cwd });
+        promptText = await applyProfilePromptPrefix(profile, options.prompt, {
+          cwd: view.workDir,
+          process: lease.runtime.process!,
+          log: this.log,
+        });
+      } finally {
+        lease.dispose();
+      }
     }
     return this.observe(caller, child, options.profileName, {
       kind: 'prompt',
