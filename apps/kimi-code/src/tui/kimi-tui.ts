@@ -277,6 +277,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     planMode: input.cliOptions.plan,
     inputMode: 'prompt',
     swarmMode: false,
+    towerMode: false,
     thinkingEffort: 'off',
     contextUsage: 0,
     contextTokens: 0,
@@ -553,8 +554,10 @@ export class KimiTUI {
   // =========================================================================
 
   private getSlashCommands(): readonly KimiSlashCommand[] {
-    const builtins = sortSlashCommands(getBuiltinSlashCommands()).filter((command) =>
-      isExperimentalFlagEnabled(command.experimentalFlag),
+    const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter(
+      (command) =>
+        isExperimentalFlagEnabled(command.experimentalFlag) &&
+        (!command.requiresEngineV2 || this.engineV2),
     );
     return [...builtins, ...this.skillCommands, ...this.pluginCommands];
   }
@@ -2184,6 +2187,7 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
       permissionMode: status.permission,
       planMode: status.planMode,
       swarmMode: status.swarmMode ?? false,
+      towerMode: status.towerMode ?? false,
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,

@@ -148,6 +148,7 @@
 //     toolExecutor.toolCallDupTypes                   src/agent/toolExecutor/toolExecutorService.ts
 //     toolSelect.pendingLoaded                        src/agent/toolSelect/toolSelectService.ts
 //     tower                                           src/features/tower/towerOps.ts
+//     tower.owner                                     src/features/tower/towerOps.ts
 //     turn                                            src/agent/loop/turnOps.ts
 //     userTool                                        src/agent/userTool/userToolOps.ts
 
@@ -1561,6 +1562,8 @@ export interface AgentStateSnapshot {
   // src/features/tower/towerOps.ts
   // replayable · durable — folds: TowerModeEnter, TowerModeExit
   'tower': boolean;
+  // replayable · durable — folds: TowerModeEnter, TowerModeExit
+  'tower.owner': string | undefined;
   // src/session/cron/cronOps.ts
   // replayable · durable — folds: CronAdd, CronDelete, CronCursor
   'cron': /* CronModelState — packages/agent-core-v2/src/session/cron/cronOps.ts */ Map<string, /* CronTask — packages/agent-core-v2/src/app/cron/cronTask.ts */ {

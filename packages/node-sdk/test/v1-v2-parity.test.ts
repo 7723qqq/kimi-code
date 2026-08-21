@@ -83,6 +83,7 @@ import {
   type ResumedAgentState,
   type ResumedSessionSummary,
   type SessionPlan,
+  type SessionStatus,
   type SessionSummary,
   type SkillSummary,
   type SDKRpcClientBase,
@@ -326,6 +327,14 @@ const KNOWN_DIFFS = {
     };
     return { ...projected, path: projected.path.replaceAll(plan.id, '<PLAN_ID>') };
   },
+  // `towerMode` is v2-only (the tower feature exists only in the v2 engine;
+  // the v1 base client throws `not_implemented` for setTowerMode) — deleted;
+  // every other status field compares in full.
+  getStatus: (status: SessionStatus): unknown => {
+    const projected: Record<string, unknown> = { ...status };
+    delete projected['towerMode'];
+    return projected;
+  },
   // Goal snapshots: `goalId` is a per-engine random uuid and `wallClockMs`
   // is per-run wall clock (it keeps accruing while the goal is active, so
   // even a same-moment read differs by execution time) — both deleted;
@@ -482,9 +491,10 @@ function projectResumedAgents(agents: ResumedSessionSummary['agents'], home: Hom
  *   the engines (the subagent/cron docs embed engine-specific facts), and
  *   v1 additionally registers the `select_tools` meta tool v2 has no
  *   counterpart for — both are engine design, not resume data. v2's default
- *   profile also carries `TowerInit` (the tower-mode entry point) and
- *   `WaitFor` (the background-task wait primitive); both are v2-only, so the
- *   tools are projected out of both rosters. A model-less
+ *   profile also carries `TowerInit`/`TowerStatus`/`TowerTeardown` (the
+ *   tower-mode control tools) and `WaitFor` (the background-task wait
+ *   primitive); all are v2-only, so the tools are projected out of both
+ *   rosters. A model-less
  *   agent's roster is not compared at all (v1 initializes builtin tools
  *   only on a profiled agent; v2 exposes them unbound).
  */
@@ -503,6 +513,8 @@ function projectResumedAgent(agent: ResumedAgentState, home: HomePair): unknown 
     projected['tools'] = tools
       .filter((tool) => tool['name'] !== 'select_tools')
       .filter((tool) => tool['name'] !== 'TowerInit')
+      .filter((tool) => tool['name'] !== 'TowerStatus')
+      .filter((tool) => tool['name'] !== 'TowerTeardown')
       .filter((tool) => tool['name'] !== 'WaitFor')
       .map((tool) => ({ name: tool['name'], active: tool['active'], source: tool['source'] }))
       .toSorted((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -716,12 +728,10 @@ describe('v1↔v2 return-value parity', () => {
       'parity-project-skill',
     );
     try {
-      // Both slots share ONE home, and listing a workspace registers it in
-      // the shared `<home>/workspaces.json` (atomic rename). Concurrent
-      // registrations collide on Windows (EPERM on the tmp→dest rename), so
-      // the two engine instances stay sequential here.
-      const v1Skills = await v1.listWorkspaceSkills(workDir);
-      const v2Skills = await v2.listWorkspaceSkills(workDir);
+      const [v1Skills, v2Skills] = await Promise.all([
+        v1.listWorkspaceSkills(workDir),
+        v2.listWorkspaceSkills(workDir),
+      ]);
       expect(normalize(v2Skills, 'name')).toEqual(normalize(v1Skills, 'name'));
     } finally {
       await closeAll(v1, v2);
@@ -2004,7 +2014,9 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.getStatus(input),
         pair.v2.getStatus(input),
       ]);
-      expect(normalize(v2Status, '')).toEqual(normalize(v1Status, ''));
+      expect(normalize(KNOWN_DIFFS.getStatus(v2Status), '')).toEqual(
+        normalize(KNOWN_DIFFS.getStatus(v1Status), ''),
+      );
       // The eager-default state both engines arrive at from the fixture:
       // default model + its default effort + the configured permission mode.
       expect(v1Status).toEqual({
@@ -2052,7 +2064,9 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.getStatus(input),
         pair.v2.getStatus(input),
       ]);
-      expect(normalize(v2Status, '')).toEqual(normalize(v1Status, ''));
+      expect(normalize(KNOWN_DIFFS.getStatus(v2Status), '')).toEqual(
+        normalize(KNOWN_DIFFS.getStatus(v1Status), ''),
+      );
       expect(v1Status).toEqual({
         model: undefined,
         thinkingEffort: 'off',
@@ -2086,7 +2100,9 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.getStatus(input),
         pair.v2.getStatus(input),
       ]);
-      expect(normalize(v2Status, '')).toEqual(normalize(v1Status, ''));
+      expect(normalize(KNOWN_DIFFS.getStatus(v2Status), '')).toEqual(
+        normalize(KNOWN_DIFFS.getStatus(v1Status), ''),
+      );
       expect(v1Status.model).toBe('second-model');
       expect(v1Status.maxContextTokens).toBe(128000);
     } finally {
@@ -2132,7 +2148,9 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.getStatus(input),
         pair.v2.getStatus(input),
       ]);
-      expect(normalize(v2Low, '')).toEqual(normalize(v1Low, ''));
+      expect(normalize(KNOWN_DIFFS.getStatus(v2Low), '')).toEqual(
+        normalize(KNOWN_DIFFS.getStatus(v1Low), ''),
+      );
       expect(v1Low.thinkingEffort).toBe('low');
       // An unlisted effort on a strict-thinking (kimi-typed) model rejects
       // with the same code AND the same message on both engines.
@@ -2159,7 +2177,9 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.getStatus(input),
         pair.v2.getStatus(input),
       ]);
-      expect(normalize(v2Off, '')).toEqual(normalize(v1Off, ''));
+      expect(normalize(KNOWN_DIFFS.getStatus(v2Off), '')).toEqual(
+        normalize(KNOWN_DIFFS.getStatus(v1Off), ''),
+      );
       expect(v1Off.thinkingEffort).toBe('off');
     } finally {
       await closeSessionPair(pair);
@@ -2181,7 +2201,9 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.getStatus(input),
         pair.v2.getStatus(input),
       ]);
-      expect(normalize(v2Yolo, '')).toEqual(normalize(v1Yolo, ''));
+      expect(normalize(KNOWN_DIFFS.getStatus(v2Yolo), '')).toEqual(
+        normalize(KNOWN_DIFFS.getStatus(v1Yolo), ''),
+      );
       expect(v1Yolo.permission).toBe('yolo');
       await Promise.all([
         pair.v1.setPermission({ ...input, mode: 'manual' }),
@@ -2191,7 +2213,9 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.getStatus(input),
         pair.v2.getStatus(input),
       ]);
-      expect(normalize(v2Manual, '')).toEqual(normalize(v1Manual, ''));
+      expect(normalize(KNOWN_DIFFS.getStatus(v2Manual), '')).toEqual(
+        normalize(KNOWN_DIFFS.getStatus(v1Manual), ''),
+      );
       expect(v1Manual.permission).toBe('manual');
     } finally {
       await closeSessionPair(pair);
@@ -2614,7 +2638,9 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.getStatus(statusInput),
         pair.v2.getStatus(statusInput),
       ]);
-      expect(normalize(v2Status, '')).toEqual(normalize(v1Status, ''));
+      expect(normalize(KNOWN_DIFFS.getStatus(v2Status), '')).toEqual(
+        normalize(KNOWN_DIFFS.getStatus(v1Status), ''),
+      );
       expect(v1Status).toMatchObject({
         model: 'fixture-model',
         thinkingEffort: 'low',
@@ -2633,7 +2659,9 @@ describe('v1↔v2 agent interaction parity', () => {
         pair.v1.getStatus({ sessionId: drifted.id }),
         pair.v2.getStatus({ sessionId: drifted.id }),
       ]);
-      expect(normalize(v2Drift, '')).toEqual(normalize(v1Drift, ''));
+      expect(normalize(KNOWN_DIFFS.getStatus(v2Drift), '')).toEqual(
+        normalize(KNOWN_DIFFS.getStatus(v1Drift), ''),
+      );
       expect(v1Drift.thinkingEffort).toBe('high');
     } finally {
       await closeSessionPair(pair);

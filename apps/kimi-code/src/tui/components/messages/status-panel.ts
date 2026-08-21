@@ -45,6 +45,9 @@ export interface StatusReportOptions {
   readonly thinkingEffort: ThinkingEffort;
   readonly permissionMode: PermissionMode;
   readonly planMode: boolean;
+  readonly towerMode: boolean;
+  /** Whether the tower experiment is enabled on engine v2 — gates the Tower mode row. */
+  readonly towerAvailable: boolean;
   readonly contextUsage: number;
   readonly contextTokens: number;
   readonly maxContextTokens: number;
@@ -112,29 +115,18 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
 
   const permission = options.status?.permission ?? options.permissionMode;
   const planMode = options.status?.planMode ?? options.planMode;
-  const sessionId =
-    options.sessionId.trim().length > 0
-      ? options.sessionId
-      : t('tui.messages.statusPanel.sessionNone');
+  const towerMode = options.status?.towerMode ?? options.towerMode;
+  const sessionId = options.sessionId.trim().length > 0 ? options.sessionId : 'none';
   const rows: FieldRow[] = [
-    { label: t('tui.messages.statusPanel.modelLabel'), value: formatModelStatus(options) },
-    { label: t('tui.messages.statusPanel.directoryLabel'), value: options.workDir },
-    { label: t('tui.messages.statusPanel.permissionsLabel'), value: permission },
-    {
-      label: t('tui.messages.statusPanel.planModeLabel'),
-      value: planMode
-        ? t('tui.messages.statusPanel.planModeOn')
-        : t('tui.messages.statusPanel.planModeOff'),
-    },
-    {
-      label: t('tui.messages.statusPanel.nativeToolsLabel'),
-      value:
-        options.nativeTools === 'rust'
-          ? t('tui.messages.statusPanel.nativeToolsRust')
-          : t('tui.messages.statusPanel.nativeToolsJs'),
-    },
-    { label: t('tui.messages.statusPanel.sessionLabel'), value: sessionId },
+    { label: 'Model', value: formatModelStatus(options) },
+    { label: 'Directory', value: options.workDir },
+    { label: 'Permissions', value: permission },
+    { label: 'Plan mode', value: planMode ? 'on' : 'off' },
   ];
+  if (options.towerAvailable) {
+    rows.push({ label: 'Tower mode', value: towerMode ? 'on' : 'off' });
+  }
+  rows.push({ label: 'Session', value: sessionId });
   const title = options.sessionTitle?.trim();
   if (title !== undefined && title.length > 0)
     rows.push({ label: t('tui.messages.statusPanel.titleLabel'), value: title });

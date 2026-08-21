@@ -3492,9 +3492,9 @@ command = "vim"
     const session = makeSession({
       listSkills: vi.fn(async () => [
         {
-          name: 'tower',
-          description: 'multi-agent tower mode',
-          path: 'builtin://tower',
+          name: 'demo',
+          description: 'demo skill',
+          path: 'builtin://demo',
           source: 'builtin',
           type: 'inline',
         },
@@ -3507,15 +3507,15 @@ command = "vim"
     driver.state.appState.streamingPhase = 'waiting';
     harness.track.mockClear();
 
-    driver.handleUserInput('/tower refactor auth and ui');
+    driver.handleUserInput('/demo refactor auth and ui');
 
     expect(session.activateSkill).not.toHaveBeenCalled();
     expect(driver.state.queuedMessages).toEqual([
       {
-        text: '/tower refactor auth and ui',
+        text: '/demo refactor auth and ui',
         agentId: 'main',
         mode: 'skill',
-        skillName: 'tower',
+        skillName: 'demo',
         skillArgs: 'refactor auth and ui',
       },
     ]);
@@ -3527,16 +3527,16 @@ command = "vim"
     driver.state.queuedMessages = [];
     driver.sendQueuedMessage(session, queued);
 
-    expect(session.activateSkill).toHaveBeenCalledWith('tower', 'refactor auth and ui');
+    expect(session.activateSkill).toHaveBeenCalledWith('demo', 'refactor auth and ui');
   });
 
   it('queues a slash-skill activation while compacting and activates it on drain', async () => {
     const session = makeSession({
       listSkills: vi.fn(async () => [
         {
-          name: 'tower',
-          description: 'multi-agent tower mode',
-          path: 'builtin://tower',
+          name: 'demo',
+          description: 'demo skill',
+          path: 'builtin://demo',
           source: 'builtin',
           type: 'inline',
         },
@@ -3549,15 +3549,15 @@ command = "vim"
     driver.state.appState.isCompacting = true;
     harness.track.mockClear();
 
-    driver.handleUserInput('/tower refactor auth and ui');
+    driver.handleUserInput('/demo refactor auth and ui');
 
     expect(session.activateSkill).not.toHaveBeenCalled();
     expect(driver.state.queuedMessages).toEqual([
       {
-        text: '/tower refactor auth and ui',
+        text: '/demo refactor auth and ui',
         agentId: 'main',
         mode: 'skill',
-        skillName: 'tower',
+        skillName: 'demo',
         skillArgs: 'refactor auth and ui',
       },
     ]);
@@ -3569,7 +3569,7 @@ command = "vim"
     driver.state.queuedMessages = [];
     driver.sendQueuedMessage(session, queued);
 
-    expect(session.activateSkill).toHaveBeenCalledWith('tower', 'refactor auth and ui');
+    expect(session.activateSkill).toHaveBeenCalledWith('demo', 'refactor auth and ui');
   });
 
   it('steers fresh input while a goal is active even when the streaming phase is idle', async () => {
@@ -5449,6 +5449,32 @@ command = "vim"
 
     expect(driver.state.appState.model).toBe('turbo');
     expect(driver.state.appState.thinkingEffort).toBe('mid');
+  });
+
+  it('applies tower mode from status updates', async () => {
+    const { driver } = await makeDriver();
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        towerMode: true,
+      } as Event,
+      vi.fn(),
+    );
+    expect(driver.state.appState.towerMode).toBe(true);
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        towerMode: false,
+      } as Event,
+      vi.fn(),
+    );
+    expect(driver.state.appState.towerMode).toBe(false);
   });
 
   it('renders swarm mode markers from /swarm commands, not tool-triggered status updates', async () => {

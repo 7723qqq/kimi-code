@@ -66,6 +66,7 @@ import {
 } from './session';
 import type { SkillListSession } from './skills';
 import { handleSwarmCommand } from './swarm';
+import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
 import { handleWebCommand } from './web';
 import { handleWorkflowCommand } from './workflow';
@@ -94,8 +95,7 @@ export {
   showSettingsSelector,
 } from './config';
 export { handleSwarmCommand } from './swarm';
-export { handleWorkflowCommand } from './workflow';
-export { handleTeamCommand } from './team';
+export { handleTowerCommand } from './tower';
 export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
 export { handleReloadCommand, handleReloadTuiCommand } from './reload';
@@ -226,6 +226,60 @@ export function dispatchInput(host: SlashCommandHost, text: string): void {
   host.sendNormalUserInput(text);
 }
 
+/**
+ * Handle a leading-slash input that may be a bundled submission. Returns true
+ * when the input was claimed, false when it should fall through to the
+ * regular single-skill slash path.
+ *
+ * Bundle rule: two or more known skill tokens with the first one leading the
+ * input make the whole input one bundled prompt in which every token
+ * activates with NO args — the mention is the whole interface, and args stay
+ * a standalone-activation concept (`/skill:a some args` with no other tokens
+ * keeps its single-skill path). Tokenization is whitespace-generic, so
+ * space- and newline-separated bundles behave identically. A recognized
+ * builtin or plugin command always keeps its own path, no matter how many
+ * skill tokens its arguments mention.
+ */
+function dispatchInlineSkillCombo(host: SlashCommandHost, text: string): boolean {
+  // The intent is parsed without the busy flags on purpose: submissions
+  // through sendInlineSkillUserInput queue while busy — only genuine
+  // single-skill commands reject.
+  const intent = resolveSlashCommandInput({
+    input: text,
+    skillCommandMap: host.skillCommandMap,
+    pluginCommandMap: host.pluginCommandMap,
+    isStreaming: false,
+    isCompacting: false,
+    engineV2: host.engineV2,
+  });
+  if (intent.kind !== 'skill' && intent.kind !== 'message') return false;
+
+  const tokens = findInlineSkillTokens(text, {
+    isKnownSkill: (commandName) =>
+      host.skillCommandMap.has(commandName) || host.skillCommandMap.has(`skill:${commandName}`),
+    includeLeading: true,
+  });
+  // The 'message' kind joins the bundle rule because parseSlashInput only
+  // splits on a literal space: a newline after a leading skill resolves to
+  // 'message' instead of 'skill', and must not silently drop the leading
+  // activation.
+  if (tokens.length >= 2 && tokens[0]!.start === 0) {
+    const activations = extractInlineSkillActivations(text, host.skillCommandMap, {
+      includeLeading: true,
+    });
+    void host.sendInlineSkillUserInput(text, activations);
+    return true;
+  }
+
+  // An unrecognized leading slash token makes the whole input a plain
+  // message; scan it for inline skills like any other plain prompt.
+  if (intent.kind !== 'message') return false;
+  const activations = extractInlineSkillActivations(text, host.skillCommandMap);
+  if (activations.length === 0) return false;
+  void host.sendInlineSkillUserInput(text, activations);
+  return true;
+}
+
 async function executeSlashCommand(host: SlashCommandHost, input: string): Promise<void> {
   const parsedCommand = parseSlashInput(input);
   const intent = resolveSlashCommandInput({
@@ -234,6 +288,7 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
     pluginCommandMap: host.pluginCommandMap,
     isStreaming: host.state.appState.streamingPhase !== 'idle',
     isCompacting: host.state.appState.isCompacting,
+    engineV2: host.engineV2,
   });
 
   switch (intent.kind) {
@@ -503,11 +558,8 @@ async function handleBuiltInSlashCommand(
     case 'swarm':
       await handleSwarmCommand(host, args);
       return;
-    case 'workflow':
-      await handleWorkflowCommand(host, args);
-      return;
-    case 'team':
-      await handleTeamCommand(host, args);
+    case 'tower':
+      await handleTowerCommand(host, args);
       return;
     case 'compact':
       await handleCompactCommand(host, args);

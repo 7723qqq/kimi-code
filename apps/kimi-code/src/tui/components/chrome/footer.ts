@@ -563,16 +563,11 @@ export class FooterComponent implements Component {
     }
 
     const modes: string[] = [];
-    if (state.permissionMode === 'auto')
-      modes.push(chalk.hex(colors.warning).bold(t('tui.chrome.footer.auto')));
-    if (state.permissionMode === 'yolo')
-      modes.push(chalk.hex(colors.warning).bold(t('tui.chrome.footer.yolo')));
-    if (state.planMode && state.swarmMode) {
-      modes.push(renderSwarmPlanBadge(t('tui.chrome.footer.swarmPlan')));
-    } else {
-      if (state.planMode) modes.push(chalk.hex(colors.primary).bold(t('tui.chrome.footer.plan')));
-      if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold(t('tui.chrome.footer.swarm')));
-    }
+    if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold('auto'));
+    if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold('yolo'));
+    if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
+    if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold('swarm'));
+    if (state.towerMode) modes.push(chalk.hex(colors.accent).bold('tower'));
     if (modes.length > 0) slots['mode'] = [modes.join(' ')];
 
     const goalBadge = formatGoalBadge(state.goal, colors, this.goalWallClockMs(state.goal));
