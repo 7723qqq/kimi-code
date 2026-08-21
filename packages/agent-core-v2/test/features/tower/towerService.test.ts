@@ -26,7 +26,6 @@ import { IAgentTowerService, TOWER_FLAG_ID } from '#/features/tower/tower';
 import { _setTowerFeatureAssembledForTests } from '#/features/tower/towerFeature';
 import { AgentTowerService, TOWER_MODE_TOOLS } from '#/features/tower/towerService';
 import { towerKey } from '#/features/tower/towerOps';
-import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';

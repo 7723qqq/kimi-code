@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type { AnyAgentTool } from '#/agent/toolRegistry/toolContribution';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
@@ -345,7 +346,7 @@ describe('tool registration', () => {
   const MAIN_ONLY = ['TowerInit', 'TowerPlan', 'TowerSpawn', 'TowerMerge', 'TowerTeardown'];
   const SHARED = ['TowerSend', 'TowerInbox', 'TowerFinding', 'TowerReview', 'TowerMission', 'TowerStatus'];
 
-  it('gates init/plan/spawn/merge/teardown to the main agent and shares the rest', () => {
+  it('gates init/plan/spawn/merge/teardown to the main agent and shares the rest', async () => {
     for (const name of MAIN_ONLY) {
       const contribution = TOWER_TOOL_CONTRIBUTIONS.find((c) => c.name === name);
       expect(contribution, name).toBeDefined();
