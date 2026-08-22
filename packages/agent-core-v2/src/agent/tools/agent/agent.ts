@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
+import { SUBAGENT_BACKEND_NAMES } from '#/session/subagent/backend/subagentBackend';
 import { type AgentTool } from '#/tool/toolContract';
 
 export const DEFAULT_PROFILE_NAME = 'coder';
@@ -17,7 +18,9 @@ export const SubagentToolInputSchema = z.preprocess(
       typeof normalized['resume'] === 'string' && normalized['resume'].trim().length > 0;
     const hasSubagentType =
       typeof normalized['subagent_type'] === 'string' && normalized['subagent_type'].length > 0;
-    if (!hasSubagentType && !hasResumeId) {
+    const hasBackend =
+      typeof normalized['backend'] === 'string' && normalized['backend'].length > 0;
+    if (!hasSubagentType && !hasResumeId && !hasBackend) {
       normalized['subagent_type'] = DEFAULT_PROFILE_NAME;
     } else if (!hasSubagentType) {
       delete normalized['subagent_type'];
@@ -57,6 +60,12 @@ export const SubagentToolInputSchema = z.preprocess(
       .describe(
         'When true, start the subagent from a snapshot of the calling agent\'s completed conversation history instead of from zero context. The forked subagent shares the caller\'s profile, model, and tool set so the prompt prefix cache is reused. Requires the KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK flag. Cannot be combined with subagent_type, resume, or model — the fork inherits all three from the caller.',
       ),
+    backend: z
+      .enum(SUBAGENT_BACKEND_NAMES)
+      .optional()
+      .describe(
+        'Run the task in an external agent CLI instead of an in-process subagent: one of the backends listed under "Available backends" in this tool description. The prompt is executed by that CLI and its final text is returned as the result. Cannot be combined with subagent_type, resume, model, fork, or run_in_background.',
+      ),
   }),
 );
 
@@ -91,6 +100,18 @@ export const FORK_CANNOT_COMBINE_WITH_SUBAGENT_TYPE =
   'Cannot use fork with subagent_type — a forked subagent inherits the caller\'s profile. Omit subagent_type to use fork.';
 export const FORK_CANNOT_COMBINE_WITH_MODEL =
   'Cannot use fork with model — a forked subagent inherits the caller\'s model. Omit model to use fork.';
+export const SUBAGENT_BACKEND_FLAG_REQUIRED =
+  'The backend parameter requires the KIMI_CODE_EXPERIMENTAL_SUBAGENT_BACKENDS flag to be enabled.';
+export const BACKEND_CANNOT_COMBINE_WITH_RESUME =
+  'Cannot use backend with resume — an external backend runs a fresh session in the external CLI; resume targets an existing in-process agent by id.';
+export const BACKEND_CANNOT_COMBINE_WITH_SUBAGENT_TYPE =
+  'Cannot use backend with subagent_type — external backends have no in-process agent profile. Omit subagent_type to use backend.';
+export const BACKEND_CANNOT_COMBINE_WITH_MODEL =
+  'Cannot use backend with model — external backends are configured through the [subagentBackend] config section instead of the model parameter.';
+export const BACKEND_CANNOT_COMBINE_WITH_FORK =
+  'Cannot use backend with fork — fork snapshots the in-process conversation history, which an external backend does not share.';
+export const BACKEND_BACKGROUND_UNAVAILABLE =
+  'Background execution is not available for external backends.';
 
 export interface ISubagentTool extends AgentTool<SubagentToolInput> {
   readonly _serviceBrand: undefined;

@@ -2,6 +2,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { IConfigService } from '#/app/config/config';
 import { LifecycleScope } from '#/app/scopes';
+import '#/session/process/processRunnerService';
 import { ISessionProcessRunner } from '#/session/process/processRunner';
 
 import { AcpBackend } from './acpBackend';

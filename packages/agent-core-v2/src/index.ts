@@ -720,6 +720,8 @@ export * from '#/session/todo/todoAgentEffect';
 export * from '#/session/todo/sessionTodoService';
 export * from '#/agent/tools/todo-list/todo-list';
 import '#/features/todo/todoFeature';
+import '#/features/lsp/lspFeature';
+import '#/session/subagent/backend/subagentBackendService';
 export * from '#/tool/toolContract';
 export * from '#/agent/toolExecutor/toolHooks';
 export * from '#/agent/toolExecutor/toolExecutor';

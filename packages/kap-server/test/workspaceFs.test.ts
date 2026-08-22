@@ -119,7 +119,6 @@ describe('server-v2 /api/v1 fs folder picker', () => {
     expect(body.code).toBe(0);
     expect(body.data.path).toBe(await realpath(root));
     const names = body.data.entries.map((e) => e.name);
-    // Engine-internal dirs (cache/, logs/) may live next to them.
     expect(names).toContain('alpha');
     expect(names).toContain('beta');
     expect(names).not.toContain('README.md');

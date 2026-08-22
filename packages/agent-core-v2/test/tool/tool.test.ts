@@ -33,10 +33,19 @@ import {
 } from '#/features/swarm/tools/agent-swarm/agent-swarm';
 import {
   SubagentToolInputSchema,
+  USER_INTERRUPTED_SUBAGENT_MESSAGE,
   type SubagentToolInput,
 } from '#/agent/tools/agent/agent';
 import { DEFAULT_SUBAGENT_TIMEOUT_MS, SECONDARY_MODEL_SECTION, SUBAGENT_SECTION } from '#/session/subagent/configSection';
 import { SECONDARY_MODEL_FLAG_ID, SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
+import '#/session/subagent/backend/subagentBackendService';
+import { SUBAGENT_BACKENDS_FLAG_ID } from '#/session/subagent/backend/flag';
+import {
+  ISubagentBackendService,
+  type ISubagentBackend,
+  type SubagentBackendResult,
+  type SubagentBackendStartRequest,
+} from '#/session/subagent/backend/subagentBackend';
 import { Error2, ErrorCodes } from '#/errors';
 import { runAgentTurn } from '#/session/subagent/runAgentTurn';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
@@ -586,6 +595,17 @@ describe('SubagentToolInputSchema', () => {
         resume: 'agent-existing',
       }).subagent_type,
     ).toBeUndefined();
+  });
+
+  it('does not default the subagent type for external backend runs', () => {
+    const parsed = SubagentToolInputSchema.parse({
+      prompt: 'Investigate',
+      description: 'External run',
+      backend: 'codex',
+    });
+
+    expect(parsed.backend).toBe('codex');
+    expect(parsed.subagent_type).toBeUndefined();
   });
 });
 
@@ -2550,6 +2570,270 @@ describe('Agent tool execution contract', () => {
 
       expect(props['fork']?.type).toBe('boolean');
       expect(props['fork']?.description).toContain('KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK');
+    });
+  });
+
+  describe('backend parameter', () => {
+    function backendFlags(enabled = true): TestAgentServiceOverride {
+      return appService(
+        IFlagService,
+        stubFlag((id) => enabled && id === SUBAGENT_BACKENDS_FLAG_ID),
+      );
+    }
+
+    function externalBackendService(backend: ISubagentBackend): ISubagentBackendService {
+      return {
+        _serviceBrand: undefined,
+        getBackend: () => backend,
+        list: () => [backend],
+      };
+    }
+
+    function completedBackend(output: string): {
+      readonly service: ISubagentBackendService;
+      readonly requests: SubagentBackendStartRequest[];
+    } {
+      const requests: SubagentBackendStartRequest[] = [];
+      const backend: ISubagentBackend = {
+        name: 'codex',
+        start: async (request) => {
+          requests.push(request);
+          const result: SubagentBackendResult = { output, stopReason: 'completed' };
+          return { id: 'codex-test', result: Promise.resolve(result), dispose: async () => {} };
+        },
+      };
+      return { service: externalBackendService(backend), requests };
+    }
+
+    it('rejects backend when the experimental flag is off', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const context = createAgentToolContext(lifecycle);
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Investigate',
+        description: 'External run',
+        backend: 'codex',
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain('KIMI_CODE_EXPERIMENTAL_SUBAGENT_BACKENDS');
+      expect(lifecycle.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects backend combined with resume', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const context = createAgentToolContext(lifecycle, backendFlags(true));
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Investigate',
+        description: 'External run',
+        backend: 'codex',
+        resume: 'agent-existing',
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain('Cannot use backend with resume');
+      expect(lifecycle.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects backend combined with subagent_type', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const context = createAgentToolContext(lifecycle, backendFlags(true));
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Investigate',
+        description: 'External run',
+        backend: 'codex',
+        subagent_type: 'explore',
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain('Cannot use backend with subagent_type');
+      expect(lifecycle.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects backend combined with model', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const context = createAgentToolContext(lifecycle, backendFlags(true));
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Investigate',
+        description: 'External run',
+        backend: 'codex',
+        model: 'provider/fast',
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain('Cannot use backend with model');
+      expect(lifecycle.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects backend combined with fork', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const context = createAgentToolContext(
+        lifecycle,
+        appService(
+          IFlagService,
+          stubFlag((id) => id === SUBAGENT_BACKENDS_FLAG_ID || id === SUBAGENT_FORK_FLAG_ID),
+        ),
+      );
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Investigate',
+        description: 'External run',
+        backend: 'codex',
+        fork: true,
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain('Cannot use backend with fork');
+      expect(lifecycle.fork).not.toHaveBeenCalled();
+    });
+
+    it('runs the prompt through the external backend instead of an in-process subagent', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const { service, requests } = completedBackend('external done');
+      const context = createAgentToolContext(
+        lifecycle,
+        backendFlags(true),
+        sessionService(ISubagentBackendService, service),
+      );
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Investigate externally',
+        description: 'External run',
+        backend: 'codex',
+      });
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.prompt).toBe('Investigate externally');
+      expect(lifecycle.create).not.toHaveBeenCalled();
+      expect(lifecycle.run).not.toHaveBeenCalled();
+      expect(result.isError).toBeFalsy();
+      expect(result.output).toContain('backend: codex');
+      expect(result.output).toContain('status: completed');
+      expect(result.output).toContain('[summary]');
+      expect(result.output).toContain('external done');
+    });
+
+    it('reports the stopped message when the backend aborts on user cancellation', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const backend: ISubagentBackend = {
+        name: 'codex',
+        start: async (request) => ({
+          id: 'codex-test',
+          result: new Promise<SubagentBackendResult>((resolve) => {
+            const settle = (): void => resolve({ output: '', stopReason: 'aborted' });
+            if (request.signal.aborted) settle();
+            else request.signal.addEventListener('abort', settle, { once: true });
+          }),
+          dispose: async () => {},
+        }),
+      };
+      const context = createAgentToolContext(
+        lifecycle,
+        backendFlags(true),
+        sessionService(ISubagentBackendService, externalBackendService(backend)),
+      );
+
+      const controller = new AbortController();
+      const resultPromise = executeAgentTool(
+        context,
+        {
+          prompt: 'Investigate',
+          description: 'External run',
+          backend: 'codex',
+        },
+        controller.signal,
+      );
+      controller.abort(userCancellationReason());
+      const result = await resultPromise;
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain(USER_INTERRUPTED_SUBAGENT_MESSAGE);
+    });
+
+    it('reports a timeout when the configured subagent timeout elapses', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const backend: ISubagentBackend = {
+        name: 'codex',
+        start: async (request) => ({
+          id: 'codex-test',
+          result: new Promise<SubagentBackendResult>((resolve) => {
+            const settle = (): void => resolve({ output: '', stopReason: 'aborted' });
+            if (request.signal.aborted) settle();
+            else request.signal.addEventListener('abort', settle, { once: true });
+          }),
+          dispose: async () => {},
+        }),
+      };
+      const context = createAgentToolContext(
+        lifecycle,
+        backendFlags(true),
+        sessionService(ISubagentBackendService, externalBackendService(backend)),
+        {
+          initialConfig: { subagent: { timeoutMs: 50 } },
+        },
+      );
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Investigate',
+        description: 'External run',
+        backend: 'codex',
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain('timed out after 50 ms');
+    });
+
+    it('reports an error result from the backend with its partial output', async () => {
+      const lifecycle = createAgentLifecycleStub();
+      const backend: ISubagentBackend = {
+        name: 'claude-code',
+        start: async () => ({
+          id: 'claude-code-test',
+          result: Promise.resolve({ output: 'partial thoughts', stopReason: 'error' }),
+          dispose: async () => {},
+        }),
+      };
+      const context = createAgentToolContext(
+        lifecycle,
+        backendFlags(true),
+        sessionService(ISubagentBackendService, externalBackendService(backend)),
+      );
+
+      const result = await executeAgentTool(context, {
+        prompt: 'Investigate',
+        description: 'External run',
+        backend: 'claude-code',
+      });
+
+      expect(result).toMatchObject({ isError: true });
+      expect(result.output).toContain('status "error"');
+      expect(result.output).toContain('partial thoughts');
+    });
+
+    it('strips the backend parameter from the advertised schema when the flag is off', () => {
+      ctx = createTestAgent();
+
+      const properties = agentTool(ctx).parameters as Record<string, unknown>;
+
+      expect((properties['properties'] as Record<string, unknown>)).not.toHaveProperty('backend');
+      expect((properties['properties'] as Record<string, unknown>)).toHaveProperty('prompt');
+    });
+
+    it('exposes the backend parameter and description section when the flag is on', () => {
+      ctx = createTestAgent(backendFlags(true));
+
+      const tool = agentTool(ctx);
+      const properties = tool.parameters as Record<string, unknown>;
+      const props = properties['properties'] as Record<
+        string,
+        { type?: string; enum?: string[]; description?: string }
+      >;
+
+      expect(props['backend']?.enum).toEqual(['claude-code', 'codex', 'acp']);
+      expect(tool.description).toContain('Available backends (pass via backend)');
     });
   });
 });

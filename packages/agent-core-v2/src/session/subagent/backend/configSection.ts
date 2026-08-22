@@ -4,6 +4,7 @@ import { registerConfigSection } from '#/app/config/configSectionContributions';
 import type { IFlagService } from '#/app/flag/flag';
 
 import { SUBAGENT_BACKENDS_FLAG_ID } from './flag';
+import type { ISubagentBackend } from './subagentBackend';
 
 export const SUBAGENT_BACKEND_SECTION = 'subagentBackend';
 
@@ -51,6 +52,10 @@ export type AcpBackendConfig = z.infer<typeof AcpBackendConfigSchema>;
 
 export function exposesSubagentBackends(flags: IFlagService): boolean {
   return flags.enabled(SUBAGENT_BACKENDS_FLAG_ID);
+}
+
+export function buildSubagentBackendDescriptions(backends: readonly ISubagentBackend[]): string {
+  return `Available backends (pass via backend): ${backends.map((backend) => backend.name).join(', ')}`;
 }
 
 export function stripSubagentBackendParameter(

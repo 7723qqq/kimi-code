@@ -1223,7 +1223,6 @@ describe('server-v2 /api/v1/sessions', () => {
     };
     await seedBucket(typedId, 's-typed', 50);
     await seedBucket(lowerId, 's-lower', 60);
-    // Out-of-band writes only reach a ready read model via reconcile.
     await postJson<void>('/api/v1/debug/sessionIndex/reconcileNow', {});
 
     const workspaces = await getJson<{ items: { id: string }[] }>('/api/v1/workspaces');

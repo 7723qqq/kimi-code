@@ -1,6 +1,8 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-export type SubagentBackendName = 'claude-code' | 'codex' | 'acp';
+export const SUBAGENT_BACKEND_NAMES = ['claude-code', 'codex', 'acp'] as const;
+
+export type SubagentBackendName = (typeof SUBAGENT_BACKEND_NAMES)[number];
 
 export type SubagentBackendStopReason =
   | 'completed'
