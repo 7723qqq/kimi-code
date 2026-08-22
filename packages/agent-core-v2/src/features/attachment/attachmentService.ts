@@ -1,16 +1,3 @@
-/**
- * `attachment` domain — `AttachmentService`: content-addressed image
- * attachment storage (App scope).
- *
- * Admission validates the declared media type against the bytes, the byte
- * and decoded-pixel limits, and a full raster decode; storage is
- * content-addressed (sha256), so identical payloads deduplicate and a
- * reference is verifiable against the object it names. The configured
- * `[attachment] root` defaults to a private per-process temp directory.
- *
- * Ported from deepseek-harness `attachment/attachment-local` (MIT).
- */
-
 import { Service } from '#/_base/di/service';
 import { IConfigService } from '#/app/config/config';
 

@@ -1,17 +1,3 @@
-/**
- * `sessionQuery` domain — per-session event index over the wire journal.
- *
- * Lazily reads a session's main-agent wire records through
- * `IAppendLogStore` and caches them as detached event documents. The cache
- * is keyed to the journal's on-disk `size()`: any append/rewrite changes it,
- * so a reader detects "the log changed since I last read" without re-reading
- * the whole file and rebuilds on demand.
- *
- * Ported from deepseek-harness `session-query` corpus resolution semantics
- * (MIT), adapted to the wire journal as the event source. Only the main
- * agent's wire is indexed; subagent journals are out of scope for stage B.
- */
-
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import type { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -20,7 +6,6 @@ import { AGENT_WIRE_RECORD_KEY, isWireRecord, isWireMetadataRecord } from '#/wir
 import type { SessionEventSearchDocument } from './events';
 import { wireRecordText } from './eventText';
 
-/** One cached event source: the journal size the cache was folded from. */
 interface CachedSession {
   readonly revision: number | undefined;
   readonly events: SessionEventSearchDocument[];

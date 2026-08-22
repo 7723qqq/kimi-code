@@ -64,7 +64,6 @@ describe('id helpers', () => {
   });
 
   it('compares turn ids by embedded ordinal, not lexicographically', () => {
-    // 't10' must sort after 't2' — cursors and insert ordering depend on it.
     expect(compareTurnIds('t2', 't10')).toBeLessThan(0);
     expect(compareTurnIds('t10', 't2')).toBeGreaterThan(0);
     expect(compareTurnIds('t7', 't7')).toBe(0);
@@ -272,8 +271,6 @@ describe('paginateTurns', () => {
   });
 
   it('after_turn paging never carries the head unit, only turn segments', () => {
-    // The leading non-turn unit is the oldest content: it rides with
-    // before-cursor paging only, never with after-cursor paging.
     const page = paginateTurns(items, { afterTurn: 't0', pageSize: 5 });
     expect(page.items.map(idLabel)).toEqual([
       't1',
@@ -468,12 +465,10 @@ describe('contract schemas', () => {
 
   it('rejects mutually exclusive cursors and bad grades', () => {
     expect(() => transcriptGradeSpecSchema.parse({ '*': 'stream' })).toThrow();
-    // The cursor pair is mutually exclusive…
     expect(
       transcriptQuerySchema.safeParse({ agent_id: 'main', before_turn: 't1', after_turn: 't2' })
         .success,
     ).toBe(false);
-    // …and page_size is bounded to [1, 100].
     for (const bad of [0, 101]) {
       expect(transcriptQuerySchema.safeParse({ agent_id: 'main', page_size: bad }).success).toBe(
         false,
@@ -532,7 +527,6 @@ describe('contract schemas', () => {
         transcript_since: { main: 5 },
       }).success,
     ).toBe(true);
-    // Both the session id and the grade map are required.
     expect(transcriptSubscribeV2PayloadSchema.safeParse({ transcript: {} }).success).toBe(false);
     expect(transcriptSubscribeV2PayloadSchema.safeParse({ session_id: 's1' }).success).toBe(false);
     expect(
@@ -541,7 +535,6 @@ describe('contract schemas', () => {
         transcript: { '*': 'bogus' },
       }).success,
     ).toBe(false);
-    // Seq cursors are nonnegative integers.
     expect(
       transcriptSubscribeV2PayloadSchema.safeParse({
         session_id: 's1',
@@ -566,7 +559,7 @@ describe('contract schemas', () => {
         batches: [],
         complete: false,
       }).success,
-    ).toBe(false); // latest_seq is required
+    ).toBe(false);
   });
 
   it('validates the user-messages read, defaulting attachments', () => {
@@ -588,7 +581,6 @@ describe('contract schemas', () => {
     });
     expect(ok.success).toBe(true);
     expect(ok.success && ok.data.agents[0]?.attachments).toEqual([]);
-    // prompt is the projection's defining field — required.
     expect(
       transcriptUserMessagesResponseSchema.safeParse({
         agents: [

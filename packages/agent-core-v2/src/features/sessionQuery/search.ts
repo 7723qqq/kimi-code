@@ -1,17 +1,3 @@
-/**
- * `sessionQuery` domain — event filtering and full-text search over event
- * documents.
- *
- * `filterEvents` applies ANDed metadata/literal-text predicates
- * (seq/time/type/text; the text clause is a case-insensitive,
- * whitespace-flexible literal scan). `searchEvents` ranks events by token
- * overlap (the same tokenizer kimi's embedded store uses for FTS), builds a
- * bounded snippet around the best match, and pages through an opaque offset
- * cursor. Query text is interpreted as data — never as query syntax.
- *
- * Ported from deepseek-harness `session-query` filter/search semantics (MIT).
- */
-
 import { tokenize } from '@moonshot-ai/minidb';
 
 import { Error2 } from '#/errors';
@@ -173,7 +159,6 @@ function invalidFilter(detail: string): Error2 {
   return new Error2(SessionQueryErrors.codes.SESSION_QUERY_INVALID_FILTER, `session ${detail}`);
 }
 
-/** Bounded plain-text excerpt around the first term match. */
 function buildSnippet(text: string, terms: readonly string[]): string {
   const lower = text.toLowerCase();
   let firstMatch = -1;

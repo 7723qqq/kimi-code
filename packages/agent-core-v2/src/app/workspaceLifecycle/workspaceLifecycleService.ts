@@ -1,18 +1,3 @@
-/**
- * `workspaceLifecycle` domain — `IWorkspaceLifecycleService` implementation.
- *
- * Rides on the upstream `IWorkspaceInstanceManager` (App scope): `handlerFor`
- * delegates to `getOrCreate` (create-or-get with the manager's in-flight
- * join keyed by workspaceId), `handlers.list()` maps the manager's instances
- * and `onDidMaterializeHandler` forwards the manager's change events. Each
- * handle wraps a `WorkspaceInstance`; its `accessor` resolves
- * `ISessionLifecycleService` lazily through `program.createSessionController`
- * (one cached controller per handler, disposed with the handle — handlers
- * are never closed, they die with the App scope's disposal cascade).
- * `sessions.list(workspaceId)` is the live-session projection of the
- * App-scope `ISessionManager` filtered by workspace. Bound at App scope.
- */
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';

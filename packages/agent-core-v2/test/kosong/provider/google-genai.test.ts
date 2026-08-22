@@ -1,14 +1,3 @@
-/**
- * `kosong/provider` GoogleGenAI wire probes — `GoogleGenAIStreamedMessage`
- * usage extraction.
- *
- * Gemini streaming reports `usageMetadata` across chunks: the first chunk
- * carries the prompt side (`promptTokenCount` / `cachedContentTokenCount`),
- * the final chunk the output side (`candidatesTokenCount`). Usage must be
- * accumulated per component so a later chunk with a missing field never
- * zeroes a value an earlier chunk already reported.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { GoogleGenAIStreamedMessage } from '#/kosong/provider/bases/google-genai/google-genai';

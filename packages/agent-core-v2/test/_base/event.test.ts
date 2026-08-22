@@ -370,10 +370,6 @@ describe('AsyncEmitter.fireAsync', () => {
 
     const firstController = new AbortController();
     const first = emitter.fireAsync({ kind: 'hold' }, firstController.signal);
-    // The first listener's 'hold' event is delivered synchronously; the first
-    // fire suspends on its waitUntil. The second fire then drains the queue —
-    // the still-queued first-fire entry is delivered with the draining fire's
-    // signal.
     const secondController = new AbortController();
     const second = emitter.fireAsync({ kind: 'release' }, secondController.signal);
     releaseHold();
@@ -406,9 +402,6 @@ describe('AsyncEmitter.fireAsync', () => {
 
     const firstController = new AbortController();
     const first = emitter.fireAsync({ kind: 'hold' }, firstController.signal);
-    // One entry is being delivered (suspended); the other entry of this fire
-    // is still queued when the signal aborts — the drain stops, and the
-    // queued entry is delivered by the next fire with that fire's signal.
     firstController.abort();
     const secondController = new AbortController();
     const second = emitter.fireAsync({ kind: 'release' }, secondController.signal);

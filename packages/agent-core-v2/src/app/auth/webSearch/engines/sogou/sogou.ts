@@ -1,13 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Sogou search engine, ported from the
- * open-websearch project (`engines/sogou/sogou.js`). Request-mode scraping
- * only: paginates `www.sogou.com/web` HTML through `engineFetch` (or the
- * injected `fetchImpl` in tests), following redirects manually with cookie
- * accumulation, detecting anti-bot challenge pages, and parsing results
- * with `parseSogouSearchResults`. The original playwright path is not
- * ported.
- */
-
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 

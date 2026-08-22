@@ -1,11 +1,3 @@
-/**
- * `kosong/contract` usage + tokens — usage aggregation and token estimation.
- *
- * `TokenUsage` aggregates cache-aware input/output counters; the
- * `estimateTokens*` family sizes messages, tools, and content parts with the
- * ASCII/non-ASCII heuristic and the flat media estimate.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import type { Message } from '#/kosong/contract/message';
@@ -66,8 +58,6 @@ describe('estimateTokensForMessage(s)', () => {
       content: [{ type: 'text', text: 'abcd' }],
       toolCalls: [{ type: 'function', id: 'c1', name: 'tool', arguments: '{}' }],
     };
-    // Serialized tool-call arguments are JSON-stringified before the raw
-    // heuristic estimate applies.
     const expected =
       estimateTokens('assistant') +
       estimateTokens('abcd') +
@@ -108,8 +98,6 @@ describe('estimateTokensForMessage(s)', () => {
 describe('estimateTokensForTools', () => {
   it('counts name, description, and serialized parameters', () => {
     const tool = { name: 'read', description: 'Read a file', parameters: { type: 'object' } };
-    // estimateTokensForTools sums the raw heuristic estimate over name,
-    // description, and JSON-stringified parameters.
     const expected =
       estimateTokens(tool.name) +
       estimateTokens(tool.description) +

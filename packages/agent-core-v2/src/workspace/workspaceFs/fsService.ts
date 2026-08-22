@@ -609,7 +609,6 @@ export class WorkspaceFsService implements IWorkspaceFsService {
 
     const handleLine = (raw: string): void => {
       let line = raw;
-      // rg --files emits platform separators: backslashes on Windows.
       if (line.includes('\\')) line = line.replaceAll('\\', '/');
       if (line.endsWith('\r')) line = line.slice(0, -1);
       if (line.startsWith('./')) line = line.slice(2);

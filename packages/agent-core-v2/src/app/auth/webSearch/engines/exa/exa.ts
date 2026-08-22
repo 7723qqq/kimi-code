@@ -1,14 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Exa search engine, ported from the
- * open-websearch project (`engines/exa/exa.js`). Request-mode only: POSTs a
- * JSON query to the `exa.ai/search/api/search-fast` endpoint through
- * `engineFetch` (or the injected `fetchImpl` in tests) and maps the returned
- * `results` array. The original implementation reads no API key and has no
- * playwright path, so nothing is skipped. HTTP/network failures throw
- * `Error2` (`WEB_FETCH_FAILED`); an API response without results returns
- * `[]`.
- */
-
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 

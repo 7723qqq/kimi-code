@@ -1,14 +1,3 @@
-/**
- * Scenario: `date_change` context injection announces calendar-date changes.
- *
- * Exercises the real provider through the harness injector with `hostClock`
- * stubbed at the host boundary: baselines come from typed reminder metadata,
- * then the persisted rendered-date snapshot, then a runtime seed recorded on
- * first observation for prompts that never disclose a date. Run: `pnpm --filter
- * @moonshot-ai/agent-core-v2 exec vitest run
- * test/agent/dateChange/dateChangeInjection.test.ts`.
- */
-
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
@@ -275,9 +264,6 @@ describe('AgentDateChangeService', () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-date-bind-home-'));
     try {
       await ctx.dispose();
-      // The harness runtime is posix-path based; a posix cwd keeps the bind's
-      // rendered environment cwd consistent with the session context on all
-      // platforms (a win32 cwd would be mangled by the posix path resolve).
       ctx = createTestAgent(
         { cwd: '/home/test' },
         appService(IHostClock, clock),

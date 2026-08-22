@@ -1,17 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — GitHub README fetcher, ported from the
- * open-websearch project (`engines/github/github.js`). Extracts the
- * owner/repo pair from a GitHub repository URL (HTTPS or SSH, tolerating
- * query params, fragments and sub-paths) and fetches the repository README
- * from `raw.githubusercontent.com` through `engineFetch` (or the injected
- * `fetchImpl` in tests), trying a fixed list of README filename candidates
- * under the `HEAD` ref. The GitHub README API is deliberately avoided —
- * anonymous API requests hit rate limits quickly, while raw URLs are more
- * stable. The original engine has no search function and no playwright
- * path. Genuine fetch failures throw `Error2` (`WEB_FETCH_FAILED`); a
- * repository without a readable README yields `undefined`.
- */
-
 import { Error2, ErrorCodes } from '#/errors';
 
 import { engineFetch, type EngineHttpResponse } from '../engine-http';

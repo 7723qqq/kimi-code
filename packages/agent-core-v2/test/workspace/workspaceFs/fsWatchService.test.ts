@@ -16,8 +16,6 @@ import type { FsChangeEvent } from '#/workspace/workspaceFs/fsWatch';
 import { IWorkspaceFsWatchService } from '#/workspace/workspaceFs/fsWatch';
 import { WorkspaceFsWatchService } from '#/workspace/workspaceFs/fsWatchService';
 
-// The service resolves `workspace.cwd` with the platform `path` module, so the
-// fake must agree with `resolve('/repo')` (drive-root-bound on Windows) too.
 const WORK_DIR = resolve('/repo');
 
 void WorkspaceFsWatchService;

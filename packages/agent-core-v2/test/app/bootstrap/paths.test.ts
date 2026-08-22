@@ -86,12 +86,10 @@ describe('bootstrap path helpers', () => {
     it('does not throw when the directory already exists', () => {
       dir = mkdtempSync(join(tmpdir(), 'kimi-home-'));
       ensureKimiHome(dir);
-      // second call should be a no-op
       expect(() => ensureKimiHome(dir!)).not.toThrow();
     });
 
     it('does not throw for a root-like path', () => {
-      // Should not crash for an absolute path even if unusual
       expect(() => ensureKimiHome('/tmp')).not.toThrow();
     });
   });

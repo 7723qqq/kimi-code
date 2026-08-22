@@ -1,15 +1,3 @@
-/**
- * `spill` domain — `SpillService` implementation (Session scope).
- *
- * Writes spilled artifacts through the DI-free `spillStore` mechanics under
- * the configured `[spill] root` (or the lazy 0700 private temp root), and
- * serves reads back by locator. Locators are backend-produced absolute paths;
- * `readText` refuses any locator outside the configured root so a tampered
- * locator cannot read an arbitrary file.
- *
- * Ported from deepseek-harness `spill/spill-local` (MIT).
- */
-
 import { readFile, realpath } from 'node:fs/promises';
 
 import { t } from '@moonshot-ai/kimi-i18n';
@@ -57,21 +45,15 @@ export class SpillService extends Service implements ISpillService {
     let resolvedLocator: string;
     let resolvedRoot: string;
     try {
-      // Resolve symlinks before the containment check so a planted link inside
-      // the spill root cannot be used to read an arbitrary file outside it.
       resolvedLocator = await realpath(locator);
       resolvedRoot = await realpath(root);
     } catch {
-      // Absent artifact, unreadable root, or an unresolvable locator all read
-      // as missing; the caller degrades to the inline truncated output.
       return null;
     }
     if (!isWithinRoot(resolvedLocator, resolvedRoot)) return null;
     try {
       return await readFile(resolvedLocator, 'utf8');
     } catch {
-      // Absent artifact (or an unreadable one) reads as missing; the caller
-      // degrades to the inline truncated output.
       return null;
     }
   }
@@ -81,8 +63,6 @@ function isWithinRoot(path: string, root: string): boolean {
   const normalizedPath = path.replaceAll('\\', '/').replace(/\/+$/, '');
   const normalizedRoot = root.replaceAll('\\', '/').replace(/\/+$/, '');
   if (normalizedRoot === '') return false;
-  // Windows paths are case-insensitive; compare lowercased so a drive-letter
-  // or directory-case difference does not defeat the containment guard.
   if (process.platform === 'win32') {
     const lowerPath = normalizedPath.toLowerCase();
     const lowerRoot = normalizedRoot.toLowerCase();

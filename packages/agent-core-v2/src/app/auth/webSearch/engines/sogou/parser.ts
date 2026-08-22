@@ -1,11 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Sogou SERP parser, ported from the
- * open-websearch project (`engines/sogou/sogou.js`). Extracts organic
- * results from Sogou result pages through the linkedom shim (`loadHtml`):
- * layered result selectors, jump-link URL decoding (`url` / `u` / `link`
- * query parameters), source extraction, and URL dedup.
- */
-
 import { loadHtml } from '../engine-html';
 
 export interface SogouSearchResult {

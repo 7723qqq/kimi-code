@@ -938,7 +938,6 @@ describe('GlobTool integration (real ripgrep)', () => {
 
       const result = await execute(tool, { pattern: '*.ts', path: externalDir });
 
-      // the tool normalizes search-root paths to forward slashes via pathe
       expect(result.output).toBe(extFile.split(path.sep).join('/'));
     } finally {
       await fs.rm(externalDir, { recursive: true, force: true });

@@ -413,8 +413,6 @@ export class McpConnectionManager implements McpConnectionView {
         toolCallTimeoutMs,
         envLookup: this.options.envLookup,
         oauthProvider,
-        // Serialize refresh-grant token requests (and their SDK callbacks)
-        // per credential so concurrent 401s cannot race a rotating token.
         fetch: createMcpOAuthFetch(oauthProvider, undefined),
         clientName,
       });

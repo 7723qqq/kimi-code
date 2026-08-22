@@ -214,12 +214,10 @@ describe('PlanModeService dynamic injection cadence', () => {
 
     await injectDynamic(injector);
     appendAssistantTurn(ctx, context, 'assistant one');
-    // One assistant turn keeps the sparse reminder suppressed
     await injectDynamic(injector);
 
     expect(planReminderMessages(context)).toHaveLength(1);
 
-    // Two total assistant turns triggers the sparse reminder
     appendAssistantTurn(ctx, context, 'assistant two');
     await injectDynamic(injector);
 
@@ -235,7 +233,6 @@ describe('PlanModeService dynamic injection cadence', () => {
 
     await injectDynamic(injector);
 
-    // Should still inject the full reminder because the plan is active
     const text = lastPlanReminder(context);
     expect(text).toContain('Plan mode is active');
   });

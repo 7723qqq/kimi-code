@@ -1,8 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — shared engine types for the ported
- * open-websearch engines.
- */
-
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 
 export interface SearchEngineOptions {

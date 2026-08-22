@@ -1,8 +1,3 @@
-/**
- * File checkpoint tests: pre-write capture, undo restore, conflict
- * detection (ported from Reasonix's checkpoint contract, trimmed).
- */
-
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -74,7 +69,6 @@ describe('file checkpoints', () => {
     await ctx.untilTurnEnd();
     expect(await readFile(join(workDir, 'a.txt'), 'utf8')).toBe('modified');
 
-    // Undo the turn: the file must come back to its preimage.
     await ctx.rpc.undoHistory({ count: 1 });
     expect(await readFile(join(workDir, 'a.txt'), 'utf8')).toBe('original');
   });
@@ -90,7 +84,6 @@ describe('file checkpoints', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'modify b.txt' }] });
     await ctx.untilTurnEnd();
 
-    // Simulate a manual edit after the turn: restore must not clobber it.
     await writeFile(join(workDir, 'b.txt'), 'manual edit', 'utf8');
     const restored = new Promise<unknown>((resolve) => {
       const bus = ctx.get(IEventBus);
@@ -112,7 +105,6 @@ describe('file checkpoints', () => {
     ctx.get(IAgentToolRegistryService).register(writeTool);
     ctx.get(IAgentProfileService).update({ activeToolNames: ['FileWrite'] });
 
-    // The file did not exist before the write; after undo it must be gone.
     ctx.mockNextResponse({ type: 'text', text: 'writing' }, writeCall('new.txt', 'created'));
     ctx.mockNextResponse({ type: 'text', text: 'done' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'create new.txt' }] });
@@ -126,8 +118,6 @@ describe('file checkpoints', () => {
   it('reports a conflict instead of deleting when the preimage capture failed for a non-ENOENT reason', async () => {
     await writeFile(join(workDir, 'c.txt'), 'user data', 'utf8');
     const target = join(workDir, 'c.txt');
-    // stat fails with a non-ENOENT error for the target path, so the capture
-    // cannot know whether the preimage existed — undo must not delete the file.
     const real = new HostFileSystem();
     const hostFs = new Proxy(real, {
       get(targetFs, prop, receiver) {

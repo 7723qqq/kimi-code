@@ -1,25 +1,3 @@
-/**
- * `tools` domain — built-in GitHub tools (table-driven, v2 port).
- *
- * Thin, table-driven tool definitions over the TypeScript GitHub transport
- * (`githubRequest`). Each spec declares an LLM-facing tool: zod schema →
- * JSON-schema, the endpoint (method + path + query/body builders), and how to
- * format the response. Adding a tool = appending one entry to `GITHUB_SPECS`.
- *
- * Auth: config `[github] token` first (mirrors v1's
- * `kimiConfig.experimental.github_token`), then `GITHUB_TOKEN` / `GH_TOKEN`
- * env (resolved in the transport). When unset, the tool returns a helpful
- * error at call time. Registration is gated by the `github_tools` experimental
- * flag (same id as v1) through the contribution `when` predicate. Read-only
- * tools are listed in `GITHUB_READONLY_TOOL_NAMES` and joined into the
- * default-tool-approve policy so they run without a prompt; mutating tools are
- * excluded and therefore prompt for approval in non-auto permission modes.
- *
- * Each tool is registered via `registerAgentToolService(...)` at module load —
- * the same "import = register" pattern used by every agent tool — with one
- * Agent-scope service per tool name. Bound at Agent scope.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -42,14 +20,10 @@ import type { IGitHubTool } from './github';
 import { type GitHubToolSpec } from './github';
 import { githubRequest, type GitHubRequestOptions } from './github-request';
 
-// ── Reusable schema fragments ────────────────────────────────────────────────
-
 const owner = z.string().min(1).describe('Repository owner (user or organization login).');
 const repo = z.string().min(1).describe('Repository name.');
 const perPage = z.number().int().min(1).max(100).optional().describe('Results per page (1–100).');
 const page = z.number().int().min(1).optional().describe('Page number (1-based).');
-
-// ── Tool base class ──────────────────────────────────────────────────────────
 
 export interface GitHubToolDeps {
   readonly config: IConfigService;
@@ -161,11 +135,8 @@ export function makeGitHubToolCtor<Input extends z.ZodTypeAny>(
 
 const repoBase = (a: { owner: string; repo: string }): string => `${a.owner}/${a.repo}`;
 
-// ── Tool specs ───────────────────────────────────────────────────────────────
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
-  // ── Repositories ──────────────────────────────────────────────────────
   {
     name: 'GitHubGetRepo',
     description: 'Get metadata for a repository (description, default branch, stars, visibility).',
@@ -257,7 +228,6 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
     subject: repoBase,
   },
 
-  // ── Issues ────────────────────────────────────────────────────────────
   {
     name: 'GitHubListIssues',
     description:
@@ -356,7 +326,6 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
     subject: repoBase,
   },
 
-  // ── Pull requests ───────────────────────────────────────────────────────
   {
     name: 'GitHubListPRs',
     description: 'List pull requests in a repository.',
@@ -504,7 +473,6 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
     subject: repoBase,
   },
 
-  // ── Search ────────────────────────────────────────────────────────────
   {
     name: 'GitHubSearchCode',
     description:
@@ -546,7 +514,6 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
     subject: (a) => a.q,
   },
 
-  // ── Actions (read-only) ───────────────────────────────────────────────
   {
     name: 'GitHubListWorkflowRuns',
     description: 'List GitHub Actions workflow runs for a repository.',
@@ -575,7 +542,6 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
     subject: repoBase,
   },
 
-  // ── Releases ──────────────────────────────────────────────────────────
   {
     name: 'GitHubListReleases',
     description: 'List releases for a repository.',
@@ -594,7 +560,6 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
     subject: repoBase,
   },
 
-  // ── Viewer ────────────────────────────────────────────────────────────
   {
     name: 'GitHubGetMe',
     description: 'Get the authenticated user (verifies the configured token).',
@@ -618,8 +583,6 @@ export const GITHUB_READONLY_TOOL_NAMES: readonly string[] = GITHUB_SPECS.filter
 export const GITHUB_MUTATING_TOOL_NAMES: readonly string[] = GITHUB_SPECS.filter(
   (spec) => spec.mutating === true,
 ).map((spec) => spec.name);
-
-// ── Registration ─────────────────────────────────────────────────────────────
 
 for (const spec of GITHUB_SPECS) {
   const id = createDecorator<IGitHubTool>(`gitHubTool:${spec.name}`);

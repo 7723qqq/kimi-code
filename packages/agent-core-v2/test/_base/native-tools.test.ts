@@ -1,15 +1,3 @@
-/**
- * Failure-class semantics of the native-tools wrappers:
- *
- *   1. Module unavailable → wrappers return `undefined` (designed fallback).
- *   2. Native call throws at the napi boundary → reported to stderr, and the
- *      tool-shaped wrappers return a final error verdict (never re-run in TS).
- *   3. Native returns an error field → caller owns the verdict.
- *
- * The addon is loaded through `createRequire` (CJS), which vi.mock cannot
- * intercept directly — so `node:module` itself is mocked and the require
- * callback is driven per-test.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { tryNativeEscapeXml, tryNativeListDirectory, tryNativeRead } from '#/_base/native-tools';
@@ -57,7 +45,6 @@ describe('native-tools failure classes', () => {
     expect(result?.error).toContain('boom');
     expect(result?.errorKind).toBe('native_error');
     expect(result?.content).toBe('');
-    // The failure is reported, not silent.
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('[native-tools]'));
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('nativeRead'));
   });
@@ -81,8 +68,6 @@ describe('native-tools failure classes', () => {
   });
 
   it('returns undefined when the module cannot be loaded (designed fallback)', async () => {
-    // Fresh module instance: the module-load cache is process-global and was
-    // already primed by the tests above.
     vi.resetModules();
     const { tryNativeEscapeXml: freshEscape, tryNativeRead: freshRead } =
       await import('#/_base/native-tools');
@@ -91,7 +76,6 @@ describe('native-tools failure classes', () => {
     });
     await expect(freshRead('/f')).resolves.toBeUndefined();
     expect(freshEscape('<')).toBeUndefined();
-    // A missing module is not a native failure — no stderr noise.
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
@@ -102,19 +86,15 @@ describe('native-tools failure classes', () => {
   });
 
   it('KIMI_NATIVE_TOOLS_FORCE_JS forces the TS path even when the addon loads', async () => {
-    // The switch is checked before the module cache, so it wins even after
-    // a successful load.
     process.env['KIMI_NATIVE_TOOLS_FORCE_JS'] = '1';
     try {
       nativeModule.nativeRead.mockResolvedValue({ content: 'native', lineCount: 1 });
       await expect(tryNativeRead('/f')).resolves.toBeUndefined();
       expect(tryNativeEscapeXml('<')).toBeUndefined();
-      // Forcing the TS path is not a native failure — no stderr noise.
       expect(stderrSpy).not.toHaveBeenCalled();
     } finally {
       delete process.env['KIMI_NATIVE_TOOLS_FORCE_JS'];
     }
-    // Back to the native path once the switch is gone.
     await expect(tryNativeRead('/f')).resolves.toEqual({ content: 'native', lineCount: 1 });
   });
 });

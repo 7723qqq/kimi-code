@@ -1,10 +1,3 @@
-/**
- * Scenario: the `session_query` tool — model-facing search and lineage.
- *
- * Exercises the per-operation argument validation, filter construction, the
- * three operations against a stubbed query service, and the text rendering.
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
 import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -175,7 +168,6 @@ describe('SessionQueryTool session_search', () => {
     expect(result.output).toContain('Session search results (2):');
     expect(result.output).toContain('sess-a');
     expect(result.output).toContain('Snippet: token match here');
-    // The caller's cwd is enforced.
     const calls = searchSessions.mock.calls as unknown as [unknown?][];
     const request = calls[0]?.[0] as
       | { sessionFilters: readonly { kind: string; values: readonly (string | null)[] }[] }

@@ -1,12 +1,3 @@
-/**
- * `spill` domain — DI-free storage mechanics for the local spill backend:
- * private root selection, safe-name derivation, path-traversal protection,
- * and the exclusive owner-only write. Kept out of the service class so the
- * filesystem behavior is unit-testable without a session context.
- *
- * Ported from deepseek-harness `spill/spill-local/src/store.ts` (MIT).
- */
-
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';

@@ -1,15 +1,3 @@
-/**
- * `hostEnvironment` domain — shell preference config section.
- *
- * Owns the `[shell]` configuration section: `preference` selects which shell
- * the Bash tool spawns on Windows. `auto` (the default) keeps the probe
- * priority (KIMI_SHELL_PATH → pwsh → powershell → Git Bash → cmd); an
- * explicit value pins the shell regardless of what the probe would pick.
- * `KIMI_SHELL_PATH` still wins over the config when both are set.
- *
- * Self-registered at module load via `registerConfigSection`.
- */
-
 import { z } from 'zod';
 
 import { registerConfigSection } from '#/app/config/configSectionContributions';

@@ -118,7 +118,6 @@ describe('MCP OAuth credential identity', () => {
       hasRefreshToken: false,
     });
 
-    // An expired grant stamped by `saveTokens` with `obtained_at` in the past.
     const expiredKey = `${mcpOAuthStoreKey('linear', 'https://b.example.com/mcp')}-tokens.json`;
     await store.write(expiredKey, {
       access_token: 'expired-token',

@@ -1,17 +1,3 @@
-/**
- * `codeRuntime` domain — `RunCodeTool` implementation (the `run_code` tool).
- *
- * The LLM-facing wrapper over the code executor: translates the tool args
- * into a worker-thread run, renders the captured logs and completion value
- * (or the failure) as the tool result, and honors the caller's abort signal.
- * The worker thread is a soft isolation boundary, not a security sandbox —
- * model-written code runs with the same trust level as a Bash command.
- *
- * Registered through the `codeRuntime` Feature unit's `contributeTool`
- * (`codeRuntimeFeature.ts`) — the "import = register" feature pattern.
- * Bound at Agent scope.
- */
-
 import { t } from '@moonshot-ai/kimi-i18n';
 
 import { IConfigService } from '#/app/config/config';

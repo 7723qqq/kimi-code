@@ -1,22 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — keyless multi-engine `WebSearchProvider`
- * fallback, ported from the open-websearch project.
- *
- * Provides `WebSearch` with an always-available backend when no Moonshot
- * search service is configured: the same engine set as open-websearch
- * (DuckDuckGo, Bing, Baidu, Sogou, Startpage, GitHub, CSDN, Juejin, LinuxDo,
- * Zhihu, Exa, Brave) plus a generic web-content fetcher. Requests go through
- * the undici shim (`engines/engine-http`) and HTML is parsed with linkedom
- * (`engines/engine-html`); the playwright fallback of open-websearch is not
- * ported (request-mode scraping only).
- *
- * Engine selection: `KIMI_CODE_SEARCH_ENGINE` (default `duckduckgo`) and
- * `KIMI_CODE_ALLOWED_SEARCH_ENGINES` (comma-separated allowlist). The primary
- * engine runs first; when it returns nothing, the remaining allowed engines
- * are tried in order as fallbacks. `KIMI_CODE_SEARCH_RESULTS` caps results
- * (default 10).
- */
-
 import type { WebSearchProvider, WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -108,8 +89,6 @@ export class LocalWebSearchProvider implements WebSearchProvider {
         const results = await executor(query, this.limit, { signal, fetchImpl: this.fetchImpl });
         if (results.length > 0) return results;
       } catch (error) {
-        // Abort is a caller decision, not an engine failure: propagate it
-        // immediately instead of falling through to the remaining engines.
         if (signal?.aborted === true || (error instanceof Error && error.name === 'AbortError')) {
           throw error;
         }

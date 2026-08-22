@@ -1,13 +1,3 @@
-/**
- * `codeRuntime` domain — `IRunCodeTool` contract (the `run_code` tool).
- *
- * The model-facing surface of the Code Mode capability: runs one
- * model-written TypeScript/JavaScript program in an isolated worker thread
- * and reports its console output, completion value, or failure. The public
- * input schema, the tool DI decorator, and the runtime result contract.
- * Bound at Agent scope.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';

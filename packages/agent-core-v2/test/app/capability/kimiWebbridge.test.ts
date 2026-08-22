@@ -419,8 +419,6 @@ describe('kimi-webbridge entry', () => {
 
     const detected = await entry.detect();
     if (process.platform === 'win32') {
-      // Windows has no POSIX executable bit, so X_OK always succeeds and the
-      // leftover binary reads as a usable install.
       expect(detected.steps.find((step) => step.id === 'daemon-binary')).toEqual({
         id: 'daemon-binary',
         state: 'ok',

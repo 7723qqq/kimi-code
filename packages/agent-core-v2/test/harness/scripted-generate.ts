@@ -59,9 +59,6 @@ export function createScriptedGenerate() {
 
     const input = normalizeGenerateInput({
       systemPrompt,
-      // Mirror kosong generate(): deferred tools are stripped before the
-      // provider builds the request, so the recorded "wire" tools must not
-      // contain them either.
       tools: tools
         .filter((tool) => tool.deferred !== true)
         .map(({ name, description, parameters }) => ({
@@ -90,8 +87,6 @@ export function createScriptedGenerate() {
     const inferredFinishReason: FinishReason = toolCalls.length > 0 ? 'tool_calls' : 'completed';
     const finishReason = response.finishReason ?? inferredFinishReason;
     const traceId = response.traceId ?? null;
-    // Mirror kosong generate(): the trace id callback fires before the stream
-    // is drained, as soon as the response headers arrive.
     options?.onTraceId?.(traceId);
     return {
       id: `mock-${String(calls.length)}`,

@@ -1,13 +1,3 @@
-/**
- * `tools` domain — GitHub tool contract.
- *
- * Defines the `IGitHubTool` service interface implemented by every built-in
- * GitHub REST tool, and the `GitHubToolSpec` table shape that drives the tool
- * factory in `github-tools.ts`. A spec declares the LLM-facing zod schema, the
- * endpoint (method + path + query/body builders), and the approval-rule
- * subject. No scoped service.
- */
-
 import type { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -18,9 +8,6 @@ export interface GitHubToolSpec<Input extends z.ZodTypeAny = z.ZodTypeAny> {
   readonly description: string;
   readonly schema: Input;
   readonly method: string;
-  // The table is an array of mixed schemas, so the builders receive the
-  // inferred input (opaque in the shared-array case) and re-narrow it via the
-  // schema's `safeParse` in the base class.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly path: (args: z.infer<Input>) => string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

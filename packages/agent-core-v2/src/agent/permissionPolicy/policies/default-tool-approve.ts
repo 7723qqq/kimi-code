@@ -26,8 +26,6 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'SetGoalBudget',
   'UpdateGoal',
   'select_tools',
-  // Read-only GitHub tools (no remote side effects). Mutating GitHub tools are
-  // intentionally excluded so they still require approval.
   ...GITHUB_READONLY_TOOL_NAMES,
 ]);
 

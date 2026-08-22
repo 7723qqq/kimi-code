@@ -1,11 +1,3 @@
-/**
- * Scenario: the `codeRuntime` capability — worker-thread program execution.
- *
- * Exercises the real worker: `runCodeInWorker` runs actual eval-mode worker
- * threads, and `RunCodeTool` is instantiated directly (it has no injected
- * dependencies). Timeout tests use the real clock with a small budget.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import type { IConfigService } from '#/app/config/config';
@@ -85,7 +77,6 @@ describe('runCodeInWorker', () => {
     });
     expect(outcome.error?.kind).toBe('worker-exit');
     expect(outcome.error?.message).toContain('exit');
-    // Logs emitted before the exit are still reported.
     expect(outcome.logs).toContain('bye');
   });
 

@@ -1,13 +1,3 @@
-/**
- * `lsp` domain — `ILspTool` contract (the `lsp` tool).
- *
- * Model-facing semantic navigation tool: runs one of four LSP operations
- * (go-to-definition, find-references, go-to-implementation, hover) at a
- * position in a file. Positions are one-based UTF-16 on the wire (matching
- * how editors display them); the tool converts to the zero-based protocol
- * positions before querying. Bound at Agent scope.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';

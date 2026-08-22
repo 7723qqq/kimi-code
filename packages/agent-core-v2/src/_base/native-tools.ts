@@ -1,53 +1,18 @@
-/**
- * Lazy-loaded bindings to the Rust native tools (`@moonshot-ai/kimi-native-tools`).
- *
- * This mirrors the pattern in `@moonshot-ai/agent-core`
- * (`tools/builtin/native-tools.ts`) but is adapted for this package's ESM
- * context: instead of a top-level `require`, we derive a CommonJS `require`
- * via `module.createRequire` so the native module can be loaded
- * synchronously — the leaf helpers below (escape / tokens / name sanitize)
- * are intentionally synchronous to keep their call sites unchanged.
- *
- * Everything here is best-effort with three distinct failure classes:
- *
- *   1. **Module unavailable** — the addon is not built / fails to load /
- *      the function is missing (version skew). Wrappers return `undefined`
- *      and the caller's TypeScript fallback runs. This is the designed
- *      degradation path (e.g. dev checkouts without a built addon).
- *   2. **Native call threw** — the napi boundary itself errored (argument
- *      serialization, unexpected throw from Rust). These are *not* treated
- *      as "module missing": the failure is reported to stderr, and the
- *      tool-shaped wrappers (read/write/edit/grep/fetch/search/list-dir)
- *      return an error verdict that is final, so a native bug is never
- *      silently re-run through the TS implementation.
- *   3. **Native returned an error field** — a normal native error result;
- *      the caller owns the verdict (same convention as class 2).
- *
- * When the module IS built, napi-rs exposes the Rust `snake_case` functions
- * as `camelCase` JS identifiers (e.g. `native_escape_xml` → `nativeEscapeXml`).
- */
 import { createRequire } from 'node:module';
 
 const requireNative = createRequire(import.meta.url);
 
-// Three-state cache: undefined = not tried, null = tried & failed, object = loaded.
 let nativeModule: Record<string, unknown> | null | undefined;
 
-/** Report a native call that threw at the napi boundary (never silent). */
 function reportNativeFailure(name: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   try {
     process.stderr.write(`[native-tools] native ${name} threw: ${message}\n`);
   } catch {
-    // stderr itself failed — nothing sensible left to do.
   }
 }
 
 function getNativeModule(): Record<string, unknown> | undefined {
-  // Test switch: force the TypeScript fallback path for every wrapper. Lets
-  // parity suites (native vs TS on the same inputs) and golden-vector runs
-  // exercise both implementations, and gives developers a way to compare
-  // behavior without uninstalling the addon.
   if (process.env['KIMI_NATIVE_TOOLS_FORCE_JS']) return undefined;
   if (nativeModule === null) return undefined;
   if (nativeModule !== undefined) return nativeModule;
@@ -67,14 +32,6 @@ function getNativeFn(name: string): ((...args: unknown[]) => unknown) | undefine
   return typeof fn === 'function' ? (fn as (...args: unknown[]) => unknown) : undefined;
 }
 
-/**
- * Call a synchronous native function.
- *
- * Returns `undefined` when the module is unavailable (designed fallback).
- * When the call itself throws, the failure is reported to stderr and
- * `onThrown` (when provided) builds the caller's error verdict — a thrown
- * native call is never silently treated as "module missing".
- */
 function callNativeSync<T>(
   name: string,
   args: unknown[],
@@ -92,11 +49,6 @@ function callNativeSync<T>(
   }
 }
 
-/**
- * Call an async native function.
- *
- * Same failure-class semantics as `callNativeSync`.
- */
 async function callNativeAsync<T>(
   name: string,
   args: unknown[],
@@ -114,7 +66,6 @@ async function callNativeAsync<T>(
   }
 }
 
-// ── XML / HTML escaping ─────────────────────────────────────────────
 export function tryNativeEscapeXml(input: string): string | undefined {
   return callNativeSync<string>('nativeEscapeXml', [input]);
 }
@@ -124,8 +75,6 @@ export function tryNativeEscapeXmlAttr(input: string): string | undefined {
 export function tryNativeEscapeXmlTags(input: string): string | undefined {
   return callNativeSync<string>('nativeEscapeXmlTags', [input]);
 }
-
-// ── File Read (native fast-path) ─────────────────────────────────────
 
 export interface NativeReadResult {
   readonly content: string;
@@ -156,8 +105,6 @@ export function tryNativeRead(
     errorKind: 'native_error',
   }));
 }
-
-// ── File Write (native fast-path) ────────────────────────────────────
 
 export interface NativeWriteResult {
   readonly bytesWritten: number;
@@ -194,7 +141,6 @@ export function tryNativeWrite(
   );
 }
 
-// ── MCP tool-name sanitization ──────────────────────────────────────
 export function tryNativeSanitizeMcpNamePart(part: string): string | undefined {
   return callNativeSync<string>('nativeSanitizeMcpNamePart', [part]);
 }
@@ -205,15 +151,6 @@ export function tryNativeQualifyMcpToolName(
   return callNativeSync<string>('nativeQualifyMcpToolName', [serverName, toolName]);
 }
 
-// ── Image compression (async; wired into image-compress.ts) ────────
-// The Rust codec in `kimi-native-tools` (`image_compress.rs`) applies EXIF
-// orientation on decode (see `decode_with_orientation`), so its reported
-// dimensions and crop regions live in the same display (EXIF-rotated) space as
-// jimp. It is the primary codec in `image-compress.ts`; when it is unavailable
-// the caller falls back to the jimp pipeline (which mirrors the `image` crate's
-// strategy: PNG ladder first for lossless inputs, then a JPEG quality ladder
-// with the same fallback edges).
-// See rust-migration-analysis.md §6.5.
 export interface NativeCompressImageConfig {
   readonly maxEdge: number;
   readonly byteBudget: number;
@@ -257,7 +194,6 @@ export async function tryNativeCompressImage(
   return result ?? undefined;
 }
 
-// ── Glob matching (sync; reused by sessionFs fsSearch) ────────────
 /**
  * Try the Rust native glob-set matcher. Returns `undefined` when the native
  * module is unavailable or the call fails, so the caller's `globToRegExp`
@@ -270,16 +206,6 @@ export function tryNativeGlobMatchesAny(
 ): boolean | undefined {
   return callNativeSync<boolean>('nativeGlobMatchesAny', [[...globs], path]);
 }
-
-// ── Compaction (sync; wired into strategy.ts) ───────────────────────
-// The Rust `compaction.rs` is a line-for-line port of the TS
-// `DefaultCompactionStrategy.computeCompactCount` /
-// `reduceCompactOnOverflow`. Both sides use the same token estimator
-// (`nativeEstimateTokens`, wired above), and the split-safety guards
-// (`canSplitAfter` / `prefixEndsWithOpenToolExchange`) are identical.
-//
-// napi-rs serialises Rust struct fields as camelCase (e.g.
-// `tool_calls_count` → `toolCallsCount`, `max_size` → `maxSize`).
 
 /** Lightweight projection of a Message for the compaction algorithm. */
 export interface NativeCompactionMessageMeta {
@@ -334,7 +260,6 @@ export function tryNativeReduceCompactOnOverflow(
   return callNativeSync<number>('nativeReduceCompactOnOverflow', [[...messages], config]);
 }
 
-// ── Image cropping (async; reused by image-compress.ts) ─────────────
 export interface NativeCropImageConfig {
   readonly maxEdge: number;
   readonly byteBudget: number;
@@ -452,10 +377,6 @@ export function tryNativeDetectFileType(
   return undefined;
 }
 
-// ============================================================================
-// Goal — state machine, accounting, steering
-// ============================================================================
-
 /** Validate a goal objective. Returns error message on failure, or empty string on success. */
 export function tryNativeGoalValidateObjective(objective: string): string | undefined {
   return callNativeSync<string>('nativeGoalValidateObjective', [objective]);
@@ -529,10 +450,6 @@ export function tryNativeGoalRenderObjectiveUpdated(
   ]);
 }
 
-// ============================================================================
-// FetchUrl — HTTP fetch with SSRF protection and HTML extraction
-// ============================================================================
-
 export interface NativeFetchUrlResult {
   readonly content: string;
   readonly kind: 'passthrough' | 'extracted';
@@ -561,10 +478,6 @@ export function tryNativeFetchUrl(
   );
 }
 
-// ============================================================================
-// WebSearch — DuckDuckGo HTML scraping
-// ============================================================================
-
 export interface NativeWebSearchEntry {
   readonly title: string;
   readonly url: string;
@@ -592,10 +505,6 @@ export function tryNativeWebSearch(
     (message) => ({ results: [], error: `native search failed: ${message}` }),
   );
 }
-
-// ============================================================================
-// Bash — async process lifecycle (spawn / stream / wait / kill)
-// ============================================================================
 
 export interface NativeBashSpawnConfig {
   /** Full command line: shell executable + flags + script. */
@@ -679,10 +588,6 @@ export function tryNativeBashDispose(id: number): boolean | undefined {
   return callNativeSync<boolean>('nativeBashDispose', [id]);
 }
 
-// ============================================================================
-// Grep — native primary path (full ripgrep-compatible engine)
-// ============================================================================
-
 export interface NativeGrepResult {
   readonly content: string;
   readonly error?: string;
@@ -755,10 +660,6 @@ export function tryNativeGrep(
   );
 }
 
-// ============================================================================
-// Structured Grep — native fallback when ripgrep is not on PATH
-// ============================================================================
-
 export interface NativeGrepStructuredMatch {
   readonly line: number;
   readonly col: number;
@@ -825,10 +726,6 @@ export function tryNativeGrepStructured(
     }),
   );
 }
-// ============================================================================
-// Edit (native fast-path)
-// ============================================================================
-
 export interface NativeEditResult {
   readonly success: boolean;
   readonly error?: string;
@@ -853,10 +750,6 @@ export function tryNativeEdit(
     (message) => ({ success: false, replacements: 0, error: `native edit failed: ${message}` }),
   );
 }
-
-// ============================================================================
-// Path access (native fast-path)
-// ============================================================================
 
 export type NativePathClass = 'posix' | 'win32';
 
@@ -899,17 +792,9 @@ export function tryNativePathIsWithinWorkspace(
   return callNativeSync<boolean>('nativePathIsWithinWorkspace', [candidate, [...roots], pathClass]);
 }
 
-// ============================================================================
-// Sensitive file detection (native fast-path)
-// ============================================================================
-
 export function tryNativeIsSensitiveFile(path: string): boolean | undefined {
   return callNativeSync<boolean>('nativeIsSensitiveFile', [path]);
 }
-
-// ============================================================================
-// Permission pattern parsing (native fast-path)
-// ============================================================================
 
 export interface NativePermissionPattern {
   readonly toolName: string;
@@ -926,15 +811,11 @@ export function tryNativeParsePermissionPattern(
     if (typeof parsed.toolName === 'string') {
       return { toolName: parsed.toolName, argPattern: parsed.argPattern ?? null };
     }
-    return undefined; // "ERROR: ..." string — caller falls back to TS
+    return undefined;
   } catch {
     return undefined;
   }
 }
-
-// ============================================================================
-// Compaction — split safety + user message selection
-// ============================================================================
 
 export interface NativeCompactionUserMessageMeta {
   readonly role: string;
@@ -963,20 +844,12 @@ export function tryNativeSelectCompactionUserMessages(
   ]);
 }
 
-// ============================================================================
-// Token truncation from end
-// ============================================================================
-
 export function tryNativeTruncateTextToTokensFromEnd(
   text: string,
   maxTokens: number,
 ): string | undefined {
   return callNativeSync<string>('nativeTruncateTextToTokensFromEnd', [text, maxTokens]);
 }
-
-// ============================================================================
-// Tool output truncation (ToolResultBuilder.write core)
-// ============================================================================
 
 export interface NativeToolOutputChunkResult {
   readonly output: string;
@@ -992,9 +865,6 @@ export function tryNativeWriteToolOutputChunk(
   maxLineLength: number | null,
   alreadyTruncated: boolean,
 ): NativeToolOutputChunkResult | undefined {
-  // The TS path treats non-finite budgets as "no limit" (Infinity never
-  // truncates). napi u32 cannot represent them, so fall back to TS instead
-  // of corrupting the budget at the boundary.
   if (!Number.isFinite(maxChars)) return undefined;
   if (maxLineLength !== null && !Number.isFinite(maxLineLength)) return undefined;
   return callNativeSync<NativeToolOutputChunkResult>('nativeWriteToolOutputChunk', [
@@ -1005,10 +875,6 @@ export function tryNativeWriteToolOutputChunk(
     alreadyTruncated,
   ]);
 }
-
-// ============================================================================
-// List directory (native fast-path)
-// ============================================================================
 
 export interface NativeListDirectoryOptions {
   readonly path?: string;
@@ -1029,10 +895,6 @@ export function tryNativeListDirectory(
     (message) => ({ output: '', error: `native list-directory failed: ${message}` }),
   );
 }
-
-// ============================================================================
-// Tool access conflict detection
-// ============================================================================
 
 export interface NativeToolAccessMeta {
   readonly kind: string;

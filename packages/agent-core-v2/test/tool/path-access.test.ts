@@ -117,8 +117,6 @@ describe('isSensitiveFile', () => {
   });
 
   it('does not flag credentials with extra suffixes like (backup) in the path name', () => {
-    // The sensitive check looks for `/.aws/credentials` suffix; extra text
-    // after `credentials` that changes the basename does not match.
     expect(isSensitiveFile('/home/user/.aws/credentials_backup')).toBe(true);
     expect(isSensitiveFile('/home/user/.aws/credentials.bak')).toBe(true);
   });
@@ -169,7 +167,7 @@ describe('extendWorkspaceWithSkillRoots', () => {
   it('handles a large number of skill roots without performance issues', () => {
     const manyRoots = Array.from({ length: 100 }, (_, i) => `/skills/root-${String(i)}`);
     const result = extendWorkspaceWithSkillRoots(workspace, manyRoots);
-    expect(result.additionalDirs).toHaveLength(100 + 1); // original + 100 new
+    expect(result.additionalDirs).toHaveLength(100 + 1);
     expect(result.additionalDirs[0]).toBe('/extra');
   });
 
@@ -185,7 +183,6 @@ describe('extendWorkspaceWithSkillRoots', () => {
       { workspaceDir: '/repo/sub', additionalDirs: [] },
       ['/repo'],
     );
-    // The function only filters roots inside the workspace dir, not parents.
     expect(result.additionalDirs).toEqual(['/repo']);
   });
 

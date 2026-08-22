@@ -42,7 +42,6 @@ export class DiscussionContext {
 
   addEntry(speaker: string, agentId: string, content: string, round: number): void {
     this.entries.push({ speaker, agentId, content, round });
-    // Auto-detect cross-references from content
     this.detectCrossReferences(speaker, content, round);
   }
 
@@ -75,8 +74,6 @@ export class DiscussionContext {
     return this.entries.length;
   }
 
-  // ── Debate-specific features ──
-
   setPhase(phase: DebatePhase): void {
     this.currentPhase = phase;
   }
@@ -92,7 +89,6 @@ export class DiscussionContext {
     keyPoints: readonly string[],
     round: number,
   ): void {
-    // Update or append — latest position per speaker is authoritative
     const existing = this.positions.findIndex((p) => p.speaker === speaker);
     const record: PositionRecord = { speaker, stance, keyPoints, round };
     if (existing >= 0) {
@@ -165,12 +161,10 @@ export class DiscussionContext {
    * Looks for patterns like "@Speaker", "as Speaker said", "Speaker's point".
    */
   private detectCrossReferences(speaker: string, content: string, round: number): void {
-    // Match known speakers mentioned in the content
     const knownSpeakers = new Set(this.entries.map((e) => e.speaker));
     for (const target of knownSpeakers) {
       if (target === speaker) continue;
 
-      // Check various reference patterns
       const refPatterns = [
         new RegExp(`@${escapeRegex(target)}`, 'i'),
         new RegExp(`as ${escapeRegex(target)} (said|mentioned|argued|pointed out)`, 'i'),
@@ -182,7 +176,6 @@ export class DiscussionContext {
       const found = refPatterns.some((p) => p.test(content));
       if (!found) continue;
 
-      // Determine stance
       let stance: CrossReference['stance'] = 'clarify';
       if (
         /\bagree\b/i.test(content) ||

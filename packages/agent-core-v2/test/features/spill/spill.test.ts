@@ -1,11 +1,3 @@
-/**
- * Scenario: the `spill` capability — tool-output spill storage.
- *
- * Exercises the DI-free store mechanics (safe-name encoding, exclusive
- * owner-only writes, session-scoped directories) and the Session-scope
- * `SpillService` (save/read round-trip, locator escape guard).
- */
-
 import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -29,7 +21,6 @@ function scratchDir(): string {
 
 afterEach(() => {
   for (const dir of scratchDirs.splice(0)) {
-    // rmSync is not needed for the test root; the OS temp dir cleans up.
   }
 });
 
@@ -51,8 +42,6 @@ describe('spillStore encodeSegment', () => {
   it('keeps safe characters literal and escapes everything else injectively', () => {
     expect(encodeSegment('bash-output.txt')).toBe('bash-output.txt');
     expect(encodeSegment('a/b\\c')).toBe('a~002Fb~005Cc');
-    // `.`/`..` only escape as whole segments; embedded dots are harmless in
-    // one path segment (`..~002Fevil` is a single name, never a traversal).
     expect(encodeSegment('../evil')).toBe('..~002Fevil');
     expect(encodeSegment('C:\\x')).toBe('C~003A~005Cx');
   });
@@ -82,9 +71,8 @@ describe('spillStore saveTextFile', () => {
     expect(saved.bytes).toBe(11);
     const dir = sessionDir(root, 'sess-1');
     expect(saved.path.startsWith(dir)).toBe(true);
-    expect(join(dir, 'out.txt')).not.toBe(saved.path); // random prefix, never the raw name
+    expect(join(dir, 'out.txt')).not.toBe(saved.path);
     if (process.platform !== 'win32') {
-      // POSIX permission bits are not faithfully reported on Windows.
       expect(statSync(dir).mode & 0o700).toBe(0o700);
       expect(statSync(saved.path).mode & 0o600).toBe(0o600);
     }
@@ -152,8 +140,6 @@ describe('SpillService', () => {
       try {
         await symlink(outside, link);
       } catch {
-        // Symlink creation may be unavailable (e.g. Windows without privilege);
-        // the containment guard is still covered by the lexical tests above.
         return;
       }
       const service = spillService(root);

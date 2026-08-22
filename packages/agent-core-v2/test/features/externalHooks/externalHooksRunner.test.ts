@@ -307,8 +307,6 @@ describe('ExternalHooksRunnerService', () => {
     await expect(
       runner.trigger('PreToolUse', { matcherValue: 'Bash', inputData }),
     ).resolves.toEqual([]);
-    // Permission-gating hooks fail closed: a broken gate must block, not
-    // silently allow the tool call.
     await expect(
       runner.triggerBlock('PreToolUse', { matcherValue: 'Bash', inputData }),
     ).resolves.toEqual({ block: true, reason: 'broken input' });

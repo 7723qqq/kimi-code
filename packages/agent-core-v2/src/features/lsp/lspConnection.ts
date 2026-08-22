@@ -1,13 +1,3 @@
-/**
- * `lsp` domain — JSON-RPC connection over an LSP server's stdio.
- *
- * Wraps an `IProcess` with request/notify/cancel over the LSP framing,
- * correlating responses by id. Server-initiated requests are routed to a
- * handler (the stdio provider answers `workspace/configuration` statically
- * and rejects edits). A closed transport rejects every pending request with
- * `LspTransportClosedError` so the instance layer can recover by respawning.
- */
-
 import type { IProcess } from '#/session/process/processRunner';
 
 import { encodeFrame, MessageDecoder } from './framing';
@@ -140,7 +130,6 @@ export class LspConnection {
       void this.handleServerRequest(message);
       return;
     }
-    // Notifications are fire-and-forget; nothing to do.
   }
 
   private async handleServerRequest(message: LspRequestMessage): Promise<void> {

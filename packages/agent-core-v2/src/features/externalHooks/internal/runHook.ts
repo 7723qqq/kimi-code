@@ -68,7 +68,6 @@ export async function runHook(
       env: options.env,
     });
   } catch (error) {
-    // A permission hook that cannot even spawn must not silently allow.
     return options.failClosed === true
       ? blockResult(
           `Permission hook failed to spawn: ${errorMessage(error)}`,
@@ -114,8 +113,6 @@ export async function runHook(
       },
       (error) => {
         void proc.dispose();
-        // Permission hooks fail closed: an errored hook must not silently
-        // weaken the gate.
         if (options.failClosed === true) {
           settle(
             blockResult(

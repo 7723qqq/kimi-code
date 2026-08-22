@@ -1,15 +1,3 @@
-/**
- * `goal` domain (L4) — Goal Judge agent profile.
- *
- * Defines a restricted subagent profile for independent goal-completion
- * verification. The judge subagent has access to read-only tools (Bash, Read,
- * Grep) and must execute commands to verify whether the completion criterion
- * is satisfied — it cannot rely solely on transcript text.
- *
- * The profile is registered at module load and consumed by
- * `AgentGoalJudgeService` when launching a verification subagent.
- */
-
 import type { AgentProfileContext } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import type { AgentProfileInput } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
@@ -48,9 +36,7 @@ const goalJudgeProfile: AgentProfileInput = {
   name: GOAL_JUDGE_PROFILE_NAME,
   description: 'Independent goal-completion verifier with tool access',
   whenToUse: 'Internal: launched by the goal service to verify completion criteria',
-  // Only allow read-only tools
   tools: ['Bash', 'Read', 'Grep'],
-  // Explicitly block any write/modify tools
   disallowedTools: [
     'Write',
     'SearchReplace',

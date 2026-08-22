@@ -1,15 +1,3 @@
-/**
- * Scenario: cache-miss micro compaction truncates old oversized tool results
- * in the outgoing request.
- *
- * Responsibilities: assert detection gating (cache-hit skip, flag off,
- * context usage ratio), cutoff lifecycle (apply / reset / undo clamp /
- * clear / compaction zeroing), truncation boundaries (minContentTokens,
- * toolCallId, non-tool messages), telemetry, and the llmRequester wiring that
- * truncates the projected request without mutating history. Run:
- * ../../node_modules/.bin/vitest run test/agent/microCompaction/microCompactionService.test.ts
- */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -302,7 +290,6 @@ describe('AgentMicroCompactionService', () => {
     expect(textOf(messages[2])).toBe(DEFAULT_MARKER);
     expect(textOf(messages[5])).toBe('middle result two');
     expect(textOf(messages[8])).toBe('recent result three');
-    // History itself is untouched.
     expect(textOf(history[2])).toBe('old result one');
   });
 
@@ -432,7 +419,6 @@ describe('AgentMicroCompactionService', () => {
     void dispatcher.dispatch(new MicroCompactionApplied({ cutoff: 7 }));
     svc.reset(5);
     expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
-    // reset only ever shrinks the cutoff.
     svc.reset(8);
     expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
   });
@@ -456,11 +442,9 @@ describe('AgentMicroCompactionService', () => {
       'result three',
     ]);
 
-    // Undo splice: cutoff clamps down to the surviving history length.
     splice(3, 6);
     expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
 
-    // A later splice at a higher index cannot raise the cutoff again.
     splice(5, 1);
     expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
   });

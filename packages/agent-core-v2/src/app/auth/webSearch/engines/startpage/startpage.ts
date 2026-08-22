@@ -1,13 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Startpage search engine, ported from the
- * open-websearch project (`engines/startpage/startpage.js`). Request-mode
- * scraping only (the original has no playwright path): caches the `sc`
- * search token fetched from the Startpage homepage, posts form-encoded
- * queries to `/sp/search` through `engineFetch` (or the injected
- * `fetchImpl` in tests), replays the interstitial follow-up POST when
- * detected, and paginates until `limit` results are collected.
- */
-
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 

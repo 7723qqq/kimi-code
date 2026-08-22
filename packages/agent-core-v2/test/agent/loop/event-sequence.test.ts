@@ -1,12 +1,3 @@
-/**
- * `loop` domain — live event sequence and wire-record ordering.
- *
- * Ported from v1 `packages/agent-core/test/loop/events.e2e.test.ts`, removed with the v1 engine. The
- * loop must emit the documented milestone sequence for a tool-bearing turn
- * and keep transcript (`context.append_loop_event`) records ordered:
- * `step.begin` → `tool.call` → `tool.result` → `step.end`.
- */
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -20,7 +11,6 @@ function rpcEvents(ctx: TestAgentContext, event: string): Array<Record<string, u
     .map((entry) => entry.args as Record<string, unknown>);
 }
 
-/** Indexes of `[wire] context.append_loop_event` records of a given type. */
 function loopEventIndexes(ctx: TestAgentContext, type: string): number[] {
   const indexes: number[] = [];
   ctx.allEvents.forEach((entry, index) => {
@@ -60,8 +50,6 @@ describe('Agent loop — event sequences', () => {
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
     ctx.llmInputs();
 
-    // [rpc] milestone ordering: step 1 open → tool call → tool result →
-    // step 1 close → step 2 open → step 2 close.
     const order: string[] = [];
     for (const [index, entry] of ctx.allEvents.entries()) {
       if (entry.type !== '[rpc]') continue;
@@ -81,8 +69,6 @@ describe('Agent loop — event sequences', () => {
       'turn.ended',
     ]);
 
-    // [wire] transcript ordering: step.begin before tool.call before
-    // tool.result before step.end.
     const begin = loopEventIndexes(ctx, 'step.begin');
     const toolCall = loopEventIndexes(ctx, 'tool.call');
     const toolResult = loopEventIndexes(ctx, 'tool.result');

@@ -1,13 +1,3 @@
-/**
- * `sessionQuery` domain — `ISessionQueryTool` contract (the `session_query`
- * tool).
- *
- * One operation-per-call schema: `session_search` (cross-session full-text
- * search scoped to the caller's workspace), `event_search` (within-session
- * search), and `session_trace` (fork lineage). The `operationArgs` object is
- * validated against the per-operation schema at execution.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';

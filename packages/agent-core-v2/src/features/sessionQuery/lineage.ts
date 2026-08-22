@@ -1,15 +1,3 @@
-/**
- * `sessionQuery` domain — lineage tracing over a logical corpus.
- *
- * Builds the parent→children map from `parentSessionId` records and walks it
- * for one target: the ancestor chain outward from the immediate parent, and
- * the complete descendant trees rooted at the target's direct children. A
- * parent id missing from the corpus terminates the ancestor walk with
- * `complete: false`.
- *
- * Ported from deepseek-harness `session-query` lineage semantics (MIT).
- */
-
 import type { SessionLineageNode, SessionLineageTrace, SessionRecord } from './types';
 
 /**

@@ -1,11 +1,3 @@
-/**
- * `knowledge` domain (L4) — Context injection provider.
- *
- * Registers with IAgentContextInjectorService to automatically inject
- * relevant knowledge base entries as a system-reminder on each new turn.
- * Modeled after GoalInjection.
- */
-
 import { Disposable } from '#/_base/di/lifecycle';
 import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -48,7 +40,6 @@ export class KnowledgeInjection extends Disposable {
     const history = this.contextMemory.get();
     const tags: string[] = [];
 
-    // Find the last user message for keywords
     let lastUserText = '';
     for (let i = history.length - 1; i >= 0; i--) {
       const msg = history[i];
@@ -63,7 +54,6 @@ export class KnowledgeInjection extends Disposable {
       }
     }
 
-    // Extract keywords (first 200 chars, split on whitespace)
     const words = lastUserText
       .slice(0, 200)
       .replaceAll(/[`"'()[\]{}]/g, ' ')
@@ -71,12 +61,10 @@ export class KnowledgeInjection extends Disposable {
       .filter((w) => w.length > 2);
     const query = words.slice(0, 8).join(' ');
 
-    // Detect scope from mentioned file paths
     let scopePath: string | undefined;
     const pathMatch = lastUserText.match(/(?:[\w./\\-]+\.(?:ts|js|rs|vue|tsx|jsx|json|md))/);
     if (pathMatch) scopePath = pathMatch[0];
 
-    // Detect tags from file extensions mentioned
     if (lastUserText.includes('.ts') || lastUserText.includes('typescript'))
       tags.push('typescript');
     if (lastUserText.includes('.rs') || lastUserText.includes('rust')) tags.push('rust');

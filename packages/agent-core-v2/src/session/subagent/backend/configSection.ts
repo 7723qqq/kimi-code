@@ -1,14 +1,3 @@
-/**
- * `subagent` domain — registers the `subagentBackend` config section into
- * `config`.
- *
- * Declares per-backend settings for external subagent backends: the CLI
- * command/args that start each external agent, and backend-specific knobs
- * (model selection). Stays on the static import=register channel so the
- * section remains statically discoverable (config manifest generator drains
- * the module-level table). Bound at App scope.
- */
-
 import { z } from 'zod';
 
 import { registerConfigSection } from '#/app/config/configSectionContributions';

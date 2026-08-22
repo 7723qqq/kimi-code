@@ -493,12 +493,6 @@ function pluginNotFound(id: string): Error2 {
   });
 }
 
-/**
- * Refuse to remove a plugin whose (realpath) root is outside the managed
- * plugin directory — a tampered `installed.json` must not be able to delete
- * arbitrary directories. A root that no longer exists is fine (nothing to
- * delete); a root outside the managed tree is rejected.
- */
 async function assertManagedPluginRoot(root: string, kimiHomeDir: string): Promise<void> {
   const managedDir = path.join(kimiHomeDir, 'plugins', 'managed');
   let rootReal: string;

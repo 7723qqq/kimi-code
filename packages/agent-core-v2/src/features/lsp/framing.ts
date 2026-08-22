@@ -1,11 +1,3 @@
-/**
- * `lsp` domain — Content-Length JSON-RPC framing for LSP stdio transport.
- *
- * Encodes messages as `Content-Length: <bytes>\r\n\r\n<body>` frames and
- * decodes a byte stream back into complete messages, enforcing a maximum
- * frame size so a misbehaving server cannot exhaust memory.
- */
-
 import { Buffer } from 'node:buffer';
 
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024;

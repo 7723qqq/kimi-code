@@ -200,8 +200,6 @@ describe('v1 wire vocabulary', () => {
 describe('conversation-time checkpoint registration', () => {
   const CHECKPOINT_EXEMPT_STATES: ReadonlySet<string> = new Set([
     'goalForkNotice',
-    // Clamps itself through the context.spliced → micro_compaction.clamp
-    // pipeline on undo; a generic rollback would fight that fold.
     'microCompaction',
   ]);
   const CONTEXT_OWNER_STATE = 'contextMemory';

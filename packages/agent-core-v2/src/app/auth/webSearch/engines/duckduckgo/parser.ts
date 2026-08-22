@@ -1,15 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — DuckDuckGo SERP parser, ported from the
- * open-websearch project (`engines/duckduckgo/searchDuckDuckGo.js`).
- * Extracts organic results from the html.duckduckgo.com result page through
- * the linkedom shim (`loadHtml`): `div.result` items with `a.result__a`
- * title links, `.result__snippet` descriptions, `.result__url` sources, ad
- * exclusion via the `result--ad` class, and `/l/` redirect decoding through
- * the `uddg` query parameter. Also parses the `d.js` JSONP payload used by
- * the preload endpoint (`DDG.pageLayout.load('d', …)`) and validates
- * preload URLs against DDG's own `links.duckduckgo.com/d.js` endpoint.
- */
-
 import { loadHtml } from '../engine-html';
 
 export interface DuckDuckGoSearchResult {
@@ -20,9 +8,7 @@ export interface DuckDuckGoSearchResult {
   engine: 'duckduckgo';
 }
 
-/** One entry of the `d.js` JSONP payload; `t`/`u`/`a`/`i`/`sn` map to title, url, snippet, icon, site name. */
 interface DuckDuckGoJsonItem {
-  /** Present on navigation-only entries, which are skipped. */
   n?: unknown;
   t?: string;
   u?: string;
@@ -64,12 +50,6 @@ export function isTrustedDuckDuckGoPreloadUrl(value: string): boolean {
   }
 }
 
-/**
- * Resolves a result link: protocol-relative `//` URLs get `https:` and
- * DuckDuckGo `/l/` redirector links are decoded through their `uddg`
- * parameter, dropping the redirector when the target is missing or not
- * http(s).
- */
 function sanitizeDuckDuckGoUrl(rawUrl: string | null | undefined): string {
   if (rawUrl === null || rawUrl === undefined) {
     return '';
@@ -89,9 +69,7 @@ function sanitizeDuckDuckGoUrl(rawUrl: string | null | undefined): string {
         let decodedTarget = target;
         try {
           decodedTarget = decodeURIComponent(target);
-        } catch {
-          // `uddg` was already decoded by the query-string parser
-        }
+        } catch {}
         if (decodedTarget.startsWith('http://') || decodedTarget.startsWith('https://')) {
           return decodedTarget;
         }

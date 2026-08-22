@@ -211,8 +211,6 @@ export class AgentPlanService extends Service implements IAgentPlanService {
         item_count: outcome.count,
       });
     }
-    // skipped: silent. The exit reminder already nudges the model to build
-    // the list manually when conversion is not applicable.
   }
 
   async recordRevision(): Promise<void> {

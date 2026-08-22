@@ -1,14 +1,3 @@
-/**
- * `subagent` domain — the `claude-code` external subagent backend.
- *
- * Runs one Claude Code turn through the official `@anthropic-ai/claude-agent-sdk`
- * `query()` stream: the prompt is sent as a single text block, assistant text
- * is accumulated from stream events, and the run settles on the SDK's result
- * message (an `is_error` result settles as `error`). Aborting the request
- * signal aborts the SDK query; dispose closes the query and terminates the
- * CLI process. Bound at Session scope via `SubagentBackendService`.
- */
-
 import { randomUUID } from 'node:crypto';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';

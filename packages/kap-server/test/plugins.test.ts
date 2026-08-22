@@ -514,7 +514,6 @@ describe('server-v2 /api/v1 plugins', () => {
     expect(cu?.tier).toBe('official');
     expect(cu?.capabilityId).toBe('kimi-cu');
     expect(cu?.source).toBe('capability:kimi-cu');
-    // On Windows x64 the capability row renders from the kimi-cu-win entry.
     expect(cu?.displayName).toBe(
       process.platform === 'win32' ? 'Kimi Computer Use for Windows' : 'Kimi Computer Use',
     );

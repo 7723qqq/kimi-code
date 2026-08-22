@@ -1,12 +1,3 @@
-/**
- * Scenario: the `sessionQuery` capability — event filtering and full-text
- * search (stage B).
- *
- * Exercises the literal-text/metadata event filters, token-based ranking
- * with bounded snippets, cursor paging, and the wire-journal event index
- * (revision-keyed cache rebuild).
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { SessionSearchCursor } from '#/features/sessionQuery/cursor';
@@ -61,7 +52,7 @@ describe('filterSessionEvents', () => {
 
   it('rejects regex injection in text filters', () => {
     const pattern = compileSessionTextFilter('a.*b');
-    expect(pattern.test('axxxb')).toBe(false); // literal, not a wildcard
+    expect(pattern.test('axxxb')).toBe(false);
     expect(pattern.test('a.*b')).toBe(true);
   });
 });
@@ -75,7 +66,6 @@ describe('searchEventDocuments', () => {
 
   it('ranks by exact token overlap and returns bounded snippets', () => {
     const { items } = searchEventDocuments(docs, 'token');
-    // `tokens` is a distinct term; exact-token matching keeps it out.
     expect(items).toHaveLength(1);
     expect(items[0]?.snippet).toContain('token');
     expect(items[0]?.snippet.length).toBeLessThanOrEqual(2 * 40 + 10);
@@ -147,7 +137,7 @@ describe('SessionEventIndex', () => {
     const index = new SessionEventIndex(bootstrapStub as never, logStub as never, { size: () => 0 } as never);
 
     const events = await index.eventsOf('ws', 's1');
-    expect(events).toHaveLength(2); // metadata skipped
+    expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({ seq: 0, type: 'context.append_message', time: 100 });
     expect(events[0]?.text).toContain('hello world');
     expect(events[1]?.text).toContain('analyze this');

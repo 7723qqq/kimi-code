@@ -1,14 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Juejin search engine, ported from the
- * open-websearch project (`engines/juejin/juejin.js`). Request-mode only:
- * paginates the `api.juejin.cn/search_api/v1/search` JSON API through
- * `engineFetch` (or the injected `fetchImpl` in tests), strips the `<em>`
- * highlight markers from the returned title/snippet, and maps the `data`
- * array. The original has no playwright path, so nothing is skipped.
- * Network/HTTP failures throw `Error2` (`WEB_FETCH_FAILED`); API errors or
- * empty pages end the pagination loop early.
- */
-
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 

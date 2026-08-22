@@ -1,13 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — CSDN article fetcher, ported from the
- * open-websearch project (`engines/csdn/fetchCsdnArticle.js`). Request-mode
- * only: fetches the article HTML through `engineFetch` (or the injected
- * `fetchImpl` in tests) and extracts the `#content_views` body text with the
- * linkedom shim. The original cookie-retry and playwright browser fallbacks
- * are not ported. Network/HTTP failures throw `Error2`
- * (`WEB_FETCH_FAILED`); pages with no extractable content return `undefined`.
- */
-
 import { Error2, ErrorCodes } from '#/errors';
 
 import { loadHtml, type EngineElement, type EngineQueryResult } from '../engine-html';

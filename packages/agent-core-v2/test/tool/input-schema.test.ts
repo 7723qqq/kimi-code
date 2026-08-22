@@ -20,11 +20,6 @@ function collectRequired(schema: unknown, acc: string[] = []): string[] {
   return acc;
 }
 
-/**
- * `toInputJsonSchema` returns a plain `Record<string, unknown>` JSON Schema
- * node; the `properties` member is only reachable through index access and its
- * children need casting before nested reads.
- */
 function propsOf(schema: unknown): Record<string, unknown> | undefined {
   const props = (schema as Record<string, unknown> | undefined)?.['properties'];
   return typeof props === 'object' && props !== null
@@ -209,7 +204,6 @@ describe('tool input JSON Schema', () => {
       port: z.coerce.number(),
     });
     const jsonSchema = toInputJsonSchema(transformSchema);
-    // Coerce.number() still produces a number schema
     expect(propOf(jsonSchema, 'port')?.['type']).toBe('number');
   });
 

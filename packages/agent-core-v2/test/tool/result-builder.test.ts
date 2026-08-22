@@ -233,7 +233,6 @@ describe('ToolResultBuilder', () => {
     builder.write('12345678901234567\n');
     expect(builder.nChars).toBe(18);
     builder.write('12345678901234567890\n');
-    // The second line exceeds maxLineLength 20, so it's truncated
     const result = builder.ok();
     expect(result.output).toContain('12345678901234567\n');
     expect(result.output).toContain('[...truncated]');

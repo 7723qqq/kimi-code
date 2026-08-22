@@ -1,12 +1,3 @@
-/**
- * `codeRuntime` domain — the host-side worker orchestrator.
- *
- * Spawns one eval-mode worker per run (no state survives between runs),
- * streams captured log lines, races the completion against the timeout and
- * the caller's abort signal, and always settles with a structured outcome —
- * the only failures are worker-substrate deaths, reported as `worker-error`.
- */
-
 import { Worker } from 'node:worker_threads';
 
 import type { CodeRunOutcome } from './codeRuntime';
@@ -60,9 +51,6 @@ export async function runCodeInWorker(
   const maxOutputChars = options.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
   const worker = new Worker(CODE_WORKER_SOURCE, {
     eval: true,
-    // Bound the worker's heap so a runaway program cannot exhaust the host
-    // process memory before the timeout fires. The worker is a soft
-    // isolation boundary, but an OOM here would take the whole agent down.
     resourceLimits: {
       maxOldGenerationSizeMb: 256,
       maxYoungGenerationSizeMb: 64,
@@ -121,9 +109,6 @@ export async function runCodeInWorker(
       });
     };
 
-    // A program that calls process.exit() (or closes its parent port) drops
-    // the worker without a `done` message; without this the host would sit
-    // idle until the full timeout instead of reporting the exit immediately.
     const onExit = (exitCode: number | null): void => {
       if (settled) return;
       settle({

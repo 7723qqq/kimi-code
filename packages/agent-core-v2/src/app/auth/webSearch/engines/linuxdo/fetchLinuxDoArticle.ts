@@ -1,16 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — LinuxDo article fetcher, ported from the
- * open-websearch project (`engines/linuxdo/fetchLinuxDoArticle.js`).
- * Request-mode only: extracts the topic ID from a `/topic/<id>` URL, fetches
- * the Discourse topic JSON through `engineFetch` (or the injected
- * `fetchImpl` in tests), and returns the first post's `cooked` HTML as plain
- * text via the linkedom shim. The original has no playwright path, so
- * nothing is skipped. The original hardcoded `x-csrf-token` / `Cookie`
- * headers are dropped (credentials must not be committed). Network/HTTP
- * failures throw `Error2` (`WEB_FETCH_FAILED`); invalid URLs throw a plain
- * `Error`, and missing post content returns `undefined`.
- */
-
 import { Error2, ErrorCodes } from '#/errors';
 
 import { loadHtml } from '../engine-html';

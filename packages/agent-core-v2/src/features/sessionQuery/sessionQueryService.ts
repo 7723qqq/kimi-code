@@ -1,14 +1,3 @@
-/**
- * `sessionQuery` domain — `SessionQueryService`: logical-corpus resolution
- * over the session index and the live workspace session registry.
- *
- * Lists the complete logical corpus with live precedence (live ids stamp
- * `live: true`, index-known ids stamp `persisted: true`), applies validated
- * filters, and traces lineage through `custom.parent_session_id` fork
- * provenance. Bound at App scope so cross-session reads need no session
- * context.
- */
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Service } from '#/_base/di/service';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';

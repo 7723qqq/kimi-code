@@ -1,12 +1,3 @@
-/**
- * `knowledge` domain (L4) — IAgentKnowledgeService interface.
- *
- * Provides structured access to the local coding standards knowledge base.
- * The knowledge base stores project/user-level coding standards, pitfalls,
- * architecture decisions, and workflow rules that the agent consults before
- * writing code.
- */
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
 export type KnowledgeEntryStatus = 'pending' | 'confirmed' | 'rejected';

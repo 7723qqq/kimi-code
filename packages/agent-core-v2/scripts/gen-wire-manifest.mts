@@ -899,8 +899,6 @@ export async function buildWireManifest(): Promise<string> {
   const { owners, importFiles, durableTypes, classTypes } = scanEventDeclarations();
   await import('../src/index.ts');
   for (const file of importFiles) {
-    // `import()` with a bare relative path breaks on Windows (backslash
-    // separators are treated as a bare specifier) — load via a file URL.
     await import(pathToFileURL(file).href);
   }
   const { WIRE_PROTOCOL_VERSION } = (await import('#/wire/migration/migration')) as {

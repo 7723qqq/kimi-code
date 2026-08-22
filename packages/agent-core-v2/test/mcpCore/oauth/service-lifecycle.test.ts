@@ -189,8 +189,6 @@ describe('McpOAuthService lifecycle', () => {
         payload: { access_token: 'new', refresh_token: 'rt-2', token_type: 'Bearer', expires_in: 3600 },
       };
     });
-    // Expires in 30s: within the 120s ahead-of-expiry window, so the sweep
-    // fires an immediate refresh.
     seedGrant(store, 'srv', oauthServer.url, {
       access_token: 'old',
       refresh_token: 'rt-1',
@@ -371,8 +369,6 @@ describe('McpOAuthService lifecycle', () => {
     const service = new McpOAuthService({ store });
 
     const flow = service.beginAuthorization('srv', oauthServer.url);
-    // The interactive flow is in flight (callback listener up): a refresh
-    // must not reset the provider's PKCE/redirect state.
     const refresh = service.refresh('srv', oauthServer.url);
     await expect(refresh).resolves.toBeUndefined();
     await flow;

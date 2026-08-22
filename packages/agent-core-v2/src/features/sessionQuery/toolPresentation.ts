@@ -1,11 +1,3 @@
-/**
- * `sessionQuery` domain — model text rendering for the `session_query` tool.
- *
- * Ported from deepseek-harness `tool-session-query/src/presentation.ts`
- * (MIT), trimmed to the three supported operations and without the upstream
- * surface tier.
- */
-
 import type { SessionEventSearchHit, SessionSearchHit } from './events';
 import type { SessionLineageNode, SessionLineageTrace } from './types';
 

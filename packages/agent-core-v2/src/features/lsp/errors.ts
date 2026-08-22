@@ -1,7 +1,3 @@
-/**
- * `lsp` domain error codes — semantic navigation failures.
- */
-
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const LspErrors = {

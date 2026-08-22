@@ -1,11 +1,3 @@
-/**
- * Scenario: migrate persisted wire records from protocol 1.5 to 1.6.
- * Responsibilities: 1.6 adds an optional `display` field to
- * `context.append_loop_event` tool.call records; 1.5 records simply lack it
- * and fold to a preview-less replay, so the migration is a pass-through.
- * Wiring: pure migration exercised through the shared migration test surface.
- * Run: `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run test/wire/migration/v1.6.test.ts`.
- */
 import { describe, expect, it } from 'vitest';
 
 import { migrateV1_5ToV1_6 } from '#/wire/migration/v1.6';

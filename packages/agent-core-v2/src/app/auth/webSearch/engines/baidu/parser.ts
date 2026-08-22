@@ -1,15 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Baidu SERP parser, ported from the
- * open-websearch project (`engines/baidu/baidu.js`). Extracts organic
- * results from Baidu result pages through the linkedom shim (`loadHtml`):
- * iterates the direct children of `#content_left`, requires an `h3` title
- * block and an `http(s)` result link per child, and reads the snippet from
- * the `.c-font-normal.c-color-text` `aria-label` (falling back to the
- * `.cos-row` text) plus the source from `.cosc-source`. The shim's query
- * layer omits cheerio's `children`, so the child list is read from the
- * underlying DOM element.
- */
-
 import { loadHtml, type EngineElement } from '../engine-html';
 
 export interface BaiduSearchResult {
@@ -20,7 +8,6 @@ export interface BaiduSearchResult {
   engine: 'baidu';
 }
 
-/** Concatenated text of every selector match, mirroring cheerio's `.text()`. */
 function textOfAll(element: EngineElement, selector: string): string {
   return element
     .querySelectorAll(selector)

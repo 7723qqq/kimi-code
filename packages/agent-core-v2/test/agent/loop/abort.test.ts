@@ -1,13 +1,3 @@
-/**
- * `loop` domain — abort behaviour at each safe point.
- *
- * Ported from v1 `packages/agent-core/test/loop/abort.e2e.test.ts`, removed with the v1 engine. The v2
- * contract is equivalent: an externally-aborted turn never fails the caller
- * with a throw, already-recorded usage is never lost, and every dispatched
- * `tool.call.started` still gets a matching `tool.result` so the next turn's
- * message history stays provider-wire-valid.
- */
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -27,11 +17,6 @@ function rpcEvents(ctx: TestAgentContext, event: string): Array<Record<string, u
     .map((entry) => entry.args as Record<string, unknown>);
 }
 
-/**
- * A tool that hangs until its execution signal aborts, then surfaces the
- * cancellation through the abort-aware executor path (so the loop writes a
- * real `tool.result` instead of waiting out the abort grace period).
- */
 function makeAbortAwareTool(
   name: string,
   onStarted?: () => void,
@@ -79,7 +64,6 @@ describe('Agent loop — abort handling', () => {
     if (result.type === 'cancelled') {
       expect(result.steps).toBe(0);
     }
-    // The LLM was never called and no step envelope was opened.
     expect(ctx.llmCalls).toHaveLength(0);
     const stepBegins = ctx.allEvents.filter(
       (entry) =>
@@ -150,8 +134,6 @@ describe('Agent loop — abort handling', () => {
     ctx.get(IAgentLoopService).cancel(turn.id);
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
 
-    // Step 1 fully recorded its usage; step 2 recorded its LLM usage right
-    // after the chat call, before the tool aborted.
     expect(ctx.get(IAgentUsageService).status().total).toEqual({
       inputOther: 107,
       output: 61,
@@ -201,8 +183,6 @@ describe('Agent loop — abort handling', () => {
 
     const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run')).assigned).turn;
     await started.promise;
-    // No explicit reason: `loop.cancel` defaults to the user-cancellation
-    // reason, which the tool executor must surface distinctly.
     ctx.get(IAgentLoopService).cancel(turn.id);
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
 
@@ -226,7 +206,6 @@ describe('Agent loop — abort handling', () => {
     ctx.get(IAgentLoopService).cancel(turn.id);
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
 
-    // Exactly one turn.ended record, and the drained tool wrote its result.
     expect(rpcEvents(ctx, 'turn.ended')).toHaveLength(1);
     expect(rpcEvents(ctx, 'tool.result')).toHaveLength(1);
   });

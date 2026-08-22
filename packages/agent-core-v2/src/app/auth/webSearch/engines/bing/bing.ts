@@ -1,12 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Bing search engine, ported from the
- * open-websearch project (`engines/bing/bing.js`). Request-mode scraping
- * only: paginates `cn.bing.com/search` HTML through `engineFetch` (or the
- * injected `fetchImpl` in tests), detects anti-bot pages, and parses
- * results with `parseBingSearchResults`. The original playwright
- * interactive-search path and its helpers are not ported.
- */
-
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 

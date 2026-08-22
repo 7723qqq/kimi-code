@@ -1,14 +1,3 @@
-/**
- * `lsp` domain — stdio-backed `LspProvider` and its Session-scope assembly.
- *
- * `LspStdioProvider` lazily spawns one server process per workspace root
- * (pooled by normalized root), recovers from a crashed transport by
- * respawning once per query, and tears every instance down on dispose.
- * `LspStdioProviderService` reads the `[lsp]` config section and registers
- * one provider per configured server into `ILspService`; it is contributed
- * into every Session scope by `LspFeature`.
- */
-
 import { normalize } from 'pathe';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
@@ -61,9 +50,7 @@ export class LspStdioProvider implements LspProvider {
         retried = true;
         try {
           await instance.dispose();
-        } catch {
-          // Best-effort teardown of the dead instance.
-        }
+        } catch {}
         this.instances.delete(key);
         const fresh = await this.createInstance(key);
         this.instances.set(key, fresh);

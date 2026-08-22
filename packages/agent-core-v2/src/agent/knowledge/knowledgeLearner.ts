@@ -1,18 +1,9 @@
-/**
- * `knowledge` domain (L4) — AI auto-learning service.
- *
- * Subscribes to `turn.ended` events and detects user corrections or
- * pitfall discoveries, then automatically writes them to the knowledge base.
- * Entries created by the learner have confidence=0.7 and source='ai-learned'.
- */
-
 import { Disposable } from '#/_base/di/lifecycle';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IEventBus } from '#/app/event/eventBus';
 
 import { IAgentKnowledgeService } from './knowledge';
 
-/** Patterns that indicate the user is correcting the agent */
 const CORRECTION_PATTERNS = [
   /不对[，,]?应该/,
   /错了[，,]?是/,
@@ -39,7 +30,6 @@ export class KnowledgeLearner extends Disposable {
   private onTurnEnded(): void {
     const history = this.contextMemory.get();
 
-    // Look at user messages in this turn for correction patterns
     for (let i = history.length - 1; i >= Math.max(0, history.length - 5); i--) {
       const msg = history[i];
       if (msg?.role !== 'user') continue;
@@ -51,7 +41,7 @@ export class KnowledgeLearner extends Disposable {
         for (const pattern of CORRECTION_PATTERNS) {
           if (pattern.test(text)) {
             this.learnFromCorrection(text);
-            return; // Only learn once per turn
+            return;
           }
         }
       }
@@ -59,20 +49,17 @@ export class KnowledgeLearner extends Disposable {
   }
 
   private learnFromCorrection(text: string): void {
-    // Extract a title from the correction (first 60 chars)
     const title = text
       .slice(0, 60)
       .replaceAll(/[\n\r]/g, ' ')
       .trim();
     if (title.length < 5) return;
 
-    // Detect category
     let category: 'coding-style' | 'pitfall' | 'architecture' | 'workflow' = 'pitfall';
     if (/import|命名|格式|style|naming/i.test(text)) category = 'coding-style';
     if (/架构|设计|依赖|architecture/i.test(text)) category = 'architecture';
     if (/流程|提交|commit|push|workflow/i.test(text)) category = 'workflow';
 
-    // Detect tags from content
     const tags: string[] = [];
     if (/typescript|\.ts/i.test(text)) tags.push('typescript');
     if (/rust|\.rs/i.test(text)) tags.push('rust');
@@ -89,8 +76,6 @@ export class KnowledgeLearner extends Disposable {
     });
 
     if (entry) {
-      // The notification is visible to the user through the agent's context
-      // (appended as a brief system note on the next turn)
     }
   }
 }

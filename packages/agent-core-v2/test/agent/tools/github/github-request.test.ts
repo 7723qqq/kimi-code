@@ -1,15 +1,3 @@
-/**
- * GitHub REST transport tests (v2 port).
- *
- * Covers the transport contract ported from the v1 native Rust path: token
- * injection (explicit token > `GITHUB_TOKEN` > `GH_TOKEN`, and the
- * no-token error), query building (null/undefined dropped, scalars
- * stringified), header composition, non-2xx error normalization with the raw
- * body preserved, rate-limit header parsing, `GITHUB_API_URL` base override,
- * and network-error mapping. The network is mocked via an injectable
- * `fetchImpl`; the environment via `getEnv`.
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
 import {

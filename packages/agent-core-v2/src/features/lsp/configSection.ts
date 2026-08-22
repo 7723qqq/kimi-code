@@ -1,13 +1,3 @@
-/**
- * `lsp` domain — registers the `lsp` config section into `config`.
- *
- * Declares the LSP server table: each entry maps a provider id to the command
- * that starts the language server over stdio, the file extensions it covers,
- * and optional tuning knobs. Stays on the static import=register channel so
- * the section remains statically discoverable (config manifest generator
- * drains the module-level table). Bound at App scope.
- */
-
 import { z } from 'zod';
 
 import { registerConfigSection } from '#/app/config/configSectionContributions';

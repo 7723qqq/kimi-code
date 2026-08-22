@@ -1,18 +1,3 @@
-/**
- * `tools` domain — `TeamTool` implementation (the `Team` tool).
- *
- * Runs a roundtable discussion or a structured debate among persistent
- * subagents: binds a per-caller `PersistentSubagentHost` from
- * `IPersistentSubagentService` (Session scope) and delegates to the `team`
- * coordinators, rendering their results as XML. Enters swarm mode through
- * `IAgentSwarmService` around the run. The caller's agent id comes from
- * `IAgentScopeContext`. Pure tool — owns no scoped state.
- *
- * Registered via the module-level `registerAgentToolService(IAgentTeamTool,
- * TeamTool)` at the bottom of this file — the same "import = register" pattern
- * used by every agent tool. Bound at Agent scope.
- */
-
 import { t } from '@moonshot-ai/kimi-i18n';
 
 import { TeamCoordinator, type DiscussionResult } from '#/agent/team/coordinator';
@@ -190,14 +175,12 @@ function formatDebateResult(result: DebateResult): string {
     `<summary>speeches: ${String(result.transcript.length)}, phases: ${String(result.phases.length)}, cross_refs: ${String(result.crossReferencesCount)}, position_changes: ${String(result.positionChanges)}, status: ${statusText}</summary>`,
   );
 
-  // Phase breakdown
   lines.push('<phases>');
   for (const phase of result.phases) {
     lines.push(`  <phase name="${phase.phase}" speeches="${String(phase.entryCount)}" />`);
   }
   lines.push('</phases>');
 
-  // Full transcript with phase markers
   lines.push('<transcript>');
   for (const entry of result.transcript) {
     lines.push(`[${entry.speaker}] ${entry.content}`);

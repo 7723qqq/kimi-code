@@ -1,11 +1,3 @@
-/**
- * Workflow service — App-scope service that manages workflow runs.
- *
- * Holds run entries in a Map, forks execution fibers, and provides
- * status/wait/cancel operations. The service is App-scoped so runs
- * survive across agent turns.
- */
-
 import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -74,7 +66,6 @@ export class WorkflowService extends Disposable implements IWorkflowService {
     };
     this.runs.set(runId, entry);
 
-    // Fork execution — don't await.
     void this.runWorkflow(runId, input, entry).catch((error) => {
       entry.status = 'failed';
       entry.error = error instanceof Error ? error.message : String(error);
@@ -145,7 +136,6 @@ export class WorkflowService extends Disposable implements IWorkflowService {
       return toResult(entry);
     }
 
-    // Poll until done or timeout.
     const deadline = timeoutMs !== undefined ? Date.now() + timeoutMs : undefined;
     while (entry.status === 'running') {
       if (deadline !== undefined && Date.now() >= deadline) {
@@ -162,7 +152,6 @@ export class WorkflowService extends Disposable implements IWorkflowService {
     if (entry === undefined) return;
     if (entry.status === 'running') {
       entry.abortController.abort();
-      // Give it a moment to settle.
       await new Promise((resolve) => setTimeout(resolve, 100));
       if (entry.status === 'running') {
         entry.status = 'cancelled';
@@ -172,7 +161,6 @@ export class WorkflowService extends Disposable implements IWorkflowService {
   }
 
   listBuiltins(): readonly WorkflowMeta[] {
-    // Lazy import to avoid circular dependency at module load.
     return listBuiltinsLazy();
   }
 }
@@ -190,7 +178,6 @@ function toResult(entry: WorkflowRunEntry): WorkflowRunResult {
   };
 }
 
-// Lazy import to break circular dependency.
 let listBuiltinsLazyFn: (() => readonly WorkflowMeta[]) | undefined;
 function listBuiltinsLazy(): readonly WorkflowMeta[] {
   if (listBuiltinsLazyFn === undefined) {

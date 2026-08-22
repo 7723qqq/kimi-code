@@ -1,13 +1,3 @@
-/**
- * `sessionQuery` domain — event-level records and search contracts.
- *
- * Ported from deepseek-harness `session-query/session-query` types (MIT),
- * adapted to kimi's wire journal: one event is one main-agent wire record
- * (seq = journal order, type = wire record type, time = record timestamp).
- * The upstream `shadowed` surface tier is trimmed (kimi's transcript folds
- * replace rather than shadow), so `surface` is not part of event filters.
- */
-
 import type { SessionSearchCursor } from './cursor';
 import type { SessionRecord, SessionResultFilter, SessionResultRange } from './types';
 

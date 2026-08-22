@@ -87,16 +87,15 @@ describe('ExitPlanMode options schema', () => {
       ExitPlanModeInputSchema.safeParse({
         options: [{ label: 'A', description: '' }],
       }).success,
-    ).toBe(true); // empty description is allowed
+    ).toBe(true);
   });
 
   it('rejects options with Unicode reserved-matching labels', () => {
-    // "Ｒeject" uses fullwidth Latin letters
     expect(
       ExitPlanModeInputSchema.safeParse({
         options: [{ label: 'Ｒeject', description: 'fullwidth R' }],
       }).success,
-    ).toBe(true); // not matched by case-insensitive comparison
+    ).toBe(true);
   });
 
   it('rejects too many options, duplicate labels, reserved labels, and invalid labels', () => {

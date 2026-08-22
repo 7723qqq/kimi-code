@@ -1,13 +1,3 @@
-/**
- * `loop` domain — turn-level lifecycle invariants.
- *
- * Ported from v1 `packages/agent-core/test/loop/turn-lifecycle.e2e.test.ts` (removed with the v1 engine)
- * plus the lifecycle portions of `error-paths.e2e.test.ts` / `api-shape.e2e.test.ts`.
- * Drives the loop through its public contract (scripted LLM responses) and
- * asserts against public outputs (`turn.ended` / `turn.step.completed`
- * events, persisted `usage.record`, tool invocation records).
- */
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -163,8 +153,6 @@ describe('Agent loop — turn lifecycle', () => {
       error: { code: 'loop.max_steps_exceeded', details: { maxSteps: 2 } },
       interruptReason: 'max_steps',
     });
-    // No active step exists when the budget check throws, so the failure
-    // surfaces only through `turn.ended` — no step.interrupted event.
     expect(stepEvents(ctx, 'turn.step.interrupted')).toHaveLength(0);
   });
 

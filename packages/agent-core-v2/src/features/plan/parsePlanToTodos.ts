@@ -60,8 +60,6 @@ export function parsePlanToTodos(content: string): readonly TodoItem[] | null {
   }
 
   if (!sawAnyStructure || items.length === 0) return null;
-  // A single milestone with no leaves is not actionable; let the model
-  // build it via TodoList when it actually starts.
   const hasMilestone = items.some((item) => item.kind === 'milestone');
   const hasLeaf = items.some((item) => item.kind === 'task');
   if (!hasMilestone || !hasLeaf) return null;
@@ -85,7 +83,6 @@ interface LeafMatch {
 }
 
 function parseLeafItem(line: string): LeafMatch | null {
-  // Indented or leading bullet: `- ` or `* `, or numbered: `1. `, `2. `, …
   const match = /^\s*(?:[-*]|\d+\.)\s+(\[[ xX]\]|\[ \])?\s*(.+?)\s*$/.exec(line);
   if (match === null) return null;
   const marker = match[1];

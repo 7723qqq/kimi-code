@@ -1,14 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — DuckDuckGo search engine, ported from the
- * open-websearch project (`engines/duckduckgo/searchDuckDuckGo.js`).
- * Request-mode scraping only: tries the preloaded `links.duckduckgo.com/d.js`
- * JSONP endpoint first (paginated through the `s` offset), falling back to
- * the html.duckduckgo.com form endpoint, both through `engineFetch` (or the
- * injected `fetchImpl` in tests). The original playwright fallback is not
- * ported. HTTP failures throw `Error2` (`WEB_FETCH_FAILED`); pages that
- * yield no parseable results return an empty list.
- */
-
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -23,9 +12,6 @@ import {
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
-// Client-hint (`sec-ch-ua*`) and navigation-metadata (`sec-fetch-*`) headers
-// make DuckDuckGo answer with an anomaly page; a plain browser UA, Accept
-// and referer are enough.
 const PRELOAD_PAGE_HEADERS: Record<string, string> = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -121,8 +107,6 @@ async function searchDuckDuckGoPreloadUrl(
 ): Promise<DuckDuckGoSearchResult[]> {
   const allResults: DuckDuckGoSearchResult[] = [];
   const searchUrl = new URL('https://duckduckgo.com/?t=h_&ia=web');
-  // `URLSearchParams` serializes spaces as `+`; DuckDuckGo answers a
-  // `%20`-encoded query with a 202 anomaly page.
   searchUrl.searchParams.set('q', query);
   const pageHtml = await fetchDuckDuckGoText(searchUrl.toString(), options, {
     headers: PRELOAD_PAGE_HEADERS,

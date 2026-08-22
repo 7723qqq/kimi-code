@@ -1,13 +1,3 @@
-/**
- * `loop` domain — tool-call invariants observed end-to-end.
- *
- * Ported from v1 `packages/agent-core/test/loop/tool-call.e2e.test.ts`, removed with the v1 engine (plus
- * the abnormal-step-end block). The loop promises that every provider tool
- * call produces exactly one matching `tool.result`, even on the rejected /
- * error paths (tool not found, schema rejected, execute throws), and that
- * the results are fed back into the next LLM request.
- */
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -34,7 +24,6 @@ function expectTextOutput(output: unknown): string {
   return output as string;
 }
 
-/** One-shot tool factory so each test controls the failure mode. */
 function makeTool(
   name: string,
   options: {
@@ -89,7 +78,6 @@ describe('Agent loop — tool-call behaviour', () => {
 
     expect(echo.calls).toHaveLength(1);
     expect(echo.calls[0]).toMatchObject({ id: 'tc-1', args: { text: 'hi' } });
-    // tool.call.started and tool.result are paired for the same id.
     expect(rpcEvents(ctx, 'tool.call.started').map((e) => e['toolCallId'])).toEqual(['tc-1']);
     expect(rpcEvents(ctx, 'tool.result').map((e) => e['toolCallId'])).toEqual(['tc-1']);
     expect(rpcEvents(ctx, 'tool.result')[0]).toMatchObject({
@@ -97,7 +85,6 @@ describe('Agent loop — tool-call behaviour', () => {
       isError: undefined,
     });
 
-    // The next LLM input carries the assistant call plus the tool result.
     const inputs = ctx.llmInputs();
     const history = inputs.inputs.at(-1)!.history;
     expect(history.at(-2)).toMatchObject({
@@ -153,7 +140,7 @@ describe('Agent loop — tool-call behaviour', () => {
       .turn;
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
-    expect(executed).toBe(false); // execute was NOT called
+    expect(executed).toBe(false);
     const results = rpcEvents(ctx, 'tool.result');
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ isError: true });
@@ -201,8 +188,6 @@ describe('Agent loop — tool-call behaviour', () => {
 
   it('skips later tool calls after a successful stop-turn result', async () => {
     const stop = makeTool('stop-success', {
-      // v2 declares batch-skip intent up front; the stopTurn result then
-      // ends the turn after the (skipped) batch completes.
       resolveExecution: () => ({
         stopBatchAfterThis: true,
         approvalRule: 'stop-success',
@@ -224,8 +209,6 @@ describe('Agent loop — tool-call behaviour', () => {
     ctx.llmInputs();
 
     expect(echo.calls).toHaveLength(0);
-    // Both calls still get paired results; the second is a synthetic skip.
-    // (tool.result order is completion order in v2, not provider order.)
     expect(rpcEvents(ctx, 'tool.call.started').map((e) => e['toolCallId'])).toEqual([
       'tc-stop',
       'tc-echo',
@@ -320,8 +303,6 @@ describe('Agent loop — tool-call behaviour', () => {
       .turn;
     await expect(turn.result).resolves.toMatchObject({ type: 'completed', steps: 2 });
 
-    // Unlike v1, v2 still executes the tool call so the exchange stays
-    // wire-valid, then continues the turn.
     expect(echo.calls).toHaveLength(1);
     expect(rpcEvents(ctx, 'tool.call.started').map((e) => e['toolCallId'])).toEqual(['tc-max']);
     expect(rpcEvents(ctx, 'tool.result').map((e) => e['toolCallId'])).toEqual(['tc-max']);

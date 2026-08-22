@@ -223,8 +223,6 @@ export class WorkspaceMcpService extends Disposable implements IWorkspaceMcpServ
   private async initialize(): Promise<void> {
     await this.mcpConfig.ready;
     await this.identity.resolved();
-    // Re-arm proactive refresh timers for every stored credential, so tokens
-    // refresh shortly before expiry even when no connection triggered a 401.
     await this.oauthService.sweepProactiveRefresh().catch((error: unknown) => {
       this.log.warn(`mcp oauth proactive-refresh sweep failed: ${String(error)}`);
     });

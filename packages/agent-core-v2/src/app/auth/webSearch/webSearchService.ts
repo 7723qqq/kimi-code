@@ -32,8 +32,6 @@ export class WebSearchProviderService implements IWebSearchProviderService {
   ) {}
 
   getWebSearchProvider(): WebSearchProvider | undefined {
-    // Moonshot backend wins when configured; the keyless local engines
-    // (DuckDuckGo / Bing) always back the tool otherwise.
     return this.fromServicesConfig() ?? this.fromManagedOAuth() ?? this.localProvider();
   }
 

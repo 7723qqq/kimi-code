@@ -1,16 +1,3 @@
-/**
- * `progressTrack` service (Agent scope) — wires the outcome tracker to the
- * tool-execution pipeline and injects the Evidence-Before-More-Mutation
- * reminder (ported from Reasonix's Auto Guard EBM trigger).
- *
- * Observes every tool round through the executor's `onDidExecuteTool` hook,
- * feeds normalized receipts into {@link ProgressTracker}, and — when the
- * agent has mutated files repeatedly without any discriminating observation
- * (verification run, or a command exercising a mutated file) — appends a
- * model-visible reminder to verify before mutating further. The reminder is
- * injected at most once per turn; a verification run resets the debt.
- */
-
 import { createDecorator } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';

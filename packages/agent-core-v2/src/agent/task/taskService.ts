@@ -1054,8 +1054,6 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const foregroundRelease = entry.foregroundRelease;
     if (entry.outputPersistStarted) {
       await this.persistLive(entry);
-      // Flush queued output appends before terminal effects fire, so
-      // notifications can reference the completed output log.
       await entry.outputWriteQueue;
     } else {
       entry.pendingOutput = [];

@@ -1,16 +1,3 @@
-/**
- * `team` domain — structured-debate coordinator for persistent
- * subagents.
- *
- * Orchestrates a multi-phase debate (Opening Statements → Free Debate →
- * Closing Arguments → optional Consensus, plus optional Voting): spawns one
- * persistent subagent per participant, tracks each participant's stated
- * position across phases (counting changes), auto-detects cross-references
- * between speakers, aggregates token usage, and always destroys the
- * persistent subagents on the way out. Emits a per-turn `DiscussionTurnEvent`
- * to an optional observer (e.g. the TUI).
- */
-
 import { addUsage, type TokenUsage } from '#/kosong/contract/usage';
 import type { PersistentSubagentHost } from '#/session/subagent/persistentSubagent';
 
@@ -96,7 +83,6 @@ export class StructuredDebateCoordinator {
     let endedBy: DebateResult['endedBy'] = 'completed';
 
     try {
-      // 1. Create persistent subagents for each participant
       for (const participant of options.participants) {
         signal.throwIfAborted();
         const agentId = await this.subagentHost.spawnPersistent({
@@ -110,10 +96,8 @@ export class StructuredDebateCoordinator {
         this.agentIds.push(agentId);
       }
 
-      // Track position changes
       const initialPositions = new Map<string, string>();
 
-      // 2. Phase 1: Opening Statements
       context.setPhase('opening');
       for (const [index, participant] of options.participants.entries()) {
         signal.throwIfAborted();
@@ -126,7 +110,6 @@ export class StructuredDebateCoordinator {
         );
         context.addEntry(participant.profileName, this.agentIds[index]!, content, 1);
 
-        // Record initial position
         const stance = this.extractStance(content);
         initialPositions.set(participant.profileName, stance);
         context.recordPosition(participant.profileName, stance, this.extractKeyPoints(content), 1);
@@ -134,7 +117,6 @@ export class StructuredDebateCoordinator {
         this.emitTurn(participant.profileName, this.agentIds[index]!, 1, content);
       }
 
-      // 3. Phase 2: Free Debate (multiple rounds)
       context.setPhase('free_debate');
       const maxDebateRounds = options.maxDebateRounds ?? 2;
       let roundOffset = 1;
@@ -157,7 +139,6 @@ export class StructuredDebateCoordinator {
           const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
           context.addEntry(participant.profileName, agentId, content, currentRound);
 
-          // Update position if changed
           const newStance = this.extractStance(content);
           if (newStance && newStance !== context.getPosition(participant.profileName)?.stance) {
             context.recordPosition(
@@ -172,7 +153,6 @@ export class StructuredDebateCoordinator {
         }
       }
 
-      // 4. Phase 3: Closing Arguments
       context.setPhase('closing');
       const closingRound = roundOffset + maxDebateRounds + 1;
       for (const [index, participant] of options.participants.entries()) {
@@ -203,7 +183,6 @@ export class StructuredDebateCoordinator {
         this.emitTurn(participant.profileName, agentId, closingRound, content);
       }
 
-      // Count position changes
       let positionChanges = 0;
       for (const [speaker, initial] of initialPositions) {
         const current = context.getPosition(speaker);
@@ -212,23 +191,19 @@ export class StructuredDebateCoordinator {
         }
       }
 
-      // 5. Phase 4: Consensus (optional)
       context.setPhase('consensus');
       let consensus = '';
       if (options.consensusPrompt !== undefined && !context.isEmpty()) {
         consensus = await this.generateConsensus(options.consensusPrompt, context, signal);
       }
 
-      // 6. Voting (optional)
       let votingResult = '';
       if (options.enableVoting && !context.isEmpty()) {
         votingResult = await this.runVoting(options.topic, context, signal);
       }
 
-      // 7. Collect aggregate usage
       const usage = this.collectUsage();
 
-      // Build phase breakdown
       const phases = this.buildPhaseBreakdown(context);
 
       return {
@@ -309,7 +284,6 @@ export class StructuredDebateCoordinator {
     parts.push(`Debate topic:\n${topic}`);
     parts.push('');
 
-    // Show current positions
     const positionsText = context.getPositionsText();
     if (positionsText) {
       parts.push('=== CURRENT POSITIONS ===');
@@ -442,7 +416,6 @@ export class StructuredDebateCoordinator {
         ? `\nPositions:\n${positions.map((p) => `[${p.speaker}] ${p.stance}`).join('\n')}`
         : '';
 
-    // Collect votes from all participants
     const votes: string[] = [];
     for (const [index, participant] of this.agentIds.entries()) {
       signal.throwIfAborted();
@@ -478,7 +451,6 @@ export class StructuredDebateCoordinator {
       }
     }
 
-    // Tally results using the first participant
     const firstAgentId = this.agentIds[0];
     if (firstAgentId === undefined || votes.length === 0) return '';
 
@@ -506,13 +478,11 @@ export class StructuredDebateCoordinator {
   }
 
   private extractStance(content: string): string {
-    // Simple extraction: first sentence as stance summary
     const firstSentence = content.split(/[.!?\n]/).filter(Boolean)[0];
     return firstSentence?.trim() ?? '';
   }
 
   private extractKeyPoints(content: string): string[] {
-    // Extract bullet points and numbered items
     const points: string[] = [];
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
@@ -520,7 +490,6 @@ export class StructuredDebateCoordinator {
         points.push(trimmed.replace(/^[-*•]\s|^\d+[.)]\s/, ''));
       }
     }
-    // Fallback: split into sentences and take first 3
     if (points.length === 0) {
       const sentences = content
         .split(/[.!?]+/)
@@ -537,7 +506,6 @@ export class StructuredDebateCoordinator {
     const entries = context.allEntries();
     if (entries.length === 0) return [];
 
-    // Estimate phases based on entry distribution
     const opening = entries.filter((e) => e.round === 1);
     const closing = entries.filter((e) => e.round === entries.at(-1)!.round);
     const freeDebate = entries.filter((e) => e.round > 1 && e.round < entries.at(-1)!.round);
@@ -571,7 +539,6 @@ export class StructuredDebateCoordinator {
       try {
         await this.subagentHost.destroyPersistent(agentId);
       } catch {
-        // Best-effort cleanup
       }
     }
     this.agentIds.length = 0;

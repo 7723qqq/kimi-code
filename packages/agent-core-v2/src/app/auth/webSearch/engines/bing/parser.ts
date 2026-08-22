@@ -1,13 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Bing SERP parser, ported from the
- * open-websearch project (`engines/bing/parser.js`). Extracts organic
- * results from Bing result pages through the linkedom shim (`loadHtml`):
- * layered result selectors, `/ck/a` redirect decoding (base64url `u`
- * parameter), tracking-parameter stripping, and URL dedup. The shim's
- * query layer omits cheerio's `closest`/`hasClass`, so both are emulated
- * over the linkedom DOM (`closestElement` / `hasClass`).
- */
-
 import { Buffer } from 'node:buffer';
 
 import { loadHtml, type EngineElement, type EngineQueryResult } from '../engine-html';
@@ -39,7 +29,6 @@ function hasClass(element: EngineElement, className: string): boolean {
   return classList !== null && classList.split(/\s+/).includes(className);
 }
 
-/** Emulates cheerio's `closest` over the linkedom DOM. */
 function closestElement(element: EngineElement, selector: string): EngineElement | null {
   let current: EngineElement | null = element;
   while (current !== null) {
@@ -57,8 +46,6 @@ function decodeBingRedirectTarget(url: URL): string {
   if (!encodedTarget) {
     return '';
   }
-  // Bing's `u` parameter is base64url-encoded (`-`/`_` instead of `+`/`/`,
-  // no padding), optionally prefixed with `a1`.
   const base64Payload = encodedTarget.startsWith('a1') ? encodedTarget.slice(2) : encodedTarget;
   try {
     const decodedTarget = Buffer.from(base64Payload, 'base64url').toString('utf8').trim();
@@ -82,8 +69,6 @@ function sanitizeBingUrl(rawUrl: string | null | undefined): string {
   if (resolvedUrl.startsWith('//')) {
     resolvedUrl = `https:${resolvedUrl}`;
   } else if (resolvedUrl.startsWith('/')) {
-    // Relative jump paths are Bing-internal redirects, not real result URLs;
-    // a scheme-bearing `/ck/a` link is decoded from its `u` parameter below.
     if (
       resolvedUrl.startsWith('/search') ||
       resolvedUrl.startsWith('/ck/a') ||
@@ -136,9 +121,7 @@ function extractTitle(element: EngineElement | null, fallbackUrl: string, index:
   if (fallbackUrl) {
     try {
       return `Result from ${new URL(fallbackUrl).hostname}`;
-    } catch {
-      // invalid fallback URL, fall through to the generic label
-    }
+    } catch {}
   }
   return normalizeWhitespace(element?.textContent ?? '').slice(0, 50) || `Result ${index + 1}`;
 }

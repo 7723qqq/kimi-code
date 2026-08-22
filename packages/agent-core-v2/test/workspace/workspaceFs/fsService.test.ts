@@ -24,9 +24,6 @@ import { WorkspaceFsService } from '#/workspace/workspaceFs/fsService';
 import { IWorkspaceGitService } from '#/workspace/workspaceGit/workspaceGit';
 import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
-// The service resolves workspace paths through the runtime's POSIX path API,
-// while `join` produces backslash separators on Windows — normalize the fake
-// fs keys so both sides agree on every platform.
 const norm = (p: string): string => p.replaceAll('\\', '/');
 const WORK_DIR = '/repo';
 
@@ -153,8 +150,6 @@ function fakeFs(
       for (let hops = 0; hops < 10 && symlinkSet.has(cur); hops += 1) {
         const target = symlinkTargetMap.get(cur);
         if (target === undefined) break;
-        // `resolve` maps a POSIX-style absolute target onto the current drive
-        // root on Windows, keeping both platforms equivalent.
         cur = norm(resolve(cur, '..', target));
       }
       return lstatImpl(cur);

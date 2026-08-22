@@ -52,20 +52,12 @@ export const EMPTY_SAMPLE: ProgressSample = {
   blindMutations: 0,
 };
 
-/**
- * Commands that can falsify the working hypothesis — test runners and
- * checkers. Deliberately narrow; a build/typecheck counts as verification
- * only when the command itself is a check (not a build that happens to fail).
- */
 const VERIFICATION_PATTERN =
   /(^|[\s&|;])(pytest|npm\s+test|pnpm\s+test|yarn\s+test|bun\s+test|go\s+test|cargo\s+test|mvn\s+test|gradle\s+test|make\s+test|tox|ctest|vitest|jest|karma|ava|mocha|rspec|phpunit|flutter\s+test|nx\s+test|turbo\s+test|tsc)(\s|$)/i;
 const VERIFICATION_KEYWORD = /\b(test|tests|check|verify|validate|typecheck|type-check)\b/i;
 
 export function isVerificationCommand(command: string): boolean {
   if (VERIFICATION_PATTERN.test(command)) return true;
-  // `go test ./...`, `node --test x`, `python -m pytest ...` style invocations
-  // carry the keyword in the argument tail; a bare keyword in a build command
-  // ("build the tests") is a false positive we accept for the nudge's sake.
   return VERIFICATION_KEYWORD.test(command);
 }
 
@@ -117,8 +109,6 @@ export class ProgressTracker {
     for (const receipt of receipts) {
       next = this.scoreReceipt(receipt, sample, next);
     }
-    // Verification debt: a discriminating observation settles it; a mutation
-    // opens it and every silent round ages it.
     if (sample.discriminating > 0) {
       next = { ...next, debt: false, debtAge: 0, blind: 0 };
     } else {
@@ -154,11 +144,9 @@ export class ProgressTracker {
     }
     switch (true) {
       case receipt.success && isWrite(receipt):
-        // A mutation is a state transition, not proof of progress.
         sample.churn += 1;
         return this.noteMutatedPaths(state, receipt);
       case receipt.success && isDelegation(receipt):
-        // A delegation return is new information at best.
         sample.exploration += 1;
         return state;
       case receipt.success && receipt.isError !== true && isNewRead(receipt, state):
@@ -168,7 +156,6 @@ export class ProgressTracker {
           readPaths: new Set([...state.readPaths, ...(receipt.paths?.read ?? [])]),
         };
       case receipt.success && isReadOnly(receipt):
-        // Already-seen read: no new information.
         return state;
       case receipt.success:
         return this.noteAction(state, receipt, sample);

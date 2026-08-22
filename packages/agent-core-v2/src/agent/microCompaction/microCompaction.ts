@@ -1,15 +1,3 @@
-/**
- * `microCompaction` domain — `IAgentMicroCompactionService` contract.
- *
- * Cache-miss micro compaction: after the prompt cache misses (no assistant
- * output for `cacheMissedThresholdMs`) and the context is at least
- * `minContextUsageRatio` full, raise the truncation cutoff to keep only the
- * `keepRecentMessages` tail; the outgoing request then replaces oversized
- * (`>= minContentTokens`) old tool results with `truncatedMarker`. The cutoff
- * persists on the wire and resets on clear / compaction / undo. Bound at
- * Agent scope.
- */
-
 import { createDecorator } from '#/_base/di/instantiation';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 

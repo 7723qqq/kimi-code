@@ -1,8 +1,3 @@
-/**
- * Guardian review tests: verdict parsing, policy gating under yolo mode, and
- * the circuit breaker (ported from Reasonix's guardian.go contract).
- */
-
 import { describe, expect, it } from 'vitest';
 
 import type { IAgentGuardianService } from '#/agent/guardian/guardianService';
@@ -213,7 +208,6 @@ describe('GuardianService circuit breaker', () => {
       expect(verdict.verdict).toBe('deny');
     }
     expect(service.circuitOpen).toBe(true);
-    // After the circuit opens, reviews bypass without an LLM call.
     const verdict = await service.review(ctx);
     expect(verdict.verdict).toBe('bypass');
   });
@@ -225,13 +219,11 @@ describe('GuardianService circuit breaker', () => {
     await service.review(ctx);
     await service.review(ctx);
     expect(service.circuitOpen).toBe(false);
-    // An allow resets the streak.
     setVerdict(allowVerdict);
     await service.review(ctx);
     setVerdict(denyVerdict);
     await service.review(ctx);
     await service.review(ctx);
-    // Two denials after the reset — still under the three-deny threshold.
     expect(service.circuitOpen).toBe(false);
   });
 });

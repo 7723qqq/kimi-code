@@ -1,12 +1,3 @@
-/**
- * Wire schemas for the `/sessions/{session_id}/mcp*` REST surface — the
- * session's MCP server connection view (`ISessionMcpHandle.connectionManager`).
- *
- *   GET  /sessions/{session_id}/mcp/servers                       data: {servers[]}
- *   GET  /sessions/{session_id}/mcp/servers/{name}                data: {server detail incl. tools}
- *   POST /sessions/{session_id}/mcp/servers/{name}:reconnect      data: {reconnected:true}
- */
-
 import { z } from 'zod';
 
 export const mcpServerStatusSchema = z.enum([

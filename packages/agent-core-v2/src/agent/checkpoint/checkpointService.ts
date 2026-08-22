@@ -1,16 +1,3 @@
-/**
- * `checkpoint` domain — file preimage snapshots for conversation undo
- * (ported from Reasonix's `internal/checkpoint`, trimmed to the core).
- *
- * Before a tool call that writes files, the affected files' preimages are
- * captured (sha256 + bytes in agent-scope storage). When the conversation is
- * undone, files whose owning turn was cut are restored to their preimages —
- * unless the on-disk file diverged from the last kimi-written state (a manual
- * edit or external change), in which case the file is left alone and the
- * conflict reported. Shell commands cannot be statically enumerated, so bash
- * writes are recorded as coverage gaps (same semantics as Reasonix).
- */
-
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
@@ -55,17 +42,14 @@ export const IAgentCheckpointService =
 
 interface FileSnapshot {
   readonly path: string;
-  /** `null` when the capture read failed for a non-ENOENT reason (preimage unknown). */
   readonly existed: boolean | null;
   readonly preimageSha: string;
   readonly blobKey: string;
-  /** sha256 right after kimi's own write (for conflict detection). */
   afterSha: string | undefined;
 }
 
 interface CheckpointGroup {
   readonly turnId: number;
-  /** Context message count at first capture of the turn. */
   contextLen: number;
   files: Map<string, FileSnapshot>;
   gaps: Set<string>;
@@ -95,9 +79,6 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
     this.storageScope = agent.scope('checkpoints');
     this._register(
       toolExecutor.onWillExecuteTool((event) => {
-        // Capture happens after approval, before execution: every call that
-        // actually runs passes through onWillExecuteTool (vetoed calls never
-        // reach it — nothing to snapshot there anyway).
         const writePaths = collectWritePaths(event.execution.accesses);
         if (writePaths.length === 0) return;
         event.waitUntil(this.capturePaths(event.turnId, writePaths));
@@ -127,7 +108,6 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
         gaps: new Set(),
       };
       this.checkpoints.set(turnId, group);
-      // Bound memory: evict the oldest group when over the cap.
       if (this.checkpoints.size > CHECKPOINT_MAX_TURNS) {
         const oldest = [...this.checkpoints.keys()].toSorted((a, b) => a - b)[0];
         if (oldest !== undefined) this.checkpoints.delete(oldest);
@@ -139,7 +119,7 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
   private async capturePaths(turnId: number, paths: readonly string[]): Promise<void> {
     const group = this.ensureGroup(turnId);
     for (const path of paths) {
-      if (group.files.has(path)) continue; // idempotent within the turn
+      if (group.files.has(path)) continue;
       const snapshot = await this.captureFile(path);
       if (snapshot === null) {
         group.gaps.add('unreadable');
@@ -155,13 +135,11 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
     try {
       const stat = await this.fs.stat(path);
       if (stat.size > CHECKPOINT_MAX_FILE_BYTES) {
-        return null; // oversized — record nothing, restore will skip
+        return null;
       }
       bytes = await this.fs.readBytes(path, CHECKPOINT_MAX_FILE_BYTES + 1);
       if (bytes.length > CHECKPOINT_MAX_FILE_BYTES) return null;
     } catch (error) {
-      // ENOENT: preimage is "did not exist"; anything else leaves existence
-      // unknown so restore never deletes on an unverified preimage.
       existed = isNotFound(error) ? false : null;
       bytes = undefined;
     }
@@ -201,7 +179,7 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
     const restored: string[] = [];
     const conflicts: Array<{ path: string; reason: string }> = [];
     for (const [turnId, group] of this.checkpoints) {
-      if (group.contextLen <= currentLen) continue; // turn still in context
+      if (group.contextLen <= currentLen) continue;
       for (const [path, snapshot] of group.files) {
         const outcome = await this.restoreFile(path, snapshot);
         if (outcome === 'restored') restored.push(path);
@@ -215,23 +193,16 @@ export class AgentCheckpointService extends Disposable implements IAgentCheckpoi
   }
 
   private async restoreFile(path: string, snapshot: FileSnapshot): Promise<string> {
-    // Conflict detection: if the file diverged from the last kimi-written
-    // state, a manual edit or external change is in flight — leave it alone.
     try {
       const current = await this.fs.readBytes(path, CHECKPOINT_MAX_FILE_BYTES + 1);
       if (snapshot.afterSha !== undefined && sha256Bytes(current) !== snapshot.afterSha) {
         return 'manual_edit';
       }
     } catch {
-      // File missing now: only safe to restore if the preimage existed and
-      // nothing else recreated it. Missing + preimage missing is a no-op.
       if (!snapshot.existed) return 'skipped';
       return 'deleted';
     }
     if (!snapshot.existed) {
-      // Only delete when the preimage was confirmed absent and kimi's own
-      // write was verified; otherwise the file may be the user's — report a
-      // conflict instead of removing it.
       if (snapshot.existed === null || snapshot.afterSha === undefined) return 'unknown_preimage';
       await this.fs.remove(path).catch(() => {});
       return 'restored';

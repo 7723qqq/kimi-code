@@ -1,12 +1,3 @@
-/**
- * `loop` domain — streaming delta routing.
- *
- * Ported from v1 `packages/agent-core/test/loop/streaming.e2e.test.ts`, removed with the v1 engine.
- * Provider parts are translated into live delta events (`assistant.delta`,
- * `thinking.delta`, `tool.call.delta`) and the completed content is
- * persisted into the context history.
- */
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -87,7 +78,6 @@ describe('Agent loop — streaming callbacks', () => {
 
     const history = ctx.contextData().history;
     const assistant = history.find((message) => message.role === 'assistant');
-    // Text parts merge in stream order; the think part is persisted alongside.
     expect(assistant?.content).toEqual([
       { type: 'think', think: 'pondering' },
       { type: 'text', text: 'first second' },

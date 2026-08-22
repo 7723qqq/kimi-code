@@ -1,14 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — public-URL validation for the ported
- * `fetchWebContent` engine, mirroring open-websearch's
- * `utils/urlSafety.js` without the `fakeIpCidrs` config knob: http(s)
- * schemes only, and IP literals / hostnames in loopback, RFC1918,
- * link-local, CGNAT and ULA ranges are refused — including IPv4-mapped
- * IPv6 forms. `assertPublicHttpUrlResolved` additionally DNS-resolves the
- * hostname and rejects private answers. Failures throw `Error2`
- * (`WEB_INVALID_URL` / `WEB_PRIVATE_ADDRESS`).
- */
-
 import { lookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 
@@ -30,8 +19,6 @@ const PRIVATE_ADDRESS_BLOCKLIST = (() => {
   return list;
 })();
 
-// `URL.hostname` keeps the brackets of IPv6 literals (`[::1]`), which break
-// `isIP` and `dns.lookup`. Strip them once here.
 function stripIpv6Brackets(host: string): string {
   return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
 }

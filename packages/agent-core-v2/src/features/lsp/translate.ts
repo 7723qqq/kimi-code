@@ -1,11 +1,3 @@
-/**
- * `lsp` domain — response normalization and URI conversion.
- *
- * Pure functions translating LSP wire responses into the compact
- * `LspQueryResult` shapes and converting between `file://` URIs and local
- * paths. Kept free of I/O so the translation rules are unit-testable.
- */
-
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import type { LspHover, LspLocation, LspLocationLink } from './protocol';

@@ -1,23 +1,3 @@
-/**
- * `/sessions/{session_id}/cron*` REST routes — server-v2 additions.
- *
- * Exposes the session's cron task set to the web UI:
- *
- *   GET    /sessions/{session_id}/cron             data: {tasks[]}
- *   POST   /sessions/{session_id}/cron             data: {task}
- *   DELETE /sessions/{session_id}/cron/{task_id}   data: {deleted:true}
- *
- * **Resolution**: `resumeSessionById` (cold-loads the session if needed) →
- * `ISessionCronService` (Session scope, `OnScopeCreated`, so every session has
- * one) → `list()` / `getTask()` / `addTask()` / `removeTasks()`.
- * `next_fire_at` rides `getNextFireForTask` when the engine can compute it;
- * `human_schedule` is rendered through the engine's `cronToHuman`.
- *
- * **Error mapping**:
- *   - unknown session  → `40401` (session.not_found)
- *   - unknown task     → `40406` (task.not_found)
- *   - invalid cron     → `40001` (validation.failed, message from the parser)
- */
 
 import {
   ISessionCronService,
@@ -76,7 +56,6 @@ const sessionAndTaskIdParamSchema = z.object({
 });
 
 export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
-  // GET /sessions/{session_id}/cron ----------------------------------------
   const listRoute = defineRoute(
     {
       method: 'GET',
@@ -106,7 +85,6 @@ export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
         try {
           humanSchedule = cronToHuman(parseCronExpression(task.cron));
         } catch {
-          // Legacy/invalid persisted expressions still list; just no rendering.
         }
         return {
           id: task.id,
@@ -128,7 +106,6 @@ export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
     listRoute.handler as Parameters<CronRouteHost['get']>[2],
   );
 
-  // POST /sessions/{session_id}/cron ----------------------------------------
   const createRoute = defineRoute(
     {
       method: 'POST',
@@ -158,8 +135,6 @@ export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
         prompt: string;
         recurring?: boolean;
       };
-      // Validate the expression through the engine's own parser so the web UI
-      // and the CronCreate tool reject exactly the same input.
       let parsed;
       try {
         parsed = parseCronExpression(cron);
@@ -191,7 +166,6 @@ export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
     createRoute.handler as Parameters<CronRouteHost['post']>[2],
   );
 
-  // DELETE /sessions/{session_id}/cron/{task_id} ---------------------------
   const deleteRoute = defineRoute(
     {
       method: 'DELETE',

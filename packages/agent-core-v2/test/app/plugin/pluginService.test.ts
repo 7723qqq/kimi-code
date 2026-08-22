@@ -510,7 +510,6 @@ describe('PluginService (plugin boundary)', () => {
 
   it('keeps a queued removal when reload is already reading the installed file', async () => {
     const home = await makeHome();
-    // A record rooted inside the managed tree, as a real install would persist.
     const pluginRoot = path.join(home, 'plugins', 'managed', 'demo');
     await mkdir(pluginRoot, { recursive: true });
     await writeFile(path.join(pluginRoot, 'kimi.plugin.json'), '{"name":"demo"}', 'utf8');

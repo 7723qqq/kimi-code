@@ -57,9 +57,6 @@ export class ExternalHooksRunnerService extends Disposable implements IExternalH
     event: string,
     args: ExternalHooksRunnerTriggerArgs = {},
   ): Promise<HookBlockDecision | undefined> {
-    // Permission-gating hooks fail closed: spawn/timeout/error paths block
-    // instead of silently allowing, and an input-preparation failure blocks
-    // too (a hook gate must never degrade into an allow by crashing).
     try {
       return blockDecision(event, await this.triggerInner(event, args, true));
     } catch (error) {

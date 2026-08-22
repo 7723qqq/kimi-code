@@ -1,14 +1,3 @@
-/**
- * `attachment` domain — raster inspection for attachment admission.
- *
- * Replaces the upstream sharp-based pipeline (deepseek-harness
- * `attachment-local/src/image.ts`, MIT) with kimi's existing image
- * toolchain: media type from `sniffMediaFromMagic` magic-byte sniffing,
- * dimensions from `sniffImageDimensions` (native + TS fallback), and a full
- * decode through jimp for admission (the read path re-derives metadata from
- * the sniffers only).
- */
-
 import { Jimp } from 'jimp';
 
 import { sniffImageDimensions, sniffMediaFromMagic } from '#/agent/media/file-type';
@@ -62,7 +51,6 @@ export async function detectImage(data: Uint8Array, maxPixels?: number): Promise
       'Image exceeds the configured decoded-pixel limit.',
     );
   }
-  // Full decode proves the raster is complete and decodable.
   try {
     await Jimp.fromBuffer(Buffer.from(data));
   } catch {

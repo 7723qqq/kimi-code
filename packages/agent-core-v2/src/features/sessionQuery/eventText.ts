@@ -1,13 +1,3 @@
-/**
- * `sessionQuery` domain — semantic text extraction from wire records.
- *
- * Renders one main-agent wire record into the searchable text of its event:
- * the textual payload fields (message text, tool arguments/results, LLM
- * prompt/completion) are joined in a stable order, empty records contribute
- * no text. Best-effort and lossy by design — the text backs search only, not
- * reconstruction (the journal itself is the source of truth).
- */
-
 import type { WireRecord } from '#/wire/record';
 
 const TEXT_FIELDS = [
@@ -40,7 +30,6 @@ export function wireRecordText(record: WireRecord): string {
   if (Array.isArray(content)) {
     pushContentParts(content, parts);
   }
-  // Assistant/user messages nest their content under `message`.
   const message = record['message'];
   if (typeof message === 'object' && message !== null) {
     const messageContent = (message as { content?: unknown }).content;

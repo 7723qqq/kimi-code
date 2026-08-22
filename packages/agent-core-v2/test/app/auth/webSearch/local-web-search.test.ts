@@ -83,8 +83,6 @@ describe('LocalWebSearchProvider abort propagation', () => {
     await expect(provider.search('query', { signal: controller.signal })).rejects.toThrow(
       'aborted mid-search',
     );
-    // DuckDuckGo retries its own preload + html fallback (2 fetches); had the
-    // abort been swallowed, the second engine (baidu) would add a third call.
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
@@ -107,7 +105,6 @@ describe('LocalWebSearchProvider abort propagation', () => {
     const provider = new LocalWebSearchProvider({ env: multiEngineEnv, fetchImpl });
 
     await expect(provider.search('query')).rejects.toThrow(/All search engines failed/);
-    // duckduckgo preload + html fallback, then the baidu engine.
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 });

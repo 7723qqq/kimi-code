@@ -1,14 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — undici-based request shim for the ported
- * search engines (replaces open-websearch's axios layer).
- *
- * Honours the standard proxy environment variables (`HTTP_PROXY` /
- * `HTTPS_PROXY` / `NO_PROXY`) through kimi's shared proxy helpers, applies a
- * per-request timeout, and returns the response body as text. All search
- * endpoints are public, so no SSRF pinning is applied here (the
- * `LocalFetchURLProvider` keeps that for user-supplied URLs).
- */
-
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici';
 
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
@@ -67,8 +56,6 @@ export async function engineFetch(
     controller.abort();
   }, timeoutMs);
   const dispatcher = dispatcherFor(url);
-  // POST / body requests previously dropped the signal entirely; they now get
-  // the same timeout, and any caller-provided signal is combined with it.
   const signal =
     options.signal !== undefined
       ? AbortSignal.any([controller.signal, options.signal])

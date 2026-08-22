@@ -1,11 +1,3 @@
-/**
- * `subagent` domain — registers the `subagent-backends` experimental flag.
- *
- * Gates the external subagent backends (claude-code / codex / acp) behind an
- * experiment: they spawn external CLIs that may not be installed, so the
- * `backend` parameter of the `Agent` tool is stripped while the flag is off.
- */
-
 import { registerFlagDefinition } from '#/app/flag/flagRegistry';
 
 export const SUBAGENT_BACKENDS_FLAG_ID = 'subagent-backends';

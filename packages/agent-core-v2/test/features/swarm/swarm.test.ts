@@ -1279,8 +1279,6 @@ describe('AgentSwarmTool', () => {
         stubCallerProfile(),
       );
 
-      // We don't need the spawn to succeed end-to-end; just assert the
-      // resolveExecution path does not reject a clean fork.
       const execution = tool.resolveExecution({
         description: 'Review files',
         prompt_template: 'Review {{item}}',

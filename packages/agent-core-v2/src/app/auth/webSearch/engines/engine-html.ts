@@ -1,13 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — minimal cheerio-compatible query layer over
- * linkedom for the ported search engines.
- *
- * The open-websearch engines parse with cheerio; kimi-code already depends on
- * linkedom, so this shim exposes the handful of cheerio calls the engines use
- * (`text` / `attr` / `find` / `each` / `first` / `length` / `map`) over
- * linkedom's `querySelectorAll` results.
- */
-
 import { parseHTML } from 'linkedom';
 
 export interface EngineElement {

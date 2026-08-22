@@ -18,8 +18,6 @@ import type {
   ToolExecution,
 } from '#/tool/toolContract';
 
-// `fileURLToPath` (not `URL.pathname`) so fixture paths stay valid on
-// Windows, where the pathname form is `/D:/...` and breaks child spawns.
 export const fixturesDir = fileURLToPath(new URL('./fixtures/', import.meta.url));
 export const stdioFixture = fileURLToPath(
   new URL('./fixtures/mock-stdio-server.mjs', import.meta.url),

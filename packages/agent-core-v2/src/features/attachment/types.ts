@@ -1,12 +1,3 @@
-/**
- * `attachment` domain — durable attachment vocabulary.
- *
- * Ported from deepseek-harness `attachment/attachment` (MIT). Content-
- * addressed image objects: an `AttachmentId` is the sha256 of the stored
- * bytes, so identical payloads deduplicate and a reference can be verified
- * against the object it names.
- */
-
 import { createDecorator } from '#/_base/di/instantiation';
 
 /** Opaque storage identifier for one immutable object; never a path or URL. */

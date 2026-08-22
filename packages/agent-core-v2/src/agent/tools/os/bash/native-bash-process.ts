@@ -1,16 +1,3 @@
-/**
- * `tools` domain — `IProcess` adapter over the Rust bash process lifecycle.
- *
- * Bridges the native `nativeBashSpawn` handle (streamed stdout/stderr events,
- * exit result, tree kill) onto the `IProcess` contract the Bash tool and
- * `ProcessTask` consume. stdout/stderr are `PassThrough` streams fed by the
- * native events; `wait()` settles from the native exit cache (raced against
- * the `exit` event so both paths resolve exactly once).
- *
- * stdin is a no-op writable: the native handle closes stdin at spawn, which
- * matches the Bash tool's only stdin usage (`proc.stdin.end()` = EOF).
- */
-
 import { PassThrough, Writable } from 'node:stream';
 import type { Writable as WritableStream } from 'node:stream';
 
@@ -102,7 +89,6 @@ export class NativeBashProcess implements IProcess {
         this.settleExit(exit.exitCode);
       }
     } catch {
-      // The handle may already be disposed; the exit event path covers it.
     }
   }
 

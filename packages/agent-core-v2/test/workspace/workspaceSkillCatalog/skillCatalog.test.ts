@@ -221,8 +221,6 @@ async function withSkillCatalogWorkspace(
   const skillRoot = join(workDir, '.kimi-code', 'skills');
   await mkdir(skillRoot, { recursive: true });
   try {
-    // The catalog normalizes root paths to forward slashes; hand the fixture
-    // over in the same form so assertions can compare directly.
     await run({ workDir, skillRoot: (await realpath(skillRoot)).replaceAll('\\', '/') });
   } finally {
     await rm(workDir, { recursive: true, force: true });

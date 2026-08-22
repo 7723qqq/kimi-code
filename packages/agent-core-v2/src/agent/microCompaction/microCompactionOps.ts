@@ -1,22 +1,3 @@
-/**
- * `microCompaction` domain — the Agent-scope state (`microCompactionKey`) and
- * the durable wire events `micro_compaction.apply` (`MicroCompactionApplied`) /
- * `micro_compaction.clamp` (`MicroCompactionClamped`) for the cache-miss
- * tool-result truncation cutoff.
- *
- * The cutoff is a plain index into the conversation history: messages before
- * it (excluding the `keepRecentMessages` tail) have their oversized tool
- * results replaced by a marker in the outgoing request. It lives on the wire
- * so a `micro_compaction.apply` record restores the cutoff on resume — the
- * event type and payload shape match the v1 record of the same name — and
- * `micro_compaction.clamp` keeps it from pointing past the history after an
- * undo (v1 lowered the in-memory cutoff at the same point; the clamp is
- * persisted so replay applies it too). Folds zero the cutoff on
- * `context.clear` / `context.apply_compaction`, matching v1's reset-on-clear/
- * compaction behavior. Every fold is a pure transform of the immer draft, so
- * the dispatcher's patch gate stays quiet on no-ops. Scope-agnostic.
- */
-
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 

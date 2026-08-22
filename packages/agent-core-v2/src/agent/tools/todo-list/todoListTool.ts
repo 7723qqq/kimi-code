@@ -91,11 +91,6 @@ export class TodoListTool implements ITodoListTool {
   }
 }
 
-/**
- * Merge incremental patches into the current list by id. Only the fields
- * present on a patch change; unknown ids surface as an error naming the
- * current ids so the model can recover with a query or a full rewrite.
- */
 function applyTodoUpdates(
   current: readonly TodoItem[],
   patches: TodoListInput['updates'],

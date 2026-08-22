@@ -1,14 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Brave search engine, ported from the
- * open-websearch project (`engines/brave/brave.js`). Request-mode scraping
- * only: paginates the `search.brave.com/search` SERP through `engineFetch`
- * (or the injected `fetchImpl` in tests) and parses each page with the
- * SvelteKit SSR snippet layout (`#results .snippet > .result-content`). The
- * original has no playwright path, so nothing is skipped. HTTP failures
- * throw `Error2` (`WEB_FETCH_FAILED`); pages that yield no parseable
- * results end the pagination loop early.
- */
-
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -44,7 +33,6 @@ function isAbortError(error: unknown): boolean {
   );
 }
 
-/** First direct `<a>` child of a `.result-content` block (cheerio's `> a`). */
 function directChildAnchor(element: EngineElement): EngineElement | null {
   const children = (
     element as EngineElement & { children?: ArrayLike<EngineElement & { tagName?: string }> }

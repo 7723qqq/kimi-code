@@ -1,11 +1,3 @@
-/**
- * `sessionQuery` domain — provider-independent predicates for logical
- * sessions.
- *
- * Ported from deepseek-harness `session-query/session-query/src/filters.ts`
- * (MIT), with the event-document half deferred to stage B (full-text search).
- */
-
 import { Error2 } from '#/errors';
 
 import { SessionQueryErrors } from './errors';
@@ -49,8 +41,6 @@ export function materializeSessionResultFilters(
         return { kind: filter.kind, values };
       }
       default:
-        // Exhaustive by construction; the intersection member's discriminant
-        // keeps TS from narrowing the union here, so assert the impossible.
         return unknownFilter(filter as never);
     }
   });

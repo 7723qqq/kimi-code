@@ -1,15 +1,3 @@
-/**
- * `subagent` domain — the `codex` external subagent backend.
- *
- * Spawns `codex app-server --stdio` through `ISessionProcessRunner` and
- * drives one turn over the newline-delimited JSON-RPC wire: initialize →
- * startThread(cwd) → runTurn(prompt). Turn text is accumulated from
- * `turn/updated` notifications; `turn/complete` settles the run. Approval
- * requests are auto-declined (the subagent runs unattended). Aborting the
- * request signal aborts the wire request and tears the process down on
- * dispose. Bound at Session scope via `SubagentBackendService`.
- */
-
 import { randomUUID } from 'node:crypto';
 
 import { IConfigService } from '#/app/config/config';
@@ -134,9 +122,7 @@ export class CodexBackend implements ISubagentBackend {
         wire.dispose();
         try {
           await process.kill('SIGTERM');
-        } catch {
-          // Process already gone.
-        }
+        } catch {}
       },
     };
   }

@@ -1,15 +1,3 @@
-/**
- * `lsp` domain — one language server process instance.
- *
- * Spawns the server through `ISessionProcessRunner`, performs the
- * initialize/initialized handshake (rejecting non-UTF-16 position encodings),
- * and serves queries serially: each query opens the target file, issues the
- * semantic request, and closes the file again. Aborted queries send
- * `$/cancelRequest` and, after a grace period, tear the instance down so a
- * stuck server cannot wedge the session. `dispose` walks the teardown ladder
- * (shutdown request → SIGTERM → SIGKILL).
- */
-
 import { basename } from 'pathe';
 
 import { Error2, ErrorCodes } from '#/errors';
@@ -83,9 +71,7 @@ export class LspInstance {
         this.config.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,
       );
       this.connection.notify('exit');
-    } catch {
-      // Server did not answer shutdown; fall through to force-kill.
-    }
+    } catch {}
     this.connection.dispose();
     await this.killLadder();
   }
@@ -175,9 +161,7 @@ export class LspInstance {
   private async killLadder(): Promise<void> {
     try {
       await this.process.kill('SIGTERM');
-    } catch {
-      // Process already gone.
-    }
+    } catch {}
     const exited = await Promise.race([
       this.process.wait().then(() => true),
       sleep(this.config.killGraceMs ?? DEFAULT_KILL_GRACE_MS).then(() => false),
@@ -185,9 +169,7 @@ export class LspInstance {
     if (!exited) {
       try {
         await this.process.kill('SIGKILL');
-      } catch {
-        // Process already gone.
-      }
+      } catch {}
     }
   }
 }

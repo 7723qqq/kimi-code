@@ -1,14 +1,3 @@
-/**
- * `lsp` domain — `ILspTool` implementation (the `lsp` tool).
- *
- * Converts the one-based model-facing position to the zero-based protocol
- * position, resolves the workspace root from the session cwd, and renders
- * the query result as text: locations grouped by file as
- * `path:line:character` (one-based), hover as its text content. Output is
- * capped (`maxLocations` / `maxResultChars`) so a noisy result cannot flood
- * the model. Bound at Agent scope — contributed by `LspFeature`.
- */
-
 import { Error2, ErrorCodes } from '#/errors';
 import { ILspService, type LspQueryResult } from '#/features/lsp/lsp';
 import type { LspHover, LspHoverContents, LspLocation } from '#/features/lsp/protocol';

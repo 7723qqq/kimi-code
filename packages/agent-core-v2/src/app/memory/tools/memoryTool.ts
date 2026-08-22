@@ -1,11 +1,3 @@
-/**
- * MemoryTool — persistent memory search and management.
- *
- * Provides the model with a tool to search, read, write, list, and delete
- * memory entries that persist across sessions. Memory files are markdown
- * documents organized by scope (global, project, session).
- */
-
 import { t } from '@moonshot-ai/kimi-i18n';
 import { z } from 'zod';
 
@@ -227,14 +219,11 @@ export class MemoryTool implements IMemoryTool {
       return { output: t('toolsV2.memory.notFound', { path }) };
     }
 
-    // Rebuild the on-disk path from the sanitized file name (same whitelist as
-    // handleWrite) so a crafted path cannot escape the memory root.
     const fileName = sanitizeFileName(entry.path.split('/').pop() ?? '');
     if (fileName === undefined) {
       return { output: t('toolsV2.memory.invalidFilename', { path: args.path }), isError: true };
     }
 
-    // Delete from disk.
     const { unlink } = await import('node:fs/promises');
     const { join: joinPath } = await import('pathe');
     const homeDir = this.sessionContext.sessionDir.split(/[\\/]sessions[\\/]/)[0]!;
@@ -242,7 +231,6 @@ export class MemoryTool implements IMemoryTool {
     try {
       await unlink(fullPath);
     } catch {
-      // File may already be gone — continue to delete from index.
     }
 
     await this.store.delete(path);
@@ -264,11 +252,6 @@ function normalizeFileName(name: string): string {
   return name.endsWith('.md') ? name : `${name}.md`;
 }
 
-/**
- * Sanitize a user-supplied filename into a safe basename. Returns
- * `undefined` when the input is empty or contains path separators or
- * `..` (path traversal).
- */
 function sanitizeFileName(name: string): string | undefined {
   const trimmed = name.trim();
   if (trimmed.length === 0) return undefined;

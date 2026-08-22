@@ -1,11 +1,3 @@
-/**
- * Scenario: the `attachment` capability — content-addressed image storage.
- *
- * Exercises digest addressing/deduplication, display-name sanitization, the
- * admission policy (byte/pixel limits, media-type verification, full
- * decode), and the App-scope service round-trip against a scratch root.
- */
-
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,7 +38,6 @@ function makeService(root: string): AttachmentService {
   return new AttachmentService(configStub(root));
 }
 
-/** A minimal valid 1x1 transparent PNG. */
 const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
@@ -102,8 +93,6 @@ describe('AttachmentService', () => {
     expect(String(ref.attachmentId)).toMatch(/^sha256:/);
 
     const stored = await service.readImage(ref.attachmentId);
-    // The name is caller-supplied metadata, not part of the stored object;
-    // reads re-derive everything else from the bytes.
     expect(stored.ref).toEqual({ ...ref, name: undefined });
     expect(Buffer.from(stored.data).equals(PNG_1X1)).toBe(true);
   });

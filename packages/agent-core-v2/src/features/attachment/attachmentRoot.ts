@@ -1,8 +1,3 @@
-/**
- * `attachment` domain — default attachment root: a private (0700)
- * per-process directory under the OS tmpdir, created lazily.
- */
-
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

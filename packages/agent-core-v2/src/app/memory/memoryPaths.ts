@@ -1,15 +1,3 @@
-/**
- * Memory path resolution — disk layout for persistent memory files.
- *
- * Memory files live under `~/.kimi-code/memory/` and are organized by scope:
- * - `global/` — cross-project knowledge
- * - `projects/<projectId>/` — project-specific knowledge
- * - `sessions/<sessionId>/` — session-specific knowledge
- *
- * The projectId is derived from the cwd via a short hash, so the same
- * working directory always maps to the same project memory.
- */
-
 import { createHash } from 'node:crypto';
 
 import { join } from 'pathe';

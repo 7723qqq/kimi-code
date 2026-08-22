@@ -14,9 +14,6 @@ import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 
 const hostFs = new HostFileSystem();
 
-// `configuredAgentRoots` normalizes realpath output to forward slashes
-// (`replaceAll('\\', '/')`), matching the platform-independent path form
-// used across the agent profile loader.
 const normalizedRealpath = async (path: string): Promise<string> =>
   (await realpath(path)).replaceAll('\\', '/');
 

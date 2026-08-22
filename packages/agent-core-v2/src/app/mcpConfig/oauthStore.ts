@@ -1,29 +1,3 @@
-/**
- * `mcpConfig` domain — `IMcpOAuthStore`, the App-scope persistence
- * adapter for MCP OAuth credentials.
- *
- * Implements the `mcp` domain's `McpOAuthStore` port over the `persistence`
- * access-pattern store (`IAtomicDocumentStore`) under the `credentials/mcp`
- * scope (`<homeDir>/credentials/mcp/<key>-*.json`). One App-scope instance is
- * shared by every workspace handler's `McpOAuthService`, replacing the
- * per-handler stores they used to build ad hoc; the on-disk layout is
- * unchanged, so credentials stay shared with out-of-engine readers. The
- * {@link createMcpOAuthStore} factory remains exported for those
- * out-of-engine callers, which run an `McpOAuthService` outside the DI
- * container.
- *
- * Security: tokens are encrypted at rest with AES-256-GCM. The key is
- * derived from the host identity (hostname + machine id + username), so the
- * ciphertext is useless on any other machine. This is defense in depth on
- * top of the credential file's 0600 permissions: it protects against
- * disk/backup exfiltration, not against a same-user process that can read
- * the home directory (such a process can read the key material too).
- * Legacy plain-text records are still readable.
- *
- * Read semantics: missing or corrupt JSON resolves to `undefined` (never
- * throws). The provider treats `undefined` as "not stored".
- */
-
 import { execFile } from 'node:child_process';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -49,12 +23,6 @@ const CREDENTIALS_SCOPE = 'credentials/mcp';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 
-// ── Host identity for key derivation ─────────────────────────────────────────
-// No native registry/Keychain API exists in Node, so the machine id is read
-// once via the platform's canonical source and cached. Any failure falls
-// back to hostname-only derivation (still better than nothing, and no worse
-// than the previous scheme).
-
 let machineIdPromise: Promise<string | null> | undefined;
 
 async function loadMachineId(): Promise<string | undefined> {
@@ -72,7 +40,6 @@ async function loadMachineId(): Promise<string | undefined> {
         const id = readFileSync(p, 'utf8').trim();
         if (id !== '') return id;
       } catch {
-        // try next source
       }
     }
     if (process.platform === 'darwin') {
@@ -83,7 +50,6 @@ async function loadMachineId(): Promise<string | undefined> {
       return /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(stdout)?.[1];
     }
   } catch {
-    // fall back to hostname-only derivation
   }
   return undefined;
 }
@@ -96,7 +62,6 @@ function hostMachineId(): Promise<string | undefined> {
   return machineIdPromise.then((id) => id ?? undefined);
 }
 
-/** Derive a 32-byte encryption key from host identity + fixed salt. */
 async function deriveKey(): Promise<Buffer> {
   let username: string;
   try {
@@ -145,7 +110,6 @@ export function createMcpOAuthStore(docs: IAtomicDocumentStore): McpOAuthStore {
       try {
         const raw = await docs.get<EncryptedBlob | T>(CREDENTIALS_SCOPE, key);
         if (raw === undefined) return undefined;
-        // Support both encrypted (new) and plain (legacy) storage.
         if (
           typeof raw === 'object' &&
           raw !== null &&

@@ -1,15 +1,3 @@
-/**
- * `sandbox` domain — process-confinement contract and policy resolution.
- *
- * The file-effect vocabulary for confined executions, ported from
- * deepseek-harness `sandbox` (MIT): `read-only` permits no writes outside
- * required sinks, `workspace-write` also permits the workspace root, and
- * `off` (the default) bypasses confinement entirely. Backends implement the
- * actual isolation; until one is registered, every confined mode fails
- * closed at the execution boundary so a configured sandbox can never
- * silently degrade into an unsandboxed run.
- */
-
 import { t } from '@moonshot-ai/kimi-i18n';
 import { z } from 'zod';
 
@@ -91,7 +79,5 @@ function isPathWithinWorkspace(targetPath: string, workspaceRoot: string): boole
 
 function normalizePathForComparison(path: string): string {
   const normalized = path.replaceAll('\\', '/').replace(/\/+$/, '');
-  // Windows paths are case-insensitive; compare lowercased so a drive-letter
-  // case difference does not defeat the guard.
   return /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized;
 }

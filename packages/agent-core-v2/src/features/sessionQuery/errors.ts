@@ -1,8 +1,3 @@
-/**
- * `sessionQuery` domain error codes — logical-corpus reads, filters, and
- * lineage tracing failures.
- */
-
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const SessionQueryErrors = {

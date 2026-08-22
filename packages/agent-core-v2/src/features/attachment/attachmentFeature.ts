@@ -1,12 +1,3 @@
-/**
- * `attachment` domain — `AttachmentFeature`: content-addressed attachment
- * storage assembled as one App-scope Feature unit.
- *
- * Contributes the `[attachment]` config section and the App-scope
- * `IAttachmentService` through the `features` base-class seams; retracting
- * the unit withdraws both. Registered into the feature table at import.
- */
-
 import { z } from 'zod';
 
 import { LifecycleScope } from '#/app/scopes';

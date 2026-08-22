@@ -322,8 +322,6 @@ export class SubagentTool implements ISubagentTool {
           details: { profileName: requestedProfileName },
         });
       }
-      // Fork inherits the caller's profile, so the subagents allowlist does
-      // not apply — self-inheritance is not a delegation.
       if (!isFork) {
         const allowlist = this.effectiveAllowlist(own, this.catalog.list());
         if (allowlist !== undefined && !allowlist.includes(requestedProfileName)) {

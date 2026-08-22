@@ -1,14 +1,3 @@
-/**
- * `subagent` domain — `ISubagentBackendService` implementation.
- *
- * Owns the external subagent backends for the current session: constructs
- * the claude-code / codex / acp backends once per session (they share the
- * session's process runner and config) and serves lookups by name. The
- * in-process engine path is not a backend — the `Agent` tool keeps it as its
- * default and dispatches to this service only for external names. Bound at
- * Session scope — contributed by the `subagent` domain assembly.
- */
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { IConfigService } from '#/app/config/config';

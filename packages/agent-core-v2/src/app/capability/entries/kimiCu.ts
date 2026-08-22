@@ -42,12 +42,6 @@ const WINDOWS_DOCTOR_SCRIPT =
   "$exe = $candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1; " +
   'if (-not $exe) { exit 3 }; & $exe doctor; exit $LASTEXITCODE';
 
-/**
- * Verify a downloaded artifact against a `.sha256` file published next to it
- * on the CDN. When the checksum file is absent (not yet published), the
- * download proceeds unverified — a best-effort integrity anchor, not a hard
- * gate, so installs keep working until the CDN publishes sums.
- */
 async function verifyDownloadedChecksum(
   url: string,
   filePath: string,
@@ -61,9 +55,6 @@ async function verifyDownloadedChecksum(
   }
   try {
     const expected = (await readFile(checksumPath, 'utf8')).trim().split(/\s+/)[0];
-    // A valid SHA-256 sum is exactly 64 hex characters. Anything else means
-    // the CDN did not serve a checksum (e.g. an HTML error page), so treat it
-    // as "no checksum published" and proceed unverified.
     if (expected === undefined || !/^[0-9a-f]{64}$/i.test(expected)) {
       return;
     }

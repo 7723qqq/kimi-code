@@ -1,21 +1,8 @@
-/**
- * Tests for the workflow runtime, registry, and built-in scripts.
- *
- * These tests validate:
- * 1. workflowRegistry — parseMeta, listBuiltins, getBuiltin, resolveUserWorkflow
- * 2. workflowTypes — type definitions
- * 3. Built-in scripts — each script's meta is valid and parseable
- * 4. workflowRuntime — sandbox execution, injected primitives, path safety
- * 5. WorkflowTool — input schema validation
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { WorkflowTool, WorkflowToolInputSchema } from '#/app/workflow/tools/workflow';
 import { parseMeta, listBuiltins, getBuiltin } from '#/app/workflow/workflowRegistry';
 import { WorkflowService } from '#/app/workflow/workflowService';
-
-// ── Registry tests ─────────────────────────────────────────────────
 
 describe('workflowRegistry', () => {
   describe('parseMeta', () => {
@@ -133,8 +120,6 @@ export const meta = {
   });
 });
 
-// ── Workflow Types tests ──────────────────────────────────────────
-
 describe('workflowTypes', () => {
   it('WorkflowStatus enum has all expected values', () => {
     const validStatuses: ReadonlySet<string> = new Set([
@@ -149,8 +134,6 @@ describe('workflowTypes', () => {
     expect(validStatuses.has('cancelled')).toBe(true);
   });
 });
-
-// ── WorkflowTool input schema tests ───────────────────────────────
 
 describe('WorkflowTool input schema', () => {
   it('validates a run operation with name', () => {
@@ -229,8 +212,6 @@ describe('WorkflowTool input schema', () => {
   });
 });
 
-// ── Built-in script meta validation ───────────────────────────────
-
 describe('built-in workflow scripts', () => {
   it('all scripts have agent() calls and phase() calls', () => {
     const builtins = listBuiltins();
@@ -267,8 +248,6 @@ describe('built-in workflow scripts', () => {
     }
   });
 });
-
-// ── Workflow runtime primitives tests ────────────────────────────────
 
 describe('workflow runtime primitives', () => {
   it('parallel runs thunks concurrently', async () => {
@@ -330,8 +309,6 @@ describe('workflow runtime primitives', () => {
   });
 });
 
-// ── WorkflowService direct unit tests ────────────────────────────
-
 describe('WorkflowService behavior', () => {
   it('status returns undefined for unknown runId', () => {
     const svc = new WorkflowService(
@@ -362,8 +339,6 @@ describe('WorkflowService behavior', () => {
   });
 });
 
-// ── WorkflowTool resolution tests ─────────────────────────────────
-
 describe('WorkflowTool resolution', () => {
   it('resolveExecution returns a description for each operation', () => {
     const ops = ['run', 'status', 'wait', 'cancel'] as const;
@@ -373,8 +348,6 @@ describe('WorkflowTool resolution', () => {
     }
   });
 });
-
-// ── Workflow script structural validation ─────────────────────────
 
 describe('workflow script structure', () => {
   it('each built-in script references agent() with a label', () => {
@@ -413,11 +386,8 @@ describe('workflow script structure', () => {
   });
 });
 
-// ── Runtime sandbox primitives tests ──────────────────────────────
-
 describe('workflow sandbox primitives', () => {
   it('fetch returns error for invalid URL', async () => {
-    // Simulate the fetchHook from the runtime
     const fetchHook = async (url: string) => {
       try {
         const response = await globalThis.fetch(url, { signal: AbortSignal.timeout(5_000) });
@@ -435,7 +405,6 @@ describe('workflow sandbox primitives', () => {
   });
 
   it('exec returns exit code for non-zero command', async () => {
-    // Simulate the execHook from the runtime
     const { exec } = await import('node:child_process');
     const { promisify } = await import('node:util');
     const execAsync = promisify(exec);

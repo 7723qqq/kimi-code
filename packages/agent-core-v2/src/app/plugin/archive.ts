@@ -218,8 +218,6 @@ export async function extractZip(buffer: Buffer, destDir: string): Promise<strin
       });
     });
   } catch (error) {
-    // The destination is a dedicated extraction directory: remove the partial
-    // output so a failed extract never leaves broken plugin files behind.
     await rm(destDir, { recursive: true, force: true }).catch(() => {});
     throw error;
   }

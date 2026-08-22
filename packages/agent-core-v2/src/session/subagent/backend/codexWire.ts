@@ -1,13 +1,3 @@
-/**
- * `subagent` domain — newline-delimited JSON-RPC wire for the Codex
- * app-server.
- *
- * The `codex app-server --stdio` protocol speaks one JSON-RPC message per
- * line over stdio. This wire correlates responses by id, dispatches
- * server notifications to registered handlers, and rejects pending requests
- * when the transport closes. Reused by the codex subagent backend.
- */
-
 import { createInterface } from 'node:readline';
 
 import type { IProcess } from '#/session/process/processRunner';

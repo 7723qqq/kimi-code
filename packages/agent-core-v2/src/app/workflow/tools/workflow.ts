@@ -1,11 +1,3 @@
-/**
- * WorkflowTool — model-facing tool for running orchestrated agent workflows.
- *
- * Supports `run`, `status`, `wait`, and `cancel` operations. Workflows
- * run in the background — `run` returns immediately with a run ID, and
- * the result arrives as a terminal notification when the workflow completes.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -100,7 +92,6 @@ export class WorkflowTool implements IWorkflowTool {
     let workflowName: string;
 
     if (args.name) {
-      // Try built-in first, then user workflow.
       const builtin = getBuiltin(args.name);
       if (builtin) {
         script = builtin.script;

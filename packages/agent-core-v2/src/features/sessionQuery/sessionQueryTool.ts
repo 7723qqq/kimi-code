@@ -1,18 +1,3 @@
-/**
- * `sessionQuery` domain — the `session_query` agent tool.
- *
- * Model-facing wrapper over `ISessionQueryService`: cross-session full-text
- * search (scoped to the caller's workspace cwd), within-session event
- * search, and lineage tracing. Ported from deepseek-harness
- * `tool-session-query` (MIT), trimmed to the operations the query service
- * provides (upstream event-trace/event-read are deferred).
- *
- * Bound at Agent scope for the main agent only. Contributed through the
- * `sessionQuery` Feature (`SessionQueryFeature.contributeTool`), which carries
- * the main-agent-only `when` gate; this tool additionally guards at
- * execution time.
- */
-
 import { t } from '@moonshot-ai/kimi-i18n';
 
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -101,7 +86,6 @@ export class SessionQueryTool implements ISessionQueryTool {
     const query = normalizeQuery(args.query);
     const sessionFilters: SessionResultFilter[] = [
       ...buildSessionFilters(args),
-      // The caller may only search its own workspace.
       { kind: 'cwd', values: [cwd ?? null] },
     ];
     const eventFilters = buildEventFilters({

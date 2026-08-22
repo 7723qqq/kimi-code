@@ -129,7 +129,6 @@ describe('LspService', () => {
     }
     expect(caught).toBeInstanceOf(Error2);
     expect((caught as Error2).code).toBe(ErrorCodes.LSP_CONFLICT);
-    // The rejected registration must not have landed any extension.
     await expect(
       service.query({
         operation: 'hover',
@@ -152,7 +151,6 @@ describe('LspService', () => {
         workspaceRoot: '/ws',
       }),
     ).rejects.toMatchObject({ code: ErrorCodes.LSP_UNAVAILABLE });
-    // The id is free again.
     expect(() =>
       service.registerProvider(stubProvider('typescript', { ts: 'typescript' })),
     ).not.toThrow();

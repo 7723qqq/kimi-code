@@ -1,16 +1,3 @@
-/**
- * `guardian` domain — AI safety review of tool calls (ported from Reasonix's
- * `internal/guardian/guardian.go`).
- *
- * A bounded, no-tool LLM review of high-risk tool calls (file writes, shell
- * commands) before they execute under yolo mode. The reviewer is isolated
- * from the main conversation: a single temperature-0 request with a hard
- * output budget, no session history of its own — it never pollutes the main
- * session's prompt cache. A circuit breaker trips after repeated denials and
- * hands control back to the human approval path instead of silently
- * rubber-stamping.
- */
-
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
@@ -98,7 +85,6 @@ export class GuardianService extends Disposable implements IAgentGuardianService
   }
 
   get enabled(): boolean {
-    // Enabled via environment for now; a config section can ride on this later.
     return process.env['KIMI_GUARDIAN'] === '1';
   }
 
@@ -136,8 +122,6 @@ export class GuardianService extends Disposable implements IAgentGuardianService
         .map((part) => part.text)
         .join('');
     } catch {
-      // A failed review must not masquerade as a verdict — hand back to the
-      // human path (bypass) so nothing runs unreviewed or auto-denied.
       return { verdict: 'bypass', reason: 'guardian review failed' };
     }
 

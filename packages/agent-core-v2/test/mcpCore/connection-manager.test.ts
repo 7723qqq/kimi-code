@@ -1,14 +1,3 @@
-/**
- * Scenario: MCP connection lifecycle and timeout defaults.
- *
- * Exercises the real connection manager; stdio MCP processes are the
- * external boundary, and timeout forwarding tests stub only the MCP SDK
- * client boundary. The workspace-level initialization scenarios live in
- * `test/workspace/workspaceMcp/`. Run with
- * `pnpm --filter @moonshot-ai/agent-core-v2 exec vitest run
- * test/agent/mcp/connection-manager.test.ts`.
- */
-
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
@@ -53,11 +42,6 @@ function stdioConfig(args: string[] = [stdioFixture]) {
   };
 }
 
-/**
- * The manager spawns stdio servers through the workspace runtime binding;
- * wire a FakeRuntime with a real process service so spawns reach the host
- * (and resolve cwd through the host's own path class).
- */
 function createManager(
   options: ConstructorParameters<typeof McpConnectionManager>[0] = {},
 ): McpConnectionManager {
@@ -847,16 +831,12 @@ describe('McpConnectionManager', () => {
       });
       expect(cm.get('crashy')?.status).toBe('connected');
 
-      // Unexpected close: marked failed with the captured stderr.
       await waitForStatus(cm, 'crashy', 'failed', 10_000);
       const entry = cm.get('crashy');
       expect(entry?.toolCount).toBe(0);
       expect(entry?.error?.toLowerCase()).toContain('closed');
       expect(entry?.error).toContain('fatal: out of memory');
 
-      // Explicit reconnect restores the connection; the fixture exits again
-      // shortly after re-connecting, proving the reconnect path re-established
-      // a live generation.
       await cm.reconnect('crashy');
       const sequence = seen.filter((s) => s.name === 'crashy').map((s) => s.status);
       expect(sequence.slice(0, 3)).toEqual(['pending', 'connected', 'failed']);

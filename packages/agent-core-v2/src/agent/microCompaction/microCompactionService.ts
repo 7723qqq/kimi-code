@@ -1,19 +1,3 @@
-/**
- * `microCompaction` domain — `IAgentMicroCompactionService` implementation.
- *
- * Runs cache-miss micro compaction: `detect` (hooked before each step)
- * checks the `micro-compaction` flag, the prompt-cache miss threshold against
- * the last assistant output time (tracked through `loop`'s `onDidFinishStep`),
- * and the context usage ratio, then raises the wire-persisted cutoff to
- * `history.length - keepRecentMessages`. `compact` (applied to the outgoing
- * request messages in `llmRequester`) replaces old oversized tool results
- * with `truncatedMarker`, leaving history untouched. The cutoff persists on
- * the wire and resets on clear / compaction / undo (the latter through the
- * `context.spliced` event dispatching `micro_compaction.clamp`). Reports the
- * truncation effect through `telemetry` when the cutoff advances. Bound at
- * Agent scope.
- */
-
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -50,7 +34,6 @@ interface TruncationEffect {
   readonly truncatedToolResultTokensAfter: number;
 }
 
-// NOTE: stays Disposable — its own 'config' collides with the Fiber
 export class AgentMicroCompactionService
   extends Disposable
   implements IAgentMicroCompactionService
@@ -88,8 +71,6 @@ export class AgentMicroCompactionService
     );
     this._register(
       this.eventBus.subscribe(ContextSpliced, (event) => {
-        // Undo splice only: clear / compaction start at 0 (their zeroing is
-        // handled by the state folds) and appends carry deleteCount 0.
         if (event.start > 0 && event.deleteCount > 0) {
           this.clampTo(event.start);
         }
@@ -130,9 +111,6 @@ export class AgentMicroCompactionService
     const effect = this.measureEffect(history, nextCutoff);
     const previousEffect = this.measureEffect(history, previousCutoff);
     const rawContextTokens = estimateTokensForMessages(history);
-    // Whole-context length before/after this cutoff change, mirroring the
-    // `tokens_before`/`tokens_after` fields on `compaction_finished` so the
-    // two compaction paths can be compared on the same axis.
     const tokensBefore =
       rawContextTokens -
       previousEffect.truncatedToolResultTokensBefore +

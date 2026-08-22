@@ -1,13 +1,3 @@
-/**
- * Scenario: the `sessionQuery` capability — logical-corpus filtering and
- * lineage tracing (stage A).
- *
- * Exercises the pure filter predicates (ANDed clauses, ORed values, range
- * bounds, availability), the lineage walk (ancestors, descendant trees,
- * complete/unresolved), and the App-scope `SessionQueryService` against
- * stubbed index/workspace-registry sources.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -76,7 +66,6 @@ describe('filterSessionResults', () => {
 
   it('filters by parent including null (root sessions)', () => {
     const roots = filterSessionResults(records, [{ kind: 'parent', values: [null] }]);
-    // Only `c` has no recorded parent.
     expect(roots.map((r) => r.id)).toEqual(['c']);
     const children = filterSessionResults(records, [{ kind: 'parent', values: ['a'] }]);
     expect(children.map((r) => r.id)).toEqual(['b']);

@@ -149,10 +149,6 @@ export class SessionSwarmService implements ISessionSwarmService {
     try {
       this.modelCatalog.get(binding.model);
       if (options.fork === true) {
-        // Fork inherits the caller's profile, model, and tool set; the
-        // caller-side binding is applied inside fork() via the
-        // caller's IAgentProfileService snapshot, so we don't pass a
-        // binding override here.
         child = await this.lifecycle.fork(caller.accessor.get(IAgentScopeContext).agentContext);
       } else {
         child = await this.lifecycle.create({
@@ -185,8 +181,6 @@ export class SessionSwarmService implements ISessionSwarmService {
     });
     let promptText: string;
     if (options.fork === true) {
-      // The fork already inherits the caller's history; use the prompt as-is
-      // without prepending a profile-specific prefix.
       promptText = options.prompt;
     } else {
       const lease = this.runtimeResolver.acquire(callerRuntime, ['process']);

@@ -1,11 +1,3 @@
-/**
- * Scenario: subagent delegation-depth accounting.
- *
- * The depth label round-trips through `subagentLabels` / `subagentDepthOf`,
- * absence and malformed values read as top-level depth zero, and the
- * ceiling is enforced by the `MAX_SUBAGENT_DEPTH` constant.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -46,11 +38,9 @@ describe('subagent delegation depth', () => {
 
   it('keeps a child below the ceiling and rejects at the cap', () => {
     expect(MAX_SUBAGENT_DEPTH).toBeGreaterThanOrEqual(4);
-    // A chain of MAX_SUBAGENT_DEPTH spawns is legal...
     expect(subagentDepthOf(metaWith({ subagentDepth: String(MAX_SUBAGENT_DEPTH - 1) }))).toBe(
       MAX_SUBAGENT_DEPTH - 1,
     );
-    // ...and one at the cap would already be rejected by the spawn guard.
     expect(subagentDepthOf(metaWith({ subagentDepth: String(MAX_SUBAGENT_DEPTH) }))).toBe(
       MAX_SUBAGENT_DEPTH,
     );

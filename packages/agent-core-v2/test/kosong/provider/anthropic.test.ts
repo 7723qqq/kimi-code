@@ -1,14 +1,3 @@
-/**
- * Cache-breakpoint injection through the vendored Anthropic base.
- *
- * The base must delegate to the shared kosong breakpoint module (tail +
- * stable-history strategy) instead of re-declaring its own — a local
- * tail-only copy silently degraded v2-engine cache hit rates once the shared
- * module gained the history breakpoint. These probes pin the shared behavior
- * at the generate() boundary so any future re-declaration fails here instead
- * of production.
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { CACHE_CONTROL } from '@moonshot-ai/kosong/providers/anthropic-cache-breakpoints';
@@ -35,8 +24,6 @@ function makeResponse(): Record<string, unknown> {
   };
 }
 
-/** Run generate() against a mocked SDK client and return the wire messages
- *  plus the parts surfaced by the streamed-message adapter. */
 async function captureMessages(
   history: Message[],
 ): Promise<{ contents: CapturedBlock[][]; parts: unknown[] }> {
@@ -71,14 +58,11 @@ describe('vendored anthropic cache breakpoints', () => {
       msg('user', 'u3'),
     ]);
 
-    // History breakpoint on the last block of index len-3 == 2, tail on the
-    // last message's last block; everything in between stays clean.
     expect(contents[2]!.at(-1)!.cache_control).toEqual(CACHE_CONTROL);
     expect(contents[4]!.at(-1)!.cache_control).toEqual(CACHE_CONTROL);
     expect(contents[0]!.at(-1)!.cache_control).toBeUndefined();
     expect(contents[1]!.at(-1)!.cache_control).toBeUndefined();
     expect(contents[3]!.at(-1)!.cache_control).toBeUndefined();
-    // The non-stream response body flows through the message adapter.
     expect(parts).toEqual([{ type: 'text', text: 'ok' }]);
   });
 

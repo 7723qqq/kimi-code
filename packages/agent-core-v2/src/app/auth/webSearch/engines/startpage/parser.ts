@@ -1,13 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Startpage SERP parser, ported from the
- * open-websearch project (`engines/startpage/startpage.js`). Detects
- * captcha / anti-bot pages, extracts the `sc` search token and the
- * interstitial follow-up payload from the raw HTML, and parses
- * `a.result-title.result-link` organic results through the linkedom shim
- * (`loadHtml`). The shim omits cheerio's `nextAll`, so the description
- * sibling walk is emulated over `nextElementSibling` + `matches`.
- */
-
 import { Error2, ErrorCodes } from '#/errors';
 
 import { loadHtml, type EngineElement } from '../engine-html';
@@ -79,7 +69,6 @@ export function extractInterstitialPayload(html: string): Record<string, string>
   }
 }
 
-/** Emulates cheerio's `nextAll(selector).first()` over the linkedom DOM. */
 function firstMatchingNextSibling(element: EngineElement, selector: string): EngineElement | null {
   let sibling = (element as { nextElementSibling?: EngineElement | null }).nextElementSibling;
   while (sibling !== null && sibling !== undefined) {

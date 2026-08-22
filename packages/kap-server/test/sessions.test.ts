@@ -1427,8 +1427,6 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(submitted.body.code).toBe(0);
     sub.dispose();
 
-    // The title lands in the session index through the async mirror; poll so
-    // a read inside an in-flight flush window doesn't transiently miss it.
     await vi.waitFor(async () => {
       const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
       expect(got.body.code).toBe(0);

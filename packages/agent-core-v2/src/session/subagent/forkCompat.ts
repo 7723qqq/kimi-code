@@ -1,13 +1,3 @@
-/**
- * Subagent fork compatibility checks.
- *
- * `fork: true` on the Agent / AgentSwarm tool means "start a subagent from
- * the caller's snapshot" (profile, model, tool set, conversation history).
- * Because the fork inherits everything from the caller, several parameters
- * that the spawn path supports are no longer meaningful and must be
- * rejected up front.
- */
-
 import {
   FORK_CANNOT_COMBINE_WITH_MODEL,
   FORK_CANNOT_COMBINE_WITH_RESUME,

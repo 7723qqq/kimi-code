@@ -1,14 +1,3 @@
-/**
- * `tools` domain — GitHub tool flag and token config registration.
- *
- * Registers the `github_tools` experimental flag (same id, env var, and
- * default as v1 — the flag gates the whole tool family) and the `[github]`
- * config section holding the optional `token`. The config token mirrors v1's
- * `kimiConfig.experimental.github_token`; like the v1 Rust transport, a
- * configured token takes precedence over the `GITHUB_TOKEN` / `GH_TOKEN`
- * environment variables at request time.
- */
-
 import { z } from 'zod';
 
 import { registerConfigSection } from '#/app/config/configSectionContributions';

@@ -223,7 +223,6 @@ describe('TeamTool', () => {
       profileName: 'explore',
       description: 'You are a frontend architect.',
     });
-    // opening 2 + free debate 2 + closing 2 + consensus 1 + votes 2 + tally 1
     expect(stubs.turns).toHaveLength(10);
 
     expect(result.isError).toBeUndefined();

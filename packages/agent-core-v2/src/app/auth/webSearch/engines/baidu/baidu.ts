@@ -1,14 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Baidu search engine, ported from the
- * open-websearch project (`engines/baidu/baidu.js`). Request-mode scraping
- * only: paginates `www.baidu.com/s` through `engineFetch` (or the injected
- * `fetchImpl` in tests) and parses each page with
- * `parseBaiduSearchResults`. The original implementation has no playwright
- * path, so nothing is skipped. HTTP failures throw `Error2`
- * (`WEB_FETCH_FAILED`); pages that yield no parseable results end the
- * pagination loop early.
- */
-
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 

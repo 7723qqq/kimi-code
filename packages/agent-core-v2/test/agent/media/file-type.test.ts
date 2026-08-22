@@ -1,23 +1,5 @@
-/**
- * file-type — magic-byte + extension detection.
- *
- * Tests pin:
- *   - magic-byte recognition for PNG / JPEG / GIF / WebP / AVIF /
- *     MP4 ftyp / MKV / AVI
- *   - extension lookup for each `IMAGE_MIME_BY_SUFFIX` / `VIDEO_MIME_BY_SUFFIX`
- *   - NUL bytes → unknown
- *   - extension hints a different kind than sniff → unknown
- *   - `NON_TEXT_SUFFIXES` lookup returns unknown (so binaries aren't
- *     treated as text on a blind read)
- *   - no header provided → extension-only detection
- */
-
 import { describe, expect, it, vi } from 'vitest';
 
-// Stub every native-tools export to `undefined` so media sniffing falls back
-// to the TS `detectFileType` / `sniffImageDimensions` paths instead of the
-// Rust native fast-path (`nativeDetectFileType` ignores the TS `mode` /
-// conflict semantics; `nativeSniffImageDimensions` skips EXIF transpose).
 vi.mock('#/_base/native-tools', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
   return Object.fromEntries(Object.keys(actual).map((key) => [key, () => undefined]));

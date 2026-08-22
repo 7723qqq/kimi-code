@@ -1,17 +1,3 @@
-/**
- * `subagent` domain — `IPersistentSubagentService` implementation.
- *
- * Creates persistent children through `agentLifecycle.create({ binding })`,
- * resolving the profile from `sessionAgentProfileCatalog` and inheriting the
- * caller's model, thinking level, permission mode, and user tools; announces
- * spawns through the `subagent.spawned` wire signal; drives each turn through
- * `ISessionSubagentService.run` wrapped by `mirrorAgentRun` (which fires the
- * run hooks/events and reports usage); and destroys children through
- * `agentLifecycle.remove`. Tracks each child's owner so the flat lifecycle
- * registry's caller ↔ child association stays business data of this domain.
- * Bound at Session scope.
- */
-
 import { t } from '@moonshot-ai/kimi-i18n';
 
 import { ScopeActivation, registerScopedService, type IAgentScopeHandle } from '#/_base/di/scope';

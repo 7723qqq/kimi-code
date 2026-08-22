@@ -15,10 +15,10 @@ export type GoalActor = 'user' | 'model' | 'runtime' | 'system';
 /** Controls which goal statuses are eligible for usage accounting.
  *  Mirrors Codex `GoalAccountingMode`. */
 export type GoalAccountingMode =
-  | 'active_status_only' // only active (current behavior)
-  | 'active_only' // active + budget_limited
-  | 'active_or_complete' // active + budget_limited + complete
-  | 'active_or_stopped'; // all except complete (active + paused + blocked + budget_limited + usage_limited)
+  | 'active_status_only'
+  | 'active_only'
+  | 'active_or_complete'
+  | 'active_or_stopped';
 
 export interface GoalBudgetLimits {
   readonly tokenBudget?: number;

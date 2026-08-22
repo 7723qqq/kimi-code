@@ -72,10 +72,8 @@ describe('applyOperation (pure reducer)', () => {
       task: { taskId: 'task1', kind: 'shell', state: 'running', detached: false, outputTail: '' },
     }).state;
     const withTurn = applyOperation(withTask, turn1);
-    // The turn insert rebuilds items but must not clone the entity maps.
     expect(withTurn.state.tasks).toBe(withTask.tasks);
     expect(withTurn.state.items).not.toBe(withTask.items);
-    // A later entity change keeps the items array untouched.
     const next = applyOperation(withTurn.state, {
       op: 'task.upsert',
       task: { taskId: 'task1', kind: 'shell', state: 'completed', detached: false, outputTail: '' },
@@ -518,7 +516,6 @@ describe('AgentTranscript', () => {
       { op: 'append', target, offset: 9, text: 'x' },
       { op: 'append', target, offset: 8, text: 'y' },
     ]);
-    // The earliest divergence anchors the caller's resync decision.
     expect(batch.gap).toEqual({ target, expected: 0, got: 9 });
     const frame = tx.getTurn('t1')?.steps[0]?.frames[0];
     expect(frame?.kind === 'text' && frame.text).toBe('');
@@ -744,8 +741,6 @@ describe('TranscriptStore', () => {
     store.ensureAgent('main', { agentId: 'main', type: 'main' });
     const rosters: number[] = [];
     store.onRosterChange((agents) => rosters.push(agents.length));
-    // A fresh object with the same fields must not re-broadcast (polling /
-    // repeated ensure arrive as new objects every time).
     store.ensureAgent('main', { agentId: 'main', type: 'main' });
     expect(rosters).toEqual([]);
     expect(store.ensureAgent('main')).toBe(store.getAgent('main'));
@@ -774,7 +769,6 @@ describe('TranscriptStore', () => {
     expect(store.getAgent('main')).toBeUndefined();
     expect(store.agents()).toEqual([]);
     expect(rosters).toEqual([0]);
-    // Re-ensure yields a fresh transcript, not the dropped one.
     expect(store.ensureAgent('main')).not.toBe(tx);
   });
 

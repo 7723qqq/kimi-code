@@ -1,17 +1,3 @@
-/**
- * `spill` domain — spill storage Service Definition.
- *
- * Persists a tool's oversized text result to a session-scoped artifact and
- * returns a model-facing locator plus retrieval guidance, so truncated output
- * stays readable without inflating the model context. The backend owns the
- * locator format and the retrieval hint; consumers render the hint but never
- * parse the locator.
- *
- * Ported from deepseek-harness `spill/spill` (MIT). Adapted to the DI × Scope
- * model: the upstream Cordis `SpillStore` service maps to `ISpillService`
- * bound at Session scope.
- */
-
 import { createDecorator } from '#/_base/di/instantiation';
 
 /**

@@ -1,13 +1,3 @@
-/**
- * Create a zip file buffer from a directory path using only Node.js built-in modules.
- * The `zip` system command is not available on all platforms (e.g., Windows).
- *
- * Implements the minimal ZIP format:
- *   - Local file headers + deflated data for each file
- *   - Central directory entries
- *   - End of central directory record
- */
-
 import { createReadStream, readdirSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
@@ -57,15 +47,15 @@ function localFileHeader(
   return Buffer.concat([
     uint32LE(LOCAL_FILE_HEADER_SIG),
     uint16LE(VERSION_NEEDED),
-    uint16LE(0), // flags
+    uint16LE(0),
     uint16LE(DEFLATE_METHOD),
-    uint16LE(0), // last mod time
-    uint16LE(0), // last mod date
+    uint16LE(0),
+    uint16LE(0),
     uint32LE(crc),
     uint32LE(compressedSize),
     uint32LE(uncompressedSize),
     uint16LE(nameBuf.length),
-    uint16LE(0), // extra field length
+    uint16LE(0),
     nameBuf,
   ]);
 }
@@ -82,19 +72,19 @@ function centralDirEntry(
     uint32LE(CENTRAL_DIR_SIG),
     uint16LE(VERSION_MADE_BY),
     uint16LE(VERSION_NEEDED),
-    uint16LE(0), // flags
+    uint16LE(0),
     uint16LE(DEFLATE_METHOD),
-    uint16LE(0), // last mod time
-    uint16LE(0), // last mod date
+    uint16LE(0),
+    uint16LE(0),
     uint32LE(crc),
     uint32LE(compressedSize),
     uint32LE(uncompressedSize),
     uint16LE(nameBuf.length),
-    uint16LE(0), // extra field length
-    uint16LE(0), // file comment length
-    uint16LE(0), // disk number start
-    uint16LE(0), // internal file attributes
-    uint32LE(0), // external file attributes
+    uint16LE(0),
+    uint16LE(0),
+    uint16LE(0),
+    uint16LE(0),
+    uint32LE(0),
     uint32LE(localOffset),
     nameBuf,
   ]);
@@ -107,13 +97,13 @@ function endCentralDir(
 ): Buffer {
   return Buffer.concat([
     uint32LE(END_CENTRAL_DIR_SIG),
-    uint16LE(0), // disk number
-    uint16LE(0), // disk with central dir
+    uint16LE(0),
+    uint16LE(0),
     uint16LE(numEntries),
     uint16LE(numEntries),
     uint32LE(centralDirSize),
     uint32LE(centralDirOffset),
-    uint16LE(0), // comment length
+    uint16LE(0),
   ]);
 }
 

@@ -1,15 +1,3 @@
-/**
- * `knowledge` domain (L4) — IAgentKnowledgeService implementation.
- *
- * Calls the napi-exported knowledge functions from kimi-native-tools.
- * Manages project-level and user-level databases.
- * Registered at Agent scope.
- *
- * The service also owns the KnowledgeLearner (auto-learning from user
- * corrections) and KnowledgeInjection (context injection) sub-components,
- * following the same pattern as GoalService ↔ GoalInjection.
- */
-
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
@@ -30,11 +18,6 @@ import {
 import { KnowledgeInjection } from './knowledgeInjection';
 import { KnowledgeLearner } from './knowledgeLearner';
 
-// Import napi bindings — these are the Rust functions compiled into the native addon.
-// At runtime, the native module is loaded by the host (kimi-code CLI).
-// `require` is used (rather than dynamic `import`) because the DI system
-// requires synchronous construction, and `require` of a native addon is
-// already synchronous.
 let nativeKnowledge:
   | {
       knowledgeOpen(dbPath: string): void;
@@ -68,8 +51,6 @@ try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   nativeKnowledge = require('@moonshot-ai/kimi-native-tools');
 } catch (error) {
-  // Native module not available — knowledge features disabled.
-  // We log this at construction time via the injected logger (see constructor).
   void error;
 }
 
@@ -92,9 +73,6 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
       this.log.warn('Knowledge native module not available — knowledge features disabled');
     }
     this.initDatabase();
-    // Only the main agent runs auto-learning and context injection.
-    // Sub-agents (swarm workers, etc.) share the knowledge base but do not
-    // write to it automatically or inject into their own context.
     if (this.scopeContext.agentId === 'main') {
       this._register(new KnowledgeLearner(this, eventBus, contextMemory));
       this._register(new KnowledgeInjection(this, dynamicInjector, contextMemory));
@@ -109,7 +87,6 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
       this.initialized = true;
       this.currentDbPath = projectDb;
     } catch (error) {
-      // M2: log the failure rather than silently falling back.
       this.log.warn('Failed to open project knowledge DB, falling back to user DB', {
         error: error,
         projectDb,
@@ -125,17 +102,13 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     }
   }
 
-  // M1: open() now respects userDbPath (no longer ignored) and resets
-  // `initialized` so callers can explicitly switch DBs.
   open(projectDbPath: string, userDbPath: string): void {
     if (!nativeKnowledge) return;
     try {
-      // Close the currently-active DB first to release file handles (M11).
       if (this.currentDbPath !== null) {
         try {
           nativeKnowledge.knowledgeClose(this.currentDbPath);
         } catch {
-          /* best-effort */
         }
       }
       nativeKnowledge.knowledgeOpen(projectDbPath);
@@ -161,11 +134,8 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     if (!nativeKnowledge || !this.initialized) return [];
     try {
       const tagsStr = tags?.join(',') ?? null;
-      // Only confirmed entries participate in search/injection.
-      // minConfidence=0.5 keeps backward compat with human/ai-confirmed entries.
       const json = nativeKnowledge.knowledgeSearch(query, scopePath ?? null, tagsStr, limit, 0.5);
       const results: KnowledgeSearchResult[] = JSON.parse(json);
-      // Filter out pending entries (they should not appear in search results).
       return results.filter((r) => r.entry.status !== 'pending');
     } catch (error) {
       this.log.error('knowledge.search failed', { error: error, query });
@@ -188,8 +158,6 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
       );
       return JSON.parse(json);
     } catch (error) {
-      // Duplicate inserts return an error from Rust; log at debug since this
-      // is an expected control-flow signal, not a true failure.
       this.log.warn('knowledge.add failed (may be a duplicate)', {
         error: error,
         title: input.title,
@@ -243,12 +211,10 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     if (!nativeKnowledge || !this.initialized) return [];
     try {
       const json = nativeKnowledge.knowledgeImport(markdown);
-      // M8: the Rust side now returns { entries, skipped }. Extract entries
-      // and log skipped reasons so failures are observable.
       const parsed = JSON.parse(json) as
         | { entries: KnowledgeEntry[]; skipped: string[] }
         | KnowledgeEntry[];
-      if (Array.isArray(parsed)) return parsed; // backward compat with old native module
+      if (Array.isArray(parsed)) return parsed;
       if (parsed.skipped && parsed.skipped.length > 0) {
         this.log.warn('knowledge.importMarkdown skipped some entries', { skipped: parsed.skipped });
       }

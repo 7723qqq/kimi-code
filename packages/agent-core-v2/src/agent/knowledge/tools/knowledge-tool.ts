@@ -1,11 +1,3 @@
-/**
- * `knowledge` domain (L4) — Knowledge tool registration.
- *
- * Registers the `Knowledge` tool that lets the model actively interact
- * with the knowledge base: search, add, confirm, reject entries.
- * Only available to the main agent.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';

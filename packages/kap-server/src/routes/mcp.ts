@@ -1,23 +1,3 @@
-/**
- * `/sessions/{session_id}/mcp*` REST routes — server-v2 additions.
- *
- * Exposes the session's MCP server connection view to the web UI:
- *
- *   GET  /sessions/{session_id}/mcp/servers                     data: {servers[]}
- *   POST /sessions/{session_id}/mcp/servers/{name}:reconnect    data: {reconnected:true}
- *
- * **Resolution**: `resumeSessionById` (cold-loads the session if needed) →
- * `ISessionMcpHandle` (Session scope seed contributed by the workspace MCP
- * service at session creation) → `connectionManager` (`McpConnectionView`:
- * `list()` / `reconnect(name)`). The handle is a pure-data seed; when it is
- * absent (a session created outside the workspace lifecycle) the routes answer
- * `40401` with a distinguishing message.
- *
- * **Status change notification**: the WS event stream already carries MCP
- * status changes — `McpConnectionManager.onStatusChange` is bridged into the
- * core event bus (see the mcpCore event bridge), so the UI can react to live
- * status without polling.
- */
 
 import { ISessionMcpHandle, resumeSessionById, type Scope } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
@@ -61,10 +41,6 @@ const sessionAndServerNameParamSchema = z.object({
   tail: z.string().min(1),
 });
 
-/**
- * Resolve the session's MCP connection view, or an error envelope when the
- * session is unknown or carries no MCP handle.
- */
 async function resolveMcpView(core: Scope, sessionId: string, requestId: string) {
   const handle = await resumeSessionById(core.accessor, sessionId);
   if (handle === undefined) {
@@ -90,7 +66,6 @@ async function resolveMcpView(core: Scope, sessionId: string, requestId: string)
 }
 
 export function registerMcpRoutes(app: McpRouteHost, core: Scope): void {
-  // GET /sessions/{session_id}/mcp/servers --------------------------------
   const listRoute = defineRoute(
     {
       method: 'GET',
@@ -128,9 +103,6 @@ export function registerMcpRoutes(app: McpRouteHost, core: Scope): void {
     listRoute.handler as Parameters<McpRouteHost['get']>[2],
   );
 
-  // GET /sessions/{session_id}/mcp/servers/{name} --------------------------
-  // Bare-form of the shared `:tail` segment (no `:action` suffix) — the name
-  // is the whole tail, colons inside a name are legal (qualified MCP tools).
   const detailRoute = defineRoute(
     {
       method: 'GET',
@@ -182,7 +154,6 @@ export function registerMcpRoutes(app: McpRouteHost, core: Scope): void {
     detailRoute.handler as Parameters<McpRouteHost['get']>[2],
   );
 
-  // POST /sessions/{session_id}/mcp/servers/{name}:reconnect --------------
   const reconnectRoute = defineRoute(
     {
       method: 'POST',

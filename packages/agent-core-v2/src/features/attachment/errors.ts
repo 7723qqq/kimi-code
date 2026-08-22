@@ -1,8 +1,3 @@
-/**
- * `attachment` domain error codes — attachment admission and storage
- * failures.
- */
-
 import { registerErrorDomain, type ErrorDomain } from '#/_base/errors/codes';
 
 export const AttachmentErrors = {

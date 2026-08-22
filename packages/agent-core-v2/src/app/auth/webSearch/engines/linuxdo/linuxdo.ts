@@ -1,14 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — LinuxDo search engine, ported from the
- * open-websearch project (`engines/linuxdo/linuxdo.js`). Request-mode only:
- * searches the `site:linux.do` scoped query through the configured delegate
- * engine (Bing / DuckDuckGo / Brave, defaulting to Bing like the original
- * `config.defaultSearchEngine`), filters results to `linux.do` hostnames,
- * and forces the `linux.do` site name. The original has no playwright path,
- * so nothing is skipped. Delegate failures throw `Error2`
- * (`WEB_FETCH_FAILED`); no matching results return `[]`.
- */
-
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 
 import { searchBing } from '../bing';
@@ -16,7 +5,6 @@ import { searchBrave } from '../brave';
 import { searchDuckDuckGo } from '../duckduckgo';
 import type { SearchEngineOptions } from '../types';
 
-/** Matches open-websearch's `config.defaultSearchEngine` default. */
 const DEFAULT_DELEGATE_ENGINE: 'bing' | 'duckduckgo' | 'brave' = 'bing';
 
 function isLinuxDoHostname(hostname: string): boolean {

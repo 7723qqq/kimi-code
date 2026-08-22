@@ -1,8 +1,3 @@
-/**
- * Outcome-based progress tracking tests (ported from Reasonix's
- * `internal/evidence/outcome_test.go`).
- */
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -53,7 +48,6 @@ describe('ProgressTracker', () => {
     const t = new ProgressTracker();
     const s1 = t.scoreRound([read('/a.txt')]);
     expect(s1.exploration).toBe(1);
-    // Same path again: no new exploration.
     const s2 = t.scoreRound([read('/a.txt')]);
     expect(s2.exploration).toBe(0);
     const s3 = t.scoreRound([command('ls')]);
@@ -97,7 +91,6 @@ describe('ProgressTracker', () => {
   it('counts a command exercising a mutated file as discriminating', () => {
     const t = new ProgressTracker();
     t.scoreRound([write('/src/app.py')]);
-    // Running the mutated file's module exercises it -> discriminating.
     const s = t.scoreRound([command('python src/app.py')]);
     expect(s.discriminating).toBe(1);
     expect(s.blindMutations).toBe(0);

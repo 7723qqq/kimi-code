@@ -141,7 +141,6 @@ describe('server-v2 /api/v1 fs folder picker', () => {
   it('returns parent=null for the filesystem root', async () => {
     const { body } = await getJson<BrowseWire>('/api/v1/fs:browse?path=%2F');
     expect(body.code).toBe(0);
-    // The platform root: '/' on POSIX, the current drive root (e.g. 'G:\') on Windows.
     expect(body.data.path).toBe(parse(body.data.path).root);
     expect(body.data.parent).toBeNull();
   });

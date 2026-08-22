@@ -2376,12 +2376,6 @@ describe('search worker host (stage 4)', () => {
 
   it('times out a wedged request and terminates the worker (watchdog)', { timeout: 30_000 }, async () => {
     const dir = join(home!, 'search-index');
-    // Swallow `search` while the gate is up: the request is never delivered,
-    // so only the watchdog can settle it. The respawned worker is ungated.
-    // A query is the only RPC that still rides the short request leash —
-    // `status`/`refresh` share the long sync leash (a refresh over a large
-    // WAL delta legitimately runs for minutes; the watchdog catches a WEDGED
-    // worker, not slow work).
     let gate = true;
     const host = new SearchWorkerHost({
       dir,

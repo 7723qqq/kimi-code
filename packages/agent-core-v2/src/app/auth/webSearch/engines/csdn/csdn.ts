@@ -1,13 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — CSDN search engine, ported from the
- * open-websearch project (`engines/csdn/csdn.js`). Request-mode only:
- * paginates the `so.csdn.net/api/v3/search` JSON API through `engineFetch`
- * (or the injected `fetchImpl` in tests) and maps the `result_vos` array.
- * The original has no playwright path, so nothing is skipped. HTTP/network
- * failures throw `Error2` (`WEB_FETCH_FAILED`); pages that yield no
- * parseable results end the pagination loop early.
- */
-
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 

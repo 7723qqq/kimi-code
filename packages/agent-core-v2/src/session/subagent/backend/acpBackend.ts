@@ -1,17 +1,3 @@
-/**
- * `subagent` domain — the `acp` external subagent backend.
- *
- * Spawns any Agent Client Protocol (ACP) implementation through
- * `ISessionProcessRunner` and drives one turn over the ACP SDK's
- * `ClientSideConnection` (newline-delimited JSON-RPC over stdio):
- * initialize → newSession(cwd) → prompt(text). `agent_message_chunk`
- * updates are folded into the output; the prompt response's stop reason
- * settles the run. Permission requests are auto-cancelled (the subagent runs
- * unattended). Aborting the request signal cancels the remote turn; dispose
- * tears the connection and process down. Bound at Session scope via
- * `SubagentBackendService`.
- */
-
 import { randomUUID } from 'node:crypto';
 import { Readable as NodeReadable, Writable as NodeWritable } from 'node:stream';
 
@@ -132,9 +118,7 @@ export class AcpBackend implements ISubagentBackend {
         request.signal.removeEventListener('abort', abortFromSignal);
         try {
           await process.kill('SIGTERM');
-        } catch {
-          // Process already gone.
-        }
+        } catch {}
       },
     };
   }

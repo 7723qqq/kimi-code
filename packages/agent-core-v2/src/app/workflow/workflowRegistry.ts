@@ -1,13 +1,3 @@
-/**
- * Workflow registry — built-in and user-defined workflow scripts.
- *
- * Built-in scripts are embedded at build time via `?raw` imports.
- * User scripts live as `.js` files in `~/.kimi-code/workflows/`.
- *
- * The `meta` export is parsed with a regex-based extractor (no eval) —
- * only string-keyed object literals with string values are accepted.
- */
-
 import { readFile } from 'node:fs/promises';
 
 import { join } from 'pathe';
@@ -15,7 +5,6 @@ import { join } from 'pathe';
 import ARCHITECTURE_REVIEW_SCRIPT from './builtin/architecture-review.js?raw';
 import BUG_TRIAGE_SCRIPT from './builtin/bug-triage.js?raw';
 import CODE_REVIEW_SCRIPT from './builtin/code-review.js?raw';
-// ── Built-in scripts ──────────────────────────────────────────────
 import DEEP_RESEARCH_SCRIPT from './builtin/deep-research.js?raw';
 import MIGRATION_PLANNER_SCRIPT from './builtin/migration-planner.js?raw';
 import PR_DESCRIPTION_SCRIPT from './builtin/pr-description.js?raw';
@@ -88,7 +77,6 @@ export function parseMeta(script: string): WorkflowMeta | undefined {
   const body = metaMatch[1];
   const fields: Record<string, string> = {};
 
-  // Match `key: "value"` or `key: 'value'` pairs.
   const fieldRegex = /(\w+)\s*:\s*["']([^"']*?)["']/g;
   let match: RegExpExecArray | null;
   while ((match = fieldRegex.exec(body)) !== null) {
@@ -97,7 +85,6 @@ export function parseMeta(script: string): WorkflowMeta | undefined {
     }
   }
 
-  // Also match array values for phases: phases: ["a", "b", "c"]
   const phasesMatch = body.match(/phases\s*:\s*\[([\s\S]*?)\]/);
   const phases: string[] = [];
   if (phasesMatch && phasesMatch[1]) {

@@ -44,12 +44,6 @@ export function revealFileCommandFor(
     case 'darwin':
       return { command: 'open', args: ['-R', absolutePath] };
     case 'win32':
-      // explorer.exe parses its RAW command line (not argv), so Node's
-      // default spawn quoting breaks `/select,` whenever the path contains
-      // spaces: the command line becomes `"/select,\"C:\some dir\f.txt\""`,
-      // which explorer's parser rejects, silently opening the Documents
-      // folder. `windowsVerbatimArguments: true` keeps the command line in
-      // the documented `/select,"C:\some dir\f.txt"` form.
       return {
         command: 'explorer.exe',
         args: [explorerSelectArg(absolutePath)],
@@ -186,7 +180,6 @@ function openInMacApp(
   if (platform === 'darwin') {
     return { command: 'open', args: ['-a', appName, absolutePath] };
   }
-  // These apps are macOS-only in the UI; fall back to the platform default.
   return openFileCommandFor(absolutePath, undefined, process.env, platform);
 }
 
@@ -218,8 +211,6 @@ function resolveEditorCommand(env: Record<string, string | undefined>): string |
     const value = env[key];
     if (typeof value === 'string' && value.trim().length > 0) {
       const trimmed = value.trim();
-      // Reject values with shell injection metacharacters. Legitimate editor
-      // commands (e.g. "code --wait", "nvim -c 'set ft=md'") don't need these.
       if (/[;|&`$\n\r]/.test(trimmed)) return undefined;
       return trimmed;
     }
@@ -232,15 +223,6 @@ function supportsLineTarget(command: string): boolean {
   return /(?:^|\/)(code|cursor|windsurf)(?:\.cmd|\.exe)?$/i.test(first);
 }
 
-/**
- * Build the single `/select,` argument for explorer.exe, quoting only the
- * path: `/select,"C:\some dir\f.txt"`. Must be launched with
- * `windowsVerbatimArguments: true` — explorer parses its raw command line,
- * and Node's default quoting would wrap the whole argument as
- * `"/select,\"C:\...\""`, which explorer rejects (it then silently opens the
- * Documents folder). A trailing backslash is dropped so it cannot escape the
- * closing quote.
- */
 function explorerSelectArg(absolutePath: string): string {
   const trimmed = absolutePath.replace(/\\+$/, '');
   return `/select,"${trimmed}"`;

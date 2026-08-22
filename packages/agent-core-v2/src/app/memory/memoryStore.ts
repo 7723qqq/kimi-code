@@ -1,15 +1,3 @@
-/**
- * MemoryStore — MiniDb-backed persistent memory with full-text search.
- *
- * Stores memory entries as JSON documents in a MiniDb instance at
- * `~/.kimi-code/store/memory`. A text index on the `body` field enables
- * TF-IDF search with CJK tokenization (unigram + bigram).
- *
- * The store is the derived index — the source of truth is the markdown
- * files on disk under `~/.kimi-code/memory/`. The reconcile step
- * syncs disk → index.
- */
-
 import { MiniDb } from '@moonshot-ai/minidb';
 import { join } from 'pathe';
 
@@ -83,7 +71,6 @@ export class MemoryStore extends Disposable implements IMemoryStore {
       this.log.error('memory.store.open.failed', { dir: this.dir, error });
       throw error;
     });
-    // Ensure text index exists.
     const db = await this.dbPromise;
     try {
       await db.createTextIndex(TEXT_INDEX_NAME, { fields: ['body'] });
@@ -129,7 +116,6 @@ export class MemoryStore extends Disposable implements IMemoryStore {
       const parsed = parseMemoryPath(entry.path);
       if (parsed === undefined) continue;
 
-      // Normalize TF-IDF score: higher = better. Apply relative threshold.
       const normalizedScore = hit.score;
       if (normalizedScore < 0.15) continue;
 
@@ -154,13 +140,11 @@ export class MemoryStore extends Disposable implements IMemoryStore {
     const db = await this.openDb();
     const diskFiles = await this.walkDir(this.memoryBaseDir, '');
 
-    // Get current index entries.
     const indexedKeys = new Set<string>();
     for (const entry of db.query({})) {
       indexedKeys.add(entry.key);
     }
 
-    // Add or update changed files.
     for (const [relPath, fingerprint] of diskFiles) {
       const existing = db.get(relPath) as MemoryEntry | undefined;
       if (existing !== undefined && existing.fingerprint === fingerprint) {
@@ -189,7 +173,6 @@ export class MemoryStore extends Disposable implements IMemoryStore {
       indexedKeys.delete(relPath);
     }
 
-    // Remove deleted files from index.
     for (const staleKey of indexedKeys) {
       await db.del(staleKey);
     }

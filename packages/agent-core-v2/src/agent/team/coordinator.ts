@@ -1,14 +1,3 @@
-/**
- * `team` domain — roundtable coordinator for persistent subagents.
- *
- * Orchestrates a roundtable discussion: spawns one persistent subagent per
- * participant, runs round-robin turns where each participant receives the full
- * transcript so far through `PersistentSubagentHost.runDiscussionTurn`,
- * optionally generates a summary on the first participant, aggregates token
- * usage, and always destroys the persistent subagents on the way out. Emits a
- * per-turn `DiscussionTurnEvent` to an optional observer (e.g. the TUI).
- */
-
 import { addUsage, type TokenUsage } from '#/kosong/contract/usage';
 import type { PersistentSubagentHost } from '#/session/subagent/persistentSubagent';
 
@@ -96,13 +85,12 @@ export class TeamCoordinator {
     const context = new DiscussionContext();
     let endedBy: DiscussionResult['endedBy'] = 'max_rounds';
 
-    // 1. Create persistent subagents for each participant
     try {
       for (const participant of options.participants) {
         signal.throwIfAborted();
         const agentId = await this.subagentHost.spawnPersistent({
           profileName: participant.profileName,
-          prompt: '', // No initial prompt — we inject per turn
+          prompt: '',
           description: participant.roleDescription,
           parentToolCallId: 'discussion',
           runInBackground: false,
@@ -111,7 +99,6 @@ export class TeamCoordinator {
         this.agentIds.push(agentId);
       }
 
-      // 2. Round-robin discussion loop
       let roundsCompleted = 0;
       for (let round = 1; round <= maxRounds; round += 1) {
         signal.throwIfAborted();
@@ -124,20 +111,16 @@ export class TeamCoordinator {
           for (let turn = 0; turn < turnsThisRound; turn += 1) {
             signal.throwIfAborted();
 
-            // Build prompt: role + topic + transcript
             const prompt = this.buildTurnPrompt(
               participant.roleDescription,
               options.topic,
               context,
             );
 
-            // Run the turn
             const content = await this.subagentHost.runDiscussionTurn(agentId, prompt, signal);
 
-            // Record the speech
             context.addEntry(participant.profileName, agentId, content, round);
 
-            // Notify observer (e.g. TUI)
             this.observer?.({
               agentId,
               roleName: participant.profileName,
@@ -150,13 +133,11 @@ export class TeamCoordinator {
         roundsCompleted = round;
       }
 
-      // 3. Generate summary if requested
       let summary = '';
       if (options.summaryPrompt !== undefined && !context.isEmpty()) {
         summary = await this.generateSummary(options.summaryPrompt, context, signal);
       }
 
-      // 4. Collect aggregate usage
       const usage = this.collectUsage();
 
       return {
@@ -182,7 +163,6 @@ export class TeamCoordinator {
         usage,
       };
     } finally {
-      // 5. Cleanup: destroy all persistent subagents
       await this.destroyAll();
     }
   }
@@ -197,15 +177,12 @@ export class TeamCoordinator {
   ): string {
     const parts: string[] = [];
 
-    // Role description
     parts.push(`[System] Your role:\n${roleDescription}`);
     parts.push('');
 
-    // Topic
     parts.push(`Discussion topic:\n${topic}`);
     parts.push('');
 
-    // Transcript so far
     const transcript = context.getTranscript();
     if (transcript.length > 0) {
       parts.push('Current discussion transcript:');
@@ -245,7 +222,6 @@ export class TeamCoordinator {
 
       return await this.subagentHost.runDiscussionTurn(firstAgentId, prompt, signal);
     } catch {
-      // Summary generation is best-effort
       return '';
     }
   }
@@ -273,7 +249,6 @@ export class TeamCoordinator {
       try {
         await this.subagentHost.destroyPersistent(agentId);
       } catch {
-        // Best-effort cleanup
       }
     }
     this.agentIds.length = 0;

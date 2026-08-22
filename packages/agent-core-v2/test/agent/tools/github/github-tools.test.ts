@@ -1,16 +1,3 @@
-/**
- * GitHub tools tests (v2 port).
- *
- * Locks in the ported table: all 29 tools register with the `github_tools`
- * flag gate, the readonly/mutating split matches v1 (readonly tools join the
- * default auto-approve allowlist; mutating tools are excluded), and tool
- * executions produce v1-aligned outputs — approval rules keyed on the repo
- * subject, error formatting (`GitHub API error N (status N)` + body), the
- * no-token error, config-token precedence, and request composition (base64
- * file content, diff Accept header). HTTP is mocked by stubbing the global
- * fetch the generated tool constructor binds.
- */
-
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
@@ -90,7 +77,6 @@ describe('GitHub tool table', () => {
   it('splits readonly and mutating tools like v1', () => {
     expect(GITHUB_READONLY_TOOL_NAMES).toHaveLength(EXPECTED_READONLY_COUNT);
     expect(GITHUB_MUTATING_TOOL_NAMES).toHaveLength(EXPECTED_MUTATING_COUNT);
-    // v1 defines the two lists separately, so compare as sets, not order.
     const all = [...GITHUB_READONLY_TOOL_NAMES, ...GITHUB_MUTATING_TOOL_NAMES];
     expect(new Set(all).size).toBe(EXPECTED_TOOL_COUNT);
     expect(all.toSorted()).toEqual(GITHUB_SPECS.map((spec) => spec.name).toSorted());

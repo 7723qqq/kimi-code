@@ -1,15 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Juejin article fetcher, ported from the
- * open-websearch project (`engines/juejin/fetchJuejinArticle.js`).
- * Request-mode only: fetches the article HTML with an iPhone UA through
- * `engineFetch` (or the injected `fetchImpl` in tests) and tries a fixed
- * list of content selectors (`.markdown-body`, `.article-content`, …),
- * falling back to the page `body` text. The original has no playwright
- * path, so nothing is skipped. Network/HTTP failures throw `Error2`
- * (`WEB_FETCH_FAILED`); pages with no extractable content return
- * `undefined`.
- */
-
 import { Error2, ErrorCodes } from '#/errors';
 
 import { loadHtml, type EngineElement, type EngineQueryResult } from '../engine-html';

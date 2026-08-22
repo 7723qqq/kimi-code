@@ -103,17 +103,6 @@ export function dropLeadingToolResults<T extends { readonly role: string }>(
   return messages.slice(start);
 }
 
-// ── Stale tool-result snipping (ported from Reasonix's prune.go) ────────────
-//
-// Compaction summarizes the whole history; giant tool outputs (build logs,
-// test runs, file dumps) can be tens of thousands of tokens, which blows up
-// the summarizer request and forces overflow shrinking (whole messages
-// dropped). Snipping shortens *stale tool-result content* in the summarizer
-// input while keeping the message itself, so the model still sees the tool was
-// called and gets the head/tail of its output. It only ever touches the
-// copy handed to the summarizer (`historyForModel`) — the canonical history
-// and therefore the provider prompt-cache prefix are never rewritten.
-
 export const SNIPPED_TOOL_RESULT_MARKER = '[snipped tool result — ';
 export const DEFAULT_TOOL_RESULT_SNIP_MIN_BYTES = 1024;
 export const DEFAULT_TOOL_RESULT_SNIP_HEAD_LINES = 40;
@@ -155,8 +144,6 @@ function snipToolResultContent(
   headLines: number,
   tailLines: number,
 ): { readonly role: string; readonly content: readonly unknown[] } | typeof message {
-  // Only single-text tool results are snipped (the overwhelmingly common
-  // shape); multimodal content is left untouched.
   const textPart = message.content.find(
     (part): part is { readonly type: 'text'; readonly text: string } =>
       typeof part === 'object' &&
@@ -165,11 +152,11 @@ function snipToolResultContent(
       typeof (part as { text?: unknown }).text === 'string',
   );
   if (textPart === undefined) return message;
-  if (textPart.text.startsWith(SNIPPED_TOOL_RESULT_MARKER)) return message; // idempotent
+  if (textPart.text.startsWith(SNIPPED_TOOL_RESULT_MARKER)) return message;
   if (textPart.text.length < minBytes) return message;
 
   const lines = textPart.text.split('\n');
-  if (lines.length <= headLines + tailLines) return message; // short enough as-is
+  if (lines.length <= headLines + tailLines) return message;
   const head = lines.slice(0, headLines).join('\n');
   const tail = lines.slice(-tailLines).join('\n');
   const omitted = lines.length - headLines - tailLines;

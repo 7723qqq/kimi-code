@@ -20,7 +20,7 @@ describe('snipLargeToolResults', () => {
     const small = toolMessage('short output');
     const messages = [small];
     const result = snipLargeToolResults(messages);
-    expect(result).toEqual(messages); // deep-equal copy when nothing changed
+    expect(result).toEqual(messages);
   });
 
   it('leaves non-tool messages untouched', () => {
@@ -34,16 +34,16 @@ describe('snipLargeToolResults', () => {
     const [result] = snipLargeToolResults([big], { minBytes: 10, headLines: 5, tailLines: 3 });
     const text = result!.content[0] as { type: 'text'; text: string };
     expect(text.text.startsWith(SNIPPED_TOOL_RESULT_MARKER)).toBe(true);
-    expect(text.text).toContain('line of output content 0'); // head kept
-    expect(text.text).toContain('line of output content 199'); // tail kept
-    expect(text.text).toContain('192 lines omitted'); // 200 - 5 - 3
+    expect(text.text).toContain('line of output content 0');
+    expect(text.text).toContain('line of output content 199');
+    expect(text.text).toContain('192 lines omitted');
   });
 
   it('is idempotent (already-snipped results are not re-snipped)', () => {
     const big = toolMessage(bigOutput(200));
     const [once] = snipLargeToolResults([big], { minBytes: 10, headLines: 5, tailLines: 3 });
     const twice = snipLargeToolResults([once!]);
-    expect(twice[0]).toBe(once); // untouched — marker guard held
+    expect(twice[0]).toBe(once);
   });
 
   it('does not touch results that are long but few-line (single huge line)', () => {

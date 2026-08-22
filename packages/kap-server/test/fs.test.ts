@@ -200,7 +200,6 @@ describe('server-v2 /api/v1 fs routes', () => {
   });
 
   it('fs:read maps a permission-denied host error to FS_PERMISSION_DENIED', async () => {
-    // chmod permission bits are not honored on Windows, so the read succeeds.
     if (process.platform === 'win32') return;
     if (process.getuid?.() === 0) return;
     const file = join(work!, 'locked.txt');

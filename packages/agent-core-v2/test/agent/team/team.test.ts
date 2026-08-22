@@ -191,14 +191,12 @@ describe('TeamCoordinator', () => {
     expect(stub.turns[2]!.agentId).toBe('agent-0');
     expect(stub.turns[3]!.agentId).toBe('agent-1');
 
-    // First turn prompt: role + topic + first-speaker hint
     expect(stub.turns[0]!.prompt).toContain('[System] Your role:\nYou are a database researcher.');
     expect(stub.turns[0]!.prompt).toContain(
       'Discussion topic:\nHow should we optimize the database?',
     );
     expect(stub.turns[0]!.prompt).toContain('You are the first to speak.');
 
-    // Later turn prompt: full transcript + continuation hint
     expect(stub.turns[1]!.prompt).toContain('[coder] Speech 0 from agent-0');
     expect(stub.turns[1]!.prompt).toContain(
       'Continue the discussion based on what has been said so far.',
@@ -461,7 +459,6 @@ describe('StructuredDebateCoordinator', () => {
       controller.signal,
     );
 
-    // 6 phase turns + 1 consensus turn + 2 votes + 1 tally
     expect(stub.turns).toHaveLength(10);
     expect(stub.turns[6]!.agentId).toBe('agent-0');
     expect(stub.turns[6]!.prompt).toContain('List points of consensus.');

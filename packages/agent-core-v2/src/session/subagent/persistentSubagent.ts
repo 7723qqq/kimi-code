@@ -1,18 +1,3 @@
-/**
- * `subagent` domain — persistent-subagent host contract: an agent that stays
- * alive across multiple prompt turns.
- *
- * Mirrors the v1 `SessionSubagentHost` persistent surface — `spawnPersistent`
- * creates a child agent bound to a profile (no prompt run), `runDiscussionTurn`
- * injects one prompt per turn without destroying the child between turns (so
- * its context accumulates the full discussion history), `getPersistentUsage`
- * reads the child's cumulative token usage, and `destroyPersistent` tears the
- * child down. The Session-scoped `IPersistentSubagentService` owns the
- * session's persistent children; `bind(callerAgentId)` returns a
- * `PersistentSubagentHost` view scoped to one caller, keeping the ownership
- * facts of the flat lifecycle registry inside this domain.
- */
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { TokenUsage } from '#/kosong/contract/usage';
 

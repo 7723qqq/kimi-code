@@ -1,14 +1,3 @@
-/**
- * `lsp` domain — `ILspService` implementation.
- *
- * Routes semantic queries to the provider registered for the request file's
- * final extension. Provider registration is atomic: an id or extension
- * conflict rejects the whole registration before any effect lands, and the
- * returned disposer withdraws the provider's id and extensions together.
- * Queries without a covering provider fail loud with `LSP_UNAVAILABLE`.
- * Bound at Session scope — contributed by `LspFeature`.
- */
-
 import { extname } from 'pathe';
 
 import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';

@@ -1,9 +1,3 @@
-/**
- * EBM reminder injection tests — the service side of progress tracking:
- * three unverified mutations in a turn trip the Evidence-Before-More-Mutation
- * reminder into the model-visible context.
- */
-
 import { describe, expect, it } from 'vitest';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -33,7 +27,6 @@ const mutateTool: ExecutableTool<{ path: string }> = {
   }),
 };
 
-/** A command-carrying tool whose args.command feeds the verification classifier. */
 const verifyTool: ExecutableTool<{ command: string }> = {
   name: 'Verify',
   description: 'Run a verification command.',
@@ -91,7 +84,6 @@ describe('progress-track EBM reminder', () => {
 
     const text = contextText(ctx);
     expect(text).toContain('Run a verification command');
-    // The reminder is a user-role injection with the EBM variant.
     const memory = ctx.get(IAgentContextMemoryService);
     const reminders = memory
       .get()
@@ -105,10 +97,6 @@ describe('progress-track EBM reminder', () => {
     ctx.get(IAgentToolRegistryService).register(verifyTool);
     ctx.get(IAgentProfileService).update({ activeToolNames: ['Mutate', 'Verify'] });
 
-    // Two mutations build debt, the verification clears it, then two more
-    // mutations stay below the threshold — the reminder must not fire. If the
-    // verification had NOT cleared the debt, the final mutation would leave
-    // blindMutations=4 and trip the reminder.
     ctx.mockNextResponse({ type: 'text', text: 'mutating' }, mutateCall(1));
     ctx.mockNextResponse({ type: 'text', text: 'mutating' }, mutateCall(2));
     ctx.mockNextResponse({ type: 'text', text: 'verifying' }, verifyCall('npm test'));

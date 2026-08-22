@@ -1,12 +1,3 @@
-/**
- * `tools` domain — `IAgentTeamTool` contract (the `Team` tool).
- *
- * Public contract of the `Team` collaboration tool: the input zod schema the
- * model-facing parameters are derived from, plus the `IAgentTeamTool` DI
- * decorator the implementation registers against via
- * `registerAgentToolService`. Bound at Agent scope.
- */
-
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';

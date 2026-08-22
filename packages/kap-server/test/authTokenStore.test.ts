@@ -132,8 +132,6 @@ describe('tokenStore', () => {
     const rotated = 'r'.repeat(original.length);
     await writePrivateFile(store.tokenPath, rotated);
 
-    // The store re-stats the file on a ~1s TTL so the common path stays a
-    // cached read; a rotation lands within one TTL window.
     await new Promise((resolve) => setTimeout(resolve, 1_100));
 
     expect(store.getToken()).toBe(rotated);

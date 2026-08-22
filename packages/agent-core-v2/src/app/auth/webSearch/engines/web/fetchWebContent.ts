@@ -1,26 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — generic web content fetcher, ported from
- * the open-websearch project (`engines/web/fetchWebContent.js`).
- *
- * Request-mode only: pre-flights the download size via the `Content-Length`
- * response header, follows redirects manually with a public-http safety
- * assertion on every hop (protocol, literal-IP private ranges, DNS-resolved
- * private addresses), then extracts the main text. Markdown paths and
- * `text/markdown` responses pass through verbatim; HTML goes through a
- * container-preference extractor (`article`, `main`, `.markdown-body`, …)
- * with a `body` fallback and a title/meta-description metadata fallback for
- * JS-rendered pages. With `options.readability` the `@mozilla/readability`
- * parser runs over the linkedom DOM (same stack as `LocalFetchURLProvider`).
- * Results are truncated at `options.maxChars` (clamped to 1 000–200 000)
- * with an explicit truncation marker.
- *
- * The original playwright browser fallback, browser-cookie retries and the
- * HEAD pre-flight (not supported by the undici shim) are not ported; the
- * `Content-Length` check still runs on the GET response before the body is
- * read. Network/HTTP failures throw `Error2` (`WEB_FETCH_FAILED`); pages
- * with no extractable content return `undefined`.
- */
-
 import type { LookupAddress } from 'node:dns';
 import { lookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
@@ -222,11 +199,6 @@ function extractReadableLinks(html: string, finalUrl: string): FetchWebContentLi
   return links;
 }
 
-// ---------------------------------------------------------------------------
-// Public-URL safety (ported from open-websearch's `utils/urlSafety.js`,
-// mirroring the blocklist of `app/web/providers/local-fetch-url.ts`).
-// ---------------------------------------------------------------------------
-
 const PRIVATE_ADDRESS_BLOCKLIST = (() => {
   const list = new BlockList();
   list.addSubnet('0.0.0.0', 8, 'ipv4');
@@ -309,10 +281,6 @@ async function assertPublicHttpUrlResolved(url: string | URL, label = 'URL'): Pr
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Fetching
-// ---------------------------------------------------------------------------
 
 interface SafeFetchResponse {
   response: EngineHttpResponse;
@@ -401,12 +369,6 @@ function tooLargeError(bytes: number): Error2 {
   );
 }
 
-/**
- * Read the response body as UTF-8 text while enforcing `MAX_DOWNLOAD_BYTES`
- * incrementally: the stream is cancelled as soon as the cap is crossed, so an
- * oversized payload is never buffered whole. Falls back to `text()` only when
- * the response carries no readable stream.
- */
 async function readBodyWithLimit(response: EngineHttpResponse): Promise<string> {
   const body = response.stream();
   if (body === null) {
@@ -444,9 +406,6 @@ export async function fetchWebContent(
   const parsedUrl = new URL(url);
   const maxChars = clampMaxChars(options.maxChars ?? DEFAULT_MAX_CHARS);
 
-  // Pre-flight check to avoid reading oversized payloads when Content-Length
-  // is present. (The original HEAD pre-flight is not ported — the undici
-  // shim only supports GET/POST.)
   const { response, finalUrl } = await requestWithSafeRedirects(
     'GET',
     parsedUrl.toString(),
@@ -479,7 +438,6 @@ export async function fetchWebContent(
   let excerpt: string | undefined;
   let siteName: string | undefined;
 
-  // Keep raw markdown behavior for the resolved final path.
   if (isMarkdownPath(finalParsedUrl)) {
     extractedContent = normalizeText(raw);
   } else if (lowerContentType.includes('text/html') || looksLikeHtml(raw)) {

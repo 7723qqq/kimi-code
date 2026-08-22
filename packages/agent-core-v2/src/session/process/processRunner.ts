@@ -1,13 +1,3 @@
-/**
- * `process` domain — the Agent's process runner.
- *
- * Defines the `ISessionProcessRunner` that business code injects to spawn processes
- * inside the Agent's execution environment, plus the `IProcess` handle it
- * returns. Session-scoped and defaults to the session's seeded `cwd`
- * (`ISessionContext.cwd`); business code depends on `ISessionProcessRunner`
- * only.
- */
-
 import type { Readable, Writable } from 'node:stream';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';

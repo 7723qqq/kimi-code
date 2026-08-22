@@ -92,9 +92,6 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
       key: this.storeKey,
       read: async () => this.store.read<OAuthTokens>(tokensFile),
       write: async (tokens) => {
-        // Single choke point for every durable token write (explicit saves
-        // and refresh grants committed by the fetch interceptor alike): keep
-        // the incoming stamp when present, stamp otherwise.
         const incoming = tokens as StoredMcpOAuthTokens;
         const stamped: StoredMcpOAuthTokens = {
           ...incoming,
@@ -182,12 +179,6 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
-    // Hand the SDK's token object to the transaction untouched: when the
-    // grant rode createOAuthFetch, the transaction already persisted and
-    // recorded exactly this payload, so a matching save consumes the
-    // recorded effect instead of writing again — re-writing here could
-    // resurrect credentials cleared between the fetch and this callback.
-    // The durable `obtained_at` stamp is applied by the write callback.
     await this.tokenTransaction.save(tokens);
     const meta: McpOAuthStoreMeta = { serverName: this.serverName, serverUrl: this.serverUrl };
     await this.store.write(`${this.storeKey}${META_SUFFIX}`, meta);
@@ -257,10 +248,6 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
       await this.clearCredentials('discovery');
       this._codeVerifier = undefined;
     }
-    // The SDK-driven invalidation actually dropped the durable grant, so
-    // broadcast it like a user-driven reset: sessions sharing this
-    // credential flip to needs-auth now instead of keeping doomed
-    // connections until they each hit their own 401.
     this.onCredentialsInvalidated?.(scope);
   }
 

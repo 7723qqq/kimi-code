@@ -68,8 +68,6 @@ describe('local/local on-disk layout (byte compatibility)', () => {
     const sessionId = created.data.id;
     const workspaceId = created.data.workspace_id;
     const sessionDir = join(home!, 'sessions', workspaceId, sessionId);
-    // The index persists sessionDir through pathe's join (platform-independent
-    // POSIX separators), so compare against the posix form on Windows too.
     const sessionDirPosix = sessionDir.replaceAll('\\', '/');
 
     const workspacesFile = JSON.parse(await readFile(join(home!, 'workspaces.json'), 'utf8')) as {

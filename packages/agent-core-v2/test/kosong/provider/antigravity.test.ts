@@ -142,8 +142,6 @@ describe('buildAntigravityPrompt thread decisions', () => {
   });
 
   it('starts a fresh thread (no conversation id) when history shrank to one message', () => {
-    // A single-message history cannot be distinguished from a first turn, so
-    // the stale conversation id is dropped rather than appended to.
     const plan = buildAntigravityPrompt([msg('user', 'only message')], 'conv-stale');
     expect(plan.useConversationId).toBeUndefined();
     expect(plan.promptText).toBe('only message');

@@ -1,16 +1,3 @@
-/**
- * `auth` domain (cross-cutting) — Zhihu article fetcher, ported from the
- * open-websearch project (`engines/zhihu/fetchZhihuArticle.js`).
- * Request-mode only: validates the `/p/<id>` article URL, fetches the
- * article HTML through `engineFetch` (or the injected `fetchImpl` in
- * tests), and extracts the body text from the first matching content
- * selector (`#content`, `.RichText.ztext`, `article`, `main`) with the
- * linkedom shim. The original cookie-retry and playwright browser
- * fallbacks are not ported. Network/HTTP failures throw `Error2`
- * (`WEB_FETCH_FAILED`); invalid URLs throw a plain `Error`, and pages with
- * no extractable content return `undefined`.
- */
-
 import { Error2, ErrorCodes } from '#/errors';
 
 import { loadHtml, type EngineElement, type EngineQueryResult } from '../engine-html';

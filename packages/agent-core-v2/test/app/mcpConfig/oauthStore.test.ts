@@ -30,14 +30,12 @@ describe('createMcpOAuthStore', () => {
     expect(typeof blob.data).toBe('string');
     expect(blob.data).not.toContain('abc');
 
-    // Reading back the encrypted blob decrypts to the original value.
     docs.get = async (scope, key) => {
       calls.push({ op: 'get', scope, key });
       return blob as never;
     };
     await expect(store.read('foo.json')).resolves.toEqual({ token: 'abc' });
 
-    // Legacy plain-text records stay readable.
     docs.get = async (scope, key) => {
       calls.push({ op: 'get', scope, key });
       return { token: 'legacy' } as never;

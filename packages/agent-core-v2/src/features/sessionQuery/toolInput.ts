@@ -1,14 +1,3 @@
-/**
- * `sessionQuery` domain — `session_query` tool input schemas and
- * normalization.
- *
- * Ported from deepseek-harness `tool-session-query/src/input.ts` (MIT),
- * trimmed to the operations kimi's query service provides (session search,
- * event search, lineage trace) and to millisecond timestamps (kimi event
- * times are integer epoch milliseconds, so the upstream sub-millisecond
- * boundary handling is dropped).
- */
-
 import { z } from 'zod';
 
 import { Error2 } from '#/errors';

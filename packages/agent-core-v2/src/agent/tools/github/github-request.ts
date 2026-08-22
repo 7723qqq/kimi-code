@@ -1,19 +1,3 @@
-/**
- * `tools` domain — GitHub REST API transport (TypeScript).
- *
- * Pure HTTP layer used by the built-in GitHub tools. Owns auth (bearer token
- * resolution: explicit per-request token, then `GITHUB_TOKEN`, then
- * `GH_TOKEN`), request headers, a 30s deadline, and error normalization —
- * behavior aligned with the v1 native Rust transport (`nativeGithubRequest`).
- * Query values are stringified and `null`/`undefined` entries dropped, the
- * rate limit is read from the `x-ratelimit-remaining` response header, and
- * non-2xx responses normalize to `GitHub API error <status>` with the raw
- * body preserved for the caller to surface. Response bodies are capped at
- * 5 MiB — oversized responses fail with an explicit error instead of being
- * buffered. The `fetchImpl` / `getEnv` dependencies are injectable so tests
- * can mock the network and the environment. Pure helper; no scoped service.
- */
-
 import { createDeadlineAbortSignal } from '#/_base/utils/abort';
 
 export const GITHUB_DEFAULT_BASE_URL = 'https://api.github.com';
@@ -138,18 +122,12 @@ function firstNonEmpty(...values: Array<string | undefined>): string | undefined
   return undefined;
 }
 
-/** Join `base` and `path`; an absolute URL in `path` is returned unchanged. */
 function buildGitHubUrl(base: string, path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
   const trimmedBase = base.replace(/\/+$/, '');
   return path.startsWith('/') ? `${trimmedBase}${path}` : `${trimmedBase}/${path}`;
 }
 
-/**
- * Serialize a query object into a URL query string. String/number/bool values
- * are stringified; `null` and `undefined` entries are dropped (matching the
- * v1 transport, where optional fields are simply absent).
- */
 function buildGitHubQuery(query: Record<string, unknown> | undefined): string {
   const pairs: string[] = [];
   for (const [key, value] of Object.entries(query ?? {})) {
@@ -167,11 +145,6 @@ function parseRateLimitRemaining(raw: string | null): number | undefined {
   return Number.isInteger(parsed) ? parsed : undefined;
 }
 
-/**
- * Read the full response body, bailing out once it exceeds `maxBytes`
- * (`Content-Length` when present, enforced while streaming otherwise).
- * Returns `undefined` when the body exceeds the limit.
- */
 async function readResponseBody(response: Response, maxBytes: number): Promise<string | undefined> {
   const contentLength = response.headers.get('content-length');
   if (contentLength !== null && Number(contentLength) > maxBytes) return undefined;

@@ -1,19 +1,3 @@
-/**
- * Workflow runtime — Node.js `vm` sandbox + host hooks.
- *
- * Creates a sandboxed context with injected host functions that wrap
- * kimi-code's existing subagent infrastructure. The script runs as an
- * async IIFE — `agent()`, `parallel()`, `pipeline()` primitives compose
- * multi-phase agent work.
- *
- * The sandbox surface exposes no `require`, `process`, `fs`, or Node API —
- * only the injected host functions and the `parallel`/`pipeline`/`URL`
- * prelude globals. NOTE: `node:vm` is an isolation convenience, not a
- * security boundary — injected host functions leak the host realm (e.g.
- * via `fn.constructor`). Only run scripts from trusted sources (the local
- * user, or the agent itself acting on the user's behalf).
- */
-
 import { exec as execCallback } from 'node:child_process';
 import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { promisify } from 'node:util';
@@ -33,12 +17,10 @@ import type { WorkflowRunEntry, AgentOpts } from './workflowTypes';
 
 const MAX_CONCURRENT = Math.min(16, 2 * (navigator?.hardwareConcurrency ?? 4));
 
-/** Directories never descended into by the glob hook's workspace walk. */
 const GLOB_WALK_IGNORED_DIRS = new Set(['node_modules', '.git']);
 const MAX_GLOB_WALK_DEPTH = 8;
 const MAX_GLOB_RESULTS = 1000;
 
-/** Simple counting semaphore for agent concurrency control. */
 class Semaphore {
   private available: number;
   private readonly waiters: (() => void)[] = [];
@@ -89,8 +71,6 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
   const sem = new Semaphore(MAX_CONCURRENT);
   const workspaceRoot = deps.workspaceRoot;
 
-  // ── Host hooks ────────────────────────────────────────────────
-
   const agentHook = async (prompt: string, agentOpts?: AgentOpts): Promise<unknown> => {
     if (typeof prompt !== 'string' || prompt.length === 0) return null;
     const release = await sem.acquire();
@@ -129,9 +109,6 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
   };
 
   const globHook = async (pattern: string): Promise<string[]> => {
-    // Simple glob: convert pattern to regex. Walk skips dependency/VCS
-    // directories and caps depth + results so a broad pattern cannot stall
-    // the workflow on a large workspace.
     const regex = globToRegex(pattern);
     const results: string[] = [];
     await walkDir(workspaceRoot, '', (relPath) => {
@@ -150,8 +127,6 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
       return false;
     }
   };
-
-  // ── Network hooks ───────────────────────────────────────────────
 
   const execAsync = promisify(execCallback);
 
@@ -235,8 +210,6 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
     }
   };
 
-  // ── Sandbox setup ────────────────────────────────────────────
-
   const vm = await import('node:vm');
 
   const sandbox: Record<string, unknown> = {
@@ -276,16 +249,10 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
 
   const context = vm.createContext(sandbox);
 
-  // Wrap script in async IIFE to support `await` at top level.
   const wrappedScript = `(async () => {
 ${script}
 })()`;
 
-  // Set a deadline timer. Note: vm's `timeout` option only guards
-  // synchronous execution — for an async script the deadline is enforced
-  // by racing a rejection, plus aborting the run entry so in-flight
-  // subagent runs (the only async work the script can be parked on)
-  // are cancelled instead of leaking past the deadline.
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   const deadlinePromise = new Promise<never>((_resolve, reject) => {
     deadlineTimer = setTimeout(() => {
@@ -307,8 +274,6 @@ ${script}
   }
 }
 
-// ── Agent spawning ─────────────────────────────────────────────────
-
 async function spawnAgent(
   prompt: string,
   opts: AgentOpts,
@@ -317,16 +282,11 @@ async function spawnAgent(
 ): Promise<unknown> {
   const { lifecycle, subagents, callerAgentId } = deps;
 
-  // Build the full prompt — include schema instructions if provided.
   let fullPrompt = prompt;
   if (opts.schema) {
     fullPrompt = `${prompt}\n\nYou MUST respond with a JSON object matching this schema:\n${JSON.stringify(opts.schema, null, 2)}\n\nReturn ONLY the JSON object, no markdown fences, no explanation.`;
   }
 
-  // Resolve the model: explicit per-call override, otherwise inherit the
-  // caller agent's bound model (mirrors the Agent tool in
-  // session/subagent/tools/agent.ts). Passing anything that is not a
-  // configured model alias makes IModelResolver.resolve throw.
   const callerHandle = deps.lifecycle.findAgentHandle(deps.callerAgentId);
   const callerData = callerHandle?.accessor.get(IAgentProfileService).data();
   const modelAlias = opts.model ?? callerData?.modelAlias;
@@ -334,7 +294,6 @@ async function spawnAgent(
     throw new Error(t('v2Errors.callerAgentNoModel'));
   }
 
-  // Create a subagent.
   const handle = await lifecycle.create({
     binding: {
       profile: opts.agentType ?? 'coder',
@@ -348,7 +307,6 @@ async function spawnAgent(
     },
   });
 
-  // Run the agent turn.
   const controller = new AbortController();
   const signal = linkSignals(entry.abortController.signal, controller);
 
@@ -361,45 +319,36 @@ async function spawnAgent(
 
     const { summary } = await runHandle.completion;
 
-    // Parse JSON if schema was provided.
     if (opts.schema) {
       return parseJsonResult(summary);
     }
     return summary;
   } finally {
-    // Clean up the subagent.
     await lifecycle.remove(agentContextOf(handle)).catch(() => {});
   }
 }
 
 function parseJsonResult(text: string): unknown {
-  // Try direct parse.
   try {
     return JSON.parse(text);
   } catch {
-    // Try extracting JSON from markdown fences.
     const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (match && match[1]) {
       try {
         return JSON.parse(match[1].trim());
       } catch {
-        // fall through
       }
     }
-    // Try finding a JSON object in the text.
     const objMatch = text.match(/\{[\s\S]*\}/);
     if (objMatch) {
       try {
         return JSON.parse(objMatch[0]);
       } catch {
-        // fall through
       }
     }
     return null;
   }
 }
-
-// ── Utilities ─────────────────────────────────────────────────────
 
 function resolveInWorkspace(root: string, path: string): string {
   if (isAbsolute(path) || path.split(/[/\\]/).includes('..')) {
@@ -447,7 +396,6 @@ async function walkDir(
         fn(childRel);
       }
     } catch {
-      // skip
     }
   }
 }
@@ -460,8 +408,6 @@ function linkSignals(parent: AbortSignal, child: AbortController): AbortSignal {
   parent.addEventListener('abort', () => child.abort(parent.reason), { once: true });
   return child.signal;
 }
-
-// ── Minimal URL polyfill for sandbox ──────────────────────────────
 
 class MiniURL {
   protocol: string;
