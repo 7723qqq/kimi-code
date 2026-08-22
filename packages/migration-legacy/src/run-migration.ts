@@ -62,12 +62,12 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
 
   const userHistory = input.scope.userHistory
     ? await migrateUserHistoryStep({ sourceHome: input.source, targetHome: input.target })
-    : { copied: 0, skippedExisting: 0 };
+    : { copied: 0, skippedExisting: 0, failures: [] };
   log('user-history done');
 
   const skills = input.scope.skills
     ? await migrateSkillsStep({ sourceHome: input.source, targetHome: input.target })
-    : { copied: 0, skippedExisting: 0 };
+    : { copied: 0, skippedExisting: 0, failures: [] };
   log('skills done');
 
   const sessions: SessionsSummary = input.scope.sessions
@@ -166,5 +166,6 @@ function emptyConfigOnlySessions(): SessionsSummary {
     sessionsSkippedMalformed: 0,
     sessionsFailed: [],
     sessionsConflicts: [],
+    sessionsDebrisArchived: [],
   };
 }

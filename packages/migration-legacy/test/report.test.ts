@@ -43,8 +43,8 @@ describe('writeReport', () => {
           droppedServers: [],
           wroteSiblingDueToConflict: false,
         },
-        userHistory: { copied: 0, skippedExisting: 0 },
-        skills: { copied: 0, skippedExisting: 0 },
+        userHistory: { copied: 0, skippedExisting: 0, failures: [] },
+        skills: { copied: 0, skippedExisting: 0, failures: [] },
         sessions: {
           scope: 'all',
           bucketsScanned: 0,
@@ -58,6 +58,7 @@ describe('writeReport', () => {
           sessionsSkippedMalformed: 0,
           sessionsFailed: [],
           sessionsConflicts: [],
+          sessionsDebrisArchived: [],
         },
       },
       notices: {

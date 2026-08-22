@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { readFile, mkdir, rm, stat, utimes } from 'node:fs/promises';
+import { readFile, mkdir, rename, rm, stat, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { OldSessionStateSchema, type OldSessionState } from '../kimi-cli-schema.js';
@@ -16,7 +16,12 @@ import { writeMainAgentWire } from './wire-writer.js';
 import { computeWorkdirBucket } from './workdir-bucket.js';
 
 export type MigrateOneResult =
-  | { readonly outcome: 'migrated'; readonly targetDir: string }
+  | {
+      readonly outcome: 'migrated';
+      readonly targetDir: string;
+      /** Set when a debris target dir was renamed aside (not deleted) before re-migrating. */
+      readonly debrisArchivedTo?: string;
+    }
   | { readonly outcome: 'already-migrated'; readonly targetDir: string }
   | { readonly outcome: 'conflict'; readonly targetDir: string }
   | { readonly outcome: 'empty' }
@@ -37,6 +42,7 @@ export async function migrateOneSession(input: MigrateOneInput): Promise<Migrate
     `ses_${input.oldSessionUuid}`,
   );
 
+  let debrisArchivedTo: string | undefined;
   if (existsSync(targetDir)) {
     const cls = await classifyExistingTarget(targetDir);
     // A dir we wrote ourselves on a previous run — idempotent re-run.
@@ -48,9 +54,12 @@ export async function migrateOneSession(input: MigrateOneInput): Promise<Migrate
       return { outcome: 'conflict', targetDir };
     }
     // 'debris': `state.json` is absent or corrupt — a prior migration was
-    // killed mid-write. Treat it as stale and re-migrate, rather than
-    // stranding this session under a permanent conflict on every future run.
-    await rm(targetDir, { recursive: true, force: true });
+    // killed mid-write. Rename it aside (never recursive-delete user data)
+    // and re-migrate, rather than stranding this session under a permanent
+    // conflict on every future run. If the rename itself fails, fall through
+    // and re-migrate over it: the writes below overwrite state.json and
+    // wire.jsonl anyway, so self-healing is preserved.
+    debrisArchivedTo = await archiveDebrisTarget(targetDir);
   }
 
   let oldState: Partial<OldSessionState> = {};
@@ -164,7 +173,25 @@ export async function migrateOneSession(input: MigrateOneInput): Promise<Migrate
   // it only leaves ordering slightly off.
   await applyOriginalMtime(targetDir, createdAtMs);
 
-  return { outcome: 'migrated', targetDir };
+  return debrisArchivedTo === undefined
+    ? { outcome: 'migrated', targetDir }
+    : { outcome: 'migrated', targetDir, debrisArchivedTo };
+}
+
+/**
+ * Rename a debris target dir aside as `<dir>.debris-<timestamp>` so a prior
+ * crashed run's partial output stays recoverable instead of being deleted.
+ * Returns the archive path, or undefined when the rename failed — the caller
+ * then re-migrates over the dir in place.
+ */
+async function archiveDebrisTarget(targetDir: string): Promise<string | undefined> {
+  const archivedTo = `${targetDir}.debris-${new Date().toISOString().replaceAll(/[:.]/g, '-')}`;
+  try {
+    await rename(targetDir, archivedTo);
+    return archivedTo;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -190,7 +217,7 @@ type ExistingTarget = 'imported' | 'foreign' | 'debris';
  *  - `imported`: a complete dir written by a previous run of this migrator.
  *  - `foreign`:  a real, unrelated kimi-code session occupying the path.
  *  - `debris`:   no `state.json`, or a corrupt/unparseable one — a prior
- *                migration was killed mid-write; safe to delete and re-migrate.
+ *                migration was killed mid-write; renamed aside and re-migrated.
  */
 async function classifyExistingTarget(targetDir: string): Promise<ExistingTarget> {
   let text: string;

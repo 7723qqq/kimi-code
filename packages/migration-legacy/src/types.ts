@@ -108,8 +108,18 @@ export interface MigrationSummary {
     /** Target `mcp.json` was unparseable; merged servers went to a sibling. */
     readonly wroteSiblingDueToConflict: boolean;
   };
-  readonly userHistory: { readonly copied: number; readonly skippedExisting: number };
-  readonly skills: { readonly copied: number; readonly skippedExisting: number };
+  readonly userHistory: {
+    readonly copied: number;
+    readonly skippedExisting: number;
+    /** Entries that could not be copied; the step continued past them. */
+    readonly failures: readonly SessionMigrationFailure[];
+  };
+  readonly skills: {
+    readonly copied: number;
+    readonly skippedExisting: number;
+    /** Entries that could not be copied; the step continued past them. */
+    readonly failures: readonly SessionMigrationFailure[];
+  };
   readonly sessions: SessionsSummary;
 }
 
@@ -129,6 +139,15 @@ export interface SessionsSummary {
   readonly sessionsConflicts: ReadonlyArray<{
     readonly sourcePath: string;
     readonly targetPath: string;
+  }>;
+  /**
+   * Debris target dirs (a prior run crashed before `state.json` was written)
+   * that were renamed aside as `<dir>.debris-<timestamp>` instead of deleted,
+   * then re-migrated. Kept so the report can point users at the archived copy.
+   */
+  readonly sessionsDebrisArchived: ReadonlyArray<{
+    readonly targetPath: string;
+    readonly archivedPath: string;
   }>;
 }
 

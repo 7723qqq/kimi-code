@@ -45,6 +45,7 @@ export async function migrateSessionsStep(input: SessionsStepInput): Promise<Ses
   let sessionsSkippedMalformed = 0;
   const sessionsFailed: Array<{ sourcePath: string; reason: string }> = [];
   const sessionsConflicts: Array<{ sourcePath: string; targetPath: string }> = [];
+  const sessionsDebrisArchived: Array<{ targetPath: string; archivedPath: string }> = [];
 
   const sessionsDir = sourceSessionsDir(input.sourceHome);
   let bucketDirs: string[];
@@ -137,6 +138,12 @@ export async function migrateSessionsStep(input: SessionsStepInput): Promise<Ses
     processedCount += 1;
     input.onSessionProgress?.(processedCount, candidates.length);
     if (result.outcome === 'migrated') {
+      if (result.debrisArchivedTo !== undefined) {
+        sessionsDebrisArchived.push({
+          targetPath: result.targetDir,
+          archivedPath: result.debrisArchivedTo,
+        });
+      }
       try {
         // `ensureSessionIndexEntry` is idempotent — if a stale index line for
         // this session survived a deleted target dir, re-migrating it must not
@@ -208,6 +215,7 @@ export async function migrateSessionsStep(input: SessionsStepInput): Promise<Ses
     sessionsSkippedMalformed,
     sessionsFailed,
     sessionsConflicts,
+    sessionsDebrisArchived,
   };
 }
 
@@ -282,6 +290,7 @@ function emptySummary(): SessionsSummary {
     sessionsSkippedMalformed: 0,
     sessionsFailed: [],
     sessionsConflicts: [],
+    sessionsDebrisArchived: [],
   };
 }
 

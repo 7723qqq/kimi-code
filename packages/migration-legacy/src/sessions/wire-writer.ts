@@ -1,6 +1,7 @@
-import { writeFile, mkdir } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { atomicWrite } from '../atomic-write.js';
 import type { NormalizedMessage } from './translator.js';
 
 export const WIRE_PROTOCOL_VERSION = '1.0';
@@ -23,5 +24,5 @@ export async function writeMainAgentWire(sessionDir: string, input: WireWriteInp
   for (const msg of input.messages) {
     lines.push(JSON.stringify({ type: 'context.append_message', message: msg }));
   }
-  await writeFile(join(wireDir, 'wire.jsonl'), lines.join('\n') + '\n', 'utf-8');
+  await atomicWrite(join(wireDir, 'wire.jsonl'), lines.join('\n') + '\n');
 }

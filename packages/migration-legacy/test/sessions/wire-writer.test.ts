@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -48,5 +48,19 @@ describe('writeMainAgentWire', () => {
     await writeMainAgentWire(dir, { createdAtMs: 1, messages: [] });
     const path = join(dir, 'agents', 'main', 'wire.jsonl');
     await expect(readFile(path, 'utf-8')).resolves.not.toThrow();
+  });
+
+  it('atomically replaces an existing wire.jsonl and leaves no temp files', async () => {
+    const wireDir = join(dir, 'agents', 'main');
+    await mkdir(wireDir, { recursive: true });
+    await writeFile(join(wireDir, 'wire.jsonl'), '{"type":"stale"}\n', 'utf-8');
+
+    await writeMainAgentWire(dir, { createdAtMs: 1, messages: [] });
+
+    const content = await readFile(join(wireDir, 'wire.jsonl'), 'utf-8');
+    expect(content).not.toContain('stale');
+    expect(content).toContain('"protocol_version":"1.0"');
+    const entries = await readdir(wireDir);
+    expect(entries.some((e) => e.endsWith('.tmp'))).toBe(false);
   });
 });

@@ -323,8 +323,8 @@ function makeReport(
         droppedServers: [],
         wroteSiblingDueToConflict: false,
       },
-      userHistory: { copied: 12, skippedExisting: 0 },
-      skills: { copied: 0, skippedExisting: 0 },
+      userHistory: { copied: 12, skippedExisting: 0, failures: [] },
+      skills: { copied: 0, skippedExisting: 0, failures: [] },
       sessions: {
         scope: 'all',
         bucketsScanned: 0,
@@ -338,6 +338,7 @@ function makeReport(
         sessionsSkippedMalformed: 0,
         sessionsFailed: [],
         sessionsConflicts: [],
+        sessionsDebrisArchived: [],
         ...over,
       },
       ...summaryOver,

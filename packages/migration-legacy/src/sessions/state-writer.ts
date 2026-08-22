@@ -1,6 +1,7 @@
-import { writeFile, mkdir } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { atomicWrite } from '../atomic-write.js';
 import type { OldSessionState } from '../kimi-cli-schema.js';
 
 export interface StateWriteInput {
@@ -65,5 +66,5 @@ export async function writeSessionState(sessionDir: string, input: StateWriteInp
     },
   };
 
-  await writeFile(join(sessionDir, 'state.json'), JSON.stringify(meta, null, 2), 'utf-8');
+  await atomicWrite(join(sessionDir, 'state.json'), JSON.stringify(meta, null, 2));
 }

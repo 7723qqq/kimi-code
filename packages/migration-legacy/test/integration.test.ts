@@ -154,7 +154,7 @@ describe('runMigration (end-to-end on multi-workdir fixture)', () => {
         target: tgt,
       });
 
-      expect(report.summary.skills).toEqual({ copied: 0, skippedExisting: 0 });
+      expect(report.summary.skills).toEqual({ copied: 0, skippedExisting: 0, failures: [] });
       await expect(readFile(join(tgt, 'skills', 'mine', 'SKILL.md'))).rejects.toThrow();
     } finally {
       await rm(src, { recursive: true, force: true });

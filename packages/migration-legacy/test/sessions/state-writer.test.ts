@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -113,5 +113,24 @@ describe('writeSessionState', () => {
 
     const meta = JSON.parse(await readFile(join(dir, 'state.json'), 'utf-8'));
     expect(meta.custom.vscode_legacy_approval).toEqual({ yolo: true, afk: false });
+  });
+
+  it('atomically replaces an existing state.json and leaves no temp files', async () => {
+    await writeFile(join(dir, 'state.json'), '{"old": true}', 'utf-8');
+
+    await writeSessionState(dir, {
+      oldState: { custom_title: 'Fresh', wire_mtime: 1 },
+      lastUserPrompt: 'x',
+      sourcePath: '/a',
+      oldSessionUuid: 'u',
+      wireProtocolFromOld: null,
+      createdAtMs: 1,
+    });
+
+    const meta = JSON.parse(await readFile(join(dir, 'state.json'), 'utf-8'));
+    expect(meta.title).toBe('Fresh');
+    expect(meta.old).toBeUndefined();
+    const entries = await readdir(dir);
+    expect(entries.some((e) => e.endsWith('.tmp'))).toBe(false);
   });
 });

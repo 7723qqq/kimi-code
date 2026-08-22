@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -126,6 +126,38 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
     expect(result.outcome).toBe('migrated');
     const state = JSON.parse(await readFile(join(targetDir, 'state.json'), 'utf-8'));
     expect(state.custom.imported_from_kimi_cli).toBe(true);
+  });
+
+  it('archives a debris target dir as <dir>.debris-<timestamp> instead of deleting it', async () => {
+    const workdirPath = '/Users/me/proj';
+    const bucketDir = join(targetSessionsDir(targetHome), computeWorkdirBucket(workdirPath));
+    const targetDir = join(bucketDir, 'ses_tiny-uuid');
+    await mkdir(join(targetDir, 'agents', 'main'), { recursive: true });
+    await writeFile(join(targetDir, 'agents', 'main', 'wire.jsonl'), '{"type":"metadata"}\n');
+    await writeFile(join(targetDir, 'sentinel.txt'), 'prior-run-data', 'utf-8');
+
+    const result = await migrateOneSession({
+      sourceSessionDir: join(FIXTURES, 'tiny-hello-world'),
+      oldSessionUuid: 'tiny-uuid',
+      workdirPath,
+      targetHome,
+    });
+
+    // The session still migrates (self-heal preserved), and the debris was
+    // renamed aside — never recursively deleted — with its path reported.
+    expect(result.outcome).toBe('migrated');
+    if (result.outcome !== 'migrated') return;
+    const archivedPath = result.debrisArchivedTo;
+    expect(archivedPath).toBeDefined();
+    if (archivedPath === undefined) return;
+    expect(archivedPath.startsWith(`${targetDir}.debris-`)).toBe(true);
+    expect(await readFile(join(archivedPath, 'sentinel.txt'), 'utf-8')).toBe('prior-run-data');
+
+    const migratedState = JSON.parse(await readFile(join(targetDir, 'state.json'), 'utf-8'));
+    expect(migratedState.custom.imported_from_kimi_cli).toBe(true);
+
+    const siblings = await readdir(bucketDir);
+    expect(siblings.filter((s) => s.includes('.debris-'))).toHaveLength(1);
   });
 
   it('stamps written artifacts with the original wire_mtime', async () => {
