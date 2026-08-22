@@ -589,6 +589,26 @@ describe('AgentTranscript', () => {
     expect(tx.getMeta().activity).toBe('turn');
   });
 
+  it('meta.merge is a no-op when re-sent with equal content and fresh references', () => {
+    const merge = (): TranscriptOperation => ({
+      op: 'meta.merge',
+      meta: {
+        goal: { objective: 'ship it', status: 'active' },
+        modes: { plan: {}, swarm: {} },
+        agent: { model: 'k2', permission: 'auto', phase: { kind: 'idle' } },
+      },
+    });
+    const tx = new AgentTranscript('main');
+    tx.apply([merge()]);
+    const before = tx.getMeta();
+    tx.apply([merge()]);
+    expect(tx.getMeta()).toBe(before);
+
+    tx.apply([{ op: 'meta.merge', meta: { goal: null } }]);
+    expect(tx.getMeta().goal).toBeUndefined();
+    expect(tx.getMeta().agent?.model).toBe('k2');
+  });
+
   it('snapshot immutability: later applies do not mutate earlier reads', () => {
     const tx = new AgentTranscript('main');
     tx.apply(toolFrame('running'));

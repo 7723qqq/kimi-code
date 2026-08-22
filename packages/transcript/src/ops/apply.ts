@@ -567,6 +567,17 @@ function taskEquals(a: TranscriptTask, b: TranscriptTask): boolean {
   );
 }
 
+function contentEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  const recordA = a as Record<string, unknown>;
+  const recordB = b as Record<string, unknown>;
+  return keysA.every((key) => contentEqual(recordA[key], recordB[key]));
+}
+
 function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResult {
   const modes =
     meta.modes !== undefined
@@ -591,10 +602,10 @@ function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResu
     agent,
   };
   if (
-    next.goal === state.meta.goal &&
+    contentEqual(next.goal, state.meta.goal) &&
     next.activity === state.meta.activity &&
-    next.modes === state.meta.modes &&
-    next.agent === state.meta.agent
+    contentEqual(next.modes, state.meta.modes) &&
+    contentEqual(next.agent, state.meta.agent)
   ) {
     return { state, changed: false };
   }
