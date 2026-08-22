@@ -875,12 +875,18 @@ importers:
       '@moonshot-ai/kimi-code-oauth':
         specifier: workspace:^
         version: link:../oauth
+      '@moonshot-ai/kimi-i18n':
+        specifier: workspace:^
+        version: link:../i18n
       '@moonshot-ai/klient':
         specifier: workspace:^
         version: link:../klient
       '@moonshot-ai/kosong':
         specifier: workspace:^
         version: link:../kosong
+      '@moonshot-ai/protocol':
+        specifier: workspace:^
+        version: link:../protocol
       '@types/yazl':
         specifier: ^2.4.6
         version: 2.4.6
