@@ -1133,7 +1133,7 @@ async function handleGitHubTokenInput(host: SlashCommandHost): Promise<void> {
   const token = await promptApiKey(host, 'GitHub', [t('tui.messages.configGithubTokenInput')]);
   if (token === undefined) return;
   try {
-    await host.harness.setConfig({ experimental: { github_token: token } });
+    await host.harness.setConfig({ github: { token } });
     host.showStatus(t('tui.messages.configGithubTokenSaved'), 'success');
   } catch (error) {
     host.showError(

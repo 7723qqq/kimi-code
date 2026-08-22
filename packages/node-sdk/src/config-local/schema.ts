@@ -321,6 +321,12 @@ export const ServicesConfigSchema = z.object({
 
 export type ServicesConfig = z.infer<typeof ServicesConfigSchema>;
 
+export const GithubConfigSchema = z.object({
+  token: z.string().optional(),
+});
+
+export type GithubConfig = z.infer<typeof GithubConfigSchema>;
+
 const McpServerCommonFields = {
   enabled: z.boolean().optional(),
   startupTimeoutMs: McpTimeoutMsSchema.optional(),
@@ -410,6 +416,7 @@ export const KimiConfigSchema = z.object({
   permission: PermissionConfigSchema.optional(),
   hooks: z.array(HookDefSchema).optional(),
   services: ServicesConfigSchema.optional(),
+  github: GithubConfigSchema.optional(),
   mergeAllAvailableSkills: z.boolean().optional(),
   extraSkillDirs: z.array(z.string()).optional(),
   extraAgentDirs: z.array(z.string()).optional(),
@@ -442,6 +449,7 @@ const ImageConfigPatchSchema = ImageConfigSchema.partial();
 const ModelCatalogConfigPatchSchema = ModelCatalogConfigSchema.partial();
 const ExperimentalConfigPatchSchema = ExperimentalConfigSchema;
 const MoonshotServiceConfigPatchSchema = MoonshotServiceConfigSchema.partial();
+const GithubConfigPatchSchema = GithubConfigSchema.partial();
 const ServicesConfigPatchSchema = z.object({
   moonshotSearch: MoonshotServiceConfigPatchSchema.optional(),
   moonshotFetch: MoonshotServiceConfigPatchSchema.optional(),
@@ -461,6 +469,7 @@ export const KimiConfigPatchSchema = z
     permission: PermissionConfigPatchSchema.optional(),
     hooks: z.array(HookDefSchema).optional(),
     services: ServicesConfigPatchSchema.optional(),
+    github: GithubConfigPatchSchema.optional(),
     mergeAllAvailableSkills: z.boolean().optional(),
     extraSkillDirs: z.array(z.string()).optional(),
     extraAgentDirs: z.array(z.string()).optional(),

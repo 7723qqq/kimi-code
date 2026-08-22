@@ -221,6 +221,26 @@ max_context_size = "large"
     expect(reloaded.raw?.['theme']).toBe('dark');
   });
 
+  it('round-trips the github token section as a typed string field', async () => {
+    const config = parseConfigString(`
+[github]
+token = "ghp_example_token"
+`, 'github.toml');
+    expect(config.github).toEqual({ token: 'ghp_example_token' });
+    expect(config.experimental).toBeUndefined();
+
+    const dir = await makeTempDir();
+    const configPath = join(dir, 'config.toml');
+    await writeConfigFile(configPath, config);
+
+    const text = await readFile(configPath, 'utf-8');
+    expect(text).toContain('[github]');
+    expect(text).toContain('token = "ghp_example_token"');
+
+    const reloaded = readConfigFile(configPath);
+    expect(reloaded.github).toEqual({ token: 'ghp_example_token' });
+  });
+
   it('accepts camelCase aliases without keeping unknown fields in typed config', () => {
     const config = parseConfigString(`
 defaultModel = "camel-model"

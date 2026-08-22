@@ -27,6 +27,7 @@ import {
   type AgentConfig,
   type BackgroundConfig,
   type ExperimentalConfig,
+  type GithubConfig,
   type HookDefConfig,
   type ImageConfig,
   type KimiConfig,
@@ -325,6 +326,8 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
       result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'experimental' && isPlainObject(value)) {
       result[targetKey] = cloneRecord(value);
+    } else if (targetKey === 'github' && isPlainObject(value)) {
+      result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'subagent' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'agent' && isPlainObject(value)) {
@@ -519,6 +522,7 @@ export function configToTomlData(config: KimiConfig): Record<string, unknown> {
   setSection(out, 'image', config.image, imageToToml);
   setSection(out, 'model_catalog', config.modelCatalog, modelCatalogToToml);
   setSection(out, 'experimental', config.experimental, experimentalToToml);
+  setSection(out, 'github', config.github, githubToToml);
   setSection(out, 'permission', config.permission, permissionToToml);
   setHooks(out, config.hooks);
 
@@ -765,6 +769,17 @@ function experimentalToToml(
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(experimental)) {
     setDefined(out, key, value);
+  }
+  return out;
+}
+
+function githubToToml(
+  github: GithubConfig,
+  _rawGithub: unknown,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(github)) {
+    setDefined(out, camelToSnake(key), value);
   }
   return out;
 }
