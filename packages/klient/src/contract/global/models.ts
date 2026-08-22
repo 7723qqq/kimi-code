@@ -18,6 +18,7 @@ const protocolSchema = z.enum([
   'openai',
   'openai_responses',
   'google-genai',
+  'antigravity',
 ]);
 
 const oAuthRefSchema = z.object({

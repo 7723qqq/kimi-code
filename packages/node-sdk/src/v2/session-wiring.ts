@@ -31,7 +31,7 @@ import type {
   ToolCallRequest,
   ToolCallResponse,
   ToolInputDisplay,
-} from '@moonshot-ai/agent-core-v2';
+} from '#/events';
 import {
   agentContextOf,
   IAgentLifecycleService,

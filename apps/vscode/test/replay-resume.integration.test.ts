@@ -130,6 +130,27 @@ describe('VS Code replay from a public Node SDK resume state', () => {
             tool_calls: [
               {
                 index: 0,
+                id: 'read-call-1',
+                type: 'function',
+                function: {
+                  name: 'Read',
+                  arguments: JSON.stringify({
+                    path: 'sample.txt',
+                  }),
+                },
+              },
+            ],
+          }),
+          completionChunk({}, 'tool_calls'),
+        ]);
+        return;
+      }
+      if (requestCount === 2) {
+        await reply.sseJson(200, [
+          completionChunk({
+            tool_calls: [
+              {
+                index: 0,
                 id: 'edit-call-1',
                 type: 'function',
                 function: {

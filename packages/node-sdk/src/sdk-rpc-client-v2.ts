@@ -147,10 +147,11 @@ import {
   ensureConfigFile,
   limitAgentReplayByTurns,
 } from '#/legacy/config-helpers';
+import { ErrorCodes } from '#/legacy/error-codes';
 import { KimiError } from '#/legacy/kimi-error';
+import { flushDiagnosticLogs, getRootLogger } from '#/legacy/logging';
 import { noopTelemetryClient } from '#/legacy/telemetry';
 import { type BeginGlobalMcpServerAuthResult } from '#/types';
-import { ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
 import { HookDefSchema } from '@moonshot-ai/agent-core-v2/features/externalHooks/configSection';
 import { type AgentContextData } from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
 import { type ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2/app/flag/flag';
@@ -257,6 +258,8 @@ import { createKlient } from '@moonshot-ai/klient/memory';
 import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 
 import { KimiAuthFacade } from '#/auth';
+import { readConfigFile } from '#/config-local/toml';
+import { ImageLimits } from '#/image-limits';
 import { KimiHarness } from '#/kimi-harness';
 import {
   SDKRpcClientBase,
@@ -299,6 +302,7 @@ import type {
   GetCronTasksResult,
   GlobalMcpServerAuthState,
   GlobalMcpServerAuthStatus,
+  GlobalMcpServerConfig,
   GoalSnapshot,
   GoalToolResult,
   JsonObject,
@@ -307,7 +311,6 @@ import type {
   KimiHarnessOptions,
   KimiHostIdentity,
   ListSessionsOptions,
-  McpManagedServerInfo,
   McpServerConfig,
   McpServerInfo,
   McpStartupMetrics,
@@ -500,6 +503,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       },
       [...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }))],
     );
+    void getRootLogger().configure(
+      resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }),
+    );
     this.app = app;
     this.klient = createKlient({ scope: app });
     this.globalMcpConfig = new GlobalMcpConfigStore(this.homeDir);
@@ -563,6 +569,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     await drainSessionIndexMirror();
     await drainQueryStoreDisposals();
     await drainLogCloses();
+    await flushDiagnosticLogs();
   }
 
   /**
@@ -601,7 +608,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.app.accessor;
   }
 
-  protected getRpc(): Promise<never> {
+  protected override getRpc(): Promise<never> {
     throw new KimiError(
       ErrorCodes.NOT_IMPLEMENTED,
       'This SDK method is not wired to agent-core-v2 yet.',
@@ -2430,22 +2437,14 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     });
   }
 
-  /**
-   * The unified management view's `McpManagedServerInfo` tag. Plugin and
-   * project-layer entries are a v1-only addition for now — every entry on
-   * this surface comes from the user-level file, so all are `global`,
-   * mutable, and carry the file path as their origin.
-   */
-  private managedGlobalMcpServer(server: McpServerConfig): McpManagedServerInfo {
-    return { ...server, source: 'global', origin: this.globalMcpConfig.path, mutable: true };
+
+
+  override async listGlobalMcpServers(): Promise<readonly GlobalMcpServerConfig[]> {
+    return this.globalMcpConfig.list();
   }
 
-  override async listGlobalMcpServers(): Promise<readonly McpManagedServerInfo[]> {
-    return (await this.globalMcpConfig.list()).map((server) => this.managedGlobalMcpServer(server));
-  }
-
-  override async getGlobalMcpServer(name: string): Promise<McpManagedServerInfo> {
-    return this.managedGlobalMcpServer(await this.globalMcpConfig.get(name));
+  override async getGlobalMcpServer(name: string): Promise<GlobalMcpServerConfig> {
+    return this.globalMcpConfig.get(name);
   }
 
   override async listGlobalMcpServerAuthStatuses(
@@ -2453,7 +2452,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   ): Promise<readonly GlobalMcpServerAuthStatus[]> {
     const servers = await this.globalMcpConfig.list();
     const oauth = await this.freshGlobalMcpOAuthService();
-    const verify = options.verify === true;
+    const verify = options.verify !== false;
     return Promise.all(
       servers.map(async (server) => ({
         name: server.name,
@@ -2462,7 +2461,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     );
   }
 
-  override async inspectAppMcpServers(
+  async inspectAppMcpServers(
     targets?: readonly McpServerLocator[],
   ): Promise<readonly AppMcpServerInspection[]> {
     const catalog = await this.appMcpServerDescriptors();
@@ -2472,25 +2471,19 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   override async addGlobalMcpServer(
-    server: McpServerConfig,
-  ): Promise<readonly McpManagedServerInfo[]> {
-    return (await this.globalMcpConfig.add(server)).map((entry) =>
-      this.managedGlobalMcpServer(entry),
-    );
+    server: GlobalMcpServerConfig,
+  ): Promise<readonly GlobalMcpServerConfig[]> {
+    return this.globalMcpConfig.add(server);
   }
 
   override async updateGlobalMcpServer(
-    server: McpServerConfig,
-  ): Promise<readonly McpManagedServerInfo[]> {
-    return (await this.globalMcpConfig.update(server)).map((entry) =>
-      this.managedGlobalMcpServer(entry),
-    );
+    server: GlobalMcpServerConfig,
+  ): Promise<readonly GlobalMcpServerConfig[]> {
+    return this.globalMcpConfig.update(server);
   }
 
-  override async removeGlobalMcpServer(name: string): Promise<readonly McpManagedServerInfo[]> {
-    return (await this.globalMcpConfig.remove(name)).map((entry) =>
-      this.managedGlobalMcpServer(entry),
-    );
+  override async removeGlobalMcpServer(name: string): Promise<readonly GlobalMcpServerConfig[]> {
+    return this.globalMcpConfig.remove(name);
   }
 
   /**
@@ -2504,7 +2497,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.beginMcpServerAuth({ source: 'global', name });
   }
 
-  override async beginMcpServerAuth(
+  async beginMcpServerAuth(
     locator: McpServerLocator,
   ): Promise<BeginGlobalMcpServerAuthResult> {
     const server = await this.resolveAppMcpServer(locator);
@@ -2537,7 +2530,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.completeMcpServerAuth(input, signal);
   }
 
-  override async completeMcpServerAuth(
+  async completeMcpServerAuth(
     input: { readonly flowId: string; readonly timeoutMs?: number },
     signal?: AbortSignal,
   ): Promise<void> {
@@ -2559,7 +2552,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.cancelMcpServerAuth(flowId);
   }
 
-  override async cancelMcpServerAuth(flowId: string): Promise<void> {
+  async cancelMcpServerAuth(flowId: string): Promise<void> {
     const active = this.globalMcpOAuthFlows.get(flowId);
     if (active === undefined) return;
     this.globalMcpOAuthFlows.delete(flowId);
@@ -2570,7 +2563,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return this.resetMcpServerAuth({ source: 'global', name });
   }
 
-  override async resetMcpServerAuth(locator: McpServerLocator): Promise<void> {
+  async resetMcpServerAuth(locator: McpServerLocator): Promise<void> {
     const server = await this.resolveAppMcpServer(locator);
     const config = requireRemoteMcpConfig(server.runtimeName, server.config);
     const oauth = await this.globalMcpOAuthService();
@@ -2601,7 +2594,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * The inline-config channel of v1's `testGlobalMcpServer`: the same
    * schema-validated, unsaved probe — nothing has to be persisted first.
    */
-  override async testGlobalMcpServerConfig(
+  async testGlobalMcpServerConfig(
     server: McpServerConfig,
     options: { readonly cwd?: string } = {},
   ): Promise<McpTestResult> {
@@ -2825,13 +2818,15 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
         oauth,
       );
 
+    if (!tokens.hasTokens && server.auth === 'oauth') {
+      return 'oauth-required';
+    }
     if (verify) {
       // Online verification: a real connection probe settles states the
       // offline view cannot distinguish (revoked grant, dead refresh token).
       return probe();
     }
     if (tokens.hasTokens) return offline();
-    if (server.auth === 'oauth') return 'oauth-required';
     // Unpinned auth with no stored grant: probe once to detect whether the
     // server challenges at all.
     return this.withGlobalMcpServerProbe(
@@ -2921,7 +2916,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
         'reconnectMcpServer with an explicit config is not supported for v2 sessions with ephemeral MCP servers',
       );
     }
-    const replacement = parseReconnectMcpServerConfig(input.name, input.config);
+    const replacement = parseReconnectMcpServerConfig(input.config);
     // Parity with v1's manager reconnect: a disabled replacement is rejected
     // before anything is applied, not upserted over the live connection.
     if (replacement.enabled === false) {
@@ -2975,6 +2970,16 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 }
 
+function resolveImageLimits(configPath: string, injected?: ImageLimits): ImageLimits {
+  if (injected !== undefined) return injected;
+  try {
+    const config = readConfigFile(configPath);
+    return new ImageLimits(process.env, config.image);
+  } catch {
+    return new ImageLimits(process.env);
+  }
+}
+
 export function createKimiHarnessV2(options: KimiHarnessOptions): KimiHarness {
   const rpc = new SDKRpcClientV2(options);
   return new KimiHarness(rpc, {
@@ -2986,12 +2991,12 @@ export function createKimiHarnessV2(options: KimiHarnessOptions): KimiHarness {
     telemetry: rpc.telemetry,
     ensureConfigFile: () => rpc.ensureConfigFile(),
     onClose: () => rpc.close(),
-    // v1-core-owned ingestion limits; the v2 engine has no equivalent yet, so
-    // ingestion falls back to env / built-in defaults like daemon-client hosts.
-    imageLimits: undefined,
+    imageLimits: resolveImageLimits(rpc.configPath, options.imageLimits),
     sessionStartedProperties: options.sessionStartedProperties,
   });
 }
+
+export const createKimiHarness = createKimiHarnessV2;
 
 /** v1's `requiredWorkDir`: reject blank and normalize to the canonical spelling. */
 function normalizeRequiredWorkDir(operation: string, workDir: string): string {

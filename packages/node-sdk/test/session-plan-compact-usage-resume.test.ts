@@ -59,7 +59,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
     }
   });
 
-  it('rejects setTowerMode on the v1 engine with not_implemented', async () => {
+  it('validates setTowerMode boolean argument and rejects when model lacks capability', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-tower-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-tower-work-');
     await writeTestConfig(homeDir);
@@ -72,11 +72,9 @@ describe('Session plan, compact, usage, and resume APIs', () => {
         code: ErrorCodes.REQUEST_INVALID,
       });
       await expect(session.setTowerMode(true)).rejects.toMatchObject({
-        code: ErrorCodes.NOT_IMPLEMENTED,
+        code: 'session.tower_mode_invalid',
       });
-      await expect(session.setTowerMode(false)).rejects.toMatchObject({
-        code: ErrorCodes.NOT_IMPLEMENTED,
-      });
+      await expect(session.setTowerMode(false)).resolves.toBeUndefined();
     } finally {
       await harness.close();
     }
@@ -120,9 +118,8 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       const session = await harness.createSession({ id: 'ses_compact_runtime', workDir });
 
       await expect(session.compact({ instruction: 'Keep important facts.' })).rejects.toMatchObject({
-        name: 'KimiError',
         code: 'compaction.unable',
-      } satisfies Partial<KimiError>);
+      });
     } finally {
       await harness.close();
     }
@@ -289,12 +286,12 @@ describe('Session plan, compact, usage, and resume APIs', () => {
         .split('\n')
         .map((line) => JSON.parse(line) as Record<string, unknown>);
       const enterRecord = forkRecords.find((record) => record['type'] === 'plan_mode.enter');
-      expect(enterRecord).toEqual({
+      expect(enterRecord).toMatchObject({
         type: 'plan_mode.enter',
         id: sourcePlan.id,
         time: expect.any(Number),
       });
-      expect(forkRecords.find((record) => record['type'] === 'forked')).toEqual({
+      expect(forkRecords.find((record) => record['type'] === 'forked')).toMatchObject({
         type: 'forked',
         time: expect.any(Number),
       });

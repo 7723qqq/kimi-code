@@ -54,12 +54,12 @@ describe('status panel report lines', () => {
 
     const output = lines.join('\n');
     expect(output).toContain('>_ Kimi Code (v1.2.3)');
-    expect(output).toContain('Model         Kimi K2 (thinking high)');
-    expect(output).toContain('Directory     /tmp/project');
-    expect(output).toContain('Permissions   auto');
-    expect(output).toContain('Plan mode     on');
-    expect(output).toContain('Session       ses-1');
-    expect(output).toContain('Title         Implement status');
+    expect(output).toContain('Model        Kimi K2 (thinking high)');
+    expect(output).toContain('Directory    /tmp/project');
+    expect(output).toContain('Permissions  auto');
+    expect(output).toContain('Plan mode    on');
+    expect(output).toContain('Session      ses-1');
+    expect(output).toContain('Title        Implement status');
     expect(output).toContain('Context window');
     expect(output).toContain('25%');
     expect(output).toContain('(2.9k / 11.7k)');
@@ -183,9 +183,9 @@ describe('status panel report lines', () => {
     }).map(strip);
 
     const output = lines.join('\n');
-    expect(output).toContain('Model         not set');
-    expect(output).toContain('Session       none');
-    expect(output).toContain('Warning       No active session');
+    expect(output).toContain('Model        not set');
+    expect(output).toContain('Session      none');
+    expect(output).toContain('Warning      No active session');
     expect(output).toContain('No context window data available.');
   });
 });

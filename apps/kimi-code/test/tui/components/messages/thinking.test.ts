@@ -33,6 +33,21 @@ describe('ThinkingComponent', () => {
     expect(out).not.toContain('ctrl+o to expand');
   });
 
+  it('expands live thinking when setExpanded(true) is called', () => {
+    const component = new ThinkingComponent(longThinking, true, 'live');
+    component.setExpanded(true);
+    const out = strip(component.render(80).join('\n'));
+
+    expect(out).toContain('⠋ thinking...');
+    expect(out).toContain('line1');
+    expect(out).toContain('line2');
+    expect(out).toContain('line3');
+    expect(out).toContain('line4');
+    expect(out).toContain('line5');
+    expect(out).toContain('line6');
+    expect(out).toContain('line7');
+  });
+
   it('animates the live spinner and stops on finalize', () => {
     vi.useFakeTimers();
     const requestRender = vi.fn();

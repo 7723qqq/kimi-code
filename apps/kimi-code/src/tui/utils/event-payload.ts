@@ -137,10 +137,14 @@ interface ErrorPayloadLike {
   readonly details?: Record<string, unknown>;
 }
 
-export function formatErrorPayload(error: ErrorPayloadLike): string {
+export function formatErrorPayload(error: Partial<ErrorPayloadLike> | undefined): string {
+  if (!error) return '';
   const filteredMessage = formatProviderFilteredMessage(error.details);
-  if (filteredMessage !== undefined) return `[${error.code}] ${filteredMessage}`;
-  return `[${error.code}] ${error.message}`;
+  const msg = filteredMessage ?? error.message;
+  if (error.code && msg) return `[${error.code}] ${msg}`;
+  if (msg) return String(msg);
+  if (error.code) return `[${error.code}]`;
+  return '';
 }
 
 function formatProviderFilteredMessage(

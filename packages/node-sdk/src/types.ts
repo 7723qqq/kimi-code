@@ -38,6 +38,8 @@ import type { Kaos } from '@moonshot-ai/kaos';
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
 import type { ContentPart, ModelCapability } from '@moonshot-ai/kosong';
 
+import type { ImageLimits } from '#/image-limits';
+
 import type {
   BackgroundConfig,
   GlobalMcpServerConfig,
@@ -240,6 +242,7 @@ export interface KimiHarnessOptions {
   readonly telemetry?: TelemetryClient | undefined;
   readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
   readonly sessionStartedProperties?: TelemetryProperties;
+  readonly imageLimits?: ImageLimits | undefined;
 }
 
 export interface CreateSessionOptions {
@@ -544,16 +547,9 @@ export type ResumedSessionState = Pick<
 
 export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState {}
 
-/**
- * Runtime binding snapshot returned by `getRuntime` / `switchRuntime`. The v2
- * runtime binding is identified by a stable `binding` (e.g. `local` / `worktree`)
- * and may have a `runtime` attached when one is active.
- */
 export interface AgentRuntimeBinding {
-  readonly binding: string;
-  readonly available: boolean;
-  readonly runtime?: string;
-  readonly workspaceId?: string;
+  readonly workspaceId: string;
+  readonly runtimeId: string;
 }
 
 /**

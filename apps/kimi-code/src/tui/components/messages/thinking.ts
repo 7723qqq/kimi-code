@@ -103,9 +103,9 @@ export class ThinkingComponent implements Component {
     let rendered: string[];
     if (this.mode === 'live') {
       const visibleLines =
-        contentLines.length > THINKING_PREVIEW_LINES
-          ? contentLines.slice(contentLines.length - THINKING_PREVIEW_LINES)
-          : contentLines;
+        this.expanded || contentLines.length <= THINKING_PREVIEW_LINES
+          ? contentLines
+          : contentLines.slice(contentLines.length - THINKING_PREVIEW_LINES);
       const spinner = currentTheme.fg(
         'textDim',
         `${BRAILLE_SPINNER_FRAMES[this.spinnerFrame] ?? BRAILLE_SPINNER_FRAMES[0]} `,

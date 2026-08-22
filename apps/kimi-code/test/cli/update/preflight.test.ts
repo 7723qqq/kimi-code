@@ -168,10 +168,12 @@ function installState(overrides: Partial<UpdateInstallState> = {}): UpdateInstal
 function tuiConfig(overrides: Partial<TuiConfig> = {}): TuiConfig {
   return {
     theme: 'auto',
+    locale: 'en',
     disablePasteBurst: false,
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
     upgrade: { autoInstall: true },
+    astron: { stream: true, temperature: 1.0, maxTokens: 32768, searchDisable: true },
     ...overrides,
   };
 }

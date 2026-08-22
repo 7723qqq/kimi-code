@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it, vi, afterEach } from 'vitest';
 
 import { classifyRpcMessage, mapStopReason, WorkspacePredictor } from './rust-loop';
@@ -91,7 +93,7 @@ describe('WorkspacePredictor', () => {
     vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReturnValue(null);
 
     // Point at a real file on disk so the fs fallback path succeeds.
-    const realFile = new URL('./rust-loop.test.ts', import.meta.url).pathname.replace(/^\//, '');
+    const realFile = fileURLToPath(new URL('./rust-loop.test.ts', import.meta.url));
     const result = predictor.predictRead(realFile);
 
     expect(result).not.toBeNull();
@@ -103,7 +105,7 @@ describe('WorkspacePredictor', () => {
     // Native module absent → returns undefined → predictor falls back to fs.
     vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReturnValue();
 
-    const realFile = new URL('./rust-loop.test.ts', import.meta.url).pathname.replace(/^\//, '');
+    const realFile = fileURLToPath(new URL('./rust-loop.test.ts', import.meta.url));
     const result = predictor.predictRead(realFile);
 
     expect(result).not.toBeNull();

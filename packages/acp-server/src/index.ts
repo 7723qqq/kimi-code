@@ -1,4 +1,4 @@
-export type { Implementation } from '@agentclientprotocol/sdk';
+export type { AvailableCommand, Implementation } from '@agentclientprotocol/sdk';
 
 export { AcpServer, createAcpAgentApp } from './server';
 export type {

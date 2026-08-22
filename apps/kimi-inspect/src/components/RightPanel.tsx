@@ -18,6 +18,7 @@ import { useState } from 'react';
 
 import type { AuditTrail } from '../audit/trail';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import { Badge } from '../ui';
 import { AuditPanel } from './audit/AuditPanel';
 import { Inspector } from './Inspector';
@@ -64,7 +65,7 @@ export function RightPanel({
         ) : (
           <div className="p-3 text-[12px] text-neutral-600">
             {sessionId === null
-              ? 'No session selected.'
+              ? t('inspector.noSessionSelected')
               : 'Loading transcript — the audit trail appears once the channel is up.'}
           </div>
         )}
@@ -81,7 +82,7 @@ export function RightPanel({
         <div className="p-3">
           {sessionId === null || !ready ? (
             <div className="text-[12px] text-neutral-600">
-              {sessionId === null ? 'No session selected.' : 'Loading session…'}
+              {sessionId === null ? t('inspector.noSessionSelected') : t('chat.loadingSession')}
             </div>
           ) : (
             <StateCard

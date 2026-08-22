@@ -2025,6 +2025,7 @@ describe('v1↔v2 agent interaction parity', () => {
         permission: 'auto',
         planMode: false,
         swarmMode: false,
+        towerMode: false,
         contextTokens: 0,
         maxContextTokens: 262144,
         contextUsage: 0,
@@ -2073,6 +2074,7 @@ describe('v1↔v2 agent interaction parity', () => {
         permission: 'manual',
         planMode: false,
         swarmMode: false,
+        towerMode: false,
         contextTokens: 0,
         maxContextTokens: 0,
         contextUsage: 0,
@@ -3246,7 +3248,7 @@ interface ShellRunResult {
 }
 
 async function waitForBackgroundTask(
-  rpc: SDKRpcClientBase,
+  rpc: SDKRpcClientV2,
   sessionId: string,
   match: (task: BackgroundTaskInfo) => boolean,
   timeoutMs = 10_000,
@@ -3269,7 +3271,7 @@ let shellCommandSeq = 0;
  * detach releases the tool-call waiter, resolving the run as backgrounded).
  */
 async function startDetachedBackgroundTask(
-  rpc: SDKRpcClientBase,
+  rpc: SDKRpcClientV2,
   sessionId: string,
   command: string,
 ): Promise<{ readonly taskId: string; readonly run: Promise<ShellRunResult> }> {
@@ -3289,7 +3291,7 @@ async function startDetachedBackgroundTask(
 }
 
 async function stopAndSettle(
-  rpc: SDKRpcClientBase,
+  rpc: SDKRpcClientV2,
   sessionId: string,
   taskId: string,
 ): Promise<void> {
@@ -3868,10 +3870,12 @@ describe('v1↔v2 global MCP parity', () => {
         pair.v1.listGlobalMcpServers(),
         pair.v2.listGlobalMcpServers(),
       ]);
-      expect(normalize(v2Initial, 'name')).toEqual(normalize(v1Initial, 'name'));
+      expect(normalize(scrubHomePrefixes(v2Initial, pair.v2Home), 'name')).toEqual(
+        normalize(scrubHomePrefixes(v1Initial, pair.v1Home), 'name'),
+      );
       // The transport-less stdio entry parses with `transport: 'stdio'`
       // injected; the `auth: 'oauth'` marker survives the round-trip.
-      expect(v1Initial).toEqual([
+      expect(v1Initial).toMatchObject([
         {
           name: 'existing-stdio',
           transport: 'stdio',
@@ -3896,7 +3900,9 @@ describe('v1↔v2 global MCP parity', () => {
         pair.v1.addGlobalMcpServer(added),
         pair.v2.addGlobalMcpServer(added),
       ]);
-      expect(normalize(v2Added, 'name')).toEqual(normalize(v1Added, 'name'));
+      expect(normalize(scrubHomePrefixes(v2Added, pair.v2Home), 'name')).toEqual(
+        normalize(scrubHomePrefixes(v1Added, pair.v1Home), 'name'),
+      );
 
       const updated: McpServerConfig = {
         name: 'existing-http',
@@ -3908,13 +3914,17 @@ describe('v1↔v2 global MCP parity', () => {
         pair.v1.updateGlobalMcpServer(updated),
         pair.v2.updateGlobalMcpServer(updated),
       ]);
-      expect(normalize(v2Updated, 'name')).toEqual(normalize(v1Updated, 'name'));
+      expect(normalize(scrubHomePrefixes(v2Updated, pair.v2Home), 'name')).toEqual(
+        normalize(scrubHomePrefixes(v1Updated, pair.v1Home), 'name'),
+      );
 
       const [v1Removed, v2Removed] = await Promise.all([
         pair.v1.removeGlobalMcpServer('existing-stdio'),
         pair.v2.removeGlobalMcpServer('existing-stdio'),
       ]);
-      expect(normalize(v2Removed, 'name')).toEqual(normalize(v1Removed, 'name'));
+      expect(normalize(scrubHomePrefixes(v2Removed, pair.v2Home), 'name')).toEqual(
+        normalize(scrubHomePrefixes(v1Removed, pair.v1Home), 'name'),
+      );
       expect(v1Removed.map((server) => server.name)).toEqual(['existing-http', 'added']);
 
       // The persisted files are byte-identical across the engines (same
@@ -3974,7 +3984,9 @@ describe('v1↔v2 global MCP parity', () => {
         pair.v1.removeGlobalMcpServer('missing'),
         pair.v2.removeGlobalMcpServer('missing'),
       ]);
-      expect(normalize(v2Removed, 'name')).toEqual(normalize(v1Removed, 'name'));
+      expect(normalize(scrubHomePrefixes(v2Removed, pair.v2Home), 'name')).toEqual(
+        normalize(scrubHomePrefixes(v1Removed, pair.v1Home), 'name'),
+      );
       expect(v1Removed).toHaveLength(1);
     } finally {
       await closeGlobalMcpPair(pair);

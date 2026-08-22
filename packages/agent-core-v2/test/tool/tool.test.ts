@@ -2462,7 +2462,7 @@ describe('Agent tool execution contract', () => {
       // Stub fork: throw a recognizable marker so the test can verify the
       // call happened without having to mock the full subagent turn.
       const forkMarker = new Error('fork-routed');
-      (lifecycle.fork as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      (lifecycle.fork as ReturnType<typeof vi.fn>).mockImplementation((): never => {
         throw forkMarker;
       });
       // Allowlist excludes 'coder' but the call uses fork — the allowlist must be skipped.

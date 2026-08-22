@@ -16,6 +16,7 @@ import { log } from '@moonshot-ai/kimi-code-sdk';
 const GOOGLE_GEMINI_PROVIDER_ID = 'google-gemini';
 const GOOGLE_GEMINI_DEFAULT_MODEL_ID = 'gemini-3.7-flash';
 
+import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/kimi-tui';
@@ -89,7 +90,7 @@ async function handleKimiCodeOAuthLogin(
       },
     });
     refreshKimiRegion();
-    spinner?.stop({ ok: true, label: 'Logged in.' });
+    spinner?.stop({ ok: true, label: t('tui.statusMessages.loggedIn') });
     spinner = undefined;
     try {
       await host.authFlow.refreshConfigAfterLogin();
@@ -104,13 +105,15 @@ async function handleKimiCodeOAuthLogin(
       already_logged_in: alreadyLoggedIn,
     });
     if (alreadyLoggedIn) {
-      host.showStatus('Already logged in. Model configuration refreshed.', 'success');
+      host.showStatus(t('tui.statusMessages.alreadyLoggedInRefreshed'), 'success');
     }
   } catch (error) {
     const cancelled = controller.signal.aborted;
     spinner?.stop({
       ok: false,
-      label: cancelled ? 'Login cancelled.' : 'Login failed.',
+      label: cancelled
+        ? t('tui.statusMessages.loginCancelled')
+        : t('tui.statusMessages.loginFailed'),
     });
     spinner = undefined;
     if (cancelled) return;
@@ -242,7 +245,7 @@ async function handleGoogleOAuthLogin(host: SlashCommandHost): Promise<void> {
     const cancelled = controller.signal.aborted;
     spinner?.stop({
       ok: false,
-      label: cancelled ? 'Login cancelled.' : 'Google login failed.',
+      label: cancelled ? t('tui.statusMessages.loginCancelled') : 'Google login failed.',
     });
     spinner = undefined;
     if (cancelled) return;
@@ -266,10 +269,13 @@ async function handleOpenPlatformLogin(
   platform: OpenPlatformDefinition,
 ): Promise<void> {
   const consoleHost = platform.consoleUrl?.replace(/^https?:\/\//, '') ?? '';
-  const platformName = consoleHost.length > 0 ? `Kimi Platform (${consoleHost})` : 'Kimi Platform';
+  const platformName =
+    consoleHost.length > 0
+      ? `Kimi Platform (${consoleHost})`
+      : t('tui.statusMessages.kimiPlatformDisplay');
   const subtitleLines = [
     `${'base_url'.padEnd(12)}${platform.baseUrl}`,
-    `${'saved to'.padEnd(12)}~/.kimi-code/config.toml`,
+    `${t('tui.statusMessages.savedToLabel').padEnd(12)}~/.kimi-code/config.toml`,
   ];
   const apiKey = await promptApiKey(host, platformName, subtitleLines);
   if (apiKey === undefined) return;
@@ -292,9 +298,7 @@ async function handleOpenPlatformLogin(
       error instanceof OpenPlatformApiError &&
       error.status === 401
     ) {
-      host.showStatus(
-        'Hint: If your API key was obtained from Kimi Code, please select "Kimi Code" instead.',
-      );
+      host.showStatus(t('tui.statusMessages.hintUseKimiCodeInstead'));
     }
     return;
   } finally {
@@ -304,7 +308,7 @@ async function handleOpenPlatformLogin(
   }
 
   if (models.length === 0) {
-    host.showError('No models available for this platform.');
+    host.showError(t('tui.statusMessages.noModelsForPlatform'));
     return;
   }
 
@@ -358,7 +362,7 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
     options.push({
       value: DEFAULT_OAUTH_PROVIDER_NAME,
       label: PRODUCT_NAME,
-      description: 'OAuth login',
+      description: t('tui.statusMessages.oauthLoginDescription'),
     });
   }
   for (const id of apiKeyProviderIds) {
@@ -371,7 +375,7 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
   }
 
   if (options.length === 0) {
-    host.showStatus('Nothing to logout.');
+    host.showStatus(t('tui.statusMessages.nothingToLogout'));
     return;
   }
 

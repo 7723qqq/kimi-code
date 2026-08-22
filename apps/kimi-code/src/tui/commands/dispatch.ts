@@ -20,6 +20,7 @@ import type {
   TranscriptEntry,
 } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
+import { extractInlineSkillActivations, findInlineSkillTokens } from '../utils/inline-skill-tokens';
 import { handleAddDirCommand } from './add-dir';
 import { handleLoginCommand, handleLogoutCommand } from './auth';
 import { handleBtwCommand } from './btw';
@@ -223,6 +224,7 @@ export interface SlashCommandHost {
 // ---------------------------------------------------------------------------
 
 export function dispatchInput(host: SlashCommandHost, text: string): void {
+  if (dispatchInlineSkillCombo(host, text)) return;
   if (parseSlashInput(text) !== null) {
     void executeSlashCommand(host, text);
     return;
@@ -246,7 +248,7 @@ export function dispatchInput(host: SlashCommandHost, text: string): void {
  */
 function dispatchInlineSkillCombo(host: SlashCommandHost, text: string): boolean {
   // The intent is parsed without the busy flags on purpose: submissions
-  // through sendInlineSkillUserInput queue while busy — only genuine
+  // through sendNormalUserInput queue while busy — only genuine
   // single-skill commands reject.
   const intent = resolveSlashCommandInput({
     input: text,
@@ -268,10 +270,7 @@ function dispatchInlineSkillCombo(host: SlashCommandHost, text: string): boolean
   // 'message' instead of 'skill', and must not silently drop the leading
   // activation.
   if (tokens.length >= 2 && tokens[0]!.start === 0) {
-    const activations = extractInlineSkillActivations(text, host.skillCommandMap, {
-      includeLeading: true,
-    });
-    void host.sendInlineSkillUserInput(text, activations);
+    host.sendNormalUserInput(text);
     return true;
   }
 
@@ -280,7 +279,7 @@ function dispatchInlineSkillCombo(host: SlashCommandHost, text: string): boolean
   if (intent.kind !== 'message') return false;
   const activations = extractInlineSkillActivations(text, host.skillCommandMap);
   if (activations.length === 0) return false;
-  void host.sendInlineSkillUserInput(text, activations);
+  host.sendNormalUserInput(text);
   return true;
 }
 

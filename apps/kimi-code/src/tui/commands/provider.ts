@@ -17,6 +17,7 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { createKimiCodeUserAgent } from '#/cli/version';
+import { t } from '#/i18n';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
 import { refreshKimiRegion } from '#/utils/region';
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
@@ -143,8 +144,8 @@ function promptProviderAddSource(
     const picker = new ChoicePickerComponent({
       title: 'Add provider',
       options: [
-        { value: 'known', label: 'Known third-party provider' },
-        { value: 'custom', label: 'Custom registry (api.json)' },
+        { value: 'known', label: t('tui.statusMessages.knownThirdPartyProvider') },
+        { value: 'custom', label: t('tui.statusMessages.customRegistryOption') },
       ],
       onSelect: (value) => {
         host.restoreEditor();
@@ -177,15 +178,15 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
     spinner.stop({
       ok: true,
       label: loaded.fromBuiltIn
-        ? 'Catalog loaded from built-in snapshot (models.dev unreachable).'
-        : 'Catalog loaded.',
+        ? t('tui.statusMessages.catalogFromBuiltIn')
+        : t('tui.statusMessages.catalogLoaded'),
     });
   } catch (error) {
     if (controller.signal.aborted) {
       spinner.stop({ ok: false, label: 'Aborted.' });
     } else {
       const hint = error instanceof CatalogFetchError ? ` (HTTP ${error.status})` : '';
-      spinner.stop({ ok: false, label: 'Failed to load catalog.' });
+      spinner.stop({ ok: false, label: t('tui.statusMessages.catalogFailedToLoad') });
       host.showError(`Failed to fetch catalog${hint}: ${formatErrorMessage(error)}`);
     }
   } finally {
@@ -222,9 +223,7 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
           `Provider "${providerId}" uses a proprietary SDK this client cannot speak (e.g. Amazon Bedrock or Cohere); it cannot be imported from the catalog.`,
         );
       } else {
-        host.showError(
-          `Base URL contains an env placeholder or is empty. Enter the resolved URL instead.`,
-        );
+        host.showError(t('tui.statusMessages.providerCatalogPlaceholderBaseUrl'));
       }
     }
     return;

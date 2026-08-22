@@ -44,9 +44,9 @@ const TOWER_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
   { value: 'off', description: 'Turn tower mode off' },
 ];
 
-const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'list', description: 'Show configured additional workspace directories' },
-];
+function addDirArgCompletions(): readonly ArgCompletionSpec[] {
+  return [{ value: 'list', description: t('tui.messages.registryAddDirShow') }];
+}
 
 /** Argument autocompletion for the `/goal` command (subcommands). */
 export function goalArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
@@ -77,7 +77,7 @@ export function addDirArgumentCompletions(argumentPrefix: string): AutocompleteI
   if (isPathLikeAddDirArgument(argumentPrefix)) {
     return completeAddDirPath(argumentPrefix);
   }
-  return completeLeadingArg(addDirSubcommandSpecs(), argumentPrefix);
+  return completeLeadingArg(addDirArgCompletions(), argumentPrefix);
 }
 
 function isPathLikeAddDirArgument(argumentPrefix: string): boolean {

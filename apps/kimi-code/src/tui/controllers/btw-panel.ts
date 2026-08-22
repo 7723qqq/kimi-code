@@ -9,11 +9,14 @@ import { createMarkdownTheme } from '../theme/pi-tui-theme';
 import type { TUIState } from '../tui-state';
 import { formatErrorMessage } from '../utils/event-payload';
 import { formatHookResultPlain } from '../utils/hook-result-format';
+import { extractInlineSkillActivations } from '../utils/inline-skill-tokens';
 
 export interface BtwPanelHost {
   state: TUIState;
   session: Session | undefined;
   readonly harness: KimiHarness;
+  readonly engineV2?: boolean;
+  readonly skillCommandMap?: ReadonlyMap<string, string>;
 
   showError(msg: string): void;
 }
@@ -164,12 +167,23 @@ export class BtwPanelController {
       this.host.state.ui.requestRender();
       return;
     }
-    void this.withInteractiveAgent(agentId, () => session.prompt(prompt)).catch(
-      (error: unknown) => {
-        panel.markFailed(t('tui.messages.btwSendFailed', { error: formatErrorMessage(error) }));
-        this.host.state.ui.requestRender();
-      },
-    );
+    const skills =
+      this.host.engineV2 && this.host.skillCommandMap !== undefined
+        ? extractInlineSkillActivations(prompt, this.host.skillCommandMap, {
+            includeLeading: true,
+          })
+        : [];
+    const dispatch = () =>
+      skills.length > 0 && typeof session.promptWithSkills === 'function'
+        ? session.promptWithSkills(
+            prompt,
+            skills.map((s) => ({ name: s.skillName })),
+          )
+        : session.prompt(prompt);
+    void this.withInteractiveAgent(agentId, dispatch).catch((error: unknown) => {
+      panel.markFailed(t('tui.messages.btwSendFailed', { error: formatErrorMessage(error) }));
+      this.host.state.ui.requestRender();
+    });
   }
 
   private async cancelAgent(agentId: string): Promise<void> {

@@ -12,6 +12,9 @@ import type {
 import type { NotificationsConfig, StatusLineConfig, UpgradePreferences } from './config';
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
 import type { ColorToken, ThemeName } from './theme';
+export interface InlineSkillActivation {
+  readonly skillName: string;
+}
 
 export type BannerDisplay = 'always' | 'once' | 'cooldown';
 
@@ -315,8 +318,11 @@ export interface QueuedMessage {
   readonly imageAttachmentIds?: readonly number[];
   readonly videoAttachmentIds?: readonly number[];
   /** `bash` for a `!` shell command queued while another command is running;
-   *  undefined (=`prompt`) for a normal message. */
-  readonly mode?: 'prompt' | 'bash';
+   *  `skill` for a slash-skill activation; undefined (=`prompt`) for a normal message. */
+  readonly mode?: 'prompt' | 'bash' | 'skill';
+  readonly skillName?: string;
+  readonly skillArgs?: string;
+  readonly inlineSkillActivations?: readonly InlineSkillActivation[];
 }
 
 /**

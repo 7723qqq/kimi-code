@@ -2,7 +2,6 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { IAgentTowerService } from '#/features/tower/tower';
 import { TowerProtocolError } from '#/features/tower/protocol/index';
-import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';

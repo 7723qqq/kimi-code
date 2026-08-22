@@ -17,7 +17,7 @@ import type {
 } from "../../shared/legacy-sdk";
 import type { UIStreamEvent } from "../../shared/types";
 import { toLegacyToolName } from "./event-adapter";
-import { toLegacyDisplay } from "./tool-display";
+import { inferToolDisplay, toLegacyDisplay } from "./tool-display";
 
 interface SubagentReplayInvocation {
   readonly parentAgentId: string;
@@ -39,21 +39,28 @@ export function replaySessionToWebviewEvents(
 ): UIStreamEvent[] {
   const main = state.agents["main"];
   if (main === undefined) throw new Error("Session history is unavailable.");
-  return replayAgentToWebviewEvents(main, sessionId, buildSubagentReplayIndex(state));
+  return replayAgentToWebviewEvents(
+    main,
+    sessionId,
+    buildSubagentReplayIndex(state),
+    state.sessionMetadata.workDir,
+  );
 }
 
 /** Projects the public SDK resume replay into the released Webview protocol. */
 export function replayToWebviewEvents(
   agent: ResumedAgentState,
   sessionId: string,
+  workDir?: string,
 ): UIStreamEvent[] {
-  return replayAgentToWebviewEvents(agent, sessionId);
+  return replayAgentToWebviewEvents(agent, sessionId, undefined, workDir);
 }
 
 function replayAgentToWebviewEvents(
   agent: ResumedAgentState,
   sessionId: string,
   subagents?: SubagentReplayIndex,
+  workDir?: string,
 ): UIStreamEvent[] {
   const events: UIStreamEvent[] = [];
   let turnOpen = false;
@@ -129,7 +136,9 @@ function replayAgentToWebviewEvents(
             events.push(withSession({ type: "ContentPart", payload: part }, sessionId));
           }
           for (const call of message.toolCalls) {
-            const display = (message as { toolCallDisplays?: Record<string, ToolInputDisplay> }).toolCallDisplays?.[call.id];
+            const display =
+              (message as { toolCallDisplays?: Record<string, ToolInputDisplay> }).toolCallDisplays?.[call.id] ??
+              inferToolDisplay(call.name, call.arguments, workDir);
             if (display !== undefined) {
               toolDisplays.set(call.id, toLegacyDisplay(display));
             }
@@ -359,7 +368,9 @@ function renderSubagentInvocation(
           }
           for (const call of message.toolCalls) {
             const toolCallId = scopedReplayToolCallId(invocation.childAgentId, call.id);
-            const display = (message as { toolCallDisplays?: Record<string, ToolInputDisplay> }).toolCallDisplays?.[call.id];
+            const display =
+              (message as { toolCallDisplays?: Record<string, ToolInputDisplay> }).toolCallDisplays?.[call.id] ??
+              inferToolDisplay(call.name, call.arguments);
             if (display !== undefined) toolDisplays.set(toolCallId, toLegacyDisplay(display));
             emit({
               type: "ToolCall",

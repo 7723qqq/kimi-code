@@ -1,8 +1,8 @@
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
 import {
-  LLM_NOT_SET_MESSAGE,
-  NO_ACTIVE_SESSION_MESSAGE,
+  getLlmNotSetMessage,
+  getNoActiveSessionMessage,
   TOWER_STATUS_PROMPT,
   TOWER_TEARDOWN_PROMPT,
 } from '../constant/kimi-tui';
@@ -39,7 +39,7 @@ async function startTowerObjective(host: SlashCommandHost, objective: string): P
   // rejected objective (no model configured) would leave tower on with the
   // next ordinary prompt unexpectedly running under the tower injection.
   if (host.state.appState.model.trim().length === 0) {
-    host.showError(LLM_NOT_SET_MESSAGE);
+    host.showError(getLlmNotSetMessage());
     return;
   }
   // The engine's enter is idempotent, so never let the cached state skip the
@@ -94,7 +94,7 @@ async function setTowerMode(host: SlashCommandHost, enabled: boolean): Promise<b
 async function requireSessionEnsured(host: SlashCommandHost): Promise<Session | undefined> {
   if (host.session !== undefined) return host.session;
   if (!host.engineV2) {
-    host.showError(NO_ACTIVE_SESSION_MESSAGE);
+    host.showError(getNoActiveSessionMessage());
     return undefined;
   }
   // v2 session-less: lazy-create the session, then toggle — the same path

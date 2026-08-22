@@ -50,6 +50,7 @@ import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { startupTrace } from '#/utils/startup-trace';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
+import { extractInlineSkillActivations } from '#/tui/utils/inline-skill-tokens';
 import { computeSmoothedTokenSpeed, pickDecodeMs } from '#/tui/utils/token-speed';
 
 import { BannerProvider } from './banner/banner-provider';
@@ -428,6 +429,15 @@ export class KimiTUI {
     string,
     { entry: TranscriptEntry; component: ShellRunComponent; taskId?: string }
   >();
+  readonly pendingBundledSkillNames = new Set<string>();
+
+  hasPendingBundledSkill(name: string): boolean {
+    if (this.pendingBundledSkillNames.has(name)) {
+      this.pendingBundledSkillNames.delete(name);
+      return true;
+    }
+    return false;
+  }
   readonly streamingUI: StreamingUIController;
   readonly authFlow: AuthFlowController;
   readonly btwPanelController: BtwPanelController;
@@ -554,7 +564,7 @@ export class KimiTUI {
   // =========================================================================
 
   private getSlashCommands(): readonly KimiSlashCommand[] {
-    const builtins = sortSlashCommands(BUILTIN_SLASH_COMMANDS).filter(
+    const builtins = sortSlashCommands(getBuiltinSlashCommands()).filter(
       (command) =>
         isExperimentalFlagEnabled(command.experimentalFlag) &&
         (!command.requiresEngineV2 || this.engineV2),
@@ -603,19 +613,16 @@ export class KimiTUI {
   }
 
   async refreshSkillCommands(session?: SkillListSession): Promise<void> {
-    if (session === undefined) {
-      // v2 engine: skills live on the workspace handler, not the session, so
-      // they are available before the first (lazy) session is created — the
-      // workspace catalog is the same merged view a session would serve.
-      if (this.engineV2) {
-        try {
-          const skills = await this.harness.listWorkspaceSkills(this.state.appState.workDir);
-          this.applySkillCommands(skills);
-          return;
-        } catch {
-          return;
-        }
+    if (this.engineV2) {
+      try {
+        const skills = await this.harness.listWorkspaceSkills(this.state.appState.workDir);
+        this.applySkillCommands(skills);
+        return;
+      } catch {
+        return;
       }
+    }
+    if (session === undefined) {
       this.skillCommands = [];
       this.skillCommandMap.clear();
       this.setupAutocomplete();
@@ -1603,11 +1610,14 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
   private enqueueMessage(
     text: string,
     options?: SendMessageOptions,
-    mode?: 'prompt' | 'bash',
+    mode?: 'prompt' | 'bash' | 'skill',
   ): void {
     // A queued message re-leases its staged media at dequeue dispatch; the
     // pre-dispatch lease defers to the queue item's raw ids.
     this.staging.defer(options?.lease);
+    const inlineSkills = this.engineV2
+      ? extractInlineSkillActivations(text, this.skillCommandMap, { includeLeading: true })
+      : undefined;
     this.state.queuedMessages.push({
       text,
       agentId: this.harness.interactiveAgentId,
@@ -1621,6 +1631,7 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
           ? options.videoAttachmentIds
           : undefined,
       mode,
+      inlineSkillActivations: inlineSkills && inlineSkills.length > 0 ? inlineSkills : undefined,
     });
     this.track('input_queue');
   }
@@ -1653,6 +1664,10 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
     if (item.mode === 'bash') {
       this.staging.releaseQueued([item]);
       void this.runShellCommandFromInput(item.text);
+      return;
+    }
+    if (item.mode === 'skill' && item.skillName !== undefined) {
+      this.sendSkillActivation(session, item.skillName, item.skillArgs ?? '');
       return;
     }
     const parts =
@@ -1693,8 +1708,9 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
       options?.imageAttachmentIds !== undefined && options.imageAttachmentIds.length > 0
         ? options.imageAttachmentIds
         : undefined;
+    const userEntryId = nextTranscriptId();
     this.appendTranscriptEntry({
-      id: nextTranscriptId(),
+      id: userEntryId,
       kind: 'user',
       turnId: undefined,
       renderMode: 'plain',
@@ -1745,6 +1761,7 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
         [...new Set(stagingIds)],
         [],
         'user',
+        stagingIds.length > 0 && !goalActive ? randomUUID() : undefined,
       );
     // While a goal is being pursued the engine holds its active turn across the
     // whole continuation loop, so a fresh prompt races the goal driver at every
@@ -1763,13 +1780,58 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
       });
       return;
     }
-    this.staging.trackDispatch(stagingLease, session.prompt(sdkInput), (error) => {
+    const skills =
+      this.engineV2 && typeof input === 'string'
+        ? extractInlineSkillActivations(input, this.skillCommandMap, { includeLeading: true })
+        : [];
+    if (skills.length > 0) {
+      for (const s of skills) {
+        this.pendingBundledSkillNames.add(s.skillName);
+      }
+    }
+    const promptOptions =
+      stagingLease !== undefined
+        ? { promptId: stagingLease.submissionId }
+        : undefined;
+    const dispatchPromise =
+      skills.length > 0 && typeof session.promptWithSkills === 'function'
+        ? session.promptWithSkills(
+            sdkInput,
+            skills.map((s) => ({ name: s.skillName })),
+          )
+        : promptOptions !== undefined
+          ? session.prompt(sdkInput, promptOptions)
+          : session.prompt(sdkInput);
+    this.staging.trackDispatch(stagingLease, dispatchPromise, (error) => {
       const message = formatErrorMessage(error);
+      const userIndex = this.state.transcriptEntries.findIndex((e) => e.id === userEntryId);
+      if (userIndex !== -1) {
+        this.state.transcriptEntries.splice(userIndex, 1);
+        this.state.ui.requestRender();
+      }
       this.failSessionRequest(`Failed to send: ${message}`);
     });
   }
 
   sendSkillActivation(session: Session, skillName: string, skillArgs: string): void {
+    if (
+      this.deferUserMessages ||
+      this.state.appState.streamingPhase !== 'idle' ||
+      this.state.appState.isCompacting
+    ) {
+      const text = skillArgs.length > 0 ? `/${skillName} ${skillArgs}` : `/${skillName}`;
+      this.state.queuedMessages.push({
+        text,
+        agentId: this.harness.interactiveAgentId,
+        mode: 'skill',
+        skillName,
+        skillArgs,
+      });
+      this.track('input_queue');
+      this.updateQueueDisplay();
+      this.state.ui.requestRender();
+      return;
+    }
     // Args are a plain-text channel, so pasted media can't ride along as
     // inline parts. Skill args are XML-escaped on render (renderSkillAttributes
     // + expandSkillParameters), so rewrite placeholders into escape-proof
@@ -1818,10 +1880,15 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
   }
 
   private sendMessage(session: Session, input: string, options?: SendMessageOptions): void {
+    const hasInlineSkills =
+      this.engineV2 &&
+      typeof input === 'string' &&
+      extractInlineSkillActivations(input, this.skillCommandMap, { includeLeading: true }).length > 0;
     if (
       this.deferUserMessages ||
       this.state.appState.streamingPhase !== 'idle' ||
-      this.state.appState.isCompacting
+      this.state.appState.isCompacting ||
+      (this.state.appState.goal?.status === 'active' && hasInlineSkills)
     ) {
       // A queued message re-leases its staged media at dequeue dispatch; the
       // pre-dispatch lease defers to the queue item's raw ids.
@@ -2172,6 +2239,7 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
     if (previous !== undefined) this.staging.releaseAll();
     await previous?.close();
     this.session = session;
+    this.setAppState({ sessionId: session.id });
     this.harness.setTelemetryContext({ sessionId: session.id });
     this.registerSessionHandlers(session);
     this.workflowPanelController.subscribe(session);

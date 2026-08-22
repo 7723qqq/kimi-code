@@ -1,5 +1,6 @@
 import { GoogleOAuthManager, OPEN_PLATFORMS } from '@moonshot-ai/kimi-code-oauth';
 
+import { t } from '#/i18n';
 import { KIMI_CODE_GLOBAL_PLATFORM_VALUE } from '#/utils/region';
 
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
@@ -46,7 +47,7 @@ export interface PlatformSelectorOptions {
 export class PlatformSelectorComponent extends ChoicePickerComponent {
   constructor(opts: PlatformSelectorOptions) {
     super({
-      title: 'Select a platform',
+      title: t('tui.dialogs.platformSelector.title'),
       options: [...platformOptions()],
       onSelect: opts.onSelect,
       onCancel: opts.onCancel,

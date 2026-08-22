@@ -5,7 +5,6 @@ export default defineConfig({
     projects: [
       'packages/*',
       'apps/kimi-code',
-      'apps/kimi-web',
       'apps/kimi-inspect',
       'apps/vis/server',
       'apps/vis/web',

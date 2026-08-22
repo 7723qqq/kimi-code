@@ -18,6 +18,7 @@ import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
   AgentCommandInfo,
+  AgentRuntimeBinding,
   BackgroundTaskInfo,
   BeginGlobalMcpServerAuthResult,
   ConfigDiagnostics,
@@ -69,6 +70,8 @@ const MAIN_AGENT_ID = 'main';
 export interface SessionPromptRpcInput {
   readonly sessionId: string;
   readonly input: PromptInput;
+  readonly disabledTools?: readonly string[];
+  readonly promptId?: string;
 }
 
 export interface SessionPromptWithSkillsRpcInput extends SessionPromptRpcInput {
@@ -139,6 +142,7 @@ export interface RunCommandRpcInput extends SessionIdRpcInput {
 
 export interface ReconnectMcpServerRpcInput extends SessionIdRpcInput {
   readonly name: string;
+  readonly config?: McpServerConfig | undefined;
 }
 
 export abstract class SDKRpcClientBase {
@@ -1050,6 +1054,25 @@ export abstract class SDKRpcClientBase {
       });
       return null;
     }
+  }
+
+  async getRuntime(input: SessionIdRpcInput): Promise<AgentRuntimeBinding> {
+    const rpc = await this.getRpc();
+    return rpc.getRuntime(input);
+  }
+
+  async switchRuntime(input: SwitchSessionRuntimeRpcInput): Promise<AgentRuntimeBinding> {
+    const rpc = await this.getRpc();
+    return rpc.switchRuntime(input);
+  }
+
+  async addSessionMcpServer(input: {
+    readonly sessionId: string;
+    readonly server: McpServerConfig;
+    readonly persist?: boolean;
+  }): Promise<McpServerInfo> {
+    const rpc = await this.getRpc();
+    return rpc.addSessionMcpServer(input);
   }
 
   async toolCall(request: ToolCallRequest): Promise<ToolCallResponse> {

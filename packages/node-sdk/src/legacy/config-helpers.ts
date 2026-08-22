@@ -120,5 +120,13 @@ export function limitAgentReplayByTurns<T extends UserTurnRecordLike>(
     isAgentReplayUserTurnRecord(record) ? [index] : [],
   );
   if (turnStarts.length <= maxTurns) return records;
-  return records.slice(turnStarts[turnStarts.length - maxTurns]);
+  let startIndex = turnStarts[turnStarts.length - maxTurns]!;
+  while (
+    startIndex > 0 &&
+    records[startIndex - 1]?.type === 'message' &&
+    records[startIndex - 1]?.message?.origin?.kind === 'hook_result'
+  ) {
+    startIndex--;
+  }
+  return records.slice(startIndex);
 }

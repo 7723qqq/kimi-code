@@ -21,23 +21,31 @@ export function translateDomainEvent(
   const record = event as Record<string, unknown>;
   const type = record['type'];
   if (typeof type !== 'string' || type.length === 0) return undefined;
+  const payload =
+    typeof record['payload'] === 'object' && record['payload'] !== null
+      ? (record['payload'] as Record<string, unknown>)
+      : undefined;
   return {
+    ...record,
+    ...payload,
     type,
     sessionId,
     agentId,
-    payload: stripMetadata(record),
   } as Event;
 }
 
 export function translateGlobalEvent(event: unknown): ProtocolEvent | undefined {
-  return undefined;
-}
-
-function stripMetadata(record: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(record)) {
-    if (k === 'type') continue;
-    out[k] = v;
-  }
-  return out;
+  if (event === null || typeof event !== 'object') return undefined;
+  const record = event as Record<string, unknown>;
+  const type = record['type'];
+  if (typeof type !== 'string' || type.length === 0) return undefined;
+  const payload =
+    typeof record['payload'] === 'object' && record['payload'] !== null
+      ? (record['payload'] as Record<string, unknown>)
+      : undefined;
+  return {
+    ...record,
+    ...payload,
+    type,
+  } as ProtocolEvent;
 }

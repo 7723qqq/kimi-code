@@ -138,6 +138,7 @@ export interface SessionEventHost {
   updateTerminalTitle(): void;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
   shiftQueuedMessage(): QueuedMessage | undefined;
+  hasPendingBundledSkill?(name: string): boolean;
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserController;
 }
@@ -1105,9 +1106,12 @@ export class SessionEventHandler {
       this.host.showError(getOauthLoginRequiredStartupNotice());
       return;
     }
-    this.host.showError(formatErrorPayload(event));
+    const formatted = formatErrorPayload(event);
+    if (formatted.length > 0) {
+      this.host.showError(formatted);
+    }
     const sessionId = this.host.state.appState.sessionId;
-    if (sessionId.length > 0) {
+    if (sessionId.length > 0 && formatted.length > 0) {
       this.host.showStatus(errorReportHintLine());
     }
   }
@@ -1213,7 +1217,8 @@ export class SessionEventHandler {
   private handleSkillActivated(event: SkillActivatedEvent): void {
     if (this.renderedSkillActivationIds.has(event.activationId)) return;
     this.renderedSkillActivationIds.add(event.activationId);
-    this.host.appendTranscriptEntry({
+    const isBundled = this.host.hasPendingBundledSkill?.(event.skillName) ?? false;
+    const entry: TranscriptEntry = {
       id: nextTranscriptId(),
       kind: 'skill_activation',
       turnId: undefined,
@@ -1225,7 +1230,15 @@ export class SessionEventHandler {
       // v2 declares `trigger` as a plain string; the engine only ever emits
       // the three `SkillActivationTrigger` values (see SkillActivationOrigin).
       skillTrigger: event.trigger as SkillActivationTrigger,
-    });
+      bundledWithPrompt: isBundled,
+    };
+    if (isBundled) {
+      const userIndex = this.host.state.transcriptEntries.length - 1;
+      this.host.state.transcriptEntries.splice(userIndex, 0, entry);
+      this.host.state.ui.requestRender();
+      return;
+    }
+    this.host.appendTranscriptEntry(entry);
   }
 
   private handlePluginCommandActivated(event: PluginCommandActivatedEvent): void {

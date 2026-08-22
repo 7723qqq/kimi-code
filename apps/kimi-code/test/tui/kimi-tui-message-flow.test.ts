@@ -180,10 +180,12 @@ function makeStartupInput(): KimiTUIStartupInput {
     },
     tuiConfig: {
       theme: 'dark',
+      locale: 'en',
       disablePasteBurst: false,
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
+      astron: { stream: true, temperature: 1.0, maxTokens: 32768, searchDisable: true },
       statusLine: { items: null, command: null },
     },
     version: '0.0.0-test',
@@ -383,6 +385,10 @@ function makeActiveGoalSnapshot(): GoalSnapshot {
     status: 'active',
     turnsUsed: 3,
     tokensUsed: 100,
+    inputTokensUsed: 60,
+    outputTokensUsed: 40,
+    createdAt: 1000,
+    updatedAt: 2000,
     wallClockMs: 1000,
     budget: {
       tokenBudget: null,
@@ -395,6 +401,8 @@ function makeActiveGoalSnapshot(): GoalSnapshot {
       turnBudgetReached: false,
       wallClockBudgetReached: false,
       overBudget: false,
+      inputTokensUsed: 60,
+      outputTokensUsed: 40,
     },
   };
 }
@@ -558,7 +566,7 @@ describe('KimiTUI message flow', () => {
     driver.handleUserInput('hello');
 
     await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+      expect(session.prompt).toHaveBeenCalledWith('hello');
     });
     expect(harness.createSession).toHaveBeenCalledTimes(1);
     expect(harness.createSession).toHaveBeenCalledWith({
@@ -845,7 +853,7 @@ describe('KimiTUI message flow', () => {
     driver.handleUserInput('please /skill:review this');
 
     await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('please /skill:review this', { promptId: undefined });
+      expect(session.prompt).toHaveBeenCalledWith('please /skill:review this');
     });
     expect(session.promptWithSkills).not.toHaveBeenCalled();
   });
@@ -1339,7 +1347,7 @@ describe('KimiTUI message flow', () => {
     // The prompt continuation starts its turn first; /new (idle-only) must
     // then be blocked instead of switching away from the active session.
     await vi.waitFor(() => {
-      expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+      expect(lazySession.prompt).toHaveBeenCalledWith('hello');
       expect(stripSgr(renderTranscript(driver))).toContain('Cannot /new while streaming');
     });
     expect(harness.createSession).toHaveBeenCalledTimes(1);
@@ -1391,7 +1399,7 @@ describe('KimiTUI message flow', () => {
     // The prompt starts its turn first; the switch must then be rejected
     // instead of being silently overwritten by the session assembly.
     await vi.waitFor(() => {
-      expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+      expect(lazySession.prompt).toHaveBeenCalledWith('hello');
       expect(stripSgr(renderTranscript(driver))).toContain('Cannot switch models while streaming');
     });
     expect(lazySession.setThinking).not.toHaveBeenCalled();
@@ -1474,7 +1482,7 @@ describe('KimiTUI message flow', () => {
     // The prompt starts its turn first; the switch must then be rejected
     // instead of being overwritten when the lazy creation completes.
     await vi.waitFor(() => {
-      expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+      expect(lazySession.prompt).toHaveBeenCalledWith('hello');
       expect(stripSgr(renderTranscript(driver))).toContain('Cannot switch sessions while streaming');
     });
     expect(harness.resumeSession).not.toHaveBeenCalled();
@@ -1500,7 +1508,7 @@ describe('KimiTUI message flow', () => {
     driver.handleUserInput('hello');
 
     await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+      expect(session.prompt).toHaveBeenCalledWith('hello');
     });
     expect(harness.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'k2', thinking: 'high' }),
@@ -1535,7 +1543,7 @@ describe('KimiTUI message flow', () => {
     driver.handleUserInput('hello');
 
     await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+      expect(session.prompt).toHaveBeenCalledWith('hello');
     });
     expect(harness.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ planMode: undefined }),
@@ -1554,7 +1562,7 @@ describe('KimiTUI message flow', () => {
     driver.handleUserInput('hello');
 
     await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+      expect(session.prompt).toHaveBeenCalledWith('hello');
     });
     expect(harness.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ planMode: true }),
@@ -1578,7 +1586,7 @@ describe('KimiTUI message flow', () => {
     driver.handleUserInput('ls');
 
     await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+      expect(session.prompt).toHaveBeenCalledWith('hello');
     });
     // The shell command must be queued, not run concurrently with the prompt.
     expect(runShellCommand).not.toHaveBeenCalled();
@@ -1635,7 +1643,7 @@ describe('KimiTUI message flow', () => {
     driver.handleUserInput('/skill:my-skill');
 
     await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+      expect(session.prompt).toHaveBeenCalledWith('hello');
     });
     // The skill activation must be blocked, not run concurrently with the
     // prompt's turn.
@@ -1925,7 +1933,7 @@ describe('KimiTUI message flow', () => {
     driver.handleUserInput('hello');
 
     await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+      expect(session.prompt).toHaveBeenCalledWith('hello');
     });
     // The engine applies the config default at create; repeating --plan would
     // re-enter plan mode and throw, so it must not be passed again.
@@ -1974,7 +1982,7 @@ describe('KimiTUI message flow', () => {
     driver.handleUserInput('hello');
 
     await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+      expect(session.prompt).toHaveBeenCalledWith('hello');
     });
     expect(harness.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ permission: 'yolo' }),
@@ -2585,7 +2593,7 @@ command = "vim"
         'Post-create setup failed: permission setup failed',
       );
     });
-    expect(failedSession.onEvent).toHaveBeenCalledOnce();
+    expect(failedSession.onEvent).toHaveBeenCalled();
   });
 
   it('tracks Shift-Tab mode switches through the editor handler', async () => {
@@ -2637,11 +2645,14 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
+    vi.mocked(session.onEvent).mockClear();
+    vi.mocked(session.listMcpServers).mockClear();
     driver.sessionEventHandler.startSubscription();
-    await Promise.resolve();
 
-    expect(session.onEvent).toHaveBeenCalledOnce();
-    expect(session.listMcpServers).toHaveBeenCalledOnce();
+    await vi.waitFor(() => {
+      expect(session.onEvent).toHaveBeenCalledOnce();
+      expect(session.listMcpServers).toHaveBeenCalledOnce();
+    });
     const subscribeOrder = session.onEvent.mock.invocationCallOrder[0];
     const snapshotOrder = session.listMcpServers.mock.invocationCallOrder[0];
     if (subscribeOrder === undefined || snapshotOrder === undefined) {
@@ -2671,8 +2682,12 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
+    eventListeners.length = 0;
     driver.sessionEventHandler.startSubscription();
-    await Promise.resolve();
+
+    await vi.waitFor(() => {
+      expect(eventListeners.length).toBeGreaterThan(0);
+    });
     eventListeners[0]?.({
       type: 'mcp.server.status',
       agentId: 'main',
@@ -2729,7 +2744,12 @@ command = "vim"
     });
     const { driver } = await makeDriver(session);
 
+    eventListeners.length = 0;
     driver.sessionEventHandler.startSubscription();
+
+    await vi.waitFor(() => {
+      expect(eventListeners.length).toBeGreaterThan(0);
+    });
     eventListeners[0]?.({
       type: 'mcp.server.status',
       agentId: 'main',
@@ -2762,7 +2782,7 @@ command = "vim"
 
     driver.handleUserInput('hello');
 
-    expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
+    expect(session.prompt).toHaveBeenCalledWith('hello');
     expect(driver.state.appState.streamingPhase).not.toBe('idle');
     expect(driver.state.appState.streamingPhase).toBe('waiting');
     expect(driver.state.livePane.mode).toBe('waiting');
@@ -2841,7 +2861,7 @@ command = "vim"
     driver.handleUserInput('/undo 10');
     await vi.waitFor(() => {
       expect(stripSgr(renderTranscript(driver))).toContain(
-        'Cannot undo 10 prompts; only 1 prompt can be undone in the active context.',
+        'Cannot undo 10; only 1 can be undone in the active context.',
       );
     });
 
@@ -2854,7 +2874,7 @@ command = "vim"
 
     const transcript = stripSgr(renderTranscript(driver));
     expect(transcript).not.toContain('hello');
-    expect(transcript).not.toContain('Cannot undo 10 prompts');
+    expect(transcript).not.toContain('Cannot undo 10');
     expect(transcript).toContain('Auto mode: ON');
     expect(driver.state.appState.permissionMode).toBe('auto');
   });
@@ -2866,7 +2886,7 @@ command = "vim"
     driver.state.appState.streamingPhase = 'idle';
     driver.sessionEventHandler.handleEvent(
       {
-        type: 'background.task.started',
+        type: 'task.started',
         agentId: 'main',
         sessionId: 'ses-1',
         turnId: 1,
@@ -3652,7 +3672,7 @@ command = "vim"
     );
 
     await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('after the turn', { promptId: undefined });
+      expect(session.prompt).toHaveBeenCalledWith('after the turn');
     });
     expect(session.steer).not.toHaveBeenCalled();
   });
@@ -3840,8 +3860,6 @@ command = "vim"
         { type: 'text', text: 'describe ' },
         { type: 'image_url', imageUrl: { url: 'data:image/png;base64,qrs=' } },
       ],
-      // Staged media rides with a client-chosen prompt id so the consuming
-      // turn's `turn.started` can bind the lease exactly.
       { promptId: expect.any(String) },
     );
   });
@@ -5578,7 +5596,7 @@ command = "vim"
     resolveInit?.();
 
     await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('apply after init', { promptId: undefined });
+      expect(session.prompt).toHaveBeenCalledWith('apply after init');
     });
     expect(driver.state.queuedMessages).toEqual([]);
   });

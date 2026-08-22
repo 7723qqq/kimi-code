@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import * as vscode from "vscode";
 import type {
   McpServerConfig as SdkMcpServerConfig,
@@ -125,18 +127,65 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
  * otherwise project-layer entries drop out of the modal until the next full
  * load.
  */
-async function listWorkspaceServers(ctx: Parameters<Handler>[1]): Promise<MCPServerConfig[]> {
-  return toWebviewServers(await ctx.harness.listMcpServers());
+async function readProjectMcpServers(workDir: string): Promise<SdkMcpServerConfig[]> {
+  const candidates = [
+    join(workDir, ".mcp.json"),
+    join(workDir, ".kimi-code", "mcp.json"),
+  ];
+  const results: SdkMcpServerConfig[] = [];
+  for (const file of candidates) {
+    try {
+      const content = await readFile(file, "utf-8");
+      const parsed = JSON.parse(content) as { mcpServers?: Record<string, any> };
+      if (parsed.mcpServers && typeof parsed.mcpServers === "object") {
+        for (const [name, cfg] of Object.entries(parsed.mcpServers)) {
+          if (cfg && typeof cfg === "object") {
+            results.push({
+              name,
+              ...cfg,
+              mutable: false,
+              source: "project",
+              origin: file,
+            });
+          }
+        }
+      }
+    } catch {
+      // file not found or invalid json
+    }
+  }
+  return results;
 }
 
-function toWebviewServers(servers: readonly SdkMcpServerConfig[]): MCPServerConfig[] {
+async function listWorkspaceServers(ctx: Parameters<Handler>[1]): Promise<MCPServerConfig[]> {
+  const globalServers = await ctx.harness.listMcpServers();
+  if (ctx.workDir) {
+    const projectServers = await readProjectMcpServers(ctx.workDir);
+    const map = new Map<string, SdkMcpServerConfig>();
+    for (const server of projectServers) {
+      map.set(server.name, server);
+    }
+    for (const server of globalServers) {
+      map.set(server.name, server);
+    }
+    return toWebviewServers(Array.from(map.values()), ctx.harness.homeDir);
+  }
+  return toWebviewServers(globalServers, ctx.harness.homeDir);
+}
+
+function toWebviewServers(servers: readonly SdkMcpServerConfig[], homeDir?: string): MCPServerConfig[] {
   return servers
     .filter((server) => server.transport === "stdio" || server.transport === "http")
     .map((server) => {
       // The management view's source/origin/mutable tags stay in the webview
       // payload so the panel can hide mutating controls on read-only entries;
       // only the nested plugin origin detail is dropped.
-      const config = server;
+      const config: any = {
+        source: "global",
+        origin: homeDir ? join(homeDir, "mcp.json") : undefined,
+        mutable: true,
+        ...server,
+      };
       if (config.transport === "stdio") {
         return { ...config, env: maskSecretValues(config.env) } as MCPServerConfig;
       }

@@ -179,7 +179,7 @@ async function getMcpServers(rig: McpHandlerRig): Promise<MCPServerConfig[]> {
  */
 async function listStoredMcpServers(rig: McpHandlerRig): Promise<unknown[]> {
   return (await rig.harness.listMcpServers()).map(
-    ({ source: _source, origin: _origin, mutable: _mutable, ...entry }) => entry,
+    ({ source: _source, origin: _origin, mutable: _mutable, ...entry }: any) => entry,
   );
 }
 

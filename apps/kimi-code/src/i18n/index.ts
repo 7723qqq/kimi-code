@@ -17,8 +17,12 @@ import type {
 } from '@moonshot-ai/i18n-shared';
 import { detectLocaleNode } from '@moonshot-ai/i18n-shared';
 
+import { createRequire } from 'node:module';
+
 import en from './locales/en';
 import zh from './locales/zh';
+
+const require = createRequire(import.meta.url);
 
 // Re-export shared types for consumers.
 export type { Locale };

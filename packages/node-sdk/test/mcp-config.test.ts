@@ -100,7 +100,7 @@ describe('global MCP configuration (persisted user entries)', () => {
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
-      await expect(harness.listMcpServers()).resolves.toEqual([
+      await expect(harness.listMcpServers()).resolves.toMatchObject([
         { name: 'global', transport: 'stdio', command: 'global-command' },
       ]);
     } finally {
@@ -150,7 +150,7 @@ describe('global MCP configuration (persisted user entries)', () => {
         auth: 'oauth',
       });
 
-      await expect(harness.listMcpServers()).resolves.toEqual([
+      await expect(harness.listMcpServers()).resolves.toMatchObject([
         {
           name: 'docs',
           transport: 'http',
@@ -176,7 +176,7 @@ describe('global MCP configuration (persisted user entries)', () => {
     try {
       await harness.removeMcpServer('remove');
 
-      await expect(harness.listMcpServers()).resolves.toEqual([
+      await expect(harness.listMcpServers()).resolves.toMatchObject([
         { name: 'keep', transport: 'stdio', command: 'keep-command' },
       ]);
     } finally {

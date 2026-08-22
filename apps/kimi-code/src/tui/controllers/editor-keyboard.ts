@@ -420,7 +420,7 @@ export class EditorKeyboardController {
         // shell command again instead of being submitted as a normal prompt.
         // Skill activations recall as prompt mode: their text is the original
         // `/name args` slash command, which re-parses on submit.
-        const mode = recalled.mode ?? 'prompt';
+        const mode = recalled.mode === 'bash' ? 'bash' : 'prompt';
         if (editor.inputMode !== mode) {
           editor.inputMode = mode;
           editor.onInputModeChange?.(mode);

@@ -77,3 +77,74 @@ export function toLegacyDisplay(display: ToolInputDisplay): DisplayBlock[] {
       return [{ type: "brief", text: describeToolDisplay(display) }];
   }
 }
+
+export function inferToolDisplay(
+  name: string,
+  rawArgs: unknown,
+  workDir?: string,
+): ToolInputDisplay | undefined {
+  let args: Record<string, unknown> | undefined;
+  if (typeof rawArgs === "string") {
+    try {
+      args = JSON.parse(rawArgs) as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+  } else if (typeof rawArgs === "object" && rawArgs !== null) {
+    args = rawArgs as Record<string, unknown>;
+  }
+  if (!args) return undefined;
+
+  const normalizePath = (p: string) => {
+    if (workDir && !p.startsWith("/") && !/^[a-zA-Z]:[/\\]/.test(p)) {
+      return `${workDir.replace(/[/\\]+$/, "")}/${p}`;
+    }
+    return p;
+  };
+
+  const toolName = name.toLowerCase().replaceAll("_", "");
+
+  if (toolName === "writefile" || toolName === "write") {
+    const path = typeof args["path"] === "string" ? normalizePath(args["path"]) : "";
+    const content = typeof args["content"] === "string" ? args["content"] : "";
+    return { kind: "file_io", operation: "write", path, before: "", after: content, content };
+  }
+
+  if (toolName === "strreplacefile" || toolName === "edit" || toolName === "replacefilecontent") {
+    const path = typeof args["path"] === "string" ? normalizePath(args["path"]) : "";
+    const before =
+      typeof args["old_string"] === "string"
+        ? args["old_string"]
+        : typeof args["TargetContent"] === "string"
+          ? args["TargetContent"]
+          : "";
+    const after =
+      typeof args["new_string"] === "string"
+        ? args["new_string"]
+        : typeof args["ReplacementContent"] === "string"
+          ? args["ReplacementContent"]
+          : "";
+    return { kind: "diff", path, before, after };
+  }
+
+  if (toolName === "settodolist" || toolName === "todolist" || toolName === "todos") {
+    const rawTodos = Array.isArray(args["todos"]) ? args["todos"] : [];
+    const items = rawTodos.map((item: any) => ({
+      title: typeof item?.title === "string" ? item.title : "",
+      status: typeof item?.status === "string" ? item.status : "pending",
+    }));
+    return { kind: "todo_list", items };
+  }
+
+  if (toolName === "bash" || toolName === "shell" || toolName === "runcommand") {
+    const command =
+      typeof args["command"] === "string"
+        ? args["command"]
+        : typeof args["CommandLine"] === "string"
+          ? args["CommandLine"]
+          : "";
+    return { kind: "command", command, language: "bash" };
+  }
+
+  return undefined;
+}

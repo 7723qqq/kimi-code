@@ -16,6 +16,7 @@ import {
 } from '@moonshot-ai/kimi-code-oauth';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
+import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 import { persistedKimiOAuthRef, regionForBareLogin } from '#/utils/region';
 
@@ -75,7 +76,7 @@ export async function runLoginFlow(
             data.expiresIn !== null && data.expiresIn !== undefined
               ? `Code expires in ${data.expiresIn}s.`
               : undefined,
-            'Waiting for authorization to complete...',
+            t('tui.statusMessages.loginWaiting'),
             '',
           ]
             .filter((line): line is string => line !== undefined)
@@ -122,7 +123,7 @@ export async function runGoogleLoginFlow(): Promise<never> {
             '',
             `Opening browser for Google Gemini authorization: ${data.authUrl}`,
             `If the browser did not open, paste the URL above into your browser.`,
-            'Waiting for authorization to complete...',
+            t('tui.statusMessages.loginWaiting'),
             '',
           ].join('\n'),
         );

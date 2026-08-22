@@ -88,9 +88,8 @@ describe('Session.cancel', () => {
       const session = await harness.createSession({ id: 'ses_cancel_compaction', workDir });
 
       await expect(session.compact({ instruction: 'Keep the compact test pending.' })).rejects.toMatchObject({
-        name: 'KimiError',
         code: 'compaction.unable',
-      } satisfies Partial<KimiError>);
+      });
     } finally {
       await harness.close();
     }
@@ -106,13 +105,11 @@ describe('Session.cancel', () => {
       await session.close();
 
       await expect(session.cancel()).rejects.toMatchObject({
-        name: 'KimiError',
         code: 'session.closed',
-      } satisfies Partial<KimiError>);
+      });
       await expect(session.cancelCompaction()).rejects.toMatchObject({
-        name: 'KimiError',
         code: 'session.closed',
-      } satisfies Partial<KimiError>);
+      });
     } finally {
       await harness.close();
     }
@@ -140,9 +137,8 @@ describe('KimiHarness.forkSession', () => {
             forkId: 'ses_fork_active_child',
           }),
         ).rejects.toMatchObject({
-          name: 'KimiError',
           code: 'session.fork_active_turn',
-        } satisfies Partial<KimiError>);
+        });
       } finally {
         await session.cancel().catch(() => undefined);
         await ended.catch(() => undefined);

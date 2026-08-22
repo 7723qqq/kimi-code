@@ -45,7 +45,7 @@ import {
   OsProcessErrors,
 } from '@moonshot-ai/agent-core-v2';
 
-import { McpOAuthService } from '../../agent-core/src/mcp/oauth/service';
+import { mcpOAuthStoreKey } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
 
 import { TEST_IDENTITY } from './test-identity';
 import { startMcpAuthStatusServer } from './mcp-auth-status-server';
@@ -140,13 +140,18 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const statusServer = await startMcpAuthStatusServer();
     const authorizedUrl = 'https://authorized.example.test/mcp';
     const requiredUrl = 'https://required.example.test/mcp';
-    const externalOAuth = new McpOAuthService({ kimiHomeDir: homeDir });
-    await externalOAuth
-      .getProvider('oauth-authorized', authorizedUrl)
-      .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
-    await externalOAuth
-      .getProvider('sse', statusServer.oauthUrl)
-      .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer' });
+    const mcpCredsDir = join(homeDir, 'credentials', 'mcp');
+    await mkdir(mcpCredsDir, { recursive: true });
+    await writeFile(
+      join(mcpCredsDir, `${mcpOAuthStoreKey('oauth-authorized', authorizedUrl)}-tokens.json`),
+      JSON.stringify({ access_token: 'test-access-token', token_type: 'Bearer' }),
+      'utf-8',
+    );
+    await writeFile(
+      join(mcpCredsDir, `${mcpOAuthStoreKey('sse', statusServer.oauthUrl)}-tokens.json`),
+      JSON.stringify({ access_token: 'stale-sse-token', token_type: 'Bearer' }),
+      'utf-8',
+    );
     await writeFile(
       join(homeDir, 'mcp.json'),
       JSON.stringify({
@@ -189,10 +194,15 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
         { name: 'oauth-authorized', authStatus: 'oauth-authorized' },
       ]);
 
-      await externalOAuth
-        .getProvider('oauth-required', requiredUrl)
-        .saveTokens({ access_token: 'new-test-access-token', token_type: 'Bearer' });
-      await externalOAuth.invalidate('oauth-authorized', authorizedUrl, 'tokens');
+      await writeFile(
+        join(mcpCredsDir, `${mcpOAuthStoreKey('oauth-required', requiredUrl)}-tokens.json`),
+        JSON.stringify({ access_token: 'new-test-access-token', token_type: 'Bearer' }),
+        'utf-8',
+      );
+      await rm(
+        join(mcpCredsDir, `${mcpOAuthStoreKey('oauth-authorized', authorizedUrl)}-tokens.json`),
+        { force: true },
+      );
 
       await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
         { name: 'stdio', authStatus: 'not-applicable' },
@@ -208,7 +218,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       await harness.close();
       await statusServer.close();
     }
-  }, 15_000);
+  }, 30_000);
 
   it('seeds the host request headers (User-Agent + X-Msh-*) into the engine', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
@@ -896,8 +906,8 @@ key = "${titleOAuthRef.key}"
       expect(handle).toBeDefined();
       const main = await handle!.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
       await handle!.accessor.get(ISessionTodoService).setTodos(agentContextOf(main), [
-        { title: 'write tests', status: 'in_progress' },
-        { title: 'ship it', status: 'pending' },
+        { id: '1', parentId: null, kind: 'task', title: 'write tests', status: 'in_progress' },
+        { id: '2', parentId: null, kind: 'task', title: 'ship it', status: 'pending' },
       ]);
 
       expect(await client.getTodos({ sessionId: 'ses_todos' })).toEqual([

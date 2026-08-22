@@ -27,6 +27,7 @@ import { formatBackgroundAgentTranscript } from '../utils/background-agent-statu
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
 import { formatErrorMessage, normalizeTodoItems } from '../utils/event-payload';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
+import { nextTranscriptId } from '../utils/transcript-id';
 import {
   appStateFromResumeAgent,
   backgroundOrigin,
@@ -195,7 +196,90 @@ export class SessionReplayRenderer {
 
   private renderRecords(agent: ResumedAgentState): void {
     const context = createReplayRenderContext();
-    for (const record of limitReplayRecordsByTurn(agent.replay, REPLAY_TURN_LIMIT)) {
+    const records = limitReplayRecordsByTurn(agent.replay, REPLAY_TURN_LIMIT);
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i]!;
+      const nextRecord = i + 1 < records.length ? records[i + 1] : undefined;
+      if (
+        record.type === 'message' &&
+        record.message.origin?.kind === 'hook_result' &&
+        nextRecord !== undefined &&
+        nextRecord.type === 'message' &&
+        nextRecord.message.role === 'user' &&
+        Array.isArray((nextRecord.message.origin as any)?.skillActivations)
+      ) {
+        const nextUserMsg = nextRecord.message;
+        this.advanceTurn(context);
+        const activations = (nextUserMsg.origin as any).skillActivations as Array<{
+          activationId: string;
+          skillName: string;
+          skillArgs?: string;
+        }>;
+        for (const act of activations) {
+          const entry: TranscriptEntry = {
+            id: nextTranscriptId(),
+            kind: 'skill_activation',
+            turnId: context.currentTurnId,
+            renderMode: 'plain',
+            content: t('tui.statusMessages.activatedSkill', { skillName: act.skillName }),
+            skillActivationId: act.activationId,
+            skillName: act.skillName,
+            skillArgs: act.skillArgs,
+            skillTrigger: 'user-slash',
+            bundledWithPrompt: true,
+          };
+          this.host.appendTranscriptEntry(entry);
+        }
+        this.renderHookResult(context, record.message);
+        const textParts = nextUserMsg.content.filter((c: any) => c.type === 'text');
+        const promptText =
+          (textParts[textParts.length - 1] as any)?.text ?? contentPartsToText(nextUserMsg.content);
+        this.host.appendTranscriptEntry(replayEntry(context, 'user', promptText, 'plain'));
+        i++;
+        continue;
+      }
+      if (
+        record.type === 'message' &&
+        record.message.role === 'user' &&
+        record.message.origin?.kind === 'user' &&
+        Array.isArray((record.message.origin as any).skillActivations)
+      ) {
+        this.advanceTurn(context);
+        const activations = (record.message.origin as any).skillActivations as Array<{
+          activationId: string;
+          skillName: string;
+          skillArgs?: string;
+        }>;
+        for (const act of activations) {
+          const entry: TranscriptEntry = {
+            id: nextTranscriptId(),
+            kind: 'skill_activation',
+            turnId: context.currentTurnId,
+            renderMode: 'plain',
+            content: t('tui.statusMessages.activatedSkill', { skillName: act.skillName }),
+            skillActivationId: act.activationId,
+            skillName: act.skillName,
+            skillArgs: act.skillArgs,
+            skillTrigger: 'user-slash',
+            bundledWithPrompt: true,
+          };
+          this.host.appendTranscriptEntry(entry);
+        }
+        if (
+          nextRecord !== undefined &&
+          nextRecord.type === 'message' &&
+          nextRecord.message.role === 'assistant' &&
+          nextRecord.message.origin?.kind === 'hook_result'
+        ) {
+          this.renderHookResult(context, nextRecord.message);
+          i++;
+        }
+        const textParts = record.message.content.filter((c: any) => c.type === 'text');
+        const promptText =
+          (textParts[textParts.length - 1] as any)?.text ?? contentPartsToText(record.message.content);
+        this.host.appendTranscriptEntry(replayEntry(context, 'user', promptText, 'plain'));
+        continue;
+      }
       this.renderRecord(context, record);
     }
     this.flushAssistant(context);
@@ -562,18 +646,18 @@ export class SessionReplayRenderer {
   private renderHookResult(context: ReplayRenderContext, message: ContextMessage): void {
     if (message.origin?.kind !== 'hook_result') return;
     this.flushAssistant(context);
-    this.host.appendTranscriptEntry(
-      replayEntry(
-        context,
-        'assistant',
-        formatHookResultMessageForTranscript(
-          contentPartsToText(message.content),
-          message.origin.event,
-          message.origin.blocked === true,
-        ),
-        'markdown',
+    const entry = replayEntry(
+      context,
+      'assistant',
+      formatHookResultMessageForTranscript(
+        contentPartsToText(message.content),
+        message.origin.event,
+        message.origin.blocked === true,
       ),
+      'markdown',
     );
+    entry.hookResult = true;
+    this.host.appendTranscriptEntry(entry);
   }
 
   private renderCronJob(context: ReplayRenderContext, message: ContextMessage): void {

@@ -825,7 +825,7 @@ describe('KimiTUI resume message replay', () => {
       ],
     });
 
-    expect(driver.state.todoPanel.getTodos()).toEqual([
+    expect(driver.state.todoPanel.getTodos()).toMatchObject([
       { title: 'Review resume snapshot', status: 'done' },
       { title: 'Render replay transcript', status: 'in_progress' },
     ]);

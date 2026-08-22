@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 
 import {
@@ -148,11 +148,11 @@ export class GoogleOAuthManager {
     }
 
     const data = (await res.json()) as Record<string, unknown>;
-    const accessToken = String(data['access_token'] ?? '');
+    const accessToken = typeof data['access_token'] === 'string' ? data['access_token'] : '';
     const expiresIn = Number(data['expires_in'] ?? 3600);
     const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
-    const scope = String(data['scope'] ?? this.scopes.join(' '));
-    const tokenType = String(data['token_type'] ?? 'Bearer');
+    const scope = typeof data['scope'] === 'string' ? data['scope'] : this.scopes.join(' ');
+    const tokenType = typeof data['token_type'] === 'string' ? data['token_type'] : 'Bearer';
 
     return {
       accessToken,
@@ -195,7 +195,7 @@ export class GoogleOAuthManager {
         });
       }
 
-      server = createServer(async (req, res) => {
+      const handleCallback = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
         try {
           const reqUrl = new URL(req.url ?? '/', `http://127.0.0.1`);
           if (reqUrl.pathname !== '/oauth2callback') {
@@ -260,12 +260,16 @@ export class GoogleOAuthManager {
           }
 
           const tokenData = (await tokenRes.json()) as Record<string, unknown>;
-          const accessToken = String(tokenData['access_token'] ?? '');
-          const refreshToken = String(tokenData['refresh_token'] ?? '');
+          const accessToken =
+            typeof tokenData['access_token'] === 'string' ? tokenData['access_token'] : '';
+          const refreshToken =
+            typeof tokenData['refresh_token'] === 'string' ? tokenData['refresh_token'] : '';
           const expiresIn = Number(tokenData['expires_in'] ?? 3600);
           const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
-          const scope = String(tokenData['scope'] ?? this.scopes.join(' '));
-          const tokenType = String(tokenData['token_type'] ?? 'Bearer');
+          const scope =
+            typeof tokenData['scope'] === 'string' ? tokenData['scope'] : this.scopes.join(' ');
+          const tokenType =
+            typeof tokenData['token_type'] === 'string' ? tokenData['token_type'] : 'Bearer';
 
           const token: TokenInfo = {
             accessToken,
@@ -311,6 +315,10 @@ export class GoogleOAuthManager {
           cleanup();
           reject(error);
         }
+      };
+
+      server = createServer((req, res) => {
+        void handleCallback(req, res);
       });
 
       server.listen(0, '127.0.0.1', () => {

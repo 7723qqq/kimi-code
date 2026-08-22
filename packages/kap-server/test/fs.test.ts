@@ -168,7 +168,7 @@ describe('server-v2 /api/v1 fs routes', () => {
             { workspaceId: context.id, runtimeId: 'remote-test', generation: 'remote-generation' },
             {
               capabilities: ['fs'],
-              pathClass: 'win32',
+              pathClass: process.platform === 'win32' ? 'win32' : 'posix',
               mapWorkspaceRoots: () => ({ workDir: remote, additionalDirs: [] }),
             },
           ),

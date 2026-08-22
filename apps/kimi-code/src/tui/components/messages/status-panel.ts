@@ -121,7 +121,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
     { label: 'Model', value: formatModelStatus(options) },
     { label: 'Directory', value: options.workDir },
     { label: 'Permissions', value: permission },
-    { label: 'Plan mode', value: planMode ? 'on' : 'off' },
+    { label: t('tui.messages.statusPanel.planModeLabel'), value: planMode ? 'on' : 'off' },
   ];
   if (options.towerAvailable) {
     rows.push({ label: 'Tower mode', value: towerMode ? 'on' : 'off' });

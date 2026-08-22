@@ -270,8 +270,9 @@ export function parseInlineMcpServer(
         `Inline MCP server "${name}" is missing stdio \`command\``,
       );
     }
-    const args = Array.isArray(server['args']) ? (server['args'] as readonly string[]) : [];
-    return { name, type: 'stdio', command, args, env: readEnv(server['env']) };
+    const rawArgs = server['args'];
+    const args = Array.isArray(rawArgs) ? (rawArgs.filter((a): a is string => typeof a === 'string')) : undefined;
+    return { name, transport: 'stdio', command, ...(args ? { args } : {}), env: readEnv(server['env']) };
   }
   if (type === 'http' || type === 'sse' || server['url'] !== undefined) {
     const url = server['url'];
@@ -281,16 +282,15 @@ export function parseInlineMcpServer(
         `Inline MCP server "${name}" is missing \`url\``,
       );
     }
-    const remote: McpRemoteServerConfig = {
+    const headers = readStringRecord(server['headers']);
+    const auth = server['auth'] === 'oauth' || server['oauth'] !== undefined ? ('oauth' as const) : undefined;
+    return {
       name,
-      type: type === 'sse' ? 'sse' : 'http',
+      transport: type === 'sse' ? 'sse' : 'http',
       url,
-      headers: readStringRecord(server['headers']),
+      ...(headers ? { headers } : {}),
+      ...(auth ? { auth } : {}),
     };
-    if (server['oauth'] !== undefined && typeof server['oauth'] === 'object') {
-      Object.assign(remote, { oauth: server['oauth'] });
-    }
-    return remote;
   }
   throw new KimiError(
     ErrorCodes.REQUEST_INVALID,
@@ -634,7 +634,7 @@ export function requireOAuthMcpConfig(
   config: McpServerConfig,
 ): McpRemoteServerConfig {
   const remote = requireRemoteMcpConfig(name, config);
-  if (remote.oauth === undefined) {
+  if (remote.auth !== 'oauth') {
     throw new KimiError(
       ErrorCodes.REQUEST_INVALID,
       `MCP server "${name}" is not configured for OAuth login`,

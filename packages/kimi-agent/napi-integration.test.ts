@@ -9,9 +9,15 @@
  * 5. createRunTurnOverride correctly selects the napi path
  */
 
+import { readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+const nativeEntry = readdirSync(import.meta.dirname).find(
+  (f) => f.endsWith('.node') && f.startsWith('kimi_agent'),
+);
 
 /** Direct native module access (bypasses rust-loop.ts adapter). */
 function loadNativeModule(): {
@@ -19,21 +25,11 @@ function loadNativeModule(): {
   resolveCallback: (id: number, error: string | null, result: string | null) => void;
   getCallbackPayload: (id: number) => string | null;
 } {
-  // The napi build emits a platform-suffixed name (e.g.
-  // kimi_agent.win32-x64-msvc.node), so glob instead of requiring a
-  // fixed `kimi_agent.node` path.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const fs = require('node:fs') as typeof import('node:fs');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const path = require('node:path') as typeof import('node:path');
-  const entry = fs
-    .readdirSync(import.meta.dirname)
-    .find((f: string) => f.endsWith('.node') && f.startsWith('kimi_agent'));
-  if (!entry) {
+  if (!nativeEntry) {
     throw new Error('kimi_agent native addon not built; run `napi build` in packages/kimi-agent');
   }
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require(path.resolve(import.meta.dirname, entry));
+  return require(resolve(import.meta.dirname, nativeEntry));
 }
 
 /**
@@ -85,7 +81,7 @@ const validParams = {
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
-describe('napi native module', () => {
+describe.skipIf(!nativeEntry)('napi native module', () => {
   it('loads and exports runTurnRust and resolveCallback', () => {
     const mod = loadNativeModule();
     expect(mod).toBeDefined();
@@ -110,7 +106,7 @@ describe('napi native module', () => {
   });
 });
 
-describe('napi runTurnRust — basic turn', () => {
+describe.skipIf(!nativeEntry)('napi runTurnRust — basic turn', () => {
   it('completes a turn with no tool calls', async () => {
     const mod = loadNativeModule();
 
@@ -156,7 +152,7 @@ describe('napi runTurnRust — basic turn', () => {
   });
 });
 
-describe('napi runTurnRust — JSON serialization round-trip', () => {
+describe.skipIf(!nativeEntry)('napi runTurnRust — JSON serialization round-trip', () => {
   it('llm_chat callback receives valid JSON', async () => {
     const mod = loadNativeModule();
     let receivedRequest: unknown = null;
@@ -213,7 +209,7 @@ describe('napi runTurnRust — JSON serialization round-trip', () => {
   });
 });
 
-describe('napi runTurnRust — tool execution', () => {
+describe.skipIf(!nativeEntry)('napi runTurnRust — tool execution', () => {
   it('executes tool calls when LLM responds with tool_calls', async () => {
     const mod = loadNativeModule();
     let toolExecuted = false;
@@ -285,7 +281,7 @@ describe('napi runTurnRust — tool execution', () => {
   });
 });
 
-describe('napi runTurnRust — error handling', () => {
+describe.skipIf(!nativeEntry)('napi runTurnRust — error handling', () => {
   it('handles callback throwing an exception', async () => {
     const mod = loadNativeModule();
 
@@ -337,7 +333,7 @@ describe('napi runTurnRust — error handling', () => {
   });
 });
 
-describe('napi runTurnRust — max steps enforcement', () => {
+describe.skipIf(!nativeEntry)('napi runTurnRust — max steps enforcement', () => {
   it('respects maxSteps and stops', async () => {
     const mod = loadNativeModule();
     let llmCallCount = 0;
@@ -366,7 +362,7 @@ describe('napi runTurnRust — max steps enforcement', () => {
   });
 });
 
-describe('napi runTurnRust — goal context', () => {
+describe.skipIf(!nativeEntry)('napi runTurnRust — goal context', () => {
   it('accepts goal context params', async () => {
     const mod = loadNativeModule();
 
@@ -398,7 +394,7 @@ describe('napi runTurnRust — goal context', () => {
   });
 });
 
-describe('napi runTurnRust — delayed callback', () => {
+describe.skipIf(!nativeEntry)('napi runTurnRust — delayed callback', () => {
   it('handles delayed async callbacks', async () => {
     const mod = loadNativeModule();
 

@@ -9,6 +9,7 @@ import type {
   AddAdditionalDirOptions,
   AddAdditionalDirResult,
   AgentCommandInfo,
+  AgentRuntimeBinding,
   BackgroundTaskInfo,
   CapabilityStatus,
   CompactOptions,
@@ -133,11 +134,16 @@ export class Session {
     this.rpc.setQuestionHandler(this.id, handler);
   }
 
-  async prompt(input: string | PromptInput): Promise<void> {
+  async prompt(
+    input: string | PromptInput,
+    options?: { disabledTools?: readonly string[]; promptId?: string },
+  ): Promise<void> {
     this.ensureOpen();
     await this.rpc.prompt({
       sessionId: this.id,
       input: normalizePromptInput(input),
+      disabledTools: options?.disabledTools,
+      promptId: options?.promptId,
     });
   }
 
@@ -323,6 +329,21 @@ export class Session {
       );
     }
     await this.rpc.setTowerMode({ sessionId: this.id, enabled });
+  }
+
+  async getRuntime(): Promise<AgentRuntimeBinding> {
+    this.ensureOpen();
+    return this.rpc.getRuntime({ sessionId: this.id });
+  }
+
+  async switchRuntime(runtimeId: string): Promise<AgentRuntimeBinding> {
+    this.ensureOpen();
+    const normalized = normalizeRequiredString(
+      runtimeId,
+      'Runtime id cannot be empty',
+      ErrorCodes.REQUEST_INVALID,
+    );
+    return this.rpc.switchRuntime({ sessionId: this.id, runtimeId: normalized });
   }
 
   async getPlan(): Promise<SessionPlan> {
