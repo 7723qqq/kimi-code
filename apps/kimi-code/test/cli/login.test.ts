@@ -21,6 +21,8 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
       auth: {
         login: mockLogin,
       },
+      getConfig: vi.fn(async () => ({ providers: {}, models: {} })),
+      setConfig: vi.fn(async () => {}),
     })),
   };
 });
@@ -174,4 +176,64 @@ describe('kimi login', () => {
     expect(writtenChunks.some((chunk: string) => chunk.includes('boom'))).toBe(true);
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
+
+  it('drives Google login flow when --provider google is passed', async () => {
+    const mockStartLoginFlow = vi.fn().mockImplementation(async (options: { onAuthUrl?: (data: { authUrl: string }) => void }) => {
+      options.onAuthUrl?.({ authUrl: 'https://accounts.google.com/o/oauth2/auth?test=1' });
+      return { providerName: 'google-gemini', ok: true };
+    });
+
+    const oauthModule = await import('@moonshot-ai/kimi-code-oauth');
+    vi.spyOn(oauthModule.GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({ available: false });
+    vi.spyOn(
+      oauthModule,
+      'GoogleOAuthManager',
+    ).mockImplementation(function (this: unknown) {
+      return {
+        startLoginFlow: mockStartLoginFlow,
+        importAntigravityCredentials: vi.fn(),
+      } as unknown as InstanceType<typeof import('@moonshot-ai/kimi-code-oauth').GoogleOAuthManager>;
+    });
+
+    const program = new Command('kimi').exitOverride();
+    registerLoginCommand(program);
+
+    await expect(
+      program.parseAsync(['node', 'kimi', 'login', '--provider', 'google']),
+    ).rejects.toThrow(ExitCalled);
+
+    expect(mockStartLoginFlow).toHaveBeenCalledTimes(1);
+    expect(openUrl).toHaveBeenCalledWith('https://accounts.google.com/o/oauth2/auth?test=1');
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('drives Antigravity sync flow when --provider antigravity is passed', async () => {
+    const oauthModule = await import('@moonshot-ai/kimi-code-oauth');
+    vi.spyOn(oauthModule.GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
+      available: true,
+      email: 'test@gmail.com',
+      credsPath: '/mock/creds.json',
+    });
+    const mockImport = vi.fn().mockResolvedValue({ accessToken: 'test-token' });
+    vi.spyOn(
+      oauthModule,
+      'GoogleOAuthManager',
+    ).mockImplementation(function (this: unknown) {
+      return {
+        importAntigravityCredentials: mockImport,
+      } as unknown as InstanceType<typeof import('@moonshot-ai/kimi-code-oauth').GoogleOAuthManager>;
+    });
+
+    const program = new Command('kimi').exitOverride();
+    registerLoginCommand(program);
+
+    await expect(
+      program.parseAsync(['node', 'kimi', 'login', '--provider', 'antigravity']),
+    ).rejects.toThrow(ExitCalled);
+
+    expect(mockImport).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
 });
+
+
