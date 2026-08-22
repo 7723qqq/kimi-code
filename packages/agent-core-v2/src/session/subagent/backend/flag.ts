@@ -1,6 +1,6 @@
 import { registerFlagDefinition } from '#/app/flag/flagRegistry';
 
-export const SUBAGENT_BACKENDS_FLAG_ID = 'subagent-backends';
+export const SUBAGENT_BACKENDS_FLAG_ID = 'subagent_backends';
 export const SUBAGENT_BACKENDS_FLAG_ENV = 'KIMI_CODE_EXPERIMENTAL_SUBAGENT_BACKENDS';
 
 registerFlagDefinition({

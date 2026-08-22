@@ -1,6 +1,6 @@
 import { type FlagDefinitionInput, registerFlagDefinition } from '#/app/flag/flagRegistry';
 
-export const SECONDARY_MODEL_FLAG_ID = 'secondary-model';
+export const SECONDARY_MODEL_FLAG_ID = 'secondary_model';
 export const SECONDARY_MODEL_FLAG_ENV = 'KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL';
 
 export const secondaryModelFlag: FlagDefinitionInput = {

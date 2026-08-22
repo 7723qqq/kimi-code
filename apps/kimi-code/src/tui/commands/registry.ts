@@ -244,7 +244,7 @@ export const BUILTIN_SLASH_COMMANDS = [
     description: t('tui.slashCommands.secondaryModel'),
     priority: 90,
     availability: 'always',
-    experimentalFlag: 'secondary-model',
+    experimentalFlag: 'secondary_model',
   },
   {
     name: 'effort',

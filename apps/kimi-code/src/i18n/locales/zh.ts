@@ -540,19 +540,10 @@ export default {
         lockedBy: '被 {{env}} 锁定',
         lockedByMasterEnv: '被 KIMI_CODE_EXPERIMENTAL_FLAG 锁定',
         features: {
-          'tool-select': {
+          tool_select: {
             title: '工具选择（渐进式工具披露）',
             description:
               '将 MCP 工具架构从不可变的顶层 tools[] 中移出；模型通过 select_tools 工具按需加载。仅在模型能力目录声明了动态加载工具时生效。',
-          },
-          native_tools: {
-            title: '原生工具',
-            description: '使用 Rust 原生实现 Read、Write、Edit、Grep、Glob 和 Bash 工具。',
-          },
-          rpc_microtask: {
-            title: 'RPC 微任务调度',
-            description:
-              '使用 queueMicrotask 替代 setTimeout(0) 进行进程内 RPC 模拟，降低每次调用的延迟。',
           },
         },
       },

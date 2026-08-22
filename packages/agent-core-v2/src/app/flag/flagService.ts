@@ -40,11 +40,28 @@ export class FlagService extends Disposable implements IFlagService {
   }
 
   private readConfig(): ExperimentalFlagConfig {
-    return this.config.get<ExperimentalFlagConfig>(EXPERIMENTAL_SECTION) ?? {};
+    return this.canonicalizeOverrides(this.config.get<ExperimentalFlagConfig>(EXPERIMENTAL_SECTION) ?? {});
   }
 
   setConfigOverrides(overrides: ExperimentalFlagConfig | undefined): void {
-    this.configOverrides = overrides ?? {};
+    this.configOverrides = this.canonicalizeOverrides(overrides ?? {});
+  }
+
+  /** Legacy configs may carry dashed ids; resolve them onto registered flag ids. */
+  private canonicalizeOverrides(raw: ExperimentalFlagConfig): ExperimentalFlagConfig {
+    const out: ExperimentalFlagConfig = {};
+    for (const [key, value] of Object.entries(raw)) {
+      out[this.canonicalFlagId(key)] = value;
+    }
+    return out;
+  }
+
+  private canonicalFlagId(key: string): string {
+    const normalized = key.replaceAll('-', '_');
+    for (const def of this.registry.list()) {
+      if (def.id === normalized) return def.id;
+    }
+    return key;
   }
 
   enabled(id: FlagId): boolean {

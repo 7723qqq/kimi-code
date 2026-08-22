@@ -63,25 +63,25 @@ describe('/api/v1/meta experimental_flags', () => {
   it('reports registered flags at their defaults', async () => {
     const base = await boot();
     const flags = await getMetaFlags(base);
-    expect(flags['tool-select']).toBe(true);
+    expect(flags['tool_select']).toBe(true);
   });
 
   it('reports a config-disabled flag from the very first response', async () => {
     const base = await boot('[experimental]\ntool-select = false\n');
     const flags = await getMetaFlags(base);
-    expect(flags['tool-select']).toBe(false);
+    expect(flags['tool_select']).toBe(false);
   });
 
   it('reflects a flag enabled via its KIMI_CODE_EXPERIMENTAL_* env var', async () => {
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT', '1');
     const base = await boot();
     const flags = await getMetaFlags(base);
-    expect(flags['tool-select']).toBe(true);
+    expect(flags['tool_select']).toBe(true);
   });
 
   it('flips live when the [experimental] config section is written via POST /config', async () => {
     const base = await boot();
-    expect((await getMetaFlags(base))['tool-select']).toBe(true);
+    expect((await getMetaFlags(base))['tool_select']).toBe(true);
 
     const res = await authedFetch(server as RunningServer, base, '/api/v1/config', {
       method: 'POST',
@@ -90,7 +90,7 @@ describe('/api/v1/meta experimental_flags', () => {
     });
     expect(res.status).toBe(200);
 
-    expect((await getMetaFlags(base))['tool-select']).toBe(false);
+    expect((await getMetaFlags(base))['tool_select']).toBe(false);
   });
 
   it('keeps an env-forced flag on when the config section disables it', async () => {
@@ -104,7 +104,7 @@ describe('/api/v1/meta experimental_flags', () => {
     });
     expect(res.status).toBe(200);
 
-    expect((await getMetaFlags(base))['tool-select']).toBe(true);
+    expect((await getMetaFlags(base))['tool_select']).toBe(true);
   });
 });
 

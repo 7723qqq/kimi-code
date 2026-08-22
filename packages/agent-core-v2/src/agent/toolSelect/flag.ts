@@ -1,6 +1,6 @@
 import { type FlagDefinitionInput, registerFlagDefinition } from '#/app/flag/flagRegistry';
 
-export const TOOL_SELECT_FLAG_ID = 'tool-select';
+export const TOOL_SELECT_FLAG_ID = 'tool_select';
 export const TOOL_SELECT_FLAG_ENV = 'KIMI_CODE_EXPERIMENTAL_TOOL_SELECT';
 
 export const toolSelectFlag: FlagDefinitionInput = {

@@ -212,7 +212,7 @@ describe('built-in slash command registry', () => {
   it('gates secondary-model behind the secondary-model experiment, always available', () => {
     const command = findBuiltInSlashCommand('secondary-model');
     expect(command).toBeDefined();
-    expect((command as KimiSlashCommand).experimentalFlag).toBe('secondary-model');
+    expect((command as KimiSlashCommand).experimentalFlag).toBe('secondary_model');
     expect(resolveSlashCommandAvailability(command!, '')).toBe('always');
   });
 
