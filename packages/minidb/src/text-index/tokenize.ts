@@ -8,6 +8,7 @@
 // worker/text-build-core.ts).
 
 import { getPath } from '../query.ts';
+import { normalizeLiteral } from '../trigram.ts';
 
 const LATIN = /[a-z0-9]+/g;
 const CJK = /[\u3400-\u9FFF\u3040-\u30FF\uFF00-\uFFEF]+/g;
@@ -25,9 +26,12 @@ export const MAX_TERM_BYTES = 0xffff;
 
 export const yieldToLoop = (): Promise<void> => new Promise((r) => setImmediate(r));
 
-/** Tokenize text into terms (lowercased latin words + CJK uni/bigrams). */
+/** Tokenize text into terms (lowercased latin words + CJK uni/bigrams). The
+ *  input is NFKC-normalized first (same fold as trigram's normalizeLiteral),
+ *  so fullwidth latin/digits match their halfwidth query forms instead of
+ *  being tokenized as CJK-run unigrams. */
 export function tokenize(str: unknown): string[] {
-  const s = String(str).toLowerCase();
+  const s = normalizeLiteral(String(str));
   const terms: string[] = [];
   const latin = s.match(LATIN);
   // Loop-push instead of `terms.push(...latin)`: spreading a large match array

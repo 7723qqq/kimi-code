@@ -320,6 +320,25 @@ test('TextIndex: memory-only mode (no postingsPath)', () => {
   ti.close();
 });
 
+test('TextIndex: default tokenizer NFKC-folds fullwidth latin so halfwidth queries hit', () => {
+  const ti = new TextIndex(); // memory base
+  ti.add('a', { bio: 'ＫＩＭＩ ｃｏｄｅ' });
+  ti.add('b', { bio: '北京天安门' });
+  assert.deepEqual(
+    ti.search('kimi').map((h) => h.key),
+    ['a'],
+  );
+  assert.deepEqual(
+    ti.search('code').map((h) => h.key),
+    ['a'],
+  );
+  assert.deepEqual(
+    ti.search('北京').map((h) => h.key),
+    ['b'],
+  );
+  ti.close();
+});
+
 // ---- through MiniDb ------------------------------------------------------
 
 test('MiniDb: text postings written to disk, search survives reopen', async () => {

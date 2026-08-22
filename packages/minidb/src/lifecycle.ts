@@ -361,6 +361,14 @@ export async function openMiniDb<V>(db: LifecycleHost<V>, opts: OpenOptions, hoo
     }
     // open() is about to return: 'ready', or 'degraded' while a deferred
     // text-index base build is still pending in the background.
+    // Resync recovery drops corrupt frame bytes silently by design; surface
+    // the loss once per open so it never goes unnoticed.
+    const lostBytes = db.recoveryInfo?.lostBytes ?? 0;
+    if (lostBytes > 0) {
+      console.warn(
+        `[minidb] ${db.dir}: recovery dropped ${lostBytes} unreadable byte(s) during replay`,
+      );
+    }
     db.lifecycle.time('openMs', performance.now() - openT0);
     db.lifecycle.finishOpen();
   } catch (err) {
@@ -506,8 +514,12 @@ export async function renewMiniDbLock<V>(db: LifecycleHost<V>): Promise<void> {
 }
 
 /** Open a database, and if opening fails due to corruption (not due to a live
- *  lock), delete the directory and open a fresh empty database. Recommended for
- *  a rebuildable cache. A live lock is rethrown. `open` is the owner's factory
+ *  lock), attempt the non-destructive repairs: drop the derived index-definition
+ *  sidecars and retry. A full destructive rebuild — deleting the directory and
+ *  opening a fresh empty database — is opt-in via `allowDestructiveRebuild` and
+ *  must only be enabled for a rebuildable cache: an opener whose directory may
+ *  hold irreplaceable data refuses to erase it and rethrows a clear error
+ *  instead. A live lock is always rethrown. `open` is the owner's factory
  *  injection (MiniDb.open).
  *
  *  The destructive rebuild only ever runs for an open that could OWN the
@@ -519,7 +531,7 @@ export async function renewMiniDbLock<V>(db: LifecycleHost<V>): Promise<void> {
  */
 export async function openOrRebuildMiniDb<T>(
   opts: OpenOptions,
-  hooks: { onRebuild?: (err: unknown) => void },
+  hooks: { onRebuild?: (err: unknown) => void; allowDestructiveRebuild?: boolean },
   open: (opts: OpenOptions) => Promise<T>,
 ): Promise<T> {
   try {
@@ -550,6 +562,12 @@ export async function openOrRebuildMiniDb<T>(
       } catch {
         /* fall through to a full rebuild */
       }
+    }
+    if (hooks.allowDestructiveRebuild !== true) {
+      throw new Error(
+        `MiniDb.openOrRebuild: ${opts.dir} failed to open with an unrecoverable corruption error (${err instanceof Error ? err.message : String(err)}); refusing to erase it. Repair the directory manually, or pass allowDestructiveRebuild: true only if this database is a rebuildable cache.`,
+        { cause: err },
+      );
     }
     await fs.rm(opts.dir, { recursive: true, force: true });
     return open(opts);

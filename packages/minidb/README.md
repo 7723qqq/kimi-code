@@ -202,7 +202,7 @@ TF-IDF ranking.
 |---|---|
 | `MiniDb.open({ dir, valueCodec?, valueMode?, fsyncPolicy?, compactThresholdBytes?, autoCompact?, activeExpireIntervalMs?, recovery?, readOnly?, onLockFail?, maxMemoryBytes?, maxMemoryPolicy? })` | Open / create a database |
 | `MiniDb.restore(srcDir, destDir, opts?)` | Restore a `db.backup()` directory and open it |
-| `MiniDb.openOrRebuild(opts, { onRebuild? })` | Open; on corruption, discard + reopen empty (cache use). Never deletes a live-locked db |
+| `MiniDb.openOrRebuild(opts, { onRebuild?, allowDestructiveRebuild? })` | Open; on corruption, repair the derived sidecars, and only with `allowDestructiveRebuild: true` discard + reopen empty (cache use). Never deletes a live-locked db |
 | `get(key)` | Decoded value or `undefined` |
 | `set(key, value, { ttl? })` | Set; `ttl` in ms. Resolves per fsync policy |
 | `del(key)` | Delete; returns `true` if it existed |
@@ -498,13 +498,21 @@ await db.close();
 today. Performance numbers across process/shard counts: run
 `pnpm bench:cluster` (see `bench/cluster.ts`).
 
-For a **rebuildable cache**, use `openOrRebuild`: a corrupt cache is discarded
-and reopened empty, while a live-locked db is never destroyed:
+For a **rebuildable cache**, use `openOrRebuild` with
+`allowDestructiveRebuild: true`: a corrupt cache is discarded and reopened
+empty, while a live-locked db is never destroyed. Without the flag the opener
+only attempts the non-destructive sidecar repair; if the data files themselves
+are corrupt it rethrows a clear error instead of erasing anything — use plain
+`open` (or `openOrRebuild` without the flag) whenever the directory may hold
+irreplaceable data:
 
 ```js
 const db = await MiniDb.openOrRebuild(
   { dir: cacheDir, valueCodec: 'json' },
-  { onRebuild: (err) => log.warn('cache rebuilt:', err.message) },
+  {
+    allowDestructiveRebuild: true,
+    onRebuild: (err) => log.warn('cache rebuilt:', err.message),
+  },
 );
 ```
 

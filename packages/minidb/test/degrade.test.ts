@@ -6,6 +6,7 @@ import path from 'node:path';
 // test/degrade.test.ts
 import { test } from 'vitest';
 
+import { encodeFrame, TYPE_SET } from '../src/codec.js';
 import { MiniDb } from '../src/index.js';
 import { LockError } from '../src/lockfile.js';
 
@@ -124,4 +125,64 @@ test('openOrRebuild with onLockFail readonly + a garbage WAL (strict) degrades t
     await writer.close();
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test('openOrRebuild refuses to destructively rebuild by default when the data files are corrupt', async () => {
+  const dir = await tmpDir();
+  const db = await MiniDb.open({ dir, valueCodec: 'json' });
+  await db.set('precious', { keep: true });
+  await db.close();
+
+  const walPath = path.join(dir, 'db.wal');
+  const walLenBefore = (await fs.stat(walPath)).size;
+  await fs.appendFile(
+    walPath,
+    encodeFrame({
+      type: TYPE_SET,
+      key: Buffer.from('poison'),
+      value: Buffer.from('"x"'),
+      meta: Buffer.from('{not-json'),
+    }),
+  );
+
+  await assert.rejects(
+    MiniDb.openOrRebuild({ dir, valueCodec: 'json' }),
+    (e: unknown) => e instanceof Error && /allowDestructiveRebuild/.test(e.message),
+  );
+  assert.ok((await fs.stat(walPath)).size > walLenBefore, 'WAL untouched by the refused rebuild');
+  // dropping the appended poison frame repairs the db: the data was never erased
+  await fs.truncate(walPath, walLenBefore);
+  const recovered = await MiniDb.open({ dir, valueCodec: 'json' });
+  assert.deepEqual(recovered.get('precious'), { keep: true });
+  await recovered.close();
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+test('openOrRebuild wipes and reopens empty only with allowDestructiveRebuild', async () => {
+  const dir = await tmpDir();
+  const db = await MiniDb.open({ dir, valueCodec: 'json' });
+  await db.set('cache-entry', { v: 1 });
+  await db.close();
+
+  await fs.appendFile(
+    path.join(dir, 'db.wal'),
+    encodeFrame({
+      type: TYPE_SET,
+      key: Buffer.from('poison'),
+      value: Buffer.from('"x"'),
+      meta: Buffer.from('{not-json'),
+    }),
+  );
+
+  let rebuilt: unknown = null;
+  const db2 = await MiniDb.openOrRebuild(
+    { dir, valueCodec: 'json' },
+    { allowDestructiveRebuild: true, onRebuild: (e) => (rebuilt = e) },
+  );
+  assert.ok(rebuilt instanceof Error, 'onRebuild called with the original error');
+  assert.equal(db2.size, 0);
+  await db2.set('fresh', { v: 1 });
+  assert.deepEqual(db2.get('fresh'), { v: 1 });
+  await db2.close();
+  await fs.rm(dir, { recursive: true, force: true });
 });

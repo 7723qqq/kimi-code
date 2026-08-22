@@ -560,8 +560,11 @@ export class MiniDb<V = unknown> {
 
   /**
    * Open a database, and if opening fails due to corruption (not due to a live
-   * lock), delete the directory and open a fresh empty database. Recommended for
-   * a rebuildable cache. A live lock is rethrown.
+   * lock), attempt the non-destructive repairs (drop the derived sidecars and
+   * retry). A full destructive rebuild — deleting the directory and reopening
+   * empty — requires `allowDestructiveRebuild: true` and is only appropriate
+   * for a rebuildable cache; without it a corrupt database is rethrown as a
+   * clear error and its data is never erased. A live lock is rethrown.
    *
    * The destructive rebuild only ever runs for an open that could OWN the
    * directory: an error tagged `readOnlyOpen` (opts.readOnly, or a lock that
@@ -572,7 +575,7 @@ export class MiniDb<V = unknown> {
    */
   static async openOrRebuild<V = unknown>(
     opts: OpenOptions,
-    hooks: { onRebuild?: (err: unknown) => void } = {},
+    hooks: { onRebuild?: (err: unknown) => void; allowDestructiveRebuild?: boolean } = {},
   ): Promise<MiniDb<V>> {
     return openOrRebuildMiniDb(opts, hooks, (o) => MiniDb.open<V>(o));
   }

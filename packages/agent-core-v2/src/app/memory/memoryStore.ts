@@ -55,21 +55,18 @@ export class MemoryStore extends Disposable implements IMemoryStore {
 
   private async openDb(): Promise<MiniDb> {
     if (this.dbPromise !== undefined) return this.dbPromise;
-    this.dbPromise = MiniDb.openOrRebuild(
-      {
-        dir: this.dir,
-        valueCodec: 'json',
-        valueMode: 'memory',
-        fsyncPolicy: 'everysec',
-      },
-      {
-        onRebuild: (err) => {
-          this.log.warn('memory.store.rebuilt', { dir: this.dir, err });
-        },
-      },
-    ).catch((error) => {
-      this.log.error('memory.store.open.failed', { dir: this.dir, error });
-      throw error;
+    this.dbPromise = MiniDb.open({
+      dir: this.dir,
+      valueCodec: 'json',
+      valueMode: 'memory',
+      fsyncPolicy: 'everysec',
+    }).catch((error) => {
+      const wrapped = new Error(
+        `memory store at ${this.dir} failed to open (${error instanceof Error ? error.message : String(error)}); user data was not touched and the memory feature stays unavailable until the store is repaired`,
+        { cause: error },
+      );
+      this.log.error('memory.store.open.failed', { dir: this.dir, error: wrapped });
+      throw wrapped;
     });
     const db = await this.dbPromise;
     try {
