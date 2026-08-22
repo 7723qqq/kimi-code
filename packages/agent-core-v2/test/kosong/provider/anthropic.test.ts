@@ -1,6 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-
 import { CACHE_CONTROL } from '@moonshot-ai/kosong/providers/anthropic-cache-breakpoints';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { Message, Role } from '#/kosong/contract/message';
 import { AnthropicChatProvider } from '#/kosong/provider/bases/anthropic/anthropic';
@@ -42,9 +41,9 @@ async function captureMessages(
   }
   expect(create).toHaveBeenCalledTimes(1);
   const params = create.mock.calls[0]![0] as Record<string, unknown>;
-  const contents = (
-    params['messages'] as Array<{ role: string; content: CapturedBlock[] }>
-  ).map((m) => m.content);
+  const contents = (params['messages'] as Array<{ role: string; content: CapturedBlock[] }>).map(
+    (m) => m.content,
+  );
   return { contents, parts };
 }
 
@@ -71,5 +70,37 @@ describe('vendored anthropic cache breakpoints', () => {
 
     expect(contents[1]!.at(-1)!.cache_control).toEqual(CACHE_CONTROL);
     expect(contents[0]!.at(-1)!.cache_control).toBeUndefined();
+  });
+});
+
+describe('Anthropic credential header mapping', () => {
+  it('sends OAuth tokens (sk-ant-oat01-) as Authorization Bearer without x-api-key', () => {
+    const provider = new AnthropicChatProvider({
+      model: 'claude-sonnet-4-5',
+      apiKey: 'sk-ant-oat01-test-token',
+    });
+
+    const build = Reflect.get(provider, '_buildDefaultHeaders') as (
+      apiKey: string,
+    ) => Record<string, string | null>;
+    const headers = build.call(provider, 'sk-ant-oat01-test-token');
+
+    expect(headers['authorization']).toBe('Bearer sk-ant-oat01-test-token');
+    expect(headers['x-api-key']).toBeNull();
+  });
+
+  it('keeps regular API keys on x-api-key with authorization disabled', () => {
+    const provider = new AnthropicChatProvider({
+      model: 'claude-sonnet-4-5',
+      apiKey: 'test-key',
+    });
+
+    const build = Reflect.get(provider, '_buildDefaultHeaders') as (
+      apiKey: string,
+    ) => Record<string, string | null>;
+    const headers = build.call(provider, 'test-key');
+
+    expect(headers['authorization']).toBeNull();
+    expect(headers['x-api-key']).toBe('test-key');
   });
 });

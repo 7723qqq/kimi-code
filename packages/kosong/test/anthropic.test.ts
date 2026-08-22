@@ -3712,3 +3712,37 @@ describe('AnthropicChatProvider constructor max_tokens', () => {
     expect(body['max_tokens']).toBe(128000);
   });
 });
+
+describe('Anthropic credential header mapping', () => {
+  it('sends OAuth tokens (sk-ant-oat01-) as Authorization Bearer without x-api-key', () => {
+    const provider = new AnthropicChatProvider({
+      model: 'k25',
+      apiKey: 'sk-ant-oat01-test-token',
+      stream: false,
+    });
+
+    const build = Reflect.get(provider, '_buildDefaultHeaders') as (
+      apiKey: string,
+    ) => Record<string, string | null>;
+    const headers = build.call(provider, 'sk-ant-oat01-test-token');
+
+    expect(headers['authorization']).toBe('Bearer sk-ant-oat01-test-token');
+    expect(headers['x-api-key']).toBeNull();
+  });
+
+  it('keeps regular API keys on x-api-key with authorization disabled', () => {
+    const provider = new AnthropicChatProvider({
+      model: 'k25',
+      apiKey: 'test-key',
+      stream: false,
+    });
+
+    const build = Reflect.get(provider, '_buildDefaultHeaders') as (
+      apiKey: string,
+    ) => Record<string, string | null>;
+    const headers = build.call(provider, 'test-key');
+
+    expect(headers['authorization']).toBeNull();
+    expect(headers['x-api-key']).toBe('test-key');
+  });
+});

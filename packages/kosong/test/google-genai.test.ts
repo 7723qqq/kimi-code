@@ -1996,3 +1996,35 @@ describe('messagesToGoogleGenAIContents - extra branches', () => {
     });
   });
 });
+
+describe('GoogleGenAIChatProvider OAuth client construction', () => {
+  it('authenticates ya29 tokens via Authorization Bearer and never sends an API key', () => {
+    const provider = new GoogleGenAIChatProvider({
+      model: 'gemini-2.5-flash',
+      apiKey: 'ya29.test-token',
+    });
+
+    const client = (provider as any)._client as {
+      apiKey: string;
+      httpOptions: { headers: Record<string, string> };
+    };
+
+    expect(client.httpOptions.headers['Authorization']).toBe('Bearer ya29.test-token');
+    expect(client.httpOptions.headers['x-goog-api-key']).toBe('');
+    expect(client.apiKey.length).toBeGreaterThan(0);
+  });
+
+  it('strips the Bearer prefix before building the Authorization header', () => {
+    const provider = new GoogleGenAIChatProvider({
+      model: 'gemini-2.5-flash',
+      apiKey: 'Bearer abc.def',
+    });
+
+    const client = (provider as any)._client as {
+      httpOptions: { headers: Record<string, string> };
+    };
+
+    expect(client.httpOptions.headers['Authorization']).toBe('Bearer abc.def');
+    expect(client.httpOptions.headers['x-goog-api-key']).toBe('');
+  });
+});

@@ -50,6 +50,7 @@ import type {
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
 
+import type { ToolCallIdPolicy } from '../provider';
 import { CACHE_CONTROL, injectCacheControlOnLastBlock } from './anthropic-cache-breakpoints';
 import {
   BUDGET_THINKING_EFFORTS,
@@ -62,7 +63,6 @@ import {
 import { mergeConsecutiveUserMessages } from './merge-user-messages';
 import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 import { AuthClientLRU, mergeRequestHeaders, resolveAuthBackedClient } from './request-auth';
-import type { ToolCallIdPolicy } from '../provider';
 import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from './tool-call-id';
 
 /**
@@ -95,6 +95,15 @@ function normalizeAnthropicStopReason(raw: string | null | undefined): {
       return { finishReason: 'other', rawFinishReason: raw };
   }
 }
+
+/**
+ * OAuth access tokens issued by Anthropic login (e.g. Claude Code's
+ * `sk-ant-oat01-…`) must travel as `Authorization: Bearer`, not `x-api-key`.
+ */
+export function isAnthropicOAuthApiKey(apiKey: string): boolean {
+  return apiKey.startsWith('sk-ant-oat01-');
+}
+
 export interface AnthropicOptions {
   apiKey?: string | undefined;
   baseUrl?: string | undefined;
@@ -1125,7 +1134,9 @@ export class AnthropicChatProvider implements ChatProvider {
 
     // ── Native stream fast-path ────────────────────────────────────────
     // Attempt the Rust native SSE pipeline before falling back to the SDK.
-    if (this._stream && this._apiKey !== undefined) {
+    // The native client always sends the credential as `x-api-key`, so it is
+    // skipped for OAuth tokens, which must travel as `Authorization: Bearer`.
+    if (this._stream && this._apiKey !== undefined && !isAnthropicOAuthApiKey(this._apiKey)) {
       const nativeHeaders: Array<{ key: string; value: string }> = [];
       for (const [k, v] of Object.entries(extraHeaders)) {
         nativeHeaders.push({ key: k, value: v });
@@ -1252,14 +1263,21 @@ export class AnthropicChatProvider implements ChatProvider {
   }
 
   private _buildDefaultHeaders(apiKey: string): Record<string, string | null> {
-    const defaultHeaders: Record<string, string | null> = { authorization: null };
+    // OAuth tokens (`sk-ant-oat01-…`) authenticate via `Authorization: Bearer`
+    // — the Anthropic API rejects them in `x-api-key`. Keep the same
+    // hard-disable posture: the unused channel is pinned to null so neither
+    // the SDK nor shell env can inject it.
+    const oauth = isAnthropicOAuthApiKey(apiKey);
+    const defaultHeaders: Record<string, string | null> = oauth
+      ? { authorization: `Bearer ${apiKey}` }
+      : { authorization: null };
     for (const name of this._anthropicCustomHeaderEnvNames()) {
       defaultHeaders[name] = null;
     }
     for (const [name, value] of Object.entries(this._defaultHeaders ?? {})) {
       defaultHeaders[name.toLowerCase()] = value;
     }
-    defaultHeaders['x-api-key'] = apiKey;
+    defaultHeaders['x-api-key'] = oauth ? null : apiKey;
     return defaultHeaders;
   }
 

@@ -53,6 +53,9 @@ import type {
 import type { Tool } from '#/kosong/contract/tool';
 import type { TokenUsage } from '#/kosong/contract/usage';
 
+import { mergeConsecutiveUserMessages } from '../merge-user-messages';
+import { mergeRequestHeaders, resolveAuthBackedClient } from '../request-auth';
+import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
 import {
   BUDGET_THINKING_EFFORTS,
   inferAnthropicModelProfile,
@@ -61,9 +64,6 @@ import {
   type AnthropicModelProfile,
   type AnthropicModelVersion,
 } from './anthropic-profile';
-import { mergeConsecutiveUserMessages } from '../merge-user-messages';
-import { mergeRequestHeaders, resolveAuthBackedClient } from '../request-auth';
-import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
 
 function normalizeAnthropicStopReason(raw: string | null | undefined): {
   finishReason: FinishReason | null;
@@ -87,6 +87,10 @@ function normalizeAnthropicStopReason(raw: string | null | undefined): {
     default:
       return { finishReason: 'other', rawFinishReason: raw };
   }
+}
+
+export function isAnthropicOAuthApiKey(apiKey: string): boolean {
+  return apiKey.startsWith('sk-ant-oat01-');
 }
 
 export interface AnthropicGenerationKwargs {
@@ -1099,14 +1103,17 @@ export class AnthropicChatProvider implements ChatProvider {
   }
 
   private _buildDefaultHeaders(apiKey: string): Record<string, string | null> {
-    const defaultHeaders: Record<string, string | null> = { authorization: null };
+    const oauth = isAnthropicOAuthApiKey(apiKey);
+    const defaultHeaders: Record<string, string | null> = oauth
+      ? { authorization: `Bearer ${apiKey}` }
+      : { authorization: null };
     for (const name of this._anthropicCustomHeaderEnvNames()) {
       defaultHeaders[name] = null;
     }
     for (const [name, value] of Object.entries(this._defaultHeaders ?? {})) {
       defaultHeaders[name.toLowerCase()] = value;
     }
-    defaultHeaders['x-api-key'] = apiKey;
+    defaultHeaders['x-api-key'] = oauth ? null : apiKey;
     return defaultHeaders;
   }
 

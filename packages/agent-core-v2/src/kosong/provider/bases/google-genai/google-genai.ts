@@ -20,9 +20,9 @@ import type {
 import type { Tool } from '#/kosong/contract/tool';
 import type { TokenUsage } from '#/kosong/contract/usage';
 
+import { AntigravityChatProvider, detectAntigravityBinary } from '../antigravity/antigravity';
 import { mergeConsecutiveUserMessages } from '../merge-user-messages';
 import { requireProviderApiKey, resolveAuthBackedClient } from '../request-auth';
-import { AntigravityChatProvider, detectAntigravityBinary } from '../antigravity/antigravity';
 
 function normalizeGoogleGenAIFinishReason(raw: unknown): {
   finishReason: FinishReason | null;
@@ -425,8 +425,7 @@ export function messagesToGoogleGenAIContents(messages: Message[]): GoogleConten
       content.parts.length > 0 &&
       content.parts.every((part) => part.functionResponse !== undefined),
     merge: (last, next) => {
-      const lastStartsWithFunctionResponse =
-        last.parts[0]?.functionResponse !== undefined;
+      const lastStartsWithFunctionResponse = last.parts[0]?.functionResponse !== undefined;
       const nextHasFunctionResponse = next.parts.some(
         (part) => part.functionResponse !== undefined,
       );
@@ -550,13 +549,19 @@ export class GoogleGenAIStreamedMessage implements StreamedMessage {
     if (usageMetadata === undefined) {
       return;
     }
-    const usage: TokenUsage =
-      this._usage ?? { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 };
+    const usage: TokenUsage = this._usage ?? {
+      inputOther: 0,
+      output: 0,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+    };
     const promptTokenCount = usageMetadata['promptTokenCount'];
     const cachedContentTokenCount = usageMetadata['cachedContentTokenCount'];
     if (typeof promptTokenCount === 'number') {
       const cached =
-        typeof cachedContentTokenCount === 'number' ? cachedContentTokenCount : usage.inputCacheRead;
+        typeof cachedContentTokenCount === 'number'
+          ? cachedContentTokenCount
+          : usage.inputCacheRead;
       usage.inputOther = Math.max(promptTokenCount - cached, 0);
     }
     if (typeof cachedContentTokenCount === 'number') {
@@ -647,6 +652,10 @@ export function convertGoogleGenAIError(error: unknown): ChatProviderError {
         'Google Gemini API requires a Google AI Studio API Key (or set GEMINI_API_KEY). Use /login -> Google AI Studio to configure your key.',
       );
     }
+    const statusCode = (error as { code?: unknown }).code;
+    if (typeof statusCode === 'number') {
+      return normalizeAPIStatusError(statusCode, msg);
+    }
     return new ChatProviderError(`GoogleGenAI error: ${msg}`);
   }
   return new ChatProviderError(`GoogleGenAI error: ${String(error)}`);
@@ -693,6 +702,10 @@ export class GoogleGenAIChatProvider implements ChatProvider {
   private readonly _thinkingEffort: ThinkingEffort | undefined;
   private readonly _defaultHeaders: Record<string, string> | undefined;
   private readonly _clientFactory: ((auth: ProviderRequestAuth) => GenAIClient) | undefined;
+  private readonly _antigravityFallbacks = new Map<
+    ThinkingEffort | undefined,
+    AntigravityChatProvider
+  >();
 
   constructor(options: GoogleGenAIOptions) {
     this._model = options.model;
@@ -728,13 +741,14 @@ export class GoogleGenAIChatProvider implements ChatProvider {
     ) {
       const token = apiKeyOrToken.startsWith('Bearer ') ? apiKeyOrToken.slice(7) : apiKeyOrToken;
       httpOptions.headers = {
-        'User-Agent': 'Mozilla/5.0 (compatible; Google-Gemini-CLI/1.0; +https://cloud.google.com/gemini)',
+        'User-Agent':
+          'Mozilla/5.0 (compatible; Google-Gemini-CLI/1.0; +https://cloud.google.com/gemini)',
         'x-goog-api-client': 'gl-node/24.19.0 gccl/1.0.0',
         ...httpOptions.headers,
         Authorization: `Bearer ${token}`,
+        'x-goog-api-key': '',
       };
-      const envKey = process.env['GEMINI_API_KEY'] || process.env['GOOGLE_API_KEY'];
-      apiKey = envKey || 'dummy';
+      apiKey = 'dummy';
     }
     return new GenAIClient({
       apiKey,
@@ -814,19 +828,16 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       process.env['GEMINI_API_KEY'] ||
       process.env['GOOGLE_API_KEY'];
     const isOAuth =
-      typeof rawKey === 'string' &&
-      (rawKey.startsWith('ya29.') || rawKey.startsWith('Bearer '));
-    const isRealApiKey =
-      typeof rawKey === 'string' && !isOAuth && rawKey.trim().length > 0;
+      typeof rawKey === 'string' && (rawKey.startsWith('ya29.') || rawKey.startsWith('Bearer '));
+    const isRealApiKey = typeof rawKey === 'string' && !isOAuth && rawKey.trim().length > 0;
 
-    if (!isRealApiKey && detectAntigravityBinary()) {
-      const thinking =
-        options?.thinking ??
-        (this._thinkingEffort !== undefined ? { effort: this._thinkingEffort } : undefined);
-      const fallback = new AntigravityChatProvider({
-        model: this._model,
-        thinkingEffort: thinking?.effort ?? this._thinkingEffort,
-      });
+    if (!this._vertexai && !isOAuth && !isRealApiKey && detectAntigravityBinary()) {
+      const effort = thinking?.effort ?? this._thinkingEffort;
+      let fallback = this._antigravityFallbacks.get(effort);
+      if (fallback === undefined) {
+        fallback = new AntigravityChatProvider({ model: this._model, thinkingEffort: effort });
+        this._antigravityFallbacks.set(effort, fallback);
+      }
       return fallback.generate(systemPrompt, tools, history, options);
     }
 

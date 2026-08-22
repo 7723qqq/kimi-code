@@ -4,9 +4,9 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
+import type { ModelCapability } from '#/kosong/contract/capability';
 import { APIConnectionError, ChatProviderError } from '#/kosong/contract/errors';
 import type { Message, StreamedMessagePart, ThinkPart } from '#/kosong/contract/message';
-import type { ModelCapability } from '#/kosong/contract/capability';
 import type {
   ChatProvider,
   FinishReason,
@@ -35,6 +35,41 @@ export function detectAntigravityBinary(): string | undefined {
     }
   }
   return undefined;
+}
+
+const ANTIGRAVITY_ENV_ALLOWLIST = [
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'SYSTEMROOT',
+  'COMSPEC',
+];
+
+const ANTIGRAVITY_AUTH_ENV_ALLOWLIST = [
+  'GOOGLE_API_KEY',
+  'GEMINI_API_KEY',
+  'GOOGLE_APPLICATION_CREDENTIALS',
+  'GOOGLE_CLOUD_PROJECT',
+  'GOOGLE_CLOUD_LOCATION',
+];
+
+export function buildAntigravityEnv(): NodeJS.ProcessEnv {
+  const allowed = new Set([...ANTIGRAVITY_ENV_ALLOWLIST, ...ANTIGRAVITY_AUTH_ENV_ALLOWLIST]);
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (allowed.has(key)) {
+      env[key] = value;
+    }
+  }
+  return env;
 }
 
 export function mapModelToAntigravity(model: string, effort?: ThinkingEffort): string {
@@ -73,7 +108,11 @@ export function mapModelToAntigravity(model: string, effort?: ThinkingEffort): s
   if (normalized.includes('opus')) {
     return 'claude-opus-4-6-thinking';
   }
-  if (normalized.includes('gpt-oss') || normalized.includes('gptoss') || normalized.includes('120b')) {
+  if (
+    normalized.includes('gpt-oss') ||
+    normalized.includes('gptoss') ||
+    normalized.includes('120b')
+  ) {
     return 'gpt-oss-120b-medium';
   }
   return model;
@@ -234,7 +273,7 @@ export class AntigravityChatProvider implements ChatProvider {
     try {
       child = spawn(this.binaryPath, args, {
         cwd: tmpdir(),
-        env: process.env,
+        env: buildAntigravityEnv(),
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (error) {
@@ -469,11 +508,11 @@ export class AntigravityChatProvider implements ChatProvider {
 
 export function getAntigravityModelCapability(): ModelCapability {
   return {
-    image_in: true,
-    video_in: true,
+    image_in: false,
+    video_in: false,
     audio_in: false,
     thinking: true,
-    tool_use: true,
+    tool_use: false,
     max_context_tokens: 1_000_000,
   };
 }

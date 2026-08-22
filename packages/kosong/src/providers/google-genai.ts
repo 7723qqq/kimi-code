@@ -816,11 +816,19 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       (apiKeyOrToken.startsWith('ya29.') || apiKeyOrToken.startsWith('Bearer '))
     ) {
       const token = apiKeyOrToken.startsWith('Bearer ') ? apiKeyOrToken.slice(7) : apiKeyOrToken;
+      // OAuth requests must authenticate solely via `Authorization: Bearer`.
+      // The SDK appends an `x-goog-api-key` header whenever its client-level
+      // apiKey is set, and constructs a GoogleAuth (ADC) client when it is
+      // unset — which fails at request time with "Could not load the default
+      // credentials". Pinning the header to the empty string makes the SDK's
+      // `addKeyHeader` skip its append while keeping the apiKey non-null, so
+      // no API key rides along and ADC is never engaged.
       httpOptions.headers = {
         ...httpOptions.headers,
         Authorization: `Bearer ${token}`,
+        'x-goog-api-key': '',
       };
-      apiKey = undefined;
+      apiKey = 'dummy';
     }
     return new GenAIClient({
       apiKey,

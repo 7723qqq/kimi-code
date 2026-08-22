@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
+import type { Message, StreamedMessagePart } from '#/kosong/contract/message';
 import {
   AntigravityStreamedMessage,
+  buildAntigravityEnv,
   buildAntigravityPrompt,
   detectAntigravityBinary,
   getAntigravityModelCapability,
   mapModelToAntigravity,
 } from '#/kosong/provider/bases/antigravity/antigravity';
-import type { Message, StreamedMessagePart } from '#/kosong/contract/message';
 
 describe('mapModelToAntigravity', () => {
   it('maps gemini-3.7-flash with default and custom effort', () => {
@@ -46,12 +47,40 @@ describe('mapModelToAntigravity', () => {
 });
 
 describe('getAntigravityModelCapability', () => {
-  it('declares full multimodal and reasoning capabilities', () => {
+  it('declares only what the agy bridge actually delivers', () => {
     const caps = getAntigravityModelCapability();
     expect(caps.thinking).toBe(true);
-    expect(caps.image_in).toBe(true);
-    expect(caps.video_in).toBe(true);
-    expect(caps.tool_use).toBe(true);
+    expect(caps.tool_use).toBe(false);
+    expect(caps.image_in).toBe(false);
+    expect(caps.video_in).toBe(false);
+    expect(caps.audio_in).toBe(false);
+  });
+});
+
+describe('buildAntigravityEnv', () => {
+  it('passes through only allowlisted variables and drops the rest', () => {
+    const previousHome = process.env['HOME'];
+    const previousSecret = process.env['ANTIGRAVITY_TEST_SECRET'];
+    try {
+      process.env['ANTIGRAVITY_TEST_SECRET'] = 'leak-me';
+      process.env['HOME'] = '/home/tester';
+      const env = buildAntigravityEnv();
+      expect(env['HOME']).toBe('/home/tester');
+      expect(env['PATH']).toBeDefined();
+      expect(env['ANTIGRAVITY_TEST_SECRET']).toBeUndefined();
+      expect('SOME_RANDOM_TOKEN' in env).toBe(false);
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env['ANTIGRAVITY_TEST_SECRET'];
+      } else {
+        process.env['ANTIGRAVITY_TEST_SECRET'] = previousSecret;
+      }
+      if (previousHome === undefined) {
+        delete process.env['HOME'];
+      } else {
+        process.env['HOME'] = previousHome;
+      }
+    }
   });
 });
 
