@@ -1,5 +1,5 @@
 ---
-"@moonshot-ai/agent-core-v2": minor
+"@moonshot-ai/kimi-code": minor
 ---
 
 Make TodoList work for the model, not just the user:

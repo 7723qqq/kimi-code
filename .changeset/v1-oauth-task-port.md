@@ -1,5 +1,5 @@
 ---
-"@moonshot-ai/agent-core-v2": patch
+"@moonshot-ai/kimi-code": patch
 ---
 
 Port the remaining v1 OAuth token lifecycle and task-output drain into the v2 engine:

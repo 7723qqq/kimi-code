@@ -1,5 +1,5 @@
 ---
-"@moonshot-ai/agent-core-v2": minor
+"@moonshot-ai/kimi-code": minor
 ---
 
 Auto-seed the TodoList from the approved plan on plan-mode exit so execution can start against a ready skeleton:

@@ -1,5 +1,5 @@
 ---
-"@moonshot-ai/agent-core-v2": minor
+"@moonshot-ai/kimi-code": minor
 ---
 
 Per-call tool execution budgets (ported from deepseek-harness `guard/timeout-policy`, MIT)
