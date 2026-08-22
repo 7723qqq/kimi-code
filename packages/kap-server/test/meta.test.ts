@@ -60,16 +60,16 @@ describe('/api/v1/meta experimental_flags', () => {
     return body.data.experimental_flags as Record<string, boolean>;
   }
 
-  it('reports registered flags as off by default', async () => {
+  it('reports registered flags at their defaults', async () => {
     const base = await boot();
     const flags = await getMetaFlags(base);
-    expect(flags['tool-select']).toBe(false);
+    expect(flags['tool-select']).toBe(true);
   });
 
-  it('reports a config-enabled flag from the very first response', async () => {
-    const base = await boot('[experimental]\ntool-select = true\n');
+  it('reports a config-disabled flag from the very first response', async () => {
+    const base = await boot('[experimental]\ntool-select = false\n');
     const flags = await getMetaFlags(base);
-    expect(flags['tool-select']).toBe(true);
+    expect(flags['tool-select']).toBe(false);
   });
 
   it('reflects a flag enabled via its KIMI_CODE_EXPERIMENTAL_* env var', async () => {
@@ -81,16 +81,16 @@ describe('/api/v1/meta experimental_flags', () => {
 
   it('flips live when the [experimental] config section is written via POST /config', async () => {
     const base = await boot();
-    expect((await getMetaFlags(base))['tool-select']).toBe(false);
+    expect((await getMetaFlags(base))['tool-select']).toBe(true);
 
     const res = await authedFetch(server as RunningServer, base, '/api/v1/config', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ experimental: { 'tool-select': true } }),
+      body: JSON.stringify({ experimental: { 'tool-select': false } }),
     });
     expect(res.status).toBe(200);
 
-    expect((await getMetaFlags(base))['tool-select']).toBe(true);
+    expect((await getMetaFlags(base))['tool-select']).toBe(false);
   });
 
   it('keeps an env-forced flag on when the config section disables it', async () => {

@@ -9,7 +9,7 @@ export const xunfeiCodingPlanFlag: FlagDefinitionInput = {
   description:
     'Show the Astron provider settings in /settings and enable the Astron login flow. The astron entry under [providers] stays functional regardless of this flag.',
   env: XUNFEI_CODING_PLAN_FLAG_ENV,
-  default: false,
+  default: true,
   surface: 'both',
 };
 

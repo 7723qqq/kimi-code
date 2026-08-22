@@ -9,7 +9,7 @@ export const toolSelectFlag: FlagDefinitionInput = {
   description:
     'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
   env: TOOL_SELECT_FLAG_ENV,
-  default: false,
+  default: true,
   surface: 'core',
 };
 
