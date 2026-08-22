@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -8,6 +9,8 @@ import {
   GOOGLE_GEMINI_DEFAULT_MODELS,
   GOOGLE_GEMINI_PROVIDER_ID,
   GoogleOAuthManager,
+  OAuthError,
+  OAuthUnauthorizedError,
 } from '../src';
 import type { ManagedKimiConfigShape } from '../src';
 
@@ -17,7 +20,9 @@ describe('Google OAuth & Gemini Module', () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'google-oauth-test-'));
-    vi.spyOn(GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({ available: false });
+    vi.spyOn(GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
+      available: false,
+    });
     manager = new GoogleOAuthManager({ credentialsDir: tmpDir });
   });
 
@@ -103,5 +108,86 @@ describe('Google OAuth & Gemini Module', () => {
     expect(config.models?.[`google-gemini/gemini-2.5-flash`]).toBeDefined();
     expect(config.thinking?.enabled).toBe(true);
     expect(config.thinking?.effort).toBe('high');
+  });
+
+  it('throws OAuthUnauthorizedError instead of returning a stale token when refresh fails', async () => {
+    await manager.saveToken({
+      accessToken: 'stale-access-token',
+      refreshToken: 'dead-refresh-token',
+      expiresAt: Math.floor(Date.now() / 1000) + 60,
+      scope: '',
+      tokenType: 'Bearer',
+      expiresIn: 60,
+    });
+
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => 'invalid_grant' }),
+    );
+
+    await expect(manager.getValidAccessToken()).rejects.toThrow(OAuthUnauthorizedError);
+    await expect(manager.getValidAccessToken()).rejects.toThrow(/run \/login/);
+  });
+
+  it('coalesces concurrent getValidAccessToken calls into one refresh', async () => {
+    await manager.saveToken({
+      accessToken: 'near-expiry-token',
+      refreshToken: 'valid-refresh-token',
+      expiresAt: Math.floor(Date.now() / 1000) + 60,
+      scope: '',
+      tokenType: 'Bearer',
+      expiresIn: 60,
+    });
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        access_token: 'refreshed-token',
+        refresh_token: 'valid-refresh-token',
+        expires_in: 7200,
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const [a, b] = await Promise.all([
+      manager.getValidAccessToken(),
+      manager.getValidAccessToken(),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(a).toBe('refreshed-token');
+    expect(b).toBe('refreshed-token');
+  });
+
+  it('propagates the failure reason from importAntigravityCredentials', async () => {
+    const missingPath = join(tmpDir, 'missing', 'oauth_creds.json');
+    vi.spyOn(GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
+      available: true,
+      credsPath: missingPath,
+    });
+
+    await expect(manager.importAntigravityCredentials()).rejects.toThrow(OAuthError);
+    await expect(manager.importAntigravityCredentials()).rejects.toThrow(missingPath);
+  });
+
+  it('refuses to construct without a home directory', () => {
+    const previous = {
+      HOME: process.env['HOME'],
+      USERPROFILE: process.env['USERPROFILE'],
+      KIMI_CODE_HOME: process.env['KIMI_CODE_HOME'],
+    };
+    delete process.env['HOME'];
+    delete process.env['USERPROFILE'];
+    delete process.env['KIMI_CODE_HOME'];
+    try {
+      expect(() => new GoogleOAuthManager()).toThrow(/home directory/i);
+    } finally {
+      if (previous.HOME !== undefined) process.env['HOME'] = previous.HOME;
+      if (previous.USERPROFILE !== undefined) process.env['USERPROFILE'] = previous.USERPROFILE;
+      if (previous.KIMI_CODE_HOME !== undefined) {
+        process.env['KIMI_CODE_HOME'] = previous.KIMI_CODE_HOME;
+      }
+    }
   });
 });

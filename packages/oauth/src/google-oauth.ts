@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 
+import { OAuthError, OAuthUnauthorizedError } from './errors';
 import {
   GOOGLE_GEMINI_DEFAULT_MODEL_ID,
   GOOGLE_GEMINI_DEFAULT_MODELS,
@@ -37,6 +38,23 @@ export const GOOGLE_SCOPES = [
   'email',
   'profile',
 ];
+
+// Local wall-clock budget for the browser login flow, mirroring the device
+// flow's 15 min deadline in oauth-manager.ts.
+const GOOGLE_LOGIN_TIMEOUT_MS = 15 * 60 * 1000;
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export interface GoogleOAuthOptions {
   readonly clientId?: string;
@@ -73,9 +91,13 @@ export class GoogleOAuthManager {
     if (options.storage !== undefined) {
       this.storage = options.storage;
     } else {
-      const kimiHome =
-        process.env['KIMI_CODE_HOME'] ||
-        join(process.env['HOME'] || process.env['USERPROFILE'] || '.', '.kimi-code');
+      const home = process.env['HOME'] || process.env['USERPROFILE'];
+      if (home === undefined || home.length === 0) {
+        throw new Error(
+          'Cannot determine home directory (HOME/USERPROFILE are unset); set KIMI_CODE_HOME or HOME so Google OAuth credentials have a place to be stored.',
+        );
+      }
+      const kimiHome = process.env['KIMI_CODE_HOME'] || join(home, '.kimi-code');
       const credentialsDir = options.credentialsDir ?? join(kimiHome, 'credentials');
       this.storage = new FileTokenStorage(credentialsDir);
     }
@@ -98,7 +120,21 @@ export class GoogleOAuthManager {
     return token !== undefined && token.accessToken.length > 0;
   }
 
+  private inFlightGetValidAccessToken: Promise<string | undefined> | undefined;
+
   async getValidAccessToken(): Promise<string | undefined> {
+    const current = this.inFlightGetValidAccessToken;
+    if (current !== undefined) return current;
+    const promise = this.doGetValidAccessToken().finally(() => {
+      if (this.inFlightGetValidAccessToken === promise) {
+        this.inFlightGetValidAccessToken = undefined;
+      }
+    });
+    this.inFlightGetValidAccessToken = promise;
+    return promise;
+  }
+
+  private async doGetValidAccessToken(): Promise<string | undefined> {
     let token = await this.loadToken();
     if (!token) {
       token = await this.importAntigravityCredentials();
@@ -108,19 +144,38 @@ export class GoogleOAuthManager {
     const now = Math.floor(Date.now() / 1000);
     // Refresh if within 5 minutes of expiration
     if (token.expiresAt > 0 && token.expiresAt - now < 300) {
-      if (token.refreshToken.length > 0) {
+      if (token.refreshToken.length === 0) {
+        throw new OAuthUnauthorizedError(
+          'Google (Gemini) access token is expired and has no refresh_token; run /login to re-authenticate.',
+        );
+      }
+      try {
+        const refreshed = await this.refreshToken(token.refreshToken);
+        await this.saveToken(refreshed);
+        return refreshed.accessToken;
+      } catch (error) {
+        console.warn(`[google-oauth] Token refresh failed: ${errorText(error)}`);
         try {
-          const refreshed = await this.refreshToken(token.refreshToken);
-          await this.saveToken(refreshed);
-          return refreshed.accessToken;
-        } catch {
           // Refresh failed (e.g. imported client token). Try re-reading Antigravity credentials
           const synced = await this.importAntigravityCredentials();
-          if (synced && synced.accessToken.length > 0) {
+          if (
+            synced &&
+            synced.accessToken.length > 0 &&
+            (synced.expiresAt === 0 || synced.expiresAt - now >= 300)
+          ) {
+            console.warn(
+              '[google-oauth] Falling back to freshly imported Antigravity credentials.',
+            );
             return synced.accessToken;
           }
-          if (token.accessToken.length > 0) return token.accessToken;
+        } catch (syncError) {
+          console.warn(
+            `[google-oauth] Antigravity credential import failed: ${errorText(syncError)}`,
+          );
         }
+        throw new OAuthUnauthorizedError(
+          `Google (Gemini) access token refresh failed (${errorText(error)}); run /login to re-authenticate.`,
+        );
       }
     }
     return token.accessToken.length > 0 ? token.accessToken : undefined;
@@ -156,7 +211,8 @@ export class GoogleOAuthManager {
 
     return {
       accessToken,
-      refreshToken: typeof data['refresh_token'] === 'string' ? data['refresh_token'] : refreshToken,
+      refreshToken:
+        typeof data['refresh_token'] === 'string' ? data['refresh_token'] : refreshToken,
       expiresAt,
       scope,
       tokenType,
@@ -164,10 +220,12 @@ export class GoogleOAuthManager {
     };
   }
 
-  async startLoginFlow(options: {
-    readonly signal?: AbortSignal;
-    readonly onAuthUrl?: (data: GoogleDeviceAuthorization) => void;
-  } = {}): Promise<GoogleLoginResult> {
+  async startLoginFlow(
+    options: {
+      readonly signal?: AbortSignal;
+      readonly onAuthUrl?: (data: GoogleDeviceAuthorization) => void;
+    } = {},
+  ): Promise<GoogleLoginResult> {
     const codeVerifier = randomBytes(32).toString('base64url');
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
     const state = randomBytes(16).toString('hex');
@@ -175,10 +233,12 @@ export class GoogleOAuthManager {
     return new Promise((resolve, reject) => {
       let server: Server | undefined;
       let cleanupDone = false;
+      let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 
       const cleanup = (): void => {
         if (cleanupDone) return;
         cleanupDone = true;
+        if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
         if (server) {
           try {
             server.close();
@@ -187,6 +247,18 @@ export class GoogleOAuthManager {
           }
         }
       };
+
+      // Overall deadline: never leave a pending callback server behind if
+      // the user never completes the browser flow.
+      timeoutTimer = setTimeout(() => {
+        cleanup();
+        reject(
+          new OAuthError(
+            `Google login timed out after ${GOOGLE_LOGIN_TIMEOUT_MS / 1000 / 60} minutes; restart the login to try again.`,
+          ),
+        );
+      }, GOOGLE_LOGIN_TIMEOUT_MS);
+      timeoutTimer.unref?.();
 
       if (options.signal) {
         options.signal.addEventListener('abort', () => {
@@ -207,7 +279,9 @@ export class GoogleOAuthManager {
           const error = reqUrl.searchParams.get('error');
           if (error) {
             res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(`<html><body><h2>Google 授权失败 / Authorization Failed</h2><p>${error}</p></body></html>`);
+            res.end(
+              `<html><body><h2>Google 授权失败 / Authorization Failed</h2><p>${escapeHtml(error)}</p></body></html>`,
+            );
             cleanup();
             reject(new Error(`Google authorization returned error: ${error}`));
             return;
@@ -253,7 +327,9 @@ export class GoogleOAuthManager {
           if (!tokenRes.ok) {
             const errBody = await tokenRes.text();
             res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(`<html><body><h2>Token exchange failed</h2><p>${errBody}</p></body></html>`);
+            res.end(
+              `<html><body><h2>Token exchange failed</h2><p>${escapeHtml(errBody)}</p></body></html>`,
+            );
             cleanup();
             reject(new Error(`Google token exchange failed (HTTP ${tokenRes.status}): ${errBody}`));
             return;
@@ -262,6 +338,17 @@ export class GoogleOAuthManager {
           const tokenData = (await tokenRes.json()) as Record<string, unknown>;
           const accessToken =
             typeof tokenData['access_token'] === 'string' ? tokenData['access_token'] : '';
+          // Reject responses missing the load-bearing field instead of
+          // persisting an empty access_token that fails mysteriously later.
+          if (accessToken.length === 0) {
+            res.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(
+              '<html><body><h2>Token exchange failed</h2><p>Google response is missing access_token.</p></body></html>',
+            );
+            cleanup();
+            reject(new OAuthError('Google token exchange response missing access_token'));
+            return;
+          }
           const refreshToken =
             typeof tokenData['refresh_token'] === 'string' ? tokenData['refresh_token'] : '';
           const expiresIn = Number(tokenData['expires_in'] ?? 3600);
@@ -416,8 +503,11 @@ export class GoogleOAuthManager {
 
       await this.saveToken(tokenInfo);
       return tokenInfo;
-    } catch {
-      return undefined;
+    } catch (error) {
+      throw new OAuthError(
+        `Failed to import Google Antigravity credentials from ${detection.credsPath}: ${errorText(error)}`,
+        { cause: error },
+      );
     }
   }
 }
@@ -448,7 +538,9 @@ export function applyGoogleGeminiConfig(
           },
         }
       : {}),
-    ...(options.apiKey !== undefined && options.apiKey.length > 0 ? { apiKey: options.apiKey } : {}),
+    ...(options.apiKey !== undefined && options.apiKey.length > 0
+      ? { apiKey: options.apiKey }
+      : {}),
   };
 
   const existingModels = config.models ?? {};
