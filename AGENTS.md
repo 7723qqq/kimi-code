@@ -459,8 +459,8 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ## Experimental Features
 
-- Gate a not-yet-public feature behind an experimental flag. Register the flag from the owning domain's own module (definitions are contributed **decentrally** — each domain calls `registerFlagDefinition` at its module's top level, e.g. `packages/agent-core-v2/src/persistence/backends/minidb/flag.ts`; there is no central catalog to edit by hand), then check it with `flags.enabled('my-feature')`.
-- Flags are env-driven; the `default` is chosen per flag as needed (e.g. `persistence_minidb_readmodel` defaults to `true`):
+- Gate a not-yet-public feature behind an experimental flag. Register the flag from the owning domain's own module (definitions are contributed **decentrally** — each domain calls `registerFlagDefinition` at its module's top level, e.g. `packages/agent-core-v2/src/features/tower/flag.ts`; there is no central catalog to edit by hand), then check it with `flags.enabled('my-feature')`.
+- Flags are env-driven; the `default` is chosen per flag as needed (e.g. the tower flag defaults to `false`, the minidb read-model flag defaulted to `true` before its gating was removed):
   - `KIMI_CODE_EXPERIMENTAL_<NAME>` toggles one
   - `KIMI_CODE_EXPERIMENTAL_FLAG` enables all
 - Release by flipping the flag's `default` to `true`.

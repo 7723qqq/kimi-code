@@ -16,7 +16,6 @@ import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import {
   ISessionIndex,
@@ -49,7 +48,6 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { stubLog } from '../../_base/log/stubs';
 import { stubQueryStore } from '../../persistence/interface/stubs';
 import { stubBootstrap } from '../bootstrap/stubs';
-import { stubFlag } from '../flag/stubs';
 import { stubSessionIndexMirror } from './stubs';
 
 const WORK_DIR = '/home/user/repo';
@@ -96,7 +94,6 @@ describe('FileSessionIndex (legacy)', () => {
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(IQueryStore, stubQueryStore()),
       stubPair(ISessionIndexMirror, stubSessionIndexMirror()),
-      stubPair(IFlagService, stubFlag(false)),
       stubPair(ILogService, stubLog()),
     ]);
     disposeHost = () => {
@@ -360,7 +357,6 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();
@@ -749,7 +745,6 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();
@@ -821,7 +816,6 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();
@@ -877,7 +871,6 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();
@@ -965,7 +958,6 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(IAtomicDocumentStore, docs),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();
@@ -1024,7 +1016,6 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();
@@ -1082,7 +1073,6 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(IAtomicDocumentStore, docs),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();
@@ -1157,7 +1147,6 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(IAtomicDocumentStore, docs),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();
@@ -1224,7 +1213,6 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(IAtomicDocumentStore, new JsonAtomicDocumentStore(fileStorage)),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();
@@ -1289,7 +1277,6 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(IAtomicDocumentStore, docs),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();
@@ -1325,7 +1312,6 @@ describe('FileSessionIndex (read model)', () => {
       stubPair(IAtomicDocumentStore, docs),
       stubPair(IBootstrapService, stubBootstrap(homeDir)),
       stubPair(ILogService, stubLog()),
-      stubPair(IFlagService, stubFlag(true)),
     ]);
     disposeHost = () => {
       host.dispose();

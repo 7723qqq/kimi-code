@@ -175,9 +175,8 @@ describe('KimiHarness.listSessions', () => {
 });
 
 describe('SDKRpcClientV2.listSessionsPage', () => {
-  it('pages through the listing with keyset cursors (read model off)', async () => {
+  it('pages through the listing with keyset cursors', async () => {
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL', '0');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -215,7 +214,6 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
 
   it('answers an empty terminal page for an unknown cursor', async () => {
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL', '0');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -234,9 +232,8 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
     }
   });
 
-  it('drains follow-up pages when the mapping drops entries (read model on)', async () => {
+  it('drains follow-up pages when the mapping drops entries', async () => {
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL', '1');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -289,34 +286,8 @@ describe('SDKRpcClientV2 search-index separation', () => {
   // ever opening it — including while the session read model is still
   // preparing.
 
-  it('listSessions / resumeSession never open the global search index (read model off)', async () => {
+  it('listSessions / resumeSession never open the global search index', async () => {
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL', '0');
-    const homeDir = await makeTempDir();
-    const workDir = await makeTempDir();
-    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
-
-    try {
-      const created = await client.createSession({ id: 'ses_search_sep_off', workDir });
-      await client.closeSession({ sessionId: created.id });
-
-      const sessions = await client.listSessions({ workDir });
-      expect(sessions.map((item) => item.id)).toEqual([created.id]);
-      const resumed = await client.resumeSession({ id: created.id });
-      expect(resumed.id).toBe(created.id);
-
-      expect(existsSync(join(homeDir, 'search-index'))).toBe(false);
-      // With the read model off, the session query-store is never opened either.
-      expect(existsSync(join(homeDir, 'cache', 'query-store'))).toBe(false);
-    } finally {
-      await client.close();
-      vi.unstubAllEnvs();
-    }
-  });
-
-  it('listSessions / resumeSession never open the global search index (read model on)', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL', '1');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });

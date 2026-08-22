@@ -4,7 +4,6 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IntervalTimer } from '#/_base/utils/timer';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IFlagService } from '#/app/flag/flag';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import {
   IQueryStore,
@@ -44,7 +43,6 @@ import {
   summaryMatchesChildOf,
 } from './sessionIndexSource';
 
-const READ_MODEL_FLAG = 'persistence_minidb_readmodel';
 const RECONCILE_INTERVAL_MS = 60_000;
 const DEGRADED_RETRY_MS = 5_000;
 const TIE_REPAIR_LIMIT = 1_000;
@@ -85,7 +83,6 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
     @IQueryStore private readonly queryStore: IQueryStore,
-    @IFlagService private readonly flags: IFlagService,
     @ISessionIndexMirror private readonly mirror: ISessionIndexMirror,
     @ILogService private readonly log: ILogService,
   ) {
@@ -99,8 +96,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     });
   }
 
-  /** The reconcile loop runs only while the read model is in play — starting
-   *  it unconditionally would spin an interval for every flag-off host. */
+  /** The reconcile loop runs only once the read model reaches a live state. */
   private ensureReconcileTimer(): void {
     if (!this.reconcileTimer.isSet()) {
       this.reconcileTimer.cancelAndSet(() => void this.tick(), RECONCILE_INTERVAL_MS);
@@ -108,7 +104,6 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   }
 
   async prepare(options?: { deadlineMs?: number }): Promise<SessionIndexStatus> {
-    if (!this.readModelEnabled()) return this.status();
     this.prepareFlight ??= this.doPrepare(options?.deadlineMs).finally(() => {
       this.prepareFlight = undefined;
     });
@@ -117,7 +112,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
 
   status(): SessionIndexStatus {
     return {
-      state: this.readModelEnabled() ? this.state : 'uninitialized',
+      state: this.state,
       generation: this.generation,
       reason: this.statusReason,
       degradedCount: this.degradedCount,
@@ -189,7 +184,6 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
 
   /** Test/ops hook: reconcile the published generation against disk now. */
   async reconcileNow(): Promise<void> {
-    if (!this.readModelEnabled()) return;
     const manifest = await this.queryStore.getCheckpoint(SESSION_INDEX_MANIFEST);
     if (manifest === undefined) return;
     this.generation = manifest.seq;
@@ -198,7 +192,6 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
 
   /** Test/ops hook: project a fresh generation now (single-flight). */
   async reprojectNow(): Promise<void> {
-    if (!this.readModelEnabled()) return;
     await this.ensureProjection();
   }
 
@@ -209,7 +202,6 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   }
 
   private async tick(): Promise<void> {
-    if (!this.readModelEnabled()) return;
     if (this.state === 'degraded') {
       void this.prepare();
       return;
@@ -286,8 +278,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
    * drop the entry anyway — this closes the stale-read window in between. The
    * mirror queue is evicted first (waiting out an in-flight flush): reads
    * fold the queue in for read-your-writes, and a late flush would otherwise
-   * resurrect the entry after the store delete. With the read model off
-   * there is no derived state to evict beyond the queue.
+   * resurrect the entry after the store delete.
    */
   async remove(id: string): Promise<void> {
     await this.mirror.evict(id);
@@ -301,15 +292,14 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
 
   /**
    * Serve `op` from the read model when possible, else from the authoritative
-   * path: flag off, not prepared yet (kicked here single-flight), preparing,
-   * or degraded (with a throttled re-prepare). Any read-model failure demotes
-   * to `degraded` — logged and counted — and falls back immediately.
+   * path: not prepared yet (kicked here single-flight), preparing, or degraded
+   * (with a throttled re-prepare). Any read-model failure demotes to
+   * `degraded` — logged and counted — and falls back immediately.
    */
   private async withReadModel<T>(
     op: (generation: number) => Promise<T>,
     legacy: () => Promise<T>,
   ): Promise<T> {
-    if (!this.readModelEnabled()) return legacy();
     if (this.state === 'uninitialized') {
       void this.prepare();
       return legacy();
@@ -626,8 +616,8 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
    * model is enabled but not yet ready, the kicked initial projection is
    * scanning the same authoritative set, so the read joins that in-flight
    * scan (or drives the one the projection will reuse) instead of running a
-   * second full directory scan. Flag-off hosts and the degraded fallback
-   * keep the targeted per-workspace enumeration.
+   * second full directory scan. The degraded fallback keeps the targeted
+   * per-workspace enumeration.
    *
    * Either way the mirror's pending queue is folded in by id (pending
    * entries win): every queued summary was recorded only after its
@@ -639,10 +629,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     workspaceIds: readonly string[] | undefined,
   ): Promise<SessionSummary[]> {
     let collected: SessionSummary[];
-    if (
-      this.readModelEnabled() &&
-      (this.state === 'uninitialized' || this.state === 'preparing')
-    ) {
+    if (this.state === 'uninitialized' || this.state === 'preparing') {
       const { summaries } = await this.projector.sharedScanForRead();
       collected =
         workspaceIds === undefined
@@ -666,10 +653,6 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
       byId.set(summary.id, summary);
     }
     return [...byId.values()];
-  }
-
-  private readModelEnabled(): boolean {
-    return this.flags.enabled(READ_MODEL_FLAG);
   }
 }
 

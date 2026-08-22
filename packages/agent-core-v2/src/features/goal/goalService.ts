@@ -34,7 +34,6 @@ import { type UsageRecordedContext } from '#/agent/usage/usage';
 import type { GoalBudgetProperties } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
 import {
   ErrorCodes,
   Error2,
@@ -47,7 +46,6 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 
 import { IAgentGoalService, type GoalReasonInput, type ResumeGoalInput } from './goal';
-import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
 import { IGoalDeadlineScheduler } from './goalDeadlineScheduler';
 import {
   GOAL_FORK_CLEARED_REMINDER_NAME,
@@ -238,7 +236,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
     @ISessionUsageService usageService: ISessionUsageService,
     @IConfigService private readonly config: IConfigService,
-    @IFlagService private readonly flags: IFlagService,
     @IGoalDeadlineScheduler private readonly deadlineScheduler: IGoalDeadlineScheduler,
     @IAgentScopeContext private readonly agentContext: IAgentScopeContext,
     @IAgentStateService private readonly states: IAgentStateService,
@@ -881,7 +878,6 @@ export class AgentGoalService extends Disposable implements IAgentGoalService {
 
   private isWaitForAvailable(): boolean {
     return (
-      this.flags.enabled(WAIT_FOR_FLAG_ID) &&
       this.toolRegistry.resolve('WaitFor') !== undefined &&
       this.toolPolicy.isToolActive('WaitFor')
     );

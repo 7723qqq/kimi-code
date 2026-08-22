@@ -41,6 +41,8 @@ import { ISessionSkillCatalogData } from '#/session/sessionSkillCatalog/skillCat
 import type { PermissionData, PermissionMode } from '#/agent/permissionPolicy/types';
 import type { PermissionRule } from '#/agent/permissionRules/permissionRules';
 import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
+import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
+import { stubSessionIndexMirror } from '../app/sessionIndex/stubs';
 import { IAgentProfileService, type AgentConfigData } from '#/agent/profile/profile';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
@@ -836,6 +838,7 @@ function normalizeTestAgentInputs(inputs: readonly TestAgentInput[]): {
       overrides.push(input);
     }
   }
+  overrides.unshift(appService(ISessionIndexMirror, stubSessionIndexMirror()));
   return { options, overrides };
 }
 

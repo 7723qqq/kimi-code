@@ -66,7 +66,7 @@ export interface ISessionIndex {
    * Open the read model and make it servable: open the query store, create
    * the schema, restore the published generation (running the initial
    * projection when none exists), and start background reconciliation.
-   * Single-flight; a no-op when the read-model flag is off.
+   * Single-flight.
    */
   prepare(options?: { deadlineMs?: number }): Promise<SessionIndexStatus>;
   status(): SessionIndexStatus;

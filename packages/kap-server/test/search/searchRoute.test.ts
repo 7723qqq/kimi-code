@@ -2,8 +2,6 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-process.env['KIMI_CODE_EXPERIMENTAL_SEARCH_WORKER'] = '1';
-
 import { ISessionIndex, type SessionSummary } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 

@@ -544,7 +544,6 @@ export * from '#/persistence/backends/node-fs/appendLogStore';
 export * from '#/persistence/backends/node-fs/atomicDocumentStore';
 export * from '#/persistence/backends/node-fs/blobStoreService';
 export * from '#/persistence/backends/node-fs/projectLocalConfigService';
-import '#/persistence/backends/minidb/flag';
 export * from '#/persistence/backends/minidb/miniDbQueryStore';
 export * from '#/persistence/backends/memory/inMemoryStorageService';
 export * from '#/agent/tools/web-search/web-search';

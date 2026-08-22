@@ -1223,6 +1223,8 @@ describe('server-v2 /api/v1/sessions', () => {
     };
     await seedBucket(typedId, 's-typed', 50);
     await seedBucket(lowerId, 's-lower', 60);
+    // Out-of-band writes only reach a ready read model via reconcile.
+    await postJson<void>('/api/v1/debug/sessionIndex/reconcileNow', {});
 
     const workspaces = await getJson<{ items: { id: string }[] }>('/api/v1/workspaces');
     const rep = workspaces.body.data.items[0]?.id as string;
@@ -1606,8 +1608,6 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
   let home: string | undefined;
   let base: string;
 
-  const READ_MODEL_ENV = 'KIMI_CODE_EXPERIMENTAL_PERSISTENCE_MINIDB_READMODEL';
-
   const READ_MODEL_CONFIG = [
     'default_model = "stub"',
     '',
@@ -1624,7 +1624,6 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
   ].join('\n');
 
   beforeEach(async () => {
-    process.env[READ_MODEL_ENV] = '1';
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-sessions-rm-'));
     await writeFile(join(home, 'config.toml'), READ_MODEL_CONFIG, 'utf8');
     server = await startServer({
@@ -1639,7 +1638,6 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
   });
 
   afterEach(async () => {
-    process.env[READ_MODEL_ENV] = 'false';
     if (server !== undefined) {
       await server.close();
       server = undefined;

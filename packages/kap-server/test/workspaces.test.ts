@@ -44,6 +44,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       port: 0,
       homeDir: home,
       logLevel: 'silent',
+      debugEndpoints: true,
     });
     base = `http://127.0.0.1:${server.port}`;
   });
@@ -237,6 +238,8 @@ describe('server-v2 /api/v1/workspaces', () => {
     };
     await seedBucket(typedId, 's-typed', {});
     await seedBucket(lowerId, 's-lower', { archived: true, updatedAt: 2 });
+    // Out-of-band writes only reach a ready read model via reconcile.
+    await postJson<void>('/api/v1/debug/sessionIndex/reconcileNow', {});
 
     const { body } = await getJson<ListWire>('/api/v1/workspaces');
     expect(body.code).toBe(0);

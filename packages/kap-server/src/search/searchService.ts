@@ -5,12 +5,10 @@ import { stat } from 'node:fs/promises';
 import {
   createDecorator,
   IBootstrapService,
-  IFlagService,
   ILogService,
   ISessionIndex,
   LifecycleScope,
   ScopeActivation,
-  registerFlagDefinition,
   registerScopedService,
   sessionDirOf,
   workspacePersistenceScope,
@@ -76,24 +74,6 @@ async function pathExists(path: string): Promise<boolean> {
     return false;
   }
 }
-
-/**
- * `search_worker` — run the global search index in a dedicated worker
- * thread (default ON). Disable via `KIMI_CODE_EXPERIMENTAL_SEARCH_WORKER=false`
- * or the `[experimental]` config section to fall back to the in-process
- * (inline) host. Read once at service construction.
- */
-export const SEARCH_WORKER_FLAG_ID = 'search_worker';
-
-registerFlagDefinition({
-  id: SEARCH_WORKER_FLAG_ID,
-  title: 'search worker isolation',
-  description:
-    'Run the global search-index MiniDB (open, WAL replay, sync, queries) in a dedicated worker thread instead of the server main thread.',
-  env: 'KIMI_CODE_EXPERIMENTAL_SEARCH_WORKER',
-  default: true,
-  surface: 'core',
-});
 
 const pendingDisposals = new Set<Promise<void>>();
 
@@ -215,7 +195,7 @@ export interface SearchBackend {
   dispose(): Promise<void>;
 }
 
-/** Rollback host: the search-index core running on the main thread. */
+/** The search-index core running on the main thread; tests inject it to drive core internals. */
 export class InlineSearchBackend implements SearchBackend {
   readonly core: SearchIndexCore;
 
@@ -312,12 +292,10 @@ export class GlobalSearchService implements IGlobalSearchService {
     @ISessionIndex private readonly sessionIndex: ISessionIndex,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ILogService private readonly log: ILogService,
-    @IFlagService private readonly flags: IFlagService,
+    backend?: SearchBackend,
   ) {
     const indexDir = join(this.bootstrap.homeDir, INDEX_DIR_NAME);
-    this.backend = this.flags.enabled(SEARCH_WORKER_FLAG_ID)
-      ? new SearchWorkerHost({ dir: indexDir, log: this.log })
-      : new InlineSearchBackend({ indexDir, log: this.log });
+    this.backend = backend ?? new SearchWorkerHost({ dir: indexDir, log: this.log });
     this.requestSync();
   }
 

@@ -13,10 +13,8 @@ import type { AgentTaskInfo, AgentTaskOutputSnapshot } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { formatPlainObject } from '#/agent/task/tools/format';
 import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
-import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { abortError, linkAbortSignal } from '#/_base/utils/abort';
-import { WAIT_FOR_FLAG_ID } from './flag';
 import { IWaitForTool, WaitForInputSchema, type WaitForInput } from './task-wait';
 import WAIT_FOR_DESCRIPTION from './task-wait.md?raw';
 
@@ -120,7 +118,6 @@ export class WaitForTool implements IWaitForTool {
   constructor(
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IFlagService private readonly flags: IFlagService,
   ) {}
 
   resolveExecution(args: WaitForInput): ToolExecution {
@@ -139,12 +136,6 @@ export class WaitForTool implements IWaitForTool {
     args: WaitForInput,
     ctx: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
-    if (!this.flags.enabled(WAIT_FOR_FLAG_ID)) {
-      return {
-        isError: true,
-        output: 'WaitFor is disabled: the wait_for experimental flag is off.',
-      };
-    }
     const startedAt = Date.now();
     const timeoutMs = args.timeout * 1000;
     const runningAtStart = this.tasks.list(true);
@@ -334,5 +325,4 @@ export class WaitForTool implements IWaitForTool {
 registerAgentToolService(IWaitForTool, WaitForTool, {
   name: 'WaitFor',
   domain: 'agentTask',
-  when: (accessor) => accessor.get(IFlagService).enabled(WAIT_FOR_FLAG_ID),
 });

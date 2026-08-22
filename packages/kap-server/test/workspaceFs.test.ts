@@ -118,8 +118,11 @@ describe('server-v2 /api/v1 fs folder picker', () => {
     );
     expect(body.code).toBe(0);
     expect(body.data.path).toBe(await realpath(root));
-    const names = body.data.entries.map((e) => e.name).sort();
-    expect(names).toEqual(['alpha', 'beta']);
+    const names = body.data.entries.map((e) => e.name);
+    // Engine-internal dirs (cache/, logs/) may live next to them.
+    expect(names).toContain('alpha');
+    expect(names).toContain('beta');
+    expect(names).not.toContain('README.md');
     for (const entry of body.data.entries) {
       expect(entry.is_dir).toBe(true);
       expect(entry.path).toBe(join(await realpath(root), entry.name));
@@ -135,7 +138,10 @@ describe('server-v2 /api/v1 fs folder picker', () => {
       `/api/v1/fs:browse?path=${encodeURIComponent(root)}`,
     );
     expect(body.code).toBe(0);
-    expect(body.data.entries.map((e) => e.name)).toEqual(['alpha', '.zeta']);
+    const names = body.data.entries.map((e) => e.name);
+    expect(names).toContain('alpha');
+    expect(names).toContain('.zeta');
+    expect(names.indexOf('alpha')).toBeLessThan(names.indexOf('.zeta'));
   });
 
   it('returns parent=null for the filesystem root', async () => {
