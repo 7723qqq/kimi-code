@@ -35,6 +35,8 @@ import {
   kimiCodeUserInfoUrl,
   type ManagedUserInfoResult,
 } from './managed-userinfo';
+import { GOOGLE_GEMINI_PROVIDER_ID } from './google-models';
+import { GoogleOAuthManager } from './google-oauth';
 import {
   fetchManagedUsage,
   kimiCodeUsageUrl,
@@ -120,6 +122,14 @@ export class KimiOAuthToolkit<TConfig = unknown> {
   >;
   private readonly managers = new Map<string, OAuthManager>();
   private _identityHeaders: Record<string, string> | undefined;
+  private _googleOAuthManager: GoogleOAuthManager | undefined;
+
+  get googleOAuthManager(): GoogleOAuthManager {
+    return (this._googleOAuthManager ??= new GoogleOAuthManager({
+      storage: this.storage,
+      credentialsDir: join(this.homeDir, 'credentials'),
+    }));
+  }
 
   constructor(options: KimiOAuthToolkitOptions<TConfig>) {
     this.identity =
@@ -144,6 +154,16 @@ export class KimiOAuthToolkit<TConfig = unknown> {
     oauthRef?: KimiOAuthTokenRef | undefined,
   ): Promise<AuthStatus> {
     const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
+    if (name === GOOGLE_GEMINI_PROVIDER_ID) {
+      return {
+        providers: [
+          {
+            providerName: name,
+            hasToken: await this.googleOAuthManager.hasToken(),
+          },
+        ],
+      };
+    }
     const oauthHost = this.oauthHostFor(oauthRef);
     const oauthKey = oauthRef?.key ?? this.defaultOAuthKey(undefined, oauthHost);
     return {
@@ -234,6 +254,10 @@ export class KimiOAuthToolkit<TConfig = unknown> {
     oauthRef?: KimiOAuthTokenRef | undefined,
   ): Promise<KimiOAuthLogoutResult> {
     const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
+    if (name === GOOGLE_GEMINI_PROVIDER_ID) {
+      await this.googleOAuthManager.logout();
+      return { providerName: name, ok: true };
+    }
     const oauthHost = this.oauthHostFor(oauthRef);
     const oauthKey = oauthRef?.key ?? this.defaultOAuthKey(undefined, oauthHost);
     await this.managerFor(name, oauthKey, oauthHost).logout();
@@ -253,6 +277,11 @@ export class KimiOAuthToolkit<TConfig = unknown> {
     } = {},
   ): Promise<string> {
     const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
+    if (name === GOOGLE_GEMINI_PROVIDER_ID) {
+      const token = await this.googleOAuthManager.getValidAccessToken();
+      if (!token) throw new Error('Google OAuth token not found or expired');
+      return token;
+    }
     const oauthHost = this.oauthHostFor(options.oauthRef);
     const oauthKey = options.oauthRef?.key ?? this.defaultOAuthKey(undefined, oauthHost);
     return this.managerFor(name, oauthKey, oauthHost).ensureFresh(options);
@@ -263,6 +292,9 @@ export class KimiOAuthToolkit<TConfig = unknown> {
     oauthRef?: KimiOAuthTokenRef,
   ): Promise<string | undefined> {
     const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
+    if (name === GOOGLE_GEMINI_PROVIDER_ID) {
+      return this.googleOAuthManager.getValidAccessToken();
+    }
     const oauthHost = this.oauthHostFor(oauthRef);
     const oauthKey = oauthRef?.key ?? this.defaultOAuthKey(undefined, oauthHost);
     return this.managerFor(name, oauthKey, oauthHost).getCachedAccessToken();
@@ -273,6 +305,11 @@ export class KimiOAuthToolkit<TConfig = unknown> {
     oauthRef?: KimiOAuthTokenRef | undefined,
   ): BearerTokenProvider {
     const name = providerName ?? KIMI_CODE_PROVIDER_NAME;
+    if (name === GOOGLE_GEMINI_PROVIDER_ID) {
+      return {
+        getAccessToken: async () => (await this.googleOAuthManager.getValidAccessToken()) ?? '',
+      };
+    }
     const oauthHost = this.oauthHostFor(oauthRef);
     const oauthKey = oauthRef?.key ?? this.defaultOAuthKey(undefined, oauthHost);
     return {

@@ -209,3 +209,26 @@ export type {
 
 export type { OAuthTokenTransactionOptions } from './oauth-token-transaction';
 export { OAuthTokenTransaction } from './oauth-token-transaction';
+
+export {
+  GOOGLE_GEMINI_DEFAULT_MODEL_ID,
+  GOOGLE_GEMINI_DEFAULT_MODELS,
+  GOOGLE_GEMINI_PROVIDER_ID,
+} from './google-models';
+export type { GoogleGeminiModelDef } from './google-models';
+
+export {
+  applyGoogleGeminiConfig,
+  GOOGLE_AUTH_ENDPOINT,
+  GOOGLE_DEFAULT_CLIENT_ID,
+  GOOGLE_DEFAULT_CLIENT_SECRET,
+  GOOGLE_SCOPES,
+  GOOGLE_TOKEN_ENDPOINT,
+  GoogleOAuthManager,
+} from './google-oauth';
+export type {
+  GoogleDeviceAuthorization,
+  GoogleLoginResult,
+  GoogleOAuthOptions,
+} from './google-oauth';
+

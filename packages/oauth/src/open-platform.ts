@@ -17,6 +17,7 @@ import type {
   ManagedKimiConfigShape,
   ManagedKimiModelAlias,
 } from './managed-kimi-code';
+import { GOOGLE_GEMINI_DEFAULT_MODELS } from './google-models';
 import { MANAGED_KIMI_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import { isRecord } from './utils';
 
@@ -28,6 +29,7 @@ export interface OpenPlatformDefinition {
   readonly baseUrl: string;
   readonly consoleUrl?: string;
   readonly allowedPrefixes?: readonly string[] | undefined;
+  readonly providerType?: string;
 }
 
 export const OPEN_PLATFORMS: readonly OpenPlatformDefinition[] = [
@@ -44,6 +46,13 @@ export const OPEN_PLATFORMS: readonly OpenPlatformDefinition[] = [
     baseUrl: 'https://api.moonshot.ai/v1',
     consoleUrl: 'https://platform.kimi.ai',
     allowedPrefixes: ['kimi-k'],
+  },
+  {
+    id: 'google-aistudio',
+    name: 'Google AI Studio (API key · aistudio.google.com)',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    consoleUrl: 'https://aistudio.google.com',
+    providerType: 'google-genai',
   },
   {
     id: 'astron',
@@ -222,6 +231,22 @@ export async function fetchOpenPlatformModels(
   fetchImpl?: typeof fetch,
   signal?: AbortSignal,
 ): Promise<ManagedKimiCodeModelInfo[]> {
+  // Google AI Studio models are predefined Gemini catalog
+  if (platform.id === 'google-aistudio' || platform.id === 'google-gemini') {
+    return GOOGLE_GEMINI_DEFAULT_MODELS.map((m): ManagedKimiCodeModelInfo => ({
+      id: m.id,
+      contextLength: m.contextLength,
+      displayName: m.displayName,
+      supportsReasoning: m.supportsReasoning,
+      supportsImageIn: m.supportsImageIn,
+      supportsVideoIn: m.supportsVideoIn,
+      supportsToolUse: m.supportsToolUse,
+      supportsThinkingType: m.supportsReasoning ? 'both' : 'no',
+      supportEfforts: m.supportEfforts ? [...m.supportEfforts] : undefined,
+      defaultEffort: m.defaultEffort,
+    }));
+  }
+
   // Astron (xfyun.cn) models are embedded — no remote fetch needed.
   if (platform.id === 'astron') {
     return ASTRON_MODEL_DEFS.map((m): ManagedKimiCodeModelInfo => {
@@ -304,7 +329,7 @@ export function applyOpenPlatformConfig(
   const modelKey = `${providerKey}/${options.selectedModel.id}`;
 
   config.providers[providerKey] = {
-    type: 'kimi',
+    type: options.platform.providerType ?? 'kimi',
     baseUrl: options.platform.baseUrl,
     apiKey: options.apiKey,
   };
