@@ -173,6 +173,12 @@ export interface SlashCommandHost {
   /** Reset the client-side cache-break baseline after the context was cut
    *  (/undo): the next step's cache-read drop is expected, not a break. */
   noteContextCut?(): void;
+  /**
+   * Last measured step's full input size — what a model/effort switch would
+   * reprocess against the provider prompt cache. Undefined when there is no
+   * measurable baseline (fresh session, post-compaction, or missing usage).
+   */
+  estimateSwitchLossTokens?(): number | undefined;
 
   // UI
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle;

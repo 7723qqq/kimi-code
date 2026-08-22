@@ -3546,6 +3546,11 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
     this.cacheHint.noteStepUsage(usage);
   }
 
+  /** Input size a model/effort switch would reprocess (see controller). */
+  estimateSwitchLossTokens(): number | undefined {
+    return this.cacheHint.estimateSwitchLossTokens();
+  }
+
   /**
    * Per-step cache-hit and output-speed accounting for the footer readout:
    * accumulate cache hit/miss input tokens for the live hit rate, and fold

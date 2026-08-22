@@ -38,6 +38,7 @@ import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-
 import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import { formatTokenCount } from '../../utils/usage/usage-format';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import type { SlashCommandHost } from './dispatch';
 import { setExperimentalFeatures } from './experimental-flags';
@@ -56,6 +57,20 @@ const MODEL_PICKER_REFRESH_TIMEOUT_MS = 2_000;
  * they're excluded. */
 function hasConversationHistory(host: SlashCommandHost): boolean {
   return host.state.transcriptEntries.some((entry) => entry.kind === 'user' && entry.bullet !== '');
+}
+
+/**
+ * The picker warning shown when switching would resend context. With a
+ * measured cache baseline it names the actual token count at risk; without
+ * one (fresh session, post-compaction, missing usage) it falls back to the
+ * static per-switch wording.
+ */
+function cachedSwitchWarning(host: SlashCommandHost, fallback: string): string {
+  const lossTokens = host.estimateSwitchLossTokens?.();
+  if (lossTokens === undefined) return fallback;
+  return t('tui.messages.configSwitchCachedWarningTokens', {
+    tokens: formatTokenCount(lossTokens),
+  });
 }
 
 export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConfig {
@@ -358,7 +373,7 @@ function showEffortPicker(
       efforts: segments,
       currentValue,
       warning: hasConversationHistory(host)
-        ? t('tui.messages.configEffortCachedWarning')
+        ? cachedSwitchWarning(host, t('tui.messages.configEffortCachedWarning'))
         : undefined,
       onSelect: (effort) => {
         host.restoreEditor();
@@ -499,7 +514,7 @@ export function showModelPicker(
       selectedValue,
       currentThinkingEffort: host.state.appState.thinkingEffort,
       warning: hasConversationHistory(host)
-        ? t('tui.messages.configModelCachedWarning')
+        ? cachedSwitchWarning(host, t('tui.messages.configModelCachedWarning'))
         : undefined,
       onSelect: ({ alias, thinking }) => {
         host.restoreEditor();

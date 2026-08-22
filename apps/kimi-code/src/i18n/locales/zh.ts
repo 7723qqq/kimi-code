@@ -883,6 +883,10 @@ export default {
       goalBlocked: '目标已阻塞。',
       goalBlockedDetail: '下一个排队的任务将在当前目标完成后启动。',
       warningPrefix: '警告：{{message}}',
+      cacheBreakDetected: '提示缓存已失效，约 {{tokens}} token 已按全价重新处理。',
+      cacheHintPreferenceSaveFailed: '无法保存缓存提示偏好设置。',
+      cacheCompactFailed: '压缩失败：{{error}}',
+      cacheCompactNotStarted: '压缩未能及时启动——你的输入已还原。',
       mcpServerConnected: 'MCP 服务器 "{{name}}" 已连接 · {{count}} 个工具（{{transport}}）',
       mcpServerFailed: 'MCP 服务器 "{{name}}" 失败',
       mcpServerFailedWithError: 'MCP 服务器 "{{name}}" 失败：{{error}}',
@@ -1627,6 +1631,8 @@ export default {
       configNoExperimentalChanges: '没有需要应用的实验性功能变更。',
       configModelCachedWarning:
         '注意：切换模型会使现有的提示缓存失效。使用 /new 可避免额外的 token 开销。',
+      configSwitchCachedWarningTokens:
+        '注意：此切换会使现有的提示缓存失效，约 {{tokens}} token 将被重新处理。使用 /new 可避免额外的 token 开销。',
       configEffortCachedWarning:
         '注意：切换思考力度会使现有的提示缓存失效。使用 /new 可避免额外的 token 开销。',
       configNoneDeclared: '未声明',

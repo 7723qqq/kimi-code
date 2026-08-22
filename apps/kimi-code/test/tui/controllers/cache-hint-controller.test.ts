@@ -46,6 +46,7 @@ function makeHost(
     state: state as never,
     track: vi.fn(),
     setAppState: vi.fn((patch) => Object.assign(state.appState, patch)),
+    showStatus: vi.fn(),
     mountEditorReplacement: vi.fn(),
     restoreEditor: vi.fn(),
     restoreInputText: vi.fn(),
@@ -388,6 +389,18 @@ describe('CacheHintController cache-break detection', () => {
     inputCacheCreation: 0,
   });
 
+  it('estimates the switch loss from the measured baseline', () => {
+    const { host } = makeHost();
+    const controller = new CacheHintController(host);
+    expect(controller.estimateSwitchLossTokens()).toBeUndefined();
+
+    controller.noteStepUsage({ ...u(10000), inputCacheCreation: 200 });
+    expect(controller.estimateSwitchLossTokens()).toBe(100 + 10000 + 200);
+
+    controller.resetCacheBreakBaseline();
+    expect(controller.estimateSwitchLossTokens()).toBeUndefined();
+  });
+
   it('does not judge the first measured step', () => {
     const { host } = makeHost();
     const controller = new CacheHintController(host);
@@ -424,6 +437,12 @@ describe('CacheHintController cache-break detection', () => {
         curr_input_cache_read: 7000,
         cache_read_drop_ratio: 0.3,
       }),
+    );
+    // The break is also surfaced as a transient status notice naming the
+    // tokens this step processed uncached (the full-price input).
+    expect(host.showStatus).toHaveBeenCalledWith(
+      expect.stringContaining('100'),
+      'warning',
     );
   });
 

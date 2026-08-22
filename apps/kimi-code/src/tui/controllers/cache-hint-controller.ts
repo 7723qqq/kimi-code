@@ -10,7 +10,9 @@ import { log, type KimiHarness, type Session, type TokenUsage } from '@moonshot-
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import type { ColorToken } from '#/tui/theme';
 import { getCacheHintConfig, peekCacheHintConfig } from '#/utils/cache-hint-config';
+import { formatTokenCount } from '#/utils/usage/usage-format';
 import { currentTuiConfig } from '../commands/config';
 import {
   CacheHintDialogComponent,
@@ -50,6 +52,8 @@ export interface CacheHintHost {
   showError(message: string): void;
   createNewSession(): Promise<void>;
   sendNormalUserInput(text: string, preExtracted?: ExtractionResult): Promise<void>;
+  /** Transient status-line notice. Optional: only the TUI host provides it. */
+  showStatus?(msg: string, color?: ColorToken): void;
   /**
    * A stashed extraction is being released back into the editor: consume the
    * staged media's retains so the restored draft resubmits them (daemon
@@ -159,12 +163,38 @@ export class CacheHintController {
       cache_read_drop_ratio: (prevRead - currRead) / prevRead,
       interval_ms: now - prev.time,
     });
+    // Surface the break in the UI as well: the tokens this step processed
+    // uncached are exactly what the user is paying full price for.
+    if (usage.inputOther > 0) {
+      this.host.showStatus?.(
+        t('tui.statusMessages.cacheBreakDetected', {
+          tokens: formatTokenCount(usage.inputOther),
+        }),
+        'warning',
+      );
+    }
   }
 
   /** Compaction legitimately shrinks the cached prefix — reset the baseline.
    *  Also used when the context is cut by other means (e.g. /undo). */
   resetCacheBreakBaseline(): void {
     this.breakBaseline = undefined;
+  }
+
+  /**
+   * Estimated input size a model/effort switch would reprocess: the last
+   * measured step's full prompt (uncached + cache-read + cache-write).
+   * Undefined without a measurable baseline — fresh session, after
+   * compaction/undo, or a provider that reports no usage.
+   */
+  estimateSwitchLossTokens(): number | undefined {
+    const baseline = this.breakBaseline;
+    if (baseline === undefined) return undefined;
+    const total =
+      baseline.usage.inputOther +
+      baseline.usage.inputCacheRead +
+      baseline.usage.inputCacheCreation;
+    return total > 0 ? total : undefined;
   }
 
   recordActivity(): void {
