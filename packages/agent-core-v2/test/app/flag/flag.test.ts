@@ -196,4 +196,13 @@ describe('FlagService', () => {
     expect(flags.snapshot()).toEqual({ example_flag: false });
     expect(flags.explain('obsolete_flag')).toBeUndefined();
   });
+
+  it('registers the astron flag consumed by the TUI settings gate', async () => {
+    const { getContributedFlags } = await import('#/app/flag/flagRegistry');
+    await import('#/features/astron/flag');
+    const registered = getContributedFlags().find((d) => d.id === 'xunfei_coding_plan');
+
+    expect(registered).toBeDefined();
+    expect(registered?.env).toBe('KIMI_CODE_EXPERIMENTAL_XUNFEI_CODING_PLAN');
+  });
 });

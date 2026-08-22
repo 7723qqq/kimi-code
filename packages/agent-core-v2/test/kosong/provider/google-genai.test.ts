@@ -3,15 +3,14 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { APIProviderRateLimitError } from '#/kosong/contract/errors';
 import type { Message } from '#/kosong/contract/message';
 import type { StreamedMessage } from '#/kosong/contract/provider';
-import { AntigravityChatProvider as FakeAntigravityChatProvider } from '#/kosong/provider/bases/antigravity/antigravity';
 import {
   convertGoogleGenAIError,
   GoogleGenAIChatProvider,
   GoogleGenAIStreamedMessage,
 } from '#/kosong/provider/bases/google-genai/google-genai';
 
-vi.mock('#/kosong/provider/bases/antigravity/antigravity', () => ({
-  AntigravityChatProvider: class FakeAntigravityChatProvider {
+const FakeAntigravityChatProvider = vi.hoisted(() => {
+  class FakeAntigravityChatProvider {
     static readonly instances: Array<{
       options: unknown;
       generateCalls: number;
@@ -32,7 +31,12 @@ vi.mock('#/kosong/provider/bases/antigravity/antigravity', () => ({
       }
       return (async function* () {})() as unknown as StreamedMessage;
     }
-  },
+  }
+  return FakeAntigravityChatProvider;
+});
+
+vi.mock('#/kosong/provider/bases/antigravity/antigravity', () => ({
+  AntigravityChatProvider: FakeAntigravityChatProvider,
   detectAntigravityBinary: () => '/usr/local/bin/agy',
 }));
 
