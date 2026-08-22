@@ -12,6 +12,7 @@ import { getMessageResponseSchema, listMessagesResponseSchema } from '../protoco
 import {
   getMessage,
   listMessages,
+  MessageCursorNotFoundError,
   MessageNotFoundError,
   SessionNotFoundError,
 } from '../services/messages/messageHistory';
@@ -67,6 +68,7 @@ export function registerMessagesRoutes(app: MessageRouteHost, core: Scope): void
       errors: {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
+        [ErrorCode.PAGE_TOKEN_MISMATCH]: {},
       },
       description: 'List messages for a session',
       tags: ['messages'],
@@ -127,6 +129,12 @@ function sendMappedError(
   const log = requestLog(req);
   if (err instanceof SessionNotFoundError) {
     reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId, err.stack));
+    return;
+  }
+  if (err instanceof MessageCursorNotFoundError) {
+    reply.send(
+      errEnvelope(ErrorCode.PAGE_TOKEN_MISMATCH, t('serverErrors.invalidCursorId', { id: err.messageId }), requestId),
+    );
     return;
   }
   if (err instanceof MessageNotFoundError) {

@@ -29,7 +29,10 @@ describe('/api/v1/debug transport mapError', () => {
 });
 
 describe('installErrorHandler (catch-all)', () => {
-  function run(err: unknown): { code: number; msg: string } {
+  function run(err: unknown): {
+    status: number;
+    body: { code: number; msg: string };
+  } {
     let installed: unknown;
     installErrorHandler({
       setErrorHandler: (h) => {
@@ -42,22 +45,44 @@ describe('installErrorHandler (catch-all)', () => {
       req: { id: string; log: { error: () => void } },
       reply: { status: (code: number) => { send: (p: unknown) => void } },
     ) => void;
-    let payload: { code: number; msg: string } | undefined;
+    let status = 200;
+    let body: { code: number; msg: string } | undefined;
     handler(
       err,
       { id: 'req-1', log: { error: () => {} } },
-      { status: () => ({ send: (p: unknown) => void (payload = p as typeof payload) }) },
+      {
+        status: (code: number) => ({
+          send: (p: unknown) => {
+            status = code;
+            body = p as typeof body;
+          },
+        }),
+      },
     );
-    return payload!;
+    return { status, body: body! };
   }
 
-  it('maps an escaped config.invalid to VALIDATION_FAILED', () => {
-    const env = run(new Error2(ErrorCodes.CONFIG_INVALID, 'broken pool'));
-    expect(env.code).toBe(ErrorCode.VALIDATION_FAILED);
-    expect(env.msg).toContain('broken pool');
+  it('maps an escaped config.invalid to VALIDATION_FAILED over HTTP 200', () => {
+    const { status, body } = run(new Error2(ErrorCodes.CONFIG_INVALID, 'broken pool'));
+    expect(status).toBe(200);
+    expect(body.code).toBe(ErrorCode.VALIDATION_FAILED);
+    expect(body.msg).toContain('broken pool');
   });
 
-  it('keeps unknown exceptions at INTERNAL_ERROR', () => {
-    expect(run(new Error('boom')).code).toBe(ErrorCode.INTERNAL_ERROR);
+  it('maps a Fastify protocol error to its HTTP status and a readable message', () => {
+    const { status, body } = run({
+      statusCode: 400,
+      message: 'Body contains invalid JSON',
+    } as never);
+    expect(status).toBe(400);
+    expect(body.code).toBe(ErrorCode.REQUEST_MALFORMED);
+    expect(body.msg).toBe('Body contains invalid JSON');
+  });
+
+  it('keeps unknown exceptions at INTERNAL_ERROR over HTTP 500 without leaking details', () => {
+    const { status, body } = run(new Error('boom: secret internals'));
+    expect(status).toBe(500);
+    expect(body.code).toBe(ErrorCode.INTERNAL_ERROR);
+    expect(body.msg).toBe('internal error');
   });
 });

@@ -265,6 +265,7 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
       errors: {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.WORKSPACE_NOT_FOUND]: {},
+        [ErrorCode.PAGE_TOKEN_MISMATCH]: {},
       },
       description: 'List sessions',
       tags: ['sessions'],
@@ -293,6 +294,17 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
           : await core.accessor.get(IWorkspaceAliases).resolveAliasIds(raw.workspace_id);
       const index = core.accessor.get(ISessionIndex);
       const includeArchived = archivedOnly ? true : raw.include_archive;
+
+      if (raw.after_id !== undefined && (await index.get(raw.after_id)) === undefined) {
+        reply.send(
+          errEnvelope(
+            ErrorCode.PAGE_TOKEN_MISMATCH,
+            t('serverErrors.invalidCursorId', { id: raw.after_id }),
+            req.id,
+          ),
+        );
+        return;
+      }
 
       interface Eligible {
         readonly summary: SessionSummary;
@@ -328,14 +340,10 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
             const cwd = summary.cwd ?? roots.get(summary.workspaceId);
             if (cwd === undefined) continue;
             if (raw.exclude_empty === true && (summary.lastPrompt ?? '').length === 0) continue;
-            if (archivedOnly) {
-              if (!summary.archived) continue;
-              const facts = resolveSessionFacts(core, summary.id);
-              if (raw.busy !== undefined && facts.busy !== raw.busy) continue;
-              collected.push({ summary, cwd, facts });
-            } else {
-              collected.push({ summary, cwd });
-            }
+            if (archivedOnly && !summary.archived) continue;
+            const facts = resolveSessionFacts(core, summary.id);
+            if (raw.busy !== undefined && facts.busy !== raw.busy) continue;
+            collected.push({ summary, cwd, facts });
           }
           if (exhausted || page.nextCursor === undefined) break;
           before = page.nextCursor;
@@ -370,13 +378,9 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
 
       const pageSize = raw.page_size ?? DEFAULT_SESSION_LIST_PAGE_SIZE;
       const { visible, hasMore } = await collect(pageSize);
-      const projected = visible.map(({ summary, cwd, facts }) =>
+      const items = visible.map(({ summary, cwd, facts }) =>
         toWireSession(summary, cwd, facts ?? resolveSessionFacts(core, summary.id)),
       );
-      const items =
-        raw.busy !== undefined && !archivedOnly
-          ? projected.filter((session) => session.busy === raw.busy)
-          : projected;
       reply.send(okEnvelope({ items, has_more: hasMore }, req.id));
     },
   );
@@ -653,29 +657,37 @@ export function registerSessionsRoutes(app: SessionRouteHost, core: Scope): void
         }
 
         const pageSize = req.query.page_size ?? 100;
-        const page = await core.accessor.get(ISessionIndex).listRecent({
-          childOf: session_id,
-          before: req.query.before_id,
-          after: req.query.after_id,
-          limit: pageSize + 1,
-        });
-        const window = page.items.slice(0, pageSize);
+        const wanted = pageSize + 1;
+        const matched: SessionSummary[] = [];
+        let before = req.query.before_id;
+        while (matched.length < wanted) {
+          const page = await core.accessor.get(ISessionIndex).listRecent({
+            childOf: session_id,
+            before,
+            after: before === undefined ? req.query.after_id : undefined,
+            limit: wanted - matched.length,
+          });
+          if (page.items.length === 0) break;
+          for (const summary of page.items) {
+            const { busy } = resolveSessionFacts(core, summary.id);
+            if (req.query.busy !== undefined && busy !== req.query.busy) continue;
+            matched.push(summary);
+          }
+          if (page.nextCursor === undefined) break;
+          before = page.nextCursor;
+        }
 
         const roots = new Map(
           (await core.accessor.get(IWorkspaceService).list()).map((w) => [w.id, w.root]),
         );
-        const projected = window.map((summary) =>
+        const items = matched.slice(0, pageSize).map((summary) =>
           toWireSession(
             summary,
             summary.cwd ?? roots.get(summary.workspaceId) ?? '',
             resolveSessionFacts(core, summary.id),
           ),
         );
-        const items =
-          req.query.busy !== undefined
-            ? projected.filter((session) => session.busy === req.query.busy)
-            : projected;
-        reply.send(okEnvelope({ items, has_more: page.nextCursor !== undefined }, req.id));
+        reply.send(okEnvelope({ items, has_more: matched.length > pageSize }, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
       }

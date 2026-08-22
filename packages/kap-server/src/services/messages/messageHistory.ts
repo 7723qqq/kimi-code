@@ -44,6 +44,16 @@ export class MessageNotFoundError extends Error {
   }
 }
 
+/** Sentinel — the route maps it to 40922. */
+export class MessageCursorNotFoundError extends Error {
+  readonly messageId: string;
+  constructor(messageId: string) {
+    super(`message ${messageId} used as a pagination cursor does not exist`);
+    this.name = 'MessageCursorNotFoundError';
+    this.messageId = messageId;
+  }
+}
+
 export interface MessageListQuery {
   readonly before_id?: string | undefined;
   readonly after_id?: string | undefined;
@@ -64,30 +74,24 @@ export async function listMessages(
   const all = await loadMessages(core, sessionId);
   const desc = [...all].reverse();
 
-  let pivotIndex = -1;
-  if (query.before_id !== undefined) {
-    pivotIndex = desc.findIndex((m) => m.id === query.before_id);
-  } else if (query.after_id !== undefined) {
-    pivotIndex = desc.findIndex((m) => m.id === query.after_id);
-  }
-
   let slice: Message[];
-  if (query.before_id !== undefined && pivotIndex >= 0) {
+  if (query.before_id !== undefined) {
+    const pivotIndex = desc.findIndex((m) => m.id === query.before_id);
+    if (pivotIndex < 0) throw new MessageCursorNotFoundError(query.before_id);
     slice = desc.slice(pivotIndex + 1);
-  } else if (query.after_id !== undefined && pivotIndex >= 0) {
+  } else if (query.after_id !== undefined) {
+    const pivotIndex = desc.findIndex((m) => m.id === query.after_id);
+    if (pivotIndex < 0) throw new MessageCursorNotFoundError(query.after_id);
     slice = desc.slice(0, pivotIndex);
   } else {
     slice = desc;
   }
 
+  const filtered = query.role !== undefined ? slice.filter((m) => m.role === query.role) : slice;
+
   const requestedSize = query.page_size ?? DEFAULT_PAGE_SIZE;
   const pageSize = Math.min(Math.max(requestedSize, 1), MAX_PAGE_SIZE);
-  const page = slice.slice(0, pageSize);
-  const hasMore = slice.length > pageSize;
-
-  const filtered = query.role !== undefined ? page.filter((m) => m.role === query.role) : page;
-
-  return { items: filtered, has_more: hasMore };
+  return { items: filtered.slice(0, pageSize), has_more: filtered.length > pageSize };
 }
 
 export async function getMessage(

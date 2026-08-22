@@ -269,7 +269,7 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     expect(newer.body.data.has_more).toBe(false);
   });
 
-  it('filters the page by role after pagination', async () => {
+  it('filters listed messages by role', async () => {
     const id = await createSession();
     await seedMainAgentMessages(id, [
       { role: 'user', content: [{ type: 'text', text: 'q' }], toolCalls: [] },
@@ -281,6 +281,44 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     expect(body.data.items.every((m) => m.role === 'user')).toBe(true);
     expect(body.data.items).toHaveLength(2);
     expect(body.data.items.every((m) => MSG_ID.test(m.id))).toBe(true);
+  });
+
+  it('applies the role filter before taking the page', async () => {
+    const id = await createSession();
+    await seedMainAgentMessages(id, [
+      { role: 'user', content: [{ type: 'text', text: 'm0' }], toolCalls: [] },
+      { role: 'assistant', content: [{ type: 'text', text: 'm1' }], toolCalls: [] },
+      { role: 'assistant', content: [{ type: 'text', text: 'm2' }], toolCalls: [] },
+      { role: 'user', content: [{ type: 'text', text: 'm3' }], toolCalls: [] },
+    ]);
+    const { body } = await getJson<PageWire>(
+      `/api/v1/sessions/${id}/messages?role=assistant&page_size=1`,
+    );
+    expect(body.code).toBe(0);
+    expect(body.data.items).toHaveLength(1);
+    expect(body.data.items[0]).toMatchObject({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'm2' }],
+    });
+    expect(body.data.has_more).toBe(true);
+  });
+
+  it('rejects an unknown before_id / after_id cursor with 40922', async () => {
+    const id = await createSession();
+    await seedMainAgentMessages(id, [
+      { role: 'user', content: [{ type: 'text', text: 'm0' }], toolCalls: [] },
+    ]);
+    const before = await getJson<null>(
+      `/api/v1/sessions/${id}/messages?before_id=msg_00NOT_IN_SESSION00`,
+    );
+    expect(before.body.code).toBe(40922);
+    expect(before.body.msg).toContain('msg_00NOT_IN_SESSION00');
+
+    const after = await getJson<null>(
+      `/api/v1/sessions/${id}/messages?after_id=msg_00NOT_IN_SESSION00`,
+    );
+    expect(after.body.code).toBe(40922);
+    expect(after.body.msg).toContain('msg_00NOT_IN_SESSION00');
   });
 
   it('reads the persisted full transcript for a cold session', async () => {

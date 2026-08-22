@@ -478,6 +478,16 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(body.data.has_more).toBe(false);
   });
 
+  it('rejects an unknown after_id cursor with 40922', async () => {
+    const cwd = home as string;
+    await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    const { body } = await getJson<null>(
+      '/api/v1/sessions?page_size=3&after_id=sess_does_not_exist',
+    );
+    expect(body.code).toBe(40922);
+    expect(body.msg).toContain('sess_does_not_exist');
+  });
+
   it('gets a session by id and 404s for unknown', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
@@ -1236,7 +1246,7 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(page2.body.data.has_more).toBe(false);
   });
 
-  it('filters listed sessions by the busy query (post-page, like v1)', async () => {
+  it('filters listed sessions by the busy query', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
@@ -1249,6 +1259,18 @@ describe('server-v2 /api/v1/sessions', () => {
     const running = await getJson<PageWire>('/api/v1/sessions?busy=true');
     expect(running.body.code).toBe(0);
     expect(running.body.data.items.some((s) => s.id === id)).toBe(false);
+  });
+
+  it('returns a terminal empty page when non-archived busy filtering finds no match', async () => {
+    const cwd = home as string;
+    for (let i = 0; i < 2; i++) {
+      const { body } = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+      expect(body.code).toBe(0);
+    }
+
+    const page = await getJson<PageWire>('/api/v1/sessions?busy=true&page_size=1');
+    expect(page.body.code).toBe(0);
+    expect(page.body.data).toEqual({ items: [], has_more: false });
   });
 
   it('filters child sessions by the busy query', async () => {
@@ -1266,6 +1288,12 @@ describe('server-v2 /api/v1/sessions', () => {
     const running = await getJson<PageWire>(`/api/v1/sessions/${parentId}/children?busy=true`);
     expect(running.body.code).toBe(0);
     expect(running.body.data.items.some((s) => s.id === childId)).toBe(false);
+    expect(running.body.data).toEqual({ items: [], has_more: false });
+
+    const paged = await getJson<PageWire>(
+      `/api/v1/sessions/${parentId}/children?busy=true&page_size=1`,
+    );
+    expect(paged.body.data).toEqual({ items: [], has_more: false });
   });
 
   it('keeps a session listable and gettable with cwd after its workspace is unregistered (gap G3)', async () => {
