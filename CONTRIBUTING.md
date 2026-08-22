@@ -143,8 +143,10 @@ Output: `apps/kimi-code/dist-native/bin/win32-x64/kimi.exe`
 ```sh
 cd apps/kimi-code
 pnpm run build:native:js
-pnpm run build:native:sea -- --profile=local
+pnpm run build:native:sea
 ```
+
+The `build:native:sea` script already runs the JS bundle step with the `local` profile.
 
 Output: `apps/kimi-code/dist-native/bin/linux-x64/kimi` (~166 MB)
 
