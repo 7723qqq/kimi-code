@@ -39,7 +39,6 @@ import {
   showSettingsSelector,
 } from './config';
 import { handleCopyCommand } from './copy';
-import { handleTeamCommand } from './team';
 import { handleGoalCommand } from './goal';
 import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 import { parseSlashInput } from './parse';
@@ -69,7 +68,6 @@ import { handleSwarmCommand } from './swarm';
 import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
 import { handleWebCommand } from './web';
-import { handleWorkflowCommand } from './workflow';
 
 // ---------------------------------------------------------------------------
 // Re-exports — keep existing consumers working
