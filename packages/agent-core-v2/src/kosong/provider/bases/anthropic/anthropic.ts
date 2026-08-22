@@ -19,6 +19,10 @@ import type {
   ToolResultBlockParam,
   ToolUseBlockParam,
 } from '@anthropic-ai/sdk/resources/messages/messages.js';
+import {
+  CACHE_CONTROL,
+  injectCacheControlOnLastBlock,
+} from '@moonshot-ai/kosong/providers/anthropic-cache-breakpoints';
 
 import {
   APIConnectionError,
@@ -249,38 +253,11 @@ function budgetTokensForEffort(effort: ThinkingEffort): number | undefined {
   return undefined;
 }
 
-const CACHE_CONTROL = { type: 'ephemeral' as const };
-
-type CacheableBlock = ContentBlockParam & { cache_control?: { type: 'ephemeral' } };
-
 function shouldPreserveUnsignedThinking(model: string): boolean {
   return (
     parseAnthropicModelVersion(model) === null &&
     matchKnownAnthropicModelProfile(model) === undefined
   );
-}
-
-const CACHEABLE_TYPES = new Set([
-  'text',
-  'image',
-  'document',
-  'search_result',
-  'tool_use',
-  'tool_result',
-  'server_tool_use',
-  'web_search_tool_result',
-]);
-
-function injectCacheControlOnLastBlock(messages: MessageParam[]): void {
-  const lastMessage = messages.at(-1);
-  if (lastMessage === undefined) return;
-  const content = lastMessage.content;
-  if (!Array.isArray(content) || content.length === 0) return;
-  const lastBlock = content.at(-1) as CacheableBlock | undefined;
-  if (lastBlock === undefined) return;
-  if (CACHEABLE_TYPES.has(lastBlock.type)) {
-    lastBlock.cache_control = CACHE_CONTROL;
-  }
 }
 
 function isToolResultOnly(message: MessageParam): boolean {
@@ -534,7 +511,7 @@ class AnthropicStreamedMessage implements StreamedMessage {
   };
   private _finishReason: FinishReason | null = null;
   private _rawFinishReason: string | null = null;
-  private readonly _iter: AsyncGenerator<StreamedMessagePart>;
+  private readonly _iter: AsyncGenerator<StreamedMessagePart> | readonly StreamedMessagePart[];
 
   constructor(
     response: unknown,
@@ -611,7 +588,7 @@ class AnthropicStreamedMessage implements StreamedMessage {
     };
   }
 
-  private async *_convertNonStreamResponse(response: {
+  private _convertNonStreamResponse(response: {
     id: string;
     stop_reason?: string | null;
     usage: {
@@ -630,38 +607,44 @@ class AnthropicStreamedMessage implements StreamedMessage {
       name?: string;
       input?: unknown;
     }>;
-  }): AsyncGenerator<StreamedMessagePart> {
+  }): StreamedMessagePart[] {
     this._id = response.id;
     this._extractUsage(response.usage);
     this._captureStopReason(response.stop_reason);
 
+    const parts: StreamedMessagePart[] = [];
     for (const block of response.content) {
       switch (block.type) {
         case 'text':
           if (block.text !== undefined) {
-            yield { type: 'text', text: block.text };
+            parts.push({ type: 'text', text: block.text });
           }
           break;
         case 'thinking':
-          yield block.signature !== undefined
-            ? { type: 'think' as const, think: block.thinking ?? '', encrypted: block.signature }
-            : { type: 'think' as const, think: block.thinking ?? '' };
+          parts.push(
+            block.signature !== undefined
+              ? { type: 'think' as const, think: block.thinking ?? '', encrypted: block.signature }
+              : { type: 'think' as const, think: block.thinking ?? '' },
+          );
           break;
         case 'redacted_thinking':
-          yield block.data !== undefined
-            ? { type: 'think' as const, think: '', encrypted: block.data }
-            : { type: 'think' as const, think: '' };
+          parts.push(
+            block.data !== undefined
+              ? { type: 'think' as const, think: '', encrypted: block.data }
+              : { type: 'think' as const, think: '' },
+          );
           break;
         case 'tool_use':
-          yield {
+          parts.push({
             type: 'function',
             id: block.id ?? crypto.randomUUID(),
             name: block.name ?? '',
             arguments: block.input !== undefined ? JSON.stringify(block.input) : null,
-          } satisfies ToolCall;
+          } satisfies ToolCall);
           break;
       }
     }
+    return parts;
   }
 
   private async *_convertStreamResponse(
@@ -713,6 +696,15 @@ class AnthropicStreamedMessage implements StreamedMessage {
                 _streamIndex: blockIndex,
               } satisfies ToolCall;
               break;
+            case 'server_tool_use':
+            case 'web_search_tool_result':
+            case 'web_fetch_tool_result':
+            case 'code_execution_tool_result':
+            case 'bash_code_execution_tool_result':
+            case 'text_editor_code_execution_tool_result':
+            case 'tool_search_tool_result':
+            case 'container_upload':
+              break;
           }
         } else if (eventType === 'content_block_delta') {
           const deltaEvt = evt as unknown as RawContentBlockDeltaEvent;
@@ -738,6 +730,8 @@ class AnthropicStreamedMessage implements StreamedMessage {
                 think: '',
                 encrypted: delta.signature,
               };
+              break;
+            case 'citations_delta':
               break;
           }
         } else if (eventType === 'content_block_stop') {
@@ -1181,5 +1175,5 @@ export function getAnthropicModelCapability(modelName: string) {
   if (CLAUDE_THINKING_VISION_TOOL_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
     return ANTHROPIC_THINKING_VISION_TOOL_CAPABILITY;
   }
-  return undefined;
+  return;
 }
