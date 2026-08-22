@@ -139,6 +139,8 @@ export interface SessionEventHost {
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
   shiftQueuedMessage(): QueuedMessage | undefined;
   hasPendingBundledSkill?(name: string): boolean;
+  /** Transcript entry id of the most recently dispatched user prompt (see KimiTUI). */
+  readonly lastDispatchedUserEntryId?: string;
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserController;
 }
@@ -1218,6 +1220,12 @@ export class SessionEventHandler {
     if (this.renderedSkillActivationIds.has(event.activationId)) return;
     this.renderedSkillActivationIds.add(event.activationId);
     const isBundled = this.host.hasPendingBundledSkill?.(event.skillName) ?? false;
+    const entries = this.host.state.transcriptEntries;
+    // Group with the prompt only while the transcript still ends with the user
+    // message this activation was bundled into; otherwise append plainly.
+    const lastEntry = entries.at(-1);
+    const beforeUserPrompt =
+      isBundled && lastEntry !== undefined && lastEntry.id === this.host.lastDispatchedUserEntryId;
     const entry: TranscriptEntry = {
       id: nextTranscriptId(),
       kind: 'skill_activation',
@@ -1230,11 +1238,10 @@ export class SessionEventHandler {
       // v2 declares `trigger` as a plain string; the engine only ever emits
       // the three `SkillActivationTrigger` values (see SkillActivationOrigin).
       skillTrigger: event.trigger as SkillActivationTrigger,
-      bundledWithPrompt: isBundled,
+      bundledWithPrompt: beforeUserPrompt,
     };
-    if (isBundled) {
-      const userIndex = this.host.state.transcriptEntries.length - 1;
-      this.host.state.transcriptEntries.splice(userIndex, 0, entry);
+    if (beforeUserPrompt) {
+      entries.splice(entries.length - 1, 0, entry);
       this.host.state.ui.requestRender();
       return;
     }

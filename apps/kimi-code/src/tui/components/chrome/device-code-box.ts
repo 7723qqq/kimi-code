@@ -15,7 +15,8 @@ import { currentTheme } from '#/tui/theme';
 export interface DeviceCodeBoxParams {
   readonly title: string;
   readonly url: string;
-  readonly code: string;
+  /** Verification code row; omitted for plain browser (no user code) flows. */
+  readonly code?: string;
   readonly hint?: string;
 }
 
@@ -44,11 +45,12 @@ export class DeviceCodeBoxComponent implements Component {
     );
     const urlLine = truncateToWidth(currentTheme.fg('primary', url), innerWidth, '…');
 
-    const codeLabel = currentTheme.boldFg('textDim', t('tui.chrome.deviceCodeBox.codeLabel'));
-    const codeValue = currentTheme.boldFg('accent', code);
-    const codeLine = truncateToWidth(`${codeLabel}${codeValue}`, innerWidth, '…');
-
-    const contentLines: string[] = [titleLine, '', promptLine, urlLine, '', codeLine];
+    const contentLines: string[] = [titleLine, '', promptLine, urlLine];
+    if (code !== undefined && code.length > 0) {
+      const codeLabel = currentTheme.boldFg('textDim', t('tui.chrome.deviceCodeBox.codeLabel'));
+      const codeValue = currentTheme.boldFg('accent', code);
+      contentLines.push('', truncateToWidth(`${codeLabel}${codeValue}`, innerWidth, '…'));
+    }
     if (hint !== undefined && hint.length > 0) {
       contentLines.push('');
       contentLines.push(truncateToWidth(currentTheme.fg('textDim', hint), innerWidth, '…'));

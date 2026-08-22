@@ -430,6 +430,9 @@ export class KimiTUI {
     { entry: TranscriptEntry; component: ShellRunComponent; taskId?: string }
   >();
   readonly pendingBundledSkillNames = new Set<string>();
+  /** Transcript entry id of the most recently dispatched user prompt, used to
+   *  anchor bundled skill activations to that message. */
+  lastDispatchedUserEntryId: string | undefined;
 
   hasPendingBundledSkill(name: string): boolean {
     if (this.pendingBundledSkillNames.has(name)) {
@@ -1709,6 +1712,7 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
         ? options.imageAttachmentIds
         : undefined;
     const userEntryId = nextTranscriptId();
+    this.lastDispatchedUserEntryId = userEntryId;
     this.appendTranscriptEntry({
       id: userEntryId,
       kind: 'user',
@@ -1804,6 +1808,7 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
           : session.prompt(sdkInput);
     this.staging.trackDispatch(stagingLease, dispatchPromise, (error) => {
       const message = formatErrorMessage(error);
+      for (const s of skills) this.pendingBundledSkillNames.delete(s.skillName);
       const userIndex = this.state.transcriptEntries.findIndex((e) => e.id === userEntryId);
       if (userIndex !== -1) {
         this.state.transcriptEntries.splice(userIndex, 1);
@@ -2462,10 +2467,20 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
     this.sessionEventHandler.resetRuntimeState();
     this.tasksBrowserController.close();
     this.btwPanelController.clear();
+    this.pendingBundledSkillNames.clear();
+    this.lastDispatchedUserEntryId = undefined;
+    this.tokenSpeedEma = null;
     this.state.footer.setBackgroundCounts({ bashTasks: 0, agentTasks: 0 });
     this.streamingUI.setTodoList([]);
     this.streamingUI.setTurnId(undefined);
-    this.setAppState({ mcpServersSummary: null });
+    this.setAppState({
+      mcpServersSummary: null,
+      cacheReadTokens: 0,
+      cacheMissTokens: 0,
+      cacheOtherTokens: 0,
+      tokenSpeed: 0,
+      sessionStats: createEmptySessionStats(),
+    });
     this.streamingUI.setStep(0);
     this.streamingUI.resetLiveText();
     this.updateQueueDisplay();
@@ -3141,11 +3156,16 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
     };
   }
 
-  showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle {
+  showLoginAuthorizationPrompt(
+    auth: Pick<DeviceAuthorization, 'verificationUriComplete'> & {
+      userCode?: string;
+      title?: string;
+    },
+  ): LoginProgressSpinnerHandle {
     openUrl(auth.verificationUriComplete);
     this.state.transcriptContainer.addChild(
       new DeviceCodeBoxComponent({
-        title: t('tui.chrome.deviceCodeBox.title'),
+        title: auth.title ?? t('tui.chrome.deviceCodeBox.title'),
         url: auth.verificationUriComplete,
         code: auth.userCode,
         hint: t('tui.chrome.deviceCodeBox.hint'),

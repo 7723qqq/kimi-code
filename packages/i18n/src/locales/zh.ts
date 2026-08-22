@@ -493,6 +493,7 @@ export const zh: DeepPartial<typeof import('./en').default> = {
   serverErrors: {
     indexHtmlNotAFile: 'index.html 不是一个文件',
     paginationMutuallyExclusive: 'before_id 和 after_id 互斥',
+    invalidCursorId: '未知的分页游标 {{id}}，请从第一页重新获取',
   },
   toolsV2: {
     reading: '正在读取 {{path}}',

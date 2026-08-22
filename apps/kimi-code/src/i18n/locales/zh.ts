@@ -166,6 +166,7 @@ export default {
       },
       deviceCodeBox: {
         title: '登录 Kimi Code',
+        googleTitle: '登录 Google 账号',
         prompt: '在浏览器中访问以下 URL 以授权：',
         codeLabel: '验证码：',
         hint: '按 Ctrl-C 取消',
@@ -925,6 +926,7 @@ export default {
       loggedIn: '登录成功。',
       loginCancelled: '登录已取消。',
       loginFailed: '登录失败。',
+      googleLoginFailed: 'Google 登录失败。',
       authSuccessButConfigFailed: '认证成功，但刷新配置失败：{{error}}',
       alreadyLoggedInRefreshed: '已登录。模型配置已刷新。',
       loginFailedWithError: '登录失败：{{error}}',

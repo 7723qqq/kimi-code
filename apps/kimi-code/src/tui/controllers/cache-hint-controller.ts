@@ -69,6 +69,10 @@ type HintDecision = { readonly idleSeconds: number; readonly totalTokens: number
 const CACHE_BREAK_MIN_DROP_TOKENS = 2000;
 const CACHE_BREAK_DROP_RATIO = 0.95;
 
+/** Minimum completed steps between two cache-break status notices — one
+ *  busted cache key otherwise re-warns on every step until it rebuilds. */
+const CACHE_BREAK_NOTICE_MIN_STEPS = 10;
+
 interface CacheBreakBaseline {
   readonly model: string;
   readonly effort: string;
@@ -99,6 +103,8 @@ export class CacheHintController {
   private readonly resumedSessions = new Set<string>();
   /** Last measured main-loop step usage for cache-break detection. */
   private breakBaseline: CacheBreakBaseline | undefined;
+  /** Completed steps since the last cache-break status notice. */
+  private stepsSinceBreakNotice = Number.POSITIVE_INFINITY;
 
   constructor(private readonly host: CacheHintHost) {}
 
@@ -133,6 +139,7 @@ export class CacheHintController {
     const now = Date.now();
     const prev = this.breakBaseline;
     this.breakBaseline = { model, effort, usage, time: now };
+    this.stepsSinceBreakNotice += 1;
     if (prev === undefined) return;
     const prevRead = prev.usage.inputCacheRead;
     const currRead = usage.inputCacheRead;
@@ -164,8 +171,10 @@ export class CacheHintController {
       interval_ms: now - prev.time,
     });
     // Surface the break in the UI as well: the tokens this step processed
-    // uncached are exactly what the user is paying full price for.
-    if (usage.inputOther > 0) {
+    // uncached are exactly what the user is paying full price for. A cooldown
+    // keeps one busted cache key from re-warning on every step.
+    if (usage.inputOther > 0 && this.stepsSinceBreakNotice >= CACHE_BREAK_NOTICE_MIN_STEPS) {
+      this.stepsSinceBreakNotice = 0;
       this.host.showStatus?.(
         t('tui.statusMessages.cacheBreakDetected', {
           tokens: formatTokenCount(usage.inputOther),
@@ -179,6 +188,7 @@ export class CacheHintController {
    *  Also used when the context is cut by other means (e.g. /undo). */
   resetCacheBreakBaseline(): void {
     this.breakBaseline = undefined;
+    this.stepsSinceBreakNotice = Number.POSITIVE_INFINITY;
   }
 
   /**
@@ -222,6 +232,7 @@ export class CacheHintController {
     this.lastDialogRestored = false;
     this.restoredTexts = [];
     this.breakBaseline = undefined;
+    this.stepsSinceBreakNotice = Number.POSITIVE_INFINITY;
   }
 
   /** Background warm-up on session creation; never blocks, never throws. */

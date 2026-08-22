@@ -39,9 +39,20 @@ export async function runLoginFlow(
     const antigravity = GoogleOAuthManager.detectAntigravityCredentials();
     if (antigravity.available) {
       process.stderr.write(
-        `Found existing Google Antigravity login (${antigravity.email ?? 'active user'}). Syncing credentials...\n`,
+        `Found existing Google Antigravity login (${antigravity.email ?? 'active user'}). Checking credentials...\n`,
       );
-      return runAntigravitySyncFlow();
+      // Import alone proves nothing: validate that the token is usable
+      // (unexpired or refreshable) before committing to the sync path.
+      const accessToken = await new GoogleOAuthManager()
+        .getValidAccessToken()
+        .catch(() => undefined);
+      if (accessToken !== undefined && accessToken.length > 0) {
+        process.stderr.write('Using the synced Google Antigravity credentials.\n');
+        return runAntigravitySyncFlow();
+      }
+      process.stderr.write(
+        'Stored Google credentials are expired or not refreshable. Falling back to browser login.\n',
+      );
     }
     return runGoogleLoginFlow();
   }

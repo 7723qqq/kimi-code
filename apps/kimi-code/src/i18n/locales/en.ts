@@ -169,6 +169,7 @@ export default {
       },
       deviceCodeBox: {
         title: 'Sign in to Kimi Code',
+        googleTitle: 'Sign in with Google',
         prompt: 'Visit the URL below in your browser to authorize:',
         codeLabel: 'Verification code:  ',
         hint: 'Press Ctrl-C to cancel',
@@ -950,6 +951,7 @@ export default {
       loggedIn: 'Logged in.',
       loginCancelled: 'Login cancelled.',
       loginFailed: 'Login failed.',
+      googleLoginFailed: 'Google login failed.',
       authSuccessButConfigFailed:
         'Authentication successful, but failed to refresh config: {{error}}',
       alreadyLoggedInRefreshed: 'Already logged in. Model configuration refreshed.',

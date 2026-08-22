@@ -17,7 +17,6 @@ const GOOGLE_GEMINI_PROVIDER_ID = 'google-gemini';
 const GOOGLE_GEMINI_DEFAULT_MODEL_ID = 'gemini-3.7-flash';
 
 import { t } from '#/i18n';
-import { openUrl } from '#/utils/open-url';
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
@@ -193,19 +192,12 @@ async function handleGoogleOAuthLogin(host: SlashCommandHost): Promise<void> {
     await manager.startLoginFlow({
       signal: controller.signal,
       onAuthUrl: (data) => {
+        // showLoginAuthorizationPrompt opens the browser itself (once) and
+        // renders the URL box; Google's browser flow has no user code.
         spinner = host.showLoginAuthorizationPrompt({
-          userCode: 'Browser Auth',
-          deviceCode: data.state,
-          verificationUri: data.authUrl,
           verificationUriComplete: data.authUrl,
-          expiresIn: 300,
-          interval: 1,
+          title: t('tui.chrome.deviceCodeBox.googleTitle'),
         });
-        try {
-          openUrl(data.authUrl);
-        } catch {
-          // Best effort
-        }
       },
     });
 
@@ -245,7 +237,9 @@ async function handleGoogleOAuthLogin(host: SlashCommandHost): Promise<void> {
     const cancelled = controller.signal.aborted;
     spinner?.stop({
       ok: false,
-      label: cancelled ? t('tui.statusMessages.loginCancelled') : 'Google login failed.',
+      label: cancelled
+        ? t('tui.statusMessages.loginCancelled')
+        : t('tui.statusMessages.googleLoginFailed'),
     });
     spinner = undefined;
     if (cancelled) return;

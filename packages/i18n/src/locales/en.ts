@@ -550,6 +550,7 @@ export const en = {
   serverErrors: {
     indexHtmlNotAFile: 'index.html is not a file',
     paginationMutuallyExclusive: 'before_id and after_id are mutually exclusive',
+    invalidCursorId: 'unknown pagination cursor "{{id}}"; restart from the first page',
   },
 
   // ============================================================================
