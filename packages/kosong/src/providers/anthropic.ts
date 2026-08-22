@@ -636,7 +636,7 @@ class AnthropicStreamedMessage implements StreamedMessage {
   };
   private _finishReason: FinishReason | null = null;
   private _rawFinishReason: string | null = null;
-  private readonly _iter: AsyncGenerator<StreamedMessagePart>;
+  private readonly _iter: AsyncGenerator<StreamedMessagePart> | readonly StreamedMessagePart[];
 
   constructor(
     response: unknown,
@@ -719,7 +719,7 @@ class AnthropicStreamedMessage implements StreamedMessage {
     };
   }
 
-  private async *_convertNonStreamResponse(response: {
+  private _convertNonStreamResponse(response: {
     id: string;
     stop_reason?: string | null;
     usage: {
@@ -738,38 +738,44 @@ class AnthropicStreamedMessage implements StreamedMessage {
       name?: string;
       input?: unknown;
     }>;
-  }): AsyncGenerator<StreamedMessagePart> {
+  }): StreamedMessagePart[] {
     this._id = response.id;
     this._extractUsage(response.usage);
     this._captureStopReason(response.stop_reason);
 
+    const parts: StreamedMessagePart[] = [];
     for (const block of response.content) {
       switch (block.type) {
         case 'text':
           if (block.text !== undefined) {
-            yield { type: 'text', text: block.text };
+            parts.push({ type: 'text', text: block.text });
           }
           break;
         case 'thinking':
-          yield block.signature !== undefined
-            ? { type: 'think' as const, think: block.thinking ?? '', encrypted: block.signature }
-            : { type: 'think' as const, think: block.thinking ?? '' };
+          parts.push(
+            block.signature !== undefined
+              ? { type: 'think' as const, think: block.thinking ?? '', encrypted: block.signature }
+              : { type: 'think' as const, think: block.thinking ?? '' },
+          );
           break;
         case 'redacted_thinking':
-          yield block.data !== undefined
-            ? { type: 'think' as const, think: '', encrypted: block.data }
-            : { type: 'think' as const, think: '' };
+          parts.push(
+            block.data !== undefined
+              ? { type: 'think' as const, think: '', encrypted: block.data }
+              : { type: 'think' as const, think: '' },
+          );
           break;
         case 'tool_use':
-          yield {
+          parts.push({
             type: 'function',
             id: block.id ?? crypto.randomUUID(),
             name: block.name ?? '',
             arguments: block.input !== undefined ? JSON.stringify(block.input) : null,
-          } satisfies ToolCall;
+          } satisfies ToolCall);
           break;
       }
     }
+    return parts;
   }
 
   private async *_convertStreamResponse(

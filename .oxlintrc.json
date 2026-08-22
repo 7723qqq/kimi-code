@@ -156,7 +156,11 @@
         "typescript/no-unsafe-assignment": "off",
         "typescript/no-unsafe-call": "off",
         "typescript/no-unsafe-member-access": "off",
-        "typescript/no-unsafe-return": "off"
+        "typescript/no-unsafe-return": "off",
+        // Provider-layer degradation diagnostics (media placeholders, native
+        // fast-path fallbacks) intentionally warn via console: the package is
+        // the lowest wire layer and has no logger dependency to route through.
+        "eslint/no-console": "off"
       }
     },
     {
