@@ -29,3 +29,9 @@ registerProviderDefinition({
     { endpoint: () => ({ apiKeyEnv: 'GOOGLE_API_KEY', baseUrlEnv: 'GOOGLE_GEMINI_BASE_URL' }) },
   ],
 });
+
+registerProviderDefinition({
+  id: 'antigravity',
+  baseProtocol: 'antigravity',
+  traits: [],
+});

@@ -796,7 +796,7 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       this._vertexai || this._apiKey !== undefined ? this._buildClient(this._apiKey) : undefined;
   }
 
-  private _buildClient(apiKey: string | undefined): GenAIClient {
+  private _buildClient(apiKeyOrToken: string | undefined): GenAIClient {
     // The Google GenAI SDK reads the endpoint and headers from `httpOptions`,
     // deep-merging them over its defaults: a `baseUrl` here overrides the
     // default host (`generativelanguage.googleapis.com` / Vertex regional),
@@ -805,10 +805,22 @@ export class GoogleGenAIChatProvider implements ChatProvider {
     // `Content-Type`). Build the object once so both can coexist.
     const httpOptions: { headers?: Record<string, string>; baseUrl?: string } = {};
     if (this._defaultHeaders !== undefined) {
-      httpOptions.headers = this._defaultHeaders;
+      httpOptions.headers = { ...this._defaultHeaders };
     }
     if (this._baseUrl !== undefined) {
       httpOptions.baseUrl = this._baseUrl;
+    }
+    let apiKey: string | undefined = apiKeyOrToken;
+    if (
+      apiKeyOrToken !== undefined &&
+      (apiKeyOrToken.startsWith('ya29.') || apiKeyOrToken.startsWith('Bearer '))
+    ) {
+      const token = apiKeyOrToken.startsWith('Bearer ') ? apiKeyOrToken.slice(7) : apiKeyOrToken;
+      httpOptions.headers = {
+        ...httpOptions.headers,
+        Authorization: `Bearer ${token}`,
+      };
+      apiKey = undefined;
     }
     return new GenAIClient({
       apiKey,

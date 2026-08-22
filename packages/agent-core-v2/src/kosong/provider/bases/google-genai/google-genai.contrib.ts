@@ -17,7 +17,7 @@ registerProtocolBase({
       ...compactObject({
         apiKey:
           config.apiKey ??
-          firstProcessEnv(endpoint?.apiKeyEnv) ??
+          firstProcessEnv([...(endpoint?.apiKeyEnv ?? []), 'GEMINI_API_KEY', 'GOOGLE_API_KEY']) ??
           (endpoint === undefined ? undefined : ''),
         baseUrl:
           config.baseUrl ?? firstProcessEnv(endpoint?.baseUrlEnv) ?? endpoint?.defaultBaseUrl,

@@ -255,7 +255,7 @@ merge_all_available_skills = true
     # storage: "file" | "keyring"
     # key: string
     # oauth_host: string
-  # protocol: "anthropic" | "openai" | "openai_responses" | "google-genai"
+  # protocol: "anthropic" | "openai" | "openai_responses" | "google-genai" | "antigravity"
   # name: string
   # aliases: string[]
   # provider: string

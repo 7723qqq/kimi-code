@@ -63,6 +63,7 @@ const KNOWN_WIRE_TYPES = [
   'google-genai',
   'openai_responses',
   'vertexai',
+  'antigravity',
 ] as const satisfies readonly ProviderType[];
 
 type KnownWireType = (typeof KNOWN_WIRE_TYPES)[number];

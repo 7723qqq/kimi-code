@@ -12,6 +12,7 @@ export const ProtocolSchema = z.enum([
   'openai',
   'openai_responses',
   'google-genai',
+  'antigravity',
 ]);
 
 export type Protocol = z.infer<typeof ProtocolSchema>;

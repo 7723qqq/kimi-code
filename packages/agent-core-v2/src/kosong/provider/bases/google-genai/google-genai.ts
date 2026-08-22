@@ -22,6 +22,7 @@ import type { TokenUsage } from '#/kosong/contract/usage';
 
 import { mergeConsecutiveUserMessages } from '../merge-user-messages';
 import { requireProviderApiKey, resolveAuthBackedClient } from '../request-auth';
+import { AntigravityChatProvider, detectAntigravityBinary } from '../antigravity/antigravity';
 
 function normalizeGoogleGenAIFinishReason(raw: unknown): {
   finishReason: FinishReason | null;
@@ -637,9 +638,14 @@ export function convertGoogleGenAIError(error: unknown): ChatProviderError {
     if (NETWORK_RE.test(msg) || (error instanceof TypeError && msg.includes('fetch'))) {
       return new APIConnectionError(msg);
     }
-    const statusCode = (error as { code?: number }).code;
-    if (typeof statusCode === 'number') {
-      return normalizeAPIStatusError(statusCode, msg);
+    if (
+      msg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') ||
+      msg.includes('API key should be set') ||
+      msg.includes('Could not load the default credentials')
+    ) {
+      return new ChatProviderError(
+        'Google Gemini API requires a Google AI Studio API Key (or set GEMINI_API_KEY). Use /login -> Google AI Studio to configure your key.',
+      );
     }
     return new ChatProviderError(`GoogleGenAI error: ${msg}`);
   }
@@ -707,13 +713,28 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       this._vertexai || this._apiKey !== undefined ? this._buildClient(this._apiKey) : undefined;
   }
 
-  private _buildClient(apiKey: string | undefined): GenAIClient {
+  private _buildClient(apiKeyOrToken: string | undefined): GenAIClient {
     const httpOptions: { headers?: Record<string, string>; baseUrl?: string } = {};
     if (this._defaultHeaders !== undefined) {
-      httpOptions.headers = this._defaultHeaders;
+      httpOptions.headers = { ...this._defaultHeaders };
     }
     if (this._baseUrl !== undefined) {
       httpOptions.baseUrl = this._baseUrl;
+    }
+    let apiKey: string | undefined = apiKeyOrToken;
+    if (
+      apiKeyOrToken !== undefined &&
+      (apiKeyOrToken.startsWith('ya29.') || apiKeyOrToken.startsWith('Bearer '))
+    ) {
+      const token = apiKeyOrToken.startsWith('Bearer ') ? apiKeyOrToken.slice(7) : apiKeyOrToken;
+      httpOptions.headers = {
+        'User-Agent': 'Mozilla/5.0 (compatible; Google-Gemini-CLI/1.0; +https://cloud.google.com/gemini)',
+        'x-goog-api-client': 'gl-node/24.19.0 gccl/1.0.0',
+        ...httpOptions.headers,
+        Authorization: `Bearer ${token}`,
+      };
+      const envKey = process.env['GEMINI_API_KEY'] || process.env['GOOGLE_API_KEY'];
+      apiKey = envKey || 'dummy';
     }
     return new GenAIClient({
       apiKey,
@@ -786,6 +807,28 @@ export class GoogleGenAIChatProvider implements ChatProvider {
       ...(tools.length > 0 ? { tools: tools.map((t) => toolToGoogleGenAI(t)) } : {}),
     };
     applyResponseFormat(config, options?.responseFormat);
+
+    const rawKey =
+      options?.auth?.apiKey ||
+      this._apiKey ||
+      process.env['GEMINI_API_KEY'] ||
+      process.env['GOOGLE_API_KEY'];
+    const isOAuth =
+      typeof rawKey === 'string' &&
+      (rawKey.startsWith('ya29.') || rawKey.startsWith('Bearer '));
+    const isRealApiKey =
+      typeof rawKey === 'string' && !isOAuth && rawKey.trim().length > 0;
+
+    if (!isRealApiKey && detectAntigravityBinary()) {
+      const thinking =
+        options?.thinking ??
+        (this._thinkingEffort !== undefined ? { effort: this._thinkingEffort } : undefined);
+      const fallback = new AntigravityChatProvider({
+        model: this._model,
+        thinkingEffort: thinking?.effort ?? this._thinkingEffort,
+      });
+      return fallback.generate(systemPrompt, tools, history, options);
+    }
 
     try {
       const client = this._createClient(options?.auth);
