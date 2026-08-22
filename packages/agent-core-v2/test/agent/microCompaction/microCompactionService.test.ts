@@ -198,8 +198,6 @@ function createUnit(
     eventBus,
   });
   const dispatcher = registerTestEventDispatcher(ix);
-  // eslint-disable-next-line no-console
-  console.log('DBG scope:', ix.get(IAgentScopeContext));
   const agentState = ix.get(IAgentStateService);
   ix.set(IAgentMicroCompactionService, new SyncDescriptor(AgentMicroCompactionService));
   const svc = ix.get(IAgentMicroCompactionService);
