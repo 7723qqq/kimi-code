@@ -447,9 +447,10 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ## Version Management (Changesets)
 
-- Every PR affecting release artifacts **must** include a changeset.
-- Docs-only, test-only, or CI-only PRs may skip changesets.
-- Generate one with `pnpm changeset` and follow the prompts.
+- **This fork follows upstream versions.** Package `version` fields in `package.json` must stay identical to `upstream/main` — never run `pnpm version` or `pnpm publish` here, and never bump versions independently. When merging upstream releases, take their `package.json` version changes as-is.
+- Fork-only packages that do not exist upstream (`@moonshot-ai/i18n`, `@moonshot-ai/i18n-shared`, `@moonshot-ai/kimi-native-tools`) keep their own versions; do not bump them either unless a fork-specific release is explicitly requested.
+- Changesets are maintained **as a changelog source only**: keep writing them for user-facing changes so release notes stay available, but they are not consumed by a local release flow. Before merging upstream, prune accumulated non-user-facing entries (see the `gen-changesets` skill).
+- Every PR affecting release artifacts should include a changeset; docs-only, test-only, or CI-only PRs may skip changesets. Generate one with `pnpm changeset`.
 - **Never** decide on a `major` bump on your own. When a change meets major criteria (breaking changes, incompatible user configuration, renamed/removed commands/arguments, changed behavior semantics), stop and ask the user for confirmation. Default to `minor` (fall back to `patch` if unclear).
 - Base branch: `main`
 - Ignored from versioning: `@moonshot-ai/vis`, `@moonshot-ai/vis-server`, `@moonshot-ai/vis-web`, `@moonshot-ai/kimi-inspect`
