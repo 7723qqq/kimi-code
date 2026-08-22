@@ -28,8 +28,8 @@ import type { AppState } from '#/tui/types';
 import {
   firstTokenAverageMs,
   fitSessionStatsText,
-  formatOneDecimal,
   formatStatDuration,
+  formatTokenSpeed,
   type SessionStatsGroup,
   type SessionStatsSegment,
 } from '#/tui/utils/session-stats';
@@ -501,7 +501,7 @@ export class FooterComponent implements Component {
     );
     const speedText =
       (state.tokenSpeed ?? 0) > 0
-        ? t('tui.chrome.footer.tokenSpeed', { speed: formatOneDecimal(state.tokenSpeed ?? 0) })
+        ? t('tui.chrome.footer.tokenSpeed', { speed: formatTokenSpeed(state.tokenSpeed ?? 0) })
         : null;
     const contextText = formatContextStatus(
       state.contextUsage,

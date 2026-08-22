@@ -7,13 +7,21 @@ describe('pickDecodeMs', () => {
     expect(pickDecodeMs(800, 50)).toBe(800);
   });
 
-  it('falls back to the wall-clock stream duration when server decode is missing', () => {
-    expect(pickDecodeMs(undefined, 120)).toBe(120);
+  it('falls back to the wall-clock stream duration when it is a plausible stream', () => {
+    expect(pickDecodeMs(undefined, 1200)).toBe(1200);
+    // Boundary: exactly MIN_STREAM_WINDOW_MS is accepted.
+    expect(pickDecodeMs(undefined, 150)).toBe(150);
+  });
+
+  it('rejects collapsed wall-clock windows (cached / batched bursts)', () => {
+    expect(pickDecodeMs(undefined, 120)).toBeNull();
+    expect(pickDecodeMs(undefined, 30)).toBeNull();
+    expect(pickDecodeMs(undefined, 1)).toBeNull();
   });
 
   it('treats zero / negative server decode as missing', () => {
-    expect(pickDecodeMs(0, 120)).toBe(120);
-    expect(pickDecodeMs(-1, 120)).toBe(120);
+    expect(pickDecodeMs(0, 1200)).toBe(1200);
+    expect(pickDecodeMs(-1, 1200)).toBe(1200);
   });
 
   it('treats zero / negative stream duration as missing', () => {

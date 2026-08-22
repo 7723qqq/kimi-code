@@ -120,6 +120,16 @@ export function formatOneDecimal(v: number): string {
 }
 
 /**
+ * Footer speed readout: one decimal below 100 tok/s ("49.3"), integer at and
+ * above ("4957") — a trailing decimal on a four-digit rate is false
+ * precision. Non-finite / non-positive input renders "0".
+ */
+export function formatTokenSpeed(speed: number): string {
+  if (!Number.isFinite(speed) || speed <= 0) return '0';
+  return speed >= 100 ? String(Math.round(speed)) : formatOneDecimal(speed);
+}
+
+/**
  * Compose the footer's right-hand readout from ordered stat groups. Items
  * within a group join with ` · `, groups join with ` | `. When the combined
  * text would exceed `maxWidth`, the lowest-priority item is dropped and the

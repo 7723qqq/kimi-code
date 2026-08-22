@@ -9,6 +9,7 @@ import {
   fitSessionStatsText,
   formatOneDecimal,
   formatStatDuration,
+  formatTokenSpeed,
   type SessionStatsGroup,
 } from '#/tui/utils/session-stats';
 
@@ -101,6 +102,24 @@ describe('formatOneDecimal', () => {
   it('drops a redundant .0', () => {
     expect(formatOneDecimal(107)).toBe('107');
     expect(formatOneDecimal(1)).toBe('1');
+  });
+});
+
+describe('formatTokenSpeed', () => {
+  it('keeps one decimal below 100 tok/s', () => {
+    expect(formatTokenSpeed(49.3)).toBe('49.3');
+  });
+
+  it('rounds to an integer at and above 100 tok/s', () => {
+    expect(formatTokenSpeed(99.96)).toBe('100');
+    expect(formatTokenSpeed(4957.1)).toBe('4957');
+    expect(formatTokenSpeed(120.4)).toBe('120');
+  });
+
+  it('renders non-finite / non-positive input as zero', () => {
+    expect(formatTokenSpeed(0)).toBe('0');
+    expect(formatTokenSpeed(-3)).toBe('0');
+    expect(formatTokenSpeed(Number.NaN)).toBe('0');
   });
 });
 

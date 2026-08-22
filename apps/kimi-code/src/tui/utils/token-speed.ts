@@ -1,15 +1,18 @@
 /**
  * Tokens-per-second accounting for the footer's "tok/s" readout.
  *
- * Two problems used to corrupt this number:
+ * Three problems used to corrupt this number:
  *   1. The denominator was `llmStreamDurationMs`, the wall-clock between the
  *      first and last SSE event. Providers that batch the response into a
  *      handful of events (cached responses, fast streams, batched proxies)
  *      collapse this window to a few ms, producing absurdly high rates
  *      (thousands of tok/s). `llmServerDecodeMs` — the provider-reported
  *      time it actually spent generating — is the right denominator when
- *      available; fall back to `llmStreamDurationMs` only when the provider
- *      stream omitted decode accounting.
+ *      available. Providers without decode accounting (Kimi/OpenAI-
+ *      compatible endpoints) fall back to the wall-clock window, which is
+ *      only trusted when it has not collapsed (`MIN_STREAM_WINDOW_MS`): a
+ *      sub-threshold window means the whole reply arrived in one burst, so
+ *      the sample is discarded and the previous EMA stands.
  *   2. The raw per-step rate is noisy on short outputs (a 5-token reply
  *      finishing in 80 ms reads as 60 tok/s even when steady-state is 150).
  *      Apply an EMA so the readout reflects recent history without erasing
@@ -31,19 +34,33 @@
 
 const EMA_ALPHA = 0.4;
 
+/** Wall-clock stream windows shorter than this are treated as collapsed
+ *  (cached / batched responses delivering every event in one burst) and
+ *  rejected on the fallback path — dividing by them reads as thousands of
+ *  tok/s. Real token-by-token streams rarely complete faster than this even
+ *  for one-word replies, and skipping such samples merely keeps the prior
+ *  EMA. */
+export const MIN_STREAM_WINDOW_MS = 150;
+
 /** Pick the decode-window denominator for the throughput calculation.
  *
  * Prefers `llmServerDecodeMs` (the provider's own measurement of time spent
  * generating) and only falls back to `llmStreamDurationMs` (wall-clock
  * between first and last SSE event) when the provider omitted the decode
- * split. Returns `null` when neither field carries a positive number.
+ * split AND that window did not collapse. Returns `null` when nothing
+ * usable remains.
  */
 export function pickDecodeMs(
   llmServerDecodeMs: number | undefined,
   llmStreamDurationMs: number | undefined,
 ): number | null {
   if (typeof llmServerDecodeMs === 'number' && llmServerDecodeMs > 0) return llmServerDecodeMs;
-  if (typeof llmStreamDurationMs === 'number' && llmStreamDurationMs > 0) return llmStreamDurationMs;
+  if (
+    typeof llmStreamDurationMs === 'number' &&
+    llmStreamDurationMs >= MIN_STREAM_WINDOW_MS
+  ) {
+    return llmStreamDurationMs;
+  }
   return null;
 }
 
