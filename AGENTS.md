@@ -115,7 +115,7 @@ src/
 
 **CLI subcommands:** `acp`, `doctor`, `export`, `login`, `migrate`, `provider`, `upgrade`, `vis`, `web` (plus the hidden `__plugin_run_node` for plugin execution)
 
-**TUI slash commands (43 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `swarm`, `team`, `model`, `secondary-model`, `effort`, `provider`, `multi-llm`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `workflow`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `web`, `exit`, `version`
+**TUI slash commands (43 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `swarm`, `tower`, `model`, `secondary-model`, `effort`, `provider`, `multi-llm`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `workflow`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `web`, `exit`, `version`
 
 **Build output:**
 | Output | Path |
