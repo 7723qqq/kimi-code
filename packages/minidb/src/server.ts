@@ -234,8 +234,8 @@ export async function startServer({ dir, port = 6379, host = '127.0.0.1', fsyncP
                 // One failing command must not starve the replies of the
                 // commands already parsed from the same chunk.
                 res = await handle(db, parsed.args);
-              } catch (e) {
-                res = reply.err((e as Error).message);
+              } catch (error) {
+                res = reply.err((error as Error).message);
               }
             }
             if (res === null) {
@@ -244,8 +244,8 @@ export async function startServer({ dir, port = 6379, host = '127.0.0.1', fsyncP
             }
             send(res);
           }
-        } catch (e) {
-          send(reply.err((e as Error).message));
+        } catch (error) {
+          send(reply.err((error as Error).message));
         }
       });
     });

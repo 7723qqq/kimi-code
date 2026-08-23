@@ -2,15 +2,18 @@
  * Shared undici Agent with tuned keep-alive for upstream LLM providers.
  *
  * The Anthropic, OpenAI Chat Completions, and OpenAI Responses SDKs all
- * delegate to `globalThis.fetch`, which under Node 24 maps to undici
- * with the default global Agent: 50 idle conns, 5 s connect timeout,
+ * delegate to a `fetch` option. On Node, `globalThis.fetch` maps to
+ * undici's default global Agent: 50 idle conns, 5 s connect timeout,
  * no explicit keep-alive tuning. The CLI is a short-lived process that
  * issues a handful of LLM calls in a single session, so the first
  * cold call of each session pays the full TCP+TLS setup cost.
  *
  * This module returns a single shared Agent that the SDKs route
  * their traffic through, both cutting the cold-call latency and
- * keeping warm-call reuse predictable.
+ * keeping warm-call reuse predictable. The vendored `undici` package
+ * is used explicitly (via `createSharedFetch`) rather than relying on
+ * the runtime global, so Node and Bun get identical pooling, timeout,
+ * and CA behaviour — verified on Bun 1.4 including SSE streaming.
  *
  * The Agent is lazy: no connections open until the first request
  * actually goes out, so importing this module is free.

@@ -90,9 +90,9 @@ export class IndexAdmin<V> {
         cmpB?.add(rec.kstr, value, rec.dt);
         if (this.deps.indexable(value)) for (const { b } of textBs) b.add(rec.kstr, value);
       }
-    } catch (e) {
+    } catch (error) {
       for (const { b } of textBs) b.abort();
-      throw e;
+      throw error;
     }
     this.deps.stats.indexRebuildDurationMs += performance.now() - t0;
 
@@ -102,9 +102,9 @@ export class IndexAdmin<V> {
     const t1 = performance.now();
     try {
       for (const { b } of textBs) await b.commit();
-    } catch (e) {
+    } catch (error) {
       for (const { b } of textBs) b.abort();
-      throw e;
+      throw error;
     }
     this.deps.stats.textRebuildDurationMs += performance.now() - t1;
     secB?.commit();
@@ -116,8 +116,8 @@ export class IndexAdmin<V> {
     try {
       const raw = await fs.readFile(indexPath, 'utf8');
       for (const d of JSON.parse(raw) as (IndexInfo & IndexDef)[]) this.deps.indexes.create(d.name, d);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
   }
 
@@ -127,8 +127,8 @@ export class IndexAdmin<V> {
       for (const d of JSON.parse(raw) as (CompoundIndexInfo & { name: string })[]) {
         this.deps.compound.create(d.name, { groupBy: d.groupBy, orderBy: d.orderBy, orderType: d.orderType });
       }
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
   }
 
@@ -149,9 +149,9 @@ export class IndexAdmin<V> {
         // A unique index must not be created over data that already violates it.
         this.deps.indexes.assertUniqueValid(name);
         await this.deps.persistIndexDefinitions([...this.deps.indexes.list(), this.deps.indexes.stagedInfo(name)]);
-      } catch (e) {
+      } catch (error) {
         this.deps.indexes.discardStaged(name);
-        throw e;
+        throw error;
       }
       this.deps.indexes.publish(name);
     });
@@ -201,9 +201,9 @@ export class IndexAdmin<V> {
       try {
         this.deps.compound.rebuildStaged(name, this.deps.liveRecords());
         await this.deps.persistCompoundIndexDefinitions([...this.deps.compound.list(), this.deps.compound.stagedInfo(name)]);
-      } catch (e) {
+      } catch (error) {
         this.deps.compound.discardStaged(name);
-        throw e;
+        throw error;
       }
       this.deps.compound.publish(name);
     });

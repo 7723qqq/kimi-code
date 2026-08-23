@@ -412,9 +412,9 @@ async function writeBaseDocsImage(
       });
     }
     return await w.finish();
-  } catch (e) {
+  } catch (error) {
     await w.abort();
-    throw e;
+    throw error;
   }
 }
 
@@ -710,9 +710,9 @@ export async function buildTextArtifacts(spec: TextBuildCoreSpec): Promise<TextB
           await mergeSegments(st.segments, writer, dict);
         }
         postingsInfo = await writer.finish();
-      } catch (e) {
+      } catch (error) {
         await writer.abort();
-        throw e;
+        throw error;
       } finally {
         for (const segPath of st.segments) await fsp.rm(segPath, { force: true }).catch(() => {});
       }

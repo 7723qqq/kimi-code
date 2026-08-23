@@ -31,8 +31,8 @@ export async function detectTmuxKeyboardWarning(
     if (extendedKeysFormat === 'xterm') {
       return TMUX_EXTENDED_KEYS_FORMAT_XTERM_WARNING;
     }
-  } catch (err) {
-    console.debug('Failed to read tmux option:', err);
+  } catch (error) {
+    console.debug('Failed to read tmux option:', error);
     return undefined;
   }
 

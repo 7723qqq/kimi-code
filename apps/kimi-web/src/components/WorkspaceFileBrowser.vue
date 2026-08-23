@@ -94,9 +94,9 @@ async function openFile(entry: { path: string; name: string }): Promise<void> {
       truncated: result.truncated,
       languageId: result.languageId,
     };
-  } catch (err) {
+  } catch (error) {
     if (seq !== previewSeq) return;
-    previewError.value = isDaemonApiError(err) ? err.message : String(err);
+    previewError.value = isDaemonApiError(error) ? error.message : String(error);
   } finally {
     if (seq === previewSeq) previewLoading.value = false;
   }

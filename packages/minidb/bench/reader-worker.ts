@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   process.exit(1);
 }
 
-main().catch((e) => {
-  out({ ok: 0, mode, error: String(e && (e as Error).stack ? (e as Error).stack : e) });
+main().catch((error) => {
+  out({ ok: 0, mode, error: String(error && (error as Error).stack ? (error as Error).stack : error) });
   process.exit(1);
 });

@@ -65,8 +65,8 @@ function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ESRCH') return false;
     if (code === 'EPERM') return true;
     return true;
@@ -120,8 +120,8 @@ function decode(raw: string): ServerInstanceInfo | undefined {
 async function readInstanceFile(filePath: string): Promise<ServerInstanceInfo | undefined> {
   try {
     return decode(await readFile(filePath, 'utf8'));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     return undefined;
   }
 }
@@ -152,9 +152,9 @@ async function sweepStale(instancesDir: string): Promise<void> {
   let names: string[];
   try {
     names = await readdir(instancesDir);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
-    throw err;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
   }
   await Promise.all(
     names.filter(isInstanceFile).map(async (name) => {
@@ -163,8 +163,8 @@ async function sweepStale(instancesDir: string): Promise<void> {
       if (info === undefined || pidAlive(info.pid)) return;
       try {
         await unlink(filePath);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }),
   );
@@ -174,9 +174,9 @@ async function listLiveInternal(instancesDir: string): Promise<readonly ServerIn
   let names: string[];
   try {
     names = await readdir(instancesDir);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw err;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
   }
   const live: ServerInstanceInfo[] = [];
   await Promise.all(
@@ -187,8 +187,8 @@ async function listLiveInternal(instancesDir: string): Promise<readonly ServerIn
       if (!pidAlive(info.pid)) {
         try {
           await unlink(filePath);
-        } catch (err) {
-          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         }
         return;
       }
@@ -262,8 +262,8 @@ export function createInstanceRegistry(options: InstanceRegistryOptions = {}): I
           }
           try {
             await unlink(filePath);
-          } catch (err) {
-            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
           }
         },
       };
