@@ -1,14 +1,11 @@
 import chalk from 'chalk';
 import { describe, it, expect } from 'vitest';
 
-import {
-  FooterComponent,
-  formatFooterGitBadge,
-  buildWeightedTips,
-} from '#/tui/components/chrome/footer';
+import { FooterComponent, formatFooterGitBadge } from '#/tui/components/chrome/footer';
 import { darkColors } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
 import { createEmptySessionStats } from '#/tui/utils/session-stats';
+import { buildWeightedTips } from '#/tui/utils/tip-rotation';
 
 const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 function strip(text: string): string {

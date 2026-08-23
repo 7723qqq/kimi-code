@@ -1,22 +1,9 @@
-import { getLocale } from '#/i18n';
 import { getWorkingTips, type ToolbarTip } from '#/tui/constant/tips';
-
-import { buildWeightedTips } from './footer';
+import { createLocaleKeyedTipRotation, TIP_ROTATE_INTERVAL_MS } from '#/tui/utils/tip-rotation';
 
 export { getWorkingTips };
 
-const TIP_ROTATE_INTERVAL_MS = 10_000;
-
-// Rebuild the weighted rotation only when the locale changes, so working-tip
-// text follows the active language instead of freezing at module load.
-let rotationCache: { locale: string; rotation: readonly ToolbarTip[] } | null = null;
-function getWorkingTipRotation(): readonly ToolbarTip[] {
-  const locale = getLocale();
-  if (rotationCache === null || rotationCache.locale !== locale) {
-    rotationCache = { locale, rotation: buildWeightedTips(getWorkingTips()) };
-  }
-  return rotationCache.rotation;
-}
+const getWorkingTipRotation = createLocaleKeyedTipRotation(getWorkingTips);
 
 export function currentWorkingTip(now = Date.now()): ToolbarTip | undefined {
   const rotation = getWorkingTipRotation();

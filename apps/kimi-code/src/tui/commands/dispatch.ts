@@ -167,7 +167,6 @@ export interface SlashCommandHost {
   beginSessionRequest(): void;
   failSessionRequest(message: string): void;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
-  sendQueuedMessage(session: Session, item: QueuedMessage): void;
   requestQueuedGoalPromotion?(): void;
   /** Reset the client-side cache-break baseline after the context was cut
    *  (/undo): the next step's cache-read drop is expected, not a break. */

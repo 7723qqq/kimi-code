@@ -16,8 +16,8 @@ import {
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
-import { printableChar } from '#/tui/utils/printable-key';
 import { findInlineSkillTokens } from '#/tui/utils/inline-skill-tokens';
+import { printableChar } from '#/tui/utils/printable-key';
 
 import { extractAtPrefix } from './file-mention-provider';
 import { WrappingSelectList } from './wrapping-select-list';
@@ -221,10 +221,6 @@ export class CustomEditor extends Editor {
     };
   }
 
-  override setDisablePasteBurst(disabled: boolean): void {
-    super.setDisablePasteBurst(disabled);
-  }
-
   public setInputMode(mode: 'prompt' | 'bash'): void {
     if (this.inputMode === mode) return;
     this.inputMode = mode;
@@ -309,7 +305,12 @@ export class CustomEditor extends Editor {
       for (let i = firstContentIdx + 1; i < lines.length - 1; i++) {
         const original = lines[i];
         if (original === undefined) continue;
-        const inline = highlightInlineSkillTokens(original, this.skillCommandNames, null, 'primary');
+        const inline = highlightInlineSkillTokens(
+          original,
+          this.skillCommandNames,
+          null,
+          'primary',
+        );
         if (inline !== undefined) {
           lines[i] = inline;
         }
@@ -339,7 +340,9 @@ export class CustomEditor extends Editor {
     // side bars through the same hook to stay in sync.
     return wrapWithSideBorders(lines, (s) => this.borderColor(s), {
       connectedAbove: this.connectedAbove && !this.borderHighlighted,
-      label: isBash ? ` ${currentTheme.boldFg('shellMode', t('tui.messages.shellModeLabel'))} ` : undefined,
+      label: isBash
+        ? ` ${currentTheme.boldFg('shellMode', t('tui.messages.shellModeLabel'))} `
+        : undefined,
     });
   }
 

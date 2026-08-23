@@ -12,9 +12,6 @@ import type {
 import type { NotificationsConfig, StatusLineConfig, UpgradePreferences } from './config';
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
 import type { ColorToken, ThemeName } from './theme';
-export interface InlineSkillActivation {
-  readonly skillName: string;
-}
 
 export type BannerDisplay = 'always' | 'once' | 'cooldown';
 

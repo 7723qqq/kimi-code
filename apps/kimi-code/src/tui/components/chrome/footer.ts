@@ -14,8 +14,8 @@ import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
-import { getLocale, t } from '#/i18n';
-import { getAllTips, type ToolbarTip } from '#/tui/constant/tips';
+import { t } from '#/i18n';
+import { getAllTips } from '#/tui/constant/tips';
 import {
   isRainbowDancing,
   renderDanceFooterModel,
@@ -34,6 +34,7 @@ import {
   type SessionStatsSegment,
 } from '#/tui/utils/session-stats';
 import { StatusLineCommandRunner, type StatusLinePayload } from '#/tui/utils/status-line-command';
+import { createLocaleKeyedTipRotation, TIP_ROTATE_INTERVAL_MS } from '#/tui/utils/tip-rotation';
 import {
   createGitStatusCache,
   formatGitBadgeBase,
@@ -54,46 +55,9 @@ const THINKING_PULSE_INTERVAL_MS = 80;
 // important enough to take the whole slot on their own. A `priority` weight
 // makes a tip recur more often in the rotation (default 1). Width is always
 // the final arbiter (a pair that doesn't fit falls back to its first tip).
-const TIP_ROTATE_INTERVAL_MS = 10_000;
 const TIP_SEPARATOR = ' | ';
 
-/**
- * Expand tips into a rotation sequence using smooth weighted round-robin
- * (the nginx SWRR algorithm). Higher-`priority` tips appear more often while
- * staying evenly spread, so a tip generally does not land next to its own
- * duplicate. Deterministic for a given input; the footer memoizes the result
- * per locale (see getRotation). Exported for unit testing.
- */
-export function buildWeightedTips(tips: readonly ToolbarTip[]): readonly ToolbarTip[] {
-  const items = tips.map((t) => ({
-    tip: t,
-    weight: Math.max(1, Math.trunc(t.priority ?? 1)),
-    current: 0,
-  }));
-  const total = items.reduce((sum, it) => sum + it.weight, 0);
-  const seq: ToolbarTip[] = [];
-  for (let n = 0; n < total; n++) {
-    let best = items[0]!;
-    for (const it of items) {
-      it.current += it.weight;
-      if (it.current > best.current) best = it;
-    }
-    best.current -= total;
-    seq.push(best.tip);
-  }
-  return seq;
-}
-
-// Weighted rotation is rebuilt only when the locale changes, so tip text
-// follows the active language instead of freezing at module load.
-let rotationCache: { locale: string; rotation: readonly ToolbarTip[] } | null = null;
-function getRotation(): readonly ToolbarTip[] {
-  const locale = getLocale();
-  if (rotationCache === null || rotationCache.locale !== locale) {
-    rotationCache = { locale, rotation: buildWeightedTips(getAllTips()) };
-  }
-  return rotationCache.rotation;
-}
+const getRotation = createLocaleKeyedTipRotation(getAllTips);
 
 function currentTipIndex(): number {
   return Math.floor(Date.now() / TIP_ROTATE_INTERVAL_MS);
