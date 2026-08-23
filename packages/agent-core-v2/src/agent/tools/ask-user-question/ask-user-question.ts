@@ -26,8 +26,12 @@ const QuestionItemSchema = z.object({
     ),
   multi_select: z
     .boolean()
-    .default(false)
+    .optional()
     .describe('Whether the user can select multiple options.'),
+  multiSelect: z
+    .boolean()
+    .optional()
+    .describe('Deprecated camelCase alias of multi_select; prefer multi_select.'),
 });
 
 export interface AskUserQuestionInput {
@@ -36,8 +40,13 @@ export interface AskUserQuestionInput {
     question: string;
     header: string;
     options: Array<{ label: string; description: string }>;
-    multi_select: boolean;
+    multi_select?: boolean;
+    multiSelect?: boolean;
   }>;
+}
+
+export function questionMultiSelect(item: AskUserQuestionInput['questions'][number]): boolean {
+  return item.multi_select ?? item.multiSelect ?? false;
 }
 
 const QUESTION_UNIQUENESS_MESSAGE =

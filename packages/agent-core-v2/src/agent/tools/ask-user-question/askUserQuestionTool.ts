@@ -25,6 +25,7 @@ import type {
 import {
   AskUserQuestionInputSchemaWithBackground,
   IAskUserQuestionTool,
+  questionMultiSelect,
   questionUniquenessError,
   type AskUserQuestionInput,
 } from './ask-user-question';
@@ -151,7 +152,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
               label: o.label,
               description: o.description,
             })),
-            multiSelect: q.multi_select,
+            multiSelect: questionMultiSelect(q),
           })),
         },
         { signal, agentId: this.scopeContext.agentId },

@@ -216,6 +216,67 @@ describe('AskUserQuestionTool', () => {
     });
   });
 
+  it('accepts the deprecated camelCase multiSelect alias end to end', async () => {
+    const aliased = input({ multiSelect: true } as Partial<AskUserQuestionInput['questions'][number]>);
+    delete (aliased.questions[0] as Record<string, unknown>)['multi_select'];
+    expect(AskUserQuestionInputSchema.safeParse(aliased).success).toBe(true);
+
+    const { tool, request } = makeTool();
+    await executeTool(tool, {
+      turnId: 0,
+      toolCallId: 'call_alias',
+      args: aliased,
+      signal,
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questions: [expect.objectContaining({ question: 'Which database?', multiSelect: true })],
+      }),
+      { signal, agentId: 'main' },
+    );
+  });
+
+  it('prefers the canonical multi_select when both spellings are present', async () => {
+    const both = input({
+      multi_select: false,
+      multiSelect: true,
+    } as Partial<AskUserQuestionInput['questions'][number]>);
+
+    const { tool, request } = makeTool();
+    await executeTool(tool, {
+      turnId: 0,
+      toolCallId: 'call_both',
+      args: both,
+      signal,
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questions: [expect.objectContaining({ multiSelect: false })],
+      }),
+      { signal, agentId: 'main' },
+    );
+  });
+
+  it('advertises both multi_select and its alias in the JSON schema', () => {
+    const { tool } = makeTool();
+    const params = tool.parameters as {
+      properties: {
+        questions: {
+          items: {
+            properties: Record<string, unknown>;
+            additionalProperties: boolean;
+          };
+        };
+      };
+    };
+    const itemProps = params.properties.questions.items.properties;
+    expect(itemProps['multi_select']).toBeDefined();
+    expect(itemProps['multiSelect']).toBeDefined();
+    expect(params.properties.questions.items.additionalProperties).toBe(false);
+  });
+
   it('passes empty headers and option descriptions through verbatim (v1 wire parity)', async () => {
     const { tool, request } = makeTool();
 
