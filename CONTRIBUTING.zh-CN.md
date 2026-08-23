@@ -54,6 +54,21 @@ pnpm install
 - `pnpm lint:fix` — oxlint 自动修复
 - `pnpm build` — 构建全部包
 
+### 原生 Bun 构建（实验性）
+
+实验性的单文件构建方案：用 Bun 编译 CLI，替代 Node.js SEA。前置要求：Bun >= 1.4（一行安装命令 `curl -fsSL https://bun.sh/install | bash`，详见 [bun.sh](https://bun.sh)）；构建脚本本身仍由 Node.js >= 24.15 运行；Rust 工具链仍然必需，因为需要嵌入 `kimi-native-tools` 的 `.node` 二进制。
+
+在 `apps/kimi-code` 下运行 `node scripts/native/build-bun.mjs`（或 `pnpm run build:native:bun`），然后用现有的冒烟测试验证：
+
+```sh
+node scripts/native/build-bun.mjs
+pnpm run test:native:smoke
+```
+
+产物输出到 `apps/kimi-code/dist-native/bin/<target>/kimi`。
+
+当前状态注意事项：仅在 linux-x64 上验证过；macOS 签名复用共享的 codesign 步骤；交叉目标暂存需要在本地存在目标平台对应的包（否则收集器会快速失败）。该流水线目前是实验性的，与默认的 SEA 流水线（`build:native:sea`）并行，后者仍是发布版本的默认选择。运行时资源加载已统一：两条流水线使用同一套提取/缓存层。
+
 ## 提交规范
 
 所有 commit 和 PR 标题必须遵循 [Conventional Commits](https://www.conventionalcommits.org/)。

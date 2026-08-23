@@ -165,6 +165,21 @@ mv ~/.kimi-code/bin/kimi-new ~/.kimi-code/bin/kimi
 
 > **Note**: The SEA build currently requires `@moonshot-ai/kimi-native-tools` listed as a dependency in `apps/kimi-code/package.json` and registered in `apps/kimi-code/scripts/native/native-deps.mjs`. See [Common Issues](#common-issues) for known pitfalls.
 
+### Native Bun build (experimental)
+
+An experimental single-file build compiles the CLI with Bun instead of Node.js SEA. Requires Bun >= 1.4 (`curl -fsSL https://bun.sh/install | bash`; see [bun.sh](https://bun.sh)). Node.js >= 24.15 still runs the build script itself, and a Rust toolchain is required because the `kimi-native-tools` `.node` binary is embedded.
+
+From `apps/kimi-code`, run `node scripts/native/build-bun.mjs` (or `pnpm run build:native:bun`), then verify with the existing smoke test:
+
+```sh
+node scripts/native/build-bun.mjs
+pnpm run test:native:smoke
+```
+
+Output: `apps/kimi-code/dist-native/bin/<target>/kimi`.
+
+Status caveats: validated on linux-x64 only; macOS signing reuses the shared codesign step; cross-target staging requires that target's platform packages to be present locally (the collector fails fast otherwise). This pipeline is experimental and parallel to the default SEA pipeline (`build:native:sea`), which remains the release default. Runtime asset loading is unified: both pipelines feed the same extraction/cache layer.
+
 ### Common Issues
 
 | Symptom | Cause | Fix |
