@@ -25,6 +25,7 @@ import {
   isImageFormatError,
   isRecoverableRequestStructureError,
   isRetryableGenerateError,
+  isUnknownCacheKeyFieldError,
 } from '#/kosong/contract/errors';
 import { isToolCall, type Message, type StreamedMessagePart } from '#/kosong/contract/message';
 import { type ThinkingEffort } from '#/kosong/contract/provider';
@@ -141,6 +142,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   declare readonly _serviceBrand: undefined;
 
   private readonly toolCallIdNormalizer = new ToolCallIdNormalizer();
+  private readonly cacheKeyRejectedModels = new Set<string>();
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -327,6 +329,9 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         : this.isRecoveryTurn(this.mediaDegradedTurns, request.source)
           ? { media: 'degraded' }
           : undefined;
+    if (this.cacheKeyRejectedModels.has(request.modelAlias)) {
+      policy = { ...policy, withoutCacheKey: true };
+    }
     const captureMediaStripPolicy = (): { readonly strip: MediaStripSnapshot } => {
       const snapshot = this.projector.captureMediaStripSnapshot(shaped);
       this.markMediaStrippedRecoveryTurn(snapshot, request.source);
@@ -376,8 +381,10 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       };
 
       try {
+        const attemptParams =
+          policy?.withoutCacheKey === true ? withoutCacheKeyParams(request.params) : request.params;
         for await (const event of request.requester.request(input, signal, {
-          ...request.params,
+          ...attemptParams,
           onTraceId: setTraceId,
         })) {
           switch (event.type) {
@@ -513,6 +520,15 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         ...request.logFields,
       });
       return { ...policy, structure: 'strict' };
+    }
+    if (policy?.withoutCacheKey !== true && isUnknownCacheKeyFieldError(raw)) {
+      signal?.throwIfAborted();
+      this.log.warn('provider rejected prompt_cache_key as an unknown field; resending without it', {
+        model: request.model.name,
+        ...request.logFields,
+      });
+      this.cacheKeyRejectedModels.add(request.modelAlias);
+      return { ...policy, withoutCacheKey: true };
     }
     return undefined;
   }
@@ -825,6 +841,12 @@ function projectionNameOf(policy: ProjectionPolicy | undefined): LlmRequestProje
   if (policy.media === 'degraded') return 'media-degraded';
   if (typeof policy.media === 'object') return 'media-stripped';
   return undefined;
+}
+
+function withoutCacheKeyParams(params: ModelRequestParams): ModelRequestParams {
+  if (params.cacheKey === undefined) return params;
+  const { cacheKey: _dropped, ...rest } = params;
+  return rest;
 }
 
 function projectionField(fields: AgentLLMRequestLogFields): LlmRequestProjection | undefined {

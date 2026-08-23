@@ -47,6 +47,7 @@ import { IModelService } from '#/kosong/model/model';
 import {
   type ModelRequestEvent,
   type ModelRequestInput,
+  type ModelRequestParams,
   type ModelRequester,
 } from '#/kosong/model/modelRequester';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -105,6 +106,7 @@ function createRequester(
   firstCallError?: Error | null,
   subsequentCallErrors: readonly Error[] = [],
   capturedInputs?: ModelRequestInput[],
+  capturedParams?: ModelRequestParams[],
 ): ModelRequester {
   const model: Model = {
     id: 'm',
@@ -121,9 +123,10 @@ function createRequester(
   };
   return {
     model,
-    request: async function* (input) {
+    request: async function* (input, _signal, params) {
       calls.value += 1;
       capturedInputs?.push(input);
+      capturedParams?.push(params ?? {});
       const error =
         calls.value === 1
           ? firstCallError === null
@@ -161,6 +164,7 @@ function createService(
     readonly thinkingLevel?: ThinkingEffort;
     readonly mediaResolver?: Partial<IAgentMediaResolverService>;
     readonly contextMessages?: Message[];
+    readonly requestParams?: ModelRequestParams;
   } = {},
 ) {
   const ix = disposables.add(new TestInstantiationService());
@@ -175,7 +179,7 @@ function createService(
       reservedContextSize: undefined,
       compactionTriggerRatio: undefined,
     }),
-    resolveRequestParams: () => ({}),
+    resolveRequestParams: () => options.requestParams ?? ({}),
     getSystemPrompt: () => 'system',
     data: () => ({
       cwd: '',
@@ -624,6 +628,59 @@ describe('AgentLLMRequesterService combined recovery projections', () => {
       { media: 'degraded' },
       { structure: 'strict', media: 'degraded' },
     ]);
+  });
+});
+
+describe('AgentLLMRequesterService unknown-field cache-key resend', () => {
+  const UNKNOWN_FIELD_400 = new APIStatusError(400, '400 未知请求字段：prompt_cache_key');
+
+  it('resends without the cache key after an unknown-field 400', async () => {
+    const calls = { value: 0 };
+    const params: ModelRequestParams[] = [];
+    const { service } = createService(
+      createRequester(calls, UNKNOWN_FIELD_400, [], undefined, params),
+      undefined,
+      { requestParams: { cacheKey: 'session-1' } },
+    );
+
+    const result = await service.request();
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(calls.value).toBe(2);
+    expect(params[0]?.cacheKey).toBe('session-1');
+    expect(params[1]?.cacheKey).toBeUndefined();
+  });
+
+  it('keeps later requests of the same model free of the cache key', async () => {
+    const calls = { value: 0 };
+    const params: ModelRequestParams[] = [];
+    const { service } = createService(
+      createRequester(calls, UNKNOWN_FIELD_400, [], undefined, params),
+      undefined,
+      { requestParams: { cacheKey: 'session-1' } },
+    );
+
+    await service.request();
+    expect(calls.value).toBe(2);
+
+    await service.request({ source: { type: 'turn', turnId: 1, step: 2 } });
+    expect(calls.value).toBe(3);
+    expect(params[2]?.cacheKey).toBeUndefined();
+  });
+
+  it('does not resend for an invalid-parameter wording that names no known field', async () => {
+    const calls = { value: 0 };
+    const { service } = createService(
+      createRequester(
+        calls,
+        new APIStatusError(400, '[1210] Invalid API parameter, please check the documentation.'),
+      ),
+      undefined,
+      { requestParams: { cacheKey: 'session-1' } },
+    );
+
+    await expect(service.request()).rejects.toMatchObject({ statusCode: 400 });
+    expect(calls.value).toBe(1);
   });
 });
 

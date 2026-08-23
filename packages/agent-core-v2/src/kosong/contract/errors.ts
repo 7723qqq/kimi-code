@@ -432,6 +432,31 @@ export function isRecoverableRequestStructureError(error: unknown): boolean {
   return STRUCTURAL_REQUEST_MESSAGE_PATTERNS.some((pattern) => pattern.test(lowerMessage));
 }
 
+// Strict OpenAI-compatible endpoints reject the optional `prompt_cache_key`
+// affinity hint as an unknown request field (observed verbatim from a
+// DeepSeek-backed relay as "400 未知请求字段：prompt_cache_key"). The rejection
+// is deterministic per endpoint, and the only recovery is to resend without
+// the field, so it is classified narrowly: a 400/422 that names the field
+// AND words the rejection as an unknown/unrecognized one. Generic
+// "invalid parameter" wordings without a named field stay unclassified —
+// there is nothing safe to drop for those.
+const UNKNOWN_CACHE_KEY_FIELD_MESSAGE_PATTERNS = [
+  /未知请求字段/,
+  /unknown (?:request )?(?:field|parameter|argument)/,
+  /unrecognized (?:request )?(?:field|parameter|keyword argument)/,
+] as const;
+
+export function isUnknownCacheKeyFieldError(error: unknown): boolean {
+  if (!(error instanceof APIStatusError)) return false;
+  if (error instanceof APIContextOverflowError) return false;
+  if (error.statusCode !== 400 && error.statusCode !== 422) return false;
+  const lowerMessage = error.message.toLowerCase();
+  return (
+    lowerMessage.includes('prompt_cache_key') &&
+    UNKNOWN_CACHE_KEY_FIELD_MESSAGE_PATTERNS.some((pattern) => pattern.test(lowerMessage))
+  );
+}
+
 export function isProviderRateLimitError(error: unknown): boolean {
   if (error instanceof APIProviderQuotaExhaustedError) return false;
   if (error instanceof APIProviderRateLimitError) return true;

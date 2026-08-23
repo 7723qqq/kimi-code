@@ -12,6 +12,11 @@ export interface MediaStripSnapshot {
 export interface ProjectionPolicy {
   readonly structure?: 'strict';
   readonly media?: 'degraded' | { readonly strip: MediaStripSnapshot };
+  /**
+   * Resend without optional provider-affinity extras (`prompt_cache_key`) —
+   * set when a strict endpoint rejected the cache key as an unknown field.
+   */
+  readonly withoutCacheKey?: boolean;
 }
 
 export interface IAgentContextProjectorService {
