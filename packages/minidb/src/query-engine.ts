@@ -270,7 +270,7 @@ export class QueryEngine<V> {
       keys = keys === null ? indexed : filterKeys(keys, (k) => set.has(k));
     }
 
-    if (keys === null) keys = this.deps.store().rawKeys({});
+    keys ??= this.deps.store().rawKeys({});
 
     const stats = this.deps.stats;
     const skip = q.skip ?? 0;
@@ -375,7 +375,7 @@ export class QueryEngine<V> {
       keys = keys === null ? indexed : filterKeys(keys, (k) => set.has(k));
     }
 
-    if (keys === null) keys = this.deps.store().rawKeys({});
+    keys ??= this.deps.store().rawKeys({});
 
     const stats = this.deps.stats;
     const skip = q.skip ?? 0;

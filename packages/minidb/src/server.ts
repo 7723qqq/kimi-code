@@ -134,7 +134,7 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
       return reply.bulk(S(1));
     case 'GET': {
       const v = db.get(S(1)!);
-      return reply.bulk(v === undefined ? null : v);
+      return reply.bulk(v ?? null);
     }
     case 'SET': {
       const key = S(1)!;
@@ -159,7 +159,7 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
       const out: unknown[] = [];
       for (let i = 1; i < args.length; i++) {
         const v = db.get(S(i)!);
-        out.push(v === undefined ? null : v);
+        out.push(v ?? null);
       }
       return reply.array(out);
     }
