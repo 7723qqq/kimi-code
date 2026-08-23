@@ -189,6 +189,16 @@ pub async fn run_llm_stream_with(
                     Err(_) => continue, // Skip malformed JSON
                 };
 
+                // Gateways and providers report mid-stream failures as in-band
+                // error frames (Chat Completions: a top-level `error` object;
+                // Anthropic / Responses: a `type: "error"` event). Surface them
+                // as stream errors instead of silently ending with whatever
+                // partial content arrived — the SDK path throws on these too.
+                if let Some(message) = extract_in_band_error(&parsed) {
+                    emit(StreamEvent::Error(format!("Provider stream error: {message}")));
+                    break;
+                }
+
                 let decoded = match config.provider.as_str() {
                     "openai-responses" => decode_openai_responses_event(&parsed, &mut metadata),
                     "openai-legacy" => decode_openai_legacy_event(&parsed, &mut metadata),
@@ -209,6 +219,51 @@ pub async fn run_llm_stream_with(
 
     emit(StreamEvent::Done(metadata));
     Ok(())
+}
+
+// ── In-band error detection ──────────────────────────────────────────────────
+
+/// Extract the message of an in-band stream error frame, if the event is one.
+///
+/// Recognized shapes:
+/// - Chat Completions gateways (one-api / new-api style): a top-level `error`
+///   object alongside or instead of `choices`, e.g.
+///   `{"error": {"message": "...", "type": "upstream_error"}}`.
+/// - Anthropic Messages: `{"type": "error", "error": {"type": ..., "message": ...}}`.
+/// - OpenAI Responses: `{"type": "error", "message": ..., "code": ...}`.
+///
+/// Returns `None` for every non-error event, including `"error": null`.
+fn extract_in_band_error(event: &Value) -> Option<String> {
+    let top_error = event.get("error");
+    if let Some(err) = top_error.filter(|v| v.is_object()) {
+        if let Some(message) = err.get("message").and_then(|v| v.as_str()) {
+            if !message.is_empty() {
+                return Some(message.to_string());
+            }
+        }
+        return Some(err.to_string());
+    }
+
+    if event.get("type").and_then(|v| v.as_str()) == Some("error") {
+        if let Some(message) = top_error
+            .filter(|v| v.is_object())
+            .and_then(|err| err.get("message"))
+            .and_then(|v| v.as_str())
+            .filter(|m| !m.is_empty())
+        {
+            return Some(message.to_string());
+        }
+        if let Some(message) = event
+            .get("message")
+            .and_then(|v| v.as_str())
+            .filter(|m| !m.is_empty())
+        {
+            return Some(message.to_string());
+        }
+        return Some(event.to_string());
+    }
+
+    None
 }
 
 // ── OpenAI Responses API decoder ─────────────────────────────────────────────
@@ -636,6 +691,66 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // ══════════════════════════════════════════════════════════════════════
+    // In-band error detection tests
+    // ══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_in_band_error_gateway_error_object_message() {
+        let event = json!({
+            "error": {
+                "message": "Upstream request failed: [1210] Invalid API parameter",
+                "type": "upstream_error",
+                "code": 1210
+            }
+        });
+        assert_eq!(
+            extract_in_band_error(&event).as_deref(),
+            Some("Upstream request failed: [1210] Invalid API parameter")
+        );
+    }
+
+    #[test]
+    fn test_in_band_error_gateway_error_object_without_message() {
+        let event = json!({ "error": { "code": "internal" } });
+        let extracted = extract_in_band_error(&event);
+        assert!(extracted.is_some());
+        assert!(extracted.unwrap().contains("internal"));
+    }
+
+    #[test]
+    fn test_in_band_error_anthropic_shape() {
+        let event = json!({
+            "type": "error",
+            "error": { "type": "overloaded_error", "message": "Overloaded" }
+        });
+        assert_eq!(extract_in_band_error(&event).as_deref(), Some("Overloaded"));
+    }
+
+    #[test]
+    fn test_in_band_error_responses_shape() {
+        let event = json!({ "type": "error", "message": "Rate limit exceeded" });
+        assert_eq!(
+            extract_in_band_error(&event).as_deref(),
+            Some("Rate limit exceeded")
+        );
+    }
+
+    #[test]
+    fn test_in_band_error_non_error_events_ignored() {
+        assert_eq!(extract_in_band_error(&json!({ "error": null })), None);
+        assert_eq!(
+            extract_in_band_error(&json!({
+                "id": "chatcmpl_1",
+                "choices": [{ "delta": { "content": "Hi" }, "finish_reason": null }]
+            })),
+            None
+        );
+        assert_eq!(extract_in_band_error(&json!({ "type": "ping" })), None);
+        assert_eq!(extract_in_band_error(&json!({ "type": "message_stop" })), None);
+        assert_eq!(extract_in_band_error(&json!({})), None);
+    }
 
     // ══════════════════════════════════════════════════════════════════════
     // OpenAI Responses API decoder tests
