@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getTextBuildWorkerRuntimeState,
   resetTextBuildWorkerRuntime,
@@ -18,6 +18,7 @@ import {
   type NativeAssetManifest,
   type NativeAssetSource,
 } from '#/native/native-assets';
+import { getBunEmbeddedAssetSource } from '#/native/bun-assets';
 import { installMinidbTextBuildWorker } from '#/native/minidb-worker';
 import { loadNativePackage } from '#/native/native-require';
 
@@ -332,5 +333,67 @@ describe('native assets', () => {
         'test-target',
       ),
     ).toThrow(/duplicate assetKey/);
+  });
+});
+
+describe('bun embedded assets', () => {
+  const bunGlobal = globalThis as unknown as { __KIMI_BUN_ASSETS__?: Record<string, string> };
+
+  beforeEach(() => {
+    delete bunGlobal.__KIMI_BUN_ASSETS__;
+  });
+
+  afterEach(() => {
+    delete bunGlobal.__KIMI_BUN_ASSETS__;
+  });
+
+  it('returns null when the Bun asset global is missing or empty', () => {
+    expect(getBunEmbeddedAssetSource()).toBeNull();
+    bunGlobal.__KIMI_BUN_ASSETS__ = {};
+    expect(getBunEmbeddedAssetSource()).toBeNull();
+  });
+
+  it('exposes asset keys and raw file contents from mapped paths', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-bun-assets-'));
+    try {
+      const textPath = join(dir, 'worker.mjs');
+      const binaryPath = join(dir, 'native.bin');
+      const worker = 'export const worker = true;\n';
+      const binary = Buffer.from([0x00, 0xff, 0x10, 0xfe]);
+      writeFileSync(textPath, worker, 'utf-8');
+      writeFileSync(binaryPath, binary);
+
+      bunGlobal.__KIMI_BUN_ASSETS__ = {
+        'native/test-target/runtime/worker': textPath,
+        'native/test-target/native.bin': binaryPath,
+      };
+
+      const source = getBunEmbeddedAssetSource();
+      expect(source).not.toBeNull();
+      expect(source!.getAssetKeys()).toEqual([
+        'native/test-target/runtime/worker',
+        'native/test-target/native.bin',
+      ]);
+      expect(source!.getRawAsset('native/test-target/runtime/worker')).toEqual(
+        Buffer.from(worker, 'utf-8'),
+      );
+      expect(source!.getRawAsset('native/test-target/native.bin')).toEqual(binary);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws when looking up an unknown asset key', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-bun-assets-unknown-'));
+    try {
+      const path = join(dir, 'asset.txt');
+      writeFileSync(path, 'ok');
+      bunGlobal.__KIMI_BUN_ASSETS__ = { 'native/known': path };
+
+      const source = getBunEmbeddedAssetSource()!;
+      expect(() => source.getRawAsset('native/missing')).toThrow(/Unknown Bun embedded asset/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
