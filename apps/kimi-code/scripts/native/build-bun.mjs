@@ -1,13 +1,13 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 
 import { runBundleStep } from './01-bundle.mjs';
 import { collectNativeAssets, nativeAssetManifestKey } from './assets.mjs';
 import { run } from './exec.mjs';
+import { runSignStep } from './04-sign.mjs';
 import {
   appRoot,
-  executableName,
   nativeBinPath,
   nativeIntermediatesDir,
   nativeJsBundlePath,
@@ -17,6 +17,15 @@ import { collectWebAssets, webAssetManifestKey } from './web-assets.mjs';
 
 const MAIN_ASSET_KEY = 'runtime/main.cjs';
 const ASSET_SUFFIX = '.bin';
+
+const BUN_TARGETS = new Map([
+  ['linux-x64', 'bun-linux-x64'],
+  ['linux-arm64', 'bun-linux-arm64'],
+  ['darwin-x64', 'bun-darwin-x64'],
+  ['darwin-arm64', 'bun-darwin-arm64'],
+  ['win32-x64', 'bun-windows-x64'],
+  ['win32-arm64', 'bun-windows-arm64'],
+]);
 
 function resolveBun() {
   const candidates = [
@@ -33,14 +42,20 @@ async function buildBunNative() {
     process.exit(1);
   }
 
-  console.log('==> Bun native build');
+  const target = targetTriple();
+  const bunTarget = BUN_TARGETS.get(target);
+  if (bunTarget === undefined) {
+    console.error(`Unsupported Bun native target: ${target}`);
+    process.exit(1);
+  }
+
+  console.log(`==> Bun native build (target=${target})`);
   await runBundleStep();
 
-  const target = targetTriple();
   const stageRoot = join(nativeIntermediatesDir(), 'bun-stage', target);
   mkdirSync(stageRoot, { recursive: true });
 
-  console.log(`==> Collecting assets (target=${target})`);
+  console.log('==> Collecting assets');
   const native = await collectNativeAssets({ appRoot, target });
   const web = await collectWebAssets({ appRoot, target });
 
@@ -86,16 +101,19 @@ async function buildBunNative() {
 
   const outfile = nativeBinPath(target);
   mkdirSync(dirname(outfile), { recursive: true });
-  console.log('==> bun build --compile');
+  console.log(`==> bun build --compile --target=${bunTarget}`);
   await run(resolveBun(), [
     'build',
     '--compile',
+    '--target',
+    bunTarget,
     '--outfile',
     outfile,
     join(stageRoot, 'bun-entry.ts'),
   ]);
 
-  if (process.platform !== 'win32') chmodSync(outfile, 0o755);
+  await runSignStep();
+
   const mb = (statSync(outfile).size / 1024 / 1024).toFixed(1);
   console.log(`==> Bun native build complete: ${outfile} (${mb} MB)`);
 }

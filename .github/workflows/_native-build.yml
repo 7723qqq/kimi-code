@@ -18,6 +18,11 @@ on:
         required: false
         type: boolean
         default: false
+      build-bun:
+        description: 'Also build the experimental Bun single-file binary (linux-x64 only)'
+        required: false
+        type: boolean
+        default: false
     secrets:
       APPLE_CERTIFICATE_P12:
         required: false
@@ -131,4 +136,57 @@ jobs:
           path: |
             apps/kimi-code/dist-native/artifacts/kimi-code-${{ matrix.target }}.zip
             apps/kimi-code/dist-native/artifacts/kimi-code-${{ matrix.target }}.zip.sha256
+          if-no-files-found: ignore
+
+  native-bundle-bun:
+    name: Native bundle (bun, linux-x64)
+    runs-on: ubuntu-24.04
+    if: inputs.build-bun == true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: 'pnpm'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Rust toolchain (napi native-tools)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build kimi-native-tools (.node for embedded assets)
+        run: pnpm --filter @moonshot-ai/kimi-native-tools run build
+
+      - name: Build Kimi web assets check
+        run: node apps/kimi-code/scripts/check-web-assets.mjs
+
+      - name: Build native executable (Bun)
+        run: pnpm --filter @moonshot-ai/kimi-code run build:native:bun
+
+      - name: Smoke test native executable
+        run: pnpm --filter @moonshot-ai/kimi-code run test:native:smoke
+
+      - name: Package native artifact
+        run: pnpm --filter @moonshot-ai/kimi-code run package:native
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.upload-artifact-prefix }}-bun-linux-x64
+          retention-days: ${{ inputs.retention-days }}
+          path: |
+            apps/kimi-code/dist-native/artifacts/kimi-code-linux-x64.zip
+            apps/kimi-code/dist-native/artifacts/kimi-code-linux-x64.zip.sha256
           if-no-files-found: ignore
