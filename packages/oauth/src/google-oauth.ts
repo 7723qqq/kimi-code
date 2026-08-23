@@ -24,12 +24,21 @@ export {
 export const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 
-// Default Google OAuth Client ID for native/desktop applications.
+// Default Google OAuth Client for native/desktop applications.
 // Can be customized via GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.
+//
+// The pair below is the well-known installed-client credential published by
+// google-gemini-cli (Apache-2.0) — the same client that issues the credentials
+// found in ~/.gemini/oauth_creds.json, so tokens obtained through our own login
+// flow AND imported Antigravity/gemini-cli credentials both refresh against
+// their issuing client. The previously embedded id did not exist on Google's
+// side; every token exchange and refresh failed with 401 "invalid_client:
+// The OAuth client was not found."
 export const GOOGLE_DEFAULT_CLIENT_ID =
   process.env['GOOGLE_CLIENT_ID'] ||
-  '936475272427-0g70b74pf7e34q5g72r9r1m05a415a7i.apps.googleusercontent.com';
-export const GOOGLE_DEFAULT_CLIENT_SECRET = process.env['GOOGLE_CLIENT_SECRET'] || '';
+  '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com';
+export const GOOGLE_DEFAULT_CLIENT_SECRET =
+  process.env['GOOGLE_CLIENT_SECRET'] || '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';
 
 export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/generative-language',
@@ -306,7 +315,7 @@ export class GoogleOAuthManager {
           }
 
           // Exchange code for token
-          const redirectUri = `http://127.0.0.1:${(server?.address() as { port: number })?.port}/oauth2callback`;
+          const redirectUri = `http://localhost:${(server?.address() as { port: number })?.port}/oauth2callback`;
           const tokenParams = new URLSearchParams({
             client_id: this.clientId,
             code,
@@ -411,7 +420,9 @@ export class GoogleOAuthManager {
       server.listen(0, '127.0.0.1', () => {
         const addr = server?.address() as { port: number };
         const port = addr.port;
-        const redirectUri = `http://127.0.0.1:${port}/oauth2callback`;
+        // Redirect host mirrors gemini-cli (localhost, not the raw loopback IP)
+        // so Google's allowed-redirect matching accepts the installed client.
+        const redirectUri = `http://localhost:${port}/oauth2callback`;
 
         const authParams = new URLSearchParams({
           client_id: this.clientId,

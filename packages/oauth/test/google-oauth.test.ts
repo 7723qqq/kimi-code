@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   applyGoogleGeminiConfig,
+  GOOGLE_DEFAULT_CLIENT_ID,
+  GOOGLE_DEFAULT_CLIENT_SECRET,
   GOOGLE_GEMINI_DEFAULT_MODELS,
   GOOGLE_GEMINI_PROVIDER_ID,
   GoogleOAuthManager,
@@ -85,6 +87,15 @@ describe('Google OAuth & Gemini Module', () => {
     const loaded = await manager.loadToken();
     expect(loaded?.accessToken).toBe('new-refreshed-access-token');
     expect(loaded?.refreshToken).toBe('valid-refresh-token');
+
+    const [, requestInit] = fetchMock.mock.calls[0]! as [string, RequestInit];
+    const rawBody = requestInit.body;
+    if (typeof rawBody !== 'string') throw new Error('expected string request body');
+    const body = new URLSearchParams(rawBody);
+    expect(body.get('client_id')).toBe(GOOGLE_DEFAULT_CLIENT_ID);
+    // A missing secret makes Google reject the refresh with 401 invalid_client.
+    expect(body.get('client_secret')).toBe(GOOGLE_DEFAULT_CLIENT_SECRET);
+    expect((body.get('client_secret') ?? '').length).toBeGreaterThan(0);
   });
 
   it('applies Google Gemini configuration to ManagedKimiConfigShape', () => {
