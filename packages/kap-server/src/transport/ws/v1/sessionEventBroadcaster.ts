@@ -747,7 +747,7 @@ export class SessionEventBroadcaster {
     return state;
   }
 
-  private onCoreEvent(event: Event2<any>): void {
+  private onCoreEvent(event: Event2<unknown>): void {
     const corePayload = (event as { readonly payload?: unknown }).payload;
     if (event.type === 'event.session.created') {
       const payload = sessionCreatedPayload(corePayload);
@@ -983,16 +983,16 @@ export class SessionEventBroadcaster {
       this.onAgentEvent(sessionId, MAIN_AGENT_ID, {
         type: 'agent.status.updated',
         ...snapshot,
-      } as unknown as Event2<any>);
+      } as unknown as Event2<unknown>);
     };
     const disposables: IDisposable[] = [
       eventBus.subscribe((event) => {
-        let projected: Event2<any> = event;
+        let projected: Event2<unknown> = event;
         if (event.type === 'agent.status.updated') {
           const snapshot = readLegacyStatus(handle);
           if (snapshot !== undefined) {
             lastLegacyStatus = JSON.stringify(snapshot);
-            projected = Object.assign({}, event, snapshot) as unknown as Event2<any>;
+            projected = Object.assign({}, event, snapshot) as unknown as Event2<unknown>;
           }
         }
         if (handle.id === MAIN_AGENT_ID && event.type === 'context.spliced') {
@@ -1005,7 +1005,7 @@ export class SessionEventBroadcaster {
     return { dispose: () => disposables.forEach((disposable) => disposable.dispose()) };
   }
 
-  private onAgentEvent(sessionId: string, agentId: string, event: Event2<any>): void {
+  private onAgentEvent(sessionId: string, agentId: string, event: Event2<unknown>): void {
     const state = this.sessions.get(sessionId);
     if (state === undefined) return;
 
@@ -1245,7 +1245,11 @@ function isVolatileSignal(type: string): boolean {
   return volatileSignalTypeSet.has(type);
 }
 
-function legacyTaskEvent(event: Event2<any>, agentId: string, sessionId: string): Event | undefined {
+function legacyTaskEvent(
+  event: Event2<unknown>,
+  agentId: string,
+  sessionId: string,
+): Event | undefined {
   if (event.type !== 'task.started' && event.type !== 'task.terminated') return undefined;
   const legacyType =
     event.type === 'task.started' ? 'background.task.started' : 'background.task.terminated';

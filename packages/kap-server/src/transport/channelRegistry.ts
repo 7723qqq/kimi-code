@@ -93,7 +93,7 @@ function extractParams(fn: (...args: never[]) => unknown): string {
 }
 
 function describeMethods(
-  ctor: new (...args: any[]) => unknown,
+  ctor: new (...args: never[]) => unknown,
 ): readonly ChannelMethodDescriptor[] {
   const methods = new Map<string, ChannelMethodDescriptor>();
   let proto: object | null = ctor.prototype;

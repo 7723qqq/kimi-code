@@ -1,10 +1,12 @@
 import type {
   AgentReplayRecord,
+  ContentPart,
   ContextMessage,
   GoalChange,
   PermissionMode,
   ResumedAgentState,
   Session,
+  TextPromptPart,
   ToolCall,
 } from '@moonshot-ai/kimi-code-sdk';
 
@@ -83,6 +85,11 @@ function unescapeBashXml(text: string): string {
     .replaceAll('&gt;', '>')
     .replaceAll('&quot;', '"')
     .replaceAll('&amp;', '&');
+}
+
+function trailingTextPart(content: readonly ContentPart[]): string | undefined {
+  const textParts = content.filter((part): part is TextPromptPart => part.type === 'text');
+  return textParts[textParts.length - 1]?.text;
 }
 
 export class SessionReplayRenderer {
@@ -206,15 +213,11 @@ export class SessionReplayRenderer {
         nextRecord !== undefined &&
         nextRecord.type === 'message' &&
         nextRecord.message.role === 'user' &&
-        Array.isArray((nextRecord.message.origin as any)?.skillActivations)
+        nextRecord.message.origin?.kind === 'user' &&
+        Array.isArray(nextRecord.message.origin.skillActivations)
       ) {
-        const nextUserMsg = nextRecord.message;
+        const activations = nextRecord.message.origin.skillActivations;
         this.advanceTurn(context);
-        const activations = (nextUserMsg.origin as any).skillActivations as Array<{
-          activationId: string;
-          skillName: string;
-          skillArgs?: string;
-        }>;
         for (const act of activations) {
           const entry: TranscriptEntry = {
             id: nextTranscriptId(),
@@ -231,9 +234,9 @@ export class SessionReplayRenderer {
           this.host.appendTranscriptEntry(entry);
         }
         this.renderHookResult(context, record.message);
-        const textParts = nextUserMsg.content.filter((c: any) => c.type === 'text');
         const promptText =
-          (textParts[textParts.length - 1] as any)?.text ?? contentPartsToText(nextUserMsg.content);
+          trailingTextPart(nextRecord.message.content) ??
+          contentPartsToText(nextRecord.message.content);
         this.host.appendTranscriptEntry(replayEntry(context, 'user', promptText, 'plain'));
         i++;
         continue;
@@ -242,14 +245,10 @@ export class SessionReplayRenderer {
         record.type === 'message' &&
         record.message.role === 'user' &&
         record.message.origin?.kind === 'user' &&
-        Array.isArray((record.message.origin as any).skillActivations)
+        Array.isArray(record.message.origin.skillActivations)
       ) {
         this.advanceTurn(context);
-        const activations = (record.message.origin as any).skillActivations as Array<{
-          activationId: string;
-          skillName: string;
-          skillArgs?: string;
-        }>;
+        const activations = record.message.origin.skillActivations;
         for (const act of activations) {
           const entry: TranscriptEntry = {
             id: nextTranscriptId(),
@@ -274,9 +273,8 @@ export class SessionReplayRenderer {
           this.renderHookResult(context, nextRecord.message);
           i++;
         }
-        const textParts = record.message.content.filter((c: any) => c.type === 'text');
         const promptText =
-          (textParts[textParts.length - 1] as any)?.text ?? contentPartsToText(record.message.content);
+          trailingTextPart(record.message.content) ?? contentPartsToText(record.message.content);
         this.host.appendTranscriptEntry(replayEntry(context, 'user', promptText, 'plain'));
         continue;
       }
