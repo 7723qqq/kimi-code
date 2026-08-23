@@ -1,4 +1,17 @@
 {
   "extends": "../../tsconfig.json",
-  "include": ["src", "test", "scenarios", "scripts", "../agent-core-v2/src/env.d.ts"]
+  "include": [
+    "src",
+    "test",
+    "scenarios",
+    "scripts",
+    "../agent-core-v2/src/env.d.ts"
+  ],
+  "compilerOptions": {
+    "paths": {
+      "#/*": [
+        "./src/*.ts"
+      ]
+    }
+  }
 }
