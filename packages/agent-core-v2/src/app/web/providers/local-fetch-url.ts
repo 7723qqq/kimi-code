@@ -136,8 +136,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
       if (!REDIRECT_STATUSES.has(response.status)) return response;
       const location = response.headers.get('location');
       if (location === null) return response;
-      await response.body?.cancel().catch(() => {
-      });
+      await response.body?.cancel().catch(() => {});
       if (redirects >= MAX_REDIRECT_HOPS) {
         throw new Error2(
           ErrorCodes.WEB_FETCH_FAILED,
@@ -155,12 +154,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
     dispatchers: Dispatcher[],
   ): Dispatcher | undefined {
     if (target.addresses === undefined) return undefined;
-    if (
-      isProxyConfigured(process.env) &&
-      !makeNoProxyMatcher(resolveNoProxy(process.env))(target.host, target.port)
-    ) {
-      return undefined;
-    }
+    if (requestRidesGlobalProxy(target.host, target.port)) return undefined;
     const dispatcher = new Agent({
       connect: { lookup: pinnedLookup(target.host, target.addresses) },
     });
@@ -263,6 +257,12 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
       details: { host },
     });
   }
+  // When the global proxy dispatcher carries the request, the resolved
+  // addresses are discarded (no pinning is possible), while a poisoned or
+  // unreachable local DNS — common exactly on networks that need a proxy —
+  // would fail the request before it starts. Skip the lookup; the literal-IP
+  // and localhost refusals above still apply.
+  if (requestRidesGlobalProxy(host, port)) return { host, port };
   let addresses: LookupAddress[];
   try {
     addresses = await lookup(host, { all: true });
@@ -284,6 +284,18 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
     }
   }
   return { host, port, addresses };
+}
+
+/**
+ * Whether this host:port combination rides undici's global proxy dispatcher
+ * (`installGlobalProxyDispatcher`) instead of a per-request pinned Agent.
+ * Shared by the SSRF pre-check and the dispatcher selection so both agree on
+ * when DNS pinning applies.
+ */
+function requestRidesGlobalProxy(host: string, port: string): boolean {
+  return (
+    isProxyConfigured(process.env) && !makeNoProxyMatcher(resolveNoProxy(process.env))(host, port)
+  );
 }
 
 function pinnedLookup(host: string, addresses: LookupAddress[]): LookupFunction {

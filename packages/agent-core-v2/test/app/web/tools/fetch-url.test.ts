@@ -85,6 +85,27 @@ describe('FetchURLTool abort signal', () => {
     }
     expect(result.output).toContain('boom');
   });
+
+  it('surfaces the underlying cause of an undici network failure', async () => {
+    const failure: TypeError & { cause?: unknown } = new TypeError('fetch failed');
+    failure.cause = Object.assign(new Error('connect ETIMEDOUT 20.205.243.166:443'), {
+      code: 'ETIMEDOUT',
+    });
+    const fetch = vi.fn<UrlFetcher['fetch']>().mockRejectedValue(failure);
+    const tool = new FetchURLTool({
+      _serviceBrand: undefined,
+      getUrlFetcher: () => ({ fetch }),
+    });
+
+    const result = await execute(tool, 'https://github.com/x', new AbortController().signal);
+
+    expect(result.isError).toBe(true);
+    if (typeof result.output !== 'string') {
+      throw new Error('expected string error output');
+    }
+    expect(result.output).toContain('fetch failed');
+    expect(result.output).toContain('ETIMEDOUT');
+  });
 });
 
 describe('FetchURLTool output note', () => {

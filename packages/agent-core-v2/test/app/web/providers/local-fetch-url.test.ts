@@ -291,6 +291,31 @@ describe('LocalFetchURLProvider connection pinning', () => {
     expect((fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher).toBeUndefined();
   });
 
+  it('skips the local DNS safety lookup when the global proxy carries the request', async () => {
+    vi.stubEnv('http_proxy', 'http://proxy.example:8080');
+    lookupMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND github.com'));
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    const provider = new LocalFetchURLProvider({ fetchImpl });
+
+    const result = await provider.fetch('https://github.com/');
+
+    expect(result.content).toBe('ok');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(lookupMock).not.toHaveBeenCalled();
+    expect((fetchImpl.mock.calls[0]![1] as RequestInit).dispatcher).toBeUndefined();
+  });
+
+  it('still refuses private IP literals while the proxy carries the request', async () => {
+    vi.stubEnv('http_proxy', 'http://proxy.example:8080');
+    const fetchImpl = vi.fn<typeof fetch>();
+    const provider = new LocalFetchURLProvider({ fetchImpl });
+
+    await expect(provider.fetch('http://127.0.0.1:1337/')).rejects.toThrow(
+      'Refusing to fetch private address',
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('still pins when the request bypasses the proxy via NO_PROXY wildcard', async () => {
     vi.stubEnv('http_proxy', 'http://proxy.example:8080');
     vi.stubEnv('no_proxy', '*');

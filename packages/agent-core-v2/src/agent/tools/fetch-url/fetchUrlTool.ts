@@ -8,6 +8,7 @@ import {
 } from '#/tool/toolContract';
 import { ToolResultBuilder } from '#/tool/result-builder';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { isProxyConfigured } from '#/_base/utils/proxy';
 
 import { IWebFetchService } from '#/app/web/web';
 import { HttpFetchError } from '#/app/web/tools/fetch-url-types';
@@ -68,12 +69,42 @@ export class FetchURLTool implements IFetchURLTool {
           output: `Failed to fetch URL. Status: ${String(error.status)}. ${msg}`,
         };
       }
+      const causeText = describeErrorCause(error);
+      const proxyHint = isProxyConfigured(process.env)
+        ? ''
+        : ' No HTTP(S)_PROXY is configured on this machine; if the site is unreachable by direct connection, set one and restart.';
       return {
         isError: true,
-        output: `Failed to fetch URL due to network error: ${args.url}. ${msg}`,
+        output: `Failed to fetch URL due to network error: ${args.url}. ${msg}${causeText}${proxyHint}`,
       };
     }
   }
+}
+
+/**
+ * Undici reports every transport failure as a bare `TypeError: fetch failed`;
+ * the actionable detail (DNS, connect timeout, TLS, reset) lives on the
+ * `cause` chain. Flatten it so the failure is diagnosable from the tool
+ * output alone.
+ */
+function describeErrorCause(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (current === null || typeof current !== 'object') break;
+    const candidate = current as { cause?: unknown };
+    current = candidate.cause;
+    if (current === undefined || current === null) break;
+    if (current instanceof Error) {
+      const code = (current as NodeJS.ErrnoException).code;
+      parts.push(code === undefined ? current.message : `${current.message} (${String(code)})`);
+    } else if (typeof current === 'string') {
+      parts.push(current);
+    } else {
+      parts.push(JSON.stringify(current));
+    }
+  }
+  return parts.length > 0 ? ` Cause: ${parts.join(' <- ')}.` : '';
 }
 
 registerAgentToolService(IFetchURLTool, FetchURLTool, { name: 'FetchURL', domain: 'web' });
