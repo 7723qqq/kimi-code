@@ -3,31 +3,44 @@
  *
  * Components import `currentTheme` and call methods like
  * `currentTheme.fg('primary', text)` at render time.  When the user switches
- * themes we call `currentTheme.setPalette(newPalette)` — the same singleton
+ * themes we call `currentTheme.setPalette(newPalette, family)` — the same
+ * singleton
  * instance stays alive, so every component (including already-rendered
  * transcript entries) sees the new colours on the next render frame.
  */
 
 import chalk from 'chalk';
 
-import type { ColorPalette } from './colors';
+import type { ColorPalette, ResolvedTheme } from './colors';
 import { darkColors } from './colors';
 
 export type ColorToken = keyof ColorPalette;
 
 export class Theme {
   private _palette: ColorPalette;
+  private _resolved: ResolvedTheme;
 
-  constructor(palette: ColorPalette) {
+  constructor(palette: ColorPalette, resolved: ResolvedTheme = 'dark') {
     this._palette = palette;
+    this._resolved = resolved;
   }
 
   get palette(): ColorPalette {
     return this._palette;
   }
 
-  setPalette(palette: ColorPalette): void {
+  /** Whether the active palette belongs to the light built-in family. */
+  get isLight(): boolean {
+    return this._resolved === 'light';
+  }
+
+  /**
+   * Apply a palette together with the built-in family (`'dark' | 'light'`) it
+   * was resolved from — the authoritative source for `isLight`.
+   */
+  setPalette(palette: ColorPalette, resolved: ResolvedTheme): void {
     this._palette = palette;
+    this._resolved = resolved;
   }
 
   color(token: ColorToken): string {

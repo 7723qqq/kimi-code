@@ -5,8 +5,11 @@
 
 import { isAbsolute, relative, sep } from 'node:path';
 
+import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
 import { Container, Spacer, Text, truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import type { Component, TUI } from '@moonshot-ai/pi-tui';
+
+import { t } from '#/i18n';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import {
@@ -21,11 +24,9 @@ import {
   STREAMING_ARGS_PREVIEW_MAX_CHARS,
 } from '#/tui/constant/streaming';
 import { FAILURE_MARK, STATUS_BULLET, SUCCESS_MARK } from '#/tui/constant/symbols';
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
-import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
 import { appendStreamingArgsPreview } from '#/tui/utils/event-payload';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
@@ -352,10 +353,7 @@ function extractPartialStringField(text: string, key: string): string | undefine
 function parseArgsPreview(value: string): Record<string, unknown> {
   const previewText = value.slice(0, STREAMING_ARGS_PREVIEW_MAX_CHARS);
   if (previewText.trim().length === 0) return {};
-  if (
-    value.length <= STREAMING_ARGS_PREVIEW_MAX_CHARS &&
-    previewText.trimEnd().endsWith('}')
-  ) {
+  if (value.length <= STREAMING_ARGS_PREVIEW_MAX_CHARS && previewText.trimEnd().endsWith('}')) {
     try {
       const parsed = JSON.parse(previewText) as unknown;
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
@@ -456,8 +454,7 @@ export function extractKeyArgument(
     const val = args[key];
     if (typeof val === 'string' && val.length > 0) {
       const firstLine = val.split('\n')[0] ?? val;
-      const displayValue =
-        toolName === 'Bash' && val.includes('\n') ? `${firstLine}…` : firstLine;
+      const displayValue = toolName === 'Bash' && val.includes('\n') ? `${firstLine}…` : firstLine;
       return formatKeyArgument(toolName, key, displayValue, workspaceDir);
     }
   }
@@ -500,7 +497,7 @@ class PrefixedWrappedLine implements Component {
     // reaches this many display rows, so a short paragraph still fills a
     // fixed-height window. Applied after `tailLines`.
     private readonly minLines?: number,
-  ) { }
+  ) {}
 
   invalidate(): void {
     this.renderCache = undefined;
@@ -894,7 +891,9 @@ export class ToolCallComponent extends Container {
     const tokens =
       contextTokens && contextTokens > 0
         ? contextTokens
-        : (this.subagentUsage === undefined ? 0 : usageTotal(this.subagentUsage));
+        : this.subagentUsage === undefined
+          ? 0
+          : usageTotal(this.subagentUsage);
     const latestActivity = computeLatestActivity(
       this.ongoingSubCalls,
       this.finishedSubCalls,
@@ -1396,7 +1395,11 @@ export class ToolCallComponent extends Container {
     this.ui?.requestRender();
   }
 
-  appendSubToolLiveOutput(id: string, text: string, options?: { readonly replace?: boolean }): void {
+  appendSubToolLiveOutput(
+    id: string,
+    text: string,
+    options?: { readonly replace?: boolean },
+  ): void {
     if (text.length === 0) return;
     const activity = this.subToolActivities.get(id);
     const ongoing = this.ongoingSubCalls.get(id);
@@ -1534,12 +1537,14 @@ export class ToolCallComponent extends Container {
       return this.buildSingleSubagentHeader();
     }
 
-    const verb = isFinished ? 'Used' : isTruncated ? 'Truncated' : 'Using';
+    const verb = isFinished
+      ? t('tui.messages.toolCall.verbUsed')
+      : isTruncated
+        ? t('tui.messages.toolCall.verbTruncated')
+        : t('tui.messages.toolCall.verbUsing');
     const keyArg = extractKeyArgument(toolCall.name, toolCall.args, this.workspaceDir);
     const decoded = decodeMcpToolName(toolCall.name);
-    const verbStyled = isTruncated
-      ? currentTheme.fg('error', verb)
-      : verb;
+    const verbStyled = isTruncated ? currentTheme.fg('error', verb) : verb;
     const toolLabel =
       decoded !== null
         ? `${currentTheme.boldFg('primary', decoded.toolName)}${currentTheme.dim(` · MCP/${decoded.serverName}`)}`
@@ -1604,9 +1609,9 @@ export class ToolCallComponent extends Container {
       PROGRESS_URL_RE.lastIndex = 0;
       const styled = PROGRESS_URL_RE.test(raw)
         ? raw.replace(PROGRESS_URL_RE, (url) => {
-          const visible = currentTheme.underlineFg('warning', url);
-          return `\u001B]8;;${url}\u001B\\${visible}\u001B]8;;\u001B\\`;
-        })
+            const visible = currentTheme.underlineFg('warning', url);
+            return `\u001B]8;;${url}\u001B\\${visible}\u001B]8;;\u001B\\`;
+          })
         : currentTheme.dim(raw);
       PROGRESS_URL_RE.lastIndex = 0;
       this.addChild(new Text(styled, 2, 0));
@@ -1659,7 +1664,9 @@ export class ToolCallComponent extends Container {
       const suffix = this.hiddenSubCallCount > 1 ? 's' : '';
       this.addChild(
         new Text(
-          currentTheme.italic(currentTheme.dim(`    ${String(this.hiddenSubCallCount)} more tool call${suffix} ...`)),
+          currentTheme.italic(
+            currentTheme.dim(`    ${String(this.hiddenSubCallCount)} more tool call${suffix} ...`),
+          ),
           0,
           0,
         ),
@@ -1667,9 +1674,7 @@ export class ToolCallComponent extends Container {
     }
 
     for (const sub of this.finishedSubCalls) {
-      const mark = sub.isError
-        ? currentTheme.fg('error', '✗')
-        : currentTheme.fg('success', '•');
+      const mark = sub.isError ? currentTheme.fg('error', '✗') : currentTheme.fg('success', '•');
       const keyArg = extractKeyArgument(sub.name, sub.args, this.workspaceDir);
       const nameCol = currentTheme.fg('primary', sub.name);
       const argCol = keyArg ? currentTheme.dim(` (${keyArg})`) : '';
@@ -2010,11 +2015,7 @@ export class ToolCallComponent extends Container {
     }
     if (this.result === undefined && this.toolCall.truncated === true) {
       this.addChild(
-        new Text(
-          currentTheme.dim(t('tui.messages.toolCall.argumentsTruncated')),
-          2,
-          0,
-        ),
+        new Text(currentTheme.dim(t('tui.messages.toolCall.argumentsTruncated')), 2, 0),
       );
       return;
     }
@@ -2115,14 +2116,9 @@ export class ToolCallComponent extends Container {
       const allLines = highlightLines(content, lang);
       const maxLines = COMMAND_PREVIEW_LINES;
       const scrollLines =
-        allLines.length > maxLines
-          ? allLines.slice(allLines.length - maxLines)
-          : allLines;
+        allLines.length > maxLines ? allLines.slice(allLines.length - maxLines) : allLines;
       for (const [i, line] of scrollLines.entries()) {
-        const originalLineNumber =
-          allLines.length > maxLines
-            ? allLines.length - maxLines + i
-            : i;
+        const originalLineNumber = allLines.length > maxLines ? allLines.length - maxLines + i : i;
         const lineNum = currentTheme.dim(String(originalLineNumber + 1).padStart(4) + '  ');
         this.addChild(new Text(lineNum + line, 2, 0));
       }
@@ -2282,7 +2278,10 @@ export class ToolCallComponent extends Container {
 
     if (summary.completed > 0) {
       segments.push(
-        currentTheme.fg('success', `${SUCCESS_MARK.trimEnd()} ${String(summary.completed)} completed`),
+        currentTheme.fg(
+          'success',
+          `${SUCCESS_MARK.trimEnd()} ${String(summary.completed)} completed`,
+        ),
       );
     }
     if (summary.failed > 0) {

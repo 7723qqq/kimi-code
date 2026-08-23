@@ -84,7 +84,12 @@ function extractFromArgs(
   toolName: string,
   detail: Record<string, unknown>,
 ): ResolvedDisplay | null {
-  const command = stringField(detail, 'command');
+  // Only the builtin shell family gets shell styling and danger scanning.
+  // The generic fallback carries raw args for every tool without its own
+  // display, and MCP tools can legitimately own a `command` field — rendering
+  // it as a shell command would mislead, so those fall through to the generic
+  // previews below.
+  const command = toolName === 'Bash' ? stringField(detail, 'command') : undefined;
   if (command !== undefined) {
     const cwd = stringField(detail, 'cwd');
     const toolDescription = stringField(detail, 'description');

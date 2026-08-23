@@ -32,7 +32,6 @@ import {
 } from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
 
-import type { CLIOptions } from '#/cli/options';
 import {
   createMsys2PromptDeps,
   installMsys2,
@@ -40,8 +39,11 @@ import {
   setUserShellPath,
   shouldPromptMsys2,
 } from '#/cli/msys2-prompt';
+import type { CLIOptions } from '#/cli/options';
 import { getLocale, t } from '#/i18n';
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
+import { extractInlineSkillActivations } from '#/tui/utils/inline-skill-tokens';
+import { computeSmoothedTokenSpeed, pickDecodeMs } from '#/tui/utils/token-speed';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
 import { openUrl } from '#/utils/open-url';
@@ -50,8 +52,6 @@ import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { startupTrace } from '#/utils/startup-trace';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
-import { extractInlineSkillActivations } from '#/tui/utils/inline-skill-tokens';
-import { computeSmoothedTokenSpeed, pickDecodeMs } from '#/tui/utils/token-speed';
 
 import { BannerProvider } from './banner/banner-provider';
 import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
@@ -1342,7 +1342,7 @@ export class KimiTUI {
       renderMode: 'plain',
       content: '',
     };
-const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender());
+    const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender());
     // Inherit the current ctrl+o state, same as freshly mounted tool calls —
     // the global toggle only reaches components that exist when it fires.
     if (this.state.toolOutputExpanded) outputComponent.setExpanded(true);
@@ -1676,11 +1676,7 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
     const parts =
       item.parts === undefined
         ? undefined
-        : refreshExpiringImageFileRefs(
-            item.parts,
-            item.imageAttachmentIds ?? [],
-            this.imageStore,
-          );
+        : refreshExpiringImageFileRefs(item.parts, item.imageAttachmentIds ?? [], this.imageStore);
     this.harness.withInteractiveAgent(item.agentId ?? MAIN_AGENT_ID, () => {
       this.sendMessageInternal(session, item.text, {
         parts,
@@ -1729,7 +1725,8 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
     // (finalizeTurn clears the id at turn end; a queued dispatch can land
     // while the goal driver's next continuation turn is already streaming).
     const runningTurnId =
-      this.state.appState.streamingPhase === 'idle' || this.state.appState.streamingPhase === 'shell'
+      this.state.appState.streamingPhase === 'idle' ||
+      this.state.appState.streamingPhase === 'shell'
         ? undefined
         : this.streamingUI.getTurnContext().turnId;
     this.beginSessionRequest();
@@ -1794,9 +1791,7 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
       }
     }
     const promptOptions =
-      stagingLease !== undefined
-        ? { promptId: stagingLease.submissionId }
-        : undefined;
+      stagingLease !== undefined ? { promptId: stagingLease.submissionId } : undefined;
     const dispatchPromise =
       skills.length > 0 && typeof session.promptWithSkills === 'function'
         ? session.promptWithSkills(
@@ -1888,7 +1883,8 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
     const hasInlineSkills =
       this.engineV2 &&
       typeof input === 'string' &&
-      extractInlineSkillActivations(input, this.skillCommandMap, { includeLeading: true }).length > 0;
+      extractInlineSkillActivations(input, this.skillCommandMap, { includeLeading: true }).length >
+        0;
     if (
       this.deferUserMessages ||
       this.state.appState.streamingPhase !== 'idle' ||
@@ -3499,8 +3495,10 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
   }
 
   async applyTheme(themeName: ThemeName, resolved?: ResolvedTheme): Promise<void> {
-    const palette = await getColorPalette(themeName === 'auto' ? (resolved ?? 'dark') : themeName);
-    currentTheme.setPalette(palette);
+    const { palette, resolved: applied } = await getColorPalette(
+      themeName === 'auto' ? (resolved ?? 'dark') : themeName,
+    );
+    currentTheme.setPalette(palette, applied);
     this.setAppState({ theme: themeName });
     this.updateEditorBorderHighlight();
     // Force every historical message to re-render so Markdown/Text caches
@@ -3527,7 +3525,7 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
     if (this.state.appState.theme !== 'auto') return;
     const palette = getBuiltInPalette(resolved);
     if (currentTheme.palette === palette) return;
-    currentTheme.setPalette(palette);
+    currentTheme.setPalette(palette, resolved);
     this.updateEditorBorderHighlight();
     // Repaint already-rendered transcript entries (status/markdown caches hold
     // old ANSI codes), matching applyTheme()'s behaviour.
@@ -3841,9 +3839,7 @@ const outputComponent = new ShellRunComponent(() => this.state.ui.requestRender(
         const switched = setUserShellPath(result.bashPath, deps);
         spinner.stop({ ok: true, label: t('tui.msys2Prompt.installSuccess') });
         this.showStatus(
-          switched
-            ? t('tui.msys2Prompt.restartHint')
-            : t('tui.msys2Prompt.installSuccessNoSwitch'),
+          switched ? t('tui.msys2Prompt.restartHint') : t('tui.msys2Prompt.installSuccessNoSwitch'),
         );
         await markPrompted(deps);
       } else {

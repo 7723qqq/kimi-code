@@ -55,8 +55,8 @@ export async function runShell(
   }
 
   // Initialise the global Theme singleton before pi-tui grabs stdin.
-  const palette = await getColorPalette(tuiConfig.theme);
-  currentTheme.setPalette(palette);
+  const { palette, resolved } = await getColorPalette(tuiConfig.theme);
+  currentTheme.setPalette(palette, resolved);
 
   const workDir = process.cwd();
   const telemetryBootstrap = createCliTelemetryBootstrap();

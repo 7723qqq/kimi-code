@@ -5,7 +5,7 @@ import { CompactionComponent } from '#/tui/components/dialogs/compaction';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 
 afterEach(() => {
-  currentTheme.setPalette(darkColors);
+  currentTheme.setPalette(darkColors, 'dark');
 });
 
 function strip(text: string): string {
@@ -135,7 +135,7 @@ describe('CompactionComponent', () => {
     try {
       component.markDone(120, 24, 'Keep the src/tui compaction notes.');
       component.setExpanded(true);
-      currentTheme.setPalette(lightColors);
+      currentTheme.setPalette(lightColors, 'light');
       component.invalidate();
       const text = component.render(120).map(strip).join('\n');
 
@@ -163,7 +163,7 @@ describe('CompactionComponent', () => {
       };
       const before = headerOf();
 
-      currentTheme.setPalette(lightColors);
+      currentTheme.setPalette(lightColors, 'light');
       component.invalidate();
       const after = headerOf();
 

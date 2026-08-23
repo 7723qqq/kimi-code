@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 import { getDataDir } from '#/utils/paths';
+
 import type { ColorPalette, ResolvedTheme } from './colors';
 import { getBuiltInPalette } from './colors';
 
@@ -40,6 +41,12 @@ interface ParsedCustomTheme {
   readonly colors: Partial<ColorPalette>;
 }
 
+/** A merged custom theme: full palette plus the built-in family it is based on. */
+export interface MergedCustomTheme {
+  readonly base: ResolvedTheme;
+  readonly colors: ColorPalette;
+}
+
 async function readCustomTheme(name: string): Promise<ParsedCustomTheme | null> {
   try {
     const content = await readFile(join(getCustomThemesDir(), `${name}.json`), 'utf-8');
@@ -64,10 +71,10 @@ export async function loadCustomTheme(name: string): Promise<Partial<ColorPalett
 }
 
 /** Load a custom theme and merge it onto its base palette (dark unless `base` says otherwise). */
-export async function loadCustomThemeMerged(name: string): Promise<ColorPalette | null> {
+export async function loadCustomThemeMerged(name: string): Promise<MergedCustomTheme | null> {
   const parsed = await readCustomTheme(name);
   if (parsed === null) return null;
-  return { ...getBuiltInPalette(parsed.base), ...parsed.colors };
+  return { base: parsed.base, colors: { ...getBuiltInPalette(parsed.base), ...parsed.colors } };
 }
 
 function toThemeNames(files: readonly string[]): string[] {

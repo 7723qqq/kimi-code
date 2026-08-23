@@ -3,14 +3,14 @@
  */
 
 import { getBuiltInPalette } from './colors';
-import type { ColorPalette, ResolvedTheme } from './colors';
+import type { ColorPalette, ResolvedPalette, ResolvedTheme } from './colors';
 import { loadCustomThemeMerged } from './custom-theme-loader';
 import { detectTerminalTheme } from './detect';
 
 export { currentTheme, Theme } from './theme';
 export type { ColorToken } from './theme';
 export { darkColors, lightColors, getBuiltInPalette } from './colors';
-export type { ColorPalette, ResolvedTheme } from './colors';
+export type { ColorPalette, ResolvedPalette, ResolvedTheme } from './colors';
 export { detectTerminalTheme } from './detect';
 export { loadCustomTheme, loadCustomThemeMerged, listCustomThemes } from './custom-theme-loader';
 
@@ -33,23 +33,24 @@ export function isThemeName(_value: string): _value is ThemeName {
 }
 
 /**
- * Resolve a user preference to a concrete palette.
+ * Resolve a user preference to a concrete palette plus its built-in family.
  *
  * - `'auto'` triggers terminal background detection.
  * - `'dark'` / `'light'` return the built-in palette.
  * - Any other string loads a custom theme from `~/.kimi-code/themes/`;
  *   missing / invalid files fall back to dark palette.
  */
-export async function getColorPalette(theme: ThemeName): Promise<ColorPalette> {
-  if (theme === 'light') return getBuiltInPalette('light');
-  if (theme === 'dark') return getBuiltInPalette('dark');
+export async function getColorPalette(theme: ThemeName): Promise<ResolvedPalette> {
+  if (theme === 'light') return { palette: getBuiltInPalette('light'), resolved: 'light' };
+  if (theme === 'dark') return { palette: getBuiltInPalette('dark'), resolved: 'dark' };
   if (theme === 'auto') {
     const detected = await detectTerminalTheme();
-    return getBuiltInPalette(detected);
+    return { palette: getBuiltInPalette(detected), resolved: detected };
   }
   // custom theme
   const custom = await loadCustomThemeMerged(theme);
-  return custom ?? getBuiltInPalette('dark');
+  if (custom !== null) return { palette: custom.colors, resolved: custom.base };
+  return { palette: getBuiltInPalette('dark'), resolved: 'dark' };
 }
 
 /**
@@ -57,7 +58,7 @@ export async function getColorPalette(theme: ThemeName): Promise<ColorPalette> {
  * `'auto'` collapses to `'dark'`; explicit choices pass through.
  * Custom themes are not supported here — falls back to dark.
  */
-export function getColorPaletteSync(theme: ThemeName): ColorPalette {
-  if (theme === 'light') return getBuiltInPalette('light');
-  return getBuiltInPalette('dark');
+export function getColorPaletteSync(theme: ThemeName): ResolvedPalette {
+  if (theme === 'light') return { palette: getBuiltInPalette('light'), resolved: 'light' };
+  return { palette: getBuiltInPalette('dark'), resolved: 'dark' };
 }

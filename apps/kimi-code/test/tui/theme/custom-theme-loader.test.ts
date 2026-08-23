@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { darkColors, getColorPalette, lightColors, Theme } from '#/tui/theme';
 import {
   getCustomThemesDir,
   listCustomThemes,
@@ -11,7 +12,6 @@ import {
   loadCustomTheme,
   loadCustomThemeMerged,
 } from '#/tui/theme/custom-theme-loader';
-import { darkColors, lightColors } from '#/tui/theme';
 
 let home: string;
 const originalHome = process.env['KIMI_CODE_HOME'];
@@ -69,8 +69,8 @@ describe('custom theme loader', () => {
   it('falls back to the dark palette for unspecified tokens by default', async () => {
     writeTheme('solar-dark', { name: 'solar-dark', colors: { primary: '#268bd2' } });
     const merged = await loadCustomThemeMerged('solar-dark');
-    expect(merged?.primary).toBe('#268bd2');
-    expect(merged?.text).toBe(darkColors.text);
+    expect(merged?.colors.primary).toBe('#268bd2');
+    expect(merged?.colors.text).toBe(darkColors.text);
   });
 
   it('falls back to the light palette when base is "light"', async () => {
@@ -80,7 +80,38 @@ describe('custom theme loader', () => {
       colors: { primary: '#268bd2' },
     });
     const merged = await loadCustomThemeMerged('solar-light');
-    expect(merged?.primary).toBe('#268bd2');
-    expect(merged?.text).toBe(lightColors.text);
+    expect(merged?.base).toBe('light');
+    expect(merged?.colors.primary).toBe('#268bd2');
+    expect(merged?.colors.text).toBe(lightColors.text);
+  });
+
+  it('resolves the built-in family alongside the palette', async () => {
+    expect(await getColorPalette('dark')).toEqual({ palette: darkColors, resolved: 'dark' });
+    expect(await getColorPalette('light')).toEqual({ palette: lightColors, resolved: 'light' });
+    // Missing / invalid custom themes fall back to the dark family.
+    expect(await getColorPalette('does-not-exist')).toEqual({
+      palette: darkColors,
+      resolved: 'dark',
+    });
+  });
+
+  it('drives Theme.isLight from the parsed family, not hex values or references', async () => {
+    writeTheme('paper', {
+      name: 'paper',
+      base: 'light',
+      // A text hex matching neither built-in palette, so only the parsed
+      // family can decide.
+      colors: { primary: '#268bd2', text: '#222222' },
+    });
+
+    const { palette, resolved } = await getColorPalette('paper');
+    expect(resolved).toBe('light');
+    expect(palette.text).toBe('#222222');
+
+    const theme = new Theme(palette, resolved);
+    expect(theme.isLight).toBe(true);
+
+    theme.setPalette(darkColors, 'dark');
+    expect(theme.isLight).toBe(false);
   });
 });

@@ -135,6 +135,12 @@ export const lightColors: ColorPalette = {
 
 export type ResolvedTheme = 'dark' | 'light';
 
+/** A concrete palette together with the built-in family it belongs to. */
+export interface ResolvedPalette {
+  readonly palette: ColorPalette;
+  readonly resolved: ResolvedTheme;
+}
+
 /** Synchronous palette lookup for built-in themes only. */
 export function getBuiltInPalette(resolved: ResolvedTheme): ColorPalette {
   return resolved === 'dark' ? darkColors : lightColors;

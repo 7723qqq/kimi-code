@@ -12,8 +12,9 @@ import {
 import type { Locale } from '#/i18n';
 import { getLocale, setLocale, t } from '#/i18n';
 import type { ThemeName } from '#/tui/theme';
-import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
+import { currentTheme, isBuiltInTheme, loadCustomThemeMerged } from '#/tui/theme';
 
+import { formatTokenCount } from '../../utils/usage/usage-format';
 import {
   AstronSettingsComponent,
   ASTRON_DEFAULT_SETTINGS,
@@ -38,7 +39,6 @@ import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-
 import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import { formatTokenCount } from '../../utils/usage/usage-format';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import type { SlashCommandHost } from './dispatch';
 import { setExperimentalFeatures } from './experimental-flags';
@@ -781,8 +781,7 @@ async function applyThemeChoice(host: SlashCommandHost, theme: ThemeName): Promi
     return;
   }
 
-  const resolved =
-    theme === 'auto' ? (currentTheme.palette === lightColors ? 'light' : 'dark') : undefined;
+  const resolved = theme === 'auto' ? (currentTheme.isLight ? 'light' : 'dark') : undefined;
   await host.applyTheme(theme, resolved);
   host.refreshTerminalThemeTracking();
   host.track('theme_switch', { theme });

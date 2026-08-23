@@ -46,14 +46,15 @@ function make(): {
 describe('TabbedModelSelectorComponent', () => {
   let previousLevel: typeof chalk.level;
   const previousPalette = currentTheme.palette;
+  const previousWasLight = currentTheme.isLight;
   beforeAll(() => {
     previousLevel = chalk.level;
     chalk.level = 3;
-    currentTheme.setPalette(darkColors);
+    currentTheme.setPalette(darkColors, 'dark');
   });
   afterAll(() => {
     chalk.level = previousLevel;
-    currentTheme.setPalette(previousPalette);
+    currentTheme.setPalette(previousPalette, previousWasLight ? 'light' : 'dark');
   });
 
   it('renders an "All" + per-provider tab strip', () => {
@@ -75,21 +76,22 @@ describe('TabbedModelSelectorComponent', () => {
     const stripLine = (lines: string[]): string =>
       lines.find((l) => l.includes('All') && l.includes('openai')) ?? '';
     const previous = currentTheme.palette;
+    const wasLight = currentTheme.isLight;
     try {
-      currentTheme.setPalette(darkColors);
+      currentTheme.setPalette(darkColors, 'dark');
       const darkStrip = stripLine(component.render(120));
-      currentTheme.setPalette(lightColors);
+      currentTheme.setPalette(lightColors, 'light');
       const lightStrip = stripLine(component.render(120));
       // The strip is drawn from currentTheme.palette at render time; a
       // construction-time palette snapshot would render the same strip after
       // the switch.
       expect(darkStrip).not.toBe(lightStrip);
     } finally {
-      currentTheme.setPalette(previous);
+      currentTheme.setPalette(previous, wasLight ? 'light' : 'dark');
     }
   });
 
-  it('opens on the All tab by default (showing every provider\'s models)', () => {
+  it("opens on the All tab by default (showing every provider's models)", () => {
     const out = strip(make().component.render(120).join('\n'));
     expect(out).toContain('Kimi K2');
     expect(out).toContain('GPT-5');

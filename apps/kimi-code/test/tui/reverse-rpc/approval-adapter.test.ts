@@ -6,7 +6,7 @@ describe('approval adapter', () => {
   it('adapts generic command displays into shell blocks with approval choices', () => {
     const adapted = adaptApprovalRequest({
       toolCallId: 'tc-1',
-      toolName: 'EnterPlanMode',
+      toolName: 'Bash',
       action: 'run',
       display: {
         kind: 'generic',
@@ -21,7 +21,7 @@ describe('approval adapter', () => {
     expect(adapted).toMatchObject({
       id: 'tc-1',
       tool_call_id: 'tc-1',
-      tool_name: 'EnterPlanMode',
+      tool_name: 'Bash',
       display: [
         {
           type: 'shell',
@@ -38,6 +38,26 @@ describe('approval adapter', () => {
       'Reject',
       'Reject with feedback',
     ]);
+  });
+
+  // MCP tools can legitimately own a `command` arg of their own; only the
+  // builtin shell family is rendered as a shell block with danger scanning.
+  it('does not render a shell block or danger label when an MCP tool args contain command', () => {
+    const adapted = adaptApprovalRequest({
+      toolCallId: 'tc-mcp-command',
+      toolName: 'mcp__example__deploy',
+      action: 'deploy',
+      display: {
+        kind: 'generic',
+        summary: 'deploy',
+        detail: {
+          command: 'sudo rm -rf /tmp/cache',
+          cwd: '/tmp',
+        },
+      },
+    });
+
+    expect(adapted.display).toEqual([]);
   });
 
   it('emits only a diff block for Edit — no separate file_op title row', () => {
