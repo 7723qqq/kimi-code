@@ -16,9 +16,9 @@ import { getConfigSectionContributions } from '#/app/config/configSectionContrib
 import { getContributedFlags } from '#/app/flag/flagRegistry';
 import type { ExecutableToolContext } from '#/tool/toolContract';
 
-const EXPECTED_TOOL_COUNT = 29;
-const EXPECTED_READONLY_COUNT = 21;
-const EXPECTED_MUTATING_COUNT = 8;
+const EXPECTED_TOOL_COUNT = 34;
+const EXPECTED_READONLY_COUNT = 22;
+const EXPECTED_MUTATING_COUNT = 12;
 
 function ctx(): ExecutableToolContext {
   return { turnId: 0, toolCallId: 'call_github', signal: new AbortController().signal };
@@ -83,8 +83,12 @@ describe('GitHub tool table', () => {
     expect(GITHUB_MUTATING_TOOL_NAMES.toSorted()).toEqual(
       [
         'GitHubCreateOrUpdateFile',
+        'GitHubCreateBranch',
+        'GitHubCreateCommit',
         'GitHubCreateIssue',
+        'GitHubCreateTree',
         'GitHubUpdateIssue',
+        'GitHubUpdateRef',
         'GitHubAddIssueComment',
         'GitHubCreatePR',
         'GitHubUpdatePR',
@@ -233,6 +237,100 @@ describe('GitHub tool execution', () => {
       content: Buffer.from('hello world', 'utf8').toString('base64'),
       branch: 'main',
       sha: undefined,
+    });
+  });
+
+  it('resolves a ref with the Git Data URL shape', async () => {
+    const fetchImpl = mockFetch(jsonResponse({ object: { sha: 'abc' } }));
+    const tool = makeTool('GitHubGetRef', {
+      getEnv: (name) => (name === 'GITHUB_TOKEN' ? 'ghp_t' : undefined),
+    });
+
+    const execution = tool.resolveExecution({ owner: 'octo', repo: 'hello', ref: 'heads/main' });
+    if (execution.isError === true) throw new Error('expected runnable execution');
+    await execution.execute(ctx());
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.github.com/repos/octo/hello/git/ref/heads/main');
+    expect(init.method).toBe('GET');
+  });
+
+  it('creates trees and commits via the Git Data API', async () => {
+    const fetchImpl = mockFetch(jsonResponse({}));
+    const env = { getEnv: (name: string) => (name === 'GITHUB_TOKEN' ? 'ghp_t' : undefined) };
+
+    const tree = makeTool('GitHubCreateTree', env);
+    const treeExecution = tree.resolveExecution({
+      owner: 'octo',
+      repo: 'hello',
+      baseTree: 'base_sha',
+      tree: [{ path: 'README.md', content: 'hello world' }],
+    });
+    if (treeExecution.isError === true) throw new Error('expected runnable execution');
+    await treeExecution.execute(ctx());
+
+    const [treeUrl, treeInit] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(treeUrl).toBe('https://api.github.com/repos/octo/hello/git/trees');
+    expect(JSON.parse(treeInit.body as string)).toEqual({
+      base_tree: 'base_sha',
+      tree: [{ path: 'README.md', content: 'hello world' }],
+    });
+
+    const commit = makeTool('GitHubCreateCommit', env);
+    const commitExecution = commit.resolveExecution({
+      owner: 'octo',
+      repo: 'hello',
+      message: 'add readme',
+      tree: 'tree_sha',
+      parents: ['parent_sha'],
+    });
+    if (commitExecution.isError === true) throw new Error('expected runnable execution');
+    await commitExecution.execute(ctx());
+
+    const [, commitInit] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect(JSON.parse(commitInit.body as string)).toEqual({
+      message: 'add readme',
+      tree: 'tree_sha',
+      parents: ['parent_sha'],
+    });
+  });
+
+  it('updates refs and creates branches via the Git Data API', async () => {
+    const fetchImpl = mockFetch(jsonResponse({}));
+    const env = { getEnv: (name: string) => (name === 'GITHUB_TOKEN' ? 'ghp_t' : undefined) };
+
+    const update = makeTool('GitHubUpdateRef', env);
+    const updateExecution = update.resolveExecution({
+      owner: 'octo',
+      repo: 'hello',
+      ref: 'heads/main',
+      sha: 'new_sha',
+      force: true,
+    });
+    if (updateExecution.isError === true) throw new Error('expected runnable execution');
+    await updateExecution.execute(ctx());
+
+    const [updateUrl, updateInit] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(updateUrl).toBe('https://api.github.com/repos/octo/hello/git/refs/heads/main');
+    expect(updateInit.method).toBe('PATCH');
+    expect(JSON.parse(updateInit.body as string)).toEqual({ sha: 'new_sha', force: true });
+
+    const branch = makeTool('GitHubCreateBranch', env);
+    const branchExecution = branch.resolveExecution({
+      owner: 'octo',
+      repo: 'hello',
+      branch: 'feature',
+      sha: 'new_sha',
+    });
+    if (branchExecution.isError === true) throw new Error('expected runnable execution');
+    await branchExecution.execute(ctx());
+
+    const [branchUrl, branchInit] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect(branchUrl).toBe('https://api.github.com/repos/octo/hello/git/refs');
+    expect(branchInit.method).toBe('POST');
+    expect(JSON.parse(branchInit.body as string)).toEqual({
+      ref: 'refs/heads/feature',
+      sha: 'new_sha',
     });
   });
 

@@ -229,6 +229,113 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
   },
 
   {
+    name: 'GitHubGetRef',
+    description:
+      'Get a Git reference (branch or tag head). Returns the current SHA for ref names like `heads/main`.',
+    schema: z.object({
+      owner,
+      repo,
+      ref: z
+        .string()
+        .min(1)
+        .describe('Ref name relative to `refs/`, e.g. `heads/main` or `tags/v1`.'),
+    }),
+    method: 'GET',
+    path: (a) => `/repos/${a.owner}/${a.repo}/git/ref/${a.ref}`,
+    subject: repoBase,
+  },
+  {
+    name: 'GitHubCreateTree',
+    description:
+      'Create a Git tree from file entries. Pair with GitHubCreateCommit and GitHubUpdateRef to push commits via the API without a local clone.',
+    schema: z.object({
+      owner,
+      repo,
+      baseTree: z
+        .string()
+        .optional()
+        .describe('SHA of an existing tree to apply the entries on top of.'),
+      tree: z
+        .array(
+          z.object({
+            path: z.string().min(1).describe('Path relative to the repository root.'),
+            mode: z
+              .enum(['100644', '100755', '040000', '160000', '120000'])
+              .optional()
+              .describe('Entry mode; defaults to 100644 (regular file).'),
+            type: z
+              .enum(['blob', 'tree', 'commit'])
+              .optional()
+              .describe('Entry type; defaults to blob.'),
+            content: z
+              .string()
+              .optional()
+              .describe('Plain UTF-8 file content (creates a new blob).'),
+            sha: z
+              .string()
+              .optional()
+              .describe('SHA of an existing blob/tree to point the entry at.'),
+          }),
+        )
+        .min(1)
+        .describe('Tree entries to write.'),
+    }),
+    method: 'POST',
+    path: (a) => `/repos/${a.owner}/${a.repo}/git/trees`,
+    body: (a) => ({ base_tree: a.baseTree, tree: a.tree }),
+    mutating: true,
+    subject: repoBase,
+  },
+  {
+    name: 'GitHubCreateCommit',
+    description: 'Create a commit object for a tree SHA with parent commit SHAs.',
+    schema: z.object({
+      owner,
+      repo,
+      message: z.string().min(1).describe('Commit message.'),
+      tree: z.string().min(1).describe('Git tree SHA the commit points to.'),
+      parents: z.array(z.string()).min(1).describe('Parent commit SHAs (one for a normal commit).'),
+    }),
+    method: 'POST',
+    path: (a) => `/repos/${a.owner}/${a.repo}/git/commits`,
+    body: (a) => ({ message: a.message, tree: a.tree, parents: a.parents }),
+    mutating: true,
+    subject: repoBase,
+  },
+  {
+    name: 'GitHubUpdateRef',
+    description:
+      'Point a Git reference at a new commit SHA — the final step of pushing commits via the API.',
+    schema: z.object({
+      owner,
+      repo,
+      ref: z.string().min(1).describe('Ref name relative to `refs/`, e.g. `heads/main`.'),
+      sha: z.string().min(1).describe('Commit SHA the ref should point to.'),
+      force: z.boolean().optional().describe('Overwrite the ref even when not a fast-forward.'),
+    }),
+    method: 'PATCH',
+    path: (a) => `/repos/${a.owner}/${a.repo}/git/refs/${a.ref}`,
+    body: (a) => ({ sha: a.sha, force: a.force }),
+    mutating: true,
+    subject: repoBase,
+  },
+  {
+    name: 'GitHubCreateBranch',
+    description: 'Create a new branch pointing at an existing commit SHA.',
+    schema: z.object({
+      owner,
+      repo,
+      branch: z.string().min(1).describe('New branch name.'),
+      sha: z.string().min(1).describe('Commit SHA the new branch points to.'),
+    }),
+    method: 'POST',
+    path: (a) => `/repos/${a.owner}/${a.repo}/git/refs`,
+    body: (a) => ({ ref: `refs/heads/${a.branch}`, sha: a.sha }),
+    mutating: true,
+    subject: repoBase,
+  },
+
+  {
     name: 'GitHubListIssues',
     description:
       'List issues in a repository (excludes pull requests unless combined with search).',

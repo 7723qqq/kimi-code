@@ -10,7 +10,7 @@ export const githubToolsFlag: FlagDefinitionInput = {
   id: GITHUB_TOOLS_FLAG_ID,
   title: 'GitHub tools',
   description:
-    'Built-in GitHub REST tools (repos, files, issues, pull requests, search) backed by an HTTP transport. Requires a GITHUB_TOKEN or GH_TOKEN environment variable, or set token in the [github] config section.',
+    'Built-in GitHub REST tools (repos, files, git data for pushing commits, issues, pull requests, search) backed by an HTTP transport. Requires a GITHUB_TOKEN or GH_TOKEN environment variable, or set token in the [github] config section.',
   env: GITHUB_TOOLS_FLAG_ENV,
   default: false,
   surface: 'core',
