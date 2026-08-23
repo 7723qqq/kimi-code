@@ -292,7 +292,8 @@ export function startWorkerTextBuild(
         if (message.type === 'done') {
           await stopWorker();
           if (cancelRequested) throw abortError();
-          return message.result!;
+          if (!message.result) throw new WorkerTextBuildError('text build worker returned no result', false);
+          return message.result;
         }
         if (message.type === 'failed') {
           await stopWorker();

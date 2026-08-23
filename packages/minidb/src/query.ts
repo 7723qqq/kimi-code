@@ -40,6 +40,7 @@ export function getPath(doc: Doc, path: Path): unknown {
 
 export function setPath(obj: Doc, path: Path, value: unknown): Doc {
   const tokens = tokenizePath(path);
+  if (tokens.length === 0) return obj;
   let cur = obj as Record<string | number, unknown>;
   for (let i = 0; i < tokens.length - 1; i++) {
     const t = tokens[i]!;

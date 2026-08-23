@@ -992,7 +992,8 @@ export class MiniDb<V = unknown> {
       }
       // Verify before trusting (the worker's output is discardable evidence):
       // streaming crc on the raw postings file, envelope+crc on the images.
-      const r = result.indexes[0]!;
+      const r = result.indexes[0];
+      if (!r) throw new Error('text build produced no index result');
       await verifyFileCrcAsync(postingsPath, r.postingsInfo);
       const dictPayload = await readGenerationFileCheckedAsync(
         dictionaryPath,

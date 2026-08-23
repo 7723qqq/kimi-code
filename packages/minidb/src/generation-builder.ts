@@ -484,10 +484,14 @@ export class GenerationBuilder<V> {
         imageRecords.set(kstr, { ref: rec.ref, expireAt: rec.expireAt, dt: rec.dt });
         dtB.set(kstr, rec.dt);
         if (needValues) {
-          const buf =
-            rec.ref.kind === 'memory'
-              ? rec.ref.value
-              : this.deps.getValueReader()!.read(rec.ref.loc);
+          let buf: Buffer;
+          if (rec.ref.kind === 'memory') {
+            buf = rec.ref.value;
+          } else {
+            const reader = this.deps.getValueReader();
+            if (!reader) throw new Error('ValueReader is not open');
+            buf = reader.read(rec.ref.loc);
+          }
           const doc = this.deps.decode(buf);
           if (this.deps.indexable(doc)) {
             secB.add(kstr, doc);
