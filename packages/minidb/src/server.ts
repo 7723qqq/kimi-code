@@ -31,37 +31,57 @@ const reply = {
   },
 };
 
-class RespParser {
+export type ParsedCommand =
+  | { readonly kind: 'command'; readonly args: Buffer[] }
+  | { readonly kind: 'error'; readonly message: string };
+
+export class RespParser {
   private buf: Buffer = Buffer.alloc(0);
   private readonly maxBuf: number;
+  /** Payload bytes of a rejected oversized request still to be discarded. */
+  private skipping = 0;
 
   constructor({ maxBuf = 64 * 1024 * 1024 }: { maxBuf?: number } = {}) {
     this.maxBuf = maxBuf;
   }
 
-  *feed(chunk: Buffer): Generator<Buffer[]> {
-    this.buf = this.buf.length > 0 ? Buffer.concat([this.buf, chunk]) : chunk;
-    if (this.buf.length > this.maxBuf) {
-      // Drop the buffered oversized request before reporting: without the
-      // reset every later chunk would fail with the same error and the giant
-      // buffer would be retained for the life of the connection.
-      this.buf = Buffer.alloc(0);
-      throw new Error(`RESP request too large (>${this.maxBuf} bytes)`);
+  *feed(chunk: Buffer): Generator<ParsedCommand> {
+    // Discard the payload tail of a previously rejected oversized request
+    // before parsing: its declared bulk length said exactly how much to skip,
+    // so the pipelined commands behind it still arrive intact.
+    if (this.skipping > 0) {
+      const drop = Math.min(this.skipping, chunk.length);
+      this.skipping -= drop;
+      chunk = chunk.subarray(drop);
+      if (chunk.length === 0) return;
     }
+    this.buf = this.buf.length > 0 ? Buffer.concat([this.buf, chunk]) : chunk;
     while (this.buf.length > 0) {
       const parsed = this.tryParse();
       if (!parsed) break;
       yield parsed;
     }
+    // Backstop for requests with no skippable length header (inline commands,
+    // corrupt streams): buffered data parsing cannot consume must not grow
+    // past the cap. Without the reset every later chunk would fail with the
+    // same error and the giant buffer would be retained for the life of the
+    // connection.
+    if (this.buf.length > this.maxBuf) {
+      this.buf = Buffer.alloc(0);
+      yield { kind: 'error', message: `RESP request too large (>${this.maxBuf} bytes)` };
+    }
   }
 
-  private tryParse(): Buffer[] | null {
+  private tryParse(): ParsedCommand | null {
     if (this.buf[0] !== 0x2a /* '*' */) {
       const idx = this.buf.indexOf(CRLF);
       if (idx === -1) return null;
       const line = this.buf.subarray(0, idx).toString();
       this.buf = this.buf.subarray(idx + 2);
-      return line.split(' ').filter(Boolean).map((s) => Buffer.from(s));
+      return {
+        kind: 'command',
+        args: line.split(' ').filter(Boolean).map((s) => Buffer.from(s)),
+      };
     }
 
     let pos = 1;
@@ -78,12 +98,28 @@ class RespParser {
       if (end === -1) return null;
       const len = Number(this.buf.subarray(pos, end).toString());
       pos = end + 2;
+      if (len > this.maxBuf) {
+        // Reject from the declared length alone — buffer nothing. Skip the
+        // payload (and its CRLF) so the next pipelined command still parses.
+        const available = this.buf.length - pos;
+        const needed = len + 2;
+        if (available < needed) {
+          this.skipping = needed - available;
+          this.buf = Buffer.alloc(0);
+        } else {
+          this.buf = this.buf.subarray(pos + needed);
+        }
+        return {
+          kind: 'error',
+          message: `RESP request too large (bulk ${len} > ${this.maxBuf} bytes)`,
+        };
+      }
       if (this.buf.length - pos < len + 2) return null;
       args.push(this.buf.subarray(pos, pos + len));
       pos += len + 2;
     }
     this.buf = this.buf.subarray(pos);
-    return args;
+    return { kind: 'command', args };
   }
 }
 
@@ -188,15 +224,19 @@ export async function startServer({ dir, port = 6379, host = '127.0.0.1', fsyncP
     socket.on('data', (chunk: Buffer) => {
       queue = queue.then(async () => {
         try {
-          for (const args of parser.feed(chunk)) {
+          for (const parsed of parser.feed(chunk)) {
             if (socket.destroyed) return;
             let res: string | Buffer | null;
-            try {
-              res = await handle(db, args);
-            } catch (e) {
-              // One failing command must not starve the replies of the
-              // commands already parsed from the same chunk.
-              res = reply.err((e as Error).message);
+            if (parsed.kind === 'error') {
+              res = reply.err(parsed.message);
+            } else {
+              try {
+                // One failing command must not starve the replies of the
+                // commands already parsed from the same chunk.
+                res = await handle(db, parsed.args);
+              } catch (e) {
+                res = reply.err((e as Error).message);
+              }
             }
             if (res === null) {
               socket.end();
@@ -205,8 +245,6 @@ export async function startServer({ dir, port = 6379, host = '127.0.0.1', fsyncP
             send(res);
           }
         } catch (e) {
-          // Parser-level failure (e.g. oversized request): feed() has already
-          // reset its buffer, so the connection can keep serving new commands.
           send(reply.err((e as Error).message));
         }
       });

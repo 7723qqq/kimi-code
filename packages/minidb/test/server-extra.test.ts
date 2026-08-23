@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 // Covers the RESP commands and parser paths not exercised by server.test.ts.
-import { expect, test } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 
-import { startServer } from '../src/server.js';
+import { ParsedCommand, RespParser, startServer } from '../src/server.js';
 
 async function tmpDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'minidb-srv2-'));
@@ -231,4 +231,66 @@ test('RESP: one bad command does not starve its pipelined siblings', async () =>
     await srv.close();
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+// ── RespParser oversized-request handling (unit level, small caps) ──────────
+
+describe('RespParser oversized requests', () => {
+  function feedAll(parser: RespParser, chunks: Buffer[]): ParsedCommand[] {
+    const out: ParsedCommand[] = [];
+    for (const c of chunks) out.push(...parser.feed(c));
+    return out;
+  }
+
+  it('rejects from the declared bulk length before the payload arrives', () => {
+    const p = new RespParser({ maxBuf: 1024 });
+    const head = Buffer.from(`*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$2048\r\n`);
+    const first = feedAll(p, [Buffer.concat([head, Buffer.alloc(100)])]);
+    assert.equal(first.length, 1);
+    assert.equal(first[0]!.kind, 'error');
+    assert.match(first[0]!.message, /too large/);
+  });
+
+  it('skips a rejected payload split across chunks and answers what follows', () => {
+    const p = new RespParser({ maxBuf: 1024 });
+    const head = Buffer.from(`*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$2048\r\n`);
+    const rest = Buffer.alloc(2048 + 2);
+    const ping = Buffer.from(encode('PING'));
+    const out = feedAll(p, [
+      Buffer.concat([head, rest.subarray(0, 500)]),
+      rest.subarray(500),
+      ping,
+    ]);
+    assert.deepEqual(
+      out.map((r) => r.kind),
+      ['error', 'command'],
+    );
+    assert.match(out[0]!.message, /too large/);
+    assert.equal(out[1].kind === 'command' && out[1].args[0]?.toString(), 'PING');
+  });
+
+  it('keeps pipelined commands that arrive in the same chunk as the payload', () => {
+    const p = new RespParser({ maxBuf: 1024 });
+    const whole = Buffer.concat([
+      Buffer.from(`*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$2048\r\n`),
+      Buffer.alloc(2048 + 2),
+      Buffer.from(encode('PING')),
+    ]);
+    const out = [...p.feed(whole)];
+    assert.deepEqual(
+      out.map((r) => r.kind),
+      ['error', 'command'],
+    );
+  });
+
+  it('still backstops unheadered floods that exceed the buffer cap', () => {
+    const p = new RespParser({ maxBuf: 64 });
+    const out = feedAll(p, [Buffer.alloc(65, 'x'.charCodeAt(0))]);
+    assert.equal(out.length, 1);
+    assert.equal(out[0]!.kind, 'error');
+
+    // The buffer was dropped, so fresh commands parse normally again.
+    const after = [...p.feed(Buffer.from(encode('PING')))];
+    assert.equal(after[0]!.kind === 'command' && after[0].args[0]?.toString(), 'PING');
+  });
 });
