@@ -107,13 +107,13 @@ describe('FooterComponent', () => {
     const footer = new FooterComponent(appState);
     const before = footer.render(120).join('\n');
 
-    currentTheme.setPalette(lightColors);
+    currentTheme.setPalette(lightColors, 'light');
     try {
       const after = footer.render(120).join('\n');
       // Reads currentTheme live, so a palette swap changes the emitted colours.
       expect(after).not.toBe(before);
     } finally {
-      currentTheme.setPalette(darkColors);
+      currentTheme.setPalette(darkColors, 'dark');
     }
   });
 
