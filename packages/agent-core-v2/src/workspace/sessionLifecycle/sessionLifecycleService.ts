@@ -343,9 +343,9 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     try {
       const agents = handle.accessor.get(IAgentLifecycleService);
       if (agents.findAgentHandle(MAIN_AGENT_ID) === undefined) {
-        await agents.create({ agentId: MAIN_AGENT_ID });
-        await handle.accessor.get(IAgentProfileService).refreshActiveTools();
-        await handle.accessor.get(IAgentToolActivationService).activate();
+        const main = await agents.create({ agentId: MAIN_AGENT_ID });
+        await main.accessor.get(IAgentProfileService).refreshActiveTools();
+        await main.accessor.get(IAgentToolActivationService).activate();
       }
       await this.announceCreated({ sessionId, handle, source: 'resume' });
     } catch (error) {
