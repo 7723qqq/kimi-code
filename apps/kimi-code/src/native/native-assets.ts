@@ -15,6 +15,8 @@ import { dirname, isAbsolute, join, relative, resolve, win32 as pathWin32 } from
 
 import { join as joinPosix } from 'pathe';
 
+import { getBunEmbeddedAssetSource } from './bun-assets';
+
 import { KIMI_BUILD_INFO } from '#/cli/build-info';
 
 import {
@@ -269,11 +271,13 @@ function sanitizeSegment(value: string): string {
 
 export function getSeaAssetSource(): NativeAssetSource | null {
   const sea = loadSeaModule();
-  if (sea === null || !sea.isSea()) return null;
-  return {
-    getAssetKeys: () => sea.getAssetKeys(),
-    getRawAsset: (assetKey) => sea.getRawAsset(assetKey),
-  };
+  if (sea !== null && sea.isSea()) {
+    return {
+      getAssetKeys: () => sea.getAssetKeys(),
+      getRawAsset: (assetKey) => sea.getRawAsset(assetKey),
+    };
+  }
+  return getBunEmbeddedAssetSource();
 }
 
 export function getEmbeddedNativeAssetManifest(

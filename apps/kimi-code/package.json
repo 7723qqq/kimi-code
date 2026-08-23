@@ -57,6 +57,7 @@
     "smoke": "node scripts/smoke.mjs",
     "build:native:js": "node scripts/native/01-bundle.mjs",
     "build:native:sea": "node scripts/native/build.mjs --profile=local",
+    "build:native:bun": "node scripts/native/build-bun.mjs",
     "build:native:release": "node scripts/native/build.mjs --profile=release",
     "package:native": "node scripts/native/package.mjs",
     "produce:native:manifest": "node scripts/native/produce-manifest.mjs",
