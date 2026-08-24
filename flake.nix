@@ -168,15 +168,17 @@
           };
 
           # Fixed-output derivation: materialize the project's node_modules
-          # from the registry (the only place network access is allowed).
+          # from the npm registry and the Rust crate vendor directory for
+          # kimi-native-tools from crates.io (the FOD is the only place
+          # network access is allowed).
           #
           # Bun's internal cache directory is NOT usable as a FOD output —
           # its extracted-package presence and gzip framing vary between
           # runs. The hoisted node_modules tree, by contrast, is fully
           # determined by bun.lock + the registry tarballs. Lifecycle
           # scripts are skipped here (build artifacts would embed sandbox
-          # paths); the main derivation runs the ones that matter via
-          # `bun pm trust` on the copied tree.
+          # paths); the main derivation runs the ones that matter on the
+          # copied tree.
           bunDeps = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "kimi-code-bun-deps";
             inherit version;
@@ -185,7 +187,12 @@
 
             impureEnvVars = lib.fetchers.proxyImpureEnvVars;
 
-            nativeBuildInputs = [ bun ];
+            nativeBuildInputs = [
+              bun
+              nodejs
+              pkgs.cargo
+              pkgs.rustc
+            ];
 
             dontConfigure = true;
             dontBuild = true;
@@ -202,6 +209,10 @@
               bun install --frozen-lockfile --ignore-scripts
               mkdir $out
               mv node_modules $out/node_modules
+              # Vendor the Rust crates for kimi-native-tools so the main
+              # derivation can compile offline (CARGO_NET_OFFLINE=true).
+              cd packages/kimi-native-tools
+              cargo vendor --locked $out/vendor > $out/cargo-config.toml
               runHook postInstall
             '';
 
@@ -245,6 +256,12 @@
               export npm_config_nodedir=${nodejs}
               cp -a ${bunDeps}/node_modules ./node_modules
               chmod -R u+w ./node_modules
+              # Wire the vendored crates for the offline napi build: cargo
+              # vendor emits a config pointing at a relative ./vendor dir.
+              mkdir -p packages/kimi-native-tools/.cargo packages/kimi-native-tools/vendor
+              cp ${bunDeps}/cargo-config.toml packages/kimi-native-tools/.cargo/config.toml
+              cp -r ${bunDeps}/vendor/. packages/kimi-native-tools/vendor/
+              export CARGO_NET_OFFLINE=true
               runHook postConfigure
             '';
 
