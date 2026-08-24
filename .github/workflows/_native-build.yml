@@ -78,26 +78,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+      - name: Setup Bun (package manager)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: 'pnpm'
+
+      - name: Cache Bun packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Install Rust toolchain (napi native-tools)
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build kimi-native-tools (.node for SEA blob)
-        run: pnpm --filter @moonshot-ai/kimi-native-tools run build
+        run: cd packages/kimi-native-tools && bun run build
 
       - name: Build kimi-agent (.node for SEA blob)
-        run: pnpm --filter @moonshot-ai/kimi-agent run build
+        run: cd packages/kimi-agent && bun run build
 
       - name: Warn when Apple signing secrets are missing
         if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED != 'true'
@@ -126,11 +133,11 @@ jobs:
 
       - name: Build native executable (release profile, macOS signed)
         if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
-        run: pnpm --filter @moonshot-ai/kimi-code run build:native:release
+        run: cd apps/kimi-code && bun run build:native:release
 
       - name: Build native executable (local profile)
         if: '!(runner.os == ''macOS'' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == ''true'')'
-        run: pnpm --filter @moonshot-ai/kimi-code run build:native:sea
+        run: cd apps/kimi-code && bun run build:native:sea
 
       - name: Notarize macOS binary
         if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
@@ -146,10 +153,10 @@ jobs:
         uses: ./.github/actions/macos-keychain-cleanup
 
       - name: Smoke test native executable
-        run: pnpm --filter @moonshot-ai/kimi-code run test:native:smoke
+        run: cd apps/kimi-code && bun run test:native:smoke
 
       - name: Package native artifact
-        run: pnpm --filter @moonshot-ai/kimi-code run package:native
+        run: cd apps/kimi-code && bun run package:native
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v7
@@ -189,31 +196,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: 'pnpm'
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Cache Bun packages
+        uses: actions/cache@v4
         with:
-          bun-version: 1.4.0
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Install Rust toolchain (napi native-tools)
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build kimi-native-tools (.node for embedded assets)
-        run: pnpm --filter @moonshot-ai/kimi-native-tools run build
+        run: cd packages/kimi-native-tools && bun run build
 
       - name: Build kimi-agent (.node for embedded assets)
-        run: pnpm --filter @moonshot-ai/kimi-agent run build
+        run: cd packages/kimi-agent && bun run build
 
       - name: Warn when Apple signing secrets are missing
         if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED != 'true'
@@ -242,11 +246,11 @@ jobs:
 
       - name: Build native executable (Bun, release profile, macOS signed)
         if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
-        run: pnpm --filter @moonshot-ai/kimi-code run build:native:bun:release
+        run: cd apps/kimi-code && bun run build:native:bun:release
 
       - name: Build native executable (Bun, local profile)
         if: '!(runner.os == ''macOS'' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == ''true'')'
-        run: pnpm --filter @moonshot-ai/kimi-code run build:native:bun
+        run: cd apps/kimi-code && bun run build:native:bun
 
       - name: Notarize macOS binary
         if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
@@ -262,12 +266,12 @@ jobs:
         uses: ./.github/actions/macos-keychain-cleanup
 
       - name: Smoke test native executable
-        run: pnpm --filter @moonshot-ai/kimi-code run test:native:smoke
+        run: cd apps/kimi-code && bun run test:native:smoke
 
       - name: Package native artifact
         env:
           KIMI_CODE_NATIVE_ENGINE: bun
-        run: pnpm --filter @moonshot-ai/kimi-code run package:native
+        run: cd apps/kimi-code && bun run package:native
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v7

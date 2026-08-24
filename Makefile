@@ -3,63 +3,63 @@
 ## Setup
 
 prepare:
-	pnpm install
+	bun install
 
 ## Build
 
 build:
-	pnpm run build
+	bun run build
 
 ## Quality
 
 typecheck:
-	pnpm run typecheck
+	bun run typecheck
 
 lint:
-	pnpm run lint
+	bun run lint
 
 lint-fix:
-	pnpm run lint:fix
+	bun run lint:fix
 
 sherif:
-	pnpm run sherif
+	bun run sherif
 
 lint-pkg:
-	pnpm run lint:pkg
+	bun run lint:pkg
 
 ## Test
 
 test:
-	pnpm run test
+	bun run test
 
 test-watch:
-	pnpm run test:watch
+	bun run test:watch
 
 test-coverage:
-	pnpm run test:coverage
+	bun run test:coverage
 
 ## Clean
 
 clean:
-	pnpm run clean
+	bun run clean
 
 ## Release
 
 changeset:
-	pnpm run changeset
+	bun run changeset
 
 version:
-	pnpm run version
+	bun run version
 
 publish:
-	pnpm run publish
+	bun run publish
 
 release: version publish
 
 ## Development
 
 dev:
-	pnpm run dev:cli
+	bun run dev:cli
 
 ## Rust binaries
 
@@ -76,4 +76,4 @@ rust-test:
 ## vis
 
 vis:
-	pnpm run vis
+	bun run vis

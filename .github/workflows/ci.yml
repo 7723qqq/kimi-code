@@ -16,17 +16,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
 
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run build
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - run: bun install --frozen-lockfile
+      - run: bun run build
       - name: Smoke test CLI bundle
-        run: pnpm -C apps/kimi-code run smoke
+        run: cd apps/kimi-code && bun run smoke
 
   test:
     runs-on: ubuntu-latest
@@ -38,17 +44,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
 
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run test --shard=${{ matrix.shard }}/5
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
-  # pi-tui's suite runs on node:test (not vitest), so the root `pnpm run test`
+      - run: bun install --frozen-lockfile
+      - run: bun run test --shard=${{ matrix.shard }}/5
+
+  # pi-tui's suite runs on node:test (not vitest), so the root `bun run test`
   # does not execute it; it needs its own job.
   test-pi-tui:
     runs-on: ubuntu-latest
@@ -56,15 +68,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
 
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @moonshot-ai/pi-tui test
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - run: bun install --frozen-lockfile
+      - run: cd packages/pi-tui && bun run test
 
   # The VS Code extension suite runs on the default (v2) engine as part of the
   # sharded root run above; this job reruns it on the legacy v1 engine, which
@@ -75,15 +93,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
 
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter kimi-code test
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - run: bun install --frozen-lockfile
+      - run: cd apps/vscode && bun run test
         env:
           KIMI_CODE_LEGACY_FLAG: "1"
 
@@ -95,18 +119,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
 
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - run: bun install --frozen-lockfile
       # Windows runners are slower and run the whole suite (including
       # in-process e2e tests) under more contention, so the default 5s test
       # timeout causes flaky failures. Give it more headroom.
-      - run: pnpm run test -- --testTimeout=30000
+      - run: bun run test -- --testTimeout=30000
 
   lint:
     runs-on: ubuntu-latest
@@ -114,16 +144,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
 
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run lint
-      - run: pnpm run sherif
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run sherif
       # Locale consistency: en/zh key parity, placeholder validity, and JSON
       # freshness (regenerate, then fail if tracked JSON drifted from the TS sources).
       - run: node scripts/check-locale-keys.mjs
@@ -136,24 +172,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
 
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - run: bun install --frozen-lockfile
       - name: Typecheck
         run: |
-          pnpm dlx --package @typescript/native-preview@beta tsgo --version
+          bunx --package @typescript/native-preview@beta tsgo --version
           for config in packages/*/tsconfig.json apps/kimi-code/tsconfig.json; do
             echo "Typechecking ${config}"
-            pnpm dlx --package @typescript/native-preview@beta tsgo -p "${config}" --noEmit
+            bunx --package @typescript/native-preview@beta tsgo -p "${config}" --noEmit
           done
       - name: Typecheck VS Code extension
-        run: pnpm --filter kimi-code run typecheck
+        run: cd apps/vscode && bun run typecheck
       - name: Typecheck vis-server
-        run: pnpm --filter @moonshot-ai/vis-server run typecheck
+        run: cd apps/vis/server && bun run typecheck
       - name: Typecheck vis-web
-        run: pnpm --filter @moonshot-ai/vis-web run typecheck
+        run: cd apps/vis/web && bun run typecheck
