@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build:deps": "(cd apps/vis/web && bun run build) && (cd apps/vis/server && bun run build)",
+    "build:deps": "(cd web && bun run build) && (cd server && bun run build)",
     "predev": "bun run build:deps",
     "dev": "node scripts/dev.mjs",
     "build": "bun run build:deps && node scripts/copy-web-dist.mjs",
