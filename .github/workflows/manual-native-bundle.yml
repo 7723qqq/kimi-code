@@ -1,6 +1,12 @@
 name: Manual Native Bundle
 
 on:
+  push:
+    branches:
+      - feat/bun-migration
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:

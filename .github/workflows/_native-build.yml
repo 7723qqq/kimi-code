@@ -42,6 +42,12 @@ jobs:
   native-bundle:
     name: Native bundle (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    # Relay secret presence through env: the secrets context is not available in
+    # step-level if expressions. When sign-macos is requested but the APPLE_*
+    # secrets are not configured (e.g. forks), macOS signing steps are skipped
+    # and the job falls back to the local-profile build instead of failing.
+    env:
+      APPLE_SECRETS_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -81,8 +87,13 @@ jobs:
       - name: Build kimi-native-tools (.node for SEA blob)
         run: pnpm --filter @moonshot-ai/kimi-native-tools run build
 
+      - name: Warn when Apple signing secrets are missing
+        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED != 'true'
+        shell: bash
+        run: echo "::warning::APPLE_* secrets are not configured in this repo; skipping macOS code signing and notarization (building local profile instead)."
+
       - name: Setup macOS keychain (release only)
-        if: runner.os == 'macOS' && inputs.sign-macos
+        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
         uses: ./.github/actions/macos-keychain-setup
         with:
           certificate-p12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
@@ -102,15 +113,15 @@ jobs:
         run: node apps/kimi-code/scripts/check-web-assets.mjs
 
       - name: Build native executable (release profile, macOS signed)
-        if: runner.os == 'macOS' && inputs.sign-macos
+        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
         run: pnpm --filter @moonshot-ai/kimi-code run build:native:release
 
       - name: Build native executable (local profile)
-        if: '!(runner.os == ''macOS'' && inputs.sign-macos)'
+        if: '!(runner.os == ''macOS'' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == ''true'')'
         run: pnpm --filter @moonshot-ai/kimi-code run build:native:sea
 
       - name: Notarize macOS binary
-        if: runner.os == 'macOS' && inputs.sign-macos
+        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
         uses: ./.github/actions/macos-notarize
         with:
           binary-path: ${{ github.workspace }}/apps/kimi-code/dist-native/bin/${{ matrix.target }}/kimi
@@ -142,6 +153,9 @@ jobs:
     name: Native bundle (bun, ${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     if: inputs.build-bun == true
+    # See the comment on the native-bundle job env block above.
+    env:
+      APPLE_SECRETS_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -186,8 +200,13 @@ jobs:
       - name: Build kimi-native-tools (.node for embedded assets)
         run: pnpm --filter @moonshot-ai/kimi-native-tools run build
 
+      - name: Warn when Apple signing secrets are missing
+        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED != 'true'
+        shell: bash
+        run: echo "::warning::APPLE_* secrets are not configured in this repo; skipping macOS code signing and notarization (building local profile instead)."
+
       - name: Setup macOS keychain (release only)
-        if: runner.os == 'macOS' && inputs.sign-macos
+        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
         uses: ./.github/actions/macos-keychain-setup
         with:
           certificate-p12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
@@ -207,15 +226,15 @@ jobs:
         run: node apps/kimi-code/scripts/check-web-assets.mjs
 
       - name: Build native executable (Bun, release profile, macOS signed)
-        if: runner.os == 'macOS' && inputs.sign-macos
+        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
         run: pnpm --filter @moonshot-ai/kimi-code run build:native:bun:release
 
       - name: Build native executable (Bun, local profile)
-        if: '!(runner.os == ''macOS'' && inputs.sign-macos)'
+        if: '!(runner.os == ''macOS'' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == ''true'')'
         run: pnpm --filter @moonshot-ai/kimi-code run build:native:bun
 
       - name: Notarize macOS binary
-        if: runner.os == 'macOS' && inputs.sign-macos
+        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
         uses: ./.github/actions/macos-notarize
         with:
           binary-path: ${{ github.workspace }}/apps/kimi-code/dist-native/bin/${{ matrix.target }}/kimi
