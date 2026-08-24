@@ -15,6 +15,7 @@ Compared to upstream, this fork adds:
 - **🤖 Team.** Multi-agent discussion and collaboration tool — agents can debate, cross-review, and reach consensus before output.
 - **⚡ Rust Native Tools.** Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as native Node addon, significantly faster than JS.
 - **🪟 Windows launchers.** `start-native.bat` launches the native CLI; `start-desktop.bat` builds/launches a locally vendored desktop shell when present.
+- **🥖 Bun migration (experimental).** Experimental single-file builds via `bun build --compile` now run in CI as a six-platform matrix (linux/darwin/win32 × x64/arm64) alongside the default Node.js SEA pipeline: node-pty and pi-tui helpers load from a unified packaged-asset cache, host terminal sessions support both runtimes, URL-fetch SSRF semantics stay identical across runtimes (bundled undici), self-update is engine-aware, and `/status` shows a Runtime row. Validated on linux-x64 only so far; the long-term goal is for Bun to replace SEA as the sole release engine.
 - Various other fixes and QoL improvements.
 
 For a deeper, contributor-facing breakdown of these additions and how they integrate with the rest of the project, see `AGENTS.md` → "Fork-specific additions vs upstream".

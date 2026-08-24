@@ -165,7 +165,7 @@ mv ~/.kimi-code/bin/kimi-new ~/.kimi-code/bin/kimi
 
 > **Note**: The SEA build currently requires `@moonshot-ai/kimi-native-tools` listed as a dependency in `apps/kimi-code/package.json` and registered in `apps/kimi-code/scripts/native/native-deps.mjs`. See [Common Issues](#common-issues) for known pitfalls.
 
-### Native Bun build (experimental)
+### Bun migration (experimental)
 
 An experimental single-file build compiles the CLI with Bun instead of Node.js SEA. Requires Bun >= 1.4 (`curl -fsSL https://bun.sh/install | bash`; see [bun.sh](https://bun.sh)). Node.js >= 24.15 still runs the build script itself, and a Rust toolchain is required because the `kimi-native-tools` `.node` binary is embedded.
 
@@ -180,15 +180,25 @@ pnpm run test:native:smoke
 
 Output: `apps/kimi-code/dist-native/bin/<target>/kimi`.
 
-Bun bytecode is embedded by default; set `KIMI_CODE_BUN_NO_BYTECODE=1` to skip it. Bytecode compilation requires that no top-level `await` appears in the bundle graph, and it only covers the entry — the bundled `main.cjs` is imported from disk at runtime and is outside the bytecode graph.
+Bun bytecode is disabled by default: measuring on Bun 1.4.0 showed no startup gain here, because only the small entry shim is bytecode'd — the bundled `main.cjs` is imported from disk at runtime and sits outside the bytecode graph — while bytecode still adds binary size and locks the artifact to the exact Bun version that built it. Set `KIMI_CODE_BUN_ENABLE_BYTECODE=1` to embed bytecode anyway; it only pays off if the pipeline changes so that real application code lands in the bytecode graph (for example, compiling the real ESM entry directly instead of importing the bundle from disk). Note the module format when enabling: bare `--bytecode` defaults to CommonJS output, which cannot express top-level `await`; Bun has supported top-level `await` in bytecode since v1.3.9 under `--format=esm`, but this pipeline keeps the CJS default, so the compile entry must stay free of top-level `await`.
 
-Status caveats: validated on linux-x64; cross-target staging requires that target's platform packages to be present locally (the collector fails fast otherwise). Packaged builds resolve pi-tui's platform helper and node-pty from the extracted asset cache at load time — the release smoke dlopens the PTY binding on every target CI runs. This pipeline is experimental and parallel to the default SEA pipeline (`build:native:sea`), which remains the release default. Runtime asset loading is unified: both pipelines feed the same extraction/cache layer.
+Runtime integration stays shared with the SEA path where possible:
+
+- Packaged builds resolve node-pty (with its PTY bindings) and pi-tui's platform helper from the extracted asset cache at load time, through the unified loader in `apps/kimi-code/src/native/node-pty.ts`; the superseded per-module hook shims (~780 lines of dead code) were removed. The release smoke dlopens the PTY binding on every target CI runs.
+- Host terminal sessions work on both runtimes, with UTF-8 stream decoding adapted for Bun.
+- Built-in URL-fetch keeps SSRF guard semantics identical across engines by defaulting to the bundled `undici` fetch (Bun's global fetch silently ignores its pinned-DNS dispatcher option).
+- Self-update is engine-aware: the native manifest records the engine, a Bun packaged binary downloads the release's matching Bun artifact, and refuses to silently swap itself back to the Node SEA binary.
+- `/status` reports the packaging engine and native-tools implementation (`Runtime  bun · rust`).
+
+Status caveats: this pipeline is experimental and parallel to the default SEA pipeline (`build:native:sea`), which remains the release default. It has been validated hands-on on linux-x64 only; the other five targets build in CI but are still under verification. Cross-target staging requires that target's platform packages to be present locally (the collector fails fast otherwise). Both pipelines feed the same extraction/cache layer.
 
 To compare startup cost between the two engines of one target, copy each build aside (both write to `dist-native/bin/<target>/kimi`) and run:
 
 ```sh
 node scripts/native/bench-native.mjs /tmp/kimi-sea /tmp/kimi-bun --runs 20
 ```
+
+Roadmap: the end goal is for Bun to fully replace Node.js SEA as the sole release engine, retiring the SEA build chain. The near-term path is full-platform CI verification → governing the bytecode / top-level-await limitations → flipping the default engine and retiring SEA. Until then, released binaries keep shipping from Node SEA by default.
 
 ### Common Issues
 
