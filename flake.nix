@@ -264,7 +264,10 @@
               # hoisted @esbuild/<platform> package without a script;
               # protobufjs/ssh2 work scriptless.
               export PATH="$PWD/node_modules/.bin:$PATH"
-              (cd node_modules/node-pty && node scripts/prebuild.js || node-gyp rebuild)
+              # Call node-gyp's JS entry directly: its bin shim uses
+              # `#!/usr/bin/env node`, and /usr/bin/env does not exist in
+              # the sandbox.
+              (cd node_modules/node-pty && node ../../node_modules/node-gyp/bin/node-gyp.js rebuild)
               (cd node_modules/node-pty && node scripts/post-install.js)
               # The SEA blob step embeds the Kimi web assets from
               # apps/kimi-code/dist-web and fails if that directory is
