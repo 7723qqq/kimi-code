@@ -190,6 +190,10 @@
             nativeBuildInputs = [
               bun
               nodejs
+              # cargo vendor needs a CA bundle for crates.io and may fall
+              # back to the git index protocol.
+              pkgs.cacert
+              pkgs.git
               pkgs.cargo
               pkgs.rustc
             ];
@@ -206,6 +210,8 @@
             installPhase = ''
               runHook preInstall
               export HOME=$TMPDIR
+              export NIX_SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+              export SSL_CERT_FILE=$NIX_SSL_CERT_FILE
               bun install --frozen-lockfile --ignore-scripts
               mkdir $out
               mv node_modules $out/node_modules
