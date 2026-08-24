@@ -48,7 +48,7 @@ When non-changelog pages change in either locale, sync the mirror before release
 4. **Verify**
 
    - `git diff docs/` — scan for terminology drift or punctuation regressions.
-   - Run the docs build if available (`pnpm --filter docs run build` or equivalent) to catch broken links and Markdown errors.
+   - Run the docs build if available (`cd docs && bun run build` or equivalent) to catch broken links and Markdown errors.
 
 ## Rules and conventions
 

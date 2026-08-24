@@ -5,6 +5,9 @@
     "experimentalDecorators": true,
     "paths": {
       "@/*": ["./src/*"],
+      "#/tui/theme": ["./src/tui/theme/index.ts"],
+      "#/tui/commands": ["./src/tui/commands/index.ts"],
+      "#/cli/sub/web/*": ["./src/cli/sub/web/*.ts"],
       "#/*": ["./src/*"]
     }
   },

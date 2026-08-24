@@ -41,7 +41,6 @@ import { maybeRelaunchWithStagedNativeUpdate } from './cli/update/native-swap';
 import { createKimiCodeHostIdentity, getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
 import { installMinidbTextBuildWorker } from './native/minidb-worker';
-import { installNativeModuleHook } from './native/module-hook';
 import { cleanupStaleNativeCacheForCurrent } from './native/native-assets';
 import { installKapSearchWorker } from './native/search-worker';
 import { runNativeAssetSmokeIfRequested } from './native/smoke';
@@ -158,7 +157,7 @@ export function main(): void {
     argv: process.argv,
     env: process.env,
     currentVersion: getVersion(),
-    isNative: detectNativeInstall(),
+    isNative: detectNativeInstall().native,
   })
     .catch(() => false)
     .then((relaunched) => {
@@ -171,7 +170,6 @@ function bootstrap(): void {
   // before any client is constructed. No-op when no proxy variable is set; an
   // invalid proxy URL is reported and ignored rather than aborting startup.
   installGlobalProxyDispatcher(process.env);
-  installNativeModuleHook();
   // Best-effort SEA worker installation. Diagnostics are trace-only and avoid
   // exposing the user's cache path; failure keeps MiniDb's bounded inline mode.
   const workerInstall = installMinidbTextBuildWorker();

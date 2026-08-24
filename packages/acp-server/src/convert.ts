@@ -100,7 +100,7 @@ export function acpBlocksToContentParts(blocks: readonly ContentBlock[]): readon
  * immediately before it stating what the original was, and the original bytes
  * are persisted (into `originalsDir` — typically the session's
  * media-originals dir — or the shared temp-dir fallback) so the model can
- * read fine detail back via ReadMediaFile + region.
+ * read fine detail back via Read + region.
  */
 export async function compressPromptImageParts(
   parts: readonly ContentPart[],

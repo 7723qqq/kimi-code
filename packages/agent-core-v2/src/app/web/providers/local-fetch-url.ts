@@ -4,7 +4,7 @@ import { BlockList, isIP, type LookupFunction } from 'node:net';
 
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
-import { Agent, type Dispatcher } from 'undici';
+import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici';
 
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 import { Error2, ErrorCodes } from '#/errors';
@@ -39,6 +39,26 @@ export interface LocalFetchURLProviderOptions {
   allowPrivateAddresses?: boolean;
 }
 
+/**
+ * UrlFetcher with SSRF guards: literal private/loopback addresses and
+ * `.localhost` hosts are refused outright, and hostnames are resolved and
+ * checked against a private-address blocklist before each hop. When undici's
+ * global proxy dispatcher (`installGlobalProxyDispatcher`) carries the
+ * request instead of a per-request pinned Agent, that resolution step is
+ * skipped — resolved addresses are discarded anyway (no pinning is
+ * possible), while a poisoned or unreachable local DNS, common exactly on
+ * networks that need a proxy, would fail the request before it starts; the
+ * literal-IP and localhost refusals still apply on that path. One predicate
+ * decides whether a host:port rides the global proxy, shared by the SSRF
+ * pre-check and the dispatcher selection so both agree on when DNS pinning
+ * applies.
+ *
+ * The default fetch is undici's own `fetch` rather than `globalThis.fetch`:
+ * the pinned-DNS `dispatcher` option only exists in undici, and on runtimes
+ * whose global fetch is not undici (Bun) it would be ignored — silently
+ * dropping DNS pinning and re-resolving through whatever resolver the runtime
+ * prefers. Pinning the implementation keeps Node and Bun semantics identical.
+ */
 export class LocalFetchURLProvider implements UrlFetcher {
   private readonly userAgent: string;
   private readonly fetchImpl: typeof fetch;
@@ -47,7 +67,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
 
   constructor(options: LocalFetchURLProviderOptions = {}) {
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+    this.fetchImpl = options.fetchImpl ?? (undiciFetch as unknown as typeof fetch);
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.allowPrivateAddresses = options.allowPrivateAddresses ?? false;
   }
@@ -257,11 +277,6 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
       details: { host },
     });
   }
-  // When the global proxy dispatcher carries the request, the resolved
-  // addresses are discarded (no pinning is possible), while a poisoned or
-  // unreachable local DNS — common exactly on networks that need a proxy —
-  // would fail the request before it starts. Skip the lookup; the literal-IP
-  // and localhost refusals above still apply.
   if (requestRidesGlobalProxy(host, port)) return { host, port };
   let addresses: LookupAddress[];
   try {
@@ -286,12 +301,6 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
   return { host, port, addresses };
 }
 
-/**
- * Whether this host:port combination rides undici's global proxy dispatcher
- * (`installGlobalProxyDispatcher`) instead of a per-request pinned Agent.
- * Shared by the SSRF pre-check and the dispatcher selection so both agree on
- * when DNS pinning applies.
- */
 function requestRidesGlobalProxy(host: string, port: string): boolean {
   return (
     isProxyConfigured(process.env) && !makeNoProxyMatcher(resolveNoProxy(process.env))(host, port)

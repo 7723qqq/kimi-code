@@ -73,8 +73,8 @@ export function registerWorkspaceFsRoutes(app: WorkspaceFsRouteHost, core: Scope
       try {
         const data = await core.accessor.get(IHostFolderBrowser).browse(req.query.path);
         reply.send(okEnvelope(data, req.id));
-      } catch (err) {
-        sendMappedError(reply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
     },
   );
@@ -97,8 +97,8 @@ export function registerWorkspaceFsRoutes(app: WorkspaceFsRouteHost, core: Scope
       try {
         const data = await core.accessor.get(IHostFolderBrowser).home();
         reply.send(okEnvelope(data, req.id));
-      } catch (err) {
-        sendMappedError(reply, req.id, err);
+      } catch (error) {
+        sendMappedError(reply, req.id, error);
       }
     },
   );
@@ -197,8 +197,8 @@ async function handleFsContent(
   try {
     abs = await hostFs.realpath(path);
     st = await hostFs.stat(abs);
-  } catch (err) {
-    sendOsFsError(reply, requestId, err, path);
+  } catch (error) {
+    sendOsFsError(reply, requestId, error, path);
     return;
   }
 
@@ -226,8 +226,8 @@ async function handleFsContent(
       sampleSize === 0 ? new Uint8Array() : await hostFs.readBytes(abs, sampleSize);
     const classification = classifyTextSample(sample);
     isBinary = classification.isBinary || classification.encoding !== 'utf-8';
-  } catch (err) {
-    sendOsFsError(reply, requestId, err, path);
+  } catch (error) {
+    sendOsFsError(reply, requestId, error, path);
     return;
   }
 
@@ -296,8 +296,8 @@ async function handleFsMkdir(
 
   try {
     await mkdir(path);
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
     switch (code) {
       case 'EEXIST':
         reply.send(
@@ -317,7 +317,7 @@ async function handleFsMkdir(
         );
         return;
     }
-    throw err;
+    throw error;
   }
 
   reply.send(okEnvelope({ path }, requestId));

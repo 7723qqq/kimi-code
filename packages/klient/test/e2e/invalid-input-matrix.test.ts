@@ -806,7 +806,7 @@ describe('video blocks', () => {
     }
   }, 60_000);
 
-  it('kimi (composed): ReadMediaFile on a video uploads via the files API (uploadVideo trait)', async () => {
+  it('kimi (composed): Read on a video uploads via the files API (uploadVideo trait)', async () => {
     const ctx = await newCase(M_KIMI, 'kimi-video-upload');
     await writeFile(join(ctx.workDir, 'clip.mp4'), Buffer.from(MP4_FTYP_HEX, 'hex'));
 
@@ -830,7 +830,7 @@ describe('video blocks', () => {
       return chatCallCount === 1
         ? {
             kind: 'sse',
-            lines: openAiToolCallSse('call_video_1', 'ReadMediaFile', '{"path":"clip.mp4"}'),
+            lines: openAiToolCallSse('call_video_1', 'Read', '{"path":"clip.mp4"}'),
           }
         : OK_OPENAI;
     });
@@ -861,7 +861,7 @@ describe('video blocks', () => {
 
     resetMock(
       queueScript(
-        { kind: 'sse', lines: openAiToolCallSse('call_video_1', 'ReadMediaFile', '{"path":"clip.mp4"}') },
+        { kind: 'sse', lines: openAiToolCallSse('call_video_1', 'Read', '{"path":"clip.mp4"}') },
         OK_OPENAI,
       ),
     );
@@ -873,7 +873,7 @@ describe('video blocks', () => {
     const secondBody = chatCalls[1]?.json as { messages: Record<string, unknown>[] };
     const toolMessage = secondBody.messages.find((message) => message['role'] === 'tool');
     // ModelRequesterImpl.uploadVideo throws for providers without the hook;
-    // ReadMediaFile converts that into an error tool result (engine fallback).
+    // Read converts that into an error tool result (engine fallback).
     expect(String(toolMessage?.['content'])).toContain('does not support video upload');
     expect(ctx.payloads('prompt.completed')[0]?.['reason']).toBe('completed');
   }, 30_000);
@@ -964,7 +964,7 @@ describe('tool exchange structure', () => {
         queueScript(
           {
             kind: 'sse',
-            lines: openAiToolCallSse('call_media_1', 'ReadMediaFile', '{"path":"pixel.png"}'),
+            lines: openAiToolCallSse('call_media_1', 'Read', '{"path":"pixel.png"}'),
           },
           OK_OPENAI,
         ),

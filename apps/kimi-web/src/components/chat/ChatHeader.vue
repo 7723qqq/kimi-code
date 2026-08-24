@@ -267,8 +267,8 @@ async function loadChildSessions(): Promise<void> {
   childLoadError.value = null;
   try {
     childSessions.value = await getKimiWebApi().listChildSessions(props.sessionId);
-  } catch (err) {
-    childLoadError.value = isDaemonApiError(err) ? err.message : String(err);
+  } catch (error) {
+    childLoadError.value = isDaemonApiError(error) ? error.message : String(error);
   }
 }
 

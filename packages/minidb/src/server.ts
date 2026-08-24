@@ -124,7 +124,8 @@ export class RespParser {
 }
 
 async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buffer | null> {
-  const cmd = args[0]!.toString().toUpperCase();
+  const cmd = args[0]?.toString().toUpperCase();
+  if (cmd === undefined) return reply.err('empty command');
   const S = (i: number): string | undefined => (args[i] === undefined ? undefined : args[i]!.toString());
 
   switch (cmd) {
@@ -133,12 +134,14 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
     case 'ECHO':
       return reply.bulk(S(1));
     case 'GET': {
-      const v = db.get(S(1)!);
-      return reply.bulk(v === undefined ? null : v);
+      const key = S(1);
+      if (key === undefined) return reply.err("wrong number of arguments for 'get'");
+      return reply.bulk(db.get(key) ?? null);
     }
     case 'SET': {
-      const key = S(1)!;
-      const val = S(2)!;
+      const key = S(1);
+      const val = S(2);
+      if (key === undefined || val === undefined) return reply.err("wrong number of arguments for 'set'");
       let ttl: number | undefined;
       for (let i = 3; i < args.length; i++) {
         const opt = S(i)!.toUpperCase();
@@ -153,13 +156,16 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
       for (let i = 1; i < args.length; i++) if (await db.del(S(i)!)) n++;
       return reply.int(n);
     }
-    case 'EXISTS':
-      return reply.int(db.has(S(1)!) ? 1 : 0);
+    case 'EXISTS': {
+      const key = S(1);
+      if (key === undefined) return reply.err("wrong number of arguments for 'exists'");
+      return reply.int(db.has(key) ? 1 : 0);
+    }
     case 'MGET': {
       const out: unknown[] = [];
       for (let i = 1; i < args.length; i++) {
         const v = db.get(S(i)!);
-        out.push(v === undefined ? null : v);
+        out.push(v ?? null);
       }
       return reply.array(out);
     }
@@ -169,8 +175,11 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
       await db.mset(entries); // atomic batch (single WAL frame), like Redis MSET
       return reply.ok();
     }
-    case 'TTL':
-      return reply.int(Math.trunc(db.ttl(S(1)!) / 1000));
+    case 'TTL': {
+      const key = S(1);
+      if (key === undefined) return reply.err("wrong number of arguments for 'ttl'");
+      return reply.int(Math.trunc(db.ttl(key) / 1000));
+    }
     case 'DBSIZE':
       return reply.int(db.size);
     case 'COMPACT':
@@ -234,8 +243,8 @@ export async function startServer({ dir, port = 6379, host = '127.0.0.1', fsyncP
                 // One failing command must not starve the replies of the
                 // commands already parsed from the same chunk.
                 res = await handle(db, parsed.args);
-              } catch (e) {
-                res = reply.err((e as Error).message);
+              } catch (error) {
+                res = reply.err((error as Error).message);
               }
             }
             if (res === null) {
@@ -244,8 +253,8 @@ export async function startServer({ dir, port = 6379, host = '127.0.0.1', fsyncP
             }
             send(res);
           }
-        } catch (e) {
-          send(reply.err((e as Error).message));
+        } catch (error) {
+          send(reply.err((error as Error).message));
         }
       });
     });
@@ -269,7 +278,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const argv = process.argv.slice(2);
   const arg = (name: string, def: string): string => {
     const i = argv.indexOf(`--${name}`);
-    return i === -1 ? def : argv[i + 1]!;
+    const v = i === -1 ? undefined : argv[i + 1];
+    return v ?? def;
   };
   const dir = arg('dir', './data');
   const port = Number(arg('port', '6379'));

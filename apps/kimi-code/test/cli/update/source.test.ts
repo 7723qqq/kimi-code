@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   classifyByPathHeuristic,
   classifyInstallSource,
   detectInstallSource,
+  detectNativeInstall,
 } from '#/cli/update/source';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
@@ -96,7 +97,7 @@ describe('detectInstallSource', () => {
         getPackageRoot: () =>
           '/Users/me/Library/pnpm/global/5/node_modules/@moonshot-ai/kimi-code',
         getGlobalPrefix: async () => '/usr/local',
-        detectNative: () => false,
+        detectNative: () => ({ native: false }),
         platform: 'darwin',
       }),
     ).resolves.toBe('pnpm-global');
@@ -107,7 +108,7 @@ describe('detectInstallSource', () => {
       detectInstallSource({
         getPackageRoot: () => '/Users/me/.config/yarn/global/node_modules/@moonshot-ai/kimi-code',
         getGlobalPrefix: async () => '/usr/local',
-        detectNative: () => false,
+        detectNative: () => ({ native: false }),
         platform: 'darwin',
       }),
     ).resolves.toBe('yarn-global');
@@ -118,7 +119,7 @@ describe('detectInstallSource', () => {
       detectInstallSource({
         getPackageRoot: () => '/Users/me/.bun/install/global/node_modules/@moonshot-ai/kimi-code',
         getGlobalPrefix: async () => '/usr/local',
-        detectNative: () => false,
+        detectNative: () => ({ native: false }),
         platform: 'darwin',
       }),
     ).resolves.toBe('bun-global');
@@ -129,7 +130,7 @@ describe('detectInstallSource', () => {
       detectInstallSource({
         getPackageRoot: () => '/usr/local/lib/node_modules/@moonshot-ai/kimi-code',
         getGlobalPrefix: async () => '/usr/local',
-        detectNative: () => false,
+        detectNative: () => ({ native: false }),
         platform: 'darwin',
       }),
     ).resolves.toBe('npm-global');
@@ -141,7 +142,7 @@ describe('detectInstallSource', () => {
         getPackageRoot: () =>
           '/opt/homebrew/Cellar/kimi-code/0.5.0/libexec/lib/node_modules/@moonshot-ai/kimi-code',
         getGlobalPrefix: async () => '/usr/local',
-        detectNative: () => false,
+        detectNative: () => ({ native: false }),
         platform: 'darwin',
       }),
     ).resolves.toBe('homebrew');
@@ -152,7 +153,18 @@ describe('detectInstallSource', () => {
       detectInstallSource({
         getPackageRoot: () => '/usr/local/lib/node_modules/@moonshot-ai/kimi-code',
         getGlobalPrefix: async () => '/usr/local',
-        detectNative: () => true,
+        detectNative: () => ({ native: true, kind: 'sea' }),
+        platform: 'darwin',
+      }),
+    ).resolves.toBe('native');
+  });
+
+  it('returns native for a packaged Bun install', async () => {
+    await expect(
+      detectInstallSource({
+        getPackageRoot: () => '/usr/local/lib/node_modules/@moonshot-ai/kimi-code',
+        getGlobalPrefix: async () => '/usr/local',
+        detectNative: () => ({ native: true, kind: 'bun' }),
         platform: 'darwin',
       }),
     ).resolves.toBe('native');
@@ -163,7 +175,7 @@ describe('detectInstallSource', () => {
       detectInstallSource({
         getPackageRoot: () => '/Users/me/dev/@moonshot-ai/kimi-code',
         getGlobalPrefix: async () => '/usr/local',
-        detectNative: () => false,
+        detectNative: () => ({ native: false }),
         platform: 'darwin',
       }),
     ).resolves.toBe('unsupported');
@@ -176,7 +188,7 @@ describe('detectInstallSource', () => {
         getGlobalPrefix: async () => {
           throw new Error('prefix failed');
         },
-        detectNative: () => false,
+        detectNative: () => ({ native: false }),
         platform: 'darwin',
       }),
     ).resolves.toBe('unsupported');
@@ -190,10 +202,53 @@ describe('detectInstallSource', () => {
     await expect(
       detectInstallSource({
         getPackageRoot: () => '/Users/me/dev/@moonshot-ai/kimi-code',
-        detectNative: () => false,
+        detectNative: () => ({ native: false }),
         platform: 'darwin',
       }),
     ).resolves.toBe('unsupported');
     expect(resolveCommandPath).toHaveBeenCalledWith('npm');
+  });
+});
+
+describe('detectNativeInstall', () => {
+  const markerGlobals = globalThis as {
+    Bun?: unknown;
+    __KIMI_BUN_ASSETS__?: Record<string, string>;
+  };
+  let originalBun: unknown;
+  let originalAssets: unknown;
+
+  beforeEach(() => {
+    originalBun = markerGlobals.Bun;
+    originalAssets = markerGlobals.__KIMI_BUN_ASSETS__;
+  });
+
+  afterEach(() => {
+    if (originalBun === undefined) delete markerGlobals.Bun;
+    else markerGlobals.Bun = originalBun;
+    if (originalAssets === undefined) delete markerGlobals.__KIMI_BUN_ASSETS__;
+    else markerGlobals.__KIMI_BUN_ASSETS__ = originalAssets as Record<string, string>;
+  });
+
+  it('reports a bun packaged install when the Bun runtime carries embedded assets', () => {
+    markerGlobals.Bun = { version: '1.3.0' };
+    markerGlobals.__KIMI_BUN_ASSETS__ = { 'runtime/main.cjs': '/tmp/main.cjs' };
+    expect(detectNativeInstall()).toEqual({ native: true, kind: 'bun' });
+  });
+
+  it('stays non-native when Bun runs without embedded assets (a dev checkout)', () => {
+    markerGlobals.Bun = { version: '1.3.0' };
+    expect(detectNativeInstall()).toEqual({ native: false });
+  });
+
+  it('ignores an empty embedded-asset map', () => {
+    markerGlobals.Bun = { version: '1.3.0' };
+    markerGlobals.__KIMI_BUN_ASSETS__ = {};
+    expect(detectNativeInstall()).toEqual({ native: false });
+  });
+
+  it('does not treat the asset marker alone as native outside the Bun runtime', () => {
+    markerGlobals.__KIMI_BUN_ASSETS__ = { 'runtime/main.cjs': '/tmp/main.cjs' };
+    expect(detectNativeInstall()).toEqual({ native: false });
   });
 });

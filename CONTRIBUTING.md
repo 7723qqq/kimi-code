@@ -23,7 +23,7 @@ We only merge PRs aligned with the roadmap. Drive-by refactors without context a
 
 ## Project Layout
 
-This is a pnpm monorepo. The most relevant entry points are:
+This is a Bun monorepo. The most relevant entry points are:
 
 - `apps/kimi-code` — CLI / TUI
 - `apps/vscode` — VS Code extension
@@ -37,35 +37,35 @@ For the full project map, see [AGENTS.md](AGENTS.md).
 
 ## Development Setup
 
-Prerequisites: Node.js >= 24.15.0, pnpm 10.33.0, Git.
+Prerequisites: Node.js >= 24.15.0, Bun >= 1.4, Git.
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git
 cd kimi-code
-pnpm install
+bun install
 ```
 
 Useful scripts:
 
-- `pnpm dev:cli` — run the CLI in dev mode
-- `pnpm test` — run tests (vitest)
-- `pnpm typecheck` — TypeScript check (note: builds packages first)
-- `pnpm lint` — oxlint
-- `pnpm lint:fix` — oxlint with auto-fix
-- `pnpm build` — build all packages
+- `bun run dev:cli` — run the CLI in dev mode
+- `bun run test` — run tests (vitest)
+- `bun run typecheck` — TypeScript check (note: builds packages first)
+- `bun run lint` — oxlint
+- `bun run lint:fix` — oxlint with auto-fix
+- `bun run build` — build all packages
 
 ## Build & Local Deploy
 
 After making changes, build the full project:
 
 ```sh
-pnpm build
+bun run build
 ```
 
 If you only changed code under `apps/kimi-code`, you can build just that package:
 
 ```sh
-pnpm --filter @moonshot-ai/kimi-code run build
+cd apps/kimi-code && bun run build
 ```
 
 This produces:
@@ -133,7 +133,7 @@ node "%KIMI_CODE_HOME%\dist\main.mjs" %*
 The native build produces a standalone executable using Node.js Single Executable Applications. Requires Rust toolchain (MSVC on Windows).
 
 ```sh
-pnpm --filter @moonshot-ai/kimi-code run build:native:release
+cd apps/kimi-code && bun run build:native:release
 ```
 
 Output: `apps/kimi-code/dist-native/bin/win32-x64/kimi.exe`
@@ -142,8 +142,8 @@ Output: `apps/kimi-code/dist-native/bin/win32-x64/kimi.exe`
 
 ```sh
 cd apps/kimi-code
-pnpm run build:native:js
-pnpm run build:native:sea
+bun run build:native:js
+bun run build:native:sea
 ```
 
 The `build:native:sea` script already runs the JS bundle step with the `local` profile.
@@ -165,11 +165,46 @@ mv ~/.kimi-code/bin/kimi-new ~/.kimi-code/bin/kimi
 
 > **Note**: The SEA build currently requires `@moonshot-ai/kimi-native-tools` listed as a dependency in `apps/kimi-code/package.json` and registered in `apps/kimi-code/scripts/native/native-deps.mjs`. See [Common Issues](#common-issues) for known pitfalls.
 
+### Bun migration (experimental)
+
+An experimental single-file build compiles the CLI with Bun instead of Node.js SEA. Requires Bun >= 1.4 (`curl -fsSL https://bun.sh/install | bash`; see [bun.sh](https://bun.sh)). Node.js >= 24.15 still runs the build script itself, and a Rust toolchain is required because the `kimi-native-tools` `.node` binary is embedded.
+
+From `apps/kimi-code`, run `node scripts/native/build-bun.mjs` (or `bun run build:native:bun`), then verify with the existing smoke test:
+
+```sh
+node scripts/native/build-bun.mjs
+bun run test:native:smoke
+```
+
+`--profile=release` (`bun run build:native:bun:release`) mirrors the SEA release profile: it generates the built-in catalog, signs with `APPLE_SIGNING_IDENTITY` on macOS, and runs the codesign self-check. CI builds all six targets behind the `build-bun` input of `_native-build.yml` (packaged as `kimi-code-bun-<target>.zip` via `KIMI_CODE_NATIVE_ENGINE=bun`).
+
+Output: `apps/kimi-code/dist-native/bin/<target>/kimi`.
+
+Bun bytecode is disabled by default: it measured no startup gain on this pipeline, while bytecode adds binary size and locks the artifact to the exact Bun version that built it. Set `KIMI_CODE_BUN_ENABLE_BYTECODE=1` to embed bytecode anyway. Note the module format when enabling: bare `--bytecode` defaults to CommonJS output, which cannot express top-level `await`; Bun has supported top-level `await` in bytecode since v1.3.9 under `--format=esm`, but this pipeline keeps the CJS default, so the compile entry must stay free of top-level `await`.
+
+Runtime integration stays shared with the SEA path where possible:
+
+- Packaged builds resolve node-pty (with its PTY bindings) and pi-tui's platform helper from the extracted asset cache at load time, through the unified loader in `apps/kimi-code/src/native/node-pty.ts`; the superseded per-module hook shims (~780 lines of dead code) were removed. The release smoke dlopens the PTY binding on every target CI runs.
+- Host terminal sessions work on both runtimes, with UTF-8 stream decoding adapted for Bun.
+- Built-in URL-fetch keeps SSRF guard semantics identical across engines by defaulting to the bundled `undici` fetch (Bun's global fetch silently ignores its pinned-DNS dispatcher option).
+- Self-update is engine-aware: the native manifest records the engine, a Bun packaged binary downloads the release's matching Bun artifact, and refuses to silently swap itself back to the Node SEA binary.
+- `/status` reports the packaging engine and native-tools implementation (`Runtime  bun · rust`).
+
+Status caveats: this pipeline is experimental and parallel to the default SEA pipeline (`build:native:sea`), which remains the release default. It has been validated hands-on on linux-x64 only; the other five targets build in CI but are still under verification. Cross-target staging requires that target's platform packages to be present locally (the collector fails fast otherwise). Both pipelines feed the same extraction/cache layer.
+
+To compare startup cost between the two engines of one target, copy each build aside (both write to `dist-native/bin/<target>/kimi`) and run:
+
+```sh
+node scripts/native/bench-native.mjs /tmp/kimi-sea /tmp/kimi-bun --runs 20
+```
+
+Roadmap: the end goal is for Bun to fully replace Node.js SEA as the sole release engine, retiring the SEA build chain. The near-term path is full-platform CI verification → governing the bytecode / top-level-await limitations → flipping the default engine and retiring SEA. Until then, released binaries keep shipping from Node SEA by default.
+
 ### Common Issues
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `Cannot find module '@moonshot-ai/i18n-shared'` | Workspace link broken; `pnpm install` hasn't re-linked after adding packages | Run `pnpm install` |
+| `Cannot find module '@moonshot-ai/i18n-shared'` | Workspace link broken; `bun install` hasn't re-linked after adding packages | Run `bun install` |
 | `ERR_MODULE_NOT_FOUND` pointing to `src/index.ts` in `.kimi-code/node_modules` | Deployed package.json exports still point to source files | Edit exports to point to `dist/*.mjs` |
 | `Failed to load kimi-native-tools binding` | `.node` files missing from `dist/chunks/` (the ESM bundle resolves from chunk directory) | Copy `.node` files directly into `dist/chunks/` |
 | `ERR_UNKNOWN_BUILTIN_MODULE: @moonshot-ai/kimi-native-tools` in SEA binary | Native module not registered in `native-deps.mjs` | Add entry to `nativeDeps` array with `collect: 'native-files'` |
@@ -188,7 +223,7 @@ All commits and PR titles must follow [Conventional Commits](https://www.convent
 | chore    | Tooling / housekeeping                      | chore: bump dependencies                  |
 | refactor | Internal refactor without behavior change   | refactor(kosong): extract retry helper    |
 | test     | Adding or improving tests                   | test(agent-core): cover skill resolver    |
-| ci       | CI / build pipeline changes                 | ci: cache pnpm store                      |
+| ci       | CI / build pipeline changes                 | ci: cache the bun package cache           |
 | build    | Build system / artifact changes             | build(native): add win32-arm64 target     |
 | perf     | Performance improvement                     | perf(session): batch event flushes        |
 | style    | Formatting only (no logic)                  | style: apply oxlint --fix                 |
@@ -201,18 +236,18 @@ This repo uses [changesets](https://github.com/changesets/changesets) to manage 
 
 - Every PR that affects release artifacts (code, behavior, public API) **must** include a changeset.
 - Docs-only, test-only, or CI-only PRs may skip changesets.
-- Generate one with `pnpm changeset` and follow the prompts (which packages are touched, which bump level).
+- Generate one with `bun run changeset` and follow the prompts (which packages are touched, which bump level).
 - For repo-specific conventions on package selection and bump levels, see `.changeset/README.md`. When working in this repo with coding agents, use the `gen-changesets` skill.
 
 ## Pull Requests
 
-Every PR opens with the [PR template](.github/pull_request_template.md). PR titles must follow [Conventional Commits](#commit-convention); CI runs `pnpm lint`, `pnpm typecheck`, and `pnpm test` on every PR. Update user-facing docs in `docs/` when behavior changes — use the `gen-docs` skill when working with coding agents.
+Every PR opens with the [PR template](.github/pull_request_template.md). PR titles must follow [Conventional Commits](#commit-convention); CI runs `bun run lint`, `bun run typecheck`, and `bun run test` on every PR. Update user-facing docs in `docs/` when behavior changes — use the `gen-docs` skill when working with coding agents.
 
 ## Code Style
 
 - TypeScript across the codebase.
 - Linting via `oxlint` (config in `.oxlintrc.json`).
-- Auto-formatting via `pnpm lint:fix`.
+- Auto-formatting via `bun run lint:fix`.
 - Follow existing local patterns when the lint rules do not cover a style choice.
 
 ## Reporting Security Issues

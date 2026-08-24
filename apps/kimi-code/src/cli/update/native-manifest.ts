@@ -27,6 +27,14 @@ const PlatformEntrySchema = z.object({
 export const NativeReleaseManifestSchema = z.object({
   version: z.string().refine((value) => valid(value) !== null, { error: 'invalid semver' }),
   platforms: z.record(z.string(), PlatformEntrySchema),
+  /**
+   * Optional per-target entries for alternative engine builds of the same
+   * release (`kimi-code-bun-<target>` artifacts produced by the experimental
+   * Bun pipeline). Absent in manifests published before that pipeline exists;
+   * a Bun-packaged client finding no entry here must not fall back to the
+   * SEA binary — swapping engines mid-update is not supported.
+   */
+  bun: z.record(z.string(), PlatformEntrySchema).optional(),
 });
 
 export type NativeReleaseManifest = z.infer<typeof NativeReleaseManifestSchema>;
@@ -96,6 +104,28 @@ export function selectPlatformEntry(
   const entry = manifest.platforms[target];
   if (entry === undefined) {
     throw new Error(`platform ${target} not found in native manifest for ${manifest.version}`);
+  }
+  return entry;
+}
+
+/**
+ * Pick the entry for the running platform from the optional alternative-engine
+ * section. **Throws** when the section or the target is missing — a Bun
+ * packaged client must never silently download the SEA binary of the same
+ * release, because that would swap runtimes behind the user's back.
+ */
+export function selectBunPlatformEntry(
+  manifest: NativeReleaseManifest,
+  platform: NodeJS.Platform,
+  arch: string,
+): NativePlatformEntry {
+  const target = `${platform}-${arch}`;
+  const entry = manifest.bun?.[target];
+  if (entry === undefined) {
+    throw new Error(
+      `this release does not publish a Bun build for ${target} (${manifest.version}); ` +
+        'the update would replace the Bun binary with a Node SEA build',
+    );
   }
   return entry;
 }

@@ -1,7 +1,16 @@
 {
-	"extends": "../../tsconfig.json",
-	"compilerOptions": {
-		"lib": ["ESNext"]
-	},
-	"include": ["src"]
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": [
+      "ESNext"
+    ],
+    "paths": {
+      "#/*": [
+        "./src/*.ts"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ]
 }

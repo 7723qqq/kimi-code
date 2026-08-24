@@ -370,8 +370,8 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
             await handleReveal(runtimeFs.fs, req, reply);
             return;
         }
-      } catch (err) {
-        sendMappedError(reply, req, err);
+      } catch (error) {
+        sendMappedError(reply, req, error);
       } finally {
         runtimeFs?.lease.dispose();
       }
@@ -419,8 +419,8 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
         }
         const data = await runtimeFs.fs.search(searchRequest);
         reply.send(okEnvelope(data, req.id));
-      } catch (err) {
-        sendMappedError(reply, req, err);
+      } catch (error) {
+        sendMappedError(reply, req, error);
       } finally {
         runtimeFs?.lease.dispose();
       }
@@ -464,8 +464,8 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
         }
         const data = await runtimeFs.fs.suggest(suggestRequest);
         reply.send(okEnvelope(data, req.id));
-      } catch (err) {
-        sendMappedError(reply, req, err);
+      } catch (error) {
+        sendMappedError(reply, req, error);
       } finally {
         runtimeFs?.lease.dispose();
       }
@@ -525,9 +525,9 @@ export function registerFsRoutes(app: FsRouteHost, core: Scope): void {
       try {
         runtimeFs = acquireSessionFs(core, session_id, req.query.runtime_id ?? 'local', ['fs']);
         resolved = await runtimeFs.fs.resolveDownload(relPath);
-      } catch (err) {
+      } catch (error) {
         runtimeFs?.lease.dispose();
-        sendMappedError(reply, req, err);
+        sendMappedError(reply, req, error);
         return;
       }
 
@@ -774,15 +774,15 @@ async function handleOpenIn(
         isDirectory: resolved.isDirectory,
       }),
     );
-  } catch (err) {
+  } catch (error) {
     requestLog(req)?.warn(
-      { session_id: sessionId, app_id: body.app_id, err },
+      { session_id: sessionId, app_id: body.app_id, err: error },
       'fs open-in launch failed',
     );
     reply.send(
       errEnvelope(
         ErrorCode.INTERNAL_ERROR,
-        `failed to open in ${body.app_id}: ${err instanceof Error ? err.message : String(err)}`,
+        `failed to open in ${body.app_id}: ${error instanceof Error ? error.message : String(error)}`,
         req.id,
       ),
     );

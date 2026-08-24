@@ -26,7 +26,7 @@ export function nativeBinDir(target = targetTriple()) {
   return resolve(nativeDistRoot(), 'bin', target);
 }
 
-export function nativeBinPath(target = targetTriple(), platform = process.platform) {
+export function nativeBinPath(target = targetTriple(), platform = target.split('-')[0]) {
   return resolve(nativeBinDir(target), executableName(platform));
 }
 

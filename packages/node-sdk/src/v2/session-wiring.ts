@@ -270,7 +270,7 @@ export class SessionEventWiring {
  * two client-facing packages so the core engine stays free of v1
  * wire-compatibility concerns.
  */
-function withStatusSnapshot(agent: IAgentScopeHandle, event: Event2<any>): Event2<any> {
+function withStatusSnapshot(agent: IAgentScopeHandle, event: Event2<unknown>): Event2<unknown> {
   const profile = agent.accessor.get(IAgentProfileService) as IAgentProfileService | undefined;
   const usageService = agent.accessor.get(ISessionUsageService) as ISessionUsageService | undefined;
   const tokenCounting = agent.accessor.get(ISessionTokenCountingService) as
@@ -290,5 +290,5 @@ function withStatusSnapshot(agent: IAgentScopeHandle, event: Event2<any>): Event
     contextTokens,
     maxContextTokens,
     model: profile.getModel(),
-  }) as unknown as Event2<any>;
+  }) as unknown as Event2<unknown>;
 }

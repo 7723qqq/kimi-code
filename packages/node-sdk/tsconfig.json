@@ -4,6 +4,10 @@
     "lib": ["ESNext"],
     "experimentalDecorators": true,
     "paths": {
+      "#/legacy": ["./src/legacy/index.ts"],
+      "#/legacy/*": ["./src/legacy/*.ts"],
+      "#/config-local": ["./src/config-local/index.ts"],
+      "#/config-local/*": ["./src/config-local/*.ts"],
       "#/*": ["./src/*"]
     }
   },

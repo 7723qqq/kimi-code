@@ -17,23 +17,20 @@ console.log('[build-vis-asset] building vis web single-file bundle…');
 try {
   // Run vite with VIS_SINGLEFILE set on the spawn so the build is
   // cross-platform (Node sets the env, not a POSIX-only inline-env shell
-  // prefix). `pnpm --filter X exec` runs in X's package dir, so vite picks up
+  // prefix). Running from vis-web's package dir means vite picks up
   // vis-web's vite.config.ts, which gates the single-file output on
   // `process.env.VIS_SINGLEFILE === '1'`.
-  // execSync runs through the platform shell, which is required on Windows:
-  // pnpm's launcher is `pnpm.cmd`, which a bare argv exec cannot resolve (no
-  // PATHEXT without a shell). The win32 native binary IS built on Windows
-  // runners (.github/workflows/_native-build.yml), which run this generator.
+  // execSync runs through the platform shell (needed for the `cd` above).
   // A single command string (not an args array) avoids the args+shell
   // deprecation; the command is static (no injection surface).
-  execSync('pnpm --filter @moonshot-ai/vis-web exec vite build', {
+  execSync('cd apps/vis/web && bun run vite build', {
     stdio: 'inherit',
     cwd: repoRoot,
     env: { ...process.env, VIS_SINGLEFILE: '1' },
   });
 } catch (err) {
   throw new Error(
-    `[build-vis-asset] failed to run the vis-web single-file build via pnpm (is pnpm on PATH?): ${err instanceof Error ? err.message : String(err)}`,
+    `[build-vis-asset] failed to run the vis-web single-file build via bun: ${err instanceof Error ? err.message : String(err)}`,
   );
 }
 

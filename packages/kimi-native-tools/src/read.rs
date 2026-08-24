@@ -198,7 +198,7 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
         Err(e) => return ReadResult::err("io", e.to_string()),
     };
 
-    // Image / video magic redirects to ReadMediaFile immediately. The
+    // Image / video magic redirects to the Read tool immediately. The
     // NUL-based binary verdict is deliberately deferred: a UTF-16 text file's
     // header is full of NUL bytes, and encoding detection (next) must get
     // its chance first — mirroring the TS ordering.
@@ -208,7 +208,7 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
             return ReadResult::err(
                 "media",
                 format!(
-                    "\"{}\" is an image file. Use ReadMediaFile to read image or video files.",
+                    "\"{}\" is an image file. Use the Read tool to read image or video files.",
                     config.path
                 ),
             );
@@ -217,7 +217,7 @@ pub fn read_file(config: &ReadConfig) -> ReadResult {
             return ReadResult::err(
                 "media",
                 format!(
-                    "\"{}\" is a video file. Use ReadMediaFile to read image or video files.",
+                    "\"{}\" is a video file. Use the Read tool to read image or video files.",
                     config.path
                 ),
             );
@@ -713,7 +713,7 @@ fn read_header_bytes(path: &Path, n: usize) -> io::Result<Vec<u8>> {
 
 fn not_readable_message(path: &str) -> String {
     format!(
-        "\"{}\" is not readable as UTF-8 text. If it is an image or video, use ReadMediaFile. For other binary formats, use Bash or an MCP tool if available.",
+        "\"{}\" is not readable as UTF-8 text. If it is an image or video, use the Read tool. For other binary formats, use Bash or an MCP tool if available.",
         path
     )
 }

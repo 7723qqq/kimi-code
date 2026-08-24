@@ -20,7 +20,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
-- **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (`pnpm dev:cli`, tsx running `src/main.ts`); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
+- **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (`bun run dev:cli`, tsx running `src/main.ts`); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): MCP auto-reconnect with bounded exponential backoff (`mcpCore/connection-manager.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 
 > For a user-facing summary of these additions, see `README.md` → "What's Different in This Fork" (and its Chinese mirror `README.zh-CN.md` → "本 Fork 新增特性").
@@ -44,7 +44,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 | Tool | Purpose |
 |------|---------|
-| **pnpm** 10.33.0 | Package manager (monorepo with workspace catalog) |
+| **Bun** >= 1.4 | Package manager and script runner (hoisted workspace via root package.json; `bun.lock` is the lockfile). Also compiles the release binary (`build-bun.mjs`) |
 | **tsdown** 0.22.0 | ESM bundler for TypeScript packages |
 | **vite** 6.x | Web app bundler (kimi-web, vis-web, vscode webview) |
 | **Cargo** | Rust build for `kimi-native-tools` (napi-rs), `kimi-build` (SEA), `kimi-agent` |
@@ -74,7 +74,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 ```
 apps/
   kimi-code/        — Main CLI / TUI application (entry point, incl. dist-web web bundle)
-  kimi-web/         — Vue 3 Web UI (fork addition; excluded from the pnpm workspace)
+  kimi-web/         — Vue 3 Web UI (fork addition; excluded from the root Bun workspace; keeps its own pnpm)
   vscode/           — VS Code extension (React 19 webview)
   kimi-inspect/     — Web inspector for kap-server /api/v1/debug RPC surface
   vis/              — Session replay & debugging visualizer
@@ -127,7 +127,7 @@ src/
 
 #### Web UI (`apps/kimi-code/dist-web` + `apps/kimi-web`)
 
-The shipped `apps/kimi-code/dist-web` bundle is a committed, prebuilt bundle synced from the code-app repo; the fork also carries its own Vue 3 web UI source in `apps/kimi-web` (excluded from the workspace, see below). To hack on the web UI against this repo's server, run `pnpm dev:server` here and point the web UI dev server at it via `KIMI_SERVER_URL`.
+The shipped `apps/kimi-code/dist-web` bundle is a committed, prebuilt bundle synced from the code-app repo; the fork also carries its own Vue 3 web UI source in `apps/kimi-web` (excluded from the workspace, see below). To hack on the web UI against this repo's server, run `bun run dev:server` here and point the web UI dev server at it via `KIMI_SERVER_URL`.
 
 #### `apps/vscode` — VS Code Extension
 
@@ -220,9 +220,9 @@ scripts/
 
 ## Environment Requirements
 
-- **Node.js**: `>=24.15.0` (`.nvmrc` is `24.15.0`). `engine-strict=false` in `.npmrc`, so `pnpm install` does **not** fail on a Node version mismatch — verify with `.nvmrc` instead.
+- **Node.js**: `>=24.15.0` (`.nvmrc` is `24.15.0`; Bun does not enforce `engines` on install, so verify with `.nvmrc` instead).
 - **Node engines**: 发布包的 engines 有意保持 >=22.19.0 的宽松下限（上游一致），仓库开发标准以 .nvmrc 24.15.0 为准
-- **pnpm**: `10.33.0` (specified in root `package.json` `packageManager`).
+- **Bun**: `>= 1.4` (package manager and script runner; `bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`).
 - **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
 
@@ -233,30 +233,30 @@ scripts/
 ### Root-level commands
 
 ```sh
-pnpm install                  # Install all dependencies
-pnpm build                    # Build all workspace packages
-pnpm build:packages           # Build only packages/*
-pnpm dev:cli                  # Run CLI in dev mode
-pnpm -C apps/kimi-web run dev # Run web UI in dev mode (excluded from the workspace)
-pnpm dev:server               # Run server in dev mode
-pnpm test                     # Run all tests (vitest)
-pnpm test:watch               # Watch mode
-pnpm test:coverage            # With coverage
-pnpm typecheck                # TypeScript check (builds packages first)
-pnpm lint                     # oxlint --type-aware
-pnpm lint:fix                 # Auto-fix
-pnpm sherif                   # Monorepo correctness check
-pnpm clean                    # Clean all dist directories
-pnpm changeset                # Generate a changeset
-pnpm version                  # Apply changesets (bump versions)
-pnpm publish                  # Full publish pipeline
+bun install                   # Install all dependencies
+bun run build                 # Build all workspace packages
+bun run build:packages        # Build only packages/*
+bun run dev:cli               # Run CLI in dev mode
+cd apps/kimi-web && pnpm run dev # Run web UI in dev mode (excluded from the workspace; keeps its own pnpm)
+bun run dev:server            # Run server in dev mode
+bun run test                  # Run all tests (vitest)
+bun run test:watch            # Watch mode
+bun run test:coverage         # With coverage
+bun run typecheck             # TypeScript check (builds packages first)
+bun run lint                  # oxlint --type-aware
+bun run lint:fix              # Auto-fix
+bun run sherif                # Monorepo correctness check
+bun run clean                 # Clean all dist directories
+bun run changeset             # Generate a changeset
+bun run version               # Apply changesets (bump versions)
+bun run publish               # Full publish pipeline
 ```
 
 ### Makefile targets
 
 ```sh
-make prepare          # pnpm install
-make build            # pnpm build
+make prepare          # bun install
+make build            # bun run build
 make typecheck        # Full typecheck
 make lint             # oxlint
 make test             # vitest
@@ -269,24 +269,24 @@ make rust-test        # cargo test + kimi-agent --test
 
 ```sh
 # CLI app
-pnpm --filter @moonshot-ai/kimi-code build
-pnpm --filter @moonshot-ai/kimi-code run dev
-pnpm --filter @moonshot-ai/kimi-code run test
-pnpm --filter @moonshot-ai/kimi-code run e2e     # E2E tests (sets KIMI_E2E=1)
+cd apps/kimi-code && bun run build
+cd apps/kimi-code && bun run dev
+cd apps/kimi-code && bun run test
+cd apps/kimi-code && bun run e2e     # E2E tests (sets KIMI_E2E=1)
 
 # Native tools (Rust)
 cd packages/kimi-native-tools && cargo test --lib  # cdylib crate: doc tests unsupported
 cd packages/kimi-native-tools && cargo build --release
-pnpm --filter @moonshot-ai/kimi-code run build:native:release  # Full SEA build
+bun run build:native:release  # Full SEA build (from apps/kimi-code)
 
 # VS Code extension
-pnpm --filter kimi-code run build
-pnpm --filter kimi-code run test
-pnpm --filter kimi-code run package:platform     # Produce .vsix
+cd apps/vscode && bun run build
+cd apps/vscode && bun run test
+cd apps/vscode && bun run package:platform     # Produce .vsix
 
-# Web UI (excluded from the workspace; use `pnpm -C`)
-pnpm -C apps/kimi-web run build
-pnpm -C apps/kimi-web run dev
+# Web UI (excluded from the root workspace; keeps its own pnpm)
+cd apps/kimi-web && pnpm run build
+cd apps/kimi-web && pnpm run dev
 ```
 
 To run a local build inside `~/.kimi-code/` instead of the released binary (PowerShell on Windows, bash on Linux), see [`CONTRIBUTING.md` → "Deploy to local `.kimi-code` for testing"](CONTRIBUTING.md#deploy-to-local-kimi-code-for-testing).
@@ -297,9 +297,9 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`:
 1. **build** — Install, build, smoke test CLI bundle
 2. **test** — `vitest run` split across 5 parallel shards on Ubuntu
 3. **test-pi-tui** — `pi-tui` suite (uses node:test, not vitest)
-4. **lint** — `pnpm run lint` (oxlint --type-aware), `pnpm run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+4. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 5. **typecheck** — TypeScript check across all packages (uses `tsgo` from `@typescript/native-preview`)
-6. **native bundle** — Not a ci.yml job. Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `pnpm --filter @moonshot-ai/kimi-native-tools run build` (napi-rs build; no cargo test), then SEA packaging and a native smoke test.
+6. **native bundle** — Not a ci.yml job. Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then SEA packaging and a native smoke test.
 
 Additional workflows: `_native-build.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
 
@@ -329,7 +329,7 @@ Additional workflows: `_native-build.yml`, `docs-deploy.yml`, `manual-native-bun
 - `packages/kosong/src/providers/` gets relaxed unsafety rules
 - For full config with all overrides, see `.oxlintrc.json`
 - Ignored: `dist/`, `dist-web/`, `coverage/`, `node_modules/`, `apps/*/scripts/`, `docs/smoke-archive/`, `packages/pi-tui/`, `*.generated.ts`, `参考目录/`
-- **Package publishing lint (`lint:pkg`)**: `publint` + `attw` on `@moonshot-ai/kimi-code`. Invoked only by `pnpm publish` (the publish pipeline), not by the CI lint job — keep this in mind when chasing lint failures locally.
+- **Package publishing lint (`lint:pkg`)**: `publint` + `attw` on `@moonshot-ai/kimi-code`. Invoked only by `bun run publish` (the publish pipeline), not by the CI lint job — keep this in mind when chasing lint failures locally.
 
 ### TypeScript Config (root `tsconfig.json`)
 
@@ -393,11 +393,11 @@ Coverage includes `packages/*/src/**/*.ts` and `apps/*/src/**/*.ts`, excludes te
 ### Running tests
 
 ```sh
-pnpm test                     # All vitest suites
-pnpm test:watch               # Watch mode
-pnpm test:coverage            # With coverage report
-pnpm --filter <package> test  # Single package
-pnpm --filter <package> vitest run -- --reporter=verbose  # Verbose mode
+bun run test                  # All vitest suites
+bun run test:watch            # Watch mode
+bun run test:coverage         # With coverage report
+(cd packages/<package> && bun run test)  # Single package
+(cd packages/<package> && bun run vitest run -- --reporter=verbose)  # Verbose mode
 ```
 
 ### Test file conventions
@@ -418,7 +418,7 @@ pnpm --filter <package> vitest run -- --reporter=verbose  # Verbose mode
 
 ### Hardened Dependencies
 
-The monorepo enforces safe minimum versions for known-vulnerable packages via `pnpm.overrides`:
+The monorepo enforces safe minimum versions for known-vulnerable packages via `overrides` in the root `package.json`:
 - `undici >= 7.28.0`, `shell-quote >= 1.8.4`, `dompurify >= 3.4.12`
 - `tar >= 7.5.22`, `fast-uri >= 3.1.1`, `serialize-javascript >= 7.0.3`
 - `hono >= 4.12.18`, `body-parser >= 2.3.0`, `ws >= 8.21.0`
@@ -436,21 +436,20 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ## Monorepo Workspace Maintenance
 
-- **`pnpm-workspace.yaml`** is the source of truth for workspace membership. Globs: `packages/*` (minus `!packages/kimi-build`), `apps/*` (minus `!apps/kimi-web`), `apps/vis/server`, `apps/vis/web`, and `docs`.
-- **`flake.nix`** also contains hardcoded `workspacePaths` and `workspaceNames` lists that must be manually kept in sync.
-- **Whenever you add or remove a workspace package, you MUST update both `pnpm-workspace.yaml` and `flake.nix`** — for every package, including leaf / test / e2e packages that nothing depends on.
+- **The `workspaces` field in the root `package.json`** is the source of truth for workspace membership. Globs: `packages/*` (minus `!packages/kimi-build`), `apps/*` (minus `!apps/kimi-web`), `apps/vis/server`, `apps/vis/web`, and `docs`.
+- **`flake.nix`** also contains a hardcoded `workspacePaths` list that must be manually kept in sync.
+- **Whenever you add or remove a workspace package, you MUST update both the root `package.json` and `flake.nix`** — for every package, including leaf / test / e2e packages that nothing depends on.
   - Missing a path in `flake.nix`'s `workspacePaths` silently drops files from the Nix build's `src` fileset.
-  - Missing a name in `flake.nix`'s `workspaceNames` breaks `pnpmConfigHook`.
 - **The automated check script** (`scripts/check-nix-workspace.mjs`) only validates the transitive dependency **closure of `@moonshot-ai/kimi-code`**. A leaf package outside that closure slips through. Do not rely on the check to catch omissions.
 
 ---
 
 ## Version Management (Changesets)
 
-- **This fork follows upstream versions.** Package `version` fields in `package.json` must stay identical to `upstream/main` — never run `pnpm version` or `pnpm publish` here, and never bump versions independently. When merging upstream releases, take their `package.json` version changes as-is.
+- **This fork follows upstream versions.** Package `version` fields in `package.json` must stay identical to `upstream/main` — never run `bun run version` or `bun run publish` here, and never bump versions independently. When merging upstream releases, take their `package.json` version changes as-is.
 - Fork-only packages that do not exist upstream (`@moonshot-ai/i18n`, `@moonshot-ai/i18n-shared`, `@moonshot-ai/kimi-native-tools`) keep their own versions; do not bump them either unless a fork-specific release is explicitly requested.
 - Changesets are maintained **as a changelog source only**: keep writing them for user-facing changes so release notes stay available, but they are not consumed by a local release flow. Before merging upstream, prune accumulated non-user-facing entries (see the `gen-changesets` skill).
-- Every PR affecting release artifacts should include a changeset; docs-only, test-only, or CI-only PRs may skip changesets. Generate one with `pnpm changeset`.
+- Every PR affecting release artifacts should include a changeset; docs-only, test-only, or CI-only PRs may skip changesets. Generate one with `bun run changeset`.
 - **Never** decide on a `major` bump on your own. When a change meets major criteria (breaking changes, incompatible user configuration, renamed/removed commands/arguments, changed behavior semantics), stop and ask the user for confirmation. Default to `minor` (fall back to `patch` if unclear).
 - Base branch: `main`
 - Ignored from versioning: `@moonshot-ai/vis`, `@moonshot-ai/vis-server`, `@moonshot-ai/vis-web`, `@moonshot-ai/kimi-inspect`

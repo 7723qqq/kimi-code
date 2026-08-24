@@ -47,20 +47,59 @@
             Pin a newer nixpkgs revision or update minNodeVersion in flake.nix.
           '';
 
-      pnpmFor =
-        pkgs:
-        pkgs.pnpm_10.override {
-          nodejs = nodejsFor pkgs;
+      # The packaging pipeline requires Bun >= 1.4 while nixpkgs-25.11 ships
+      # 1.3.x, so pin the upstream release directly. Same prebuilt-archive
+      # derivation shape as nixpkgs' bun package, with the version and source
+      # swapped. Hashes are the official sha256 digests published on the
+      # GitHub release (SRI form).
+      bunVersion = "1.4.0";
+      bunSources = {
+        "aarch64-darwin" = {
+          url = "bun-darwin-aarch64.zip";
+          sourceRoot = "bun-darwin-aarch64";
+          hash = "sha256-xmnpf2Fk4cluBwF0jbmN+ndJKQjL2DlMdVcTSnNd44E=";
         };
+        "x86_64-darwin" = {
+          url = "bun-darwin-x64-baseline.zip";
+          sourceRoot = "bun-darwin-x64-baseline";
+          hash = "sha256-2pufG0unZsbymXEfON+qmGI+HtnECJaqU9uAPFLsH6A=";
+        };
+        "aarch64-linux" = {
+          url = "bun-linux-aarch64.zip";
+          sourceRoot = null;
+          hash = "sha256-SxozLuhhmD65O8/m93D/+U4+MbLDiL2uo8jtNeWO7Q4=";
+        };
+        "x86_64-linux" = {
+          url = "bun-linux-x64.zip";
+          sourceRoot = null;
+          hash = "sha256-LQP7X7g6yLVnrKCigbLOGhoZ1Ij1bClo2Iw/Jekv5FI=";
+        };
+      };
 
-      # -------------------------------------------------------------------
-      # Workspace members (kept in sync with pnpm-workspace.yaml).
+      bunFor =
+        pkgs:
+        let
+          source = bunSources.${pkgs.stdenv.hostPlatform.system}
+            or (throw "Unsupported system for Bun: ${pkgs.stdenv.hostPlatform.system}");
+        in
+        pkgs.bun.overrideAttrs (
+          finalAttrs: prevAttrs: {
+            version = bunVersion;
+            inherit (source) sourceRoot;
+            src = pkgs.fetchurl {
+              url = "https://github.com/oven-sh/bun/releases/download/bun-v${bunVersion}/${source.url}";
+              hash = source.hash;
+            };
+          }
+        );
+
+      # Workspace members contributing files to the build src (kept in sync
+      # with the "workspaces" field of the root package.json).
       #
-      # HARD REQUIREMENT: whenever you add or remove a workspace package,
-      # you MUST update both lists below. Missing a path will break the Nix
-      # build (src fileset silently drops files); missing a name will break
-      # pnpmConfigHook (dependencies for that workspace won't be fetched).
-      # -------------------------------------------------------------------
+      # HARD REQUIREMENT: whenever you add or remove a workspace package, you
+      # MUST update the list below. Missing a path silently drops files from
+      # the Nix build's src fileset. `scripts/check-nix-workspace.mjs`
+      # validates this list against package.json.
       workspacePaths = [
         ./packages/acp-server
         ./packages/agent-core-v2
@@ -89,43 +128,15 @@
         ./apps/vis/web
         ./docs
       ];
-
-      workspaceNames = [
-        "@moonshot-ai/acp-server"
-        "@moonshot-ai/agent-core-v2"
-        "@moonshot-ai/kimi-i18n"
-        "@moonshot-ai/i18n-shared"
-        "@moonshot-ai/kaos"
-        "@moonshot-ai/kap-server"
-        "@moonshot-ai/kosong"
-        "@moonshot-ai/migration-legacy"
-        "@moonshot-ai/minidb"
-        "@moonshot-ai/kimi-code-sdk"
-        "@moonshot-ai/kimi-code-oauth"
-        "@moonshot-ai/kimi-native-tools"
-        "@moonshot-ai/kimi-agent"
-        "@moonshot-ai/klient"
-        "@moonshot-ai/pi-tui"
-        "@moonshot-ai/protocol"
-        "@moonshot-ai/kimi-telemetry"
-        "@moonshot-ai/transcript"
-        "@moonshot-ai/tree-sitter-bash"
-        "@moonshot-ai/kimi-code"
-        "kimi-code"
-        "@moonshot-ai/kimi-inspect"
-        "@moonshot-ai/vis"
-        "@moonshot-ai/vis-server"
-        "@moonshot-ai/vis-web"
-        "kimi-code-docs"
-      ];
     in
     {
       packages = forAllSystems (
         pkgs:
         let
           nodejs = nodejsFor pkgs;
-          pnpm = pnpmFor pkgs;
+          bun = bunFor pkgs;
           appPackageJson = builtins.fromJSON (builtins.readFile ./apps/kimi-code/package.json);
+          version = appPackageJson.version;
           nativeTarget =
             if pkgs.stdenv.hostPlatform.isLinux && pkgs.stdenv.hostPlatform.isAarch64 then
               "linux-arm64"
@@ -138,57 +149,84 @@
             else
               throw "Unsupported Kimi Code native target for ${pkgs.stdenv.hostPlatform.system}";
 
+          kimi-code-src = lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions (
+              [
+                ./build
+                ./.nvmrc
+                ./package.json
+                ./bun.lock
+                ./bunfig.toml
+                ./patches
+                ./tsconfig.json
+                ./vitest.config.ts
+                ./LICENSE
+              ]
+              ++ workspacePaths
+            );
+          };
+
+          # Fixed-output derivation: populate Bun's package cache from the
+          # registry (the only place network access is allowed). The main
+          # derivation replays the install offline from this cache.
+          bunDeps = pkgs.stdenv.mkDerivation (finalAttrs: {
+            pname = "kimi-code-bun-deps";
+            inherit version;
+
+            src = kimi-code-src;
+
+            impureEnvVars = lib.fetchers.proxyImpureEnvVars;
+
+            nativeBuildInputs = [ bun ];
+
+            dontConfigure = true;
+            dontBuild = true;
+
+            installPhase = ''
+              runHook preInstall
+              export HOME=$TMPDIR
+              export BUN_INSTALL_CACHE_DIR=$out
+              bun install --frozen-lockfile --ignore-scripts
+              runHook postInstall
+            '';
+
+            # Update via the fake-hash dance: set to lib.fakeSha256, build,
+            # paste the "got:" hash reported by Nix.
+            outputHashMode = "recursive";
+            outputHashAlgo = "sha256";
+            outputHash = "sha256-P450+LKDYkRyk7OZ2mSOX0/RwtbivwR5ZksN8FM6+TU=";
+          });
+
           kimi-code = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "kimi-code";
-            version = appPackageJson.version;
+            inherit version;
 
-            src = lib.fileset.toSource {
-              root = ./.;
-              fileset = lib.fileset.unions (
-                [
-                  ./build
-                  ./.npmrc
-                  ./.nvmrc
-                  ./package.json
-                  ./pnpm-lock.yaml
-                  ./pnpm-workspace.yaml
-                  ./tsconfig.json
-                  ./vitest.config.ts
-                  ./LICENSE
-                ]
-                ++ workspacePaths
-              );
-            };
-
-            pnpmWorkspaces = [ "." ] ++ workspaceNames;
-
-            pnpmDeps = pkgs.fetchPnpmDeps {
-              inherit (finalAttrs) pname version src pnpmWorkspaces;
-              inherit pnpm;
-              fetcherVersion = 3;
-              hash = "sha256-P450+LKDYkRyk7OZ2mSOX0/RwtbivwR5ZksN8FM6+TU=";
-            };
+            src = kimi-code-src;
 
             nativeBuildInputs = [
+              bun
               nodejs
-              pnpm
-              (pkgs.pnpmConfigHook.override { inherit pnpm; })
               pkgs.makeWrapper
+              pkgs.python3
+              pkgs.gnumake
             ]
-            # The SEA inject step (kimi-build) invalidates the macOS code
-            # signature on the copied Node executable; build.mjs then re-applies
-            # an ad-hoc signature via `codesign`. The Nix darwin sandbox does
-            # not expose /usr/bin/codesign, so we supply nixpkgs' ad-hoc-only
-            # replacement instead.
+            # node-gyp (node-pty's install script) compiles against the
+            # headers shipped with the pinned Node instead of downloading
+            # them from nodejs.org (no network outside the FOD).
             ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
               pkgs.darwin.sigtool
             ];
 
-            # The SEA binary is produced by `kimi-build`-injecting a blob into a
-            # plain Node executable. Stripping rewrites section tables and can
-            # invalidate the injected blob's offsets, so leave the binary
-            # untouched after the build.
             dontStrip = true;
+
+            configurePhase = ''
+              runHook preConfigure
+              export HOME=$TMPDIR
+              export BUN_INSTALL_CACHE_DIR=${bunDeps}
+              export npm_config_nodedir=${nodejs}
+              runHook postConfigure
+            '';
 
             buildPhase = ''
               runHook preBuild
@@ -203,13 +241,15 @@
                     "await runVerifyStep({ requireGatekeeper: false });" \
                     "// runVerifyStep skipped in nix sandbox (sigtool lacks -dv)"
               ''}
-              # The SEA blob step (scripts/native/02-sea-blob.mjs) embeds the
-              # Kimi web assets from apps/kimi-code/dist-web and fails if that
-              # directory is missing. The bundle is committed (synced from the
-              # code-app repo) — verify it is in place before producing the
-              # native executable.
+              # Replay the install offline from the FOD cache; this pass runs
+              # the trusted lifecycle scripts (node-pty/esbuild native builds).
+              bun install --frozen-lockfile
+              # The SEA blob step embeds the Kimi web assets from
+              # apps/kimi-code/dist-web and fails if that directory is
+              # missing. The bundle is committed (synced from the code-app
+              # repo) — verify it is in place before producing the binary.
               node apps/kimi-code/scripts/check-web-assets.mjs
-              pnpm --filter=@moonshot-ai/kimi-code run build:native:sea
+              (cd apps/kimi-code && bun run build:native:sea)
               runHook postBuild
             '';
 
@@ -250,20 +290,20 @@
         default = self.apps.${pkgs.system}.kimi-code;
       });
 
-      devShells = forAllSystems (pkgs: {
-        default =
-          let
-            nodejs = nodejsFor pkgs;
-            pnpm = pnpmFor pkgs;
-          in
-          pkgs.mkShell {
-            packages = [
-              nodejs
-              pnpm
-              pkgs.ripgrep
-              pkgs.fd
-            ];
-          };
-      });
+      devShells = forAllSystems (
+        pkgs:
+        let
+          nodejs = nodejsFor pkgs;
+          bun = bunFor pkgs;
+        in
+        pkgs.mkShell {
+          packages = [
+            nodejs
+            bun
+            pkgs.ripgrep
+            pkgs.fd
+          ];
+        }
+      );
     };
 }

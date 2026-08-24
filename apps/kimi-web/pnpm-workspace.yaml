@@ -2,3 +2,5 @@
 # An empty workspace file marks it as an independent install root so that
 # `pnpm install` inside apps/kimi-web does not climb up to the repo root.
 packages: []
+allowBuilds:
+  esbuild: set this to true or false

@@ -2,6 +2,7 @@ import picomatch from 'picomatch';
 
 import { Error2, ErrorCodes } from '#/errors';
 import type { RunnableToolExecution } from '#/tool/toolContract';
+
 import type { PermissionRule } from './permissionRules';
 
 export interface ParsedPattern {
@@ -41,13 +42,19 @@ export function parsePattern(pattern: string): ParsedPattern {
   }
 
   if (!trimmed.endsWith(')')) {
-    throw new Error2(ErrorCodes.VALIDATION_FAILED, `permission pattern: missing closing paren in "${pattern}"`);
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      `permission pattern: missing closing paren in "${pattern}"`,
+    );
   }
 
   const toolName = trimmed.slice(0, openIdx);
   const argPattern = trimmed.slice(openIdx + 1, -1);
   if (toolName.length === 0) {
-    throw new Error2(ErrorCodes.VALIDATION_FAILED, `permission pattern: empty tool name in "${pattern}"`);
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      `permission pattern: empty tool name in "${pattern}"`,
+    );
   }
   if (argPattern.length === 0) {
     return { toolName };
@@ -56,6 +63,24 @@ export function parsePattern(pattern: string): ParsedPattern {
 }
 
 export const parsePermissionPattern = parsePattern;
+
+/**
+ * Tools renamed by a merge keep their old name matchable here so that
+ * user-configured rules and session replays written against the previous
+ * name continue to apply. Map: current tool name -> legacy names.
+ */
+export const LEGACY_TOOL_NAME_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  Read: ['ReadMediaFile'],
+};
+
+function ruleMatchesToolName(parsedToolName: string, toolName: string): boolean {
+  if (parsedToolName === '*') return true;
+  if (picomatch.isMatch(toolName, parsedToolName)) return true;
+  for (const legacyName of LEGACY_TOOL_NAME_ALIASES[toolName] ?? []) {
+    if (picomatch.isMatch(legacyName, parsedToolName)) return true;
+  }
+  return false;
+}
 
 export function matchPermissionRule({
   rule,
@@ -69,7 +94,7 @@ export function matchPermissionRule({
     return undefined;
   }
 
-  if (parsed.toolName !== '*' && !picomatch.isMatch(toolName, parsed.toolName)) {
+  if (!ruleMatchesToolName(parsed.toolName, toolName)) {
     return undefined;
   }
 

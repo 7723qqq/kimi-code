@@ -1,11 +1,10 @@
 import { applyPatches, produceWithPatches } from 'immer';
 
+import { type CollectionView } from '#/_base/di/collection';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { BugIndicatingError } from '#/_base/errors/errors';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import { Service } from '#/_base/di/service';
-import { type CollectionView } from '#/_base/di/collection';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AgentSpaceImpl, type AgentSpaceHost } from '#/agent/agentContext/agentSpace';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -17,11 +16,12 @@ import {
   type Event2Class,
 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
-import type { ContentPart } from '#/kosong/contract/message';
+import { LifecycleScope } from '#/app/scopes';
 import { OrderedHookSlot } from '#/hooks';
-import { IWireService } from '#/wire/wire';
+import type { ContentPart } from '#/kosong/contract/message';
 import { WireError, WireErrors } from '#/wire/errors';
 import type { PartsTransformer } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
 
 import {
   AgentModelContribution,
@@ -29,8 +29,8 @@ import {
   type AgentModel,
   type AgentModelDefinition,
 } from './agentModel';
-import { IEventDispatcher, type ModelCheckpointDepth } from './eventDispatcher';
 import { StateError, StateErrors } from './errors';
+import { IEventDispatcher, type ModelCheckpointDepth } from './eventDispatcher';
 import {
   expandedModelAppliers,
   keepsUndoCheckpoints,
@@ -50,7 +50,10 @@ const MAX_DRAIN = 100;
 const HISTORY_TAIL = 500;
 
 export class CycleError extends StateError {
-  constructor(readonly depth: number, readonly eventTypes: readonly string[]) {
+  constructor(
+    readonly depth: number,
+    readonly eventTypes: readonly string[],
+  ) {
     super(
       StateErrors.codes.STATE_CYCLE,
       `Event dispatch cascade exceeded MAX_DRAIN (${depth}); possible event cycle`,
@@ -76,7 +79,7 @@ interface PreparedFold {
   readonly key: ReplayableStateKey<any>;
   readonly meta: StateMeta;
   readonly ctx: FoldContextImpl;
-  readonly next: any;
+  readonly next: unknown;
   readonly patches: PatchEntry['patches'];
   readonly inversePatches: PatchEntry['inversePatches'];
 }
@@ -92,7 +95,7 @@ interface ModelAttachment {
 interface PreparedModel {
   readonly attachment: ModelAttachment;
   readonly ctx: FoldContextImpl;
-  readonly next: any;
+  readonly next: unknown;
   readonly patches: PatchEntry['patches'];
   readonly inversePatches: PatchEntry['inversePatches'];
 }
@@ -154,8 +157,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
   private readonly attachments = new Map<AgentModelDefinition<any, any>, ModelAttachment>();
 
   private readonly spaceHost: AgentSpaceHost = {
-    isActiveModelDefinition: (definition) =>
-      this.activeModelDefs.get(definition.id) === definition,
+    isActiveModelDefinition: (definition) => this.activeModelDefs.get(definition.id) === definition,
     registerModel: (definition, model) => this.registerModel(definition, model),
     dispatchModelEvent: (event) => this.dispatch(event),
     readLegacyState: (key) => this.agentState.get(key),
@@ -281,10 +283,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     }
   }
 
-  private registerModel(
-    definition: AgentModelDefinition<any, any>,
-    model: AgentModel<any>,
-  ): void {
+  private registerModel(definition: AgentModelDefinition<any, any>, model: AgentModel<any>): void {
     if (this.attachments.has(definition)) return;
     const domainAppliers = new Map<Event2Class<any, any>, EventApplier>();
     for (const [cls, applier] of model._appliersTable()) {
@@ -426,9 +425,9 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       for (const { key, fold } of folds) {
         const meta = this.ensureMeta(key);
         const ctx = new FoldContextImpl(this, silent);
-        const [next, patches, inversePatches] = produceWithPatches<any>(
+        const [next, patches, inversePatches] = produceWithPatches<unknown>(
           this.agentState.get(key),
-          (draft: any) => fold(draft, event, ctx) as any,
+          (draft) => fold(draft, event, ctx),
         );
         if (ctx.pendingUndo !== undefined && patches.length > 0) {
           throw new BugIndicatingError(
@@ -447,9 +446,9 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         const applier = attachment.appliers.get(event.constructor as Event2Class);
         if (applier === undefined) continue;
         const ctx = new FoldContextImpl(this, silent);
-        const [next, patches, inversePatches] = produceWithPatches<any>(
+        const [next, patches, inversePatches] = produceWithPatches<unknown>(
           attachment.model._state(),
-          (draft: any) => {
+          (draft) => {
             attachment.model._enterWindow(draft, ctx);
             let windowResult: ReturnType<AgentModel<any>['_exitWindow']>;
             try {
@@ -502,7 +501,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     meta: StateMeta,
     ctx: FoldContextImpl,
     event: Event2<any>,
-    next: any,
+    next: unknown,
     patches: PatchEntry['patches'],
     inversePatches: PatchEntry['inversePatches'],
   ): void {
@@ -539,7 +538,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     attachment: ModelAttachment,
     ctx: FoldContextImpl,
     event: Event2<any>,
-    next: any,
+    next: unknown,
     patches: PatchEntry['patches'],
     inversePatches: PatchEntry['inversePatches'],
   ): void {
@@ -703,7 +702,10 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     for (const key of this.folded.states) {
       const codec = key.replayable.blobs;
       if (codec?.rehydrate === undefined) continue;
-      this.agentState.set(key, Object.freeze(await codec.rehydrate(this.agentState.get(key), transform)));
+      this.agentState.set(
+        key,
+        Object.freeze(await codec.rehydrate(this.agentState.get(key), transform)),
+      );
     }
   }
 

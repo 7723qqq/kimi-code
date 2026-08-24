@@ -1,16 +1,16 @@
-import { collectGitContext } from './gitContext';
+import {
+  GITHUB_MUTATING_TOOL_NAMES,
+  GITHUB_READONLY_TOOL_NAMES,
+} from '#/agent/tools/github/github-tools';
 import { registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 import {
   renderSystemPromptResult,
   skillActiveFor,
   TASK_AGENT_ROLE_PREFIX,
 } from '#/app/agentProfileCatalog/profile-shared';
-import {
-  GITHUB_MUTATING_TOOL_NAMES,
-  GITHUB_READONLY_TOOL_NAMES,
-} from '#/agent/tools/github/github-tools';
 
 import EXPLORE_ROLE from './explore-overlay.md?raw';
+import { collectGitContext } from './gitContext';
 import SUMMARY_CONTINUATION_PROMPT from './summary-continuation.md?raw';
 
 const AGENT_TOOLS = [
@@ -27,7 +27,6 @@ const AGENT_TOOLS = [
   'CronCreate',
   'CronList',
   'CronDelete',
-  'ReadMediaFile',
   'TodoList',
   'Skill',
   'WebSearch',
@@ -60,7 +59,6 @@ const CODER_TOOLS = [
   'Glob',
   'Grep',
   'Read',
-  'ReadMediaFile',
   'Skill',
   'TaskList',
   'TaskOutput',
@@ -73,15 +71,7 @@ const CODER_TOOLS = [
   'mcp__*',
 ] as const;
 
-const EXPLORE_TOOLS = [
-  'Bash',
-  'Read',
-  'ReadMediaFile',
-  'Glob',
-  'Grep',
-  'WebSearch',
-  'FetchURL',
-] as const;
+const EXPLORE_TOOLS = ['Bash', 'Read', 'Glob', 'Grep', 'WebSearch', 'FetchURL'] as const;
 
 const CODER_ROLE =
   `${TASK_AGENT_ROLE_PREFIX}\n\n` +

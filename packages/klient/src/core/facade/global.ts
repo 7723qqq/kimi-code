@@ -6,6 +6,8 @@
  * code never sees service tokens, scope routing, or transport details.
  */
 
+import { z } from 'zod';
+
 import type {
   SessionListQuery,
   SessionSummary,
@@ -38,6 +40,7 @@ import type { IModelCatalog } from '@moonshot-ai/agent-core-v2/kosong/model/cata
 import type { IProviderDiscoveryService } from '@moonshot-ai/agent-core-v2/app/kosongConfig/discovery';
 
 import type { McpServerConfig } from '../../contract/mcp.js';
+import { KlientValidationError } from '../validation.js';
 import type { AnonymousProviderInput, GenerateEvent, GenerateInput, GenerateParams, ProviderInput } from './kosong-types.js';
 import type {
   PluginCommandDef,
@@ -93,6 +96,18 @@ export type RefreshProviderModelsOptions = NonNullable<
 
 /** String-literal form of the engine's `ConfigTarget` enum, so consumers never import the enum value. */
 export type ConfigTargetLiteral = `${ConfigTarget}`;
+
+const providerAuthSchema = z.discriminatedUnion('method', [
+  z.object({ method: z.literal('api-key'), apiKey: z.string() }),
+  z.object({ method: z.literal('oauth') }),
+]);
+
+const providerInputSchema = z.object({
+  type: z.string(),
+  baseUrl: z.string().optional(),
+  auth: providerAuthSchema,
+  defaultModel: z.string().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Facade interfaces
@@ -388,7 +403,16 @@ export function createGlobalFacade(scoped: ScopedCaller, scopedStream: ScopedStr
       ): Promise<void> => {
         if (typeof idOrConfig === 'string') {
           // Named provider — map ProviderInput to ProviderConfig wire shape.
-          const config = maybeConfig!;
+          const parsed = providerInputSchema.safeParse(maybeConfig);
+          if (!parsed.success) {
+            throw new KlientValidationError(
+              'input',
+              'kosong.addProvider',
+              parsed.error.issues,
+              maybeConfig,
+            );
+          }
+          const config = parsed.data;
           const wire: ProviderConfig = {
             type: config.type,
             baseUrl: config.baseUrl,

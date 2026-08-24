@@ -10,7 +10,10 @@ const ENTITLEMENTS_PATH = resolve(import.meta.dirname, 'entitlements.plist');
 
 export function buildCodesignArgs({ identity, executable, entitlementsPath, keychainPath }) {
   if (identity === '-') {
-    return ['--sign', '-', executable];
+    // --force: compiled outputs may already carry a signature (bun compile
+    // signs its darwin binaries), and a stale/foreign signature must be
+    // replaced, not refused.
+    return ['--force', '--sign', '-', executable];
   }
   const args = [
     '--sign',

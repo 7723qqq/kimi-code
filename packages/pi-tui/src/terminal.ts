@@ -371,10 +371,16 @@ export class ProcessTerminal implements Terminal {
 
 			// Dynamic require so non-Windows and bundled/browser paths never load the
 			// native helper. In the npm package native/ is next to dist/; in compiled
-			// binary archives native/ is copied next to the executable.
+			// binary archives native/ is copied next to the executable. Packaged
+			// single-file builds (SEA / Bun) inject a resolver for the extracted
+			// native-asset cache, tried before the on-disk candidates.
 			const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+			const packagedRoot = (
+				globalThis as { __kimi_getNativePackageRoot?: (packageName: string) => string | null }
+			).__kimi_getNativePackageRoot?.("@moonshot-ai/pi-tui");
 			const nativePath = path.join("native", "win32", "prebuilds", `win32-${arch}`, "win32-console-mode.node");
 			const candidates = [
+				...(packagedRoot ? [path.join(packagedRoot, nativePath)] : []),
 				path.join(moduleDir, "..", nativePath),
 				path.join(moduleDir, nativePath),
 				path.join(path.dirname(process.execPath), nativePath),

@@ -1835,7 +1835,7 @@ export class KimiTUI {
     // Args are a plain-text channel, so pasted media can't ride along as
     // inline parts. Skill args are XML-escaped on render (renderSkillAttributes
     // + expandSkillParameters), so rewrite placeholders into escape-proof
-    // plain-text file references the model can open with ReadMediaFile.
+    // plain-text file references the model can open with Read.
     let rewrite: ReturnType<typeof rewriteMediaPlaceholders>;
     try {
       rewrite = rewriteMediaPlaceholders(skillArgs, this.imageStore, 'plain');

@@ -8,9 +8,16 @@ description = "Kimi Agent engine (Rust) — stateless turn loop, napi-rs native 
 crate-type = ["cdylib", "rlib"]
 name = "kimi_agent"
 
+# The CLI binary links the napi bindings statically and cannot resolve NAPI
+# symbols outside a Node process, so it is excluded from default builds
+# (`napi build` / asset packaging) and built explicitly with `--features cli`.
 [[bin]]
 name = "kimi-agent-cli"
 path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+cli = []
 
 [dependencies]
 napi = { version = "2", features = ["async", "tokio_rt", "napi8", "serde"] }

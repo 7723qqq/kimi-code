@@ -40,7 +40,7 @@ export const AgentSwarmToolInputSchema = z
       .record(z.string().trim().min(1), z.string().trim().min(1))
       .optional()
       .describe(
-        'Map of existing subagent agent_id to the prompt used to resume that subagent. These resumed subagents are launched before new item-based subagents.',
+        'Flat object: keys are existing subagent agent_id strings (from a previous swarm\'s `<subagent agent_id="...">` result), values are the continuation prompt for that subagent (e.g. "continue"). Resumed subagents run before new item-based subagents. Do not pass an array or a list of {item, prompt} objects.',
       ),
     fork: z
       .boolean()

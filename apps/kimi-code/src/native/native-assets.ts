@@ -23,6 +23,7 @@ import {
   NATIVE_ASSET_MANIFEST_VERSION as MANIFEST_VERSION,
   buildManifestKey,
 } from '../../scripts/native/manifest.mjs';
+import { getBunEmbeddedAssetSource } from './bun-assets';
 
 export const NATIVE_ASSET_MANIFEST_VERSION = MANIFEST_VERSION;
 
@@ -269,11 +270,13 @@ function sanitizeSegment(value: string): string {
 
 export function getSeaAssetSource(): NativeAssetSource | null {
   const sea = loadSeaModule();
-  if (sea === null || !sea.isSea()) return null;
-  return {
-    getAssetKeys: () => sea.getAssetKeys(),
-    getRawAsset: (assetKey) => sea.getRawAsset(assetKey),
-  };
+  if (sea !== null && sea.isSea()) {
+    return {
+      getAssetKeys: () => sea.getAssetKeys(),
+      getRawAsset: (assetKey) => sea.getRawAsset(assetKey),
+    };
+  }
+  return getBunEmbeddedAssetSource();
 }
 
 export function getEmbeddedNativeAssetManifest(

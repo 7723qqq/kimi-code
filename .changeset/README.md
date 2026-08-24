@@ -4,7 +4,7 @@ This repository uses [changesets](https://github.com/changesets/changesets) to m
 
 ## Package Publishing Strategy
 
-This repository uses an **independent, manually-selected publishing** strategy. When generating a changeset, only select the publishable packages that this change actually affects. The repository's `.changeset/config.json` already filters out internal workspace packages via `ignore`, so only the publishable packages listed below should appear in the `pnpm changeset` prompt.
+This repository uses an **independent, manually-selected publishing** strategy. When generating a changeset, only select the publishable packages that this change actually affects. The repository's `.changeset/config.json` already filters out internal workspace packages via `ignore`, so only the publishable packages listed below should appear in the `bun run changeset` prompt.
 
 Current publishable packages:
 
@@ -72,7 +72,7 @@ Complete code, tests, and documentation changes as usual. A changeset is require
 From the repository root:
 
 ```sh
-pnpm changeset
+bun run changeset
 ```
 
 Follow the prompts to choose:
@@ -102,7 +102,7 @@ Once the changeset file is merged into `main`, `.github/workflows/release.yml` u
 
 The release PR runs:
 
-- `pnpm changeset version`: bumps publishable package versions and updates changelogs;
+- `bun run changeset version`: bumps publishable package versions and updates changelogs;
 - Deletes the consumed `.changeset/*.md` files;
 - Uses the title `[CI]: Release packages`.
 
@@ -110,29 +110,29 @@ The release PR runs:
 
 Once the release PR is merged into `main`, the same workflow runs:
 
-- `pnpm install --frozen-lockfile`
-- `pnpm build`
-- `pnpm changeset publish`
+- `bun install --frozen-lockfile`
+- `bun run build`
+- `bun run changeset publish`
 
 The packages are then published via npm Trusted Publishing, and a GitHub Release is created.
 
 ## Manual Publishing (Not Recommended)
 
-Only publish manually when CI is unavailable. Before publishing manually, make sure you are logged into npm locally and using the Node.js and pnpm versions required by the repository.
+Only publish manually when CI is unavailable. Before publishing manually, make sure you are logged into npm locally and using the Node.js and Bun versions required by the repository.
 
 ```sh
-pnpm run version
-pnpm run publish
+bun run version
+bun run publish
 ```
 
 The underlying changesets commands are:
 
 ```sh
-pnpm changeset version
-pnpm changeset publish
+bun run changeset version
+bun run changeset publish
 ```
 
-The root-level `pnpm run publish` first runs typecheck, lint, sherif, test, build, and package lint, then runs `changeset publish`.
+The root-level `bun run publish` first runs typecheck, lint, sherif, test, build, and package lint, then runs `changeset publish`.
 
 ## Notes
 

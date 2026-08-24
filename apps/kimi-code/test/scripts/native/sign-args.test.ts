@@ -3,14 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { buildCodesignArgs } from '../../../scripts/native/04-sign.mjs';
 
 describe('buildCodesignArgs', () => {
-  it('returns ad-hoc args for identity "-"', () => {
+  it('returns forced ad-hoc args for identity "-"', () => {
     const args = buildCodesignArgs({
       identity: '-',
       executable: '/path/kimi',
       entitlementsPath: '/path/entitlements.plist',
       keychainPath: null,
     });
-    expect(args).toEqual(['--sign', '-', '/path/kimi']);
+    expect(args).toEqual(['--force', '--sign', '-', '/path/kimi']);
   });
 
   it('returns hardened-runtime args for Developer ID identity', () => {

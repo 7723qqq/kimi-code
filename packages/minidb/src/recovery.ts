@@ -269,9 +269,9 @@ function statIdentity(p: string): FileIdentity | null {
   try {
     const st = fsSync.statSync(p);
     return { dev: st.dev, ino: st.ino, size: st.size };
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw e;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
   }
 }
 
@@ -335,12 +335,12 @@ export async function recover({
     let pass: RecoverPassResult;
     try {
       pass = await recoverPass({ snapPath, walPath, store, mode, truncate, valueMode, signal, timings });
-    } catch (e) {
+    } catch (error) {
       // A cancelled scan may have applied a prefix of the pass's frames:
       // discard the partial application so the error never carries state
       // into a caller that retries with the same Store.
-      if ((e as Error).name === 'AbortError') resetStore(store);
-      throw e;
+      if ((error as Error).name === 'AbortError') resetStore(store);
+      throw error;
     }
     if (pass.consistent && (!attachValueReader || attachValueReader(pass.anchors))) {
       pass.info.generationRetries = attempt;
@@ -519,9 +519,9 @@ export async function catchUpWalAsync(
   let fd: number;
   try {
     fd = fsSync.openSync(walPath, 'r');
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw e;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
   }
   try {
     const st = fsSync.fstatSync(fd);

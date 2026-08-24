@@ -1,14 +1,15 @@
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { BUILT_IN_CATALOG_ENV } from '../built-in-catalog.mjs';
 import { runBundleStep } from './01-bundle.mjs';
-import { runInjectStep } from './03-inject.mjs';
 import { runSeaBlobStep } from './02-sea-blob.mjs';
+import { runInjectStep } from './03-inject.mjs';
 import { runSignStep } from './04-sign.mjs';
 import { runVerifyStep } from './05-verify.mjs';
+import { stageExecSideNativeHelpers } from './assets.mjs';
 import { run } from './exec.mjs';
-import { appRoot, nativeIntermediatesDir } from './paths.mjs';
-import { BUILT_IN_CATALOG_ENV } from '../built-in-catalog.mjs';
+import { appRoot, nativeIntermediatesDir, targetTriple } from './paths.mjs';
 
 const { values } = parseArgs({
   options: {
@@ -38,7 +39,11 @@ console.log(`==> Native build (profile=${profile})`);
 if (profile === 'release' && process.env[BUILT_IN_CATALOG_ENV] === undefined) {
   const catalogPath = resolve(nativeIntermediatesDir(), 'built-in-catalog.json');
   try {
-    await run(process.execPath, [resolve(appRoot, 'scripts/update-catalog.mjs'), '--out', catalogPath]);
+    await run(process.execPath, [
+      resolve(appRoot, 'scripts/update-catalog.mjs'),
+      '--out',
+      catalogPath,
+    ]);
     process.env[BUILT_IN_CATALOG_ENV] = catalogPath;
   } catch (error) {
     console.warn(`Built-in catalog unavailable (${String(error)}); continuing without it`);
@@ -46,11 +51,19 @@ if (profile === 'release' && process.env[BUILT_IN_CATALOG_ENV] === undefined) {
 }
 
 await runBundleStep();
-await runSeaBlobStep();
+const collected = await runSeaBlobStep();
 await runInjectStep();
 
-const identity =
-  profile === 'release' ? (process.env.APPLE_SIGNING_IDENTITY ?? '-') : '-';
+// pi-tui's helper loader and the packaged smoke expect the platform helper
+// directly next to the executable; the embedded-asset cache alone never
+// produces that layout (see stageExecSideNativeHelpers).
+await stageExecSideNativeHelpers({
+  target: targetTriple(),
+  manifest: collected.manifest,
+  assets: collected.assets,
+});
+
+const identity = profile === 'release' ? (process.env.APPLE_SIGNING_IDENTITY ?? '-') : '-';
 const keychainPath = profile === 'release' ? (process.env.APPLE_KEYCHAIN_PATH ?? null) : null;
 await runSignStep({ identity, keychainPath });
 

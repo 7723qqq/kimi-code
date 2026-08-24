@@ -47,10 +47,10 @@ node --version
 npm install -g @moonshot-ai/kimi-code
 ```
 
-Or with pnpm:
+Or with Bun:
 
 ```sh
-pnpm add -g @moonshot-ai/kimi-code
+bun add -g @moonshot-ai/kimi-code
 ```
 
 ## Upgrade and uninstall

@@ -85,7 +85,8 @@ export async function runUpdateDownloadCommand(
   version: string,
   manual: boolean = false,
 ): Promise<number> {
-  if (!detectNativeInstall()) {
+  const install = detectNativeInstall();
+  if (!install.native) {
     process.stderr.write('error: update download is only available in the native build\n');
     return 1;
   }
@@ -125,6 +126,7 @@ export async function runUpdateDownloadCommand(
     const result = await stageNativeUpdate({
       version,
       exePath: process.execPath,
+      engine: install.kind,
       onProgress,
       manual,
     });

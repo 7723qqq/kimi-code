@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDownloadProgress, runUpdateDownloadCommand } from '#/cli/sub/update-download';
+import type { NativeInstallDetection } from '#/cli/update/source';
 
 const mocks = vi.hoisted(() => ({
-  detectNativeInstall: vi.fn(() => true),
+  detectNativeInstall: vi.fn(
+    (): NativeInstallDetection => ({
+      native: true,
+      kind: 'sea',
+    }),
+  ),
   tryAcquireUpdateInstallLock: vi.fn(),
   readUpdateInstallLockVersion: vi.fn(),
   stageNativeUpdate: vi.fn(),
@@ -104,7 +110,7 @@ describe('runUpdateDownloadCommand', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.detectNativeInstall.mockReturnValue(true);
+    mocks.detectNativeInstall.mockReturnValue({ native: true, kind: 'sea' });
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
       filePath: '/tmp/install.lock',
       release: vi.fn(async () => {}),
@@ -118,7 +124,7 @@ describe('runUpdateDownloadCommand', () => {
   });
 
   it('refuses on non-native installs', async () => {
-    mocks.detectNativeInstall.mockReturnValue(false);
+    mocks.detectNativeInstall.mockReturnValue({ native: false });
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0')).resolves.toBe(1);
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
@@ -249,6 +255,25 @@ describe('runUpdateDownloadCommand', () => {
     await expect(runUpdateDownloadCommand('0.7.0', true)).resolves.toBe(0);
     expect(mocks.stageNativeUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ version: '0.7.0', manual: true }),
+    );
+  });
+
+  it('passes the detected install kind as the staging engine', async () => {
+    mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
+      filePath: '/tmp/install.lock',
+      release: vi.fn(async () => {}),
+    });
+
+    mocks.detectNativeInstall.mockReturnValue({ native: true, kind: 'bun' });
+    await expect(runUpdateDownloadCommand('0.7.0')).resolves.toBe(0);
+    expect(mocks.stageNativeUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ version: '0.7.0', engine: 'bun' }),
+    );
+
+    mocks.detectNativeInstall.mockReturnValue({ native: true, kind: 'sea' });
+    await expect(runUpdateDownloadCommand('0.7.0')).resolves.toBe(0);
+    expect(mocks.stageNativeUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ version: '0.7.0', engine: 'sea' }),
     );
   });
 

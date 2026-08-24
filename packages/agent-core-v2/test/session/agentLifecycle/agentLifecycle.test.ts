@@ -83,7 +83,7 @@ import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionT
 import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import '#/agent/toolActivation/toolActivationService';
-import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
+import { IMediaReadContext } from '#/agent/media/mediaReadContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import {
@@ -282,9 +282,10 @@ describe('AgentLifecycleService', () => {
       resolve: () => undefined,
       list: () => [],
     } as unknown as IAgentToolRegistryService);
-    ix.stub(IAgentMediaToolsRegistrar, {
+    ix.stub(IMediaReadContext, {
       _serviceBrand: undefined,
-    } as IAgentMediaToolsRegistrar);
+      getMediaReadContext: () => undefined,
+    } as IMediaReadContext);
     beforeExecuteListeners = 0;
     didExecuteHookIds = [];
     ix.stub(IAgentToolExecutorService, {

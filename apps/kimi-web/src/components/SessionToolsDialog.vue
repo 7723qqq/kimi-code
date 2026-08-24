@@ -57,8 +57,8 @@ async function loadServers(): Promise<void> {
   try {
     const { servers: list } = await getKimiWebApi().listMcpServers(sid);
     servers.value = list;
-  } catch (err) {
-    serversError.value = isDaemonApiError(err) ? err.message : String(err);
+  } catch (error) {
+    serversError.value = isDaemonApiError(error) ? error.message : String(error);
   } finally {
     serversLoading.value = false;
   }
@@ -80,10 +80,10 @@ async function toggleServerDetail(server: AppMcpServer): Promise<void> {
   try {
     const detail = await getKimiWebApi().getMcpServerDetail(sid, name);
     serverDetails.value = { ...serverDetails.value, [name]: detail };
-  } catch (err) {
+  } catch (error) {
     detailError.value = {
       ...detailError.value,
-      [name]: isDaemonApiError(err) ? err.message : String(err),
+      [name]: isDaemonApiError(error) ? error.message : String(error),
     };
     // Keep the row collapsed on failure — a retry is one click away.
     serverDetails.value = { ...serverDetails.value, [name]: null };
@@ -102,8 +102,8 @@ async function reconnect(name: string): Promise<void> {
   try {
     await getKimiWebApi().reconnectMcpServer(sid, name);
     await loadServers();
-  } catch (err) {
-    reconnectError.value = isDaemonApiError(err) ? err.message : String(err);
+  } catch (error) {
+    reconnectError.value = isDaemonApiError(error) ? error.message : String(error);
   } finally {
     const rest = new Set(reconnecting.value);
     rest.delete(name);
@@ -182,8 +182,8 @@ async function loadCron(): Promise<void> {
   try {
     const { tasks } = await getKimiWebApi().listCronTasks(sid);
     cronTasks.value = tasks;
-  } catch (err) {
-    cronError.value = isDaemonApiError(err) ? err.message : String(err);
+  } catch (error) {
+    cronError.value = isDaemonApiError(error) ? error.message : String(error);
   } finally {
     cronLoading.value = false;
   }
@@ -215,8 +215,8 @@ async function submitCron(): Promise<void> {
     cronPrompt.value = '';
     cronRecurring.value = true;
     showCronForm.value = false;
-  } catch (err) {
-    cronFormError.value = isDaemonApiError(err) ? err.message : String(err);
+  } catch (error) {
+    cronFormError.value = isDaemonApiError(error) ? error.message : String(error);
   } finally {
     cronSubmitting.value = false;
   }
@@ -229,8 +229,8 @@ async function deleteCron(taskId: string): Promise<void> {
   try {
     await getKimiWebApi().deleteCronTask(sid, taskId);
     cronTasks.value = (cronTasks.value ?? []).filter((task) => task.id !== taskId);
-  } catch (err) {
-    cronError.value = isDaemonApiError(err) ? err.message : String(err);
+  } catch (error) {
+    cronError.value = isDaemonApiError(error) ? error.message : String(error);
   } finally {
     const rest = new Set(deletingIds.value);
     rest.delete(taskId);

@@ -91,6 +91,8 @@ const writeChip: ChipProvider = (toolCall) => formatWriteChip(computeWriteStats(
 const readChip: ChipProvider = (_toolCall, result) =>
   pluralize(countNonEmptyLines(result.output), 'line');
 
+const readOutputChip: ChipProvider = (toolCall, result) => readMediaChip(toolCall, result) || readChip(toolCall, result);
+
 const grepChip: ChipProvider = (_toolCall, result) => {
   const matches = countNonEmptyLines(result.output);
   if (matches === 0) return t('tui.statusMessages.chipNoMatches');
@@ -125,7 +127,7 @@ const goalStatusOutputChip: ChipProvider = (_toolCall, result) =>
 const REGISTRY: Record<string, ChipProvider> = {
   Edit: editChip,
   Write: writeChip,
-  Read: readChip,
+  Read: readOutputChip,
   ReadMediaFile: readMediaChip,
   Grep: grepChip,
   Glob: globChip,

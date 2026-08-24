@@ -230,9 +230,9 @@ export class GenFileWriter {
     const fh = await fs.open(path, 'w');
     try {
       return new GenFileWriter(fh, magic, version);
-    } catch (e) {
+    } catch (error) {
       await fh.close().catch(() => {});
-      throw e;
+      throw error;
     }
   }
 
@@ -321,8 +321,8 @@ export async function readGenerationFile(path: string, magic: string, version: n
   let buf: Buffer;
   try {
     buf = await fs.readFile(path);
-  } catch (e) {
-    throw new GenerationCorruptError(`generation file unreadable: ${(e as NodeJS.ErrnoException).code ?? String(e)}`);
+  } catch (error) {
+    throw new GenerationCorruptError(`generation file unreadable: ${(error as NodeJS.ErrnoException).code ?? String(error)}`);
   }
   return parseGenerationBuffer(buf, magic, version);
 }
@@ -370,8 +370,8 @@ export async function readGenerationFileCheckedAsync(
   let buf: Buffer;
   try {
     buf = await fs.readFile(path);
-  } catch (e) {
-    throw new GenerationCorruptError(`generation file unreadable: ${(e as NodeJS.ErrnoException).code ?? String(e)}`);
+  } catch (error) {
+    throw new GenerationCorruptError(`generation file unreadable: ${(error as NodeJS.ErrnoException).code ?? String(error)}`);
   }
   if (buf.length < 8 + 4) throw new GenerationCorruptError('generation file too short');
   for (let i = 0; i < 4; i++) {
@@ -522,9 +522,9 @@ export async function writeStoreImage(
     }
     const info = await w.finish();
     return { ...info, count };
-  } catch (e) {
+  } catch (error) {
     await w.abort();
-    throw e;
+    throw error;
   }
 }
 
@@ -590,9 +590,9 @@ export async function writeDtIndexImage(path: string, cols: DtImageColumn[]): Pr
       }
     }
     return await w.finish();
-  } catch (e) {
+  } catch (error) {
     await w.abort();
-    throw e;
+    throw error;
   }
 }
 
@@ -663,9 +663,9 @@ export async function writeSecondaryIndexImage(
       }
     }
     return await w.finish();
-  } catch (e) {
+  } catch (error) {
     await w.abort();
-    throw e;
+    throw error;
   }
 }
 
@@ -825,9 +825,9 @@ export async function writeCompoundIndexImage(
       }
     }
     return await w.finish();
-  } catch (e) {
+  } catch (error) {
     await w.abort();
-    throw e;
+    throw error;
   }
 }
 
@@ -923,9 +923,9 @@ export async function writeTextDictionaryImage(
       });
     }
     return await w.finish();
-  } catch (e) {
+  } catch (error) {
     await w.abort();
-    throw e;
+    throw error;
   }
 }
 
@@ -997,9 +997,9 @@ export async function writeTextDocsImage(path: string, image: TextDocsImage): Pr
       }
     }
     return await w.finish();
-  } catch (e) {
+  } catch (error) {
     await w.abort();
-    throw e;
+    throw error;
   }
 }
 

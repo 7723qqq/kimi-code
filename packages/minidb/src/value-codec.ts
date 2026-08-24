@@ -75,9 +75,9 @@ export function normDt(dt?: Record<string, number | string> | null): Record<stri
 export async function fileSize(file: string): Promise<number> {
   try {
     return (await fs.stat(file)).size;
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return 0;
-    throw e;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+    throw error;
   }
 }
 

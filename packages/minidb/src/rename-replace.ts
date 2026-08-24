@@ -28,8 +28,8 @@ export async function renameReplace(src: string, dst: string, opts: RenameReplac
   for (let attempt = 0; ; attempt++) {
     try {
       return await fs.rename(src, dst);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EPERM' || attempt >= retries) throw e;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EPERM' || attempt >= retries) throw error;
       await sleep(base + Math.floor(Math.random() * (base + 10)));
     }
   }

@@ -30,7 +30,7 @@ async function verifyInputs(options) {
   for (let index = 0; index < options.targets.length; index += 1) {
     const file = options.files[index];
     if (!existsSync(file)) {
-      throw new Error(`Missing VSIX ${file}. Run pnpm run package:platform first.`);
+      throw new Error(`Missing VSIX ${file}. Run bun run package:platform first.`);
     }
     await verifyVsix(file, options.targets[index], { sourceRoot: extensionRoot });
   }

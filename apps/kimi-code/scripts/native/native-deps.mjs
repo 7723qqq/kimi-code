@@ -27,6 +27,8 @@ const clipboardSubpackageByTarget = Object.freeze({
   'win32-x64': '@mariozechner/clipboard-win32-x64-msvc',
 });
 
+export const PI_TUI_PACKAGE_NAME = '@moonshot-ai/pi-tui';
+
 // pi-tui ships platform-specific native helpers (no Linux build):
 // - darwin: Shift-modifier detection for Terminal.app Shift+Enter
 // - win32: enable ENABLE_VIRTUAL_TERMINAL_INPUT so Shift+Tab is distinguishable
@@ -37,6 +39,32 @@ const piTuiNativeFileByTarget = Object.freeze({
   'linux-x64': [],
   'win32-arm64': ['native/win32/prebuilds/win32-arm64/win32-console-mode.node'],
   'win32-x64': ['native/win32/prebuilds/win32-x64/win32-console-mode.node'],
+});
+
+// node-pty's loader (lib/utils.js loadNativeModule) requires its bindings via
+// relative paths (`../build/Release/<name>.node`, `../prebuilds/<p>-<a>/...`),
+// so packaged builds must ship the binding tree and resolve it explicitly.
+// Upstream ships prebuilds for darwin/win32 only; on Linux the binding comes
+// from the install-time node-gyp build. The conpty/ directory must stay next
+// to conpty.node — the binding locates conpty.dll / OpenConsole.exe relative
+// to itself at runtime.
+const win32NodePtyPrebuild = (arch) => [
+  `prebuilds/win32-${arch}/pty.node`,
+  `prebuilds/win32-${arch}/conpty.node`,
+  `prebuilds/win32-${arch}/conpty_console_list.node`,
+  `prebuilds/win32-${arch}/winpty.dll`,
+  `prebuilds/win32-${arch}/winpty-agent.exe`,
+  `prebuilds/win32-${arch}/conpty/conpty.dll`,
+  `prebuilds/win32-${arch}/conpty/OpenConsole.exe`,
+];
+
+const nodePtyNativeFileByTarget = Object.freeze({
+  'darwin-arm64': ['prebuilds/darwin-arm64/pty.node', 'prebuilds/darwin-arm64/spawn-helper'],
+  'darwin-x64': ['prebuilds/darwin-x64/pty.node', 'prebuilds/darwin-x64/spawn-helper'],
+  'linux-arm64': ['build/Release/pty.node'],
+  'linux-x64': ['build/Release/pty.node'],
+  'win32-arm64': win32NodePtyPrebuild('arm64'),
+  'win32-x64': win32NodePtyPrebuild('x64'),
 });
 
 export function isSupportedTarget(target) {
@@ -75,7 +103,7 @@ export const nativeDeps = Object.freeze([
   },
   {
     id: 'pi-tui',
-    name: () => '@moonshot-ai/pi-tui',
+    name: () => PI_TUI_PACKAGE_NAME,
     // pi-tui's JS is bundled into main.cjs, so only the platform-specific
     // native helper (.node under native/) ships alongside the binary — its
     // dist/ JS is intentionally NOT collected (it stays in the bundle). This
@@ -100,6 +128,20 @@ export const nativeDeps = Object.freeze([
     // as a native asset so the SEA exe can load it at runtime.
     collect: 'native-files',
     parent: null,
+  },
+  {
+    id: 'node-pty',
+    name: () => 'node-pty',
+    // PTY bindings for host terminal sessions. Packaged runtimes cannot use
+    // the bundled copy (its binding requires resolve against the bundle), so
+    // the package ships whole and HostTerminalService loads it from the
+    // extracted cache instead of the bundle. Bindings are listed per target —
+    // upstream prebuilds cover darwin/win32, Linux comes from the install-time
+    // build; conpty/ stays next to conpty.node which locates its DLLs
+    // relative to itself.
+    collect: 'js-and-native-file',
+    parent: null,
+    nativeFileRelatives: (target) => nodePtyNativeFileByTarget[target] ?? [],
   },
 ]);
 

@@ -42,10 +42,10 @@ If you prefer npm, use Node.js 22.19.0 or later:
 npm install -g @moonshot-ai/kimi-code
 ```
 
-Or with pnpm:
+Or with Bun:
 
 ```sh
-pnpm add -g @moonshot-ai/kimi-code
+bun add -g @moonshot-ai/kimi-code
 ```
 
 For upgrade and uninstall instructions, see the [Getting Started guide](https://moonshotai.github.io/kimi-code/en/guides/getting-started).

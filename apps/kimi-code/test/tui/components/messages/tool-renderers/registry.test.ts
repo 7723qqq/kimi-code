@@ -92,6 +92,21 @@ describe('tool-result registry', () => {
     expect(out).toContain('bar');
   });
 
+  it('Read renders a media envelope result through the media summary', () => {
+    const renderer = pickResultRenderer('Read');
+    const mediaOutput = JSON.stringify([
+      { type: 'text', text: '<image path="/tmp/a.png">' },
+      { type: 'image_url', imageUrl: { url: 'data:image/png;base64,QUJD' } },
+      { type: 'text', text: '</image>' },
+    ]);
+    const out = strip(
+      joinRender(renderer(call('Read', { path: '/tmp/a.png' }), result(mediaOutput), expandedCtx)),
+    );
+    expect(out).toContain('/tmp/a.png');
+    expect(out).toContain('image');
+    expect(out).not.toContain('base64');
+  });
+
   it('Grep glance lists path samples below the chip', () => {
     const renderer = pickResultRenderer('Grep');
     const out = strip(

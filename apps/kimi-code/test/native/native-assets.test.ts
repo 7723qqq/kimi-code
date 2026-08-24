@@ -3,12 +3,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
 import {
   getTextBuildWorkerRuntimeState,
   resetTextBuildWorkerRuntime,
 } from '@moonshot-ai/minidb/worker-runtime';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { getBunEmbeddedAssetSource } from '#/native/bun-assets';
+import { installMinidbTextBuildWorker } from '#/native/minidb-worker';
 import {
   getEmbeddedNativeAssetManifest,
   getMinidbTextBuildWorkerFile,
@@ -18,14 +20,16 @@ import {
   type NativeAssetManifest,
   type NativeAssetSource,
 } from '#/native/native-assets';
-import { installMinidbTextBuildWorker } from '#/native/minidb-worker';
 import { loadNativePackage } from '#/native/native-require';
 
 function sha256(bytes: Buffer | string): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-function fakeManifest(files: Record<string, string>, workerContent?: string): {
+function fakeManifest(
+  files: Record<string, string>,
+  workerContent?: string,
+): {
   manifest: NativeAssetManifest;
   source: NativeAssetSource;
 } {
@@ -64,13 +68,11 @@ function fakeManifest(files: Record<string, string>, workerContent?: string): {
   };
   const assets = new Map<string, Buffer>([
     [manifestKey, Buffer.from(JSON.stringify(manifest))],
-    ...Object.entries(files).map(([relativePath, content]) => [
-      `native/test-target/${relativePath}`,
-      Buffer.from(content),
-    ] as const),
-    ...(workerContent === undefined
-      ? []
-      : [[workerAssetKey, Buffer.from(workerContent)] as const]),
+    ...Object.entries(files).map(
+      ([relativePath, content]) =>
+        [`native/test-target/${relativePath}`, Buffer.from(content)] as const,
+    ),
+    ...(workerContent === undefined ? [] : [[workerAssetKey, Buffer.from(workerContent)] as const]),
   ]);
   return {
     manifest,
@@ -125,7 +127,17 @@ describe('native assets', () => {
         source,
         version: 'test',
       });
-      expect(packageRoot).toBe(join(dir, 'native', 'test', 'test-target', sha256(JSON.stringify(manifest)), 'node_modules', 'fake-native'));
+      expect(packageRoot).toBe(
+        join(
+          dir,
+          'native',
+          'test',
+          'test-target',
+          sha256(JSON.stringify(manifest)),
+          'node_modules',
+          'fake-native',
+        ),
+      );
       expect(readFileSync(join(packageRoot ?? '', 'index.js'), 'utf-8')).toContain("value: 'ok'");
 
       writeFileSync(join(packageRoot ?? '', 'index.js'), 'broken');
@@ -245,7 +257,11 @@ describe('native assets', () => {
     const cases: Array<{ manifest: unknown; error: RegExp }> = [
       { manifest: { ...valid, version: 1 }, error: /Unsupported native asset manifest version: 1/ },
       {
-        manifest: { version: NATIVE_ASSET_MANIFEST_VERSION, target: 'test-target', runtimeFiles: [] },
+        manifest: {
+          version: NATIVE_ASSET_MANIFEST_VERSION,
+          target: 'test-target',
+          runtimeFiles: [],
+        },
         error: /packages must be an array/,
       },
       {
@@ -309,7 +325,11 @@ describe('native assets', () => {
           ...valid,
           runtimeFiles: [
             worker,
-            { ...worker, assetKey: 'native/test-target/runtime/other', relativePath: 'runtime/other.mjs' },
+            {
+              ...worker,
+              assetKey: 'native/test-target/runtime/other',
+              relativePath: 'runtime/other.mjs',
+            },
           ],
         }),
         'test-target',
@@ -332,5 +352,67 @@ describe('native assets', () => {
         'test-target',
       ),
     ).toThrow(/duplicate assetKey/);
+  });
+});
+
+describe('bun embedded assets', () => {
+  const bunGlobal = globalThis as unknown as { __KIMI_BUN_ASSETS__?: Record<string, string> };
+
+  beforeEach(() => {
+    delete bunGlobal.__KIMI_BUN_ASSETS__;
+  });
+
+  afterEach(() => {
+    delete bunGlobal.__KIMI_BUN_ASSETS__;
+  });
+
+  it('returns null when the Bun asset global is missing or empty', () => {
+    expect(getBunEmbeddedAssetSource()).toBeNull();
+    bunGlobal.__KIMI_BUN_ASSETS__ = {};
+    expect(getBunEmbeddedAssetSource()).toBeNull();
+  });
+
+  it('exposes asset keys and raw file contents from mapped paths', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-bun-assets-'));
+    try {
+      const textPath = join(dir, 'worker.mjs');
+      const binaryPath = join(dir, 'native.bin');
+      const worker = 'export const worker = true;\n';
+      const binary = Buffer.from([0x00, 0xff, 0x10, 0xfe]);
+      writeFileSync(textPath, worker, 'utf-8');
+      writeFileSync(binaryPath, binary);
+
+      bunGlobal.__KIMI_BUN_ASSETS__ = {
+        'native/test-target/runtime/worker': textPath,
+        'native/test-target/native.bin': binaryPath,
+      };
+
+      const source = getBunEmbeddedAssetSource();
+      expect(source).not.toBeNull();
+      expect(source!.getAssetKeys()).toEqual([
+        'native/test-target/runtime/worker',
+        'native/test-target/native.bin',
+      ]);
+      expect(source!.getRawAsset('native/test-target/runtime/worker')).toEqual(
+        Buffer.from(worker, 'utf-8'),
+      );
+      expect(source!.getRawAsset('native/test-target/native.bin')).toEqual(binary);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws when looking up an unknown asset key', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-bun-assets-unknown-'));
+    try {
+      const path = join(dir, 'asset.txt');
+      writeFileSync(path, 'ok');
+      bunGlobal.__KIMI_BUN_ASSETS__ = { 'native/known': path };
+
+      const source = getBunEmbeddedAssetSource()!;
+      expect(() => source.getRawAsset('native/missing')).toThrow(/Unknown Bun embedded asset/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

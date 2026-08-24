@@ -192,10 +192,10 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       return handle;
     } catch (error) {
       if (this.handles.get(agentId) === handle) this.handles.delete(agentId);
-      eventBus?.deactivateAgent(agent);
       try {
         handle.dispose();
       } catch { }
+      eventBus?.deactivateAgent(agent);
       this.onDidDisposeEmitter.fire(agent);
       throw error;
     }

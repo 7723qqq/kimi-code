@@ -7,9 +7,9 @@ scoped DI registry).
 ## Run
 
 1. Start a kap-server with the debug surface mounted (repo dev scripts do this
-   for you): `pnpm dev:v2` from the repo root passes `--debug-endpoints` on a
+   for you): `bun run dev:v2` from the repo root passes `--debug-endpoints` on a
    loopback bind; the surface inherits the global bearer auth.
-2. `pnpm --filter @moonshot-ai/kimi-inspect dev` — the Vite dev server proxies
+2. `cd apps/kimi-inspect && bun run dev` — the Vite dev server proxies
    `/api` to the server (`KIMI_SERVER_URL`, default `http://127.0.0.1:58627`)
    and auto-discovers running instances
    (`~/.kimi-code/server/instances`); switch servers from the header dropdown.

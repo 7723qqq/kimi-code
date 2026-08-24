@@ -23,8 +23,10 @@ import { writeJsonFile } from '#/utils/persistence';
 import {
   fetchNativeReleaseManifest,
   nativeBinaryUrl,
+  selectBunPlatformEntry,
   selectPlatformEntry,
 } from './native-manifest';
+import type { NativeInstallKind } from './source';
 
 const StagedNativeUpdateSchema = z
   .object({
@@ -39,6 +41,11 @@ const StagedNativeUpdateSchema = z
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     exeSize: z.number().int().min(1),
     stagedAt: z.string().min(1),
+    /**
+     * Which packaged-engine artifact the stage carries. Absent on records
+     * written before the field existed — those always staged SEA binaries.
+     */
+    engine: z.enum(['sea', 'bun']).optional(),
     /**
      * True when the stage was produced by an explicit user-initiated
      * `kimi upgrade` (vs the passive background downloader): manual stages
@@ -121,6 +128,7 @@ function isSameStagedRecord(a: StagedNativeUpdate, b: StagedNativeUpdate): boole
     a.exeFileName === b.exeFileName &&
     a.sha256 === b.sha256 &&
     a.exeSize === b.exeSize &&
+    a.engine === b.engine &&
     a.stagedAt === b.stagedAt
   );
 }
@@ -277,6 +285,11 @@ export interface StageNativeUpdateOptions {
   readonly exePath: string;
   readonly platform?: NodeJS.Platform;
   readonly arch?: string;
+  /**
+   * Which artifact flavor to download. Defaults to `'sea'`; a Bun packaged
+   * binary must pass `'bun'` so the update never swaps runtimes silently.
+   */
+  readonly engine?: NativeInstallKind;
   readonly fetchImpl?: typeof fetch;
   /** Download progress (bytes so far, Content-Length total when known). */
   readonly onProgress?: (downloadedBytes: number, totalBytes: number | null) => void;
@@ -436,6 +449,7 @@ export async function stageNativeUpdate(
     sha256: '',
     exeSize: 0,
     stagedAt: new Date().toISOString(),
+    engine: options.engine ?? 'sea',
     manual: options.manual === true ? true : undefined,
   };
 
@@ -445,7 +459,10 @@ export async function stageNativeUpdate(
   const partPath = join(stagingDir, `${exeFileName}.part`);
   try {
     const manifest = await fetchNativeReleaseManifest(options.version, fetchImpl);
-    const entry = selectPlatformEntry(manifest, platform, arch);
+    const entry =
+      options.engine === 'bun'
+        ? selectBunPlatformEntry(manifest, platform, arch)
+        : selectPlatformEntry(manifest, platform, arch);
     const size = await downloadAndHash(
       nativeBinaryUrl(options.version, entry.filename),
       partPath,

@@ -59,13 +59,16 @@ async function writeSeaConfig(target) {
   console.log(
     `Collected web assets for ${web.manifest.target}: ${web.manifest.files.length} files`,
   );
+
+  return { manifest, assets };
 }
 
 export async function runSeaBlobStep() {
   await ensureBundleExists();
   const target = targetTriple();
-  await writeSeaConfig(target);
+  const collected = await writeSeaConfig(target);
   await run(process.execPath, ['--experimental-sea-config', nativeSeaConfigPath()]);
+  return collected;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -9,6 +9,7 @@ import { MiniDb } from '@moonshot-ai/minidb';
 
 import { t } from '#/i18n';
 
+import { loadNodePty } from './node-pty';
 import {
   getEmbeddedNativeAssetManifest,
   getNativeCacheBase,
@@ -121,6 +122,16 @@ async function smokeSearchWorker(): Promise<void> {
   }
 }
 
+async function smokeTerminalBinding(): Promise<void> {
+  // Resolve the PTY module exactly the way packaged builds do (asset-cache
+  // first) and dlopen its binding for real — verifying arch and integrity on
+  // every platform the smoke runs on.
+  const mod = loadNodePty();
+  if (mod === null || typeof mod.spawn !== 'function') {
+    throw new TypeError('node-pty did not load from the packaged asset cache');
+  }
+}
+
 async function runSmoke(): Promise<void> {
   const manifest = getEmbeddedNativeAssetManifest();
   if (manifest === null) throw new Error(t('tui.statusMessages.nativeManifestNotAvailable'));
@@ -132,8 +143,9 @@ async function runSmoke(): Promise<void> {
   smokePiTuiNativeLoad();
   await smokeMinidbWorker();
   await smokeSearchWorker();
+  await smokeTerminalBinding();
   process.stdout.write(
-    `Native asset smoke passed: ${manifest.target}; MiniDb worker build passed; search worker ready\n`,
+    `Native asset smoke passed: ${manifest.target}; MiniDb worker build passed; search worker ready; PTY binding loaded\n`,
   );
 }
 

@@ -74,6 +74,8 @@ const VERSION = '0.7.0';
 const PAYLOAD = Buffer.from('fake-sea-binary-payload');
 // The CDN serves the bare platform binary; the manifest checksum is its sha256.
 const BINARY_FILENAME = 'kimi-code-linux-x64';
+const BUN_PAYLOAD = Buffer.from('fake-bun-binary-payload');
+const BUN_BINARY_FILENAME = 'kimi-code-bun-linux-x64';
 
 function sha256Hex(data: Buffer): string {
   return createHash('sha256').update(data).digest('hex');
@@ -90,6 +92,8 @@ interface MockCdnOptions {
   readonly version?: string;
   readonly payload: Buffer;
   readonly checksum?: string;
+  /** When set, the manifest carries a bun section serving this payload. */
+  readonly bun?: { readonly payload: Buffer };
 }
 
 function mockCdnFetch(options: MockCdnOptions): typeof fetch {
@@ -103,6 +107,16 @@ function mockCdnFetch(options: MockCdnOptions): typeof fetch {
         checksum: options.checksum ?? sha256Hex(options.payload),
       },
     },
+    ...(options.bun === undefined
+      ? {}
+      : {
+          bun: {
+            'linux-x64': {
+              filename: BUN_BINARY_FILENAME,
+              checksum: sha256Hex(options.bun.payload),
+            },
+          },
+        }),
   });
   return vi.fn(async (input: string | URL) => {
     const url = String(input);
@@ -110,19 +124,26 @@ function mockCdnFetch(options: MockCdnOptions): typeof fetch {
       return { ok: true, status: 200, text: async () => manifestBody, body: null };
     }
     if (url === nativeBinaryUrl(version, BINARY_FILENAME)) {
-      return {
-        ok: true,
-        status: 200,
-        text: async (): Promise<string> => '',
-        headers: {
-          get: (name: string): string | null =>
-            name === 'content-length' ? String(options.payload.length) : null,
-        },
-        body: [options.payload],
-      };
+      return binaryResponse(options.payload);
+    }
+    if (options.bun !== undefined && url === nativeBinaryUrl(version, BUN_BINARY_FILENAME)) {
+      return binaryResponse(options.bun.payload);
     }
     return { ok: false, status: 404, text: async () => '', body: null };
   }) as unknown as typeof fetch;
+}
+
+function binaryResponse(payload: Buffer): unknown {
+  return {
+    ok: true,
+    status: 200,
+    text: async (): Promise<string> => '',
+    headers: {
+      get: (name: string): string | null =>
+        name === 'content-length' ? String(payload.length) : null,
+    },
+    body: [payload],
+  };
 }
 
 describe('stageNativeUpdate', () => {
@@ -198,6 +219,37 @@ describe('stageNativeUpdate', () => {
     expect(result.staged.manual).toBe(true);
     // And it round-trips through the on-disk metadata.
     expect((await readStagedNativeUpdate(exePath))?.manual).toBe(true);
+  });
+
+  it('stages the Bun artifact from the manifest bun section when engine is bun', async () => {
+    const result = await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      engine: 'bun',
+      fetchImpl: mockCdnFetch({ payload: PAYLOAD, bun: { payload: BUN_PAYLOAD } }),
+    });
+
+    expect(result.staged.engine).toBe('bun');
+    expect(result.staged.sha256).toBe(sha256Hex(BUN_PAYLOAD));
+    const exeBytes = await readFile(stagedExePath(exePath, result.staged));
+    expect(exeBytes.equals(BUN_PAYLOAD)).toBe(true);
+  });
+
+  it('refuses to stage when engine is bun but the release publishes no Bun builds', async () => {
+    await expect(
+      stageNativeUpdate({
+        version: VERSION,
+        exePath,
+        platform: 'linux',
+        arch: 'x64',
+        engine: 'bun',
+        fetchImpl: mockCdnFetch({ payload: PAYLOAD }),
+      }),
+    ).rejects.toThrow(/does not publish a Bun build/);
+    // Nothing was staged and no leftovers were left behind.
+    expect(await readStagedNativeUpdate(exePath)).toBeNull();
   });
 
   it('makes the download executable before publishing it at the staged name', async () => {

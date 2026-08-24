@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -12,7 +12,8 @@ import {
   buildManifestKey,
   buildRuntimeAssetKey,
 } from './manifest.mjs';
-import { resolveTargetDeps, SUPPORTED_TARGETS } from './native-deps.mjs';
+import { PI_TUI_PACKAGE_NAME, resolveTargetDeps, SUPPORTED_TARGETS } from './native-deps.mjs';
+import { nativeBinDir } from './paths.mjs';
 
 export { NATIVE_ASSET_MANIFEST_VERSION };
 
@@ -92,7 +93,7 @@ function resolvePackageRootGeneric(
         `Native asset package is not installed for target ${target}: ${packageName}`,
         parentPackageName ? `Searched via parent: ${parentPackageName}` : '',
         `Resolve root: ${appRoot}`,
-        'Run pnpm install --frozen-lockfile before building native assets.',
+        'Run bun install --frozen-lockfile before building native assets.',
         rootError instanceof Error ? rootError.message : String(rootError),
       ]
         .filter(Boolean)
@@ -219,6 +220,9 @@ async function packageManifestEntries({ packageName, packageRoot, files, target 
 
   for (const file of files) {
     const sourceBytes = await readFile(file);
+    // Preserve the POSIX mode so extracted executables (e.g. node-pty's
+    // darwin spawn-helper) stay executable after extraction.
+    const mode = (await stat(file)).mode & 0o777;
     const packageRelativePath = toPosixPath(relative(packageRoot, file));
     const relativePath = `${root}/${packageRelativePath}`;
     const assetKey = `native/${target}/${relativePath}`;
@@ -226,6 +230,7 @@ async function packageManifestEntries({ packageName, packageRoot, files, target 
       assetKey,
       relativePath,
       sha256: sha256(sourceBytes),
+      ...(mode === 0o644 ? {} : { mode }),
     });
     assets[assetKey] = file;
   }
@@ -311,4 +316,56 @@ export async function collectNativeAssets({ appRoot, target }) {
     manifestJson: `${JSON.stringify(manifest, null, 2)}\n`,
     assets,
   };
+}
+
+/**
+ * Map the collected pi-tui helper files onto the exec-side layout
+ * (`<binDir>/native/<os>/prebuilds/<arch>/<helper>.node`).
+ *
+ * pi-tui's own loader (packages/pi-tui/src/native-modifiers.ts) and the
+ * packaged-build smoke (src/native/smoke.ts) both look for the platform helper
+ * directly next to the executable, a layout the embedded-asset cache (which
+ * unpacks everything under node_modules/<pkg>/...) does not produce. Only
+ * .node files under the package's native/ tree map there; Linux collects no
+ * helper, so the result is empty and staging is a no-op.
+ */
+export function execSideHelperTargets(manifest) {
+  const pkg = manifest.packages.find((entry) => entry.name === PI_TUI_PACKAGE_NAME);
+  if (pkg === undefined) return [];
+  const rootPrefix = `${pkg.root}/`;
+  const targets = [];
+  for (const file of pkg.files) {
+    const portableRelativePath = file.relativePath.replaceAll('\\', '/');
+    if (!portableRelativePath.startsWith(rootPrefix)) continue;
+    const packageRelativePath = portableRelativePath.slice(rootPrefix.length);
+    if (!packageRelativePath.startsWith('native/') || !packageRelativePath.endsWith('.node')) {
+      continue;
+    }
+    targets.push({ assetKey: file.assetKey, relativePath: packageRelativePath });
+  }
+  return targets;
+}
+
+/**
+ * Copy the collected pi-tui helpers into the exec-side layout next to the
+ * built binary. Called by both pipelines (SEA: build.mjs, Bun:
+ * build-bun.mjs) after the executable exists.
+ */
+export async function stageExecSideNativeHelpers({ target, manifest, assets, binDir }) {
+  const resolvedBinDir = binDir ?? nativeBinDir(target);
+  const staged = [];
+  for (const entry of execSideHelperTargets(manifest)) {
+    const sourcePath = assets[entry.assetKey];
+    if (sourcePath === undefined) {
+      fail(`Collected asset is missing for exec-side helper ${entry.assetKey}`);
+    }
+    const destination = resolve(resolvedBinDir, ...entry.relativePath.split('/'));
+    await mkdir(dirname(destination), { recursive: true });
+    await copyFile(sourcePath, destination);
+    staged.push(relative(resolvedBinDir, destination));
+  }
+  if (staged.length > 0) {
+    console.log(`Staged exec-side helpers for ${target}: ${staged.join(', ')}`);
+  }
+  return staged;
 }

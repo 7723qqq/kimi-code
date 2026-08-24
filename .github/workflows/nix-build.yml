@@ -127,7 +127,7 @@ jobs:
               echo "body<<EOF"
               echo "❌ Nix build failed"
               echo ""
-              echo "Hash mismatch in \`pnpmDeps\`:"
+              echo "Hash mismatch in \`bunDeps\`:"
               echo "| | Hash |"
               echo "|---|---|"
               echo "| **specified** | \`$SPECIFIED\` |"

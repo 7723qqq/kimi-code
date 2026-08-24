@@ -9,6 +9,7 @@ import { inflateRawSync } from 'node:zlib';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { SUPPORTED_TARGETS } from '../../../scripts/native/native-deps.mjs';
 import { appRoot } from '../../../scripts/native/paths.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -94,6 +95,8 @@ describe('native release artifacts', () => {
     rmSync(resolve(appRoot, 'dist-native/bin', target), { recursive: true, force: true });
     rmSync(resolve(artifactsDir, `kimi-code-${target}.zip`), { force: true });
     rmSync(resolve(artifactsDir, `kimi-code-${target}.zip.sha256`), { force: true });
+    rmSync(resolve(artifactsDir, `kimi-code-bun-${target}.zip`), { force: true });
+    rmSync(resolve(artifactsDir, `kimi-code-bun-${target}.zip.sha256`), { force: true });
   });
 
   it('packages the native binary as a zip archive and checksums the archive', async () => {
@@ -117,36 +120,152 @@ describe('native release artifacts', () => {
     );
   });
 
+  it('inserts the engine segment into the archive name when configured', async () => {
+    mkdirSync(resolve(appRoot, 'dist-native/bin', target), { recursive: true });
+    writeFileSync(fakeBinary, 'bun binary payload\n', { mode: 0o755 });
+
+    await execFileAsync(process.execPath, [packageScript], {
+      cwd: appRoot,
+      env: { ...process.env, KIMI_CODE_BUILD_TARGET: target, KIMI_CODE_NATIVE_ENGINE: 'bun' },
+    });
+
+    const archivePath = resolve(artifactsDir, `kimi-code-bun-${target}.zip`);
+    expect(existsSync(archivePath)).toBe(true);
+    expect(existsSync(`${archivePath}.sha256`)).toBe(true);
+    expect(zipEntryNames(archivePath)).toEqual([executableName]);
+  });
+
+  function seaChecksum(target: string): string {
+    return sha256(Buffer.from(`fake sea zip bytes for ${target}`));
+  }
+
+  function bunChecksum(target: string): string {
+    return sha256(Buffer.from(`fake bun zip bytes for ${target}`));
+  }
+
+  async function writeFullArtifactSet(releaseDir: string): Promise<void> {
+    for (const target of SUPPORTED_TARGETS) {
+      await writeFile(
+        join(releaseDir, `kimi-code-${target}.zip.sha256`),
+        `${seaChecksum(target)}  kimi-code-${target}.zip\n`,
+      );
+      await writeFile(
+        join(releaseDir, `kimi-code-bun-${target}.zip.sha256`),
+        `${bunChecksum(target)}  kimi-code-bun-${target}.zip\n`,
+      );
+    }
+  }
+
   it('produces a manifest from zip archive checksums', async () => {
     const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-zip-'));
-    const archiveBytes = Buffer.from('fake zip bytes');
-    const checksum = sha256(archiveBytes);
-    await writeFile(join(releaseDir, 'kimi-code-darwin-arm64.zip'), archiveBytes);
+    try {
+      await writeFullArtifactSet(releaseDir);
+
+      await execFileAsync(process.execPath, [
+        manifestScript,
+        releaseDir,
+        '@moonshot-ai/kimi-code@0.5.0',
+      ]);
+
+      const manifest = JSON.parse(await readFile(join(releaseDir, 'manifest.json'), 'utf-8')) as {
+        version: string;
+        tag: string;
+        platforms: Record<string, { filename: string; checksum: string }>;
+        bun: Record<string, { filename: string; checksum: string }>;
+      };
+      expect(manifest.version).toBe('0.5.0');
+      expect(manifest.tag).toBe('@moonshot-ai/kimi-code@0.5.0');
+      expect(Object.keys(manifest.platforms).toSorted()).toEqual(SUPPORTED_TARGETS);
+      expect(manifest.platforms['darwin-arm64']).toEqual({
+        filename: 'kimi-code-darwin-arm64.zip',
+        checksum: seaChecksum('darwin-arm64'),
+      });
+      expect(Object.keys(manifest.bun).toSorted()).toEqual(SUPPORTED_TARGETS);
+      expect(manifest.bun['linux-x64']).toEqual({
+        filename: 'kimi-code-bun-linux-x64.zip',
+        checksum: bunChecksum('linux-x64'),
+      });
+    } finally {
+      rmSync(releaseDir, { recursive: true, force: true });
+    }
+  });
+
+  it('collects bun artifacts into a separate manifest section', async () => {
+    const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-bun-'));
+    await writeFile(join(releaseDir, 'manifest.json'), 'stale manifest');
+
+    try {
+      await writeFullArtifactSet(releaseDir);
+
+      await execFileAsync(process.execPath, [
+        manifestScript,
+        releaseDir,
+        '@moonshot-ai/kimi-code@0.5.0',
+      ]);
+
+      const manifest = JSON.parse(await readFile(join(releaseDir, 'manifest.json'), 'utf-8')) as {
+        platforms: Record<string, { filename: string; checksum: string }>;
+        bun?: Record<string, { filename: string; checksum: string }>;
+      };
+      expect(manifest.platforms['linux-x64']).toEqual({
+        filename: 'kimi-code-linux-x64.zip',
+        checksum: seaChecksum('linux-x64'),
+      });
+      expect(Object.fromEntries(
+        Object.entries(manifest.bun ?? {}).map(([target, entry]) => [target, entry.checksum]),
+      )).toEqual(Object.fromEntries(SUPPORTED_TARGETS.map((target) => [target, bunChecksum(target)])));
+    } finally {
+      rmSync(releaseDir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the bun section is incomplete', async () => {
+    const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-partialbun-'));
+    const [covered, ...missing] = SUPPORTED_TARGETS;
+    if (covered === undefined || missing.length === 0) throw new Error('expected multiple supported targets');
+
+    try {
+      for (const target of SUPPORTED_TARGETS) {
+        await writeFile(
+          join(releaseDir, `kimi-code-${target}.zip.sha256`),
+          `${seaChecksum(target)}  kimi-code-${target}.zip\n`,
+        );
+      }
+      await writeFile(
+        join(releaseDir, `kimi-code-bun-${covered}.zip.sha256`),
+        `${bunChecksum(covered)}  kimi-code-bun-${covered}.zip\n`,
+      );
+
+      await expect(
+        execFileAsync(process.execPath, [
+          manifestScript,
+          releaseDir,
+          '@moonshot-ai/kimi-code@0.5.0',
+        ]),
+      ).rejects.toThrow(new RegExp(`No Bun.*${missing.join(', ')}`));
+    } finally {
+      rmSync(releaseDir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when only bun artifacts are present and no platform would be published', async () => {
+    const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-bunonly-'));
+    const checksum = sha256(Buffer.from('fake bun zip bytes'));
     await writeFile(
-      join(releaseDir, 'kimi-code-darwin-arm64.zip.sha256'),
-      `${checksum}  kimi-code-darwin-arm64.zip\n`,
+      join(releaseDir, 'kimi-code-bun-linux-x64.zip.sha256'),
+      `${checksum}  kimi-code-bun-linux-x64.zip\n`,
     );
 
-    await execFileAsync(process.execPath, [
-      manifestScript,
-      releaseDir,
-      '@moonshot-ai/kimi-code@0.5.0',
-    ]);
-
-    const manifest = JSON.parse(await readFile(join(releaseDir, 'manifest.json'), 'utf-8')) as {
-      version: string;
-      tag: string;
-      platforms: Record<string, { filename: string; checksum: string }>;
-    };
-    expect(manifest).toEqual({
-      version: '0.5.0',
-      tag: '@moonshot-ai/kimi-code@0.5.0',
-      platforms: {
-        'darwin-arm64': {
-          filename: 'kimi-code-darwin-arm64.zip',
-          checksum,
-        },
-      },
-    });
+    try {
+      await expect(
+        execFileAsync(process.execPath, [
+          manifestScript,
+          releaseDir,
+          '@moonshot-ai/kimi-code@0.5.0',
+        ]),
+      ).rejects.toThrow(/No SEA/);
+    } finally {
+      rmSync(releaseDir, { recursive: true, force: true });
+    }
   });
 });

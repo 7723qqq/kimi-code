@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 
+import type { IPty } from 'node-pty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
@@ -360,7 +361,7 @@ describe('HostTerminalService (App scope)', () => {
       resize: vi.fn(),
       kill: vi.fn(),
     };
-    vi.mocked(spawn).mockReturnValue(mockPty as unknown as import('node-pty').IPty);
+    vi.mocked(spawn).mockReturnValue(mockPty as unknown as IPty);
 
     const svc = ix.get(IHostTerminalService);
     const proc = await svc.spawn({ cwd: '/ws', shell: '/bin/sh', cols: 80, rows: 24 });
@@ -395,5 +396,134 @@ describe('HostTerminalService (App scope)', () => {
 
     proc.kill();
     expect(mockPty.kill).toHaveBeenCalled();
+  });
+});
+
+interface FakeBunSpawnOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  terminal: {
+    name?: string;
+    cols?: number;
+    rows?: number;
+    data(terminal: unknown, data: Uint8Array): void;
+  };
+}
+
+interface FakeBunTerminalHandle {
+  write: ReturnType<typeof vi.fn>;
+  resize: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+}
+
+describe('HostTerminalService bun runtime', () => {
+  const originalBun = (globalThis as unknown as { Bun?: unknown }).Bun;
+  let disposables: DisposableStore;
+  let ix: TestInstantiationService;
+
+  function installFakeBun(bun: unknown): void {
+    (globalThis as unknown as { Bun?: unknown }).Bun = bun;
+  }
+
+  beforeEach(() => {
+    disposables = new DisposableStore();
+    ix = createServices(disposables, {
+      additionalServices: (reg) => {
+        reg.define(IHostTerminalService, HostTerminalService);
+      },
+    });
+  });
+  afterEach(() => {
+    installFakeBun(originalBun);
+    disposables.dispose();
+  });
+
+  it('routes to bun.spawn when Bun.Terminal is available and streams UTF-8 across chunks', async () => {
+    const handle: FakeBunTerminalHandle = { write: vi.fn(), resize: vi.fn(), close: vi.fn() };
+    let fireData: ((data: Uint8Array) => void) | undefined;
+    let spawnOptions: FakeBunSpawnOptions | undefined;
+    installFakeBun({
+      Terminal: function bunTerminal() {},
+      spawn: (_command: readonly string[], options: FakeBunSpawnOptions) => {
+        spawnOptions = options;
+        fireData = (data) => options.terminal.data(handle, data);
+        return { terminal: handle, exited: new Promise<null>(() => {}), kill: vi.fn() };
+      },
+    });
+
+    const svc = ix.get(IHostTerminalService);
+    const proc = await svc.spawn({ cwd: '/ws', shell: '/bin/bash', cols: 100, rows: 30 });
+
+    expect(spawnOptions?.cwd).toBe('/ws');
+    expect(spawnOptions?.terminal.name).toBe('xterm-256color');
+    expect(spawnOptions?.terminal.cols).toBe(100);
+    expect(spawnOptions?.terminal.rows).toBe(30);
+
+    const chunks: string[] = [];
+    proc.onProcessData((data) => chunks.push(data));
+    const encoded = new TextEncoder().encode('héllo');
+    fireData!(encoded.slice(0, 2));
+    fireData!(encoded.slice(2));
+    expect(chunks.join('')).toBe('héllo');
+
+    proc.write('ls\n');
+    proc.resize(120, 40);
+    proc.kill();
+    expect(handle.write).toHaveBeenCalledWith('ls\n');
+    expect(handle.resize).toHaveBeenCalledWith(120, 40);
+    expect(handle.close).toHaveBeenCalled();
+  });
+
+  it('falls back to node-pty when Bun exists but lacks Bun.Terminal', async () => {
+    const bunSpawn = vi.fn();
+    installFakeBun({ spawn: bunSpawn });
+    const { spawn } = await import('node-pty');
+    vi.mocked(spawn).mockReturnValue({} as unknown as IPty);
+
+    const svc = ix.get(IHostTerminalService);
+    await svc.spawn({ cwd: '/ws', shell: '/bin/sh', cols: 80, rows: 24 });
+
+    expect(bunSpawn).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalledWith('/bin/sh', [], {
+      name: 'xterm-256color',
+      cwd: '/ws',
+      cols: 80,
+      rows: 24,
+      env: process.env,
+    });
+  });
+
+  it('flushes a trailing truncated sequence before the exit event', async () => {
+    const handle: FakeBunTerminalHandle = { write: vi.fn(), resize: vi.fn(), close: vi.fn() };
+    let fireData: ((data: Uint8Array) => void) | undefined;
+    let resolveExit: ((code: number | null) => void) | undefined;
+    installFakeBun({
+      Terminal: function bunTerminal() {},
+      spawn: (_command: readonly string[], options: FakeBunSpawnOptions) => {
+        fireData = (data) => options.terminal.data(handle, data);
+        return {
+          terminal: handle,
+          exited: new Promise<number | null>((resolve) => {
+            resolveExit = resolve;
+          }),
+          kill: () => resolveExit?.(0),
+        };
+      },
+    });
+
+    const svc = ix.get(IHostTerminalService);
+    const proc = await svc.spawn({ cwd: '/ws', shell: '/bin/bash', cols: 80, rows: 24 });
+
+    const events: Array<{ kind: 'data' | 'exit'; text?: string }> = [];
+    proc.onProcessData((data) => events.push({ kind: 'data', text: data }));
+    proc.onProcessExit((event) => events.push({ kind: 'exit' }));
+    fireData!(new TextEncoder().encode('é').slice(0, 1));
+    proc.kill();
+
+    await vi.waitFor(() => expect(events.at(-1)?.kind).toBe('exit'));
+    expect(events).toEqual([
+      { kind: 'data', text: '\uFFFD' },
+      { kind: 'exit' },
+    ]);
   });
 });

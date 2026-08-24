@@ -91,7 +91,15 @@ async function injectSeaBlob(target) {
     const require = createRequire(import.meta.url);
     const { inject } = require(postjectApi);
     const blob = await readFile(nativeBlobPath());
-    await inject(out, 'NODE_SEA_BLOB', blob, { sentinelFuse });
+    // On darwin, Node's SEA runtime resolves the blob via
+    // getsectdata("NODE_SEA", "NODE_SEA_BLOB"); with any other segment name
+    // (postject defaults to "__POSTJECT") the executable dies silently right
+    // after exec. Same as upstream's `--macho-segment-name NODE_SEA`.
+    const injectOptions = { sentinelFuse };
+    if (process.platform === 'darwin') {
+      injectOptions.machoSegmentName = 'NODE_SEA';
+    }
+    await inject(out, 'NODE_SEA_BLOB', blob, injectOptions);
     console.log(`Injected NODE_SEA_BLOB via postject (${blob.length} bytes, fuse ${sentinelFuse})`);
     return;
   }
@@ -106,12 +114,25 @@ async function injectSeaBlob(target) {
   await run(kimiBuild, ['inject', out, nativeBlobPath(), '-o', out]);
 }
 
+// Injecting the SEA blob rewrites the Mach-O, which invalidates whatever
+// signature the base Node binary carried (and darwin's kernel kills
+// present-but-invalid signatures at exec with no output). Re-sign ad hoc
+// unconditionally right after injection: --force replaces any signature state
+// that survived injection, and this also covers standalone runs of this step
+// that never reach 04-sign. The release profile's real signing (04-sign,
+// --force as well) simply replaces this ad-hoc signature afterwards.
+async function reSignAdhocAfterInject(target) {
+  if (process.platform !== 'darwin') return;
+  await run('codesign', ['--force', '--sign', '-', nativeBinPath(target)]);
+}
+
 export async function runInjectStep() {
   const target = targetTriple();
   await ensureBlobExists();
   await copyNodeExecutable(target);
   await removeSignatureIfNeeded(target);
   await injectSeaBlob(target);
+  await reSignAdhocAfterInject(target);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

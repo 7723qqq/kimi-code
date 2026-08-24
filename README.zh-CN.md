@@ -17,6 +17,7 @@
 - **🤖 Team 多 Agent 讨论**：多 Agent 讨论协作工具，Agent 之间可辩论、交叉审查并达成共识后输出。
 - **⚡ Rust 原生工具加速**：性能关键工具（grep、glob、edit、read、write、bash、token 统计、输出截断）用 Rust 重写为原生 Node addon，显著快于 JS 实现。
 - **🪟 Windows 启动脚本**：`start-native.bat` 一键启动原生 CLI；`start-desktop.bat` 用于构建并启动本地 vendored 桌面壳（仅当 `apps/kimi-desktop` 存在时可用）。
+- **🥖 Bun 迁移（实验性）**：通过 `bun build --compile` 的实验性单文件构建已接入 CI 六平台矩阵（linux/darwin/win32 × x64/arm64），与默认的 Node.js SEA 流水线并行：node-pty 与 pi-tui helper 统一由打包资产缓存加载、宿主终端会话支持双运行时、URL-fetch SSRF 语义跨运行时一致（统一捆绑 undici）、自更新感知引擎、`/status` 显示 Runtime 行。目前仅在 linux-x64 上实测验证；长期目标是让 Bun 取代 SEA 成为唯一发布引擎。
 - 其他多项修复和体验优化。
 
 如需了解面向贡献者的更深入说明与集成细节，请参见根目录 `AGENTS.md` → "Fork-specific additions vs upstream"（中文语境参见对应章节）。
@@ -111,20 +112,20 @@ Kimi Code CLI 支持 [Agent Client Protocol](https://agentclientprotocol.com/)�
 
 ## 本地开发
 
-环境要求：Node.js ≥ 24.15.0，pnpm 10.33.0。
+环境要求：Node.js ≥ 24.15.0，Bun ≥ 1.4。
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git
 cd kimi-code
-pnpm install
+bun install
 ```
 
 ```sh
-pnpm dev:cli    # 以开发模式运行 CLI
-pnpm test       # 运行测试
-pnpm typecheck  # TypeScript 检查
-pnpm lint       # 运行 oxlint
-pnpm build      # 构建所有包
+bun run dev:cli    # 以开发模式运行 CLI
+bun run test       # 运行测试
+bun run typecheck  # TypeScript 检查
+bun run lint       # 运行 oxlint
+bun run build      # 构建所有包
 ```
 
 完整贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。

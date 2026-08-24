@@ -113,15 +113,19 @@ export function createI18n<M extends Record<Locale, MessageValue>>(
   // Lazily import React's hooks so this module doesn't hard-depend on React
   // (non-React apps like vanilla TS can still use `createI18n`).
 
+  type ReactGlobal = {
+    useState?: <S>(initial: S) => [S, (value: S) => void];
+    useEffect?: (effect: () => void | (() => void), deps?: readonly unknown[]) => void;
+    useCallback?: <F>(fn: F, deps: readonly unknown[]) => F;
+  };
+
   function useLocale(): { locale: Locale; set: (l: Locale) => void } {
     // Dynamic hook resolution — works when React is available.
-    const React = (globalThis as any).React;
-    if (!React || !React.useState || !React.useEffect || !React.useCallback) {
+    const { useState, useEffect, useCallback } = (globalThis as { React?: ReactGlobal }).React ?? {};
+    if (!useState || !useEffect || !useCallback) {
       // Non-React environment: return a static snapshot.
       return { locale: currentLocale, set: setLocale };
     }
-
-    const { useState, useEffect, useCallback } = React;
     const [locale, setLocaleState] = useState(currentLocale);
 
     const set = useCallback((l: Locale) => {

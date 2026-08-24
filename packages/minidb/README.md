@@ -383,7 +383,7 @@ headline: shard-affinity writes scale ~linearly until the single-shard speed
 is reached; uniform cross-shard traffic pays lock handoffs):
 
 ```bash
-pnpm bench:cluster   # bench/cluster.ts — spawns real writer/reader processes
+bun run bench:cluster   # bench/cluster.ts — spawns real writer/reader processes
 ```
 
 ## Testing
@@ -496,7 +496,7 @@ await db.close();
 
 `crossShard: '2pc'` is reserved for a future two-phase commit and is rejected
 today. Performance numbers across process/shard counts: run
-`pnpm bench:cluster` (see `bench/cluster.ts`).
+`bun run bench:cluster` (see `bench/cluster.ts`).
 
 For a **rebuildable cache**, use `openOrRebuild` with
 `allowDestructiveRebuild: true`: a corrupt cache is discarded and reopened

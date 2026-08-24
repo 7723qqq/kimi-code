@@ -71,6 +71,53 @@ describe('status panel report lines', () => {
     expect(output).not.toContain('Runtime');
   });
 
+  it('shows a Runtime row when the packaging engine or native tools are known', () => {
+    const lines = buildStatusReportLines({
+      version: '1.2.3',
+      model: 'k2',
+      workDir: '/tmp/project',
+      sessionId: 'ses-1',
+      sessionTitle: null,
+      thinkingEffort: 'off',
+      permissionMode: 'manual',
+      planMode: false,
+      towerMode: false,
+      towerAvailable: false,
+      contextUsage: 0,
+      contextTokens: 0,
+      maxContextTokens: 0,
+      availableModels: {},
+      nativeTools: 'rust',
+      packagedEngine: 'bun',
+    }).map(strip);
+
+    const output = lines.join('\n');
+    expect(output).toContain('Runtime      bun · rust');
+  });
+
+  it('shows the Runtime row for source runs with only the tools probe', () => {
+    const lines = buildStatusReportLines({
+      version: '1.2.3',
+      model: 'k2',
+      workDir: '/tmp/project',
+      sessionId: '',
+      sessionTitle: null,
+      thinkingEffort: 'off',
+      permissionMode: 'auto',
+      planMode: false,
+      towerMode: false,
+      towerAvailable: false,
+      contextUsage: 0,
+      contextTokens: 0,
+      maxContextTokens: 0,
+      availableModels: {},
+      nativeTools: 'js',
+    }).map(strip);
+
+    const output = lines.join('\n');
+    expect(output).toContain('Runtime      source · js');
+  });
+
   it('prefers the fetched status tower mode over the cached value', () => {
     const lines = buildStatusReportLines({
       version: '1.2.3',

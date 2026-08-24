@@ -2414,12 +2414,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    */
   private async globalMcpOAuthService(): Promise<McpOAuthService> {
     await this.engineAccessor.get(IAgentIdentity).resolved();
-    if (this.globalMcpOAuth === undefined) {
-      this.globalMcpOAuth = new McpOAuthService({
-        store: createMcpOAuthStore(this.engineAccessor.get(IAtomicDocumentStore)),
-        resolveClientName: () => this.resolveMcpClientName(),
-      });
-    }
+    this.globalMcpOAuth ??= new McpOAuthService({
+      store: createMcpOAuthStore(this.engineAccessor.get(IAtomicDocumentStore)),
+      resolveClientName: () => this.resolveMcpClientName(),
+    });
     return this.globalMcpOAuth;
   }
 

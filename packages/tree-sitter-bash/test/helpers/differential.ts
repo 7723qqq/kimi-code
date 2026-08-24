@@ -14,6 +14,7 @@
 // "echo 你好 && ls" the reference reports the root as [0,13] and `&&` as
 // [8,10] — UTF-16 code units, not UTF-8 bytes).
 
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import { Language, Parser as RefParser } from 'web-tree-sitter';
@@ -22,8 +23,8 @@ import type { Node as RefNode } from 'web-tree-sitter';
 import type { SyntaxNode } from '#/node';
 import { parse } from '#/parse';
 
-const PACKAGE_ROOT = path.resolve(import.meta.dirname, '../..');
-const WASM_PATH = path.join(PACKAGE_ROOT, 'node_modules/tree-sitter-bash/tree-sitter-bash.wasm');
+const require = createRequire(import.meta.url);
+const WASM_PATH = require.resolve('tree-sitter-bash/tree-sitter-bash.wasm');
 
 let refParserPromise: Promise<RefParser> | null = null;
 
@@ -42,8 +43,8 @@ export function loadReferenceParser(): Promise<RefParser> {
       return parser;
     } catch (error) {
       throw new Error(
-        `failed to load the tree-sitter-bash wasm reference (expected at ${WASM_PATH}). ` +
-          'Run `pnpm install` and make sure the tree-sitter-bash devDependency is present.',
+        `failed to load the tree-sitter-bash wasm reference (resolved to ${WASM_PATH}). ` +
+          'Install dependencies and make sure the tree-sitter-bash devDependency is present.',
         { cause: error },
       );
     }

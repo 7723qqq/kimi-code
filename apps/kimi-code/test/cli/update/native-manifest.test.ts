@@ -4,6 +4,7 @@ import {
   fetchNativeReleaseManifest,
   nativeBinaryUrl,
   nativeManifestUrl,
+  selectBunPlatformEntry,
   selectPlatformEntry,
 } from '#/cli/update/native-manifest';
 import { kimiCodeCdnBinariesBase } from '#/constant/app';
@@ -138,6 +139,35 @@ describe('selectPlatformEntry', () => {
   it('throws when the platform is missing', () => {
     expect(() => selectPlatformEntry(manifest, 'linux', 'arm64')).toThrow(
       /linux-arm64 not found/,
+    );
+  });
+});
+
+describe('selectBunPlatformEntry', () => {
+  const manifest = {
+    version: VERSION,
+    platforms: {
+      'linux-x64': { filename: 'kimi-code-linux-x64.zip', checksum: 'a'.repeat(64) },
+    },
+    bun: {
+      'linux-x64': { filename: 'kimi-code-bun-linux-x64.zip', checksum: 'b'.repeat(64) },
+    },
+  };
+
+  it('returns the bun-section entry matching platform-arch', () => {
+    expect(selectBunPlatformEntry(manifest, 'linux', 'x64')).toEqual(manifest.bun['linux-x64']);
+  });
+
+  it('refuses to fall back to the SEA binary when the bun section is missing', () => {
+    const seaOnly = { ...manifest, bun: undefined };
+    expect(() => selectBunPlatformEntry(seaOnly, 'linux', 'x64')).toThrow(
+      /does not publish a Bun build/,
+    );
+  });
+
+  it('refuses when the target is missing from the bun section only', () => {
+    expect(() => selectBunPlatformEntry(manifest, 'darwin', 'arm64')).toThrow(
+      /does not publish a Bun build for darwin-arm64/,
     );
   });
 });

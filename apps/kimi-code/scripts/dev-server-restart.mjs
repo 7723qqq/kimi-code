@@ -9,8 +9,8 @@
 // re-acquire 58627 without a stale-entry fight.
 //
 // CLI args after `--` (or any extras) are passed straight through, so:
-//   pnpm dev:server:restart -- --host 0.0.0.0 --port 58627 --log-level debug
-// is equivalent to `pnpm dev:server` with that arg list, but with the restart
+//   bun run dev:server:restart -- --host 0.0.0.0 --port 58627 --log-level debug
+// is equivalent to `bun run dev:server` with that arg list, but with the restart
 // loop on top.
 
 import { spawn } from 'node:child_process';

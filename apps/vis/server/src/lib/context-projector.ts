@@ -593,10 +593,10 @@ export function projectContext(
 }
 
 function addUsage(into: TokenUsage, src: TokenUsage): void {
-  (into as any).inputOther += src.inputOther;
-  (into as any).output += src.output;
-  (into as any).inputCacheRead += src.inputCacheRead;
-  (into as any).inputCacheCreation += src.inputCacheCreation;
+  into.inputOther += src.inputOther;
+  into.output += src.output;
+  into.inputCacheRead += src.inputCacheRead;
+  into.inputCacheCreation += src.inputCacheCreation;
 }
 
 const MICRO_TRUNCATED_MARKER = '[Old tool result content cleared]';

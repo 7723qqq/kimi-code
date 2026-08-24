@@ -27,7 +27,7 @@
  * `rewriteMediaPlaceholders` is the separate text channel for slash-command
  * args (`/skill`, plugin commands): those are plain text, so media is rendered
  * as a `<video|image path="…">` tag / plain-text reference into cache-dir
- * copies the model opens with `ReadMediaFile`.
+ * copies the model opens with `Read`.
  *
  * Rules for both:
  *   - Only placeholders that resolve against `store` get extracted.
@@ -368,7 +368,7 @@ export type MediaReferenceStyle = 'tag' | 'plain';
  * plugin commands) into references pointing at cache-dir copies. Command
  * args are a plain-text channel — unlike `extractMediaAttachments`, which
  * inlines image parts for the prompt endpoint — so the model reaches the
- * media through `ReadMediaFile` instead, the same way it already handles
+ * media through `Read` instead, the same way it already handles
  * pasted videos.
  *
  * Surrounding text is preserved verbatim (args are user content, not
@@ -512,7 +512,7 @@ function videoPartForAttachment(att: VideoAttachment): PromptPart {
 /**
  * Copy a pasted video into the shared cache for the slash-command args
  * channel (`rewriteMediaPlaceholders`): command args are plain text, so the
- * model reaches the video through `ReadMediaFile` on the cache copy — the
+ * model reaches the video through `Read` on the cache copy — the
  * prompt-part channel never stages one (see `videoPartForAttachment`).
  */
 function materializeVideoToCache(att: VideoAttachment, escapeProofName = false): string {
@@ -548,7 +548,7 @@ export function imageExtensionForMime(mime: string): string {
 function materializeImageToCache(att: ImageAttachment): string {
   const cacheDir = getCacheDir();
   mkdirSync(cacheDir, { recursive: true });
-  // ReadMediaFile sniffs the real format from the bytes, so the extension
+  // Read sniffs the real format from the bytes, so the extension
   // only needs to be a reasonable hint.
   const target = join(cacheDir, `${randomUUID()}.${imageExtensionForMime(att.mime)}`);
   writeFileSync(target, att.bytes);
@@ -716,5 +716,5 @@ function originalImageTempDir(): string {
  * `escapeXml`/`escapeXmlTags` untouched.
  */
 function formatMediaReference(kind: 'image' | 'video', path: string): string {
-  return `Attached ${kind} file: ${path} (open it with ReadMediaFile)`;
+  return `Attached ${kind} file: ${path} (open it with Read)`;
 }

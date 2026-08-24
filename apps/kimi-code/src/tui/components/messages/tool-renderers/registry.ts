@@ -12,7 +12,7 @@
 
 import { shellExecutionResultRenderer } from '../shell-execution';
 import { goalSummary } from './goal';
-import { readMediaSummary } from './media';
+import { parseReadMediaOutput, readMediaSummary } from './media';
 import { waitForSummary } from './wait-for';
 import {
   editSummary,
@@ -37,10 +37,15 @@ export function isGenericToolResult(toolName: string): boolean {
   return pickResultRenderer(toolName) === renderTruncated;
 }
 
+const readResultRenderer: ResultRenderer = (toolCall, result, ctx) =>
+  result.is_error !== true && parseReadMediaOutput(result.output) !== null
+    ? readMediaSummary(toolCall, result, ctx)
+    : readSummary(toolCall, result, ctx);
+
 export function pickResultRenderer(toolName: string): ResultRenderer {
   switch (toolName) {
     case 'Read':
-      return readSummary;
+      return readResultRenderer;
     case 'ReadMediaFile':
       return readMediaSummary;
     case 'Grep':

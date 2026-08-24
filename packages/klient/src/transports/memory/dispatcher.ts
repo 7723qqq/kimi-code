@@ -293,7 +293,13 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
             return {
               async next() {
                 await ensureStarted();
-                const result = await source!.next();
+                if (source === undefined) {
+                  throw new RPCError(
+                    REQUEST_INVALID,
+                    `stream failed to start: ${service}.${method}`,
+                  );
+                }
+                const result = await source.next();
                 if (result.done) return { done: true, value: undefined };
                 return { done: false, value: wireClone(result.value) };
               },
@@ -343,7 +349,13 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
           return {
             async next() {
               await ensureStarted();
-              const result = await source!.next();
+              if (source === undefined) {
+                throw new RPCError(
+                  REQUEST_INVALID,
+                  `stream failed to start: ${service}.${method}`,
+                );
+              }
+              const result = await source.next();
               if (result.done) return { done: true, value: undefined };
               return { done: false, value: wireClone(result.value) };
             },

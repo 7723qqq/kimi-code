@@ -239,7 +239,7 @@ export class TestInstantiationService
     return Boolean(service?.sinonOptions?.[key]);
   }
 
-  private _isServiceMock(arg: any): arg is IServiceMock<unknown> {
+  private _isServiceMock(arg: unknown): arg is IServiceMock<unknown> {
     return typeof arg === 'object' && arg !== null && 'id' in arg;
   }
 
@@ -283,7 +283,7 @@ export function createServices(
   options: CreateServicesOptions = {},
 ): TestInstantiationService {
   const serviceCollection = new ServiceCollection();
-  const instanceIds = new Set<ServiceIdentifier<any>>();
+  const instanceIds = new Set<ServiceIdentifier<unknown>>();
 
   const register = <T>(
     id: ServiceIdentifier<T>,

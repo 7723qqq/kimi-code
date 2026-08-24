@@ -429,7 +429,7 @@ async function runNativeTurn(
   await agent.accessor.get(IAuthSummaryService).ensureReady();
 
   const turnEndings = createPrintTurnEndings();
-  const subscription = agent.accessor.get(IEventBus).subscribe((event: Event2<any>) => {
+  const subscription = agent.accessor.get(IEventBus).subscribe((event) => {
     dispatchNativeEvent(writer, event, stderr);
     // Arm the turn-endings collector before `turn.result` settles so a
     // background-task completion that steers a new turn right after the main
@@ -526,7 +526,7 @@ async function runNativeGoal(
     replace: goal.replace,
   });
   let completedSnapshot: { readonly status: string } | null = null;
-  const subscription = agent.accessor.get(IEventBus).subscribe((event: Event2<any>) => {
+  const subscription = agent.accessor.get(IEventBus).subscribe((event) => {
     if (event.type === 'goal.updated') {
       const updated = event as unknown as GoalUpdated;
       if (updated.change?.kind === 'completion' && updated.snapshot !== null) {
@@ -552,7 +552,7 @@ async function runNativeGoal(
 
 function dispatchNativeEvent(
   writer: PromptTurnWriter,
-  event: Event2<any>,
+  event: Event2<unknown>,
   stderr: PromptOutput,
 ): void {
   switch (event.type) {
