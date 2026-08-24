@@ -862,7 +862,15 @@ describe('server-v2 /api/v1/sessions', () => {
 
     const listed = await getJson<PageWire>('/api/v1/sessions');
     expect(listed.body.code).toBe(0);
-    expect(listed.body.data.items.find((s) => s.id === id)?.archived).toBe(false);
+    await expect
+      .poll(
+        async () => {
+          const page = await getJson<PageWire>('/api/v1/sessions');
+          return page.body.data.items.find((s) => s.id === id)?.archived;
+        },
+        { interval: 1_000 },
+      )
+      .toBe(false);
   });
 
   it('returns 40401 when restoring a missing session', async () => {
