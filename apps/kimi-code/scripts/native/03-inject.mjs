@@ -91,7 +91,15 @@ async function injectSeaBlob(target) {
     const require = createRequire(import.meta.url);
     const { inject } = require(postjectApi);
     const blob = await readFile(nativeBlobPath());
-    await inject(out, 'NODE_SEA_BLOB', blob, { sentinelFuse });
+    // On darwin, Node's SEA runtime resolves the blob via
+    // getsectdata("NODE_SEA", "NODE_SEA_BLOB"); with any other segment name
+    // (postject defaults to "__POSTJECT") the executable dies silently right
+    // after exec. Same as upstream's `--macho-segment-name NODE_SEA`.
+    const injectOptions = { sentinelFuse };
+    if (process.platform === 'darwin') {
+      injectOptions.machoSegmentName = 'NODE_SEA';
+    }
+    await inject(out, 'NODE_SEA_BLOB', blob, injectOptions);
     console.log(`Injected NODE_SEA_BLOB via postject (${blob.length} bytes, fuse ${sentinelFuse})`);
     return;
   }
