@@ -52,9 +52,11 @@ try {
 } catch {
   // A missing or unreadable sweep directory must never block startup.
 }
-// No top-level await anywhere in this file: `bun build --compile --bytecode`
-// rejects graphs containing it. A pending dynamic import still keeps the
-// process alive until the imported main finishes starting.
+// No top-level await here: bytecode builds (KIMI_CODE_BUN_ENABLE_BYTECODE=1)
+// use Bun's default CommonJS output, which cannot express it; top-level await
+// works only with explicit `--format=esm` (supported since Bun 1.3.9). A
+// pending dynamic import still keeps the process alive until the imported
+// main finishes starting.
 async function bootstrap() {
   await import(pathToFileURL(mainPath).href);
 }

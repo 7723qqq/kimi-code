@@ -128,12 +128,19 @@ async function buildBunNative() {
 
   const outfile = nativeBinPath(target);
   mkdirSync(dirname(outfile), { recursive: true });
-  const useBytecode = process.env.KIMI_CODE_BUN_NO_BYTECODE !== '1';
+  // Bytecode is opt-in: measured no startup gain on this pipeline (only the
+  // entry shim gets bytecode'd; the main.cjs bundle is imported from disk,
+  // outside the bytecode graph), and it adds size plus a lock to the exact
+  // Bun version that built the artifact.
+  const useBytecode = process.env.KIMI_CODE_BUN_ENABLE_BYTECODE === '1';
   console.log(`==> bun build --compile --target=${bunTarget}${useBytecode ? ' --bytecode' : ''}`);
   const buildArgs = ['build', '--compile', '--target', bunTarget];
   if (useBytecode) {
     buildArgs.push('--bytecode');
   }
+  // Compiled executables would otherwise autoload .env / bunfig.toml from the
+  // user's cwd at runtime, silently diverging from Node/SEA behavior.
+  buildArgs.push('--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig');
   buildArgs.push('--outfile', outfile, join(stageRoot, 'bun-entry.ts'));
   await run(resolveBun(), buildArgs);
 
