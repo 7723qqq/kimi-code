@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 
 import { getHostPackageRoot } from '#/cli/version';
@@ -9,33 +8,16 @@ import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import { NPM_PACKAGE_NAME, type InstallSource } from './types';
 
-const nodeRequire = createRequire(import.meta.url);
-
-/** How the running binary was packaged: a Node SEA blob or a compiled Bun binary. */
+/** How the running binary was packaged. `sea` is kept for staged-update
+ * records written by older builds; new packaged binaries are always `bun`. */
 export type NativeInstallKind = 'sea' | 'bun';
 
 export type NativeInstallDetection =
   | { readonly native: false }
   | { readonly native: true; readonly kind: NativeInstallKind };
 
-interface NodeSeaModule {
-  isSea(): boolean;
-}
-
-let cachedSea: NodeSeaModule | null | undefined;
-
-function loadSeaModule(): NodeSeaModule | null {
-  if (cachedSea !== undefined) return cachedSea;
-  try {
-    cachedSea = nodeRequire('node:sea') as NodeSeaModule;
-  } catch {
-    cachedSea = null;
-  }
-  return cachedSea;
-}
-
-// Bun does not implement node:sea, so its packaged builds are recognized by
-// the embedded-asset marker that scripts/native/bun-entry.ts registers.
+// Bun packaged builds are recognized by the embedded-asset marker that
+// scripts/native/bun-entry.ts registers.
 function detectBunNativeInstall(): NativeInstallDetection | null {
   if ((globalThis as unknown as { Bun?: unknown }).Bun === undefined) return null;
   if (getBunEmbeddedAssetSource() === null) return null;
@@ -46,13 +28,7 @@ function detectBunNativeInstall(): NativeInstallDetection | null {
 export function detectNativeInstall(): NativeInstallDetection {
   const bun = detectBunNativeInstall();
   if (bun !== null) return bun;
-  const sea = loadSeaModule();
-  if (sea === null) return { native: false };
-  try {
-    return sea.isSea() ? { native: true, kind: 'sea' } : { native: false };
-  } catch {
-    return { native: false };
-  }
+  return { native: false };
 }
 
 // Path heuristic markers (compared in lowercase; both forward and backward slashes accepted).

@@ -71,7 +71,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 });
 
 const VERSION = '0.7.0';
-const PAYLOAD = Buffer.from('fake-sea-binary-payload');
+const PAYLOAD = Buffer.from('fake-bun-binary-payload');
 // The CDN serves the bare platform binary; the manifest checksum is its sha256.
 const BINARY_FILENAME = 'kimi-code-linux-x64';
 const BUN_PAYLOAD = Buffer.from('fake-bun-binary-payload');
@@ -101,22 +101,15 @@ function mockCdnFetch(options: MockCdnOptions): typeof fetch {
   const manifestBody = JSON.stringify({
     version,
     tag: `v${version}`,
-    platforms: {
+    bun: {
       'linux-x64': {
-        filename: BINARY_FILENAME,
-        checksum: options.checksum ?? sha256Hex(options.payload),
+        filename: options.bun === undefined ? BINARY_FILENAME : BUN_BINARY_FILENAME,
+        checksum:
+          options.bun === undefined
+            ? (options.checksum ?? sha256Hex(options.payload))
+            : sha256Hex(options.bun.payload),
       },
     },
-    ...(options.bun === undefined
-      ? {}
-      : {
-          bun: {
-            'linux-x64': {
-              filename: BUN_BINARY_FILENAME,
-              checksum: sha256Hex(options.bun.payload),
-            },
-          },
-        }),
   });
   return vi.fn(async (input: string | URL) => {
     const url = String(input);
@@ -237,15 +230,25 @@ describe('stageNativeUpdate', () => {
     expect(exeBytes.equals(BUN_PAYLOAD)).toBe(true);
   });
 
-  it('refuses to stage when engine is bun but the release publishes no Bun builds', async () => {
+  it('refuses to stage when the release publishes no Bun builds', async () => {
+    const fetchImpl = vi.fn(async (input: string | URL) => {
+      if (String(input) === nativeManifestUrl(VERSION)) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ version: VERSION, bun: {} }),
+          body: null,
+        };
+      }
+      return { ok: false, status: 404, text: async () => '', body: null };
+    }) as unknown as typeof fetch;
     await expect(
       stageNativeUpdate({
         version: VERSION,
         exePath,
         platform: 'linux',
         arch: 'x64',
-        engine: 'bun',
-        fetchImpl: mockCdnFetch({ payload: PAYLOAD }),
+        fetchImpl,
       }),
     ).rejects.toThrow(/does not publish a Bun build/);
     // Nothing was staged and no leftovers were left behind.
@@ -299,7 +302,7 @@ describe('stageNativeUpdate', () => {
   it('aborts a stalled download after the idle timeout', async () => {
     const manifestBody = JSON.stringify({
       version: VERSION,
-      platforms: {
+      bun: {
         'linux-x64': { filename: BINARY_FILENAME, checksum: 'a'.repeat(64) },
       },
     });
@@ -495,7 +498,7 @@ describe('stageNativeUpdate', () => {
         arch: 'arm64',
         fetchImpl: mockCdnFetch({ payload: PAYLOAD }),
       }),
-    ).rejects.toThrow(/win32-arm64 not found/);
+    ).rejects.toThrow(/does not publish a Bun build for win32-arm64/);
   });
 
   it('rejects a traversal version before deriving any filesystem path', async () => {
@@ -679,7 +682,7 @@ describe('stageNativeUpdate', () => {
       if (url === nativeManifestUrl(VERSION)) {
         const manifestBody = JSON.stringify({
           version: VERSION,
-          platforms: {
+          bun: {
             'linux-x64': { filename: BINARY_FILENAME, checksum: sha256Hex(PAYLOAD) },
           },
         });
@@ -726,7 +729,7 @@ describe('stageNativeUpdate', () => {
       if (url === nativeManifestUrl(VERSION)) {
         const manifestBody = JSON.stringify({
           version: VERSION,
-          platforms: {
+          bun: {
             'linux-x64': { filename: BINARY_FILENAME, checksum: sha256Hex(PAYLOAD) },
           },
         });

@@ -24,7 +24,6 @@ import {
   fetchNativeReleaseManifest,
   nativeBinaryUrl,
   selectBunPlatformEntry,
-  selectPlatformEntry,
 } from './native-manifest';
 import type { NativeInstallKind } from './source';
 
@@ -449,7 +448,7 @@ export async function stageNativeUpdate(
     sha256: '',
     exeSize: 0,
     stagedAt: new Date().toISOString(),
-    engine: options.engine ?? 'sea',
+    engine: options.engine ?? 'bun',
     manual: options.manual === true ? true : undefined,
   };
 
@@ -459,10 +458,7 @@ export async function stageNativeUpdate(
   const partPath = join(stagingDir, `${exeFileName}.part`);
   try {
     const manifest = await fetchNativeReleaseManifest(options.version, fetchImpl);
-    const entry =
-      options.engine === 'bun'
-        ? selectBunPlatformEntry(manifest, platform, arch)
-        : selectPlatformEntry(manifest, platform, arch);
+    const entry = selectBunPlatformEntry(manifest, platform, arch);
     const size = await downloadAndHash(
       nativeBinaryUrl(options.version, entry.filename),
       partPath,

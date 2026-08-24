@@ -8,7 +8,7 @@ import {
   WEB_ASSET_MANIFEST_VERSION as MANIFEST_VERSION,
   buildWebManifestKey,
 } from './manifest-keys';
-import { getNativeCacheBase, getSeaAssetSource, type NativeAssetSource } from './native-assets';
+import { getNativeCacheBase, getEmbeddedAssetSource, type NativeAssetSource } from './native-assets';
 
 export const WEB_ASSET_MANIFEST_VERSION = MANIFEST_VERSION;
 
@@ -116,7 +116,7 @@ export function webAssetManifestKey(target: string = currentTarget()): string {
 }
 
 export function getEmbeddedWebAssetManifest(
-  source: WebAssetSource | null = getSeaAssetSource(),
+  source: WebAssetSource | null = getEmbeddedAssetSource(),
   target = currentTarget(),
 ): WebAssetManifest | null {
   if (source === null) return null;
@@ -158,7 +158,7 @@ export function getWebAssetCacheRoot(
 }
 
 export function getNativeWebAssetsDir(options: WebAssetOptions = {}): string | null {
-  const source = options.source ?? getSeaAssetSource();
+  const source = options.source ?? getEmbeddedAssetSource();
   if (source === null) return null;
 
   const manifest = options.manifest ?? getEmbeddedWebAssetManifest(source, currentTarget());

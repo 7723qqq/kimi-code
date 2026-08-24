@@ -348,8 +348,7 @@ export function execSideHelperTargets(manifest) {
 
 /**
  * Copy the collected pi-tui helpers into the exec-side layout next to the
- * built binary. Called by both pipelines (SEA: build.mjs, Bun:
- * build-bun.mjs) after the executable exists.
+ * built binary. Called by build-bun.mjs after the executable exists.
  */
 export async function stageExecSideNativeHelpers({ target, manifest, assets, binDir }) {
   const resolvedBinDir = binDir ?? nativeBinDir(target);

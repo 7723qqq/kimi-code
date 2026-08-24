@@ -34,7 +34,7 @@ if not exist "packages\kimi-native-tools\kimi-native-tools.win32-x64-msvc.node" 
 REM Build the SEA executable (one-time, skip if already built).
 if not exist "apps\kimi-code\dist-native\bin\win32-x64\kimi.exe" (
     echo Building SEA executable...
-    call bun run --cwd apps/kimi-code build:native:sea
+    call bun run --cwd apps/kimi-code build:native:bun
     if errorlevel 1 (
         echo [ERROR] SEA build failed.
         pause
