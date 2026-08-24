@@ -91,7 +91,7 @@
     "ssh2"
   ],
   "simple-git-hooks": {
-    "pre-commit": "npx lint-staged"
+    "pre-commit": "bunx lint-staged"
   },
   "lint-staged": {
     "concurrent": "false",
