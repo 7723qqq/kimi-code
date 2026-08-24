@@ -769,6 +769,9 @@ importers:
       '@moonshot-ai/agent-core-v2':
         specifier: workspace:*
         version: link:../agent-core-v2
+      '@napi-rs/cli':
+        specifier: ^3.0.0
+        version: 3.8.2(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(node-addon-api@8.9.0)
 
   packages/kimi-native-tools:
     devDependencies:
@@ -11391,6 +11394,38 @@ snapshots:
       is-node-process: 1.2.0
       outvariant: 1.4.3
       strict-event-emitter: 0.5.1
+
+  '@napi-rs/cli@3.8.2(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(node-addon-api@8.9.0)':
+    dependencies:
+      '@inquirer/prompts': 8.5.2(@types/node@22.19.17)
+      '@napi-rs/cross-toolchain': 1.0.3
+      '@napi-rs/wasm-tools': 1.1.0
+      '@octokit/rest': 22.0.1
+      clipanion: 4.0.0-rc.4(typanion@3.14.0)
+      colorette: 2.0.20
+      emnapi: 2.0.0-alpha.3(node-addon-api@8.9.0)
+      es-toolkit: 1.47.0
+      js-yaml: 5.2.3
+      obug: 2.1.4
+      semver: 7.8.5
+      typanion: 3.14.0
+      typescript: 6.0.3
+    optionalDependencies:
+      '@emnapi/runtime': 1.10.0
+    transitivePeerDependencies:
+      - '@napi-rs/cross-toolchain-arm64-target-aarch64'
+      - '@napi-rs/cross-toolchain-arm64-target-armv7'
+      - '@napi-rs/cross-toolchain-arm64-target-ppc64le'
+      - '@napi-rs/cross-toolchain-arm64-target-s390x'
+      - '@napi-rs/cross-toolchain-arm64-target-x86_64'
+      - '@napi-rs/cross-toolchain-x64-target-aarch64'
+      - '@napi-rs/cross-toolchain-x64-target-armv7'
+      - '@napi-rs/cross-toolchain-x64-target-ppc64le'
+      - '@napi-rs/cross-toolchain-x64-target-s390x'
+      - '@napi-rs/cross-toolchain-x64-target-x86_64'
+      - '@types/node'
+      - node-addon-api
+      - supports-color
 
   '@napi-rs/cli@3.8.2(@emnapi/runtime@1.9.2)(@types/node@22.19.17)(node-addon-api@8.9.0)':
     dependencies:

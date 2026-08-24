@@ -12,7 +12,11 @@
     },
     "./package.json": "./package.json"
   },
+  "scripts": {
+    "build": "napi build --platform --release --dts target/napi-generated.d.ts"
+  },
   "devDependencies": {
-    "@moonshot-ai/agent-core-v2": "workspace:*"
+    "@moonshot-ai/agent-core-v2": "workspace:*",
+    "@napi-rs/cli": "^3.0.0"
   }
 }
