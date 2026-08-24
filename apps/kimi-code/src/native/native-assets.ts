@@ -9,7 +9,6 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, win32 as pathWin32 } from 'node:path';
 
@@ -64,25 +63,6 @@ export interface NativeAssetOptions {
   readonly platform?: NodeJS.Platform;
   readonly homeDir?: string;
   readonly version?: string;
-}
-
-interface NodeSeaModule {
-  isSea(): boolean;
-  getAssetKeys(): string[];
-  getRawAsset(assetKey: string): ArrayBuffer;
-}
-
-const nodeRequire = createRequire(import.meta.url);
-let seaModule: NodeSeaModule | null | undefined;
-
-function loadSeaModule(): NodeSeaModule | null {
-  if (seaModule !== undefined) return seaModule;
-  try {
-    seaModule = nodeRequire('node:sea') as NodeSeaModule;
-  } catch {
-    seaModule = null;
-  }
-  return seaModule;
 }
 
 function currentTarget(): string {
@@ -268,19 +248,12 @@ function sanitizeSegment(value: string): string {
   return sanitized.length > 0 ? sanitized : 'unknown';
 }
 
-export function getSeaAssetSource(): NativeAssetSource | null {
-  const sea = loadSeaModule();
-  if (sea !== null && sea.isSea()) {
-    return {
-      getAssetKeys: () => sea.getAssetKeys(),
-      getRawAsset: (assetKey) => sea.getRawAsset(assetKey),
-    };
-  }
+export function getEmbeddedAssetSource(): NativeAssetSource | null {
   return getBunEmbeddedAssetSource();
 }
 
 export function getEmbeddedNativeAssetManifest(
-  source = getSeaAssetSource(),
+  source = getEmbeddedAssetSource(),
   target = currentTarget(),
 ): NativeAssetManifest | null {
   if (source === null) return null;
@@ -378,7 +351,7 @@ function ensureEntryFile(cacheRoot: string): void {
 }
 
 export function ensureNativeAssetTree(options: NativeAssetOptions = {}): string | null {
-  const source = options.source ?? getSeaAssetSource();
+  const source = options.source ?? getEmbeddedAssetSource();
   if (source === null) return null;
 
   const rawManifest = options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
@@ -406,7 +379,7 @@ export function ensureNativeAssetTree(options: NativeAssetOptions = {}): string 
 }
 
 export function getNativeRuntimeFile(key: string, options: NativeAssetOptions = {}): string | null {
-  const source = options.source ?? getSeaAssetSource();
+  const source = options.source ?? getEmbeddedAssetSource();
   if (source === null) return null;
 
   const rawManifest = options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
@@ -432,7 +405,7 @@ export function getNativePackageRoot(
   packageName: string,
   options: NativeAssetOptions = {},
 ): string | null {
-  const source = options.source ?? getSeaAssetSource();
+  const source = options.source ?? getEmbeddedAssetSource();
   if (source === null) return null;
 
   const rawManifest = options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
@@ -544,7 +517,7 @@ export function cleanupStaleNativeCache(options: CleanupOptions): CleanupResult 
 export function cleanupStaleNativeCacheForCurrent(
   options: NativeAssetOptions = {},
 ): CleanupResult | null {
-  const source = options.source ?? getSeaAssetSource();
+  const source = options.source ?? getEmbeddedAssetSource();
   if (source === null) return null;
 
   const manifest = options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());

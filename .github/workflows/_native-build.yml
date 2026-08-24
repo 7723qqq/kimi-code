@@ -18,19 +18,6 @@ on:
         required: false
         type: boolean
         default: false
-      build-bun:
-        description: 'Also build the experimental Bun single-file binaries (all targets)'
-        required: false
-        type: boolean
-        default: false
-      build-sea:
-        description: >-
-          Build the legacy Node SEA binaries (all targets). Must stay true
-          during the dual-engine retention period so existing SEA clients can
-          keep auto-updating.
-        required: false
-        type: boolean
-        default: true
     secrets:
       APPLE_CERTIFICATE_P12:
         required: false
@@ -47,131 +34,9 @@ permissions:
   contents: read
 
 jobs:
-  native-bundle:
+  native-bundle-bun:
     name: Native bundle (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
-    if: inputs.build-sea == true
-    # Relay secret presence through env: the secrets context is not available in
-    # step-level if expressions. When sign-macos is requested but the APPLE_*
-    # secrets are not configured (e.g. forks), macOS signing steps are skipped
-    # and the job falls back to the local-profile build instead of failing.
-    env:
-      APPLE_SECRETS_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            target: linux-x64
-          - os: ubuntu-24.04-arm
-            target: linux-arm64
-          - os: macos-15-intel
-            target: darwin-x64
-          - os: macos-15
-            target: darwin-arm64
-          - os: windows-2025-vs2026
-            target: win32-x64
-          - os: windows-11-arm
-            target: win32-arm64
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Bun (package manager)
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-
-      - name: Cache Bun packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install Rust toolchain (napi native-tools)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build kimi-native-tools (.node for SEA blob)
-        run: cd packages/kimi-native-tools && bun run build
-
-      - name: Build kimi-agent (.node for SEA blob)
-        run: cd packages/kimi-agent && bun run build
-
-      - name: Warn when Apple signing secrets are missing
-        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED != 'true'
-        shell: bash
-        run: echo "::warning::APPLE_* secrets are not configured in this repo; skipping macOS code signing and notarization (building local profile instead)."
-
-      - name: Setup macOS keychain (release only)
-        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
-        uses: ./.github/actions/macos-keychain-setup
-        with:
-          certificate-p12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-
-      - name: Generate built-in catalog (release artifacts)
-        if: inputs.sign-macos
-        shell: bash
-        run: |
-          CATALOG_FILE="$RUNNER_TEMP/kimi-code-built-in-catalog.json"
-          node apps/kimi-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
-          echo "KIMI_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
-
-      - name: Build Kimi web assets
-        # The SEA blob step embeds apps/kimi-code/dist-web. The bundle is
-        # committed (synced from the code-app repo) — just verify it is in place.
-        run: node apps/kimi-code/scripts/check-web-assets.mjs
-
-      - name: Build native executable (release profile, macOS signed)
-        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
-        run: cd apps/kimi-code && bun run build:native:release
-
-      - name: Build native executable (local profile)
-        if: '!(runner.os == ''macOS'' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == ''true'')'
-        run: cd apps/kimi-code && bun run build:native:sea
-
-      - name: Notarize macOS binary
-        if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
-        uses: ./.github/actions/macos-notarize
-        with:
-          binary-path: ${{ github.workspace }}/apps/kimi-code/dist-native/bin/${{ matrix.target }}/kimi
-          notarization-key-p8: ${{ secrets.APPLE_NOTARIZATION_KEY_P8 }}
-          notarization-key-id: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
-          notarization-issuer-id: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
-
-      - name: Cleanup macOS keychain
-        if: always() && runner.os == 'macOS' && inputs.sign-macos
-        uses: ./.github/actions/macos-keychain-cleanup
-
-      - name: Smoke test native executable
-        run: cd apps/kimi-code && bun run test:native:smoke
-
-      - name: Package native artifact
-        run: cd apps/kimi-code && bun run package:native
-
-      - name: Upload native artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ inputs.upload-artifact-prefix }}-${{ matrix.target }}
-          retention-days: ${{ inputs.retention-days }}
-          path: |
-            apps/kimi-code/dist-native/artifacts/kimi-code-${{ matrix.target }}.zip
-            apps/kimi-code/dist-native/artifacts/kimi-code-${{ matrix.target }}.zip.sha256
-          if-no-files-found: ignore
-
-  native-bundle-bun:
-    name: Native bundle (bun, ${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
-    if: inputs.build-bun == true
     # See the comment on the native-bundle job env block above.
     env:
       APPLE_SECRETS_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}

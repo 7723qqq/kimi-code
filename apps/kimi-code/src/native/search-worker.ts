@@ -9,7 +9,7 @@ import { KAP_SEARCH_WORKER_ASSET } from '../../scripts/native/manifest.mjs';
 import {
   getEmbeddedNativeAssetManifest,
   getKapSearchWorkerFile,
-  getSeaAssetSource,
+  getEmbeddedAssetSource,
   type NativeAssetOptions,
 } from './native-assets';
 
@@ -41,7 +41,7 @@ function errorCode(error: unknown): string {
 export function installKapSearchWorker(
   options: NativeAssetOptions = {},
 ): KapSearchWorkerInstallStatus {
-  const source = options.source ?? getSeaAssetSource();
+  const source = options.source ?? getEmbeddedAssetSource();
   if (source === null) return { status: 'not-sea' };
 
   let assetSha256: string | undefined;

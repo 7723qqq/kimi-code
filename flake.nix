@@ -2,9 +2,8 @@
   description = "Kimi Code CLI";
 
   inputs = {
-    # Pinned to the 25.11 release channel because nixpkgs-unstable currently
-    # ships nodejs_24 = 24.14.1, which trips the >= 24.15.0 floor that the
-    # native SEA build enforces (see apps/kimi-code/scripts/native/build.mjs).
+    # Pinned to the 25.11 release channel to keep Node.js >= 24.15 available
+    # for the test suites and tooling that run alongside the packaging steps.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
   };
 
@@ -299,7 +298,7 @@ EOF
                 # but not the inspection mode (`-dv`) that 05-verify.mjs runs
                 # afterwards. Disable the verify step for the Nix build; the
                 # release CI keeps it via the unmodified script.
-                substituteInPlace apps/kimi-code/scripts/native/build.mjs \
+                substituteInPlace apps/kimi-code/scripts/native/build-bun.mjs \
                   --replace-fail \
                     "await runVerifyStep({ requireGatekeeper: false });" \
                     "// runVerifyStep skipped in nix sandbox (sigtool lacks -dv)"
@@ -329,7 +328,7 @@ EOF
               # missing. The bundle is committed (synced from the code-app
               # repo) — verify it is in place before producing the binary.
               node apps/kimi-code/scripts/check-web-assets.mjs
-              (cd apps/kimi-code && bun run build:native:sea)
+              (cd apps/kimi-code && bun run build:native:bun)
               runHook postBuild
             '';
 

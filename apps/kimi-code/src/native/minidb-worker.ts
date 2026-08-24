@@ -11,7 +11,7 @@ import { MINIDB_TEXT_BUILD_WORKER_ASSET } from '../../scripts/native/manifest.mj
 import {
   getEmbeddedNativeAssetManifest,
   getMinidbTextBuildWorkerFile,
-  getSeaAssetSource,
+  getEmbeddedAssetSource,
   type NativeAssetOptions,
 } from './native-assets';
 
@@ -39,7 +39,7 @@ function errorCode(error: unknown): string {
 export function installMinidbTextBuildWorker(
   options: NativeAssetOptions = {},
 ): MinidbTextBuildWorkerInstallStatus {
-  const source = options.source ?? getSeaAssetSource();
+  const source = options.source ?? getEmbeddedAssetSource();
   if (source === null) return { status: 'not-sea' };
 
   let assetSha256: string | undefined;

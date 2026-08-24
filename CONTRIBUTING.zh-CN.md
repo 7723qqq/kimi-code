@@ -54,41 +54,36 @@ bun install
 - `bun run lint:fix` — oxlint 自动修复
 - `bun run build` — 构建全部包
 
-### Bun 迁移（实验性）
+### 原生构建（自包含二进制）
 
-实验性的单文件构建方案：用 Bun 编译 CLI，替代 Node.js SEA。前置要求：Bun >= 1.4（一行安装命令 `curl -fsSL https://bun.sh/install | bash`，详见 [bun.sh](https://bun.sh)）；构建脚本本身仍由 Node.js >= 24.15 运行；Rust 工具链仍然必需，因为需要嵌入 `kimi-native-tools` 的 `.node` 二进制。
+原生构建用 Bun 把 CLI 编译为单文件可执行文件。需要 Bun >= 1.4（`curl -fsSL https://bun.sh/install | bash`；详见 [bun.sh](https://bun.sh)）。构建脚本本身仍由 Node.js >= 24.15 运行；Rust 工具链必需，因为要嵌入 `kimi-native-tools` 的 `.node` 二进制。
 
-在 `apps/kimi-code` 下运行 `node scripts/native/build-bun.mjs`（或 `bun run build:native:bun`），然后用现有的冒烟测试验证：
+在 `apps/kimi-code` 下运行：
 
 ```sh
 node scripts/native/build-bun.mjs
 bun run test:native:smoke
 ```
 
-`--profile=release`（`bun run build:native:bun:release`）与 SEA 的 release profile 对齐：生成内置目录，macOS 上用 `APPLE_SIGNING_IDENTITY` 签名并运行 codesign 自检。CI 通过 `_native-build.yml` 的 `build-bun` 输入构建全部六个目标（经 `KIMI_CODE_NATIVE_ENGINE=bun` 打包为 `kimi-code-bun-<target>.zip`）。
+`--profile=release`（`bun run build:native:bun:release`）会生成内置目录，macOS 上用 `APPLE_SIGNING_IDENTITY` 签名并运行 codesign 自检。CI 通过 `_native-build.yml` 的 `native-bundle-bun` job 构建全部六个目标（经 `KIMI_CODE_NATIVE_ENGINE=bun` 打包为 `kimi-code-bun-<target>.zip`）。
 
 产物输出到 `apps/kimi-code/dist-native/bin/<target>/kimi`。
 
 Bun 字节码默认关闭：在本流水线上实测启动无收益，而字节码会增大产物体积，且与构建时的 Bun 版本强绑定。设置 `KIMI_CODE_BUN_ENABLE_BYTECODE=1` 可显式嵌入字节码。开启时注意模块格式：裸 `--bytecode` 默认输出 CommonJS，无法表达顶层 `await`；Bun 自 v1.3.9 起在 `--format=esm` 下支持顶层 `await`，但本流水线保持 CJS 默认值，因此编译入口必须避免顶层 `await`。
 
-运行时集成在可能的情况下与 SEA 路径共用：
+运行时集成说明：
 
 - 与 pnpm 时代的一个开发行为差异：Bun 会自动加载 `.env`（pnpm 不会）。需要旧行为时给 `bun` 加 `--no-env-file`。
-- 打包产物在加载时从提取的资产缓存解析 node-pty（含 PTY bindings）与 pi-tui 平台 helper，统一入口是 `apps/kimi-code/src/native/node-pty.ts`；原先被取代的按模块 hook 垫片（约 780 行死代码）已删除。release 冒烟测试会在 CI 运行的每个目标上 dlopen PTY binding。
-- 宿主终端会话在两种运行时下均可工作，并为 Bun 适配了 UTF-8 流解码。
-- 内置 URL-fetch 默认走捆绑的 `undici` fetch，保证 SSRF 防护语义跨引擎一致（Bun 的全局 fetch 会静默忽略其 pinned-DNS dispatcher 选项）。
-- 自更新感知引擎：native manifest 记录引擎信息，Bun 打包的二进制会下载发布中对应的 Bun 产物，并拒绝被静默换回 Node SEA 二进制。
+- 打包产物在加载时从提取的资产缓存解析 node-pty（含 PTY bindings）与 pi-tui 平台 helper，统一入口是 `apps/kimi-code/src/native/node-pty.ts`。release 冒烟测试会在 CI 运行的每个目标上 dlopen PTY binding。
+- 内置 URL-fetch 默认走捆绑的 `undici` fetch，保证 SSRF 防护语义一致。
+- 自更新感知引擎：native manifest 只携带 Bun 段，Bun 打包的二进制下载发布中对应的 Bun 产物，拒绝回退到任何其他引擎的二进制。
 - `/status` 报告打包引擎与原生工具实现（`Runtime  bun · rust`）。
 
-当前状态注意事项：该流水线是实验性的，与默认的 SEA 流水线（`build:native:sea`）并行，后者仍是发布版本的默认选择。目前仅在 linux-x64 上实测验证过；其余五个平台可在 CI 构建，但仍在验证中。交叉目标暂存需要在本地存在目标平台对应的包（否则收集器会快速失败）。两条流水线使用同一套提取/缓存层。
-
-对比同一目标两个引擎的启动开销：把两次构建分别复制保存（两者都写到 `dist-native/bin/<target>/kimi`），然后运行：
+测量一次构建的启动开销：先把产物复制另存（构建会写入 `dist-native/bin/<target>/kimi`），然后运行：
 
 ```sh
-node scripts/native/bench-native.mjs /tmp/kimi-sea /tmp/kimi-bun --runs 20
+node scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 ```
-
-路线图：最终目标是让 Bun 完全取代 Node.js SEA 成为唯一发布引擎，退役 SEA 构建链。近期路径为：全平台 CI 验证 → 治理字节码/顶层 await 限制 → 切换默认引擎并退役 SEA。在此之前，发布二进制仍默认由 Node SEA 产出。
 
 ### Nix 构建
 

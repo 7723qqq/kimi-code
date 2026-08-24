@@ -6,7 +6,6 @@
   "workspaces": {
     "packages": [
       "packages/*",
-      "!packages/kimi-build",
       "apps/*",
       "!apps/kimi-web",
       "apps/vis/server",

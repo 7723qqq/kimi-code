@@ -5,7 +5,6 @@ import {
   nativeBinaryUrl,
   nativeManifestUrl,
   selectBunPlatformEntry,
-  selectPlatformEntry,
 } from '#/cli/update/native-manifest';
 import { kimiCodeCdnBinariesBase } from '#/constant/app';
 
@@ -26,13 +25,13 @@ function mockFetch(response: {
 const MANIFEST_BODY = JSON.stringify({
   version: VERSION,
   tag: `@moonshot-ai/kimi-code@${VERSION}`,
-  platforms: {
+  bun: {
     'win32-x64': {
-      filename: `kimi-code-win32-x64.zip`,
+      filename: `kimi-code-bun-win32-x64.zip`,
       checksum: 'a'.repeat(64),
     },
     'darwin-arm64': {
-      filename: `kimi-code-darwin-arm64.zip`,
+      filename: `kimi-code-bun-darwin-arm64.zip`,
       checksum: 'b'.repeat(64),
     },
   },
@@ -43,7 +42,7 @@ describe('fetchNativeReleaseManifest', () => {
     const f = mockFetch({ ok: true, status: 200, body: MANIFEST_BODY });
     const manifest = await fetchNativeReleaseManifest(VERSION, f);
     expect(manifest.version).toBe(VERSION);
-    expect(Object.keys(manifest.platforms)).toEqual(['win32-x64', 'darwin-arm64']);
+    expect(Object.keys(manifest.bun)).toEqual(['win32-x64', 'darwin-arm64']);
     expect(f).toHaveBeenCalledWith(
       nativeManifestUrl(VERSION),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -53,7 +52,7 @@ describe('fetchNativeReleaseManifest', () => {
   it('ignores unknown fields (lenient parsing)', async () => {
     const body = JSON.stringify({
       version: VERSION,
-      platforms: {},
+      bun: {},
       futureField: { nested: true },
     });
     const manifest = await fetchNativeReleaseManifest(VERSION, mockFetch({ ok: true, status: 200, body }));
@@ -69,7 +68,7 @@ describe('fetchNativeReleaseManifest', () => {
   it('rejects a manifest served for a different release', async () => {
     // A stale/mispublished endpoint answering with another version's manifest
     // must not apply that release's checksums to this version's binary.
-    const body = JSON.stringify({ version: '0.9.9', platforms: {} });
+    const body = JSON.stringify({ version: '0.9.9', bun: {} });
     await expect(
       fetchNativeReleaseManifest(VERSION, mockFetch({ ok: true, status: 200, body })),
     ).rejects.toThrow(/0\.9\.9/);
@@ -84,7 +83,7 @@ describe('fetchNativeReleaseManifest', () => {
   it('throws on a malformed checksum', async () => {
     const body = JSON.stringify({
       version: VERSION,
-      platforms: { 'win32-x64': { filename: 'kimi-code-win32-x64.zip', checksum: 'xyz' } },
+      bun: { 'win32-x64': { filename: 'kimi-code-bun-win32-x64.zip', checksum: 'xyz' } },
     });
     await expect(
       fetchNativeReleaseManifest(VERSION, mockFetch({ ok: true, status: 200, body })),
@@ -122,35 +121,11 @@ describe('fetchNativeReleaseManifest', () => {
   });
 });
 
-describe('selectPlatformEntry', () => {
-  const manifest = {
-    version: VERSION,
-    platforms: {
-      'win32-x64': { filename: 'kimi-code-win32-x64.zip', checksum: 'a'.repeat(64) },
-    },
-  };
-
-  it('returns the entry matching platform-arch', () => {
-    expect(selectPlatformEntry(manifest, 'win32', 'x64')).toEqual(
-      manifest.platforms['win32-x64'],
-    );
-  });
-
-  it('throws when the platform is missing', () => {
-    expect(() => selectPlatformEntry(manifest, 'linux', 'arm64')).toThrow(
-      /linux-arm64 not found/,
-    );
-  });
-});
-
 describe('selectBunPlatformEntry', () => {
   const manifest = {
     version: VERSION,
-    platforms: {
-      'linux-x64': { filename: 'kimi-code-linux-x64.zip', checksum: 'a'.repeat(64) },
-    },
     bun: {
-      'linux-x64': { filename: 'kimi-code-bun-linux-x64.zip', checksum: 'b'.repeat(64) },
+      'linux-x64': { filename: 'kimi-code-bun-linux-x64.zip', checksum: 'a'.repeat(64) },
     },
   };
 
@@ -158,14 +133,13 @@ describe('selectBunPlatformEntry', () => {
     expect(selectBunPlatformEntry(manifest, 'linux', 'x64')).toEqual(manifest.bun['linux-x64']);
   });
 
-  it('refuses to fall back to the SEA binary when the bun section is missing', () => {
-    const seaOnly = { ...manifest, bun: undefined };
-    expect(() => selectBunPlatformEntry(seaOnly, 'linux', 'x64')).toThrow(
-      /does not publish a Bun build/,
+  it('throws when the bun section is missing', () => {
+    expect(() => selectBunPlatformEntry({ version: VERSION }, 'linux', 'x64')).toThrow(
+      /does not publish a Bun build for linux-x64/,
     );
   });
 
-  it('refuses when the target is missing from the bun section only', () => {
+  it('throws when the target is missing from the bun section', () => {
     expect(() => selectBunPlatformEntry(manifest, 'darwin', 'arm64')).toThrow(
       /does not publish a Bun build for darwin-arm64/,
     );
@@ -175,8 +149,8 @@ describe('selectBunPlatformEntry', () => {
 describe('url helpers', () => {
   it('builds the manifest and binary URLs from the binaries base', () => {
     expect(nativeManifestUrl(VERSION)).toBe(`${kimiCodeCdnBinariesBase()}/${VERSION}/manifest.json`);
-    expect(nativeBinaryUrl(VERSION, 'kimi-code-win32-x64.zip')).toBe(
-      `${kimiCodeCdnBinariesBase()}/${VERSION}/kimi-code-win32-x64.zip`,
+    expect(nativeBinaryUrl(VERSION, 'kimi-code-bun-win32-x64.zip')).toBe(
+      `${kimiCodeCdnBinariesBase()}/${VERSION}/kimi-code-bun-win32-x64.zip`,
     );
   });
 });

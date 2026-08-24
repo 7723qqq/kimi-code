@@ -1,0 +1,9 @@
+/home/administrator/kimi/kimi-code/packages/kimi-build/target/debug/deps/anstyle_parse-79490a8ba8c8cb72.d: /home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/lib.rs /home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/params.rs /home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/state/mod.rs /home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/state/definitions.rs /home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/state/table.rs
+
+/home/administrator/kimi/kimi-code/packages/kimi-build/target/debug/deps/libanstyle_parse-79490a8ba8c8cb72.rmeta: /home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/lib.rs /home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/params.rs /home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/state/mod.rs /home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/state/definitions.rs /home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/state/table.rs
+
+/home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/lib.rs:
+/home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/params.rs:
+/home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/state/mod.rs:
+/home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/state/definitions.rs:
+/home/administrator/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/anstyle-parse-1.0.0/src/state/table.rs:

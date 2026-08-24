@@ -26,7 +26,7 @@ const PlatformEntrySchema = z.object({
  */
 export const NativeReleaseManifestSchema = z.object({
   version: z.string().refine((value) => valid(value) !== null, { error: 'invalid semver' }),
-  platforms: z.record(z.string(), PlatformEntrySchema),
+  platforms: z.record(z.string(), PlatformEntrySchema).optional(),
   /**
    * Optional per-target entries for alternative engine builds of the same
    * release (`kimi-code-bun-<target>` artifacts produced by the experimental
@@ -90,29 +90,11 @@ export async function fetchNativeReleaseManifest(
 }
 
 /**
- * Pick the entry for the running platform. The release pipeline keys
- * platforms by `<node platform>-<node arch>` (win32-x64, darwin-arm64, …).
- * **Throws** when the platform is missing — a silent skip would strand the
- * update in a retry loop.
- */
-export function selectPlatformEntry(
-  manifest: NativeReleaseManifest,
-  platform: NodeJS.Platform,
-  arch: string,
-): NativePlatformEntry {
-  const target = `${platform}-${arch}`;
-  const entry = manifest.platforms[target];
-  if (entry === undefined) {
-    throw new Error(`platform ${target} not found in native manifest for ${manifest.version}`);
-  }
-  return entry;
-}
-
-/**
- * Pick the entry for the running platform from the optional alternative-engine
- * section. **Throws** when the section or the target is missing — a Bun
- * packaged client must never silently download the SEA binary of the same
- * release, because that would swap runtimes behind the user's back.
+ * Pick the entry for the running platform from the Bun section. The release
+ * pipeline keys entries by `<node platform>-<node arch>` (win32-x64,
+ * darwin-arm64, …). **Throws** when the section or the target is missing —
+ * a Bun packaged client must never silently download a foreign-engine
+ * binary of the same release.
  */
 export function selectBunPlatformEntry(
   manifest: NativeReleaseManifest,
@@ -123,8 +105,7 @@ export function selectBunPlatformEntry(
   const entry = manifest.bun?.[target];
   if (entry === undefined) {
     throw new Error(
-      `this release does not publish a Bun build for ${target} (${manifest.version}); ` +
-        'the update would replace the Bun binary with a Node SEA build',
+      `this release does not publish a Bun build for ${target} (${manifest.version})`,
     );
   }
   return entry;

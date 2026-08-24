@@ -47,9 +47,8 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 | **Bun** >= 1.4 | Package manager and script runner (hoisted workspace via root package.json; `bun.lock` is the lockfile). Also compiles the release binary (`build-bun.mjs`) |
 | **tsdown** 0.22.0 | ESM bundler for TypeScript packages |
 | **vite** 6.x | Web app bundler (kimi-web, vis-web, vscode webview) |
-| **Cargo** | Rust build for `kimi-native-tools` (napi-rs), `kimi-build` (SEA), `kimi-agent` |
+| **Cargo** | Rust build for `kimi-native-tools` and `kimi-agent` (napi-rs) |
 | **Nix flake** | Reproducible builds for Linux/macOS |
-| **SEA** (Node.js Single Executable Applications) | Self-contained binary distribution |
 
 ### Quality Tooling
 
@@ -123,7 +122,7 @@ src/
 | CLI entry (ESM) | `apps/kimi-code/dist/main.mjs` |
 | Web UI assets | `apps/kimi-code/dist-web/` |
 | Native prebuilds | `apps/kimi-code/native/` |
-| SEA binary | `apps/kimi-code/dist-native/bin/` |
+| Native binary (Bun single-file) | `apps/kimi-code/dist-native/bin/` |
 
 #### Web UI (`apps/kimi-code/dist-web` + `apps/kimi-web`)
 
@@ -158,7 +157,6 @@ packages/
   kaos/                — Execution environment abstraction (local / ssh / login-shell)
   kap-server/          — Kimi Code local server (REST + WebSocket)
   kimi-agent/          — Rust agent engine (experimental)
-  kimi-build/          — Rust native build tool (SEA binary injection)
   kimi-native-tools/   — Rust native Node addon (napi-rs)
   klient/              — Client SDK (contract-driven facade over agent-core-v2)
   kosong/              — LLM / provider abstraction layer
@@ -187,7 +185,6 @@ packages/
 
 **`kimi-native-tools`** — Rust native addon via napi-rs. Implements: bash execution, grep, glob, read, write, edit, token counting, output truncation, web fetching (HTML rendering via scraper), image processing, SSE/eventsource streaming, SQLite (rusqlite), ULID generation, and more. Single `cdylib` crate (no Cargo workspace).
 
-**`kimi-build`** — Rust CLI tool for SEA (Single Executable Application) binary injection and asset management. Windows PE resource management via winapi.
 
 **`minidb`** (v0.2.0) — Pure-Node.js embedded key-value database. Combines Redis-style in-memory KV with SQLite-style WAL + snapshot persistence. Includes cluster support.
 
@@ -260,7 +257,7 @@ make build            # bun run build
 make typecheck        # Full typecheck
 make lint             # oxlint
 make test             # vitest
-make rust-build       # cargo build --release -p kimi-build -p kimi-agent
+make rust-build       # cargo build --release -p kimi-agent
 make rust-check       # cargo check
 make rust-test        # cargo test + kimi-agent --test
 ```
@@ -277,7 +274,7 @@ cd apps/kimi-code && bun run e2e     # E2E tests (sets KIMI_E2E=1)
 # Native tools (Rust)
 cd packages/kimi-native-tools && cargo test --lib  # cdylib crate: doc tests unsupported
 cd packages/kimi-native-tools && cargo build --release
-bun run build:native:release  # Full SEA build (from apps/kimi-code)
+bun run build:native:bun:release  # Full release build (from apps/kimi-code)
 
 # VS Code extension
 cd apps/vscode && bun run build
@@ -299,7 +296,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`:
 3. **test-pi-tui** — `pi-tui` suite (uses node:test, not vitest)
 4. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 5. **typecheck** — TypeScript check across all packages (uses `tsgo` from `@typescript/native-preview`)
-6. **native bundle** — Not a ci.yml job. Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then SEA packaging and a native smoke test.
+6. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then SEA packaging and a native smoke test.
 7. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
 
 Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
