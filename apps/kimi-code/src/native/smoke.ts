@@ -9,6 +9,7 @@ import { MiniDb } from '@moonshot-ai/minidb';
 
 import { t } from '#/i18n';
 
+import { loadNodePty } from './node-pty';
 import {
   getEmbeddedNativeAssetManifest,
   getNativeCacheBase,
@@ -122,14 +123,12 @@ async function smokeSearchWorker(): Promise<void> {
 }
 
 async function smokeTerminalBinding(): Promise<void> {
-  // Importing the bundled node-pty resolves its PTY binding through the
-  // packaged-build machinery (Module._load redirect into the native cache on
-  // Node SEA; materialized prebuilds next to the extracted entry under Bun)
-  // and dlopens it for real — verifying arch and integrity on every platform
-  // the smoke runs on.
-  const mod = (await import('node-pty')) as { spawn?: unknown };
-  if (typeof mod.spawn !== 'function') {
-    throw new TypeError('node-pty module loaded but its spawn export is missing');
+  // Resolve the PTY module exactly the way packaged builds do (asset-cache
+  // first) and dlopen its binding for real — verifying arch and integrity on
+  // every platform the smoke runs on.
+  const mod = loadNodePty();
+  if (mod === null || typeof mod.spawn !== 'function') {
+    throw new TypeError('node-pty did not load from the packaged asset cache');
   }
 }
 

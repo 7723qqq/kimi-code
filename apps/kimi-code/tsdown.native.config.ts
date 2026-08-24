@@ -13,7 +13,14 @@ const packageJson = JSON.parse(
 ) as { version: string };
 
 const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
-const optionalNativeDependencies = new Set(['cpu-features', '@moonshot-ai/kimi-native-tools']);
+const optionalNativeDependencies = new Set([
+  'cpu-features',
+  '@moonshot-ai/kimi-native-tools',
+  // PTY support: kept external so packaged builds load the copy extracted
+  // into the native-asset cache (its bindings resolve relative to its own
+  // package, which cannot work from inside a bundle).
+  'node-pty',
+]);
 
 function shouldAlwaysBundle(id: string): boolean {
   if (builtins.has(id) || id.startsWith('node:')) return false;

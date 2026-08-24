@@ -182,7 +182,7 @@ Output: `apps/kimi-code/dist-native/bin/<target>/kimi`.
 
 Bun bytecode is embedded by default; set `KIMI_CODE_BUN_NO_BYTECODE=1` to skip it. Bytecode compilation requires that no top-level `await` appears in the bundle graph, and it only covers the entry — the bundled `main.cjs` is imported from disk at runtime and is outside the bytecode graph.
 
-Status caveats: validated on linux-x64 only; cross-target staging requires that target's platform packages to be present locally (the collector fails fast otherwise); pi-tui's platform-native helper and node-pty's binding tree are materialized next to the extracted entry at startup so their default resolution works under Bun — on Node SEA the module hook redirects node-pty's relative requires into the native cache instead (verified by unit tests; real darwin/win32 dlopen untested). This pipeline is experimental and parallel to the default SEA pipeline (`build:native:sea`), which remains the release default. Runtime asset loading is unified: both pipelines feed the same extraction/cache layer.
+Status caveats: validated on linux-x64; cross-target staging requires that target's platform packages to be present locally (the collector fails fast otherwise). Packaged builds resolve pi-tui's platform helper and node-pty from the extracted asset cache at load time — the release smoke dlopens the PTY binding on every target CI runs. This pipeline is experimental and parallel to the default SEA pipeline (`build:native:sea`), which remains the release default. Runtime asset loading is unified: both pipelines feed the same extraction/cache layer.
 
 To compare startup cost between the two engines of one target, copy each build aside (both write to `dist-native/bin/<target>/kimi`) and run:
 

@@ -130,11 +130,14 @@ export const nativeDeps = Object.freeze([
   {
     id: 'node-pty',
     name: () => 'node-pty',
-    // PTY bindings for host terminal sessions. node-pty's JS is bundled into
-    // main.cjs and resolves its bindings via relative requires, so the binding
-    // tree ships as assets and packaged builds redirect/materialize it onto
-    // the loader's candidate paths (see module-hook.ts / native-assets.ts).
-    collect: 'native-file-only',
+    // PTY bindings for host terminal sessions. Packaged runtimes cannot use
+    // the bundled copy (its binding requires resolve against the bundle), so
+    // the package ships whole and HostTerminalService loads it from the
+    // extracted cache instead of the bundle. Bindings are listed per target —
+    // upstream prebuilds cover darwin/win32, Linux comes from the install-time
+    // build; conpty/ stays next to conpty.node which locates its DLLs
+    // relative to itself.
+    collect: 'js-and-native-file',
     parent: null,
     nativeFileRelatives: (target) => nodePtyNativeFileByTarget[target] ?? [],
   },
