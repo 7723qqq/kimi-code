@@ -72,5 +72,7 @@ export const ReadOutputSchema = z.object({
 export type ReadInput = z.infer<typeof ReadInputSchema>;
 export type ReadOutput = z.infer<typeof ReadOutputSchema>;
 
-export interface IReadTool extends AgentTool<ReadInput> { readonly _serviceBrand: undefined }
+export interface IReadTool extends AgentTool<ReadInput> {
+  readonly _serviceBrand: undefined;
+}
 export const IReadTool = createDecorator<IReadTool>('readTool');

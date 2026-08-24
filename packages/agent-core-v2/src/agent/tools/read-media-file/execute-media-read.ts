@@ -1,12 +1,3 @@
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ContentPart } from '#/kosong/contract/message';
-import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
-import { inlineVideoPart, isVideoUploadAuthError } from '#/agent/media/videoUpload';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
-
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
-import type { ExecutableToolResult } from '#/tool/toolContract';
 import { detectFileType, sniffImageDimensions } from '#/agent/media/file-type';
 import {
   IMAGE_BYTE_BUDGET,
@@ -23,11 +14,16 @@ import {
   buildImageConversionGuidance,
   isModelAcceptedImageMime,
 } from '#/agent/media/image-format-policy';
-import {
-  MAX_MEDIA_BYTES,
-  MAX_MEDIA_MEGABYTES,
-  type VideoUploader,
-} from './read-media-file';
+import { inlineVideoPart, isVideoUploadAuthError } from '#/agent/media/videoUpload';
+import type { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { ModelCapability } from '#/kosong/contract/capability';
+import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
+import type { ContentPart } from '#/kosong/contract/message';
+import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { ExecutableToolResult } from '#/tool/toolContract';
+
+import { MAX_MEDIA_BYTES, MAX_MEDIA_MEGABYTES, type VideoUploader } from './read-media-file';
 
 export interface MediaReadRegion {
   readonly x: number;
@@ -298,7 +294,10 @@ export async function executeMediaRead(
           telemetry: compressTelemetry,
         });
         if (!outcome.ok) {
-          return { isError: true, output: `Cannot read region from "${args.path}": ${outcome.error}` };
+          return {
+            isError: true,
+            output: `Cannot read region from "${args.path}": ${outcome.error}`,
+          };
         }
         const base64 = Buffer.from(outcome.data).toString('base64');
         mediaPart = {

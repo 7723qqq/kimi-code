@@ -1,15 +1,15 @@
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
-import { registerScopedService, ScopeActivation } from '#/_base/di/scope';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { VideoUploadEvent } from '#/app/telemetry/events';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import type { ModelRequester } from '#/kosong/model/modelRequester';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { registerScopedService, ScopeActivation } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
 import type { VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
+import { LifecycleScope } from '#/app/scopes';
+import type { VideoUploadEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IModelCatalog, type Model } from '#/kosong/model/catalog';
+import type { ModelRequester } from '#/kosong/model/modelRequester';
 
 export interface VideoUploadTelemetry {
   readonly client: ITelemetryService;
@@ -35,8 +35,7 @@ export function createVideoUploader(
     const track = (props: VideoUploadEvent): void => {
       try {
         telemetry.client.track2('video_upload', props);
-      } catch {
-      }
+      } catch {}
     };
     try {
       const part = await bound(input, options);

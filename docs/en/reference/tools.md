@@ -10,14 +10,15 @@ File tools handle reading, writing, and searching the local filesystem — the f
 
 | Tool | Default Approval | Description |
 | --- | --- | --- |
-| `Read` | Auto-allow | Read a text file's contents |
+| `Read` | Auto-allow | Read a file's contents (text, or images and videos as multimodal content) |
 | `Write` | Requires approval | Create or overwrite a file |
 | `Edit` | Requires approval | Precise string replacement |
 | `Grep` | Auto-allow | Full-text search powered by ripgrep |
 | `Glob` | Auto-allow | Find files by glob pattern |
-| `ReadMediaFile` | Auto-allow | Read an image or video file |
 
-**`Read`** accepts a file path (`path`) plus optional `line_offset` (starting line number; negative values count from the end) and `n_lines` (maximum number of lines to read). Returns at most 1000 lines or 100 KB per call; content beyond that limit is accompanied by a truncation notice. If the file is an image or video, the tool suggests using `ReadMediaFile` instead.
+**`Read`** accepts a file path (`path`). Text files are returned as numbered lines, at most 1000 lines or 100 KB per call; content beyond that limit is accompanied by a truncation notice. It also accepts `line_offset` (starting line number; negative values count from the end) and `n_lines` (maximum number of lines to read).
+
+Image and video files are sent to the model as multimodal content instead of text (up to 100 MB), which requires a model with the matching vision capabilities (`image_in` / `video_in`). Image reads are compressed to the configured model limits by default; `region` views a rectangle of the original image at full fidelity, and `full_resolution` skips downscaling when the file fits the per-image byte limit. If automatic compression cannot meet those limits safely, the tool returns an error without sending the original image and directs the model to create and read a smaller copy.
 
 **`Write`** accepts `path`, `content`, and an optional `mode` (`overwrite` or `append`; defaults to overwrite). Missing parent directories are created automatically; `append` mode appends content to the end of the file without automatically adding a newline.
 
@@ -26,8 +27,6 @@ File tools handle reading, writing, and searching the local filesystem — the f
 **`Grep`** invokes ripgrep to search file contents, supporting regular expressions (`pattern`), a search path (`path`), file type filtering (`type`, e.g., `ts`, `py`), glob filtering (`glob`), and output mode (`output_mode`: `files_with_matches` / `content` / `count_matches`; defaults to `files_with_matches`). `content` mode supports context lines (`-A`, `-B`, `-C`), case-insensitive matching (`-i`), line numbers (`-n`, default true), and multiline matching (`multiline`). All modes support `offset` + `head_limit` pagination; `head_limit` defaults to 250 and `0` means unlimited. Sensitive files such as `.env` files and private keys are automatically filtered out; set `include_ignored=true` to search files ignored by `.gitignore`, though sensitive files remain filtered.
 
 **`Glob`** matches files in a specified directory (`path`; defaults to the working directory) by glob pattern (`pattern`). Results are sorted by modification time in descending order, with a maximum of 100 entries. It respects `.gitignore`, `.ignore`, and `.rgignore` by default; set `include_ignored=true` to include ignored files such as build outputs, while sensitive files remain filtered. Brace patterns such as `*.{ts,tsx}` are supported, and broad wildcard patterns are allowed but usually truncate at the match cap.
-
-**`ReadMediaFile`** sends an image or video to the model as multimodal content. It accepts `path`, plus optional image-detail controls such as `region` and `full_resolution`; the file size limit is 100 MB. Default image reads are compressed to the configured model limits. If automatic compression cannot meet those limits safely, the tool returns an error without sending the original image and directs the model to create and read a smaller copy. Availability depends on the current model's vision capabilities (`image_in` / `video_in`).
 
 ## Shell
 

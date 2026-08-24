@@ -1,29 +1,27 @@
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { unwrapErrorCause } from '#/_base/errors/errors';
-import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
+import { decodeUtfText, detectTextEncoding, type UtfTextEncoding } from '#/_base/text/encoding';
 import {
-  ToolAccesses,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import {
-  resolvePathAccessPath,
-  type WorkspaceConfig,
-} from '#/tool/path-access';
+  makeCarriageReturnsVisible,
+  splitLinesKeepingTerminator,
+  type LineEndingStyle,
+} from '#/_base/text/line-endings';
+import { renderPrompt } from '#/_base/utils/render-prompt';
 import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
 import { IMediaReadContext } from '#/agent/media/mediaReadContext';
+import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { executeMediaRead } from '#/agent/tools/read-media-file/execute-media-read';
 import { MAX_MEDIA_MEGABYTES } from '#/agent/tools/read-media-file/read-media-file';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
-import { makeCarriageReturnsVisible, splitLinesKeepingTerminator, type LineEndingStyle } from '#/_base/text/line-endings';
-import { decodeUtfText, detectTextEncoding, type UtfTextEncoding } from '#/_base/text/encoding';
-import { renderPrompt } from '#/_base/utils/render-prompt';
+import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+
 import {
   IReadTool,
   MAX_BYTES,
@@ -226,7 +224,10 @@ export class ReadTool implements IReadTool {
     const inspected = inspectAgentRuntime(this.runtime);
     const view = new RuntimeWorkspaceView(inspected, {
       workDir: this.workspaceCtx.workDir,
-      additionalDirs: [...this.workspaceCtx.additionalDirs, ...this.skillCatalog.catalog.getSkillRoots()],
+      additionalDirs: [
+        ...this.workspaceCtx.additionalDirs,
+        ...this.skillCatalog.catalog.getSkillRoots(),
+      ],
     });
     const env = { _serviceBrand: undefined, ...inspected.environment, ready: Promise.resolve() };
     const workspace = this.workspaceConfig(view);
@@ -250,7 +251,10 @@ export class ReadTool implements IReadTool {
         const lease = this.runtime.acquire(['fs']);
         try {
           if (lease.runtime.identity.generation !== inspected.identity.generation) {
-            return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
+            return {
+              isError: true,
+              output: 'Runtime changed before execution. Retry the tool call.',
+            };
           }
           return await this.execution(lease.runtime.fs!, args, path, inspected.environment);
         } finally {

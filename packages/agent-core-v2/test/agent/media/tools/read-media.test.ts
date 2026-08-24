@@ -1,41 +1,45 @@
 import * as posixPath from 'node:path/posix';
 
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ContentPart } from '#/kosong/contract/message';
-import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
 import { Jimp } from 'jimp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import type { Runtime } from '#/runtime/runtime';
-import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
+import { sniffImageDimensions } from '#/agent/media/file-type';
 import {
-  ReadMediaFileInputSchema,
-  type ReadMediaFileInput,
-  type VideoUploader,
-} from '#/agent/tools/read-media-file/read-media-file';
-import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
-import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
-import { ReadTool } from '#/agent/tools/os/read/readTool';
+  MAX_IMAGE_DECODE_BYTES,
+  setConfiguredReadImageByteBudget,
+} from '#/agent/media/image-compress';
 import {
   createVideoUploader,
   IMediaReadContext,
   MediaReadContextService,
 } from '#/agent/media/mediaReadContext';
-import {
-  MAX_IMAGE_DECODE_BYTES,
-  setConfiguredReadImageByteBudget,
-} from '#/agent/media/image-compress';
 import type { IAgentProfileService } from '#/agent/profile/profile';
+import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
+import { ReadTool } from '#/agent/tools/os/read/readTool';
+import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
+import {
+  ReadMediaFileInputSchema,
+  type ReadMediaFileInput,
+  type VideoUploader,
+} from '#/agent/tools/read-media-file/read-media-file';
+import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
+import type { ModelCapability } from '#/kosong/contract/capability';
+import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
+import type { ContentPart } from '#/kosong/contract/message';
 import type { IModelCatalog } from '#/kosong/model/catalog';
 import type { ModelRequester } from '#/kosong/model/modelRequester';
+import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
+import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import type { Runtime } from '#/runtime/runtime';
 import type { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { WorkspaceConfig } from '#/tool/path-access';
-import { sniffImageDimensions } from '#/agent/media/file-type';
-import { ToolAccesses, type ExecutableToolContext, type ExecutableToolResult } from '#/tool/toolContract';
+import {
+  ToolAccesses,
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+} from '#/tool/toolContract';
 
 const WORKSPACE: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: [] };
 
@@ -166,13 +170,18 @@ function createTestEnv(): IHostEnvironment {
   };
 }
 
-function runtimeFor(fs: IHostFileSystem, env: IHostEnvironment = createTestEnv()): IAgentRuntimeService {
+function runtimeFor(
+  fs: IHostFileSystem,
+  env: IHostEnvironment = createTestEnv(),
+): IAgentRuntimeService {
   const runtime = {
     identity: { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
     capabilities: new Set(['fs'] as const),
     environment: env,
     path: posixPath,
-    workspace: { mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots },
+    workspace: {
+      mapRoots: (roots: { workDir: string; additionalDirs?: readonly string[] }) => roots,
+    },
     fs,
     status: 'ready',
     onDidChangeStatus: () => ({ dispose: () => {} }),
@@ -181,7 +190,8 @@ function runtimeFor(fs: IHostFileSystem, env: IHostEnvironment = createTestEnv()
   return {
     _serviceBrand: undefined,
     onDidChange: () => ({ dispose: () => {} }),
-    isAvailable: (required = []) => required.every((capability) => runtime.capabilities.has(capability)),
+    isAvailable: (required = []) =>
+      required.every((capability) => runtime.capabilities.has(capability)),
     inspect: () => runtime,
     acquire: () => ({
       runtime,
@@ -230,10 +240,7 @@ function makeTool(
   );
 }
 
-async function execute(
-  tool: ReadTool,
-  args: ReadInput,
-): Promise<ExecutableToolResult> {
+async function execute(tool: ReadTool, args: ReadInput): Promise<ExecutableToolResult> {
   const execution = tool.resolveExecution(args);
   if (!('execute' in execution)) {
     return execution;
@@ -287,7 +294,9 @@ describe('Read tool media reads', () => {
         full_resolution: true,
       }).success,
     ).toBe(true);
-    expect(ReadMediaFileInputSchema.safeParse({ path: '/workspace/sample.png' }).success).toBe(true);
+    expect(ReadMediaFileInputSchema.safeParse({ path: '/workspace/sample.png' }).success).toBe(
+      true,
+    );
     expect(tool.description).toContain('region');
 
     const execution = tool.resolveExecution({ path: '/workspace/sample.png' });
@@ -390,10 +399,9 @@ describe('Read tool media reads', () => {
   it('returns an actionable error when compression cannot meet the byte budget', async () => {
     const oversized = Buffer.concat([pngBuffer(), Buffer.alloc(256 * 1024, 1)]);
 
-    const result = await execute(
-      makeTool({ '/workspace/oversized.png': { data: oversized } }),
-      { path: '/workspace/oversized.png' },
-    );
+    const result = await execute(makeTool({ '/workspace/oversized.png': { data: oversized } }), {
+      path: '/workspace/oversized.png',
+    });
 
     expect(result).toEqual({
       isError: true,
@@ -733,7 +741,9 @@ describe('Read tool media reads', () => {
   });
 
   it('falls back to an inline base64 video part when the upload fails', async () => {
-    const videoUploader = vi.fn<VideoUploader>().mockRejectedValue(new Error('404 route not found'));
+    const videoUploader = vi
+      .fn<VideoUploader>()
+      .mockRejectedValue(new Error('404 route not found'));
     const result = await execute(
       makeTool({ '/workspace/clip.mp4': { data: mp4Buffer() } }, capabilities(), videoUploader),
       { path: '/workspace/clip.mp4' },
@@ -831,7 +841,8 @@ describe('MediaReadContextService', () => {
     telemetry?: ITelemetryService;
   }): MediaReadContextService {
     const profile = {
-      getModelCapabilities: () => options?.caps ?? capabilities({ image_in: false, video_in: false }),
+      getModelCapabilities: () =>
+        options?.caps ?? capabilities({ image_in: false, video_in: false }),
       getModel: () => options?.alias ?? '',
     } as unknown as IAgentProfileService;
     const modelCatalog = {
@@ -890,7 +901,11 @@ describe('MediaReadContextService', () => {
   });
 
   it('survives an unconfigured bound alias without throwing', () => {
-    const service = createService({ alias: 'stale-model', brokenAlias: true, caps: capabilities() });
+    const service = createService({
+      alias: 'stale-model',
+      brokenAlias: true,
+      caps: capabilities(),
+    });
     const ctx = service.getMediaReadContext();
     expect(ctx).toBeDefined();
     expect(ctx!.videoUploader).toBeUndefined();
@@ -904,7 +919,9 @@ describe('createVideoUploader', () => {
   };
   const input = { data: new Uint8Array(2048), mimeType: 'video/mp4', filename: 'clip.mp4' };
 
-  function modelWith(uploadVideo: ModelRequester['uploadVideo']): Pick<ModelRequester, 'uploadVideo'> {
+  function modelWith(
+    uploadVideo: ModelRequester['uploadVideo'],
+  ): Pick<ModelRequester, 'uploadVideo'> {
     return { uploadVideo } as Pick<ModelRequester, 'uploadVideo'>;
   }
 
@@ -971,8 +988,8 @@ describe('createVideoUploader', () => {
 
   function heicBytes(): Buffer {
     return Buffer.from([
-      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00,
-      0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00,
+      0x00, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00,
     ]);
   }
 
@@ -998,9 +1015,12 @@ describe('createVideoUploader', () => {
   }
 
   it('refuses every format outside the provider-accepted set, not just HEIC', async () => {
-    const result = await execute(makeTool({ '/workspace/photo.avif': { data: ftypBytes('avif') } }), {
-      path: '/workspace/photo.avif',
-    });
+    const result = await execute(
+      makeTool({ '/workspace/photo.avif': { data: ftypBytes('avif') } }),
+      {
+        path: '/workspace/photo.avif',
+      },
+    );
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('image/avif');

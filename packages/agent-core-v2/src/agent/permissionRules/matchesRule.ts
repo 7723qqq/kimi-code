@@ -2,6 +2,7 @@ import picomatch from 'picomatch';
 
 import { Error2, ErrorCodes } from '#/errors';
 import type { RunnableToolExecution } from '#/tool/toolContract';
+
 import type { PermissionRule } from './permissionRules';
 
 export interface ParsedPattern {
@@ -41,13 +42,19 @@ export function parsePattern(pattern: string): ParsedPattern {
   }
 
   if (!trimmed.endsWith(')')) {
-    throw new Error2(ErrorCodes.VALIDATION_FAILED, `permission pattern: missing closing paren in "${pattern}"`);
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      `permission pattern: missing closing paren in "${pattern}"`,
+    );
   }
 
   const toolName = trimmed.slice(0, openIdx);
   const argPattern = trimmed.slice(openIdx + 1, -1);
   if (toolName.length === 0) {
-    throw new Error2(ErrorCodes.VALIDATION_FAILED, `permission pattern: empty tool name in "${pattern}"`);
+    throw new Error2(
+      ErrorCodes.VALIDATION_FAILED,
+      `permission pattern: empty tool name in "${pattern}"`,
+    );
   }
   if (argPattern.length === 0) {
     return { toolName };
