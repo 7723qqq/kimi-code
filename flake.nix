@@ -262,8 +262,10 @@
                     "// runVerifyStep skipped in nix sandbox (sigtool lacks -dv)"
               ''}
               # Build the Rust native addon from source: its .node is a
-              # required SEA asset (collected by assets.mjs below).
-              (cd packages/kimi-native-tools && bun run build)
+              # required SEA asset (collected by assets.mjs below). Invoke
+              # napi's JS entry directly — its bin shim uses
+              # `#!/usr/bin/env`, absent in the sandbox.
+              (cd packages/kimi-native-tools && node ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
               # Run the one lifecycle script whose output the artifact
               # needs: node-pty's prebuild/native build (the FOD installed
               # with --ignore-scripts). node-gyp compiles against the
