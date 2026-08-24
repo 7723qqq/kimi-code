@@ -23,6 +23,8 @@ import {
 } from '../constant/feedback';
 import { DEFAULT_OAUTH_PROVIDER_NAME, isManagedUsageProvider } from '../constant/kimi-tui';
 import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
+import { detectNativeInstall } from '#/cli/update/source';
+import { nativeToolsStatus } from '#/native/native-require';
 import { formatErrorMessage } from '../utils/event-payload';
 import { openUrl } from '#/utils/open-url';
 import { promptFeedbackAttachment, promptFeedbackInput } from './prompts';
@@ -168,6 +170,7 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     loadManagedUsageReport(host),
   ]);
   const appState = host.state.appState;
+  const install = detectNativeInstall();
   const reportArgs = {
     version: appState.version,
     model: appState.model,
@@ -187,6 +190,8 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     statusError: runtimeStatus.error,
     managedUsage: managedUsage?.usage,
     managedUsageError: managedUsage?.error,
+    nativeTools: nativeToolsStatus(),
+    packagedEngine: install.native ? install.kind : undefined,
   };
   const panel = new UsagePanelComponent(() => buildStatusReportLines(reportArgs), 'primary', ' Status ');
   host.state.transcriptContainer.addChild(panel);

@@ -61,6 +61,11 @@ export interface StatusReportOptions {
    * (`'rust'` = addon loaded, `'js'` = TypeScript fallback).
    */
   readonly nativeTools?: 'rust' | 'js';
+  /**
+   * How the running binary was packaged (`'sea'` Node single-file or the
+   * experimental Bun build); undefined when running from source.
+   */
+  readonly packagedEngine?: 'sea' | 'bun';
 }
 
 type Colorize = (text: string) => string;
@@ -127,6 +132,13 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
     rows.push({ label: 'Tower mode', value: towerMode ? 'on' : 'off' });
   }
   rows.push({ label: 'Session', value: sessionId });
+  if (options.packagedEngine !== undefined || options.nativeTools !== undefined) {
+    const parts = [
+      options.packagedEngine ?? 'source',
+      options.nativeTools,
+    ].filter((part): part is string => part !== undefined);
+    rows.push({ label: 'Runtime', value: parts.join(' · ') });
+  }
   const title = options.sessionTitle?.trim();
   if (title !== undefined && title.length > 0)
     rows.push({ label: t('tui.messages.statusPanel.titleLabel'), value: title });
