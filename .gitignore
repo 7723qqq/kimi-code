@@ -54,3 +54,8 @@ graphify-out/
 !.env.example
 *.log
 logs/
+
+# Legacy pnpm artifacts; Bun is the package manager. pnpm auto-installs
+# may recreate these locally — never commit them.
+/pnpm-lock.yaml
+/pnpm-workspace.yaml

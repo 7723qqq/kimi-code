@@ -27,7 +27,7 @@
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/fix-node-pty-perms.mjs",
-    "build": "bun run --workspaces build",
+    "build": "bun run --filter './packages/*' --filter './apps/kimi-code' --filter './apps/vscode' --filter './apps/kimi-inspect' --filter './apps/vis' --filter './apps/vis/server' --filter './apps/vis/web' --filter './docs' build",
     "build:packages": "bun run --filter './packages/*' build",
     "dev:cli": "cd apps/kimi-code && bun run dev",
     "dev:cli:legacy": "cd apps/kimi-code && KIMI_CODE_LEGACY_FLAG=1 bun run dev",
@@ -91,7 +91,7 @@
     "ssh2"
   ],
   "simple-git-hooks": {
-    "pre-commit": "npx lint-staged"
+    "pre-commit": "bunx lint-staged"
   },
   "lint-staged": {
     "concurrent": "false",
@@ -100,6 +100,7 @@
       "oxlint --type-aware --quiet"
     ]
   },
+  "packageManager": "bun@1.4.0",
   "engines": {
     "node": ">=24.15.0"
   },

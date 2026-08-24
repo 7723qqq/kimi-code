@@ -2,7 +2,7 @@
 // TS module that embeds it as base64 so tsdown can later bundle it into
 // dist/main.mjs (works identically for the npm package and the native SEA
 // binary).
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -15,22 +15,20 @@ const out = join(here, '..', 'src', 'generated', 'vis-web-asset.ts');
 
 console.log('[build-vis-asset] building vis web single-file bundle…');
 try {
-  // Run vite with VIS_SINGLEFILE set on the spawn so the build is
-  // cross-platform (Node sets the env, not a POSIX-only inline-env shell
-  // prefix). Running from vis-web's package dir means vite picks up
-  // vis-web's vite.config.ts, which gates the single-file output on
-  // `process.env.VIS_SINGLEFILE === '1'`.
-  // execSync runs through the platform shell (needed for the `cd` above).
-  // A single command string (not an args array) avoids the args+shell
-  // deprecation; the command is static (no injection surface).
-  execSync('cd apps/vis/web && bun run vite build', {
+  // Run vite from vis-web's package dir so it picks up vis-web's
+  // vite.config.ts, which gates the single-file output on
+  // `process.env.VIS_SINGLEFILE === '1'`. Absolute paths + argv form (no
+  // shell, no cd): bin-shim resolution and relative traversal differ
+  // between dev trees and the Nix sandbox.
+  const viteEntry = join(repoRoot, 'node_modules', 'vite', 'bin', 'vite.js');
+  execFileSync(process.execPath, [viteEntry, 'build'], {
     stdio: 'inherit',
-    cwd: repoRoot,
+    cwd: visWeb,
     env: { ...process.env, VIS_SINGLEFILE: '1' },
   });
 } catch (err) {
   throw new Error(
-    `[build-vis-asset] failed to run the vis-web single-file build via bun: ${err instanceof Error ? err.message : String(err)}`,
+    `[build-vis-asset] failed to run the vis-web single-file build: ${err instanceof Error ? err.message : String(err)}`,
   );
 }
 

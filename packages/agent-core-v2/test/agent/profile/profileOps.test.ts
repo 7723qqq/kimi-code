@@ -5,12 +5,17 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
+import { IPluginService } from '#/app/plugin/plugin';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { profileActiveToolsKey, profileKey } from '#/agent/profile/profileOps';
 import { AgentProfileService } from '#/agent/profile/profileService';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import {
   DEFAULT_AGENT_PROFILE_NAME,
   type EnvironmentDisclosureSnapshot,
@@ -24,6 +29,7 @@ import { IModelCatalog, type Model } from '#/kosong/model/catalog';
 import { IProtocolAdapterRegistry, type Protocol } from '#/kosong/protocol/protocol';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IHostClock } from '#/os/interface/hostClock';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -33,6 +39,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
 import { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
+import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
@@ -235,6 +242,16 @@ function buildHost(key: string): {
     _serviceBrand: undefined,
     seedInjected: () => {},
   });
+  // agentProfileService declares these as constructor deps; the profile
+  // paths under test never call into them, but DI resolves them at
+  // construction and warns per missing token on every createInstance.
+  host.stub(IAgentIdentity, stubUnused());
+  host.stub(IPluginService, stubUnused());
+  host.stub(IBuiltinAgentProfileLoader, stubUnused());
+  host.stub(IAgentToolRegistryService, stubUnused());
+  host.stub(ISessionToolPolicyGate, stubUnused());
+  host.stub(IHostClock, stubUnused());
+  host.stub(IAgentRuntimeService, stubUnused());
   host.stub(ISessionToolPolicy, {
     _serviceBrand: undefined,
     ready: Promise.resolve(),

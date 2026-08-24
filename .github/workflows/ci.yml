@@ -58,6 +58,13 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - run: bun install --frozen-lockfile
+
+      - name: Install Rust toolchain (kimi-native-tools)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build kimi-native-tools
+        run: cd packages/kimi-native-tools && bun run build
+
       - run: bun run test --shard=${{ matrix.shard }}/5
 
   # pi-tui's suite runs on node:test (not vitest), so the root `bun run test`

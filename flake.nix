@@ -167,9 +167,18 @@
             );
           };
 
-          # Fixed-output derivation: populate Bun's package cache from the
-          # registry (the only place network access is allowed). The main
-          # derivation replays the install offline from this cache.
+          # Fixed-output derivation: materialize the project's node_modules
+          # from the npm registry and the Rust crate vendor directory for
+          # kimi-native-tools from crates.io (the FOD is the only place
+          # network access is allowed).
+          #
+          # Bun's internal cache directory is NOT usable as a FOD output —
+          # its extracted-package presence and gzip framing vary between
+          # runs. The hoisted node_modules tree, by contrast, is fully
+          # determined by bun.lock + the registry tarballs. Lifecycle
+          # scripts are skipped here (build artifacts would embed sandbox
+          # paths); the main derivation runs the ones that matter on the
+          # copied tree.
           bunDeps = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "kimi-code-bun-deps";
             inherit version;
@@ -178,16 +187,44 @@
 
             impureEnvVars = lib.fetchers.proxyImpureEnvVars;
 
-            nativeBuildInputs = [ bun ];
+            nativeBuildInputs = [
+              bun
+              nodejs
+              # cargo vendor needs a CA bundle for crates.io and may fall
+              # back to the git index protocol.
+              pkgs.cacert
+              pkgs.git
+              pkgs.cargo
+              pkgs.rustc
+            ];
 
             dontConfigure = true;
             dontBuild = true;
+            # node_modules contains relative symlinks to the workspace
+            # members (../../packages/*). They dangle inside this FOD's
+            # output by construction and resolve once the main derivation
+            # copies the tree into the project root, so skip fixup's
+            # noBrokenSymlinks check.
+            dontFixup = true;
 
             installPhase = ''
               runHook preInstall
               export HOME=$TMPDIR
-              export BUN_INSTALL_CACHE_DIR=$out
+              # NIX_SSL_CERT_FILE is exported automatically by stdenv
+              # because cacert is in nativeBuildInputs above.
               bun install --frozen-lockfile --ignore-scripts
+              install -d $out && mv node_modules $out/node_modules
+              # Vendor the Rust crates for both napi packages so the main
+              # derivation can compile offline (CARGO_NET_OFFLINE=true).
+              # NOTE: do NOT let cargo write its suggested config here —
+              # with an absolute $out target it would embed this store
+              # path, which FOD outputs must never reference. The main
+              # derivation generates the config itself.
+              cd packages/kimi-native-tools
+              cargo vendor --locked $out/vendor > /dev/null
+              cd ../kimi-agent
+              cargo vendor --locked $out/vendor-agent > /dev/null
+              cd -
               runHook postInstall
             '';
 
@@ -195,7 +232,7 @@
             # paste the "got:" hash reported by Nix.
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
-            outputHash = "sha256-P450+LKDYkRyk7OZ2mSOX0/RwtbivwR5ZksN8FM6+TU=";
+            outputHash = "sha256-0wX/SdkBkTWRI0F8imC+RpSmZTEB/9RCe2qlhiztnK4=";
           });
 
           kimi-code = pkgs.stdenv.mkDerivation (finalAttrs: {
@@ -210,6 +247,11 @@
               pkgs.makeWrapper
               pkgs.python3
               pkgs.gnumake
+              # kimi-native-tools' .node addon is compiled from source in
+              # the sandbox (napi-rs → cargo); the SEA asset collector
+              # refuses to proceed without it.
+              pkgs.cargo
+              pkgs.rustc
             ]
             # node-gyp (node-pty's install script) compiles against the
             # headers shipped with the pinned Node instead of downloading
@@ -223,8 +265,29 @@
             configurePhase = ''
               runHook preConfigure
               export HOME=$TMPDIR
-              export BUN_INSTALL_CACHE_DIR=${bunDeps}
               export npm_config_nodedir=${nodejs}
+              cp -a ${bunDeps}/node_modules ./node_modules
+              chmod -R u+w ./node_modules
+              # Wire the vendored crates for the offline napi build: the
+              # main derivation may reference store paths, so point cargo
+              # at the FOD's vendor dir with an absolute path.
+              mkdir -p packages/kimi-native-tools/.cargo
+              cat > packages/kimi-native-tools/.cargo/config.toml <<EOF
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "${bunDeps}/vendor"
+EOF
+              mkdir -p packages/kimi-agent/.cargo
+              cat > packages/kimi-agent/.cargo/config.toml <<EOF
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "${bunDeps}/vendor-agent"
+EOF
+              export CARGO_NET_OFFLINE=true
               runHook postConfigure
             '';
 
@@ -241,9 +304,26 @@
                     "await runVerifyStep({ requireGatekeeper: false });" \
                     "// runVerifyStep skipped in nix sandbox (sigtool lacks -dv)"
               ''}
-              # Replay the install offline from the FOD cache; this pass runs
-              # the trusted lifecycle scripts (node-pty/esbuild native builds).
-              bun install --frozen-lockfile
+              # Build the Rust native addon from source: its .node is a
+              # required SEA asset (collected by assets.mjs below). Invoke
+              # napi's JS entry directly — its bin shim uses
+              # `#!/usr/bin/env`, absent in the sandbox.
+              (cd packages/kimi-native-tools && node ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
+              # kimi-agent is the second napi addon collected as a SEA asset.
+              (cd packages/kimi-agent && node ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
+              # Run the one lifecycle script whose output the artifact
+              # needs: node-pty's prebuild/native build (the FOD installed
+              # with --ignore-scripts). node-gyp compiles against the
+              # pinned Node's own headers and comes from the hoisted root
+              # node_modules/.bin. esbuild resolves its binary from the
+              # hoisted @esbuild/<platform> package without a script;
+              # protobufjs/ssh2 work scriptless.
+              export PATH="$PWD/node_modules/.bin:$PATH"
+              # Call node-gyp's JS entry directly: its bin shim uses
+              # `#!/usr/bin/env node`, and /usr/bin/env does not exist in
+              # the sandbox.
+              (cd node_modules/node-pty && node ../../node_modules/node-gyp/bin/node-gyp.js rebuild)
+              (cd node_modules/node-pty && node scripts/post-install.js)
               # The SEA blob step embeds the Kimi web assets from
               # apps/kimi-code/dist-web and fails if that directory is
               # missing. The bundle is committed (synced from the code-app
