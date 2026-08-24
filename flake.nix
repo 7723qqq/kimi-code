@@ -224,6 +224,11 @@
               pkgs.makeWrapper
               pkgs.python3
               pkgs.gnumake
+              # kimi-native-tools' .node addon is compiled from source in
+              # the sandbox (napi-rs → cargo); the SEA asset collector
+              # refuses to proceed without it.
+              pkgs.cargo
+              pkgs.rustc
             ]
             # node-gyp (node-pty's install script) compiles against the
             # headers shipped with the pinned Node instead of downloading
@@ -256,6 +261,9 @@
                     "await runVerifyStep({ requireGatekeeper: false });" \
                     "// runVerifyStep skipped in nix sandbox (sigtool lacks -dv)"
               ''}
+              # Build the Rust native addon from source: its .node is a
+              # required SEA asset (collected by assets.mjs below).
+              (cd packages/kimi-native-tools && bun run build)
               # Run the one lifecycle script whose output the artifact
               # needs: node-pty's prebuild/native build (the FOD installed
               # with --ignore-scripts). node-gyp compiles against the
