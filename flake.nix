@@ -213,9 +213,8 @@
               # NIX_SSL_CERT_FILE is exported automatically by stdenv
               # because cacert is in nativeBuildInputs above.
               bun install --frozen-lockfile --ignore-scripts
-              mkdir -p $out
               mv node_modules $out/node_modules
-              # Vendor the Rust crates for kimi-native-tools so the main
+              # Vendor the Rust crates for both napi packages so the main
               # derivation can compile offline (CARGO_NET_OFFLINE=true).
               # NOTE: do NOT let cargo write its suggested config here —
               # with an absolute $out target it would embed this store
@@ -223,7 +222,11 @@
               # derivation generates the config itself.
               cd packages/kimi-native-tools
               cargo vendor --locked $out/vendor > /dev/null
+              cd ../kimi-agent
+              cargo vendor --locked $out/vendor-agent > /dev/null
               cd -
+              runHook postInstall
+            '';
               runHook postInstall
             '';
 
@@ -278,6 +281,14 @@ replace-with = "vendored-sources"
 [source.vendored-sources]
 directory = "${bunDeps}/vendor"
 EOF
+              mkdir -p packages/kimi-agent/.cargo
+              cat > packages/kimi-agent/.cargo/config.toml <<EOF
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "${bunDeps}/vendor-agent"
+EOF
               export CARGO_NET_OFFLINE=true
               runHook postConfigure
             '';
@@ -300,6 +311,8 @@ EOF
               # napi's JS entry directly — its bin shim uses
               # `#!/usr/bin/env`, absent in the sandbox.
               (cd packages/kimi-native-tools && node ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
+              # kimi-agent is the second napi addon collected as a SEA asset.
+              (cd packages/kimi-agent && node ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
               # Run the one lifecycle script whose output the artifact
               # needs: node-pty's prebuild/native build (the FOD installed
               # with --ignore-scripts). node-gyp compiles against the
