@@ -34,7 +34,14 @@ function loadNativeModifiersHelper(): NativeModifiersHelper | undefined {
 	}
 
 	const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+	// Packaged single-file builds (SEA / Bun) inject a resolver for the
+	// extracted native-asset cache; the helper there is the only copy that
+	// exists at runtime, so it is tried before the on-disk candidates.
+	const packagedRoot = (
+		globalThis as { __kimi_getNativePackageRoot?: (packageName: string) => string | null }
+	).__kimi_getNativePackageRoot?.("@moonshot-ai/pi-tui");
 	const candidates = [
+		...(packagedRoot ? [path.join(packagedRoot, nativePath)] : []),
 		path.join(moduleDir, "..", nativePath),
 		path.join(moduleDir, nativePath),
 		path.join(path.dirname(process.execPath), nativePath),
