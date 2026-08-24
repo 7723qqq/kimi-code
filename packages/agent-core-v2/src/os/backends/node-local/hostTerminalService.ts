@@ -20,6 +20,7 @@ interface BunSubprocessWithTerminal {
 }
 
 interface BunGlobalLike {
+  readonly Terminal?: unknown;
   spawn(
     command: readonly string[],
     options: {
@@ -36,7 +37,9 @@ interface BunGlobalLike {
 }
 
 function currentBun(): BunGlobalLike | undefined {
-  return (globalThis as unknown as { Bun?: BunGlobalLike }).Bun;
+  const bun = (globalThis as unknown as { Bun?: BunGlobalLike }).Bun;
+  if (bun === undefined || typeof bun.Terminal !== 'function') return undefined;
+  return bun;
 }
 
 export class HostTerminalService extends Service implements IHostTerminalService {
@@ -61,10 +64,15 @@ export class HostTerminalService extends Service implements IHostTerminalService
         name: 'xterm-256color',
         cols: options.cols,
         rows: options.rows,
-        data: (_terminal, data) => dataEmitter.fire(decoder.decode(data)),
+        data: (_terminal, data) => {
+          const text = decoder.decode(data, { stream: true });
+          if (text.length > 0) dataEmitter.fire(text);
+        },
       },
     });
     void proc.exited.then((exitCode) => {
+      const rest = decoder.decode();
+      if (rest.length > 0) dataEmitter.fire(rest);
       exitEmitter.fire({ exitCode });
       dataEmitter.dispose();
       exitEmitter.dispose();
