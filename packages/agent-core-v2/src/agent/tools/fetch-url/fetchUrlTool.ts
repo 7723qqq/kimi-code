@@ -15,6 +15,13 @@ import { HttpFetchError } from '#/app/web/tools/fetch-url-types';
 import { FetchURLInputSchema, IFetchURLTool, type FetchURLInput } from './fetch-url';
 import DESCRIPTION from './fetch-url.md?raw';
 
+/**
+ * Built-in web-fetching tool whose network errors stay diagnosable from the
+ * output alone: undici reports every transport failure as a bare
+ * `TypeError: fetch failed`, with the actionable detail (DNS, connect
+ * timeout, TLS, reset) on the `cause` chain, which is flattened into the
+ * returned error text.
+ */
 export class FetchURLTool implements IFetchURLTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'FetchURL' as const;
@@ -81,12 +88,6 @@ export class FetchURLTool implements IFetchURLTool {
   }
 }
 
-/**
- * Undici reports every transport failure as a bare `TypeError: fetch failed`;
- * the actionable detail (DNS, connect timeout, TLS, reset) lives on the
- * `cause` chain. Flatten it so the failure is diagnosable from the tool
- * output alone.
- */
 function describeErrorCause(error: unknown): string {
   const parts: string[] = [];
   let current: unknown = error;

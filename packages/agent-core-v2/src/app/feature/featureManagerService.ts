@@ -46,7 +46,7 @@ export class FeatureManagerService extends Service implements IFeatureManager {
   ): FiberHandle<T>;
   provideUnit(
     first: ServiceRecipe | ServiceIdentifier<any>,
-    second?: any,
+    second?: ServiceClassRecipe | FiberProvideOptions,
     third?: FiberProvideOptions,
   ): FiberHandle {
     const handle = isServiceIdentifier(first)

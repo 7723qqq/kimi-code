@@ -16,16 +16,14 @@ export interface AvailabilityChange {
 }
 
 export class ServiceCollection {
-  private readonly _entries = new Map<ServiceIdentifier<any>, ServiceCollectionEntry<any>>();
-  private readonly _emitters = new Map<
-    ServiceIdentifier<any>,
-    Emitter<AvailabilityChange>
+  private readonly _entries = new Map<
+    ServiceIdentifier<unknown>,
+    ServiceCollectionEntry<unknown>
   >();
+  private readonly _emitters = new Map<ServiceIdentifier<unknown>, Emitter<AvailabilityChange>>();
   private _nextUid = 0;
 
-  constructor(
-    ...entries: ReadonlyArray<readonly [ServiceIdentifier<any>, unknown]>
-  ) {
+  constructor(...entries: ReadonlyArray<readonly [ServiceIdentifier<any>, unknown]>) {
     for (const [id, value] of entries) {
       this.set(id, value);
     }
@@ -117,13 +115,10 @@ export class ServiceCollection {
     return this._entries.get(id)?.value as T | SyncDescriptor<T> | undefined;
   }
 
-  forEach(
-    callback: (
-      id: ServiceIdentifier<any>,
-      value: unknown,
-    ) => void,
-  ): void {
-    this._entries.forEach((entry, id) => { callback(id, entry.value); });
+  forEach(callback: (id: ServiceIdentifier<any>, value: unknown) => void): void {
+    this._entries.forEach((entry, id) => {
+      callback(id, entry.value);
+    });
   }
 
   dispose(): void {

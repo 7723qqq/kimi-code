@@ -1,4 +1,7 @@
-import { SyncDescriptor } from './descriptors';
+import { onUnexpectedError } from '../errors/unexpectedError';
+import { Emitter } from '../event';
+import type { Disposer } from '../lifecycle/disposer';
+import { Ledger, type LedgerEntry } from '../lifecycle/ledger';
 import { CascadeEngine, CascadeTree, type CascadeChange, type CascadeHost } from './cascadeEngine';
 import {
   CollectionStore,
@@ -7,6 +10,7 @@ import {
   type CollectionViewImpl,
 } from './collection';
 import { DependencyGraph } from './dependencyGraph';
+import { SyncDescriptor } from './descriptors';
 import { CascadeConflictError, CyclicDependencyError } from './errors';
 import {
   bindServiceUnit,
@@ -31,10 +35,6 @@ import {
   type ServicesAccessor,
 } from './instantiation';
 import { isDisposable, type DisposableStore, type IDisposable } from './lifecycle';
-import { onUnexpectedError } from '../errors/unexpectedError';
-import { Emitter } from '../event';
-import { Ledger, type LedgerEntry } from '../lifecycle/ledger';
-import type { Disposer } from '../lifecycle/disposer';
 import { ServiceCollection } from './serviceCollection';
 
 const enum TraceType {
@@ -47,13 +47,17 @@ const enum TraceType {
 export class Trace {
   static readonly all = new Set<string>();
 
-  private static readonly _None = new class extends Trace {
-    constructor() { super(TraceType.None, null); }
-    override stop() { }
-    override branch() { return this; }
-  };
+  private static readonly _None = new (class extends Trace {
+    constructor() {
+      super(TraceType.None, null);
+    }
+    override stop() {}
+    override branch() {
+      return this;
+    }
+  })();
 
-  static traceInvocation(_enableTracing: boolean, fn: any): Trace {
+  static traceInvocation(_enableTracing: boolean, fn: Function): Trace {
     return !_enableTracing
       ? Trace._None
       : new Trace(
@@ -62,7 +66,7 @@ export class Trace {
         );
   }
 
-  static traceCreation(_enableTracing: boolean, ctor: any): Trace {
+  static traceCreation(_enableTracing: boolean, ctor: Function): Trace {
     return !_enableTracing ? Trace._None : new Trace(TraceType.Creation, ctor.name);
   }
 
@@ -72,8 +76,8 @@ export class Trace {
 
   private constructor(
     readonly type: TraceType,
-    readonly name: string | null
-  ) { }
+    readonly name: string | null,
+  ) {}
 
   branch(id: ServiceIdentifier<any>, first: boolean): Trace {
     const child = new Trace(TraceType.Branch, id.toString());
@@ -115,7 +119,6 @@ export class Trace {
       Trace.all.add(lines.join('\n'));
     }
   }
-
 }
 
 export class InstantiationService implements IInstantiationService {
@@ -140,7 +143,7 @@ export class InstantiationService implements IInstantiationService {
   private readonly _instanceEntries = new Map<unknown, LedgerEntry>();
 
   private readonly _provideEntries = new Map<
-    ServiceIdentifier<any>,
+    ServiceIdentifier<unknown>,
     { readonly entry: LedgerEntry; readonly core: TokenProvideCore }
   >();
 
@@ -148,16 +151,13 @@ export class InstantiationService implements IInstantiationService {
 
   protected readonly _children = new Set<InstantiationService>();
 
-  private readonly _inProgress: ServiceIdentifier<any>[] = [];
+  private readonly _inProgress: ServiceIdentifier<unknown>[] = [];
 
-  private readonly _activeInstantiations = new Set<ServiceIdentifier<any>>();
+  private readonly _activeInstantiations = new Set<ServiceIdentifier<unknown>>();
 
   private readonly _collectionStore: CollectionStore;
 
-  private readonly _collectionViews = new Map<
-    CollectionToken<unknown>,
-    CollectionViewImpl<any>
-  >();
+  private readonly _collectionViews = new Map<CollectionToken<unknown>, CollectionViewImpl<any>>();
 
   debugLabel: string | undefined;
 
@@ -172,7 +172,7 @@ export class InstantiationService implements IInstantiationService {
     protected readonly _enableTracing: boolean = false,
   ) {
     this._parent = parent;
-    this._globalGraph = _enableTracing ? parent?._globalGraph ?? new Graph(e => e) : undefined;
+    this._globalGraph = _enableTracing ? (parent?._globalGraph ?? new Graph((e) => e)) : undefined;
     this._services.set(IInstantiationServiceDecorator, this);
     this._tree = parent?._tree ?? new CascadeTree(new DependencyGraph());
     this._collectionStore =
@@ -188,10 +188,7 @@ export class InstantiationService implements IInstantiationService {
       materialize: (token) => {
         this._cascadeResolving = true;
         try {
-          return this._getOrCreateServiceInstance(
-            token,
-            Trace.traceCreation(false, CascadeEngine),
-          );
+          return this._getOrCreateServiceInstance(token, Trace.traceCreation(false, CascadeEngine));
         } finally {
           this._cascadeResolving = false;
         }
@@ -227,7 +224,7 @@ export class InstantiationService implements IInstantiationService {
     return (this._parent?.cascadeDepth ?? -1) + 1;
   }
 
-  private _ownerOf(id: ServiceIdentifier<any>): InstantiationService | undefined {
+  private _ownerOf(id: ServiceIdentifier<unknown>): InstantiationService | undefined {
     if (this._services.has(id)) {
       return this;
     }
@@ -270,9 +267,12 @@ export class InstantiationService implements IInstantiationService {
   ): ProvideHandle {
     this._assertNotDisposed();
     const core = this._provideCore(id, instanceOrDescriptor, options);
-    const entry = this._ledger.register(() => {
-      void core.dispose();
-    }, `provide:${String(id)}`);
+    const entry = this._ledger.register(
+      () => {
+        void core.dispose();
+      },
+      `provide:${String(id)}`,
+    );
     this._provideEntries.set(id, { entry, core });
     return {
       get uid(): number {
@@ -304,11 +304,14 @@ export class InstantiationService implements IInstantiationService {
       if (uid === undefined) {
         continue;
       }
-      const entry = this._ledger.register(() => {
-        if (this._services.uidOf(id) === uid) {
-          void this._unprovideCore(id);
-        }
-      }, `provide:${String(id)}`);
+      const entry = this._ledger.register(
+        () => {
+          if (this._services.uidOf(id) === uid) {
+            void this._unprovideCore(id);
+          }
+        },
+        `provide:${String(id)}`,
+      );
       this._provideEntries.set(id, {
         entry,
         core: {
@@ -417,7 +420,7 @@ export class InstantiationService implements IInstantiationService {
     void this._unprovideCore(id);
   }
 
-  private _releaseProvideEntry(id: ServiceIdentifier<any>): void {
+  private _releaseProvideEntry(id: ServiceIdentifier<unknown>): void {
     const prev = this._provideEntries.get(id);
     if (prev !== undefined) {
       this._provideEntries.delete(id);
@@ -567,12 +570,15 @@ export class InstantiationService implements IInstantiationService {
         change.fire();
       }),
     );
-    this._ledger.register(() => {
-      for (const subscription of subscriptions) {
-        subscription.dispose();
-      }
-      change.dispose();
-    }, `ref:${String(id)}`);
+    this._ledger.register(
+      () => {
+        for (const subscription of subscriptions) {
+          subscription.dispose();
+        }
+        change.dispose();
+      },
+      `ref:${String(id)}`,
+    );
     const current = (): T | undefined => this._materializedInstanceOf(id);
     const ref: LiveRef<T> = {
       get current(): T | undefined {
@@ -594,11 +600,7 @@ export class InstantiationService implements IInstantiationService {
 
   private _scopePath(): string {
     const labels: string[] = [this.debugLabel ?? `#${this._tree.seqOf(this)}`];
-    for (
-      let c: InstantiationService | undefined = this._parent;
-      c !== undefined;
-      c = c._parent
-    ) {
+    for (let c: InstantiationService | undefined = this._parent; c !== undefined; c = c._parent) {
       labels.unshift(c.debugLabel ?? `#${this._tree.seqOf(c)}`);
     }
     return labels.join('/');
@@ -631,9 +633,7 @@ export class InstantiationService implements IInstantiationService {
   createChild(services: ServiceCollection, store?: DisposableStore): IInstantiationService {
     this._assertNotDisposed();
     if (!(services instanceof ServiceCollection)) {
-      throw new TypeError(
-        'createChild requires a ServiceCollection instance (got something else)',
-      );
+      throw new TypeError('createChild requires a ServiceCollection instance (got something else)');
     }
     const child = this._createChildService(services);
     this._children.add(child);
@@ -676,29 +676,38 @@ export class InstantiationService implements IInstantiationService {
     }
   }
 
-  private _createInstance<T>(ctor: any, args: unknown[], _trace: Trace, unit?: {
-    id?: ServiceIdentifier<any>;
-    config?: unknown;
-  }): T {
-    const serviceDependencies = _util.getServiceDependencies(ctor).toSorted((a, b) => a.index - b.index);
+  private _createInstance<T>(
+    ctor: any,
+    args: unknown[],
+    _trace: Trace,
+    unit?: {
+      id?: ServiceIdentifier<any>;
+      config?: unknown;
+    },
+  ): T {
+    const serviceDependencies = _util
+      .getServiceDependencies(ctor)
+      .toSorted((a, b) => a.index - b.index);
     const serviceArgs: unknown[] = [];
     for (const dependency of serviceDependencies) {
       const kind = dependency.kind ?? 'instance';
       if (kind === 'collection') {
-        serviceArgs.push(this._collectionView(dependency.id as unknown as CollectionToken<unknown>));
+        serviceArgs.push(
+          this._collectionView(dependency.id as unknown as CollectionToken<unknown>),
+        );
         continue;
       }
       if (kind === 'ref') {
         serviceArgs.push(this._liveRef(dependency.id));
         continue;
       }
-        const service = this._getOrCreateServiceInstance(dependency.id, _trace);
-        if (!service) {
-          this._throwIfStrict(
-            `[createInstance] ${ctor.name} depends on UNKNOWN service ${String(dependency.id)}.`,
-            false,
-          );
-        }
+      const service = this._getOrCreateServiceInstance(dependency.id, _trace);
+      if (!service) {
+        this._throwIfStrict(
+          `[createInstance] ${ctor.name} depends on UNKNOWN service ${String(dependency.id)}.`,
+          false,
+        );
+      }
       serviceArgs.push(service);
     }
 
@@ -789,7 +798,7 @@ export class InstantiationService implements IInstantiationService {
     _trace: Trace,
   ): T {
     type Triple = { id: ServiceIdentifier<any>; desc: SyncDescriptor<any>; _trace: Trace };
-    const graph = new Graph<Triple>(data => data.id.toString());
+    const graph = new Graph<Triple>((data) => data.id.toString());
 
     let cycleCount = 0;
     const stack: Triple[] = [{ id, desc, _trace }];
@@ -868,12 +877,7 @@ export class InstantiationService implements IInstantiationService {
       return this._createServiceInstance(id, ctor, args, _trace);
     }
     if (this._parent) {
-      return this._parent._createServiceInstanceWithOwner(
-        id,
-        ctor,
-        args,
-        _trace,
-      );
+      return this._parent._createServiceInstanceWithOwner(id, ctor, args, _trace);
     }
     throw new Error(`illegalState - creating UNKNOWN service instance ${ctor.name}`);
   }
@@ -914,15 +918,18 @@ export class InstantiationService implements IInstantiationService {
           );
         }
       }
-      const entry = this._ledger.register(() => {
-        this._instanceEntries.delete(result);
-        this.dependencyGraph.removeInstance(result as object);
-        if (isDisposable(result)) {
-          const out = result.dispose() as unknown as void | Promise<void>;
-          return out;
-        }
-        return undefined;
-      }, `service:${String(id)}`);
+      const entry = this._ledger.register(
+        () => {
+          this._instanceEntries.delete(result);
+          this.dependencyGraph.removeInstance(result as object);
+          if (isDisposable(result)) {
+            const out = result.dispose() as unknown as void | Promise<void>;
+            return out;
+          }
+          return undefined;
+        },
+        `service:${String(id)}`,
+      );
       this._instanceEntries.set(result, entry);
       this.cascade.observedMaterialization(id);
       return result;
@@ -940,9 +947,7 @@ export class InstantiationService implements IInstantiationService {
     } else if (this._parent) {
       this._parent._setCreatedServiceInstance(id, instance);
     } else {
-      throw new Error(
-        `illegal state - setting UNKNOWN service instance '${String(id)}'`,
-      );
+      throw new Error(`illegal state - setting UNKNOWN service instance '${String(id)}'`);
     }
   }
 
