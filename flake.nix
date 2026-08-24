@@ -213,6 +213,7 @@
               # NIX_SSL_CERT_FILE is exported automatically by stdenv
               # because cacert is in nativeBuildInputs above.
               bun install --frozen-lockfile --ignore-scripts
+              mkdir -p $out
               mv node_modules $out/node_modules
               # Vendor the Rust crates for kimi-native-tools so the main
               # derivation can compile offline (CARGO_NET_OFFLINE=true).
