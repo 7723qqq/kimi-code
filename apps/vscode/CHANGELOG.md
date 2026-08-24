@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.3
+
+### Patch Changes
+
+- Updated dependencies [[`c4727ec`](https://github.com/MoonshotAI/kimi-code/commit/c4727ec5c02501267da084ef8af92989855d91b9), [`648f992`](https://github.com/MoonshotAI/kimi-code/commit/648f9920ed6fb3b8a594d8c24880efd2fe5ee372), [`fe6f861`](https://github.com/MoonshotAI/kimi-code/commit/fe6f861758d64101a8b142ad0fa01874a3b5b133), [`59244e7`](https://github.com/MoonshotAI/kimi-code/commit/59244e733c0a7f01dc1085c1ef6946230dbb6b32), [`ac153b1`](https://github.com/MoonshotAI/kimi-code/commit/ac153b1c959eed8e5aaa6e1530c3ad94268a5613)]:
+  - @moonshot-ai/i18n-shared@0.2.0
+  - @moonshot-ai/kimi-code-sdk@0.20.0
+
 ## 0.7.2
 
 ### Patch Changes

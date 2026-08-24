@@ -1,5 +1,13 @@
 # @moonshot-ai/kosong
 
+## 0.5.6
+
+### Patch Changes
+
+- Updated dependencies [[`f7d9641`](https://github.com/MoonshotAI/kimi-code/commit/f7d9641567bd493b6d9dd15bd58018daad7af1ff), [`098d7bf`](https://github.com/MoonshotAI/kimi-code/commit/098d7bf1d08ff786fd62178cf7f85e2cbabd5997), [`91c9441`](https://github.com/MoonshotAI/kimi-code/commit/91c9441422c7193a52a6683a2f54279c8a5003e7), [`5bc0484`](https://github.com/MoonshotAI/kimi-code/commit/5bc0484288396a8b245d02c51844e3fc43f9cc90), [`ac153b1`](https://github.com/MoonshotAI/kimi-code/commit/ac153b1c959eed8e5aaa6e1530c3ad94268a5613)]:
+  - @moonshot-ai/kimi-native-tools@0.3.0
+  - @moonshot-ai/kimi-i18n@0.2.0
+
 ## 0.6.0
 
 ### Patch Changes

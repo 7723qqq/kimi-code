@@ -1,5 +1,21 @@
 # @moonshot-ai/kap-server
 
+## 0.2.3
+
+### Patch Changes
+
+- [`fe6f861`](https://github.com/MoonshotAI/kimi-code/commit/fe6f861758d64101a8b142ad0fa01874a3b5b133) - Add shared i18n package (`@moonshot-ai/i18n-shared`) with unified translation engine, locale detection, and type-safe key paths. Migrate all Node.js apps to the Rust-backed cached translator and browser apps to the shared pure-JS engine.
+
+- [`3dcaa6b`](https://github.com/MoonshotAI/kimi-code/commit/3dcaa6bb0fe0cea562c56d2708dec056115e8df6) Thanks [@7723qqq](https://github.com/7723qqq)! - Isolate global search into a dedicated worker thread with a versioned handshake, per-request watchdog budgets, orphaned-lock recovery, and a boot-salted page-token scheme. Search now degrades gracefully to `building`/`degraded` states on worker crash instead of blocking the server thread, and oversized WAL replays no longer trip the short-request watchdog.
+
+- [`ac153b1`](https://github.com/MoonshotAI/kimi-code/commit/ac153b1c959eed8e5aaa6e1530c3ad94268a5613) Thanks [@7723qqq](https://github.com/7723qqq)! - Windows native shell support: PowerShell 7 / Windows PowerShell are now detected and used by the Bash tool before Git Bash. `KIMI_SHELL_PATH` and a new `[shell] preference` config section (`auto | bash | powershell | pwsh | cmd`) can pin bash, pwsh, powershell, or cmd explicitly. The Rust native bash engine mirrors the same detection. The Bash tool renders shell-specific semantics (PowerShell `$env:`/`$null`/`Get-ChildItem`, cmd `%VAR%`/`dir`, bash POSIX) into the model prompt, rewrites `nul` redirects per shell, and spawns PowerShell with `-NoProfile -NonInteractive`. Also fixes: `windowsVerbatimArguments` for cmd.exe spawns, PowerShell 5.1 `&&` guidance, and completes i18n coverage for user-facing errors across agent-core-v2, kap-server, node-sdk, and the kimi-code CLI.
+
+- Updated dependencies [[`3dcaa6b`](https://github.com/MoonshotAI/kimi-code/commit/3dcaa6bb0fe0cea562c56d2708dec056115e8df6), [`0ff58c8`](https://github.com/MoonshotAI/kimi-code/commit/0ff58c8558921cb6eab79c6813b50d66f1c0c684), [`f7d9641`](https://github.com/MoonshotAI/kimi-code/commit/f7d9641567bd493b6d9dd15bd58018daad7af1ff), [`8b3fa54`](https://github.com/MoonshotAI/kimi-code/commit/8b3fa544a7bb212964843f0032baaad0b8298809), [`1def9c6`](https://github.com/MoonshotAI/kimi-code/commit/1def9c687773bd89290bf09986f0d6ef606b7ea6), [`5e463d8`](https://github.com/MoonshotAI/kimi-code/commit/5e463d813978f7b5854b34d98104e284fbcdb8f0), [`3dcaa6b`](https://github.com/MoonshotAI/kimi-code/commit/3dcaa6bb0fe0cea562c56d2708dec056115e8df6), [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc), [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc), [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc), [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc), [`098d7bf`](https://github.com/MoonshotAI/kimi-code/commit/098d7bf1d08ff786fd62178cf7f85e2cbabd5997), [`91c9441`](https://github.com/MoonshotAI/kimi-code/commit/91c9441422c7193a52a6683a2f54279c8a5003e7), [`e517598`](https://github.com/MoonshotAI/kimi-code/commit/e517598f15f923fe431a0584f9e75ecd0e7cbcb9), [`787110d`](https://github.com/MoonshotAI/kimi-code/commit/787110df53d1c5f7d430ba9a638065c9f7eb36d6), [`5bc0484`](https://github.com/MoonshotAI/kimi-code/commit/5bc0484288396a8b245d02c51844e3fc43f9cc90), [`8b3fa54`](https://github.com/MoonshotAI/kimi-code/commit/8b3fa544a7bb212964843f0032baaad0b8298809), [`ac153b1`](https://github.com/MoonshotAI/kimi-code/commit/ac153b1c959eed8e5aaa6e1530c3ad94268a5613)]:
+  - @moonshot-ai/agent-core-v2@0.5.0
+  - @moonshot-ai/minidb@0.3.0
+  - @moonshot-ai/kimi-i18n@0.2.0
+  - @moonshot-ai/kimi-code-oauth@0.4.1
+
 ## 0.2.2
 
 ### Patch Changes

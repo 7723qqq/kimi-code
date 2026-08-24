@@ -1,5 +1,17 @@
 # @moonshot-ai/kimi-code-sdk
 
+## 0.20.0
+
+### Minor Changes
+
+- [`59244e7`](https://github.com/MoonshotAI/kimi-code/commit/59244e733c0a7f01dc1085c1ef6946230dbb6b32) - Extend the v2 RPC surface: per-prompt disabledTools and promptId, MCP reconnect with an updated config, runtime get/switch, direct global MCP server management, flattened event payloads, and #/legacy plus #/config-local subpath imports.
+
+### Patch Changes
+
+- [`648f992`](https://github.com/MoonshotAI/kimi-code/commit/648f9920ed6fb3b8a594d8c24880efd2fe5ee372) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix locale propagation so agent-core messages match the TUI language, and fix Enter key in the experiments selector on Kitty-protocol terminals.
+
+- [`ac153b1`](https://github.com/MoonshotAI/kimi-code/commit/ac153b1c959eed8e5aaa6e1530c3ad94268a5613) Thanks [@7723qqq](https://github.com/7723qqq)! - Windows native shell support: PowerShell 7 / Windows PowerShell are now detected and used by the Bash tool before Git Bash. `KIMI_SHELL_PATH` and a new `[shell] preference` config section (`auto | bash | powershell | pwsh | cmd`) can pin bash, pwsh, powershell, or cmd explicitly. The Rust native bash engine mirrors the same detection. The Bash tool renders shell-specific semantics (PowerShell `$env:`/`$null`/`Get-ChildItem`, cmd `%VAR%`/`dir`, bash POSIX) into the model prompt, rewrites `nul` redirects per shell, and spawns PowerShell with `-NoProfile -NonInteractive`. Also fixes: `windowsVerbatimArguments` for cmd.exe spawns, PowerShell 5.1 `&&` guidance, and completes i18n coverage for user-facing errors across agent-core-v2, kap-server, node-sdk, and the kimi-code CLI.
+
 ## 0.19.1
 
 ### Patch Changes

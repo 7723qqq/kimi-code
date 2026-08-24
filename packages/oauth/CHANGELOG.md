@@ -1,5 +1,12 @@
 # @moonshot-ai/kimi-code-oauth
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @moonshot-ai/kosong@0.5.6
+
 ## 0.4.0
 
 ### Minor Changes

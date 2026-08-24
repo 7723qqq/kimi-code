@@ -1,5 +1,61 @@
 # @moonshot-ai/agent-core-v2
 
+## 0.5.0
+
+### Minor Changes
+
+- [`91c9441`](https://github.com/MoonshotAI/kimi-code/commit/91c9441422c7193a52a6683a2f54279c8a5003e7) Thanks [@7723qqq](https://github.com/7723qqq)! - Make the Rust native engines the primary paths for Grep and Bash, with the TypeScript / ripgrep implementations demoted to fallbacks.
+
+  - Grep: the full native grep engine (`nativeGrep`) now runs first; ripgrep remains the fallback when the native module is unavailable. Native output uses absolute paths so workspace-relative display stays correct. Multiline searches keep using ripgrep (the native engine does not implement cross-line matching).
+  - Bash: a new native process-lifecycle API (`nativeBashSpawn` / `nativeBashWait` / `nativeBashKill` / `nativeBashDispose`) streams stdout/stderr in real time and kills the process tree on demand; the Bash tool spawns through it and falls back to the node-local spawn.
+  - Observability: a new `grep_tool_native` telemetry event tracks native usage, and the `/status` report shows `Native tools: rust / js (fallback)` so users can see which implementation is active.
+
+- [`5bc0484`](https://github.com/MoonshotAI/kimi-code/commit/5bc0484288396a8b245d02c51844e3fc43f9cc90) Thanks [@7723qqq](https://github.com/7723qqq)! - Rename the "Swarm Discussion" feature to "Team". The `SwarmDiscussion` agent tool is now `Team`, the `/discuss` slash command is now `/team`, and the `toolsV2.discussion.*` / `tui.messages.discuss*` locale keys are renamed accordingly. `AgentSwarm` and swarm mode are unaffected; the tool's `mode: "discussion" | "debate"` input semantics are preserved.
+
+- [`8b3fa54`](https://github.com/MoonshotAI/kimi-code/commit/8b3fa544a7bb212964843f0032baaad0b8298809) Thanks [@7723qqq](https://github.com/7723qqq)! - Add spill storage for oversized tool output (ported from deepseek-harness `spill`, MIT): a Session-scoped `ISpillService` writes truncated tool results to a private session-scoped artifact (0700 root, safe-name encoding, exclusive writes) and returns a model-facing locator with a Read-tool retrieval hint. `ToolResultBuilder` gained an optional `onTruncated` hook that attaches a `spilled` reference to truncated results, wired into `BashTool` and `FetchURLTool`; hook failures degrade best-effort. Configurable via the new `[spill] root` config section.
+
+- [`ac153b1`](https://github.com/MoonshotAI/kimi-code/commit/ac153b1c959eed8e5aaa6e1530c3ad94268a5613) Thanks [@7723qqq](https://github.com/7723qqq)! - Windows native shell support: PowerShell 7 / Windows PowerShell are now detected and used by the Bash tool before Git Bash. `KIMI_SHELL_PATH` and a new `[shell] preference` config section (`auto | bash | powershell | pwsh | cmd`) can pin bash, pwsh, powershell, or cmd explicitly. The Rust native bash engine mirrors the same detection. The Bash tool renders shell-specific semantics (PowerShell `$env:`/`$null`/`Get-ChildItem`, cmd `%VAR%`/`dir`, bash POSIX) into the model prompt, rewrites `nul` redirects per shell, and spawns PowerShell with `-NoProfile -NonInteractive`. Also fixes: `windowsVerbatimArguments` for cmd.exe spawns, PowerShell 5.1 `&&` guidance, and completes i18n coverage for user-facing errors across agent-core-v2, kap-server, node-sdk, and the kimi-code CLI.
+
+### Patch Changes
+
+- [`3dcaa6b`](https://github.com/MoonshotAI/kimi-code/commit/3dcaa6bb0fe0cea562c56d2708dec056115e8df6) Thanks [@7723qqq](https://github.com/7723qqq)! - Rework the context-injection pipeline: injectors now reconcile at step heads instead of tracking positions, plugin session-start guidance is snapshotted and reconciled after compaction/undo, swarm reminders are replayable cross-model ops, and tool-schema injections drain at quiescent boundaries. Stuck-compaction detection now measures against the same full-request token baseline as auto-compaction, and a cancelled step during a retry backoff no longer mislabels the turn as a provider failure.
+
+- [`0ff58c8`](https://github.com/MoonshotAI/kimi-code/commit/0ff58c8558921cb6eab79c6813b50d66f1c0c684) Thanks [@7723qqq](https://github.com/7723qqq)! - Make file writes crash-safe by writing through a temporary file and renaming into place, so an interrupted write cannot leave a truncated file. Symlink targets are still written through in-place to preserve the link.
+
+- [`f7d9641`](https://github.com/MoonshotAI/kimi-code/commit/f7d9641567bd493b6d9dd15bd58018daad7af1ff) Thanks [@7723qqq](https://github.com/7723qqq)! - Cache-correctness and prompt-cache-stability hardening:
+
+  - `llmRequester`: run micro-compaction on the raw history **before** `shapeHistory` so the `keepRecentMessages` cutoff (an index into raw history) stays stable and tool results inside the kept tail are not truncated.
+  - `profile`: freeze the additional-dirs listing in the system-prompt prefix (keyed on the dir list, so `/add-dir` rebuilds immediately) and coalesce overlapping `refreshSystemPrompt` triggers into a single run plus one queued follow-up.
+  - `client-configs`: re-validate a cached config against the caller's schema on hit; a hit that no longer parses is treated as a miss.
+  - `byteLruCache`: evict by byte cap even when a cache key grows in place.
+  - `kimi-native-tools`: TOCTOU-guard the file-read cache by snapshotting `(mtime, size)` before the read and skipping the cache entry if the file changed in between.
+
+- [`8b3fa54`](https://github.com/MoonshotAI/kimi-code/commit/8b3fa544a7bb212964843f0032baaad0b8298809) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix agent-core-v2 hardening gaps: register the session-scoped `SubagentBackendService` (the Agent tool could not activate), restore `fetchImpl` injectability for connection-pinned fetches (SSRF tests no longer hit the network), settle `run_code` workers immediately on `process.exit`/port close and bound their heap, extend the sandbox write guard to Write/Edit/run_code, and enforce the subagent delegation-depth cap on swarm and persistent-subagent spawns. `UpdateGoal` also accepts the documented `active` status again.
+
+- [`1def9c6`](https://github.com/MoonshotAI/kimi-code/commit/1def9c687773bd89290bf09986f0d6ef606b7ea6) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix `subagentTool depends on subagentBackendService which is NOT registered` at startup: the Session-scoped `SubagentBackendService` self-registers via a module side effect, but the module was never imported by the domain assembly (`src/index.ts`), so the registration never ran in the bundled CLI and the Agent tool failed DI resolution on every session create. Package tests imported the module directly and masked the gap.
+
+- [`5e463d8`](https://github.com/MoonshotAI/kimi-code/commit/5e463d813978f7b5854b34d98104e284fbcdb8f0) Thanks [@7723qqq](https://github.com/7723qqq)! - Upgrade MCP client from `@modelcontextprotocol/sdk` 1.29.0 to the v2 package family (`@modelcontextprotocol/client` / `@modelcontextprotocol/core` 2.0.0). Protocol negotiation stays on the legacy 2025-11-25 handshake by default, so existing MCP servers remain fully compatible; the 2026-07-28 protocol revision remains an opt-in for a future change.
+
+- [`098d7bf`](https://github.com/MoonshotAI/kimi-code/commit/098d7bf1d08ff786fd62178cf7f85e2cbabd5997) Thanks [@7723qqq](https://github.com/7723qqq)! - Windows: on first launch, prompt to install MSYS2 when no MSYS2 bash is detected, then switch the shell to it via `KIMI_SHELL_PATH` after install. Skipping or a successful install marks the prompt as shown; headless (`kimi -p`) prints an install hint on stderr on every run (not marked) until MSYS2 is installed or the TUI gate fires.
+
+  Also fixes MSYS2 bash commands failing with "command not found": MSYS2 (unlike Git Bash) does not prepend its own `/usr/bin` to the inherited Windows PATH in non-login mode, so the bash tool now prepends `/usr/local/bin:/usr/bin:/bin` to PATH for Windows bash invocations.
+
+  Shell detection on Windows now recognizes MSYS2 installs (`C:\msys64\usr\bin\bash.exe`) alongside Git for Windows, and the Windows system-prompt notes are generated from the detected shell (bash / PowerShell / cmd) instead of assuming Git Bash.
+
+- [`e517598`](https://github.com/MoonshotAI/kimi-code/commit/e517598f15f923fe431a0584f9e75ecd0e7cbcb9) Thanks [@7723qqq](https://github.com/7723qqq)! - Polish the native integration:
+
+  - Cache the `/status` native-tools probe for the process lifetime (the previous implementation re-verified every cached native asset — a full read + sha256 per file — on each report).
+  - Make `BashTool.spawn` async and drop a redundant promise wrapper.
+  - Update the Grep tool description to reflect that the native Rust engine is the primary path (ripgrep-compatible feature set).
+
+- [`787110d`](https://github.com/MoonshotAI/kimi-code/commit/787110df53d1c5f7d430ba9a638065c9f7eb36d6) Thanks [@7723qqq](https://github.com/7723qqq)! - Read/Write: complete the native readers'/writer's capability set and make them authoritative. The Rust reader now performs UTF-16 LE/BE transcoding (BOM or zero-byte parity heuristic), the GBK/GB18030 fallback, and lenient UTF-8 decoding natively via `encoding_rs` (10 MiB transcode bound, encoding notes in the status block), so the TypeScript implementation is a fallback only for hosts without the native module — no capability is TS-only anymore. The Read tool now calls the native reader before its TS stat/header preflight, eliminating a duplicate stat + 512-byte sniff on every read. Native errors carry a machine-readable `errorKind` (read: `not_found` / `not_a_file` / `media` / `binary` / `invalid_utf8` / `too_large` / `io` / `panic`; write: `io` / `parent_not_dir` / `panic`) and every verdict is returned directly instead of silently re-running the TS path, which had been masking native bugs. The native writer's docs now honestly describe its truncating/`O_APPEND` semantics instead of claiming atomicity. Also fixes the Rust reader bugs the old silent fallback hid: multi-byte-unsafe line truncation (panic on CJK long lines), LF+CRLF mixed files misdetected as pure CRLF, `feed_crlf` erasing earlier lone CRs, tail reads ignoring mid-line CRs, mixed-file CRLF lines losing their visible `\r`, the binary-vs-UTF-16 ordering (NUL-heavy UTF-16 headers were refused before encoding detection), header sniff short-reads, a missing UTF-8 BOM strip, and first-line byte budget drift vs the TS implementation.
+
+- Updated dependencies [[`3dcaa6b`](https://github.com/MoonshotAI/kimi-code/commit/3dcaa6bb0fe0cea562c56d2708dec056115e8df6), [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc), [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc), [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc), [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc), [`5bc0484`](https://github.com/MoonshotAI/kimi-code/commit/5bc0484288396a8b245d02c51844e3fc43f9cc90)]:
+  - @moonshot-ai/minidb@0.3.0
+  - @moonshot-ai/kimi-i18n@0.2.0
+  - @moonshot-ai/kosong@0.5.6
+  - @moonshot-ai/kimi-code-oauth@0.4.1
+
 ## 0.4.1
 
 ### Patch Changes
