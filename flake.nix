@@ -213,24 +213,16 @@
               # NIX_SSL_CERT_FILE is exported automatically by stdenv
               # because cacert is in nativeBuildInputs above.
               bun install --frozen-lockfile --ignore-scripts
-              mkdir -p $out
               mv node_modules $out/node_modules
               # Vendor the Rust crates for kimi-native-tools so the main
               # derivation can compile offline (CARGO_NET_OFFLINE=true).
+              # NOTE: do NOT let cargo write its suggested config here —
+              # with an absolute $out target it would embed this store
+              # path, which FOD outputs must never reference. The main
+              # derivation generates the config itself.
               cd packages/kimi-native-tools
-              cargo vendor --locked $out/vendor > $out/cargo-config.toml
+              cargo vendor --locked $out/vendor > /dev/null
               cd -
-              # TEMP DEBUG: locate embedded store-path references that trip
-              # the FOD reference scanner.
-              if grep -rlI "/nix/store/" "$out" >/tmp/leak.txt 2>/dev/null; then
-                echo "==== FOD LEAK PROBE: files containing /nix/store ===="
-                head -20 /tmp/leak.txt
-                for f in $(head -3 /tmp/leak.txt); do
-                  echo "---- $f ----"
-                  grep -oE "/nix/store/[a-z0-9]+-[^\"]*" "$f" | head -3
-                done
-                echo "==== END LEAK PROBE ===="
-              fi
               runHook postInstall
             '';
 
@@ -274,11 +266,17 @@
               export npm_config_nodedir=${nodejs}
               cp -a ${bunDeps}/node_modules ./node_modules
               chmod -R u+w ./node_modules
-              # Wire the vendored crates for the offline napi build: cargo
-              # vendor emits a config pointing at a relative ./vendor dir.
-              mkdir -p packages/kimi-native-tools/.cargo packages/kimi-native-tools/vendor
-              cp ${bunDeps}/cargo-config.toml packages/kimi-native-tools/.cargo/config.toml
-              cp -r ${bunDeps}/vendor/. packages/kimi-native-tools/vendor/
+              # Wire the vendored crates for the offline napi build: the
+              # main derivation may reference store paths, so point cargo
+              # at the FOD's vendor dir with an absolute path.
+              mkdir -p packages/kimi-native-tools/.cargo
+              cat > packages/kimi-native-tools/.cargo/config.toml <<EOF
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "${bunDeps}/vendor"
+EOF
               export CARGO_NET_OFFLINE=true
               runHook postConfigure
             '';
