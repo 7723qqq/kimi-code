@@ -145,8 +145,8 @@ describe('server-v2 /api/v1 tools + mcp', () => {
     });
 
     it('returns builtin tools after the session creates its main agent', async () => {
-      await createSession();
-      const { body } = await getJson<{ tools: ToolWire[] }>('/api/v1/tools');
+      const id = await createSession();
+      const { body } = await getJson<{ tools: ToolWire[] }>(`/api/v1/tools?session_id=${id}`);
       expect(body.code).toBe(0);
       expect(listToolsResponseSchema.parse(body.data).tools.length).toBeGreaterThan(0);
     });

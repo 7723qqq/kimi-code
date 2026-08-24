@@ -42,7 +42,7 @@ describe('fetchNativeReleaseManifest', () => {
     const f = mockFetch({ ok: true, status: 200, body: MANIFEST_BODY });
     const manifest = await fetchNativeReleaseManifest(VERSION, f);
     expect(manifest.version).toBe(VERSION);
-    expect(Object.keys(manifest.bun)).toEqual(['win32-x64', 'darwin-arm64']);
+    expect(Object.keys(manifest.bun ?? {})).toEqual(['win32-x64', 'darwin-arm64']);
     expect(f).toHaveBeenCalledWith(
       nativeManifestUrl(VERSION),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
