@@ -73,6 +73,7 @@ Bun 字节码默认关闭：在本流水线上实测启动无收益，而字节�
 
 运行时集成在可能的情况下与 SEA 路径共用：
 
+- 与 pnpm 时代的一个开发行为差异：Bun 会自动加载 `.env`（pnpm 不会）。需要旧行为时给 `bun` 加 `--no-env-file`。
 - 打包产物在加载时从提取的资产缓存解析 node-pty（含 PTY bindings）与 pi-tui 平台 helper，统一入口是 `apps/kimi-code/src/native/node-pty.ts`；原先被取代的按模块 hook 垫片（约 780 行死代码）已删除。release 冒烟测试会在 CI 运行的每个目标上 dlopen PTY binding。
 - 宿主终端会话在两种运行时下均可工作，并为 Bun 适配了 UTF-8 流解码。
 - 内置 URL-fetch 默认走捆绑的 `undici` fetch，保证 SSRF 防护语义跨引擎一致（Bun 的全局 fetch 会静默忽略其 pinned-DNS dispatcher 选项）。
@@ -88,6 +89,14 @@ node scripts/native/bench-native.mjs /tmp/kimi-sea /tmp/kimi-bun --runs 20
 ```
 
 路线图：最终目标是让 Bun 完全取代 Node.js SEA 成为唯一发布引擎，退役 SEA 构建链。近期路径为：全平台 CI 验证 → 治理字节码/顶层 await 限制 → 切换默认引擎并退役 SEA。在此之前，发布二进制仍默认由 Node SEA 产出。
+
+### Nix 构建
+
+`nix-build.yml` 在纯净沙箱中构建 CLI。依赖来自一个固定输出派生（`flake.nix` 中的 `bunDeps`）：它物化 hoisted 的 `node_modules` 树，以及两个 napi 包（`kimi-native-tools`、`kimi-agent`）的 cargo vendor 目录；主派生随后离线编译。编辑 `flake.nix` 或原生构建步骤时需要知道的沙箱特性：
+
+- 沙箱中没有 `/usr/bin/env`——请用 `node <js入口>` 调用 node-gyp 和 napi CLI，不要用它们的 bin 启动器。
+- FOD 输出不得包含 `/nix/store/...` 字符串：绝不让 `cargo vendor` 把它建议的配置写进输出，也不要把 store 路径插值进安装脚本。
+- 改动 `bun.lock` 或任一 `Cargo.lock` 后，会有一次哈希不匹配轮次：把失败日志中的 `got:` 哈希（PR 上由 nix-build bot 自动贴出）填回 `flake.nix` 的 `outputHash`。
 
 ## 提交规范
 
@@ -116,6 +125,14 @@ PR 标题由 `pr-title-checker` 工作流强制校验——不合规的标题会
 - 仅文档、仅测试或仅 CI 的 PR 可以不加。
 - 用 `bun run changeset` 生成并按提示操作（涉及哪些包、什么 bump 级别）。
 - 包选择与 bump 级别的仓库约定见 `.changeset/README.md`。在本仓库使用编程 agent 时，使用 `gen-changesets` 技能。
+
+### 本 fork 的发版流程
+
+每次向 `main` 推送都会运行 Release 工作流：changesets action 会打开或更新一个 **「ci: release packages」** PR（分支 `changeset-release/main`），内容是提升包版本并汇总 changelog。
+
+- **永远不要合并那个 PR。** 本 fork 的版本跟随上游——各包 version 字段必须与上游保持一致，发版流程仅作为 changelog 来源。直接关闭该 PR 即可；其描述中的 changelog 预览在关闭后仍可查看。
+- 该工作流依赖仓库设置 **Actions → General → "Allow GitHub Actions to create and approve pull requests"** 处于开启状态。若 Release 失败并报 `GitHub Actions is not permitted to create or approve pull requests`，打开该开关（或经 API：`PUT /repos/{owner}/{repo}/actions/permissions/workflow`，`can_approve_pull_request_reviews: true`）。
+- 有意发版前，用 `pre-changelog` 技能预览面向用户的 changelog，并从 `main` 清理掉累积的非用户向 changesets。
 
 ## Pull Requests
 
