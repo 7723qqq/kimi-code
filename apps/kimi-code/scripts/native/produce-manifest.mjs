@@ -6,7 +6,11 @@
  *   node produce-manifest.mjs <input-dir> <release-tag>
  *
  * Input dir must contain files matching: kimi-code-<target>.zip.sha256
- * (produced by package.mjs across the 6 native-build matrix runners).
+ * (produced by package.mjs across the 6 native-build matrix runners), and may
+ * contain kimi-code-bun-<target>.zip.sha256 from the experimental Bun
+ * pipeline — those land in the manifest's optional `bun` section so a
+ * Bun-packaged client updates against Bun builds instead of silently
+ * switching to the SEA binary.
  *
  * Output:
  *   <input-dir>/manifest.json   ← consumed by install.sh / install.ps1
@@ -26,7 +30,7 @@ if (!inputDir || !tag) {
 const version = tag.replace(/^@moonshot-ai\/kimi-code@/, '').replace(/^v/, '');
 
 const entries = await readdir(inputDir);
-const sumFiles = entries.filter((f) => /^kimi-code-[a-z0-9-]+\.zip\.sha256$/.test(f));
+const sumFiles = entries.filter((f) => /^kimi-code-(?:bun-)?[a-z0-9]+-[a-z0-9]+\.zip\.sha256$/.test(f));
 
 if (sumFiles.length === 0) {
   console.error(`No kimi-code-<target>.zip.sha256 files found in ${inputDir}`);
@@ -34,6 +38,7 @@ if (sumFiles.length === 0) {
 }
 
 const platforms = {};
+const bun = {};
 for (const sumFile of sumFiles.sort()) {
   const text = await readFile(resolve(inputDir, sumFile), 'utf-8');
   const [checksum] = text.trim().split(/\s+/, 1);
@@ -42,14 +47,29 @@ for (const sumFile of sumFiles.sort()) {
     process.exit(1);
   }
   const filename = basename(sumFile, '.sha256');
-  // kimi-code-darwin-arm64.zip → darwin-arm64
-  const target = filename.replace(/^kimi-code-/, '').replace(/\.zip$/, '');
-  platforms[target] = { filename, checksum };
+  // kimi-code-darwin-arm64.zip → darwin-arm64; kimi-code-bun-linux-x64.zip → linux-x64
+  const target = filename.replace(/^kimi-code-/, '').replace(/^bun-/, '').replace(/\.zip$/, '');
+  if (filename.startsWith('kimi-code-bun-')) {
+    bun[target] = { filename, checksum };
+  } else {
+    platforms[target] = { filename, checksum };
+  }
+}
+
+if (Object.keys(platforms).length === 0) {
+  console.error('No SEA (kimi-code-<target>.zip) artifacts found; the platforms section would be empty');
+  process.exit(1);
 }
 
 const manifest = { version, tag, platforms };
+if (Object.keys(bun).length > 0) {
+  manifest.bun = bun;
+}
 const manifestPath = resolve(inputDir, 'manifest.json');
 
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-console.log(`Wrote ${manifestPath} (${Object.keys(platforms).length} platforms)`);
+console.log(
+  `Wrote ${manifestPath} (${Object.keys(platforms).length} platforms` +
+    `${Object.keys(bun).length > 0 ? `, ${Object.keys(bun).length} bun` : ''})`,
+);

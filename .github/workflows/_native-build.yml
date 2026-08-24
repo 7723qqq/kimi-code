@@ -19,7 +19,7 @@ on:
         type: boolean
         default: false
       build-bun:
-        description: 'Also build the experimental Bun single-file binary (linux-x64 only)'
+        description: 'Also build the experimental Bun single-file binaries (all targets)'
         required: false
         type: boolean
         default: false
@@ -139,9 +139,26 @@ jobs:
           if-no-files-found: ignore
 
   native-bundle-bun:
-    name: Native bundle (bun, linux-x64)
-    runs-on: ubuntu-24.04
+    name: Native bundle (bun, ${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
     if: inputs.build-bun == true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: macos-15-intel
+            target: darwin-x64
+          - os: macos-15
+            target: darwin-arm64
+          - os: windows-2025-vs2026
+            target: win32-x64
+          - os: windows-11-arm
+            target: win32-arm64
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -169,24 +186,61 @@ jobs:
       - name: Build kimi-native-tools (.node for embedded assets)
         run: pnpm --filter @moonshot-ai/kimi-native-tools run build
 
+      - name: Setup macOS keychain (release only)
+        if: runner.os == 'macOS' && inputs.sign-macos
+        uses: ./.github/actions/macos-keychain-setup
+        with:
+          certificate-p12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Generate built-in catalog (release artifacts)
+        if: inputs.sign-macos
+        shell: bash
+        run: |
+          CATALOG_FILE="$RUNNER_TEMP/kimi-code-built-in-catalog.json"
+          node apps/kimi-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
+          echo "KIMI_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
+
       - name: Build Kimi web assets check
+        # The bundle embeds apps/kimi-code/dist-web. The bundle is committed
+        # (synced from the code-app repo) — just verify it is in place.
         run: node apps/kimi-code/scripts/check-web-assets.mjs
 
-      - name: Build native executable (Bun)
+      - name: Build native executable (Bun, release profile, macOS signed)
+        if: runner.os == 'macOS' && inputs.sign-macos
+        run: pnpm --filter @moonshot-ai/kimi-code run build:native:bun:release
+
+      - name: Build native executable (Bun, local profile)
+        if: '!(runner.os == ''macOS'' && inputs.sign-macos)'
         run: pnpm --filter @moonshot-ai/kimi-code run build:native:bun
+
+      - name: Notarize macOS binary
+        if: runner.os == 'macOS' && inputs.sign-macos
+        uses: ./.github/actions/macos-notarize
+        with:
+          binary-path: ${{ github.workspace }}/apps/kimi-code/dist-native/bin/${{ matrix.target }}/kimi
+          notarization-key-p8: ${{ secrets.APPLE_NOTARIZATION_KEY_P8 }}
+          notarization-key-id: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
+          notarization-issuer-id: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
+
+      - name: Cleanup macOS keychain
+        if: always() && runner.os == 'macOS' && inputs.sign-macos
+        uses: ./.github/actions/macos-keychain-cleanup
 
       - name: Smoke test native executable
         run: pnpm --filter @moonshot-ai/kimi-code run test:native:smoke
 
       - name: Package native artifact
+        env:
+          KIMI_CODE_NATIVE_ENGINE: bun
         run: pnpm --filter @moonshot-ai/kimi-code run package:native
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.upload-artifact-prefix }}-bun-linux-x64
+          name: ${{ inputs.upload-artifact-prefix }}-bun-${{ matrix.target }}
           retention-days: ${{ inputs.retention-days }}
           path: |
-            apps/kimi-code/dist-native/artifacts/kimi-code-linux-x64.zip
-            apps/kimi-code/dist-native/artifacts/kimi-code-linux-x64.zip.sha256
+            apps/kimi-code/dist-native/artifacts/kimi-code-bun-${{ matrix.target }}.zip
+            apps/kimi-code/dist-native/artifacts/kimi-code-bun-${{ matrix.target }}.zip.sha256
           if-no-files-found: ignore

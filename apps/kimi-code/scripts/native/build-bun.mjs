@@ -1,11 +1,13 @@
 import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { parseArgs } from 'node:util';
+import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
 import { runBundleStep } from './01-bundle.mjs';
 import { collectNativeAssets, nativeAssetManifestKey } from './assets.mjs';
 import { run } from './exec.mjs';
 import { runSignStep } from './04-sign.mjs';
+import { runVerifyStep } from './05-verify.mjs';
 import {
   appRoot,
   nativeBinPath,
@@ -13,7 +15,20 @@ import {
   nativeJsBundlePath,
   targetTriple,
 } from './paths.mjs';
+import { BUILT_IN_CATALOG_ENV } from '../built-in-catalog.mjs';
 import { collectWebAssets, webAssetManifestKey } from './web-assets.mjs';
+
+const { values } = parseArgs({
+  options: {
+    profile: { type: 'string', default: 'local' },
+  },
+});
+
+const profile = values.profile;
+if (!['local', 'release'].includes(profile)) {
+  console.error(`Unknown profile: ${profile}. Expected 'local' or 'release'.`);
+  process.exit(1);
+}
 
 const MAIN_ASSET_KEY = 'runtime/main.cjs';
 const ASSET_SUFFIX = '.bin';
@@ -28,9 +43,10 @@ const BUN_TARGETS = new Map([
 ]);
 
 function resolveBun() {
+  const exe = process.platform === 'win32' ? 'bun.exe' : 'bun';
   const candidates = [
-    process.env.BUN_INSTALL ? join(process.env.BUN_INSTALL, 'bin', 'bun') : null,
-    join(homedir(), '.bun', 'bin', 'bun'),
+    process.env.BUN_INSTALL ? join(process.env.BUN_INSTALL, 'bin', exe) : null,
+    join(homedir(), '.bun', 'bin', exe),
     '/usr/local/bin/bun',
   ].filter((candidate) => candidate !== null && existsSync(candidate));
   return candidates[0] ?? 'bun';
@@ -49,7 +65,18 @@ async function buildBunNative() {
     process.exit(1);
   }
 
-  console.log(`==> Bun native build (target=${target})`);
+  console.log(`==> Bun native build (target=${target}, profile=${profile})`);
+
+  if (profile === 'release' && process.env[BUILT_IN_CATALOG_ENV] === undefined) {
+    const catalogPath = resolve(nativeIntermediatesDir(), 'built-in-catalog.json');
+    try {
+      await run(process.execPath, [resolve(appRoot, 'scripts/update-catalog.mjs'), '--out', catalogPath]);
+      process.env[BUILT_IN_CATALOG_ENV] = catalogPath;
+    } catch (error) {
+      console.warn(`Built-in catalog unavailable (${String(error)}); continuing without it`);
+    }
+  }
+
   await runBundleStep();
 
   const stageRoot = join(nativeIntermediatesDir(), 'bun-stage', target);
@@ -101,18 +128,20 @@ async function buildBunNative() {
 
   const outfile = nativeBinPath(target);
   mkdirSync(dirname(outfile), { recursive: true });
-  console.log(`==> bun build --compile --target=${bunTarget}`);
-  await run(resolveBun(), [
-    'build',
-    '--compile',
-    '--target',
-    bunTarget,
-    '--outfile',
-    outfile,
-    join(stageRoot, 'bun-entry.ts'),
-  ]);
+  const useBytecode = process.env.KIMI_CODE_BUN_NO_BYTECODE !== '1';
+  console.log(`==> bun build --compile --target=${bunTarget}${useBytecode ? ' --bytecode' : ''}`);
+  const buildArgs = ['build', '--compile', '--target', bunTarget];
+  if (useBytecode) {
+    buildArgs.push('--bytecode');
+  }
+  buildArgs.push('--outfile', outfile, join(stageRoot, 'bun-entry.ts'));
+  await run(resolveBun(), buildArgs);
 
-  await runSignStep();
+  await runSignStep({
+    identity: profile === 'release' ? (process.env.APPLE_SIGNING_IDENTITY ?? '-') : '-',
+    keychainPath: profile === 'release' ? (process.env.APPLE_KEYCHAIN_PATH ?? null) : null,
+  });
+  await runVerifyStep({ requireGatekeeper: false });
 
   const mb = (statSync(outfile).size / 1024 / 1024).toFixed(1);
   console.log(`==> Bun native build complete: ${outfile} (${mb} MB)`);

@@ -13,8 +13,12 @@ const execName = executableName();
 const sourceBinary = nativeBinPath(target);
 const artifactsDir = nativeArtifactsDir();
 
+// Optional engine segment so parallel packaging pipelines never collide on
+// artifact filenames (e.g. KIMI_CODE_NATIVE_ENGINE=bun -> kimi-code-bun-<target>.zip).
+const engineSegment = process.env.KIMI_CODE_NATIVE_ENGINE ?? null;
+
 // Flat-name archive for GH Release (GitHub Release assets do not support subdirectories).
-const artifactName = `kimi-code-${target}.zip`;
+const artifactName = `kimi-code${engineSegment ? `-${engineSegment}` : ''}-${target}.zip`;
 const artifactPath = resolve(artifactsDir, artifactName);
 const checksumPath = `${artifactPath}.sha256`;
 

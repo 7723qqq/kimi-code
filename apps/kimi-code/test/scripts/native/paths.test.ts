@@ -66,6 +66,10 @@ describe('path helpers', () => {
     expect(nativeBinPath('win32-x64', 'win32')).toBe(p('dist-native/bin/win32-x64/kimi.exe'));
   });
 
+  it('derives kimi.exe from the target triple without an explicit platform argument', () => {
+    expect(nativeBinPath('win32-x64')).toBe(p('dist-native/bin/win32-x64/kimi.exe'));
+  });
+
   it('returns intermediate artifact paths', () => {
     expect(nativeJsBundlePath()).toBe(p('dist-native/intermediates/main.cjs'));
     expect(nativeBlobPath()).toBe(p('dist-native/intermediates/kimi.blob'));
