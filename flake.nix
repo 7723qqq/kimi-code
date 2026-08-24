@@ -176,7 +176,7 @@
 
             src = kimi-code-src;
 
-            impureEnvVars = lib.impureEnvVars.proxyImpureEnvVars;
+            impureEnvVars = lib.fetchers.proxyImpureEnvVars;
 
             nativeBuildInputs = [ bun ];
 
