@@ -47,10 +47,10 @@ node --version
 npm install -g @moonshot-ai/kimi-code
 ```
 
-或用 pnpm：
+或用 Bun：
 
 ```sh
-pnpm add -g @moonshot-ai/kimi-code
+bun add -g @moonshot-ai/kimi-code
 ```
 
 ## 升级与卸载

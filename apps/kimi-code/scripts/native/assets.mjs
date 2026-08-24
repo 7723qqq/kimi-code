@@ -93,7 +93,7 @@ function resolvePackageRootGeneric(
         `Native asset package is not installed for target ${target}: ${packageName}`,
         parentPackageName ? `Searched via parent: ${parentPackageName}` : '',
         `Resolve root: ${appRoot}`,
-        'Run pnpm install --frozen-lockfile before building native assets.',
+        'Run bun install --frozen-lockfile before building native assets.',
         rootError instanceof Error ? rootError.message : String(rootError),
       ]
         .filter(Boolean)

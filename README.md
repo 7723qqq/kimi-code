@@ -109,20 +109,20 @@ Then open a new conversation in Zed's Agent panel. See [Using in IDEs](https://m
 
 ## Develop
 
-Requirements: Node.js ≥ 24.15.0, pnpm 10.33.0.
+Requirements: Node.js ≥ 24.15.0, Bun ≥ 1.4.
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git
 cd kimi-code
-pnpm install
+bun install
 ```
 
 ```sh
-pnpm dev:cli    # run the CLI in dev mode
-pnpm test       # run tests
-pnpm typecheck  # TypeScript check
-pnpm lint       # oxlint
-pnpm build      # build all packages
+bun run dev:cli    # run the CLI in dev mode
+bun run test       # run tests
+bun run typecheck  # TypeScript check
+bun run lint       # oxlint
+bun run build      # build all packages
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.

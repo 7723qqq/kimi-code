@@ -10,10 +10,10 @@ Requires [Rust](https://rustup.rs/) and `@napi-rs/cli`.
 
 ```bash
 # Local development build (current platform only)
-pnpm build:debug
+bun run build:debug
 
 # Release build for the current platform
-pnpm build
+bun run build
 
 # Run the Rust unit tests (--lib: this is a cdylib crate, so `cargo test`
 # without `--lib` fails on the unsupported doc-test target)

@@ -23,7 +23,7 @@ Kimi Code 对 CLI/TUI 行为、agent 工作流和公开 API 已有自己的主�
 
 ## 项目结构
 
-本仓库是 pnpm monorepo，最常用的入口：
+本仓库是 Bun monorepo，最常用的入口：
 
 - `apps/kimi-code` — CLI / TUI
 - `apps/vscode` — VS Code 插件
@@ -37,35 +37,35 @@ Kimi Code 对 CLI/TUI 行为、agent 工作流和公开 API 已有自己的主�
 
 ## 开发环境
 
-前置要求：Node.js >= 24.15.0、pnpm 10.33.0、Git。
+前置要求：Node.js >= 24.15.0、Bun >= 1.4、Git。
 
 ```sh
 git clone https://github.com/MoonshotAI/kimi-code.git
 cd kimi-code
-pnpm install
+bun install
 ```
 
 常用脚本：
 
-- `pnpm dev:cli` — 开发模式运行 CLI
-- `pnpm test` — 运行测试（vitest）
-- `pnpm typecheck` — TypeScript 检查（注意：会先构建各包）
-- `pnpm lint` — oxlint
-- `pnpm lint:fix` — oxlint 自动修复
-- `pnpm build` — 构建全部包
+- `bun run dev:cli` — 开发模式运行 CLI
+- `bun run test` — 运行测试（vitest）
+- `bun run typecheck` — TypeScript 检查（注意：会先构建各包）
+- `bun run lint` — oxlint
+- `bun run lint:fix` — oxlint 自动修复
+- `bun run build` — 构建全部包
 
 ### Bun 迁移（实验性）
 
 实验性的单文件构建方案：用 Bun 编译 CLI，替代 Node.js SEA。前置要求：Bun >= 1.4（一行安装命令 `curl -fsSL https://bun.sh/install | bash`，详见 [bun.sh](https://bun.sh)）；构建脚本本身仍由 Node.js >= 24.15 运行；Rust 工具链仍然必需，因为需要嵌入 `kimi-native-tools` 的 `.node` 二进制。
 
-在 `apps/kimi-code` 下运行 `node scripts/native/build-bun.mjs`（或 `pnpm run build:native:bun`），然后用现有的冒烟测试验证：
+在 `apps/kimi-code` 下运行 `node scripts/native/build-bun.mjs`（或 `bun run build:native:bun`），然后用现有的冒烟测试验证：
 
 ```sh
 node scripts/native/build-bun.mjs
-pnpm run test:native:smoke
+bun run test:native:smoke
 ```
 
-`--profile=release`（`pnpm run build:native:bun:release`）与 SEA 的 release profile 对齐：生成内置目录，macOS 上用 `APPLE_SIGNING_IDENTITY` 签名并运行 codesign 自检。CI 通过 `_native-build.yml` 的 `build-bun` 输入构建全部六个目标（经 `KIMI_CODE_NATIVE_ENGINE=bun` 打包为 `kimi-code-bun-<target>.zip`）。
+`--profile=release`（`bun run build:native:bun:release`）与 SEA 的 release profile 对齐：生成内置目录，macOS 上用 `APPLE_SIGNING_IDENTITY` 签名并运行 codesign 自检。CI 通过 `_native-build.yml` 的 `build-bun` 输入构建全部六个目标（经 `KIMI_CODE_NATIVE_ENGINE=bun` 打包为 `kimi-code-bun-<target>.zip`）。
 
 产物输出到 `apps/kimi-code/dist-native/bin/<target>/kimi`。
 
@@ -101,7 +101,7 @@ node scripts/native/bench-native.mjs /tmp/kimi-sea /tmp/kimi-bun --runs 20
 | chore    | 工具 / 杂务                              | chore: bump dependencies               |
 | refactor | 无行为变更的内部重构                     | refactor(kosong): extract retry helper |
 | test     | 新增或改进测试                           | test(agent-core): cover skill resolver |
-| ci       | CI / 构建流水线变更                      | ci: cache pnpm store                   |
+| ci       | CI / 构建流水线变更                      | ci: cache the bun package cache        |
 | build    | 构建系统 / 产物变更                      | build(native): add win32-arm64 target  |
 | perf     | 性能优化                                 | perf(session): batch event flushes     |
 | style    | 仅格式化（无逻辑变更）                   | style: apply oxlint --fix              |
@@ -114,18 +114,18 @@ PR 标题由 `pr-title-checker` 工作流强制校验——不合规的标题会
 
 - 每个影响发布产物（代码、行为、公开 API）的 PR **必须**包含 changeset。
 - 仅文档、仅测试或仅 CI 的 PR 可以不加。
-- 用 `pnpm changeset` 生成并按提示操作（涉及哪些包、什么 bump 级别）。
+- 用 `bun run changeset` 生成并按提示操作（涉及哪些包、什么 bump 级别）。
 - 包选择与 bump 级别的仓库约定见 `.changeset/README.md`。在本仓库使用编程 agent 时，使用 `gen-changesets` 技能。
 
 ## Pull Requests
 
-PR 会自动套用 [PR 模板](.github/pull_request_template.md)。PR 标题必须遵循 [Conventional Commits](#提交规范)；每个 PR 的 CI 会运行 `pnpm lint`、`pnpm typecheck` 和 `pnpm test`。行为变更时请同步更新 `docs/` 下的用户文档——使用编程 agent 时使用 `gen-docs` 技能。
+PR 会自动套用 [PR 模板](.github/pull_request_template.md)。PR 标题必须遵循 [Conventional Commits](#提交规范)；每个 PR 的 CI 会运行 `bun run lint`、`bun run typecheck` 和 `bun run test`。行为变更时请同步更新 `docs/` 下的用户文档——使用编程 agent 时使用 `gen-docs` 技能。
 
 ## 代码风格
 
 - 全仓库 TypeScript。
 - 使用 `oxlint`（配置见 `.oxlintrc.json`）。
-- 用 `pnpm lint:fix` 自动格式化。
+- 用 `bun run lint:fix` 自动格式化。
 - lint 规则未覆盖的风格选择，跟随周边现有写法。
 
 ## 报告安全问题

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Recursively resolve workspace dependencies starting from apps/kimi-code
- * and verify they are all present in flake.nix workspaceNames/workspacePaths.
+ * and verify they are all present in flake.nix workspacePaths.
  *
  * Exit code 0 if everything is in sync, 1 otherwise.
  */
@@ -14,54 +14,46 @@ const FLAKE_NIX = join(ROOT, 'flake.nix');
 const START_PKG = '@moonshot-ai/kimi-code';
 
 /**
- * Parse pnpm-workspace.yaml to get workspace directory globs.
+ * Read the workspace directory globs from the root package.json.
  */
 function getWorkspaceGlobs() {
-  const yamlPath = join(ROOT, 'pnpm-workspace.yaml');
-  const content = readFileSync(yamlPath, 'utf8');
-  const lines = content.split(/\r?\n/);
-  const globs = [];
-  let inPackages = false;
-  for (const line of lines) {
-    if (line.startsWith('packages:')) {
-      inPackages = true;
-      continue;
-    }
-    if (inPackages) {
-      const match = line.match(/^\s+-\s+(.+)$/);
-      if (match) {
-        globs.push(match[1]);
-      } else if (line.trim() !== '' && !line.startsWith(' ')) {
-        break;
-      }
-    }
-  }
-  return globs;
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+  return pkg.workspaces?.packages ?? [];
 }
 
 /**
- * Expand globs like "packages/*" into actual directories.
+ * Expand globs like "packages/*" into actual directories. Negative globs
+ * ("!dir" / "!dir/*") exclude their matches.
  */
 function expandGlobsSafe(globs) {
-  const dirs = [];
+  const dirs = new Set();
+  const excluded = new Set();
   for (const g of globs) {
-    if (g.endsWith('/*')) {
-      const base = g.slice(0, -2);
+    const negated = g.startsWith('!');
+    const pattern = negated ? g.slice(1) : g;
+    const matched = [];
+    if (pattern.endsWith('/*')) {
+      const base = pattern.slice(0, -2);
       const basePath = join(ROOT, base);
       if (!existsSync(basePath)) continue;
       for (const entry of readdirSync(basePath, { withFileTypes: true })) {
         if (entry.isDirectory()) {
-          dirs.push(join(base, entry.name).replaceAll('\\', '/'));
+          matched.push(join(base, entry.name).replaceAll('\\', '/'));
         }
       }
     } else {
-      const p = join(ROOT, g);
+      const p = join(ROOT, pattern);
       if (existsSync(p)) {
-        dirs.push(g);
+        matched.push(pattern);
       }
     }
+    for (const dir of matched) {
+      if (negated) excluded.add(dir);
+      else dirs.add(dir);
+    }
   }
-  return dirs;
+  for (const dir of excluded) dirs.delete(dir);
+  return [...dirs];
 }
 
 /**
@@ -117,37 +109,23 @@ function resolveWorkspaceDeps(workspaceMap, startName) {
 }
 
 /**
- * Parse workspaceNames and workspacePaths from flake.nix.
+ * Parse workspacePaths from flake.nix.
  */
 function parseFlakeNix() {
   const content = readFileSync(FLAKE_NIX, 'utf8');
 
-  function extractArray(label) {
-    const regex = new RegExp(`${label}\\s*=\\s*\\[(.*?)\\]`, 's');
-    const match = content.match(regex);
-    if (!match) {
-      throw new Error(`Could not find ${label} in flake.nix`);
-    }
-    const items = [];
-    // workspaceNames uses quoted strings, workspacePaths uses bare Nix paths
-    const itemRegex = label === 'workspacePaths' ? /\.\/[^\s\]]+/g : /"([^"]+)"/g;
-    let m;
-    if (label === 'workspacePaths') {
-      while ((m = itemRegex.exec(match[1])) !== null) {
-        items.push(m[0]);
-      }
-    } else {
-      while ((m = itemRegex.exec(match[1])) !== null) {
-        items.push(m[1]);
-      }
-    }
-    return items;
+  const regex = /workspacePaths\s*=\s*\[(.*?)\]/s;
+  const match = content.match(regex);
+  if (!match) {
+    throw new Error('Could not find workspacePaths in flake.nix');
   }
-
-  return {
-    names: extractArray('workspaceNames'),
-    paths: extractArray('workspacePaths'),
-  };
+  const items = [];
+  const itemRegex = /\.\/[^\s\]]+/g;
+  let m;
+  while ((m = itemRegex.exec(match[1])) !== null) {
+    items.push(m[0]);
+  }
+  return items;
 }
 
 function main() {
@@ -164,11 +142,9 @@ function main() {
   /** @type {string[]} */
   const closureNames = [...closure].toSorted((a, b) => a.localeCompare(b));
 
-  const flake = parseFlakeNix();
-  const flakeNameSet = new Set(flake.names);
-  const flakePathSet = new Set(flake.paths);
+  const flakePaths = parseFlakeNix();
+  const flakePathSet = new Set(flakePaths);
 
-  const missingNames = closureNames.filter((n) => !flakeNameSet.has(n));
   /** @type {Array<{name: string, path: string}>} */
   const missingPaths = [];
   for (const name of closureNames) {
@@ -179,42 +155,26 @@ function main() {
   }
 
   // Also check that the start package itself is in flake.nix
-  if (!flakeNameSet.has(START_PKG)) {
-    missingNames.unshift(START_PKG);
-  }
   const startDir = workspaceMap.get(START_PKG);
   if (startDir && !flakePathSet.has(`./${startDir}`)) {
     missingPaths.unshift({ name: START_PKG, path: `./${startDir}` });
   }
 
-  const ok = missingNames.length === 0 && missingPaths.length === 0;
+  const ok = missingPaths.length === 0;
 
   if (!ok) {
-    console.error('❌ flake.nix workspace lists are out of sync.\n');
+    console.error('❌ flake.nix workspacePaths is out of sync.\n');
 
-    if (missingNames.length > 0) {
-      console.error('The following workspace packages are missing from flake.nix workspaceNames:');
-      for (const n of missingNames) {
-        console.error(`  - ${n}`);
-      }
-      console.error('');
+    console.error('The following workspace paths are missing from flake.nix workspacePaths:');
+    for (const { name, path } of missingPaths) {
+      console.error(`  - ${path}  (${name})`);
     }
 
-    if (missingPaths.length > 0) {
-      console.error('The following workspace paths are missing from flake.nix workspacePaths:');
-      for (const { name, path } of missingPaths) {
-        console.error(`  - ${path}  (${name})`);
-      }
-      console.error('');
-    }
-
-    console.error(
-      'Please add the missing entries to both workspaceNames and workspacePaths in flake.nix.',
-    );
-    console.error(`\nExpected workspaceNames (${flake.names.length + missingNames.length} total):`);
-    const expectedNames = new Set([...flake.names, ...missingNames.map((m) => m)]);
-    for (const n of [...expectedNames].toSorted((a, b) => a.localeCompare(b))) {
-      console.error(`  ${n}`);
+    console.error('\nPlease add the missing entries to workspacePaths in flake.nix.');
+    console.error(`\nExpected workspacePaths (${flakePaths.length + missingPaths.length} total):`);
+    const expectedPaths = new Set([...flakePaths, ...missingPaths.map((m) => m.path)]);
+    for (const p of [...expectedPaths].toSorted((a, b) => a.localeCompare(b))) {
+      console.error(`  ${p}`);
     }
 
     process.exit(1);

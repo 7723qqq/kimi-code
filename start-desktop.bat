@@ -34,7 +34,7 @@ if not exist "packages\kimi-native-tools\kimi-native-tools.win32-x64-msvc.node" 
 REM Build the SEA executable (one-time, skip if already built).
 if not exist "apps\kimi-code\dist-native\bin\win32-x64\kimi.exe" (
     echo Building SEA executable...
-    call pnpm --filter @moonshot-ai/kimi-code run build:native:sea
+    call bun run --cwd apps/kimi-code build:native:sea
     if errorlevel 1 (
         echo [ERROR] SEA build failed.
         pause
@@ -52,6 +52,6 @@ if not exist "apps\kimi-desktop\package.json" (
     exit /b 1
 )
 echo Starting Kimi Code Desktop...
-call pnpm -C apps\kimi-desktop run dev
+call bun run --cwd apps/kimi-desktop dev
 
 endlocal

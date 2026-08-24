@@ -11,7 +11,7 @@ export function resolveLocalCli(packageName, executableName) {
     packageJsonPath = require.resolve(`${packageName}/package.json`);
   } catch (error) {
     throw new Error(
-      `Local CLI dependency ${packageName} is not installed. Run pnpm install; runtime CLI downloads are disabled.`,
+      `Local CLI dependency ${packageName} is not installed. Run bun install; runtime CLI downloads are disabled.`,
       { cause: error },
     );
   }

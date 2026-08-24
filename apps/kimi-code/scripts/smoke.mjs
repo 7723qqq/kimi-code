@@ -20,7 +20,7 @@ async function ensureBundleExists() {
   try {
     await stat(bundlePath);
   } catch {
-    fail(`Bundle not found at ${bundlePath}. Run \`pnpm build\` first.`);
+    fail(`Bundle not found at ${bundlePath}. Run \`bun run build\` first.`);
   }
 }
 
@@ -28,7 +28,7 @@ async function ensureRuntimeAssetsExist() {
   try {
     await stat(webIndexPath);
   } catch {
-    fail(`Runtime asset not found at ${webIndexPath}. Run \`pnpm build\` first.`);
+    fail(`Runtime asset not found at ${webIndexPath}. Run \`bun run build\` first.`);
   }
 }
 

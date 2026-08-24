@@ -75,9 +75,9 @@
     "dev:prod": "node dist/main.mjs",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm -w run build:packages && vitest run",
-    "e2e": "pnpm -w run build:packages && KIMI_E2E=1 vitest run test/e2e",
-    "e2e:real": "pnpm -w run build:packages && KIMI_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts",
+    "test": "cd ../.. && bun run build:packages && vitest run",
+    "e2e": "cd ../.. && bun run build:packages && KIMI_E2E=1 vitest run test/e2e",
+    "e2e:real": "cd ../.. && bun run build:packages && KIMI_E2E_REAL=1 vitest run test/e2e/real-llm-smoke.e2e.test.ts",
     "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {

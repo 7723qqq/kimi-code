@@ -116,11 +116,11 @@ scope:
 
 ---
 
-# pitfall: pnpm-workspace.yaml 和 flake.nix 必须同步
-tags: monorepo, nix, workspace
+# pitfall: package.json workspaces 和 flake.nix 必须同步
+tags: monorepo, nix, workspace, bun
 scope: 
 
-增删 workspace 包时必须同时更新 `pnpm-workspace.yaml` 和 `flake.nix`。flake.nix 是手动维护的，CI 检查只覆盖 kimi-code 的传递依赖闭包，遗漏不会被自动发现。
+增删 workspace 包时必须同时更新根 `package.json` 的 `workspaces` 和 `flake.nix` 的 `workspacePaths`。flake.nix 是手动维护的，CI 检查只覆盖 kimi-code 的传递依赖闭包，遗漏不会被自动发现。
 
 ---
 
@@ -132,11 +132,11 @@ scope:
 
 ---
 
-# pitfall: Node 版本不满足时 pnpm install 会失败
-tags: node, pnpm, environment
+# pitfall: Node/Bun 版本不满足时安装会出问题
+tags: node, bun, environment
 scope: 
 
-需要 Node.js >= 24.15.0，pnpm 10.33.0。`.npmrc` 设置了 `engine-strict=true`，版本不对 `pnpm install` 直接报错。
+需要 Node.js >= 24.15.0、Bun >= 1.4.0（`bunfig.toml` 钉了 hoisted linker）。Node 版本不满足会让 SEA 构建脚本直接报错。
 
 ---
 

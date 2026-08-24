@@ -127,7 +127,7 @@ function loadVscePack() {
     return module.pack;
   } catch (error) {
     throw new Error(
-      'The workspace @vscode/vsce package API is unavailable. Run pnpm install; runtime CLI downloads are disabled.',
+      'The workspace @vscode/vsce package API is unavailable. Run bun install; runtime CLI downloads are disabled.',
       { cause: error },
     );
   }

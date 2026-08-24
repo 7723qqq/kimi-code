@@ -96,7 +96,7 @@ web UI of the `kimi` CLI (`apps/kimi-code`).
 2. **Build** — `pnpm -C apps/kimi-web run build` produces `apps/kimi-web/dist`.
 3. **Ship the prebuilt bundle** — `apps/kimi-code/dist-web` is a committed,
    prebuilt bundle **synced from the code-app repo**, not built from
-   `apps/kimi-web` here. `pnpm -C apps/kimi-code run build` does not copy
+   `apps/kimi-web` here. `cd apps/kimi-code && bun run build` does not copy
    anything; it runs `scripts/check-web-assets.mjs`, which only verifies that
    the committed bundle is present and that every asset referenced by
    `index.html` exists.
@@ -124,6 +124,6 @@ release.
   remains internal workspace metadata; do not surface it as a separate user
   version unless the web app becomes an independently published product.
 - **Exercise the web build explicitly.** `apps/kimi-web` is excluded from the
-  pnpm workspace (see `pnpm-workspace.yaml`), so the root `pnpm run build`
-  does **not** cover it. Build it explicitly (`pnpm -C apps/kimi-web run build`)
+  root Bun workspace (excluded via `workspaces` in the root `package.json`), so the root `bun run build`
+  does **not** cover it. Build it explicitly (`pnpm -C apps/kimi-web run build`, pnpm stays the package manager inside kimi-web)
   in CI; keep the release pipeline doing the same.

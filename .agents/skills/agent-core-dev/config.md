@@ -287,7 +287,7 @@ When `KIMI_MODEL_NAME` is set, the `kosongConfig` wrapper's `kimiModelEnvOverlay
 The authoritative, always-current list of registered sections — rendered in the on-disk `config.toml` shape, with owner file, scope, defaults, env bindings, and schema fields — is generated from the live registry:
 
 - `packages/agent-core-v2/docs/config-manifest.toml` (checked in; do not edit by hand).
-- Regenerate with `pnpm --filter @moonshot-ai/agent-core-v2 gen:config-manifest` (add `--check` for a freshness check; `test/app/config/configManifest.test.ts` enforces it in CI).
+- Regenerate with `(cd packages/agent-core-v2 && bun run gen:config-manifest)` (add `--check` for a freshness check; `test/app/config/configManifest.test.ts` enforces it in CI).
 
 `config` must not import from any of these owner domains; that is the whole reason the schemas, TOML normalization, and env overlays live with their owners.
 

@@ -6,11 +6,11 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build:deps": "pnpm --filter @moonshot-ai/vis-server... build",
-    "predev": "pnpm run build:deps",
+    "build:deps": "(cd apps/vis/web && bun run build) && (cd apps/vis/server && bun run build)",
+    "predev": "bun run build:deps",
     "dev": "node scripts/dev.mjs",
-    "build": "pnpm run build:deps && pnpm --filter @moonshot-ai/vis-server build && pnpm --filter @moonshot-ai/vis-web build && node scripts/copy-web-dist.mjs",
-    "prestart": "pnpm run build",
+    "build": "bun run build:deps && node scripts/copy-web-dist.mjs",
+    "prestart": "bun run build",
     "start": "node server/dist/server.mjs"
   },
   "devDependencies": {

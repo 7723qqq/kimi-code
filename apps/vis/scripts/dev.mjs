@@ -58,8 +58,8 @@ const child = spawn(
     '-k',
     '-n', 'server,web',
     '-c', 'cyan,magenta',
-    'pnpm --filter @moonshot-ai/vis-server dev',
-    'pnpm --filter @moonshot-ai/vis-web dev',
+    'bun --cwd ../../apps/vis/server run dev',
+    'bun --cwd ../../apps/vis/web run dev',
   ],
   { stdio: 'inherit', env, shell: false },
 );

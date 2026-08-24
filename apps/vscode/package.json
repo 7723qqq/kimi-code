@@ -249,13 +249,13 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "pnpm run build",
-    "dev": "pnpm run dev:prepare && pnpm run \"/^dev:(extension|webview)$/\"",
+    "vscode:prepublish": "bun run build",
+    "dev": "bun run dev:prepare && bun run \"/^dev:(extension|webview)/\"",
     "dev:prepare": "node scripts/prepare-dev.mjs",
     "dev:extension": "node scripts/watch-extension.mjs",
     "dev:webview": "vite build --config webview-ui/vite.config.ts --watch --sourcemap",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p webview-ui/tsconfig.json --noEmit",
-    "build": "pnpm run build:extension && pnpm run build:webview",
+    "build": "bun run build:extension && bun run build:webview",
     "build:webview": "vite build --config webview-ui/vite.config.ts",
     "build:extension": "tsdown --config tsdown.config.ts",
     "test": "vitest run --config vitest.config.ts",

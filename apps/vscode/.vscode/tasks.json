@@ -4,7 +4,7 @@
     {
       "label": "vscode: prepare isolated dev",
       "type": "process",
-      "command": "pnpm",
+      "command": "bun",
       "args": ["run", "dev:prepare"],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -14,7 +14,7 @@
     {
       "label": "vscode: watch extension",
       "type": "process",
-      "command": "pnpm",
+      "command": "bun",
       "args": ["run", "dev:extension"],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -40,7 +40,7 @@
     {
       "label": "vscode: watch webview",
       "type": "process",
-      "command": "pnpm",
+      "command": "bun",
       "args": ["run", "dev:webview"],
       "options": {
         "cwd": "${workspaceFolder}"

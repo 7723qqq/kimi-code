@@ -107,4 +107,4 @@ keep their static registrations; the service and the two tools go through the Fe
    the scope of `.register(key)` call sites under `src/features/**` from the receiver's
    `I{App,Workspace,Session,Agent}StateService` type — register through a member typed
    as the scope's state service. Regenerate the manifests
-   (`pnpm gen:config-manifest && pnpm gen:wire-manifest && pnpm gen:state-manifest`).
+   (`bun run gen:config-manifest && bun run gen:wire-manifest && bun run gen:state-manifest`).
