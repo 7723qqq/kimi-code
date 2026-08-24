@@ -58,24 +58,27 @@ jobs:
       - name: Build packages
         run: bun run build
 
-      - name: Create Release Pull Request or Publish to npm
-        id: changesets
-        uses: changesets/action@v1
-        with:
-          publish: bun run changeset publish
-          version: bun run version:release
-          commit: "ci: release packages"
-          title: "ci: release packages"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # NPM_TOKEN is not needed with Trusted Publishing (OIDC)
+      # Changesets action disabled: this fork follows upstream versions and
+      # never publishes to npm independently. Re-enable when a standalone
+      # release is needed.
+      # - name: Create Release Pull Request or Publish to npm
+      #   id: changesets
+      #   uses: changesets/action@v1
+      #   with:
+      #     publish: bun run changeset publish
+      #     version: bun run version:release
+      #     commit: "ci: release packages"
+      #     title: "ci: release packages"
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #     # NPM_TOKEN is not needed with Trusted Publishing (OIDC)
 
-      - name: Resolve Kimi Code native release
-        if: steps.changesets.outputs.published == 'true'
-        id: kimi-release
-        run: node apps/kimi-code/scripts/native/resolve-release.mjs
-        env:
-          CHANGESETS_PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+      # - name: Resolve Kimi Code native release
+      #   if: steps.changesets.outputs.published == 'true'
+      #   id: kimi-release
+      #   run: node apps/kimi-code/scripts/native/resolve-release.mjs
+      #   env:
+      #     CHANGESETS_PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
 
   deploy-docs:
     name: Deploy docs
