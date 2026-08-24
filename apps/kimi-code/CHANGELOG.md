@@ -1,5 +1,298 @@
 # @moonshot-ai/kimi-code
 
+## 0.39.0
+
+### Minor Changes
+
+- [`b6d7442`](https://github.com/MoonshotAI/kimi-code/commit/b6d7442827a5dfa301d18435b8428e18616ff279) Thanks [@liruifengv](https://github.com/liruifengv)! - Add the /copy slash command to copy the last assistant message to the clipboard.
+
+- [`a72e1a0`](https://github.com/MoonshotAI/kimi-code/commit/a72e1a0ac2f80e22ac12563516c3feb41baf9e89) - Fall back to a locally installed Antigravity CLI for Google Gemini models when no Gemini API key is configured.
+
+- [`8cab957`](https://github.com/MoonshotAI/kimi-code/commit/8cab957f42cbee5a78b600269b8e03d9610694a4) - Enable the built-in GitHub tools by default in new sessions. Set a GITHUB_TOKEN (or GH_TOKEN) environment variable or a token in the [github] config section to use them; disable with `[experimental] github_tools = false`.
+
+- [`70b7738`](https://github.com/MoonshotAI/kimi-code/commit/70b77384d4e9321ef27354bd377cd101534fb882) - Add two Google entries to `/login` and `kimi login`: a browser OAuth flow that signs in with a Google account and applies the google-gemini provider with its model aliases, and an Antigravity sync that imports existing Gemini credentials instead of walking the browser flow.
+
+- [`8492b9a`](https://github.com/MoonshotAI/kimi-code/commit/8492b9a61c413fea6f350e5c16c0dbca4f9dd634) - Add experimental GitHub Git Data tools — get refs, create trees, commits, and branches, and update refs — so commits can be pushed through the API without local git credentials. Enable with KIMI_CODE_EXPERIMENTAL_GITHUB_TOOLS=1.
+
+- [`59244e7`](https://github.com/MoonshotAI/kimi-code/commit/59244e733c0a7f01dc1085c1ef6946230dbb6b32) - Parse inline /skill activations from outgoing messages and bundle them with the prompt, support skill-mode entries in the message queue, and rebuild skill activations when replaying a resumed session.
+
+- [`d894ae7`](https://github.com/MoonshotAI/kimi-code/commit/d894ae7fa7f4a8f1a2d9ce1b989f18d63e404b5d) - Add the `lsp` experiment providing a language-server query tool configured through the `[lsp]` config section.
+
+- [`098d7bf`](https://github.com/MoonshotAI/kimi-code/commit/098d7bf1d08ff786fd62178cf7f85e2cbabd5997) Thanks [@7723qqq](https://github.com/7723qqq)! - Windows: on first launch, prompt to install MSYS2 when no MSYS2 bash is detected, then switch the shell to it via `KIMI_SHELL_PATH` after install. Skipping or a successful install marks the prompt as shown; headless (`kimi -p`) prints an install hint on stderr on every run (not marked) until MSYS2 is installed or the TUI gate fires.
+
+  Also fixes MSYS2 bash commands failing with "command not found": MSYS2 (unlike Git Bash) does not prepend its own `/usr/bin` to the inherited Windows PATH in non-login mode, so the bash tool now prepends `/usr/local/bin:/usr/bin:/bin` to PATH for Windows bash invocations.
+
+  Shell detection on Windows now recognizes MSYS2 installs (`C:\msys64\usr\bin\bash.exe`) alongside Git for Windows, and the Windows system-prompt notes are generated from the detected shell (bash / PowerShell / cmd) instead of assuming Git Bash.
+
+- [`91c9441`](https://github.com/MoonshotAI/kimi-code/commit/91c9441422c7193a52a6683a2f54279c8a5003e7) Thanks [@7723qqq](https://github.com/7723qqq)! - Make the Rust native engines the primary paths for Grep and Bash, with the TypeScript / ripgrep implementations demoted to fallbacks.
+
+  - Grep: the full native grep engine (`nativeGrep`) now runs first; ripgrep remains the fallback when the native module is unavailable. Native output uses absolute paths so workspace-relative display stays correct. Multiline searches keep using ripgrep (the native engine does not implement cross-line matching).
+  - Bash: a new native process-lifecycle API (`nativeBashSpawn` / `nativeBashWait` / `nativeBashKill` / `nativeBashDispose`) streams stdout/stderr in real time and kills the process tree on demand; the Bash tool spawns through it and falls back to the node-local spawn.
+  - Observability: a new `grep_tool_native` telemetry event tracks native usage, and the `/status` report shows `Native tools: rust / js (fallback)` so users can see which implementation is active.
+
+- [`59a36c2`](https://github.com/MoonshotAI/kimi-code/commit/59a36c2d5e4f8f5623775f94e3f5815dfb03aa51) - Auto-seed the TodoList from the approved plan on plan-mode exit so execution can start against a ready skeleton:
+
+  - `parsePlanToTodos` reads the plan markdown and turns `## <phase>` headings into milestones and the `- <step>` / `1. <step>` lists under them into leaf tasks (with `[x]` / `[ ]` mapped to `done` / `pending`).
+  - `tryConvertPlanToTodos` calls `ISessionTodoService.setTodos` when the agent has no existing todo list and the plan has recognizable structure; otherwise it skips silently and the post-plan-mode reminder nudges the model to build one manually.
+  - `AgentPlanService.exit` runs the conversion for every approved exit path (auto / manual / yolo / re-deserialize), passing through failures so plan-mode exit never blocks on todo wiring.
+  - `enter-plan-mode.md` now documents the plan structure convention the parser relies on, and the plan-mode exit reminder nudges the model to call TodoList when conversion is skipped.
+  - `plan_to_todo_converted` telemetry event records the seed (item count) for observability.
+
+  Tokens-before snapshots in `fullCompaction.test.ts` and the loop snapshot for `fails the turn after a filtered step completes` were updated to reflect the larger tool descriptions and reminders the integration introduces.
+
+- [`35ed2b2`](https://github.com/MoonshotAI/kimi-code/commit/35ed2b211e401a35d06effe977f4390cab0dbb63) - Merged image and video reading into the Read tool: Read now accepts `region` and `full_resolution` for images, and the separate media-read tool is no longer offered (existing sessions and permission rules keep working).
+
+- [`5bc0484`](https://github.com/MoonshotAI/kimi-code/commit/5bc0484288396a8b245d02c51844e3fc43f9cc90) Thanks [@7723qqq](https://github.com/7723qqq)! - Rename the "Swarm Discussion" feature to "Team". The `SwarmDiscussion` agent tool is now `Team`, the `/discuss` slash command is now `/team`, and the `toolsV2.discussion.*` / `tui.messages.discuss*` locale keys are renamed accordingly. `AgentSwarm` and swarm mode are unaffected; the tool's `mode: "discussion" | "debate"` input semantics are preserved.
+
+- [`2395e18`](https://github.com/MoonshotAI/kimi-code/commit/2395e182dff18cb5db0a0e852cd5586ac2b4c100) Thanks [@7723qqq](https://github.com/7723qqq)! - Enforce concrete completion criteria when creating goals. The model must now provide a verifiable check (at least 10 characters) before starting a goal; vague requests like "review the project" are rejected with a prompt to ask the user for specifics.
+
+- [`ea45628`](https://github.com/MoonshotAI/kimi-code/commit/ea45628292ac8eda883e6219b426768ea427decd) Thanks [@7723qqq](https://github.com/7723qqq)! - Rust engine: native LLM HTTP transport with SSE streaming (OpenAI-compatible and Anthropic, `agent.nativeLlmProvider`), in-process sandboxed execution of read-only tools Read/Grep/Glob (`agent.nativeTools`), and multimodal (text/image) message content blocks on the Rust wire. Adds a fire-and-forget `host/event` channel so streaming deltas, step boundaries, and natively-executed tool results are still recorded in the host transcript.
+
+- [`016a190`](https://github.com/MoonshotAI/kimi-code/commit/016a1904aa463a139a58df7cb4a2b8b59dedbbab) Thanks [@7723qqq](https://github.com/7723qqq)! - Add the `session_query` agent tool (stage C of the session-query port, from deepseek-harness `tool-session-query`, MIT): three operations — `session_search` (cross-session full-text search scoped to the caller's workspace cwd with session/event filters), `event_search` (within-session search, current session by default), and `session_trace` (fork lineage). Arguments are validated per operation with ISO 8601 timestamp bounds; results render as model-readable text with snippets and a result cap. Main agent only.
+
+- [`8b3fa54`](https://github.com/MoonshotAI/kimi-code/commit/8b3fa544a7bb212964843f0032baaad0b8298809) Thanks [@7723qqq](https://github.com/7723qqq)! - Add spill storage for oversized tool output (ported from deepseek-harness `spill`, MIT): a Session-scoped `ISpillService` writes truncated tool results to a private session-scoped artifact (0700 root, safe-name encoding, exclusive writes) and returns a model-facing locator with a Read-tool retrieval hint. `ToolResultBuilder` gained an optional `onTruncated` hook that attaches a `spilled` reference to truncated results, wired into `BashTool` and `FetchURLTool`; hook failures degrade best-effort. Configurable via the new `[spill] root` config section.
+
+- [`d894ae7`](https://github.com/MoonshotAI/kimi-code/commit/d894ae7fa7f4a8f1a2d9ce1b989f18d63e404b5d) - Allow the Agent tool to run subagents through external backends (claude-code, codex, acp) when the `subagent-backends` experiment is enabled.
+
+- [`16dbfa6`](https://github.com/MoonshotAI/kimi-code/commit/16dbfa6012626ca51e2ff53317ded906f7be291e) - Make TodoList work for the model, not just the user:
+
+  - Persist `progress` and `description` on write so leaf-progress reporting and richer context survive across turns.
+  - Add an `updates` parameter for incremental patches by id (status / progress / title / description / parentId / kind) — cheaper than rewriting the whole list, so small step-level changes don't feel like busywork.
+  - Emit a one-line digest of the active todo list as a turn-head reference injection (when the tool is active and at least one item is `in_progress`), so the model plans the next step against its own tracking.
+  - Restore the stale reminder's appended view to the tree form used by the tool and compaction, eliminating a third formatting variant.
+  - Undo now re-emits on progress/description/kind/parentId changes too, so the panel and any external observers stay in sync.
+
+- [`674caeb`](https://github.com/MoonshotAI/kimi-code/commit/674caeb2d9c03a1c9c1ba2eef22a67f32d9396c5) Thanks [@7723qqq](https://github.com/7723qqq)! - Upgrade the TodoList tool into a milestone tree: tasks split to the smallest verifiable units under start/middle/finish milestones, leaf tasks report progress, and the todo panel renders overall and per-milestone progress bars.
+
+- [`685e894`](https://github.com/MoonshotAI/kimi-code/commit/685e894b0989077f2673013f0e48b5b62820d48f) Thanks [@7723qqq](https://github.com/7723qqq)! - Per-call tool execution budgets (ported from deepseek-harness `guard/timeout-policy`, MIT)
+
+  - `RunnableToolExecution` gains an optional `timeoutMs`; when a tool declares one, the executor arms a deadline over the execution's abort signal and reports an explicit `Tool "X" timed out after Nms` error result if the budget elapses before the tool settles.
+  - MCP tools now declare a 60s per-call budget, covering every transport and the reconnect path (stdio/SSE clients have no request timeout of their own).
+  - User cancellation still wins over the deadline; tools without `timeoutMs` are unaffected.
+
+- [`0eca2c7`](https://github.com/MoonshotAI/kimi-code/commit/0eca2c753c756cd6388b3f533bede65ac2ce3d92) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Add tower mode as a plan-parallel mode gated behind the experimental flag `KIMI_CODE_EXPERIMENTAL_TOWER` (off by default): /tower reports status, /tower on|off toggles the mode with a footer indicator, and /tower <objective> starts multi-agent orchestration.
+
+- [`ac153b1`](https://github.com/MoonshotAI/kimi-code/commit/ac153b1c959eed8e5aaa6e1530c3ad94268a5613) Thanks [@7723qqq](https://github.com/7723qqq)! - Windows native shell support: PowerShell 7 / Windows PowerShell are now detected and used by the Bash tool before Git Bash. `KIMI_SHELL_PATH` and a new `[shell] preference` config section (`auto | bash | powershell | pwsh | cmd`) can pin bash, pwsh, powershell, or cmd explicitly. The Rust native bash engine mirrors the same detection. The Bash tool renders shell-specific semantics (PowerShell `$env:`/`$null`/`Get-ChildItem`, cmd `%VAR%`/`dir`, bash POSIX) into the model prompt, rewrites `nul` redirects per shell, and spawns PowerShell with `-NoProfile -NonInteractive`. Also fixes: `windowsVerbatimArguments` for cmd.exe spawns, PowerShell 5.1 `&&` guidance, and completes i18n coverage for user-facing errors across agent-core-v2, kap-server, node-sdk, and the kimi-code CLI.
+
+### Patch Changes
+
+- [`3dcaa6b`](https://github.com/MoonshotAI/kimi-code/commit/3dcaa6bb0fe0cea562c56d2708dec056115e8df6) Thanks [@7723qqq](https://github.com/7723qqq)! - Rework the context-injection pipeline: injectors now reconcile at step heads instead of tracking positions, plugin session-start guidance is snapshotted and reconciled after compaction/undo, swarm reminders are replayable cross-model ops, and tool-schema injections drain at quiescent boundaries. Stuck-compaction detection now measures against the same full-request token baseline as auto-compaction, and a cancelled step during a retry backoff no longer mislabels the turn as a provider failure.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Fall back to the Antigravity CLI only when no Google credentials are configured.
+
+- [`9baa37e`](https://github.com/MoonshotAI/kimi-code/commit/9baa37ebb1e492d76ed9e47d520e67bba30ab1a3) - Only render shell-style approval previews with danger warnings for built-in shell tools.
+
+- [`3e7c64c`](https://github.com/MoonshotAI/kimi-code/commit/3e7c64c9f14c53d6cc5944737ebcb8e75544dd59) Thanks [@sailist](https://github.com/sailist)! - Fix sessions failing to archive when their workspace folder no longer exists.
+
+- [`f7b58af`](https://github.com/MoonshotAI/kimi-code/commit/f7b58af140d7177b6904d465cf76fa4d02a53875) - Show the Astron settings entry in /settings without enabling an experiment first.
+
+- [`0ff58c8`](https://github.com/MoonshotAI/kimi-code/commit/0ff58c8558921cb6eab79c6813b50d66f1c0c684) Thanks [@7723qqq](https://github.com/7723qqq)! - Make file writes crash-safe by writing through a temporary file and renaming into place, so an interrupted write cannot leave a truncated file. Symlink targets are still written through in-place to preserve the link.
+
+- [`c29f95d`](https://github.com/MoonshotAI/kimi-code/commit/c29f95d72e48e03c79463e2020fdd7c095ed76eb) - Bun single-file binaries no longer autoload `.env`/`bunfig.toml` from the current directory at runtime, and Bun bytecode is no longer embedded by default; set `KIMI_CODE_BUN_ENABLE_BYTECODE=1` to opt back in.
+
+- [`8edbdc8`](https://github.com/MoonshotAI/kimi-code/commit/8edbdc8bd67540cd019826d7f795dda7aaaf723f) - Ship node-pty with its PTY bindings through the packaged-build asset pipeline and load it from the extracted cache in single-file builds on both engines; the release smoke now dlopens the binding.
+
+- [`8edbdc8`](https://github.com/MoonshotAI/kimi-code/commit/8edbdc8bd67540cd019826d7f795dda7aaaf723f) - Restore native terminal input handling in packaged single-file builds by resolving pi-tui's platform helper from the extracted asset cache at load time.
+
+- [`a098022`](https://github.com/MoonshotAI/kimi-code/commit/a0980220bc26de2586f7e80a63e5043fa9eaff58) - Fix the built-in updater refusing to download updates in Bun single-file builds.
+
+- [`c651ac4`](https://github.com/MoonshotAI/kimi-code/commit/c651ac46c0359763e6e78d3011e219f573e7d699) - Show the packaging engine and native-tools implementation on the `/status` report (`Runtime  bun · rust`), and clean up superseded Bun entry extractions left behind by older versions.
+
+- [`fa75038`](https://github.com/MoonshotAI/kimi-code/commit/fa7503867c5fe0705e72602bdb6f5927e7252c2d) - Fix garbled multi-byte characters in terminal session output when running on the Bun runtime.
+
+- [`a098022`](https://github.com/MoonshotAI/kimi-code/commit/a0980220bc26de2586f7e80a63e5043fa9eaff58) - Make the staged self-updater engine-aware: a Bun packaged binary now downloads the release's Bun build from the manifest's optional `bun` section and refuses to silently swap itself to the Node SEA binary when that release ships none.
+
+- [`aeaf0a3`](https://github.com/MoonshotAI/kimi-code/commit/aeaf0a3b87bf4e2764929c9c84ca4b3b74798aeb) - Keep built-in URL-fetch SSRF guard semantics identical across Node and Bun runtimes by defaulting to the bundled undici fetch, whose pinned-DNS dispatcher option Bun's global fetch silently ignores.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Keep inline skill activation cards attached to the correct message after a failed send.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Limit cache-break warnings to once every ten completed steps.
+
+- [`5133ac1`](https://github.com/MoonshotAI/kimi-code/commit/5133ac19d01a2f6dc1159ef79daf739dd4420461) - Warn in the status line when the prompt cache is invalidated between steps, and fix cache-hint dialog error paths that rendered raw translation keys.
+
+- [`f7d9641`](https://github.com/MoonshotAI/kimi-code/commit/f7d9641567bd493b6d9dd15bd58018daad7af1ff) Thanks [@7723qqq](https://github.com/7723qqq)! - Cache-correctness and prompt-cache-stability hardening:
+
+  - `llmRequester`: run micro-compaction on the raw history **before** `shapeHistory` so the `keepRecentMessages` cutoff (an index into raw history) stays stable and tool results inside the kept tail are not truncated.
+  - `profile`: freeze the additional-dirs listing in the system-prompt prefix (keyed on the dir list, so `/add-dir` rebuilds immediately) and coalesce overlapping `refreshSystemPrompt` triggers into a single run plus one queued follow-up.
+  - `client-configs`: re-validate a cached config against the caller's schema on hit; a hit that no longer parses is treated as a miss.
+  - `byteLruCache`: evict by byte cap even when a cache key grows in place.
+  - `kimi-native-tools`: TOCTOU-guard the file-read cache by snapshotting `(mtime, size)` before the read and skipping the cache entry if the file changed in between.
+
+- [`eb0cfea`](https://github.com/MoonshotAI/kimi-code/commit/eb0cfea0d67454976e81f4d05a339679e0fa2267) Thanks [@kermanx](https://github.com/kermanx)! - Recover transient subagent rate limits without surfacing them as session errors.
+
+- [`0fedaf0`](https://github.com/MoonshotAI/kimi-code/commit/0fedaf0a917a9d649bedf8eedfb1d28b58533d96) Thanks [@7723qqq](https://github.com/7723qqq)! - Add missing English translations for the Coding Plan configuration dialog and replace hardcoded strings across the TUI and CLI with proper i18n calls.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Fall back to browser sign-in when synced Google credentials are expired instead of silently reusing them.
+
+- [`fe6f861`](https://github.com/MoonshotAI/kimi-code/commit/fe6f861758d64101a8b142ad0fa01874a3b5b133) - Replace hardcoded English strings in CLI command descriptions with proper i18n calls so `kimi --help` respects the configured locale. Fix locale propagation from the CLI shell to agent-core.
+
+- [`6651c73`](https://github.com/MoonshotAI/kimi-code/commit/6651c73b7deda31673e342131cac5a6242138e7b) Thanks [@7723qqq](https://github.com/7723qqq)! - Remove the memoized effective-config cache in ConfigService. The cache was invalidated on raw/validated/env changes but some mutation paths missed the invalidation, returning stale effective config on later reads (22 config tests failed with it in place). `freshEffective` now recomputes on every read, trading a small cost for correctness.
+
+- [`4719350`](https://github.com/MoonshotAI/kimi-code/commit/471935006356a997c14bf7bdcbdae8e62f072e4d) Thanks [@7723qqq](https://github.com/7723qqq)! - Add `bash_task_timeout_s` config option under `[background]` to control the default background Bash task timeout. Set to `0` to disable the timeout entirely.
+
+- [`cb09cca`](https://github.com/MoonshotAI/kimi-code/commit/cb09ccab2a6ccbf13f079824e07ccfec9674a330) Thanks [@Grapedge](https://github.com/Grapedge)! - Fix the latest reply disappearing from the transcript after a scheduled cron reminder fires.
+
+- [`c4727ec`](https://github.com/MoonshotAI/kimi-code/commit/c4727ec5c02501267da084ef8af92989855d91b9) Thanks [@7723qqq](https://github.com/7723qqq)! - Use the Rust native translation engine in the shared i18n package with automatic fallback to pure JS when the native module is unavailable, and deprecate `@moonshot-ai/i18n-shared/node`.
+
+- [`9baa37e`](https://github.com/MoonshotAI/kimi-code/commit/9baa37ebb1e492d76ed9e47d520e67bba30ab1a3) - Detect light mode correctly for custom themes based on a light palette.
+
+- [`a786e67`](https://github.com/MoonshotAI/kimi-code/commit/a786e677e61d69bcb17acf820d4b06c5ac04db77) Thanks [@sailist](https://github.com/sailist)! - Mount the dev-only /api/v1/debug RPC surface behind the --debug-endpoints flag, exposing every scoped service for local debugging on loopback binds. Pass --debug-endpoints to kimi server run to enable it.
+
+- [`408abac`](https://github.com/MoonshotAI/kimi-code/commit/408abacd98c2c5f6de7582d399b1bf0074905cf8) Thanks [@RealKai42](https://github.com/RealKai42)! - Fix `/export-debug-zip` and `kimi export` overwriting the previous ZIP archive when run repeatedly on the same session; the default export filename now includes a timestamp.
+
+- [`8b3fa54`](https://github.com/MoonshotAI/kimi-code/commit/8b3fa544a7bb212964843f0032baaad0b8298809) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix agent-core-v2 hardening gaps: register the session-scoped `SubagentBackendService` (the Agent tool could not activate), restore `fetchImpl` injectability for connection-pinned fetches (SSRF tests no longer hit the network), settle `run_code` workers immediately on `process.exit`/port close and bound their heap, extend the sandbox write guard to Write/Edit/run_code, and enforce the subagent delegation-depth cap on swarm and persistent-subagent spawns. `UpdateGoal` also accepts the documented `active` status again.
+
+- [`abd3b6d`](https://github.com/MoonshotAI/kimi-code/commit/abd3b6d36572359dba897b3d645e6819a72b3960) - Accept `multiSelect` as a deprecated camelCase alias of `multi_select` in AskUserQuestion questions.
+
+- [`928300d`](https://github.com/MoonshotAI/kimi-code/commit/928300d732907230e7170fccf4e5b1638b980678) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix the thinking-effort picker only offering on/off for iFlytek Astron models that actually support effort levels; GLM-5.2 and DeepSeek-V4-Pro/Flash now offer High/Max.
+
+- [`4533bed`](https://github.com/MoonshotAI/kimi-code/commit/4533bedfd0568c1a3f1af7f1419aca5848b8ec5a) - Resend requests without the prompt cache key when a strict OpenAI-compatible provider rejects it as an unknown field.
+
+- [`14f17cd`](https://github.com/MoonshotAI/kimi-code/commit/14f17cd6793bdd28a529126f442e29b1a23ae078) - Include the underlying network failure cause in FetchURL errors and stop local DNS lookups from breaking requests that ride the global proxy.
+
+- [`2395e18`](https://github.com/MoonshotAI/kimi-code/commit/2395e182dff18cb5db0a0e852cd5586ac2b4c100) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix the goal completion verifier to handle verifier subagent failures gracefully, tighten verdict parsing for non-empty but unmarked results, and add the missing `created` goal change kind to wire protocol types.
+
+- [`fee769e`](https://github.com/MoonshotAI/kimi-code/commit/fee769e1e9b27662530a61443a817b1ce20e7432) - Fix Google login failing with "invalid_client" by using the published installed-client credential, which also lets imported gemini-cli credentials refresh.
+
+- [`b44f875`](https://github.com/MoonshotAI/kimi-code/commit/b44f8754e84c571a1bdbd00e1af0b702649029ac) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix grep content-mode output duplicating overlapping context lines. When two matches fall closer together than the combined before/after context window, the shared lines between them are now emitted only once — mirroring the single-file path and ripgrep's context-merge behavior.
+
+- [`5ade83b`](https://github.com/MoonshotAI/kimi-code/commit/5ade83b03780a7d6f590becbe3b5549ca2d942ad) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix parts of the CLI (menus, hints, footer tips, and prompts) staying in English after selecting Chinese, caused by some translations being captured before the configured locale was applied.
+
+- [`648f992`](https://github.com/MoonshotAI/kimi-code/commit/648f9920ed6fb3b8a594d8c24880efd2fe5ee372) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix locale propagation so agent-core messages match the TUI language, and fix Enter key in the experiments selector on Kitty-protocol terminals.
+
+- [`150eb14`](https://github.com/MoonshotAI/kimi-code/commit/150eb14f6b484ecdad36b5cde9fedbf2853881f6) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix the CLI exiting unexpectedly when reading an image from the clipboard fails; it now falls back to pasting text.
+
+- [`150eb14`](https://github.com/MoonshotAI/kimi-code/commit/150eb14f6b484ecdad36b5cde9fedbf2853881f6) Thanks [@7723qqq](https://github.com/7723qqq)! - Report crash telemetry for unhandled promise rejections.
+
+- [`13ef4d6`](https://github.com/MoonshotAI/kimi-code/commit/13ef4d6deb2ea3b7cb87f735131e7e8d3d5fbd35) - Reject oversized RESP requests from their declared bulk length instead of buffering the whole payload, avoiding large redundant copies and unbounded memory retention on the wire.
+
+- [`bd9e0b6`](https://github.com/MoonshotAI/kimi-code/commit/bd9e0b664a8110bb153f177bc87146e901f3a095) - Activate the main agent's tools on the newly created agent when resuming a session.
+
+- [`afae302`](https://github.com/MoonshotAI/kimi-code/commit/afae302d77f7098eb45b285b61d301ce3ac996cd) - Surface mid-stream provider error frames as errors instead of silently ending the stream with partial content.
+
+- [`9baa37e`](https://github.com/MoonshotAI/kimi-code/commit/9baa37ebb1e492d76ed9e47d520e67bba30ab1a3) - Fix overcounted streaming token estimates for messages containing emoji.
+
+- [`1def9c6`](https://github.com/MoonshotAI/kimi-code/commit/1def9c687773bd89290bf09986f0d6ef606b7ea6) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix `subagentTool depends on subagentBackendService which is NOT registered` at startup: the Session-scoped `SubagentBackendService` self-registers via a module side effect, but the module was never imported by the domain assembly (`src/index.ts`), so the registration never ran in the bundled CLI and the Agent tool failed DI resolution on every session create. Package tests imported the module directly and masked the gap.
+
+- [`2bf932f`](https://github.com/MoonshotAI/kimi-code/commit/2bf932fc37beacf1ecab755612fc342d4de162bc) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix a TUI paste-input race: pi-tui dispatches keystrokes synchronously and never awaits the async clipboard-image handler, so the text-paste fallback could insert at a cursor the user had already moved right after Ctrl-V/Alt-V. The fallback now verifies the editor text/cursor are still untouched before inserting and drops the stale insertion otherwise. Also guards the ExitPlanMode plan-info write against a reset tool UI while `getPlan()` is in flight.
+
+  Completes the remaining i18n gaps spotted in the TUI during review: MCP `removed` status, plugin `installing…`/third-party hint, shell-mode badge, task "already terminal" flash, task Model:/Effort: labels, workflow-panel `+N more`/agent count, and approval-panel background-task line are now localized (en/zh).
+
+- [`dde149c`](https://github.com/MoonshotAI/kimi-code/commit/dde149cbc378f4f759a54e5f5e27ed357a880090) Thanks [@sailist](https://github.com/sailist)! - Fix duplicate workspace groups on Windows when the same folder is opened with different path spellings, such as a different drive-letter casing; all of the folder's sessions now list under the single merged group.
+
+- [`c9a58bf`](https://github.com/MoonshotAI/kimi-code/commit/c9a58bfb921c3d340ea84d4e16729e5c1b8411c4) Thanks [@7723qqq](https://github.com/7723qqq)! - TUI footer now shows per-session stats once a session has traffic: turns, steps, LLM/tool time, average first-token latency, and input/output token counts. The cache display switches to "cache hit %" wording.
+
+- [`1a07f08`](https://github.com/MoonshotAI/kimi-code/commit/1a07f087aa59a8d84b49b28bfd7694261eb71626) - Footer tokens-per-second now uses provider-reported decode time and an exponential moving average so cached and batched responses no longer show inflated rates.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Send Google Gemini OAuth requests without an invalid API key header.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Save the GitHub token from /settings to the [github] config section so it passes validation.
+
+- [`d6f61a4`](https://github.com/MoonshotAI/kimi-code/commit/d6f61a468258a937a77df4df1d29d98322fd5e45) - Fix the experimental GitHub tools not appearing in sessions even when enabled. Enable them with `[experimental] github_tools = true` or `KIMI_CODE_EXPERIMENTAL_GITHUB_TOOLS=1` and a `GITHUB_TOKEN`.
+
+- [`c217e68`](https://github.com/MoonshotAI/kimi-code/commit/c217e68c8f862267bb65307efe06229caea286ea) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix goal token accounting when cached token usage goes backwards after a reset.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Show a clear re-login prompt instead of an upstream error when Google credentials expire.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Open a single browser tab during Google sign-in.
+
+- [`0eb314c`](https://github.com/MoonshotAI/kimi-code/commit/0eb314c92cf6f4b2deb6696779e62b8b31152b4c) Thanks [@7723qqq](https://github.com/7723qqq)! - Harden async and resource-leak paths and complete i18n coverage: prevent unhandled rejections (goal promotion, telemetry config read, event-listener dispatch, MCP OAuth teardown), fix resource leaks (fs-watch teardown on pre-attach failure, uncached session close, queued-message and tasks-browser races, async-queue early-exit), switch goal-completion card detection to a structured flag, add background-agent phases (lost/killed/timed out) with zh/en locales, close a klient IPC token-validation gap, and skip no-op state writes.
+
+- [`fe6f861`](https://github.com/MoonshotAI/kimi-code/commit/fe6f861758d64101a8b142ad0fa01874a3b5b133) - Add shared i18n package (`@moonshot-ai/i18n-shared`) with unified translation engine, locale detection, and type-safe key paths. Migrate all Node.js apps to the Rust-backed cached translator and browser apps to the shared pure-JS engine.
+
+- [`3dcaa6b`](https://github.com/MoonshotAI/kimi-code/commit/3dcaa6bb0fe0cea562c56d2708dec056115e8df6) Thanks [@7723qqq](https://github.com/7723qqq)! - Isolate global search into a dedicated worker thread with a versioned handshake, per-request watchdog budgets, orphaned-lock recovery, and a boot-salted page-token scheme. Search now degrades gracefully to `building`/`degraded` states on worker crash instead of blocking the server thread, and oversized WAL replays no longer trip the short-request watchdog.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Return complete filtered results for session lists and message history instead of dropping entries past the first page.
+
+- [`6dd0a7e`](https://github.com/MoonshotAI/kimi-code/commit/6dd0a7e9a9d834367bb85f7fe524f624ef573c33) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix the Windows desktop launcher so it validates the committed `dist-web` bundle, no longer references the missing `copy-web-assets.mjs` helper, and fails with a clear message when the desktop shell source is not vendored in the checkout. Make package `clean` scripts cross-platform with a Node one-liner, short-circuit the native-module loader hook for non-`.node` requests, and update Windows shell documentation to match the PowerShell-first shell detection.
+
+- [`e126935`](https://github.com/MoonshotAI/kimi-code/commit/e1269352a2dd3140113f9d02bcc9c9aa89ea512d) Thanks [@7723qqq](https://github.com/7723qqq)! - Localize remaining hardcoded English status messages in the TUI and CLI provider, plugin, and cache flows so they respect the configured locale.
+
+- [`9baa37e`](https://github.com/MoonshotAI/kimi-code/commit/9baa37ebb1e492d76ed9e47d520e67bba30ab1a3) - Localize the Using/Used/Truncated verb shown on tool call headers.
+
+- [`5e463d8`](https://github.com/MoonshotAI/kimi-code/commit/5e463d813978f7b5854b34d98104e284fbcdb8f0) Thanks [@7723qqq](https://github.com/7723qqq)! - Upgrade MCP client from `@modelcontextprotocol/sdk` 1.29.0 to the v2 package family (`@modelcontextprotocol/client` / `@modelcontextprotocol/core` 2.0.0). Protocol negotiation stays on the legacy 2025-11-25 handshake by default, so existing MCP servers remain fully compatible; the 2026-07-28 protocol revision remains an opt-in for a future change.
+
+- [`a168cfa`](https://github.com/MoonshotAI/kimi-code/commit/a168cfaee13bc6fe2afc4c04a1cfb2da88c2188b) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix project-level mcp.json discovery and harden MCP server connections: enforce OAuth state validation, restrict stdio environment inheritance to an allowlist, block bearer-token leakage to internal addresses, and cap tool result size.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Preserve agent memory when its database is corrupted instead of silently rebuilding it.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Continue legacy migration when individual files fail to copy, and archive unusable leftovers instead of deleting them.
+
+- [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc) Thanks [@sailist](https://github.com/sailist)! - Harden the embedded key-value engine's durability: WAL compaction now always terminates under sustained write storms instead of chasing the tail forever, a committed write can no longer slip through a compaction rotation undetected, torn WAL tails no longer misplace later disk-mode value pointers, read-only opens never create or modify database files or compact under a live writer, corrupt index-definition files no longer force a full rebuild, stale compaction temp files are cleaned on open, and the process lock can no longer be taken over by several processes at once.
+
+- [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc) Thanks [@sailist](https://github.com/sailist)! - Speed up the embedded key-value engine under stress: queries with skip/limit now stream candidates instead of decoding every match first, LRU eviction picks victims in O(1) instead of scanning every key, bursts of simultaneously expired TTL keys are drained within seconds, existence checks and size counting no longer read values when they only need metadata, and one oversized token can no longer poison the full-text index.
+
+- [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc) Thanks [@sailist](https://github.com/sailist)! - Cluster readers of the embedded key-value engine now catch up incrementally by replaying only newly appended WAL frames after another process writes, instead of fully reopening the shard on every read; cross-process read latency drops by orders of magnitude at larger shard sizes, and readers still fall back to a full reopen after WAL rotation or truncation.
+
+- [`e0364f6`](https://github.com/MoonshotAI/kimi-code/commit/e0364f6dc09cdb541211e0127561e2fc0244aebc) Thanks [@sailist](https://github.com/sailist)! - Keep the embedded key-value engine writable when a WAL compaction rotation fails mid-way instead of wedging it until reopen, stop a rolled-back write from erasing a concurrently committed value for the same key, let the RESP server survive aborted connections, recover after oversized requests, and answer each pipelined command independently, and keep the previous full-text index intact when a postings rebuild fails.
+
+- [`2395e18`](https://github.com/MoonshotAI/kimi-code/commit/2395e182dff18cb5db0a0e852cd5586ac2b4c100) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix a syntax error in the minidb query store test, prevent plugin directory leaks on removal, replace JSON-serialization of config records with structuredClone, close a registry-removal window in WebSocket connection teardown, add workspace path traversal guards in transcript reads, and route hook failures through the event bus instead of silent console output.
+
+- [`5133ac1`](https://github.com/MoonshotAI/kimi-code/commit/5133ac19d01a2f6dc1159ef79daf739dd4420461) - Show the token count at risk when switching models invalidates the prompt cache.
+
+- [`e517598`](https://github.com/MoonshotAI/kimi-code/commit/e517598f15f923fe431a0584f9e75ecd0e7cbcb9) Thanks [@7723qqq](https://github.com/7723qqq)! - Polish the native integration:
+
+  - Cache the `/status` native-tools probe for the process lifetime (the previous implementation re-verified every cached native asset — a full read + sha256 per file — on each report).
+  - Make `BashTool.spawn` async and drop a redundant promise wrapper.
+  - Update the Grep tool description to reflect that the native Rust engine is the primary path (ripgrep-compatible feature set).
+
+- [`787110d`](https://github.com/MoonshotAI/kimi-code/commit/787110df53d1c5f7d430ba9a638065c9f7eb36d6) Thanks [@7723qqq](https://github.com/7723qqq)! - Read/Write: complete the native readers'/writer's capability set and make them authoritative. The Rust reader now performs UTF-16 LE/BE transcoding (BOM or zero-byte parity heuristic), the GBK/GB18030 fallback, and lenient UTF-8 decoding natively via `encoding_rs` (10 MiB transcode bound, encoding notes in the status block), so the TypeScript implementation is a fallback only for hosts without the native module — no capability is TS-only anymore. The Read tool now calls the native reader before its TS stat/header preflight, eliminating a duplicate stat + 512-byte sniff on every read. Native errors carry a machine-readable `errorKind` (read: `not_found` / `not_a_file` / `media` / `binary` / `invalid_utf8` / `too_large` / `io` / `panic`; write: `io` / `parent_not_dir` / `panic`) and every verdict is returned directly instead of silently re-running the TS path, which had been masking native bugs. The native writer's docs now honestly describe its truncating/`O_APPEND` semantics instead of claiming atomicity. Also fixes the Rust reader bugs the old silent fallback hid: multi-byte-unsafe line truncation (panic on CJK long lines), LF+CRLF mixed files misdetected as pure CRLF, `feed_crlf` erasing earlier lone CRs, tail reads ignoring mid-line CRs, mixed-file CRLF lines losing their visible `\r`, the binary-vs-UTF-16 ordering (NUL-heavy UTF-16 headers were refused before encoding detection), header sniff short-reads, a missing UTF-8 BOM strip, and first-line byte budget drift vs the TS implementation.
+
+- [`3b84ecf`](https://github.com/MoonshotAI/kimi-code/commit/3b84ecffb70223f8811c8bc6809b18600f30f610) Thanks [@7723qqq](https://github.com/7723qqq)! - Read: make the native file-read cache a general read-result cache so it actually engages. The cache is now keyed by the full read request `(path, line_offset, n_lines)` instead of only whole-file reads, and stores the complete `ReadResult`; equivalent requests are normalized to one key (offset 0/1 and `n_lines` at/above the cap collapse to the default full-file view). Previously the cache was dead code — the TypeScript caller always passed explicit `line_offset`/`n_lines`, so the `None`/`None` cache condition never matched and every read hit disk. Now the default read path (and partial reads, and `native_batch_read`) are served from cache, with the existing TOCTOU snapshot guard preserved. Also fixes a cache-key normalization bug where negative (tail) offsets were collapsed to offset 1, which could have served the wrong tail window.
+
+- [`aa915b2`](https://github.com/MoonshotAI/kimi-code/commit/aa915b2f1e45355c1e3fb91a8439da4cf56d0efd) Thanks [@RealKai42](https://github.com/RealKai42)! - Preserve empty model reasoning blocks across providers so multi-step tool calls can continue.
+
+- [`53a4464`](https://github.com/MoonshotAI/kimi-code/commit/53a4464aae661d44b863961bfcfed0cb60f6d3a9) Thanks [@7723qqq](https://github.com/7723qqq)! - Preserve the original error via the `cause` option when re-throwing wrapped errors (kimi-datasource credential load / request timeout, kimi-inspect probe, and the hardcoded-string scanner) so the root cause is retained in the error chain for debugging.
+
+- [`409c040`](https://github.com/MoonshotAI/kimi-code/commit/409c040056e7f3096efaafff317e84e445b9eb25) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix provider catalog error messages when a provider's protocol type or base URL is missing.
+
+- [`4719350`](https://github.com/MoonshotAI/kimi-code/commit/471935006356a997c14bf7bdcbdae8e62f072e4d) Thanks [@7723qqq](https://github.com/7723qqq)! - Record and close tool calls interrupted mid-stream, preventing empty assistant messages that could wedge the session when the provider stream breaks off.
+
+- [`aa87304`](https://github.com/MoonshotAI/kimi-code/commit/aa873042e63e9a3805671dbe8ae620fd8d019ac1) - Refresh the agent's default active tool list from the current catalog when resuming a session, so newly available built-in tools show up in resumed sessions. Custom tool selections are preserved.
+
+- [`191e94b`](https://github.com/MoonshotAI/kimi-code/commit/191e94bf218b6676cd4cb94c3589c77e52fd76ed) - Always enable the WaitFor tool, the minidb session read model, and the dedicated search worker.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Match half-width search keywords against full-width text in session search.
+
+- [`f7b58af`](https://github.com/MoonshotAI/kimi-code/commit/f7b58af140d7177b6904d465cf76fa4d02a53875) - Allow clients to generate AI session titles without enabling an experiment.
+
+- [`a69dd70`](https://github.com/MoonshotAI/kimi-code/commit/a69dd70d0fdfed45ca83a950029a5cbaff122794) - Use snake_case ids for the `tool_select`, `secondary_model`, and `subagent_backends` experiments; dashed ids in `[experimental]` config keep working.
+
+- [`d634f36`](https://github.com/MoonshotAI/kimi-code/commit/d634f36fc37d92a87c2f00d8d5587a56933dd2d8) Thanks [@7723qqq](https://github.com/7723qqq)! - Implement the remote environment probe for the SSH execution environment: `osEnv` is now populated during creation (best-effort `uname` + shell detection) instead of throwing.
+
+- [`50ba0d9`](https://github.com/MoonshotAI/kimi-code/commit/50ba0d901115a2607e5e3d672903f2b74eb0ec3c) Thanks [@7723qqq](https://github.com/7723qqq)! - Fix TUI freezes during long assistant streams in normal (non-swarm) mode. The transient streaming renderer re-lexed and re-wrapped the whole ever-growing draft on the main thread every flush (O(n²)), blocking input (ESC/Ctrl+C) and rendering until the stream ended. While streaming, only a bounded tail is now rendered; the full text renders once the turn's assistant stream finishes.
+
+- [`f7b58af`](https://github.com/MoonshotAI/kimi-code/commit/f7b58af140d7177b6904d465cf76fa4d02a53875) - Enable progressive tool disclosure for models that declare dynamically loaded tools.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Reduce redundant transcript re-renders after reconnecting to a session.
+
+- [`6397023`](https://github.com/MoonshotAI/kimi-code/commit/63970232369c40fa308d9697605bbfed67a180e2) - Reset tokens-per-second, cache hit rate, and turn counters when starting or switching sessions.
+
+- [`c3dee35`](https://github.com/MoonshotAI/kimi-code/commit/c3dee353dd788b6eb4202f063a8314c7c069c8fb) - Port the remaining v1 OAuth token lifecycle and task-output drain into the v2 engine:
+
+  - `McpOAuthService` regains single-flight `refresh()` and proactive refresh timers (`sweepProactiveRefresh` / `stopProactiveRefresh` / `shutdown`), re-armed from a `-meta.json` sidecar written alongside stored tokens; `McpOAuthStore` gains a `list()` capability (encrypted credentials store included).
+  - `McpOAuthClientProvider` persists tokens through `OAuthTokenTransaction`, serializing refresh-grant writes per credential so concurrent 401 refreshes cannot race a rotating refresh token; the HTTP/SSE clients now ride the transaction-wrapped fetch.
+  - Interactive authorization flows are serialized per credential: concurrent `beginAuthorization` calls join the shared flow instead of clobbering PKCE/redirect state.
+  - Credential events (`tokens-saved` / `tokens-invalidated` / `refresh-failed`) are emitted from the service and routed through the App-scope `McpOAuthCoordinator`: workspaces reconnect `needs-auth`/`failed` servers on login and flip live connections back to `needs-auth` on invalidation (`tokenState` also reports absolute `expiresAt`).
+  - `AgentTaskService` awaits queued output appends before settling and exposes `drainWrites()`, called on session close so `output.log` tails survive.
+
+- [`eaf478a`](https://github.com/MoonshotAI/kimi-code/commit/eaf478a33e0e9290d2ce0cfad8f8847a8523ff5f) - Fix lost prompt cache hits on Anthropic during long conversations on the v2 engine.
+
+- [`b78d376`](https://github.com/MoonshotAI/kimi-code/commit/b78d37650b874b3591d6023dd39097645913888a) Thanks [@sailist](https://github.com/sailist)! - v2 engine: expose the prompt scheduler over /api/v2 for native clients, and add an experimental fault-injection service (KIMI_CODE_EXPERIMENTAL_FAULT_INJECTION) that arms a one-shot provider failure so the media-degraded / media-stripped recovery resends can be exercised end-to-end.
+
+- [`b78d376`](https://github.com/MoonshotAI/kimi-code/commit/b78d37650b874b3591d6023dd39097645913888a) Thanks [@sailist](https://github.com/sailist)! - v2 engine: block unsupported image formats (AVIF, HEIC, BMP, TIFF, ICO) at every ingestion point so they can no longer poison session history, and auto-recover provider image-format rejections with a media-stripped resend.
+
+- [`b78d376`](https://github.com/MoonshotAI/kimi-code/commit/b78d37650b874b3591d6023dd39097645913888a) Thanks [@sailist](https://github.com/sailist)! - v2 engine: recover image-heavy sessions from provider request-size rejections (HTTP 413) by resending with older media degraded to text markers, re-encode oversized WebP images instead of passing them through, and keep downscaled PNGs readable by switching to JPEG below 1000px.
+
+- [`9557865`](https://github.com/MoonshotAI/kimi-code/commit/95578650b4a6ecc80e818a69e8c9aebda67c16a8) Thanks [@wbxl2000](https://github.com/wbxl2000)! - Fix queued messages silently re-sending previously uploaded files when a session is reopened.
+
+- [`fbd416d`](https://github.com/MoonshotAI/kimi-code/commit/fbd416d04fb0398e3d142b84d99c62ebf4d89456) Thanks [@wszqkzqk](https://github.com/wszqkzqk)! - Fix file tools and shell working directories failing to resolve Git Bash paths such as /c/Users or /tmp on Windows.
+
+- [`46ac539`](https://github.com/MoonshotAI/kimi-code/commit/46ac539e207f6217c34df2db0e46962a11ec36aa) Thanks [@RealKai42](https://github.com/RealKai42)! - Fix Thinking effort routing so non-Kimi providers preserve configured values for upstream validation, while Kimi models validate runtime selections, fall back safely during model resolution, and synchronize the effective effort back to clients.
+
+- Updated dependencies []:
+  - @moonshot-ai/kimi-agent@0.1.0
+
 ## 0.38.0
 
 ### Minor Changes
