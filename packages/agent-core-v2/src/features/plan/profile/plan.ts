@@ -7,7 +7,6 @@ import {
 
 const PLAN_TOOLS = [
   'Read',
-  'ReadMediaFile',
   'Glob',
   'Grep',
   'WebSearch',

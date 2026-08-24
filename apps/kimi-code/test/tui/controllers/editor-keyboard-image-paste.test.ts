@@ -265,7 +265,7 @@ describe('clipboard image paste compression', () => {
   it('records an EXIF-rotated compressed original in display space', async () => {
     // Orientation 6 (rotate 90° CW): the header says 3600x400, but the image
     // decodes to 400x3600 — the space the compressed bytes and any later
-    // ReadMediaFile region readback live in. The recorded original (which
+    // Read region readback live in. The recorded original (which
     // drives the submit-time compression caption) must match that space, or
     // the caption contradicts the sent image's aspect and region coordinates
     // land axis-swapped. (Kept narrow: pure-JS decode+rotate+encode of a

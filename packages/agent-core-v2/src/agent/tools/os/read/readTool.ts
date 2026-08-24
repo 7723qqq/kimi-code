@@ -15,6 +15,10 @@ import {
   type WorkspaceConfig,
 } from '#/tool/path-access';
 import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
+import { IMediaReadContext } from '#/agent/media/mediaReadContext';
+import { executeMediaRead } from '#/agent/tools/read-media-file/execute-media-read';
+import { MAX_MEDIA_MEGABYTES } from '#/agent/tools/read-media-file/read-media-file';
+import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
 import { makeCarriageReturnsVisible, splitLinesKeepingTerminator, type LineEndingStyle } from '#/_base/text/line-endings';
@@ -196,6 +200,7 @@ const READ_DESCRIPTION = renderPrompt(readDescriptionTemplate, {
   MAX_LINES,
   MAX_BYTES_KB: MAX_BYTES / 1024,
   MAX_LINE_LENGTH,
+  MAX_MEDIA_MEGABYTES,
 });
 
 export class ReadTool implements IReadTool {
@@ -207,6 +212,7 @@ export class ReadTool implements IReadTool {
     @IAgentRuntimeService private readonly runtime: IAgentRuntimeService,
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @ISessionSkillCatalog private readonly skillCatalog: ISessionSkillCatalog,
+    @IMediaReadContext private readonly mediaRead: IMediaReadContext,
   ) {}
 
   private workspaceConfig(view: RuntimeWorkspaceView): WorkspaceConfig {
@@ -214,6 +220,9 @@ export class ReadTool implements IReadTool {
   }
 
   resolveExecution(args: ReadInput): ToolExecution {
+    if (!args.path) {
+      return { isError: true, output: 'File path cannot be empty.' };
+    }
     const inspected = inspectAgentRuntime(this.runtime);
     const view = new RuntimeWorkspaceView(inspected, {
       workDir: this.workspaceCtx.workDir,
@@ -243,7 +252,7 @@ export class ReadTool implements IReadTool {
           if (lease.runtime.identity.generation !== inspected.identity.generation) {
             return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
           }
-          return await this.execution(lease.runtime.fs!, args, path);
+          return await this.execution(lease.runtime.fs!, args, path, inspected.environment);
         } finally {
           lease.dispose();
         }
@@ -251,7 +260,12 @@ export class ReadTool implements IReadTool {
     };
   }
 
-  private async execution(fs: IHostFileSystem, args: ReadInput, safePath: string): Promise<ExecutableToolResult> {
+  private async execution(
+    fs: IHostFileSystem,
+    args: ReadInput,
+    safePath: string,
+    env: HostEnvironmentInfo,
+  ): Promise<ExecutableToolResult> {
     try {
       let stat: Awaited<ReturnType<IHostFileSystem['stat']>>;
       try {
@@ -269,9 +283,25 @@ export class ReadTool implements IReadTool {
       const header = await fs.readBytes(safePath, MEDIA_SNIFF_BYTES);
       const fileType = detectFileType(safePath, header);
       if (fileType.kind === 'image' || fileType.kind === 'video') {
+        if (args.line_offset !== undefined || args.n_lines !== undefined) {
+          return {
+            isError: true,
+            output: 'line_offset and n_lines apply only to text files.',
+          };
+        }
+        const mediaCtx = this.mediaRead.getMediaReadContext();
+        if (mediaCtx === undefined) {
+          return {
+            isError: true,
+            output: 'Media reading is unavailable in the current runtime.',
+          };
+        }
+        return await executeMediaRead(mediaCtx, args, safePath, fs, env, header);
+      }
+      if (args.region !== undefined || args.full_resolution === true) {
         return {
           isError: true,
-          output: `"${args.path}" is ${fileType.kind === 'image' ? 'an' : 'a'} ${fileType.kind} file. Only text files can be read.`,
+          output: 'region and full_resolution apply only to image files.',
         };
       }
 

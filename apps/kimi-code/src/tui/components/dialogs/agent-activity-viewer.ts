@@ -39,6 +39,7 @@ import { printableChar } from '#/tui/utils/printable-key';
 import { AssistantMessageComponent } from '../messages/assistant-message';
 import { extractKeyArgument } from '../messages/tool-call';
 import { pickChip } from '../messages/tool-renderers/chip';
+import { parseReadMediaOutput } from '../messages/tool-renderers/media';
 import { pickResultRenderer } from '../messages/tool-renderers/registry';
 import { statusColor, statusLabel } from './task-output-viewer';
 
@@ -280,7 +281,12 @@ export class AgentActivityViewer extends Container implements Focusable {
     }
     // The store caps retained output, which cannot survive as a parseable
     // media envelope (base64) — show a marker instead of dumping the blob.
-    if (call.name === 'ReadMediaFile' && call.result.is_error !== true) {
+    const isMediaResult =
+      call.name === 'ReadMediaFile' ||
+      (call.name === 'Read' &&
+        call.result.output.startsWith('[') &&
+        parseReadMediaOutput(call.result.output) !== null);
+    if (isMediaResult && call.result.is_error !== true) {
       return [
         currentTheme.dim(
           `${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.mediaOutputOmitted')}`,

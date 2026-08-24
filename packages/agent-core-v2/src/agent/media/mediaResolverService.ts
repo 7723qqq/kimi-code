@@ -20,7 +20,7 @@ import {
 } from './mediaRef';
 import { ISessionMediaStore } from './sessionMediaStore';
 import { IAgentMediaResolverService } from './mediaResolver';
-import { createVideoUploader } from './registerMediaTools';
+import { createVideoUploader } from './mediaReadContext';
 import {
   inlineVideoPart,
   inlineVideoSupportedForProtocol,

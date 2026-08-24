@@ -29,7 +29,9 @@ import type {
   TurnUsage,
 } from '../types';
 
-const READ_MEDIA_TOOL_RE = /^read[_-]?media(?:file)?$/i;
+// Read reads media as well as text (merged from ReadMediaFile); the media
+// envelope shape itself decides below, so the name gate stays broad.
+const READ_MEDIA_TOOL_RE = /^(?:read|read[_-]?media(?:file)?)$/i;
 const DATA_URL_RE = /^data:([^;]+);base64,(.*)$/s;
 const MEDIA_PATH_TAG_RE = /^<(image|video|audio)\s+path="([^"]+)">$/;
 // A user-uploaded image/video reaches the transcript (after the server resolves

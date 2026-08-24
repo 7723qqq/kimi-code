@@ -10,7 +10,7 @@
  *   copy at intake — so the turn-end release deletes them.
  * - Local cache copies may still be referenced by persisted history: slash /
  *   plugin command args carry the path as plain text (the model reads it
- *   with `ReadMediaFile`), and that form is never rewritten to the session
+ *   with `Read`), and that form is never rewritten to the session
  *   media dir. Turn-end release therefore retires cache copies to a
  *   session-lifetime bucket, deleted at session close / shutdown.
  *

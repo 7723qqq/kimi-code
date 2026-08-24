@@ -69,7 +69,7 @@ pnpm run test:native:smoke
 
 产物输出到 `apps/kimi-code/dist-native/bin/<target>/kimi`。
 
-Bun 字节码默认关闭：在本机 Bun 1.4.0 上实测启动零收益——只有入口垫片被字节码化，打包出的 `main.cjs` 运行时从磁盘加载，本就不在字节码图内——而字节码仍会增大产物体积，且与构建时的 Bun 版本强绑定。设置 `KIMI_CODE_BUN_ENABLE_BYTECODE=1` 可显式嵌入字节码；只有当流水线调整让真实应用代码进入字节码图时（例如直接编译真实 ESM 入口、不再从磁盘加载 bundle），它才值得开启。开启时注意模块格式：裸 `--bytecode` 默认输出 CommonJS，无法表达顶层 `await`；Bun 自 v1.3.9 起在 `--format=esm` 下支持顶层 `await`，但本流水线保持 CJS 默认值，因此编译入口必须避免顶层 `await`。
+Bun 字节码默认关闭：在本流水线上实测启动无收益，而字节码会增大产物体积，且与构建时的 Bun 版本强绑定。设置 `KIMI_CODE_BUN_ENABLE_BYTECODE=1` 可显式嵌入字节码。开启时注意模块格式：裸 `--bytecode` 默认输出 CommonJS，无法表达顶层 `await`；Bun 自 v1.3.9 起在 `--format=esm` 下支持顶层 `await`，但本流水线保持 CJS 默认值，因此编译入口必须避免顶层 `await`。
 
 运行时集成在可能的情况下与 SEA 路径共用：
 

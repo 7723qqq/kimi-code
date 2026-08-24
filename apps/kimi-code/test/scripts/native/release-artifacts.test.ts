@@ -9,6 +9,7 @@ import { inflateRawSync } from 'node:zlib';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { SUPPORTED_TARGETS } from '../../../scripts/native/native-deps.mjs';
 import { appRoot } from '../../../scripts/native/paths.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -134,54 +135,68 @@ describe('native release artifacts', () => {
     expect(zipEntryNames(archivePath)).toEqual([executableName]);
   });
 
+  function seaChecksum(target: string): string {
+    return sha256(Buffer.from(`fake sea zip bytes for ${target}`));
+  }
+
+  function bunChecksum(target: string): string {
+    return sha256(Buffer.from(`fake bun zip bytes for ${target}`));
+  }
+
+  async function writeFullArtifactSet(releaseDir: string): Promise<void> {
+    for (const target of SUPPORTED_TARGETS) {
+      await writeFile(
+        join(releaseDir, `kimi-code-${target}.zip.sha256`),
+        `${seaChecksum(target)}  kimi-code-${target}.zip\n`,
+      );
+      await writeFile(
+        join(releaseDir, `kimi-code-bun-${target}.zip.sha256`),
+        `${bunChecksum(target)}  kimi-code-bun-${target}.zip\n`,
+      );
+    }
+  }
+
   it('produces a manifest from zip archive checksums', async () => {
     const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-zip-'));
-    const archiveBytes = Buffer.from('fake zip bytes');
-    const checksum = sha256(archiveBytes);
-    await writeFile(join(releaseDir, 'kimi-code-darwin-arm64.zip'), archiveBytes);
-    await writeFile(
-      join(releaseDir, 'kimi-code-darwin-arm64.zip.sha256'),
-      `${checksum}  kimi-code-darwin-arm64.zip\n`,
-    );
+    try {
+      await writeFullArtifactSet(releaseDir);
 
-    await execFileAsync(process.execPath, [
-      manifestScript,
-      releaseDir,
-      '@moonshot-ai/kimi-code@0.5.0',
-    ]);
+      await execFileAsync(process.execPath, [
+        manifestScript,
+        releaseDir,
+        '@moonshot-ai/kimi-code@0.5.0',
+      ]);
 
-    const manifest = JSON.parse(await readFile(join(releaseDir, 'manifest.json'), 'utf-8')) as {
-      version: string;
-      tag: string;
-      platforms: Record<string, { filename: string; checksum: string }>;
-    };
-    expect(manifest).toEqual({
-      version: '0.5.0',
-      tag: '@moonshot-ai/kimi-code@0.5.0',
-      platforms: {
-        'darwin-arm64': {
-          filename: 'kimi-code-darwin-arm64.zip',
-          checksum,
-        },
-      },
-    });
+      const manifest = JSON.parse(await readFile(join(releaseDir, 'manifest.json'), 'utf-8')) as {
+        version: string;
+        tag: string;
+        platforms: Record<string, { filename: string; checksum: string }>;
+        bun: Record<string, { filename: string; checksum: string }>;
+      };
+      expect(manifest.version).toBe('0.5.0');
+      expect(manifest.tag).toBe('@moonshot-ai/kimi-code@0.5.0');
+      expect(Object.keys(manifest.platforms).toSorted()).toEqual(SUPPORTED_TARGETS);
+      expect(manifest.platforms['darwin-arm64']).toEqual({
+        filename: 'kimi-code-darwin-arm64.zip',
+        checksum: seaChecksum('darwin-arm64'),
+      });
+      expect(Object.keys(manifest.bun).toSorted()).toEqual(SUPPORTED_TARGETS);
+      expect(manifest.bun['linux-x64']).toEqual({
+        filename: 'kimi-code-bun-linux-x64.zip',
+        checksum: bunChecksum('linux-x64'),
+      });
+    } finally {
+      rmSync(releaseDir, { recursive: true, force: true });
+    }
   });
 
   it('collects bun artifacts into a separate manifest section', async () => {
     const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-bun-'));
-    const seaChecksum = sha256(Buffer.from('fake sea zip bytes'));
-    const bunChecksum = sha256(Buffer.from('fake bun zip bytes'));
-    await writeFile(
-      join(releaseDir, 'kimi-code-linux-x64.zip.sha256'),
-      `${seaChecksum}  kimi-code-linux-x64.zip\n`,
-    );
-    await writeFile(
-      join(releaseDir, 'kimi-code-bun-linux-x64.zip.sha256'),
-      `${bunChecksum}  kimi-code-bun-linux-x64.zip\n`,
-    );
     await writeFile(join(releaseDir, 'manifest.json'), 'stale manifest');
 
     try {
+      await writeFullArtifactSet(releaseDir);
+
       await execFileAsync(process.execPath, [
         manifestScript,
         releaseDir,
@@ -192,12 +207,41 @@ describe('native release artifacts', () => {
         platforms: Record<string, { filename: string; checksum: string }>;
         bun?: Record<string, { filename: string; checksum: string }>;
       };
-      expect(manifest.platforms).toEqual({
-        'linux-x64': { filename: 'kimi-code-linux-x64.zip', checksum: seaChecksum },
+      expect(manifest.platforms['linux-x64']).toEqual({
+        filename: 'kimi-code-linux-x64.zip',
+        checksum: seaChecksum('linux-x64'),
       });
-      expect(manifest.bun).toEqual({
-        'linux-x64': { filename: 'kimi-code-bun-linux-x64.zip', checksum: bunChecksum },
-      });
+      expect(Object.fromEntries(
+        Object.entries(manifest.bun ?? {}).map(([target, entry]) => [target, entry.checksum]),
+      )).toEqual(Object.fromEntries(SUPPORTED_TARGETS.map((target) => [target, bunChecksum(target)])));
+    } finally {
+      rmSync(releaseDir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the bun section is incomplete', async () => {
+    const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-partialbun-'));
+    const [covered, ...missing] = SUPPORTED_TARGETS;
+
+    try {
+      for (const target of SUPPORTED_TARGETS) {
+        await writeFile(
+          join(releaseDir, `kimi-code-${target}.zip.sha256`),
+          `${seaChecksum(target)}  kimi-code-${target}.zip\n`,
+        );
+      }
+      await writeFile(
+        join(releaseDir, `kimi-code-bun-${covered}.zip.sha256`),
+        `${bunChecksum(covered)}  kimi-code-bun-${covered}.zip\n`,
+      );
+
+      await expect(
+        execFileAsync(process.execPath, [
+          manifestScript,
+          releaseDir,
+          '@moonshot-ai/kimi-code@0.5.0',
+        ]),
+      ).rejects.toThrow(new RegExp(`No Bun.*${missing.join(', ')}`));
     } finally {
       rmSync(releaseDir, { recursive: true, force: true });
     }

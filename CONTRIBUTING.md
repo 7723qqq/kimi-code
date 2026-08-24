@@ -180,7 +180,7 @@ pnpm run test:native:smoke
 
 Output: `apps/kimi-code/dist-native/bin/<target>/kimi`.
 
-Bun bytecode is disabled by default: measuring on Bun 1.4.0 showed no startup gain here, because only the small entry shim is bytecode'd — the bundled `main.cjs` is imported from disk at runtime and sits outside the bytecode graph — while bytecode still adds binary size and locks the artifact to the exact Bun version that built it. Set `KIMI_CODE_BUN_ENABLE_BYTECODE=1` to embed bytecode anyway; it only pays off if the pipeline changes so that real application code lands in the bytecode graph (for example, compiling the real ESM entry directly instead of importing the bundle from disk). Note the module format when enabling: bare `--bytecode` defaults to CommonJS output, which cannot express top-level `await`; Bun has supported top-level `await` in bytecode since v1.3.9 under `--format=esm`, but this pipeline keeps the CJS default, so the compile entry must stay free of top-level `await`.
+Bun bytecode is disabled by default: it measured no startup gain on this pipeline, while bytecode adds binary size and locks the artifact to the exact Bun version that built it. Set `KIMI_CODE_BUN_ENABLE_BYTECODE=1` to embed bytecode anyway. Note the module format when enabling: bare `--bytecode` defaults to CommonJS output, which cannot express top-level `await`; Bun has supported top-level `await` in bytecode since v1.3.9 under `--format=esm`, but this pipeline keeps the CJS default, so the compile entry must stay free of top-level `await`.
 
 Runtime integration stays shared with the SEA path where possible:
 

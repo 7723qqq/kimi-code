@@ -562,7 +562,7 @@ export function buildImageCompressionCaption(input: ImageCompressionCaptionInput
   if (typeof input.originalPath === 'string' && input.originalPath.length > 0) {
     sentences.push(
       `The uncompressed original is saved at "${input.originalPath}"; if you need fine detail ` +
-        '(e.g. small text), call ReadMediaFile on that path with the region parameter ' +
+        '(e.g. small text), call Read on that path with the region parameter ' +
         '(original-pixel coordinates) to view a crop at full fidelity.',
     );
   } else {

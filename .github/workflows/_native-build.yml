@@ -23,6 +23,14 @@ on:
         required: false
         type: boolean
         default: false
+      build-sea:
+        description: >-
+          Build the legacy Node SEA binaries (all targets). Must stay true
+          during the dual-engine retention period so existing SEA clients can
+          keep auto-updating.
+        required: false
+        type: boolean
+        default: true
     secrets:
       APPLE_CERTIFICATE_P12:
         required: false
@@ -42,6 +50,7 @@ jobs:
   native-bundle:
     name: Native bundle (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    if: inputs.build-sea == true
     # Relay secret presence through env: the secrets context is not available in
     # step-level if expressions. When sign-macos is requested but the APPLE_*
     # secrets are not configured (e.g. forks), macOS signing steps are skipped

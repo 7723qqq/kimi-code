@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 17 keys · Agent: 96 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 17 keys · Agent: 95 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -103,7 +103,6 @@
 //     mcp.discovery                                   src/agent/mcp/mcpDiscoveryOps.ts
 //     mcp.discoveryWritesReady                        src/agent/mcp/mcpService.ts
 //     mcp.mcpToolsByServer                            src/agent/mcp/mcpService.ts
-//     media.registeredKey                             src/agent/media/mediaToolsRegistrar.ts
 //     media.resolved                                  src/agent/media/mediaResolverService.ts
 //     microCompaction                                 src/agent/microCompaction/microCompactionOps.ts
 //     permissionMode                                  src/agent/permissionMode/permissionModeOps.ts
@@ -1286,8 +1285,6 @@ export interface AgentStateSnapshot {
       id?: string;
     };
   }>;
-  // src/agent/media/mediaToolsRegistrar.ts
-  'media.registeredKey': string | undefined;
   // src/agent/microCompaction/microCompactionOps.ts
   // replayable · durable — folds: MicroCompactionApplied, MicroCompactionClamped, ContextClear, ContextApplyCompaction
   'microCompaction': /* MicroCompactionState — packages/agent-core-v2/src/agent/microCompaction/microCompactionOps.ts */ {

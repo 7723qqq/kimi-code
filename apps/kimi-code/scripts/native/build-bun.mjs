@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -34,7 +34,6 @@ if (!['local', 'release'].includes(profile)) {
   process.exit(1);
 }
 
-const MAIN_ASSET_KEY = 'runtime/main.cjs';
 const ASSET_SUFFIX = '.bin';
 
 const BUN_TARGETS = new Map([
@@ -117,7 +116,16 @@ async function buildBunNative() {
   writeFileSync(webManifestPath, web.manifestJson);
   putAsset(webAssetManifestKey(target), webManifestPath);
 
-  putAsset(MAIN_ASSET_KEY, nativeJsBundlePath());
+  // The runtime bundle is not embedded as a file asset: a shebang-stripped
+  // copy is staged below and compiled into the entry module graph, which
+  // removes the runtime extraction + dynamic import from the startup path.
+  // The original bundle keeps its `#!` banner for the SEA pipeline; only the
+  // staged copy is rewritten.
+  const stageMainPath = join(stageRoot, 'main.cjs');
+  writeFileSync(
+    stageMainPath,
+    readFileSync(nativeJsBundlePath(), 'utf8').replace(/^#![^\n]*\r?\n/, ''),
+  );
   const packageFileCount = Object.keys(native.assets).length + Object.keys(web.assets).length;
   for (const [key, srcPath] of [...Object.entries(native.assets), ...Object.entries(web.assets)]) {
     putAsset(key, srcPath);
@@ -133,13 +141,15 @@ async function buildBunNative() {
   genLines.push('', 'export const bunAssets: Array<[string, string]> = [', ...pairs, '];', '');
   writeFileSync(join(stageRoot, 'bun-assets.gen.ts'), genLines.join('\n'));
   copyFileSync(join(appRoot, 'scripts', 'native', 'bun-entry.ts'), join(stageRoot, 'bun-entry.ts'));
+  copyFileSync(
+    join(appRoot, 'scripts', 'native', 'bun-assets.setup.ts'),
+    join(stageRoot, 'bun-assets.setup.ts'),
+  );
 
   const outfile = nativeBinPath(target);
   mkdirSync(dirname(outfile), { recursive: true });
-  // Bytecode is opt-in: measured no startup gain on this pipeline (only the
-  // entry shim gets bytecode'd; the main.cjs bundle is imported from disk,
-  // outside the bytecode graph), and it adds size plus a lock to the exact
-  // Bun version that built the artifact.
+  // Bytecode is opt-in: measured no startup gain on this pipeline, and it
+  // adds size plus a lock to the exact Bun version that built the artifact.
   const useBytecode = process.env.KIMI_CODE_BUN_ENABLE_BYTECODE === '1';
   console.log(`==> bun build --compile --target=${bunTarget}${useBytecode ? ' --bytecode' : ''}`);
   const buildArgs = ['build', '--compile', '--target', bunTarget];

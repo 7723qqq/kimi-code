@@ -81,7 +81,6 @@ describe('runtime architecture boundaries', () => {
       'agent/tools/os/read/readTool.ts',
       'agent/tools/os/write/writeTool.ts',
       'agent/tools/edit/editTool.ts',
-      'agent/tools/read-media-file/readMediaFileTool.ts',
     ]) {
       const contents = source(path);
       expect(contents).toContain('new RuntimeWorkspaceView(');

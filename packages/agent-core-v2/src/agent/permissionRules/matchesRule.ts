@@ -57,6 +57,24 @@ export function parsePattern(pattern: string): ParsedPattern {
 
 export const parsePermissionPattern = parsePattern;
 
+/**
+ * Tools renamed by a merge keep their old name matchable here so that
+ * user-configured rules and session replays written against the previous
+ * name continue to apply. Map: current tool name -> legacy names.
+ */
+export const LEGACY_TOOL_NAME_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  Read: ['ReadMediaFile'],
+};
+
+function ruleMatchesToolName(parsedToolName: string, toolName: string): boolean {
+  if (parsedToolName === '*') return true;
+  if (picomatch.isMatch(toolName, parsedToolName)) return true;
+  for (const legacyName of LEGACY_TOOL_NAME_ALIASES[toolName] ?? []) {
+    if (picomatch.isMatch(legacyName, parsedToolName)) return true;
+  }
+  return false;
+}
+
 export function matchPermissionRule({
   rule,
   toolName,
@@ -69,7 +87,7 @@ export function matchPermissionRule({
     return undefined;
   }
 
-  if (parsed.toolName !== '*' && !picomatch.isMatch(toolName, parsed.toolName)) {
+  if (!ruleMatchesToolName(parsed.toolName, toolName)) {
     return undefined;
   }
 

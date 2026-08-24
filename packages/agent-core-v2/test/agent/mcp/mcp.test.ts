@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { ILogService } from '#/_base/log/log';
 import { Event } from '#/_base/event';
 import { abortError } from '#/_base/utils/abort';
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -33,6 +34,7 @@ import type { IEventDispatcher } from '#/state/eventDispatcher';
 import type { WireRecord } from '#/wire/record';
 import type { IWireService } from '#/wire/wire';
 
+import { stubLog } from '../../_base/log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { createTestAgent, mcpServices, type TestAgentContext } from '../../harness';
 import { discoverTools, executeTool, fakeMcpClient } from '../../mcpCore/stubs';
@@ -221,6 +223,7 @@ describe('AgentMcpService', () => {
       subscribe: () => toDisposable(() => {}),
     });
     ix.stub(ITelemetryService, recordingTelemetry(telemetryEvents));
+    ix.stub(ILogService, stubLog());
     ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
     ix.set(IAgentToolExecutorService, new SyncDescriptor(AgentToolExecutorService));
     ix.stub(IAgentToolResultTruncationService, stubToolResultTruncationService());

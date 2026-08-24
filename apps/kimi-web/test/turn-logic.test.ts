@@ -78,10 +78,54 @@ describe('messagesToTurns', () => {
     ]);
   });
 
-  it('surfaces a ReadMediaFile snapshot result as media', () => {
-    // After a reload the daemon snapshot delivers a ReadMediaFile result as
+  it('surfaces a Read snapshot result as media', () => {
+    // After a reload the daemon snapshot delivers a Read media result as
     // raw content parts (the same shape the live tool.result stream carries),
     // so a resumed session must render the image card, not a generic tool card.
+    const turns = messagesToTurns(
+      [
+        message('a1', 'assistant', [
+          {
+            type: 'toolUse',
+            toolCallId: 'tool-9',
+            toolName: 'Read',
+            input: { path: 'shot.png' },
+          },
+        ]),
+        message('t1', 'tool', [
+          {
+            type: 'toolResult',
+            toolCallId: 'tool-9',
+            output: [
+              { type: 'text', text: '<image path="/tmp/shot.png">' },
+              { type: 'image_url', imageUrl: { url: 'data:image/png;base64,QUJD' } },
+              { type: 'text', text: '</image>' },
+            ],
+          },
+        ]),
+      ],
+      [],
+      undefined,
+      false,
+    );
+
+    expect(turns[0]?.tools).toMatchObject([
+      {
+        id: 'tool-9',
+        status: 'ok',
+        media: {
+          kind: 'image',
+          url: 'data:image/png;base64,QUJD',
+          path: '/tmp/shot.png',
+          mimeType: 'image/png',
+        },
+      },
+    ]);
+  });
+
+  it('still surfaces a legacy ReadMediaFile snapshot result as media', () => {
+    // Old sessions persist the pre-merge tool name; replay must keep
+    // rendering those results as media cards.
     const turns = messagesToTurns(
       [
         message('a1', 'assistant', [
@@ -527,7 +571,7 @@ describe('messagesToTurns', () => {
       '<system>Image compressed to fit model limits: original 3024x1834 image/png (934 KB) -> ' +
       'sent 2000x1213 image/png (518 KB). Fine detail may be lost. The uncompressed original ' +
       'is saved at "/Users/me/.kimi-code/files/f_0000000000000000000000000"; if you need fine ' +
-      'detail, call ReadMediaFile on that path with the region parameter to view a crop at full ' +
+      'detail, call Read on that path with the region parameter to view a crop at full ' +
       'fidelity.</system>';
     const turns = messagesToTurns(
       [

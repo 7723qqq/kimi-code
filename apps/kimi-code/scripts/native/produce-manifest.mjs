@@ -6,11 +6,12 @@
  *   node produce-manifest.mjs <input-dir> <release-tag>
  *
  * Input dir must contain files matching: kimi-code-<target>.zip.sha256
- * (produced by package.mjs across the 6 native-build matrix runners), and may
- * contain kimi-code-bun-<target>.zip.sha256 from the experimental Bun
- * pipeline — those land in the manifest's optional `bun` section so a
- * Bun-packaged client updates against Bun builds instead of silently
- * switching to the SEA binary.
+ * (produced by package.mjs across the 6 native-build matrix runners), plus
+ * kimi-code-bun-<target>.zip.sha256 from the Bun pipeline — those land in the
+ * manifest's `bun` section so a Bun-packaged client updates against Bun builds
+ * instead of silently switching to the SEA binary. Both sections must cover
+ * every supported target: a partial section would strand clients on the
+ * missing platforms.
  *
  * Output:
  *   <input-dir>/manifest.json   ← consumed by install.sh / install.ps1
@@ -19,6 +20,8 @@
 
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
+
+import { SUPPORTED_TARGETS } from './native-deps.mjs';
 
 const [, , inputDir, tag] = process.argv;
 if (!inputDir || !tag) {
@@ -58,6 +61,15 @@ for (const sumFile of sumFiles.sort()) {
 
 if (Object.keys(platforms).length === 0) {
   console.error('No SEA (kimi-code-<target>.zip) artifacts found; the platforms section would be empty');
+  process.exit(1);
+}
+
+const missingBunTargets = SUPPORTED_TARGETS.filter((t) => !(t in bun));
+if (missingBunTargets.length > 0) {
+  console.error(
+    `No Bun (kimi-code-bun-<target>.zip) artifacts found for: ${missingBunTargets.join(', ')}; ` +
+      'a partial bun section would strand Bun clients on the missing platforms',
+  );
   process.exit(1);
 }
 

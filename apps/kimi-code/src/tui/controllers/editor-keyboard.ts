@@ -614,7 +614,7 @@ export class EditorKeyboardController {
     });
     // Dimensions come from the compression result, not parseImageMeta: the
     // compressor reports display space (EXIF orientation applied) — the space
-    // the sent image, the caption, and ReadMediaFile region readback share —
+    // the sent image, the caption, and Read region readback share —
     // while parseImageMeta reads the raw pre-rotation header.
     const original = compressed.changed
       ? {

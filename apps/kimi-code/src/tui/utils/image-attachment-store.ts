@@ -34,7 +34,7 @@ export interface ImageAttachmentOriginal {
   readonly byteLength: number;
   readonly mime: string;
   /**
-   * Where the original was persisted for readback (ReadMediaFile + region).
+   * Where the original was persisted for readback (Read + region).
    * Undefined until dispatch-time persistence succeeds; failures are retried
    * at the next dispatch.
    */

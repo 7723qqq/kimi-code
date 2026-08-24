@@ -27,7 +27,6 @@ const AGENT_TOOLS = [
   'CronCreate',
   'CronList',
   'CronDelete',
-  'ReadMediaFile',
   'TodoList',
   'Skill',
   'WebSearch',
@@ -60,7 +59,6 @@ const CODER_TOOLS = [
   'Glob',
   'Grep',
   'Read',
-  'ReadMediaFile',
   'Skill',
   'TaskList',
   'TaskOutput',
@@ -76,7 +74,6 @@ const CODER_TOOLS = [
 const EXPLORE_TOOLS = [
   'Bash',
   'Read',
-  'ReadMediaFile',
   'Glob',
   'Grep',
   'WebSearch',
