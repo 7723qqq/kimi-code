@@ -167,9 +167,16 @@
             );
           };
 
-          # Fixed-output derivation: populate Bun's package cache from the
-          # registry (the only place network access is allowed). The main
-          # derivation replays the install offline from this cache.
+          # Fixed-output derivation: materialize the project's node_modules
+          # from the registry (the only place network access is allowed).
+          #
+          # Bun's internal cache directory is NOT usable as a FOD output —
+          # its extracted-package presence and gzip framing vary between
+          # runs. The hoisted node_modules tree, by contrast, is fully
+          # determined by bun.lock + the registry tarballs. Lifecycle
+          # scripts are skipped here (build artifacts would embed sandbox
+          # paths); the main derivation runs the ones that matter via
+          # `bun pm trust` on the copied tree.
           bunDeps = pkgs.stdenv.mkDerivation (finalAttrs: {
             pname = "kimi-code-bun-deps";
             inherit version;
@@ -186,8 +193,9 @@
             installPhase = ''
               runHook preInstall
               export HOME=$TMPDIR
-              export BUN_INSTALL_CACHE_DIR=$out
               bun install --frozen-lockfile --ignore-scripts
+              mkdir $out
+              mv node_modules $out/node_modules
               runHook postInstall
             '';
 
@@ -195,7 +203,7 @@
             # paste the "got:" hash reported by Nix.
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
-            outputHash = "sha256-/l9+6gLtsShbsVCDuf/zHzNbzM16K+IwwNLRykbBX4w=";
+            outputHash = "sha256-V0fAhSCRxJDqdVAFcmgv1/4xtPMdwJkZDpd1JvNAIWM=";
           });
 
           kimi-code = pkgs.stdenv.mkDerivation (finalAttrs: {
@@ -223,8 +231,9 @@
             configurePhase = ''
               runHook preConfigure
               export HOME=$TMPDIR
-              export BUN_INSTALL_CACHE_DIR=${bunDeps}
               export npm_config_nodedir=${nodejs}
+              cp -a ${bunDeps}/node_modules ./node_modules
+              chmod -R u+w ./node_modules
               runHook postConfigure
             '';
 
@@ -241,9 +250,10 @@
                     "await runVerifyStep({ requireGatekeeper: false });" \
                     "// runVerifyStep skipped in nix sandbox (sigtool lacks -dv)"
               ''}
-              # Replay the install offline from the FOD cache; this pass runs
-              # the trusted lifecycle scripts (node-pty/esbuild native builds).
-              bun install --frozen-lockfile
+              # Run the lifecycle scripts whose build outputs the artifact
+              # needs (the FOD installed with --ignore-scripts). node-gyp
+              # builds against the pinned Node's own headers.
+              bun pm trust esbuild node-pty protobufjs ssh2
               # The SEA blob step embeds the Kimi web assets from
               # apps/kimi-code/dist-web and fails if that directory is
               # missing. The bundle is committed (synced from the code-app
