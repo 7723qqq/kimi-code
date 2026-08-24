@@ -158,7 +158,7 @@ export function main(): void {
     argv: process.argv,
     env: process.env,
     currentVersion: getVersion(),
-    isNative: detectNativeInstall(),
+    isNative: detectNativeInstall().native,
   })
     .catch(() => false)
     .then((relaunched) => {

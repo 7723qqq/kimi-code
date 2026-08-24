@@ -4,11 +4,19 @@ import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 
 import { getHostPackageRoot } from '#/cli/version';
+import { getBunEmbeddedAssetSource } from '#/native/bun-assets';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import { NPM_PACKAGE_NAME, type InstallSource } from './types';
 
 const nodeRequire = createRequire(import.meta.url);
+
+/** How the running binary was packaged: a Node SEA blob or a compiled Bun binary. */
+export type NativeInstallKind = 'sea' | 'bun';
+
+export type NativeInstallDetection =
+  | { readonly native: false }
+  | { readonly native: true; readonly kind: NativeInstallKind };
 
 interface NodeSeaModule {
   isSea(): boolean;
@@ -26,14 +34,24 @@ function loadSeaModule(): NodeSeaModule | null {
   return cachedSea;
 }
 
-/** Runtime SEA detection — true when running as a packaged native binary. */
-export function detectNativeInstall(): boolean {
+// Bun does not implement node:sea, so its packaged builds are recognized by
+// the embedded-asset marker that scripts/native/bun-entry.ts registers.
+function detectBunNativeInstall(): NativeInstallDetection | null {
+  if ((globalThis as unknown as { Bun?: unknown }).Bun === undefined) return null;
+  if (getBunEmbeddedAssetSource() === null) return null;
+  return { native: true, kind: 'bun' };
+}
+
+/** Runtime packaging detection — native when running as a packaged binary. */
+export function detectNativeInstall(): NativeInstallDetection {
+  const bun = detectBunNativeInstall();
+  if (bun !== null) return bun;
   const sea = loadSeaModule();
-  if (sea === null) return false;
+  if (sea === null) return { native: false };
   try {
-    return sea.isSea();
+    return sea.isSea() ? { native: true, kind: 'sea' } : { native: false };
   } catch {
-    return false;
+    return { native: false };
   }
 }
 
@@ -69,7 +87,7 @@ export function classifyByPathHeuristic(packageRoot: string): InstallSource | nu
 export interface DetectInstallSourceDeps {
   readonly getPackageRoot: () => string;
   readonly getGlobalPrefix: () => Promise<string>;
-  readonly detectNative: () => boolean;
+  readonly detectNative: () => NativeInstallDetection;
   readonly platform: NodeJS.Platform;
 }
 
@@ -169,7 +187,7 @@ export async function detectInstallSource(
     platform,
   };
 
-  if (resolved.detectNative()) return 'native';
+  if (resolved.detectNative().native) return 'native';
 
   const packageRoot = resolved.getPackageRoot();
   const heuristic = classifyByPathHeuristic(packageRoot);
