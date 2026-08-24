@@ -1,9 +1,13 @@
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import type { IPty } from 'node-pty';
 
+import { Emitter } from '#/_base/event';
 import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Emitter } from '#/_base/event';
 
 import { IHostTerminalService, type TerminalProcess, type TerminalSpawnOptions } from '#/os/interface/terminal';
 
@@ -40,6 +44,43 @@ function currentBun(): BunGlobalLike | undefined {
   const bun = (globalThis as unknown as { Bun?: BunGlobalLike }).Bun;
   if (bun === undefined || typeof bun.Terminal !== 'function') return undefined;
   return bun;
+}
+
+interface PackagedRootsGlobal {
+  /** Injected by the packaged app (SEA/Bun single-file builds); absent in dev. */
+  __kimi_getNativePackageRoot?: (packageName: string) => string | null;
+}
+
+let ptyModulePromise: Promise<typeof import('node-pty')> | undefined;
+
+/**
+ * Load node-pty, preferring the copy extracted into the packaged-build asset
+ * cache: a bundled copy resolves its bindings relative to the bundle file,
+ * which exists at neither runtime layout. The global is injected by the
+ * packaging layer; dev and npm installs leave it unset and fall through to
+ * the real module.
+ */
+async function loadNodePty(): Promise<typeof import('node-pty')> {
+  ptyModulePromise ??= (async () => {
+    const root = (globalThis as PackagedRootsGlobal).__kimi_getNativePackageRoot?.('node-pty');
+    if (root !== null && root !== undefined) {
+      try {
+        // Load via the package entry file, not the bare name: requiring
+        // 'node-pty' from its own package.json relies on self-reference
+        // resolution, which Bun does not implement.
+        const pkg = JSON.parse(
+          readFileSync(join(root, 'package.json'), 'utf-8'),
+        ) as { main?: string };
+        const entry = typeof pkg.main === 'string' && pkg.main.length > 0 ? pkg.main : 'index.js';
+        const nativeRequire = createRequire(join(root, 'package.json'));
+        return nativeRequire(`./${entry}`) as typeof import('node-pty');
+      } catch {
+        // Cache copy unusable — fall through to the ambient import.
+      }
+    }
+    return import('node-pty');
+  })();
+  return ptyModulePromise;
 }
 
 export class HostTerminalService extends Service implements IHostTerminalService {
@@ -98,7 +139,7 @@ export class HostTerminalService extends Service implements IHostTerminalService
   }
 
   private async spawnNodePty(options: TerminalSpawnOptions): Promise<TerminalProcess> {
-    const pty = await import('node-pty');
+    const pty = await loadNodePty();
     const proc: IPty = pty.spawn(options.shell, [], {
       name: 'xterm-256color',
       cwd: options.cwd,
