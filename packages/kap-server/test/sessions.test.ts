@@ -404,9 +404,18 @@ describe('server-v2 /api/v1/sessions', () => {
   it('lists created sessions', async () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
+    await expect
+      .poll(
+        async () => {
+          const { body } = await getJson<PageWire>('/api/v1/sessions');
+          expect(body.code).toBe(0);
+          return body.data.items.some((s) => s.id === created.body.data.id);
+        },
+        { interval: 1_000 },
+      )
+      .toBe(true);
     const { body } = await getJson<PageWire>('/api/v1/sessions');
     expect(body.code).toBe(0);
-    expect(body.data.items.some((s) => s.id === created.body.data.id)).toBe(true);
     expect(typeof body.data.has_more).toBe('boolean');
   });
 
@@ -414,8 +423,15 @@ describe('server-v2 /api/v1/sessions', () => {
     const cwd = home as string;
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
 
-    const all = await getJson<PageWire>('/api/v1/sessions');
-    expect(all.body.data.items.some((s) => s.id === created.body.data.id)).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const all = await getJson<PageWire>('/api/v1/sessions');
+          return all.body.data.items.some((s) => s.id === created.body.data.id);
+        },
+        { interval: 1_000 },
+      )
+      .toBe(true);
 
     const filtered = await getJson<PageWire>('/api/v1/sessions?exclude_empty=true');
     expect(filtered.body.code).toBe(0);
@@ -1089,12 +1105,25 @@ describe('server-v2 /api/v1/sessions', () => {
     );
     expect(archived.body.code).toBe(0);
 
+    await expect
+      .poll(
+        async () => {
+          const normal = await getJson<PageWire>('/api/v1/sessions');
+          const onlyArchived = await getJson<PageWire>('/api/v1/sessions?archived_only=true');
+          return (
+            normal.body.data.items.some((s) => s.id === liveId) &&
+            !normal.body.data.items.some((s) => s.id === archivedId) &&
+            onlyArchived.body.data.items.some((s) => s.id === archivedId) &&
+            !onlyArchived.body.data.items.some((s) => s.id === liveId)
+          );
+        },
+        { interval: 1_000 },
+      )
+      .toBe(true);
     const normal = await getJson<PageWire>('/api/v1/sessions');
+    const onlyArchived = await getJson<PageWire>('/api/v1/sessions?archived_only=true');
     expect(normal.body.data.items.some((s) => s.id === liveId)).toBe(true);
     expect(normal.body.data.items.some((s) => s.id === archivedId)).toBe(false);
-
-    const onlyArchived = await getJson<PageWire>('/api/v1/sessions?archived_only=true');
-    expect(onlyArchived.body.code).toBe(0);
     expect(onlyArchived.body.data.items.some((s) => s.id === archivedId)).toBe(true);
     expect(onlyArchived.body.data.items.some((s) => s.id === liveId)).toBe(false);
 
@@ -1318,10 +1347,18 @@ describe('server-v2 /api/v1/sessions', () => {
     const del = await deleteJson<{ deleted: boolean }>(`/api/v1/workspaces/${workspaceId}`);
     expect(del.body.code).toBe(0);
 
-    const listed = await getJson<PageWire>('/api/v1/sessions');
-    expect(listed.body.code).toBe(0);
-    const found = listed.body.data.items.find((s) => s.id === id);
-    expect(found).toBeDefined();
+    let found: SessionWire | undefined;
+    await expect
+      .poll(
+        async () => {
+          const listed = await getJson<PageWire>('/api/v1/sessions');
+          expect(listed.body.code).toBe(0);
+          found = listed.body.data.items.find((s) => s.id === id);
+          return found !== undefined;
+        },
+        { interval: 1_000 },
+      )
+      .toBe(true);
     expect(found?.metadata.cwd).toBe(cwd);
 
     const got = await getJson<SessionWire>(`/api/v1/sessions/${id}`);
@@ -1753,8 +1790,15 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
     });
     expect(created.body.code).toBe(0);
     const id = created.body.data.id;
-    const listed = await getJson<PageWire>('/api/v1/sessions');
-    expect(listed.body.data.items.some((s) => s.id === id)).toBe(true);
+    await expect
+      .poll(
+        async () => {
+          const listed = await getJson<PageWire>('/api/v1/sessions');
+          return listed.body.data.items.some((s) => s.id === id);
+        },
+        { interval: 1_000 },
+      )
+      .toBe(true);
     const fetched = await getJson<{ id: string }>(`/api/v1/sessions/${id}`);
     expect(fetched.body.data.id).toBe(id);
   });
