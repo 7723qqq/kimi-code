@@ -160,7 +160,9 @@ describe('server-v2 /api/v1 tools + mcp', () => {
       registry.register(makeTool('MySkill'), { source: 'user' });
       registry.register(makeTool('mcp__myserver__search'), { source: 'mcp' });
 
-      const { body } = await getJson<{ tools: ToolWire[] }>('/api/v1/tools');
+      const { body } = await getJson<{ tools: ToolWire[] }>(
+        `/api/v1/tools?session_id=${id}`,
+      );
       expect(body.code).toBe(0);
       const tools = listToolsResponseSchema.parse(body.data).tools;
 
