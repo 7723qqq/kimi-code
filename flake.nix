@@ -227,8 +227,6 @@
               cd -
               runHook postInstall
             '';
-              runHook postInstall
-            '';
 
             # Update via the fake-hash dance: set to lib.fakeSha256, build,
             # paste the "got:" hash reported by Nix.
