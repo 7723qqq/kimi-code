@@ -15,8 +15,6 @@ import { dirname, isAbsolute, join, relative, resolve, win32 as pathWin32 } from
 
 import { join as joinPosix } from 'pathe';
 
-import { getBunEmbeddedAssetSource } from './bun-assets';
-
 import { KIMI_BUILD_INFO } from '#/cli/build-info';
 
 import {
@@ -25,6 +23,7 @@ import {
   NATIVE_ASSET_MANIFEST_VERSION as MANIFEST_VERSION,
   buildManifestKey,
 } from '../../scripts/native/manifest.mjs';
+import { getBunEmbeddedAssetSource } from './bun-assets';
 
 export const NATIVE_ASSET_MANIFEST_VERSION = MANIFEST_VERSION;
 
@@ -461,6 +460,133 @@ export function nativeAssetCacheExists(
 ): boolean {
   const root = getNativePackageRoot(packageName, options);
   return root !== null && existsSync(root);
+}
+
+export interface PiTuiHelperOptions {
+  readonly source?: NativeAssetSource | null;
+  readonly platform?: NodeJS.Platform;
+  readonly arch?: NodeJS.Architecture;
+  readonly bundleDir?: string;
+  readonly target?: string;
+}
+
+const PI_TUI_PACKAGE_NAME = '@moonshot-ai/pi-tui';
+
+// pi-tui resolves its platform helper by trying `<moduleDir>/../<rel>`,
+// `<moduleDir>/<rel>`, then `<execDir>/<rel>` (see packages/pi-tui
+// src/native-modifiers.ts and src/terminal.ts — keep paths in sync).
+function piTuiNativeHelperRelativePath(platform: NodeJS.Platform, arch: string): string | null {
+  if (arch !== 'x64' && arch !== 'arm64') return null;
+  if (platform === 'darwin') {
+    return joinPosix('native', 'darwin', 'prebuilds', `darwin-${arch}`, 'darwin-modifiers.node');
+  }
+  if (platform === 'win32') {
+    return joinPosix('native', 'win32', 'prebuilds', `win32-${arch}`, 'win32-console-mode.node');
+  }
+  return null;
+}
+
+/**
+ * Materialize the pi-tui platform helper (.node) next to the running bundle so
+ * pi-tui's own candidate search finds it under Bun.
+ *
+ * Bun cannot redirect module loads (Module._load overrides are no-ops and its
+ * plugin callbacks never fire for .node specifiers), but in the compiled Bun
+ * binary every bundled module shares one extracted main.cjs, and pi-tui
+ * computes its second candidate relative to that exact directory — writing the
+ * embedded helper there restores the helper without any loader hook.
+ *
+ * Returns true when pi-tui's helper is resolvable afterwards: trivially true on
+ * platforms/arches without a helper and outside the compiled binary (dev runs
+ * load from real package files); false when the embedded assets carry no usable
+ * helper. Throws when an embedded asset fails checksum verification.
+ */
+export function ensurePiTuiNativeHelperForBun(options: PiTuiHelperOptions = {}): boolean {
+  const platform = options.platform ?? process.platform;
+  const relativePath = piTuiNativeHelperRelativePath(platform, options.arch ?? process.arch);
+  if (relativePath === null) return true;
+
+  const source = options.source ?? getBunEmbeddedAssetSource();
+  if (source === null) return true;
+
+  const manifest = getEmbeddedNativeAssetManifest(source, options.target ?? currentTarget());
+  if (manifest === null) return false;
+  const pkg = manifest.packages.find((entry) => entry.name === PI_TUI_PACKAGE_NAME);
+  if (pkg === undefined) return false;
+
+  const expectedRelativePath = joinPosix(pkg.root, relativePath);
+  const file = pkg.files.find(
+    (entry) => entry.relativePath.replaceAll('\\', '/') === expectedRelativePath,
+  );
+  if (file === undefined) return false;
+
+  writePackageAssetFromBundle(options, source, file, relativePath);
+  return true;
+}
+
+export interface NodePtyBindingOptions {
+  readonly source?: NativeAssetSource | null;
+  readonly bundleDir?: string;
+  readonly target?: string;
+}
+
+const NODE_PTY_PACKAGE_NAME = 'node-pty';
+
+/**
+ * Materialize the node-pty binding tree next to the running bundle so its
+ * relative-require loader (lib/utils.js loadNativeModule: candidates are
+ * resolved against the bundled main.cjs's directory) finds it under Bun —
+ * Module._load overrides are no-ops there and .node specifiers bypass runtime
+ * plugin callbacks entirely.
+ *
+ * Files land directly under the bundle directory (`prebuilds/<p>-<a>/...`,
+ * `build/Release/...`), matching the loader's `./`-prefixed candidates; the
+ * package-root prefix from the manifest is stripped.
+ *
+ * Returns true when node-pty bindings are resolvable afterwards: trivially
+ * true outside the compiled Bun binary (dev runs load from real package
+ * files); false when the embedded assets carry no node-pty package. Throws
+ * when an embedded asset fails checksum verification.
+ */
+export function ensureNodePtyBindingForBun(options: NodePtyBindingOptions = {}): boolean {
+  const source = options.source ?? getBunEmbeddedAssetSource();
+  if (source === null) return true;
+
+  const manifest = getEmbeddedNativeAssetManifest(source, options.target ?? currentTarget());
+  if (manifest === null) return false;
+  const pkg = manifest.packages.find((entry) => entry.name === NODE_PTY_PACKAGE_NAME);
+  if (pkg === undefined || pkg.files.length === 0) return false;
+
+  const rootPrefix = `${joinPosix(pkg.root, '')}`;
+  for (const file of pkg.files) {
+    const portableRelativePath = file.relativePath.replaceAll('\\', '/');
+    if (!portableRelativePath.startsWith(rootPrefix)) return false;
+    writePackageAssetFromBundle(
+      options,
+      source,
+      file,
+      portableRelativePath.slice(rootPrefix.length),
+    );
+  }
+  return true;
+}
+
+function writePackageAssetFromBundle(
+  options: PiTuiHelperOptions | NodePtyBindingOptions,
+  source: NativeAssetSource,
+  file: NativeAssetFile,
+  overrideRelativePath?: string,
+): void {
+  const bundleDir = options.bundleDir ?? import.meta.dirname;
+  const bytes = toBuffer(source.getRawAsset(file.assetKey));
+  const actualSha256 = sha256(bytes);
+  if (actualSha256 !== file.sha256) {
+    throw new Error(
+      `Native asset checksum mismatch for ${file.assetKey}: ${actualSha256} !== ${file.sha256}`,
+    );
+  }
+  const relativePath = overrideRelativePath ?? file.relativePath;
+  ensureFile(resolveAssetPath(bundleDir, relativePath), bytes, file.sha256, file.mode);
 }
 
 export interface CleanupOptions {

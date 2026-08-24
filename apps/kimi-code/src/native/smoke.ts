@@ -121,6 +121,18 @@ async function smokeSearchWorker(): Promise<void> {
   }
 }
 
+async function smokeTerminalBinding(): Promise<void> {
+  // Importing the bundled node-pty resolves its PTY binding through the
+  // packaged-build machinery (Module._load redirect into the native cache on
+  // Node SEA; materialized prebuilds next to the extracted entry under Bun)
+  // and dlopens it for real — verifying arch and integrity on every platform
+  // the smoke runs on.
+  const mod = (await import('node-pty')) as { spawn?: unknown };
+  if (typeof mod.spawn !== 'function') {
+    throw new TypeError('node-pty module loaded but its spawn export is missing');
+  }
+}
+
 async function runSmoke(): Promise<void> {
   const manifest = getEmbeddedNativeAssetManifest();
   if (manifest === null) throw new Error(t('tui.statusMessages.nativeManifestNotAvailable'));
@@ -132,6 +144,7 @@ async function runSmoke(): Promise<void> {
   smokePiTuiNativeLoad();
   await smokeMinidbWorker();
   await smokeSearchWorker();
+  await smokeTerminalBinding();
   process.stdout.write(
     `Native asset smoke passed: ${manifest.target}; MiniDb worker build passed; search worker ready\n`,
   );

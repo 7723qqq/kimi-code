@@ -39,6 +39,32 @@ const piTuiNativeFileByTarget = Object.freeze({
   'win32-x64': ['native/win32/prebuilds/win32-x64/win32-console-mode.node'],
 });
 
+// node-pty's loader (lib/utils.js loadNativeModule) requires its bindings via
+// relative paths (`../build/Release/<name>.node`, `../prebuilds/<p>-<a>/...`),
+// so packaged builds must ship the binding tree and resolve it explicitly.
+// Upstream ships prebuilds for darwin/win32 only; on Linux the binding comes
+// from the install-time node-gyp build. The conpty/ directory must stay next
+// to conpty.node — the binding locates conpty.dll / OpenConsole.exe relative
+// to itself at runtime.
+const win32NodePtyPrebuild = (arch) => [
+  `prebuilds/win32-${arch}/pty.node`,
+  `prebuilds/win32-${arch}/conpty.node`,
+  `prebuilds/win32-${arch}/conpty_console_list.node`,
+  `prebuilds/win32-${arch}/winpty.dll`,
+  `prebuilds/win32-${arch}/winpty-agent.exe`,
+  `prebuilds/win32-${arch}/conpty/conpty.dll`,
+  `prebuilds/win32-${arch}/conpty/OpenConsole.exe`,
+];
+
+const nodePtyNativeFileByTarget = Object.freeze({
+  'darwin-arm64': ['prebuilds/darwin-arm64/pty.node', 'prebuilds/darwin-arm64/spawn-helper'],
+  'darwin-x64': ['prebuilds/darwin-x64/pty.node', 'prebuilds/darwin-x64/spawn-helper'],
+  'linux-arm64': ['build/Release/pty.node'],
+  'linux-x64': ['build/Release/pty.node'],
+  'win32-arm64': win32NodePtyPrebuild('arm64'),
+  'win32-x64': win32NodePtyPrebuild('x64'),
+});
+
 export function isSupportedTarget(target) {
   return SUPPORTED_TARGETS.includes(target);
 }
@@ -100,6 +126,17 @@ export const nativeDeps = Object.freeze([
     // as a native asset so the SEA exe can load it at runtime.
     collect: 'native-files',
     parent: null,
+  },
+  {
+    id: 'node-pty',
+    name: () => 'node-pty',
+    // PTY bindings for host terminal sessions. node-pty's JS is bundled into
+    // main.cjs and resolves its bindings via relative requires, so the binding
+    // tree ships as assets and packaged builds redirect/materialize it onto
+    // the loader's candidate paths (see module-hook.ts / native-assets.ts).
+    collect: 'native-file-only',
+    parent: null,
+    nativeFileRelatives: (target) => nodePtyNativeFileByTarget[target] ?? [],
   },
 ]);
 

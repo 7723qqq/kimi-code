@@ -3,13 +3,17 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getTextBuildWorkerRuntimeState,
   resetTextBuildWorkerRuntime,
 } from '@moonshot-ai/minidb/worker-runtime';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { getBunEmbeddedAssetSource } from '#/native/bun-assets';
+import { installMinidbTextBuildWorker } from '#/native/minidb-worker';
 import {
+  ensureNodePtyBindingForBun,
+  ensurePiTuiNativeHelperForBun,
   getEmbeddedNativeAssetManifest,
   getMinidbTextBuildWorkerFile,
   getNativeCacheBase,
@@ -17,16 +21,19 @@ import {
   NATIVE_ASSET_MANIFEST_VERSION,
   type NativeAssetManifest,
   type NativeAssetSource,
+  type NodePtyBindingOptions,
+  type PiTuiHelperOptions,
 } from '#/native/native-assets';
-import { getBunEmbeddedAssetSource } from '#/native/bun-assets';
-import { installMinidbTextBuildWorker } from '#/native/minidb-worker';
 import { loadNativePackage } from '#/native/native-require';
 
 function sha256(bytes: Buffer | string): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-function fakeManifest(files: Record<string, string>, workerContent?: string): {
+function fakeManifest(
+  files: Record<string, string>,
+  workerContent?: string,
+): {
   manifest: NativeAssetManifest;
   source: NativeAssetSource;
 } {
@@ -65,13 +72,11 @@ function fakeManifest(files: Record<string, string>, workerContent?: string): {
   };
   const assets = new Map<string, Buffer>([
     [manifestKey, Buffer.from(JSON.stringify(manifest))],
-    ...Object.entries(files).map(([relativePath, content]) => [
-      `native/test-target/${relativePath}`,
-      Buffer.from(content),
-    ] as const),
-    ...(workerContent === undefined
-      ? []
-      : [[workerAssetKey, Buffer.from(workerContent)] as const]),
+    ...Object.entries(files).map(
+      ([relativePath, content]) =>
+        [`native/test-target/${relativePath}`, Buffer.from(content)] as const,
+    ),
+    ...(workerContent === undefined ? [] : [[workerAssetKey, Buffer.from(workerContent)] as const]),
   ]);
   return {
     manifest,
@@ -126,7 +131,17 @@ describe('native assets', () => {
         source,
         version: 'test',
       });
-      expect(packageRoot).toBe(join(dir, 'native', 'test', 'test-target', sha256(JSON.stringify(manifest)), 'node_modules', 'fake-native'));
+      expect(packageRoot).toBe(
+        join(
+          dir,
+          'native',
+          'test',
+          'test-target',
+          sha256(JSON.stringify(manifest)),
+          'node_modules',
+          'fake-native',
+        ),
+      );
       expect(readFileSync(join(packageRoot ?? '', 'index.js'), 'utf-8')).toContain("value: 'ok'");
 
       writeFileSync(join(packageRoot ?? '', 'index.js'), 'broken');
@@ -246,7 +261,11 @@ describe('native assets', () => {
     const cases: Array<{ manifest: unknown; error: RegExp }> = [
       { manifest: { ...valid, version: 1 }, error: /Unsupported native asset manifest version: 1/ },
       {
-        manifest: { version: NATIVE_ASSET_MANIFEST_VERSION, target: 'test-target', runtimeFiles: [] },
+        manifest: {
+          version: NATIVE_ASSET_MANIFEST_VERSION,
+          target: 'test-target',
+          runtimeFiles: [],
+        },
         error: /packages must be an array/,
       },
       {
@@ -310,7 +329,11 @@ describe('native assets', () => {
           ...valid,
           runtimeFiles: [
             worker,
-            { ...worker, assetKey: 'native/test-target/runtime/other', relativePath: 'runtime/other.mjs' },
+            {
+              ...worker,
+              assetKey: 'native/test-target/runtime/other',
+              relativePath: 'runtime/other.mjs',
+            },
           ],
         }),
         'test-target',
@@ -395,5 +418,264 @@ describe('bun embedded assets', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('ensurePiTuiNativeHelperForBun', () => {
+  const HELPER_CONTENT = 'fake-node-helper-bytes';
+  const PI_TUI_ROOT = 'node_modules/@moonshot-ai/pi-tui';
+
+  function piTuiSource(files: string[], packageName = '@moonshot-ai/pi-tui'): NativeAssetSource {
+    const entries = files.map((relativePath) => ({
+      assetKey: `native/test-target/${PI_TUI_ROOT}/${relativePath}`,
+      relativePath: `${PI_TUI_ROOT}/${relativePath}`,
+      sha256: sha256(HELPER_CONTENT),
+    }));
+    const manifest: NativeAssetManifest = {
+      version: NATIVE_ASSET_MANIFEST_VERSION,
+      target: 'test-target',
+      packages: [{ name: packageName, root: PI_TUI_ROOT, files: entries }],
+      runtimeFiles: [],
+    };
+    const assets = new Map<string, Buffer>([
+      ['native/test-target/manifest.json', Buffer.from(JSON.stringify(manifest))],
+      ...entries.map((entry) => [entry.assetKey, Buffer.from(HELPER_CONTENT)] as const),
+    ]);
+    return {
+      getAssetKeys: () => [...assets.keys()],
+      getRawAsset: (assetKey) => {
+        const asset = assets.get(assetKey);
+        if (asset === undefined) throw new Error(`missing test asset: ${assetKey}`);
+        return asset;
+      },
+    };
+  }
+
+  function helperOptions(
+    dir: string,
+    overrides: Partial<PiTuiHelperOptions> = {},
+  ): PiTuiHelperOptions {
+    return {
+      source: piTuiSource([]),
+      target: 'test-target',
+      platform: 'linux',
+      arch: 'x64',
+      bundleDir: dir,
+      ...overrides,
+    };
+  }
+
+  it('writes the darwin helper next to the bundle dir', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-pitui-helper-'));
+    try {
+      const ok = ensurePiTuiNativeHelperForBun(
+        helperOptions(dir, {
+          source: piTuiSource(['native/darwin/prebuilds/darwin-arm64/darwin-modifiers.node']),
+          platform: 'darwin',
+          arch: 'arm64',
+        }),
+      );
+      expect(ok).toBe(true);
+      const helperPath = join(dir, 'native/darwin/prebuilds/darwin-arm64/darwin-modifiers.node');
+      expect(readFileSync(helperPath, 'utf-8')).toBe(HELPER_CONTENT);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes the win32 console-mode helper for win32 targets', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-pitui-helper-'));
+    try {
+      const ok = ensurePiTuiNativeHelperForBun(
+        helperOptions(dir, {
+          source: piTuiSource(['native/win32/prebuilds/win32-x64/win32-console-mode.node']),
+          platform: 'win32',
+          arch: 'x64',
+        }),
+      );
+      expect(ok).toBe(true);
+      const helperPath = join(dir, 'native/win32/prebuilds/win32-x64/win32-console-mode.node');
+      expect(readFileSync(helperPath, 'utf-8')).toBe(HELPER_CONTENT);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is a no-op on platforms and arches without a pi-tui helper', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-pitui-helper-'));
+    try {
+      expect(ensurePiTuiNativeHelperForBun(helperOptions(dir))).toBe(true);
+      expect(existsSync(join(dir, 'native'))).toBe(false);
+
+      expect(
+        ensurePiTuiNativeHelperForBun(helperOptions(dir, { platform: 'darwin', arch: 'arm' })),
+      ).toBe(true);
+      expect(existsSync(join(dir, 'native'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is a no-op outside the compiled Bun binary', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-pitui-helper-'));
+    try {
+      expect(ensurePiTuiNativeHelperForBun(helperOptions(dir, { source: null }))).toBe(true);
+      expect(existsSync(join(dir, 'native'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns false when the embedded assets carry no usable helper', () => {
+    const noHelperFile = ensurePiTuiNativeHelperForBun(
+      helperOptions('/kimi-unused-bundle-dir', {
+        source: piTuiSource(['package.json']),
+        platform: 'darwin',
+        arch: 'arm64',
+      }),
+    );
+    expect(noHelperFile).toBe(false);
+
+    const noPackage = ensurePiTuiNativeHelperForBun(
+      helperOptions('/kimi-unused-bundle-dir', {
+        source: piTuiSource(
+          ['native/darwin/prebuilds/darwin-arm64/darwin-modifiers.node'],
+          '@moonshot-ai/other-package',
+        ),
+        platform: 'darwin',
+        arch: 'arm64',
+      }),
+    );
+    expect(noPackage).toBe(false);
+  });
+
+  it('throws when the embedded helper fails checksum verification', () => {
+    const source = piTuiSource(['native/darwin/prebuilds/darwin-arm64/darwin-modifiers.node']);
+    const tampered = {
+      getAssetKeys: source.getAssetKeys,
+      getRawAsset: (assetKey: string): Buffer => {
+        if (assetKey.endsWith('darwin-modifiers.node')) return Buffer.from('tampered-bytes');
+        return source.getRawAsset(assetKey) as Buffer;
+      },
+    };
+    expect(() =>
+      ensurePiTuiNativeHelperForBun({
+        source: tampered,
+        target: 'test-target',
+        platform: 'darwin',
+        arch: 'arm64',
+        bundleDir: '/kimi-unused-bundle-dir',
+      }),
+    ).toThrow(/checksum mismatch/);
+  });
+});
+
+describe('ensureNodePtyBindingForBun', () => {
+  const NODE_PTY_ROOT = 'node_modules/node-pty';
+
+  function nodePtySource(files: string[]): NativeAssetSource {
+    const entries = files.map((relativePath) => ({
+      assetKey: `native/test-target/${NODE_PTY_ROOT}/${relativePath}`,
+      relativePath: `${NODE_PTY_ROOT}/${relativePath}`,
+      sha256: sha256('fake-pty-binding-bytes'),
+    }));
+    const manifest: NativeAssetManifest = {
+      version: NATIVE_ASSET_MANIFEST_VERSION,
+      target: 'test-target',
+      packages: [{ name: 'node-pty', root: NODE_PTY_ROOT, files: entries }],
+      runtimeFiles: [],
+    };
+    const assets = new Map<string, Buffer>([
+      ['native/test-target/manifest.json', Buffer.from(JSON.stringify(manifest))],
+      ...entries.map((entry) => [
+        entry.assetKey,
+        Buffer.from('fake-pty-binding-bytes'),
+      ] as const),
+    ]);
+    return {
+      getAssetKeys: () => [...assets.keys()],
+      getRawAsset: (assetKey) => {
+        const asset = assets.get(assetKey);
+        if (asset === undefined) throw new Error(`missing test asset: ${assetKey}`);
+        return asset;
+      },
+    };
+  }
+
+  function bindingOptions(
+    dir: string,
+    overrides: Partial<NodePtyBindingOptions> = {},
+  ): NodePtyBindingOptions {
+    return {
+      source: nodePtySource([]),
+      target: 'test-target',
+      bundleDir: dir,
+      ...overrides,
+    };
+  }
+
+  it('extracts the binding tree under the bundle dir without the package-root prefix', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-nodepty-binding-'));
+    try {
+      const ok = ensureNodePtyBindingForBun(
+        bindingOptions(dir, {
+          source: nodePtySource([
+            'prebuilds/win32-x64/pty.node',
+            'prebuilds/win32-x64/conpty/conpty.dll',
+          ]),
+        }),
+      );
+      expect(ok).toBe(true);
+      expect(readFileSync(join(dir, 'prebuilds/win32-x64/pty.node'), 'utf-8')).toBe(
+        'fake-pty-binding-bytes',
+      );
+      expect(readFileSync(join(dir, 'prebuilds/win32-x64/conpty/conpty.dll'), 'utf-8')).toBe(
+        'fake-pty-binding-bytes',
+      );
+      expect(existsSync(join(dir, 'node_modules'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('is a no-op outside the compiled Bun binary', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-nodepty-binding-'));
+    try {
+      expect(ensureNodePtyBindingForBun(bindingOptions(dir, { source: null }))).toBe(true);
+      expect(existsSync(join(dir, 'prebuilds'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns false when the embedded assets carry no node-pty package', () => {
+    const dir = '/kimi-unused-bundle-dir';
+    expect(ensureNodePtyBindingForBun(bindingOptions(dir))).toBe(false);
+
+    const emptyPackage = nodePtySource([]);
+    const noFiles = ensureNodePtyBindingForBun({
+      source: { getAssetKeys: emptyPackage.getAssetKeys, getRawAsset: emptyPackage.getRawAsset },
+      target: 'test-target',
+      bundleDir: dir,
+    });
+    expect(noFiles).toBe(false);
+  });
+
+  it('throws when an embedded binding fails checksum verification', () => {
+    const source = nodePtySource(['prebuilds/win32-x64/pty.node']);
+    const tampered = {
+      getAssetKeys: source.getAssetKeys,
+      getRawAsset: (assetKey: string): Buffer => {
+        if (assetKey.endsWith('pty.node')) return Buffer.from('tampered-bytes');
+        return source.getRawAsset(assetKey) as Buffer;
+      },
+    };
+    expect(() =>
+      ensureNodePtyBindingForBun({
+        source: tampered,
+        target: 'test-target',
+        bundleDir: '/kimi-unused-bundle-dir',
+      }),
+    ).toThrow(/checksum mismatch/);
   });
 });
