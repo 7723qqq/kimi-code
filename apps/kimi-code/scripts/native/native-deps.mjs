@@ -27,6 +27,8 @@ const clipboardSubpackageByTarget = Object.freeze({
   'win32-x64': '@mariozechner/clipboard-win32-x64-msvc',
 });
 
+export const PI_TUI_PACKAGE_NAME = '@moonshot-ai/pi-tui';
+
 // pi-tui ships platform-specific native helpers (no Linux build):
 // - darwin: Shift-modifier detection for Terminal.app Shift+Enter
 // - win32: enable ENABLE_VIRTUAL_TERMINAL_INPUT so Shift+Tab is distinguishable
@@ -101,7 +103,7 @@ export const nativeDeps = Object.freeze([
   },
   {
     id: 'pi-tui',
-    name: () => '@moonshot-ai/pi-tui',
+    name: () => PI_TUI_PACKAGE_NAME,
     // pi-tui's JS is bundled into main.cjs, so only the platform-specific
     // native helper (.node under native/) ships alongside the binary — its
     // dist/ JS is intentionally NOT collected (it stays in the bundle). This

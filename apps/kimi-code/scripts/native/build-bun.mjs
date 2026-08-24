@@ -1,13 +1,18 @@
 import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { parseArgs } from 'node:util';
-import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { parseArgs } from 'node:util';
 
+import { BUILT_IN_CATALOG_ENV } from '../built-in-catalog.mjs';
 import { runBundleStep } from './01-bundle.mjs';
-import { collectNativeAssets, nativeAssetManifestKey } from './assets.mjs';
-import { run } from './exec.mjs';
 import { runSignStep } from './04-sign.mjs';
 import { runVerifyStep } from './05-verify.mjs';
+import {
+  collectNativeAssets,
+  nativeAssetManifestKey,
+  stageExecSideNativeHelpers,
+} from './assets.mjs';
+import { run } from './exec.mjs';
 import {
   appRoot,
   nativeBinPath,
@@ -15,7 +20,6 @@ import {
   nativeJsBundlePath,
   targetTriple,
 } from './paths.mjs';
-import { BUILT_IN_CATALOG_ENV } from '../built-in-catalog.mjs';
 import { collectWebAssets, webAssetManifestKey } from './web-assets.mjs';
 
 const { values } = parseArgs({
@@ -70,7 +74,11 @@ async function buildBunNative() {
   if (profile === 'release' && process.env[BUILT_IN_CATALOG_ENV] === undefined) {
     const catalogPath = resolve(nativeIntermediatesDir(), 'built-in-catalog.json');
     try {
-      await run(process.execPath, [resolve(appRoot, 'scripts/update-catalog.mjs'), '--out', catalogPath]);
+      await run(process.execPath, [
+        resolve(appRoot, 'scripts/update-catalog.mjs'),
+        '--out',
+        catalogPath,
+      ]);
       process.env[BUILT_IN_CATALOG_ENV] = catalogPath;
     } catch (error) {
       console.warn(`Built-in catalog unavailable (${String(error)}); continuing without it`);
@@ -143,6 +151,15 @@ async function buildBunNative() {
   buildArgs.push('--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig');
   buildArgs.push('--outfile', outfile, join(stageRoot, 'bun-entry.ts'));
   await run(resolveBun(), buildArgs);
+
+  // The embedded assets unpack into the versioned cache under
+  // node_modules/<pkg>/..., but pi-tui's helper loader and the packaged smoke
+  // also expect the platform helper directly next to the executable.
+  await stageExecSideNativeHelpers({
+    target,
+    manifest: native.manifest,
+    assets: native.assets,
+  });
 
   await runSignStep({
     identity: profile === 'release' ? (process.env.APPLE_SIGNING_IDENTITY ?? '-') : '-',
