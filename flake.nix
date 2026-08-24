@@ -256,10 +256,14 @@
                     "await runVerifyStep({ requireGatekeeper: false });" \
                     "// runVerifyStep skipped in nix sandbox (sigtool lacks -dv)"
               ''}
-              # Run the lifecycle scripts whose build outputs the artifact
-              # needs (the FOD installed with --ignore-scripts). node-gyp
-              # builds against the pinned Node's own headers.
-              bun pm trust esbuild node-pty protobufjs ssh2
+              # Run the one lifecycle script whose output the artifact
+              # needs: node-pty's prebuild/native build (the FOD installed
+              # with --ignore-scripts). node-gyp compiles against the
+              # pinned Node's own headers. esbuild resolves its binary from
+              # the hoisted @esbuild/<platform> package without a script;
+              # protobufjs/ssh2 work scriptless.
+              (cd node_modules/node-pty && node scripts/prebuild.js || node-gyp rebuild)
+              (cd node_modules/node-pty && node scripts/post-install.js)
               # The SEA blob step embeds the Kimi web assets from
               # apps/kimi-code/dist-web and fails if that directory is
               # missing. The bundle is committed (synced from the code-app
