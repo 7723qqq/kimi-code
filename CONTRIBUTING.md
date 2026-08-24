@@ -200,6 +200,14 @@ node scripts/native/bench-native.mjs /tmp/kimi-sea /tmp/kimi-bun --runs 20
 
 Roadmap: the end goal is for Bun to fully replace Node.js SEA as the sole release engine, retiring the SEA build chain. The near-term path is full-platform CI verification → governing the bytecode / top-level-await limitations → flipping the default engine and retiring SEA. Until then, released binaries keep shipping from Node SEA by default.
 
+### Nix build
+
+`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from one fixed-output derivation (`bunDeps` in `flake.nix`) that materializes the hoisted `node_modules` tree plus cargo vendor directories for both napi packages (`kimi-native-tools`, `kimi-agent`); the main derivation then compiles offline. Sandbox quirks to know when editing `flake.nix` or native build steps:
+
+- There is no `/usr/bin/env` in the sandbox — invoke `node-gyp` and the napi CLI through `node <js-entry>` instead of their bin shims.
+- FOD outputs must not contain `/nix/store/...` strings: never let `cargo vendor` write its suggested config into the output, and never interpolate store paths into the install script.
+- After changing `bun.lock` or either `Cargo.lock`, expect one hash-mismatch round: paste the `got:` hash (the nix-build bot posts it on PRs) into `outputHash`.
+
 ### Common Issues
 
 | Symptom | Cause | Fix |
@@ -210,6 +218,8 @@ Roadmap: the end goal is for Bun to fully replace Node.js SEA as the sole releas
 | `ERR_UNKNOWN_BUILTIN_MODULE: @moonshot-ai/kimi-native-tools` in SEA binary | Native module not registered in `native-deps.mjs` | Add entry to `nativeDeps` array with `collect: 'native-files'` |
 | `packages/i18n-shared` build fails with `UNRESOLVED_ENTRY` | Missing `src/index.ts` | Create `src/index.ts` re-exporting types, core, and detect modules |
 | `kimi.exe` from CDN shows English despite `locale=zh` | The CDN binary includes only the bundled locale; download date determines version | Build locally or wait for next CDN release |
+| Unexpected env vars appear under `bun run` | Bun auto-loads `.env` (the pnpm-era dev flow did not) | Remove or rename the file, or run `bun --no-env-file` |
+| Nix build fails with `hash mismatch in fixed-output derivation '...bun-deps...'` | `bun.lock` or a `Cargo.lock` changed, so the vendored-dependencies FOD output changed | Set `outputHash` in `flake.nix` to `lib.fakeSha256`, push, then paste the `got:` hash from the failure (the nix-build bot posts it on PRs) |
 
 ## Commit Convention
 
@@ -238,6 +248,14 @@ This repo uses [changesets](https://github.com/changesets/changesets) to manage 
 - Docs-only, test-only, or CI-only PRs may skip changesets.
 - Generate one with `bun run changeset` and follow the prompts (which packages are touched, which bump level).
 - For repo-specific conventions on package selection and bump levels, see `.changeset/README.md`. When working in this repo with coding agents, use the `gen-changesets` skill.
+
+### Release flow on this fork
+
+Every push to `main` runs the Release workflow: the changesets action opens or updates a **"ci: release packages"** PR (branch `changeset-release/main`) that bumps package versions and assembles the changelog.
+
+- **Never merge that PR.** This fork follows upstream versions — package version fields must stay identical to upstream, and the release flow is kept only as a changelog source. Close the PR instead; the changelog preview in its description remains viewable after closing.
+- The workflow requires the repo setting **Actions → General → "Allow GitHub Actions to create and approve pull requests"** to be enabled. If Release fails with `GitHub Actions is not permitted to create or approve pull requests`, flip that toggle (or via API: `PUT /repos/{owner}/{repo}/actions/permissions/workflow` with `can_approve_pull_request_reviews: true`).
+- Before an intentional release, preview the user-facing changelog with the `pre-changelog` skill, then prune accumulated non-user-facing changesets from `main`.
 
 ## Pull Requests
 

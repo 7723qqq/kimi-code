@@ -300,8 +300,17 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`:
 4. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 5. **typecheck** — TypeScript check across all packages (uses `tsgo` from `@typescript/native-preview`)
 6. **native bundle** — Not a ci.yml job. Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then SEA packaging and a native smoke test.
+7. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
 
-Additional workflows: `_native-build.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
+Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
+
+### Release flow (fork)
+
+Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci: release packages"** PR that bumps versions and assembles the changelog. **Never merge it** — this fork follows upstream versions; close the PR (its description keeps the changelog preview). Requires the repo setting *Actions → General → "Allow GitHub Actions to create and approve pull requests"* to stay enabled. See CONTRIBUTING → "Release flow on this fork".
+
+### Nix build maintenance
+
+`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from the `bunDeps` fixed-output derivation in `flake.nix` (hoisted `node_modules` + cargo vendor dirs for both napi packages). After changing `bun.lock` or either `Cargo.lock`, expect one hash-mismatch round: set `outputHash` to `lib.fakeSha256`, push, then paste the `got:` hash (the nix-build bot posts it on PRs). Sandbox quirks: no `/usr/bin/env` (invoke node-gyp/napi via `node <js-entry>`), and FOD outputs must not contain store paths. See CONTRIBUTING → "Nix build".
 
 ---
 
