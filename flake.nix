@@ -210,8 +210,8 @@
             installPhase = ''
               runHook preInstall
               export HOME=$TMPDIR
-              export NIX_SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
-              export SSL_CERT_FILE=$NIX_SSL_CERT_FILE
+              # NIX_SSL_CERT_FILE is exported automatically by stdenv
+              # because cacert is in nativeBuildInputs above.
               bun install --frozen-lockfile --ignore-scripts
               mkdir $out
               mv node_modules $out/node_modules
