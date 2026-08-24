@@ -2223,7 +2223,7 @@ describe('SessionEventBroadcaster', () => {
           expect(ops.volatile).toBe(true);
         }
         expect(batches.map((ops) => (ops.payload as OpsPayload).ops.map((o) => o.op))).toEqual([
-          ['turn.upsert'],
+          ['turn.upsert', 'meta.merge'],
           ['meta.merge'],
         ]);
       }
