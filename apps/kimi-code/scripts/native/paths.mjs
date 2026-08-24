@@ -34,14 +34,6 @@ export function nativeJsBundlePath() {
   return resolve(nativeIntermediatesDir(), 'main.cjs');
 }
 
-export function nativeBlobPath() {
-  return resolve(nativeIntermediatesDir(), 'kimi.blob');
-}
-
-export function nativeSeaConfigPath() {
-  return resolve(nativeIntermediatesDir(), 'sea-config.json');
-}
-
 export function nativeManifestDir(target = targetTriple()) {
   return resolve(nativeIntermediatesDir(), 'native-assets', target);
 }

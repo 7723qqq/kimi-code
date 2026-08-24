@@ -17,7 +17,7 @@ export async function runBundleStep() {
   await run(process.execPath, [tsdownCliPath, '--config', 'tsdown.native.config.ts']);
   // Bundle the off-main-thread workers (the minidb text-build worker and
   // the kap-server global-search worker) into self-contained ESM files so
-  // they can ride the SEA blob as assets (02-sea-blob.mjs) and be spawned
+  // they can ride the compiled binary as embedded assets and be spawned
   // from disk at runtime — bundled binaries otherwise lack the worker
   // entries and heavy index work degrades to inline main-thread cores.
   // Runs after the main bundle with clean:false so all verified files remain.

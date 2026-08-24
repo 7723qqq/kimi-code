@@ -40,7 +40,7 @@ async function sha256(path) {
 try {
   await stat(sourceBinary);
 } catch {
-  fail(`Native executable not found at ${sourceBinary}. Run build:native:sea first.`);
+  fail(`Native executable not found at ${sourceBinary}. Run build:native:bun first.`);
 }
 
 await mkdir(artifactsDir, { recursive: true });

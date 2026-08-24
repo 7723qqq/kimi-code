@@ -8,10 +8,8 @@ import {
   nativeIntermediatesDir,
   nativeBinDir,
   nativeBinPath,
-  nativeBlobPath,
   nativeJsBundlePath,
   nativeManifestKey,
-  nativeSeaConfigPath,
   targetTriple,
   nativeDistRoot,
   nativeManifestDir,
@@ -72,8 +70,6 @@ describe('path helpers', () => {
 
   it('returns intermediate artifact paths', () => {
     expect(nativeJsBundlePath()).toBe(p('dist-native/intermediates/main.cjs'));
-    expect(nativeBlobPath()).toBe(p('dist-native/intermediates/kimi.blob'));
-    expect(nativeSeaConfigPath()).toBe(p('dist-native/intermediates/sea-config.json'));
   });
 
   it('returns manifest key for target', () => {
