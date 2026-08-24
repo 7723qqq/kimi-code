@@ -189,6 +189,12 @@
 
             dontConfigure = true;
             dontBuild = true;
+            # node_modules contains relative symlinks to the workspace
+            # members (../../packages/*). They dangle inside this FOD's
+            # output by construction and resolve once the main derivation
+            # copies the tree into the project root, so skip fixup's
+            # noBrokenSymlinks check.
+            dontFixup = true;
 
             installPhase = ''
               runHook preInstall
