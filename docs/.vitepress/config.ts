@@ -222,6 +222,11 @@ const config = withMermaid(
     },
 
     vite: {
+      build: {
+        // The docs bundle ships large self-contained chunks (mermaid, shiki)
+        // by design; splitting them adds requests without saving bytes.
+        chunkSizeWarningLimit: 1500,
+      },
       optimizeDeps: {
         include: mermaidOptimizeDeps.map((dep) => `mermaid > ${dep}`),
       },
