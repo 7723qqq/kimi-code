@@ -259,9 +259,11 @@
               # Run the one lifecycle script whose output the artifact
               # needs: node-pty's prebuild/native build (the FOD installed
               # with --ignore-scripts). node-gyp compiles against the
-              # pinned Node's own headers. esbuild resolves its binary from
-              # the hoisted @esbuild/<platform> package without a script;
+              # pinned Node's own headers and comes from the hoisted root
+              # node_modules/.bin. esbuild resolves its binary from the
+              # hoisted @esbuild/<platform> package without a script;
               # protobufjs/ssh2 work scriptless.
+              export PATH="$PWD/node_modules/.bin:$PATH"
               (cd node_modules/node-pty && node scripts/prebuild.js || node-gyp rebuild)
               (cd node_modules/node-pty && node scripts/post-install.js)
               # The SEA blob step embeds the Kimi web assets from
