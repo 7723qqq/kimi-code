@@ -213,12 +213,24 @@
               # NIX_SSL_CERT_FILE is exported automatically by stdenv
               # because cacert is in nativeBuildInputs above.
               bun install --frozen-lockfile --ignore-scripts
-              mkdir $out
+              mkdir -p $out
               mv node_modules $out/node_modules
               # Vendor the Rust crates for kimi-native-tools so the main
               # derivation can compile offline (CARGO_NET_OFFLINE=true).
               cd packages/kimi-native-tools
               cargo vendor --locked $out/vendor > $out/cargo-config.toml
+              cd -
+              # TEMP DEBUG: locate embedded store-path references that trip
+              # the FOD reference scanner.
+              if grep -rlI "/nix/store/" "$out" >/tmp/leak.txt 2>/dev/null; then
+                echo "==== FOD LEAK PROBE: files containing /nix/store ===="
+                head -20 /tmp/leak.txt
+                for f in $(head -3 /tmp/leak.txt); do
+                  echo "---- $f ----"
+                  grep -oE "/nix/store/[a-z0-9]+-[^\"]*" "$f" | head -3
+                done
+                echo "==== END LEAK PROBE ===="
+              fi
               runHook postInstall
             '';
 
