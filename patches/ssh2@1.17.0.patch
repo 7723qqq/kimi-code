@@ -1,0 +1,15 @@
+diff --git a/package.json b/package.json
+index 2e170c3e1be3353c642044f7d0e635b8dc10a6a9..061794b670b22e926db6baf45dab7390c88e7cda 100644
+--- a/package.json
++++ b/package.json
+@@ -15,10 +15,6 @@
+     "@mscdex/eslint-config": "^1.1.0",
+     "eslint": "^7.32.0"
+   },
+-  "optionalDependencies": {
+-    "cpu-features": "~0.0.10",
+-    "nan": "^2.23.0"
+-  },
+   "scripts": {
+     "install": "node install.js",
+     "rebuild": "node install.js",

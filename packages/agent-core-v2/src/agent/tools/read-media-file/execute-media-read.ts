@@ -177,7 +177,7 @@ export async function executeMediaRead(
   safePath: string,
   fs: IHostFileSystem,
   env: HostEnvironmentInfo,
-  header: Buffer,
+  header: Uint8Array,
 ): Promise<ExecutableToolResult> {
   const compressTelemetry: ImageCompressionTelemetry | undefined = ctx.telemetry
     ? { client: ctx.telemetry, source: 'read_media' }

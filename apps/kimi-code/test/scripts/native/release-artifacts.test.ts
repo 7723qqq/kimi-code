@@ -222,6 +222,7 @@ describe('native release artifacts', () => {
   it('fails when the bun section is incomplete', async () => {
     const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-partialbun-'));
     const [covered, ...missing] = SUPPORTED_TARGETS;
+    if (covered === undefined || missing.length === 0) throw new Error('expected multiple supported targets');
 
     try {
       for (const target of SUPPORTED_TARGETS) {
