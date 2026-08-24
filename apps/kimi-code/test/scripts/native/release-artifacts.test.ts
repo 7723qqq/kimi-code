@@ -181,7 +181,8 @@ describe('native release artifacts', () => {
     const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-partialbun-'));
     const [...missing] = SUPPORTED_TARGETS;
     const uncovered = missing.pop();
-    if (uncovered === undefined || missing.length === 0) throw new Error('expected multiple supported targets');
+    if (uncovered === undefined || missing.length === 0)
+      throw new Error('expected multiple supported targets');
 
     try {
       for (const target of missing) {
@@ -202,5 +203,4 @@ describe('native release artifacts', () => {
       rmSync(releaseDir, { recursive: true, force: true });
     }
   });
-
 });

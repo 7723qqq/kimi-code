@@ -1,6 +1,6 @@
 // Dedicated tsdown config that bundles the off-main-thread workers into
 // self-contained ESM files so they can ride the SEA blob as assets
-// (02-sea-blob.mjs) and be spawned from disk at runtime:
+// and be spawned from disk at runtime:
 //   - text-build-worker.mjs: the minidb text-build worker
 //     (packages/minidb/src/worker/text-build-worker.ts);
 //   - search-worker.mjs: the kap-server global-search worker

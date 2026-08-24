@@ -26,7 +26,7 @@ if (externalUrl !== undefined && externalUrl.length > 0) {
   env[MARKETPLACE_ENV] = externalUrl;
   console.error(`Using external plugin marketplace: ${externalUrl}`);
 } else {
-  // Default: every `pnpm run dev:cli` runs its own isolated marketplace server on a
+  // Default: every `bun run dev:cli` runs its own isolated marketplace server on a
   // random port, so multiple concurrent dev instances never collide. Overwrite any
   // inherited MARKETPLACE_ENV so a stale URL from a dead instance can't break this run.
   const inherited = process.env[MARKETPLACE_ENV]?.trim();

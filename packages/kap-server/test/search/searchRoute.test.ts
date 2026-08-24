@@ -6,8 +6,8 @@ import { ISessionIndex, type SessionSummary } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../../src/start';
-import { TEST_HOST_IDENTITY } from '../helpers/hostIdentity';
 import { authedFetch } from '../helpers/auth';
+import { TEST_HOST_IDENTITY } from '../helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -252,58 +252,67 @@ describe('server-v2 session routes with the global search DB unavailable', () =>
     return (await res.json()) as Envelope<T>;
   }
 
-  it('session list / create / get / cold resume pass with the search index down', { timeout: 30_000 }, async () => {
-    await boot();
-    const created = await postJson<{ id: string }>('/api/v1/sessions', {
-      metadata: { cwd: home },
-    });
-    expect(created.code).toBe(0);
-    const id = created.data.id;
-    const list = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
-    expect(list.code).toBe(0);
-    await expect
-      .poll(
-        async () =>
-          (await getJson<{ items: { id: string }[] }>('/api/v1/sessions')).data.items.map(
-            (item) => item.id,
-          ),
-        { interval: 1_000 },
-      )
-      .toContain(id);
-    await server!.close();
-    server = undefined;
+  it(
+    'session list / create / get / cold resume pass with the search index down',
+    { timeout: 30_000 },
+    async () => {
+      await boot();
+      const created = await postJson<{ id: string }>('/api/v1/sessions', {
+        metadata: { cwd: home },
+      });
+      expect(created.code).toBe(0);
+      const id = created.data.id;
+      const list = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
+      expect(list.code).toBe(0);
+      await expect
+        .poll(
+          async () =>
+            (await getJson<{ items: { id: string }[] }>('/api/v1/sessions')).data.items.map(
+              (item) => item.id,
+            ),
+          { interval: 1_000 },
+        )
+        .toContain(id);
+      await server!.close();
+      server = undefined;
 
-    await boot();
-    const coldList = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
-    expect(coldList.code).toBe(0);
-    expect(coldList.data.items.map((item) => item.id)).toContain(id);
-    const got = await getJson<{ id: string }>(`/api/v1/sessions/${id}`);
-    expect(got.code).toBe(0);
-    const messages = await getJson<{ items: unknown[] }>(`/api/v1/sessions/${id}/messages`);
-    expect(messages.code).toBe(0);
+      await boot();
+      const coldList = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
+      expect(coldList.code).toBe(0);
+      expect(coldList.data.items.map((item) => item.id)).toContain(id);
+      const got = await getJson<{ id: string }>(`/api/v1/sessions/${id}`);
+      expect(got.code).toBe(0);
+      const messages = await getJson<{ items: unknown[] }>(`/api/v1/sessions/${id}/messages`);
+      expect(messages.code).toBe(0);
 
-    const probe = await stat(join(home as string, 'search-index'));
-    expect(probe.isFile()).toBe(true);
-  });
+      const probe = await stat(join(home as string, 'search-index'));
+      expect(probe.isFile()).toBe(true);
+    },
+  );
 
-  it('only the full-text search request reports the index outage', { timeout: 30_000 }, async () => {
-    await boot();
-    const created = await postJson<{ id: string }>('/api/v1/sessions', {
-      metadata: { cwd: home },
-    });
-    expect(created.code).toBe(0);
+  it(
+    'only the full-text search request reports the index outage',
+    { timeout: 30_000 },
+    async () => {
+      await boot();
+      const created = await postJson<{ id: string }>('/api/v1/sessions', {
+        metadata: { cwd: home },
+      });
+      expect(created.code).toBe(0);
 
-    await expect
-      .poll(
-        async () => (await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' })).code,
-        { timeout: 10_000, interval: 100 },
-      )
-      .toBe(50001);
-    const search = await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' });
-    expect(search.code).toBe(50001);
-    expect(search.msg).toContain('search index failed to open');
+      await expect
+        .poll(
+          async () =>
+            (await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' })).code,
+          { timeout: 10_000, interval: 100 },
+        )
+        .toBe(50001);
+      const search = await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' });
+      expect(search.code).toBe(50001);
+      expect(search.msg).toContain('search index failed to open');
 
-    const list = await getJson<{ items: unknown[] }>('/api/v1/sessions');
-    expect(list.code).toBe(0);
-  });
+      const list = await getJson<{ items: unknown[] }>('/api/v1/sessions');
+      expect(list.code).toBe(0);
+    },
+  );
 });

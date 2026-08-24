@@ -4,8 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import {
   Error2,
   ErrorCodes,
@@ -29,13 +27,14 @@ import {
   type ServiceIdentifier,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
+import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
 import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -70,11 +69,7 @@ interface PageWire {
   has_more: boolean;
 }
 
-function agentRpc(
-  service: ServiceIdentifier<unknown>,
-  method: string,
-  sessionId: string,
-): string {
+function agentRpc(service: ServiceIdentifier<unknown>, method: string, sessionId: string): string {
   return `/api/v1/debug/session/${sessionId}/agent/main/${String(service)}/${method}`;
 }
 
@@ -468,11 +463,9 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(page3.body.data.items.map((s) => s.id)).toEqual([ids[0]]);
     expect(page3.body.data.has_more).toBe(false);
 
-    const seen = [
-      ...page1.body.data.items,
-      ...page2.body.data.items,
-      ...page3.body.data.items,
-    ].map((s) => s.id);
+    const seen = [...page1.body.data.items, ...page2.body.data.items, ...page3.body.data.items].map(
+      (s) => s.id,
+    );
     expect(new Set(seen).size).toBe(7);
     expect(new Set(seen)).toEqual(new Set(ids));
 
@@ -629,22 +622,18 @@ describe('server-v2 /api/v1/sessions', () => {
     });
     const id = created.body.data.id;
     for (const text of ['first REST prompt', 'second REST prompt', 'third REST prompt']) {
-      const submitted = await postJson<{ prompt_id: string }>(
-        `/api/v1/sessions/${id}/prompts`,
-        { content: [{ type: 'text', text }] },
-      );
+      const submitted = await postJson<{ prompt_id: string }>(`/api/v1/sessions/${id}/prompts`, {
+        content: [{ type: 'text', text }],
+      });
       expect(submitted.body.code).toBe(0);
     }
 
-    const generated = await postJson<{ title: string }>(
-      `/api/v1/sessions/${id}/title/generate`,
-    );
+    const generated = await postJson<{ title: string }>(`/api/v1/sessions/${id}/title/generate`);
     expect(generated.body).toMatchObject({ code: 0, data: { title: 'generated from REST' } });
     expect(toolsRequest).toEqual({
       method: 'chat_title',
       params: {
-        chat_content:
-          'user: first REST prompt\nuser: second REST prompt\nuser: third REST prompt',
+        chat_content: 'user: first REST prompt\nuser: second REST prompt\nuser: third REST prompt',
       },
     });
 
@@ -679,9 +668,7 @@ describe('server-v2 /api/v1/sessions', () => {
   });
 
   it('returns session-not-found when generating a title for a missing session', async () => {
-    const generated = await postJson<null>(
-      '/api/v1/sessions/sess_missing_title/title/generate',
-    );
+    const generated = await postJson<null>('/api/v1/sessions/sess_missing_title/title/generate');
 
     expect(generated.body.code).toBe(40401);
   });
@@ -816,9 +803,7 @@ describe('server-v2 /api/v1/sessions', () => {
         agent_config: { goal_control: 'resume' },
       });
 
-      const refreshed = await getJson<{ status: string } | null>(
-        `/api/v1/sessions/${rig.id}/goal`,
-      );
+      const refreshed = await getJson<{ status: string } | null>(`/api/v1/sessions/${rig.id}/goal`);
 
       expect(refreshed.body.data?.status).toBe('active');
     } finally {
@@ -851,9 +836,9 @@ describe('server-v2 /api/v1/sessions', () => {
       .delete(encodeWorkDirKey(cwd));
     await rm(cwd, { recursive: true, force: true });
 
-    await expect(
-      resumeSessionById((server as RunningServer).core.accessor, id),
-    ).rejects.toThrow(/does not exist/);
+    await expect(resumeSessionById((server as RunningServer).core.accessor, id)).rejects.toThrow(
+      /does not exist/,
+    );
 
     const archived = await postJson<{ archived: boolean }>(`/api/v1/sessions/${id}:archive`);
     expect(archived.body.code).toBe(0);
@@ -911,7 +896,10 @@ describe('server-v2 /api/v1/sessions', () => {
     const created = await postJson<SessionWire>('/api/v1/sessions', {
       metadata: { cwd: home as string },
     });
-    const session = getLiveSessionById((server as RunningServer).core.accessor, created.body.data.id);
+    const session = getLiveSessionById(
+      (server as RunningServer).core.accessor,
+      created.body.data.id,
+    );
     if (session === undefined) throw new Error('expected live session');
     const agent = await session.accessor
       .get(IAgentLifecycleService)
@@ -921,10 +909,9 @@ describe('server-v2 /api/v1/sessions', () => {
       .mockRejectedValue(new Error2(ErrorCodes.SESSION_BUSY, 'session is busy'));
 
     try {
-      const response = await postJson<null>(
-        `/api/v1/sessions/${created.body.data.id}:undo`,
-        { count: 1 },
-      );
+      const response = await postJson<null>(`/api/v1/sessions/${created.body.data.id}:undo`, {
+        count: 1,
+      });
 
       expect(response.body.code).toBe(40901);
     } finally {
@@ -1135,14 +1122,10 @@ describe('server-v2 /api/v1/sessions', () => {
   it('paginates archived_only without returning empty filtered pages', async () => {
     const cwd = home as string;
     const archivedOlder = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    await postJson<{ archived: boolean }>(
-      `/api/v1/sessions/${archivedOlder.body.data.id}:archive`,
-    );
+    await postJson<{ archived: boolean }>(`/api/v1/sessions/${archivedOlder.body.data.id}:archive`);
 
     const archivedNewer = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
-    await postJson<{ archived: boolean }>(
-      `/api/v1/sessions/${archivedNewer.body.data.id}:archive`,
-    );
+    await postJson<{ archived: boolean }>(`/api/v1/sessions/${archivedNewer.body.data.id}:archive`);
 
     await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
@@ -1480,11 +1463,24 @@ describe('server-v2 /api/v1/sessions', () => {
 
   it('derives the session title from the first prompt submitted via /api/v1', async () => {
     const cwd = home as string;
-    await writeFile(join(cwd, 'config.toml'), [
-      'default_model = "stub"', '', '[providers.stub]', 'type = "openai"',
-      'base_url = "http://127.0.0.1:9999"', 'api_key = "stub"', '',
-      '[models.stub]', 'provider = "stub"', 'model = "stub"', 'max_context_size = 1000', '',
-    ].join('\n'), 'utf-8');
+    await writeFile(
+      join(cwd, 'config.toml'),
+      [
+        'default_model = "stub"',
+        '',
+        '[providers.stub]',
+        'type = "openai"',
+        'base_url = "http://127.0.0.1:9999"',
+        'api_key = "stub"',
+        '',
+        '[models.stub]',
+        'provider = "stub"',
+        'model = "stub"',
+        'max_context_size = 1000',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd } });
     const id = created.body.data.id;
     expect(created.body.data.title).toBe('');
