@@ -23,7 +23,7 @@ try {
   // execSync runs through the platform shell (needed for the `cd` above).
   // A single command string (not an args array) avoids the args+shell
   // deprecation; the command is static (no injection surface).
-  execSync('cd apps/vis/web && bun run vite build', {
+  execSync('cd apps/vis/web && node ../../node_modules/vite/bin/vite.js build', {
     stdio: 'inherit',
     cwd: repoRoot,
     env: { ...process.env, VIS_SINGLEFILE: '1' },
