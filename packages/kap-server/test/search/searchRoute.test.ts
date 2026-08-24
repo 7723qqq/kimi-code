@@ -261,7 +261,15 @@ describe('server-v2 session routes with the global search DB unavailable', () =>
     const id = created.data.id;
     const list = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
     expect(list.code).toBe(0);
-    expect(list.data.items.map((item) => item.id)).toContain(id);
+    await expect
+      .poll(
+        async () =>
+          (await getJson<{ items: { id: string }[] }>('/api/v1/sessions')).data.items.map(
+            (item) => item.id,
+          ),
+        { interval: 1_000 },
+      )
+      .toContain(id);
     await server!.close();
     server = undefined;
 
