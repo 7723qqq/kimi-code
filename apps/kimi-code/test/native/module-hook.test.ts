@@ -194,6 +194,27 @@ describe('installNativeModuleHook', () => {
       }
     });
 
+    it('redirects node-pty requests with the doubled separators its loader concatenates', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'module-hook-nodepty-'));
+      try {
+        const binding = join(dir, 'prebuilds/linux-x64/pty.node');
+        mkdirSync(dirname(binding), { recursive: true });
+        writeFileSync(binding, 'not a real dylib');
+        vi.mocked(getNativePackageRoot).mockImplementation((packageName) =>
+          packageName === 'node-pty' ? dir : null,
+        );
+        capture = stubLoadCapture();
+        await installFreshHook();
+
+        const load = moduleBuiltin()._load as LoadFn;
+        expect(() => load('./prebuilds/linux-x64//pty.node', null, false)).toThrow();
+
+        expect(drivenRequests(capture)).toEqual([binding]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it('passes node-pty-shaped requests through when no cache root exists', async () => {
       vi.mocked(getNativePackageRoot).mockReturnValue(null);
       capture = stubLoadCapture();

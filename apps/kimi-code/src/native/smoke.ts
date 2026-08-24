@@ -146,7 +146,7 @@ async function runSmoke(): Promise<void> {
   await smokeSearchWorker();
   await smokeTerminalBinding();
   process.stdout.write(
-    `Native asset smoke passed: ${manifest.target}; MiniDb worker build passed; search worker ready\n`,
+    `Native asset smoke passed: ${manifest.target}; MiniDb worker build passed; search worker ready; PTY binding loaded\n`,
   );
 }
 

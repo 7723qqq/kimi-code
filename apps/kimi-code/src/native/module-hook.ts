@@ -32,8 +32,15 @@ const PI_TUI_NATIVE_PATTERN = /native[\\/](?:win32|darwin)[\\/]prebuilds[\\/].+\
 // which resolve against the bundled main.cjs's directory — where no binding
 // exists in a packaged build. Redirect those to the cached copy extracted from
 // the embedded manifest (see node-pty in scripts/native/native-deps.mjs).
+// node-pty loads its bindings through lib/utils.js loadNativeModule with
+// RELATIVE requests (`../build/Release/<name>.node`, `../prebuilds/<p>-<a>/...`),
+// built by naive string concatenation — separator runs may be DOUBLED
+// ("prebuilds/linux-x64//pty.node"). They resolve against the bundled
+// main.cjs's directory, where no binding exists in a packaged build; redirect
+// those to the cached copy extracted from the embedded manifest (see node-pty
+// in scripts/native/native-deps.mjs).
 const NODE_PTY_REQUEST_PATTERN =
-  /^[.]{1,2}[\\/](?:build[\\/](?:Release|Debug)|prebuilds[\\/][^\\/]+)[\\/][^\\/]+\.node$/;
+  /^[.]{1,2}[\\/]+(?:build[\\/]+(?:Release|Debug)|prebuilds[\\/]+[^\\/]+)[\\/]+[^\\/]+\.node$/;
 
 export function installNativeModuleHook(): void {
   if (installed) return;
@@ -92,7 +99,7 @@ export function installNativeModuleHook(): void {
       } else if (NODE_PTY_REQUEST_PATTERN.test(request)) {
         const pkgRoot = getNativePackageRoot('node-pty');
         if (pkgRoot !== null) {
-          const redirected = join(pkgRoot, request.replace(/^[.]{1,2}[\\/]/, ''));
+          const redirected = join(pkgRoot, request.replace(/^[.]{1,2}[\\/]+/, ''));
           if (existsSync(redirected)) {
             return originalLoad.call(this, redirected, parent, isMain);
           }
