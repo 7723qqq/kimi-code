@@ -50,6 +50,7 @@ describe('engineFetch http3 adaptation', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
@@ -101,5 +102,23 @@ describe('engineFetch http3 adaptation', () => {
     expect(r.status).toBe(200);
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
     expect(vi.mocked(undiciFetchMock)).toHaveBeenCalledOnce();
+  });
+
+  it('deduplicates background probes for concurrent unknown-origin calls', async () => {
+    let h3Attempts = 0;
+    vi.mocked(undiciFetchMock).mockResolvedValue(undiciResponse() as never);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        h3Attempts++;
+        await new Promise((r) => setTimeout(r, 30));
+        return new Response('ok', { status: 200 });
+      }),
+    );
+
+    await Promise.all([engineFetch(URL_), engineFetch(URL_)]);
+    await vi.waitFor(() => expect(h3OriginState(ORIGIN)).toBe('ok'));
+
+    expect(h3Attempts).toBe(1);
   });
 });

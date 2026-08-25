@@ -2,7 +2,13 @@ import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici';
 
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 
-import { h3OriginState, isBunRuntime, markH3Origin, scheduleH3Probe } from './http3';
+import {
+  h3Fetch,
+  h3OriginState,
+  isBunRuntime,
+  markH3Origin,
+  scheduleH3Probe,
+} from './http3';
 
 const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -64,26 +70,19 @@ async function bunH3EngineFetch(
   options: EngineRequestOptions,
   timeoutMs: number,
 ): Promise<EngineHttpResponse> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const signals = options.signal ? [controller.signal, options.signal] : [controller.signal];
-  try {
-    const response = await fetch(url, {
-      method: options.method ?? 'GET',
-      headers: {
-        'User-Agent': DEFAULT_USER_AGENT,
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        ...options.headers,
-      },
-      body: options.body,
-      signal: AbortSignal.any(signals),
-      protocol: 'http3',
-    } as RequestInit);
-    return toEngineResponse(response);
-  } finally {
-    clearTimeout(timer);
-  }
+  const response = await h3Fetch(url, {
+    method: options.method ?? 'GET',
+    headers: {
+      'User-Agent': DEFAULT_USER_AGENT,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      ...options.headers,
+    },
+    body: options.body,
+    signal: options.signal,
+    timeoutMs,
+  });
+  return toEngineResponse(response);
 }
 
 export async function engineFetch(
