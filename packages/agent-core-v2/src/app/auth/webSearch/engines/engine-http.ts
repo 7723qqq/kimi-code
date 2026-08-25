@@ -2,6 +2,8 @@ import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici';
 
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 
+import { h3OriginState, isBunRuntime, markH3Origin, scheduleH3Probe } from './http3';
+
 const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -46,11 +48,50 @@ function dispatcherFor(url: string): Dispatcher | undefined {
   return dispatcherCache;
 }
 
+function toEngineResponse(response: Response): EngineHttpResponse {
+  return {
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    text: () => response.text(),
+    stream: () => response.body,
+    header: (name: string) => response.headers.get(name),
+  };
+}
+
+async function bunH3EngineFetch(
+  url: string,
+  options: EngineRequestOptions,
+  timeoutMs: number,
+): Promise<EngineHttpResponse> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const signals = options.signal ? [controller.signal, options.signal] : [controller.signal];
+  try {
+    const response = await fetch(url, {
+      method: options.method ?? 'GET',
+      headers: {
+        'User-Agent': DEFAULT_USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        ...options.headers,
+      },
+      body: options.body,
+      signal: AbortSignal.any(signals),
+      protocol: 'http3',
+    } as RequestInit);
+    return toEngineResponse(response);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function engineFetch(
   url: string,
   options: EngineRequestOptions = {},
 ): Promise<EngineHttpResponse> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const origin = new URL(url).origin;
   const controller = new AbortController();
   const timer = setTimeout(() => {
     controller.abort();
@@ -60,6 +101,16 @@ export async function engineFetch(
     options.signal !== undefined
       ? AbortSignal.any([controller.signal, options.signal])
       : controller.signal;
+
+  const h3Eligible = isBunRuntime() && process.env['KIMI_CODE_SEARCH_H3'] !== '0';
+  if (h3Eligible && h3OriginState(origin) === 'ok') {
+    try {
+      return await bunH3EngineFetch(url, options, timeoutMs);
+    } catch {
+      markH3Origin(origin, 'dead');
+    }
+  }
+
   try {
     const response = await undiciFetch(url, {
       method: options.method ?? 'GET',
@@ -74,6 +125,31 @@ export async function engineFetch(
       signal,
       ...(dispatcher !== undefined ? { dispatcher } : {}),
     });
+
+    if (
+      h3Eligible &&
+      h3OriginState(origin) === 'unknown' &&
+      (options.method ?? 'GET') === 'GET' &&
+      options.body === undefined &&
+      (response.headers.get('alt-svc') ?? '').includes('h3')
+    ) {
+      markH3Origin(origin, 'ok');
+    }
+    if (
+      h3Eligible &&
+      h3OriginState(origin) === 'unknown' &&
+      (options.method ?? 'GET') === 'GET'
+    ) {
+      scheduleH3Probe(origin, async () => {
+        const probe = await bunH3EngineFetch(
+          url,
+          { method: 'GET', headers: options.headers, timeoutMs: 3000 },
+          3000,
+        );
+        return probe.ok;
+      });
+    }
+
     return {
       ok: response.ok,
       status: response.status,
