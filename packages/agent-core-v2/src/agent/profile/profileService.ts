@@ -901,6 +901,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       osKind: env.osKind,
       shellName: env.shellName,
       shellPath: env.shellPath,
+      jsRuntimes: env.jsRuntimes,
       now: now.toISOString(),
       timeZone,
       skills,

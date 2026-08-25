@@ -2,12 +2,13 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 
 import type {
   HostEnvironmentInfo,
+  JsRuntimeInfo,
   OsKind,
   PathClass,
   ShellName,
 } from '#/_base/execEnv/environmentProbe';
 
-export type { HostEnvironmentInfo, OsKind, PathClass, ShellName };
+export type { HostEnvironmentInfo, JsRuntimeInfo, OsKind, PathClass, ShellName };
 
 export interface IHostEnvironment {
   readonly _serviceBrand: undefined;
@@ -19,6 +20,7 @@ export interface IHostEnvironment {
   readonly shellPath: string;
   readonly pathClass: PathClass;
   readonly homeDir: string;
+  readonly jsRuntimes?: ReadonlyArray<JsRuntimeInfo>;
   readonly ready: Promise<void>;
 }
 

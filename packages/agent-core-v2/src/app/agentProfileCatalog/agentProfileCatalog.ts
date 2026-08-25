@@ -1,4 +1,5 @@
 import type { ILogger } from '#/_base/log/log';
+import type { JsRuntimeInfo } from '#/os/interface/hostEnvironment';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 
 export const DEFAULT_AGENT_PROFILE_NAME = 'agent';
@@ -23,6 +24,7 @@ export interface AgentProfileContext {
   readonly osKind?: string;
   readonly shellName?: string;
   readonly shellPath?: string;
+  readonly jsRuntimes?: ReadonlyArray<JsRuntimeInfo>;
   readonly now?: string;
   readonly timeZone?: string;
   readonly skills?: string;
