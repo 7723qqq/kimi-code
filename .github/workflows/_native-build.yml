@@ -37,7 +37,6 @@ jobs:
   native-bundle-bun:
     name: Native bundle (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
-    # See the comment on the native-bundle job env block above.
     env:
       APPLE_SECRETS_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
     strategy:

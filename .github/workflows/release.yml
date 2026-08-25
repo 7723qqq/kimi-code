@@ -42,8 +42,10 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
-      - name: Upgrade npm for Trusted Publishing
-        run: npm install -g npm@11
+      # Upgrade npm for Trusted Publishing — only needed by the changesets
+      # publish step below, which stays disabled on this fork.
+      # - name: Upgrade npm for Trusted Publishing
+      #   run: npm install -g npm@11
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
