@@ -18,6 +18,12 @@ export class ProbeShellNotFoundError extends Error {
   }
 }
 
+export interface JsRuntimeInfo {
+  readonly name: 'bun' | 'node';
+  readonly version: string;
+  readonly path: string;
+}
+
 export interface HostEnvironmentInfo {
   readonly osKind: OsKind;
   readonly osArch: string;
@@ -26,6 +32,7 @@ export interface HostEnvironmentInfo {
   readonly shellPath: string;
   readonly pathClass: PathClass;
   readonly homeDir: string;
+  readonly jsRuntimes?: ReadonlyArray<JsRuntimeInfo>;
 }
 
 export interface HostEnvironmentProbeDeps {
@@ -69,6 +76,17 @@ export async function probeHostEnvironment(
   deps: HostEnvironmentProbeDeps,
 ): Promise<HostEnvironmentInfo> {
   const osKind = resolveOsKind(deps.platform);
+  const [base, jsRuntimes] = await Promise.all([
+    probeBaseEnvironment(deps, osKind),
+    probeJsRuntimes(deps),
+  ]);
+  return jsRuntimes.length > 0 ? { ...base, jsRuntimes } : base;
+}
+
+async function probeBaseEnvironment(
+  deps: HostEnvironmentProbeDeps,
+  osKind: OsKind,
+): Promise<HostEnvironmentInfo> {
   const osArch = deps.arch;
   const osVersion = deps.release;
   const pathClass: PathClass = deps.platform === 'win32' ? 'win32' : 'posix';
@@ -298,6 +316,39 @@ async function findExecutablesOnPath(
     }
   }
   return platform === 'win32' ? dedupeWindowsPaths(paths) : paths;
+}
+
+const JS_RUNTIME_PROBE_TIMEOUT_MS = 3_000;
+
+async function probeJsRuntimes(
+  deps: HostEnvironmentProbeDeps,
+): Promise<ReadonlyArray<JsRuntimeInfo>> {
+  const runtimes = await Promise.all(
+    [
+      { name: 'bun' as const, binary: deps.platform === 'win32' ? 'bun.exe' : 'bun' },
+      { name: 'node' as const, binary: deps.platform === 'win32' ? 'node.exe' : 'node' },
+    ].map(async ({ name, binary }) => {
+      const executable = (
+        await findExecutablesOnPath(binary, deps.env['PATH'], deps.platform, deps.isFile)
+      )[0];
+      if (executable === undefined) return;
+      const version = parseRuntimeVersion(
+        await deps.execFileText(executable, ['--version'], JS_RUNTIME_PROBE_TIMEOUT_MS),
+      );
+      if (version === undefined) return;
+      return { name, version, path: executable };
+    }),
+  );
+  return runtimes.filter((runtime) => runtime !== undefined);
+}
+
+function parseRuntimeVersion(stdout: string | undefined): string | undefined {
+  if (stdout === undefined) return undefined;
+  for (const line of stdout.split(/\r?\n/)) {
+    const match = /^v?(\d+\.\d+\.\d+(?:[-+][^\s]+)?)/.exec(line.trim());
+    if (match?.[1] !== undefined) return match[1];
+  }
+  return undefined;
 }
 
 export async function execFileText(

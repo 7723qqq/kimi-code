@@ -45,6 +45,7 @@ export class LocalRuntime implements Runtime {
       shellPath: environment.shellPath,
       pathClass: environment.pathClass,
       homeDir: environment.homeDir,
+      jsRuntimes: environment.jsRuntimes,
     };
     const path = environment.pathClass === 'win32' ? win32Path : posixPath;
     this.path = {

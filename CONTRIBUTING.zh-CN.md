@@ -45,6 +45,12 @@ cd kimi-code
 bun install
 ```
 
+> **Bun 版本须知**：仓库提交的 `bun.lock` 是 lockfileVersion 3（由嵌套
+> `overrides` 触发），必须使用 **Bun >= 1.4** —— 更旧的 Bun 无法读取。
+> 另外，本机升级 Bun 后的第一次 `bun install` 会把
+> `patches/ssh2@1.17.0.patch` 重新打一次：补丁缓存键已从「前 16KiB 哈希」
+> 改为整文件 SHA-1，属预期行为而非故障。
+
 常用脚本：
 
 - `bun run dev:cli` — 开发模式运行 CLI

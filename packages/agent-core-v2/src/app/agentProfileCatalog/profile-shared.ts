@@ -1,4 +1,5 @@
 import { renderPrompt } from '#/_base/utils/render-prompt';
+import type { JsRuntimeInfo } from '#/os/interface/hostEnvironment';
 
 import {
   DEFAULT_AGENT_PROFILE_NAME,
@@ -104,6 +105,31 @@ export function subagentTypeNotAllowedMessage(
 const WINDOWS_NOTES =
   'IMPORTANT: You are on Windows. The Bash tool runs through Git Bash, so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.';
 
+const BUN_STDLIB_NOTES =
+  'Bun 1.4 and newer ship built-in modules that replace common npm dependencies: `Bun.Image` (image processing), `Bun.markdown`, `Bun.Terminal` (PTY), `Bun.cron()`, `Bun.WebView` (headless browser). Before installing an npm package for one of these tasks, check whether Bun already provides it. Scripts using these APIs must be executed with the `bun` interpreter.';
+
+export function isBunStdlibCapable(version: string): boolean {
+  const match = /^(\d+)\.(\d+)\./.exec(version);
+  if (match === null) return false;
+  const major = Number.parseInt(match[1] ?? '', 10);
+  const minor = Number.parseInt(match[2] ?? '', 10);
+  return major > 1 || (major === 1 && minor >= 4);
+}
+
+function runtimeNotesFor(jsRuntimes: ReadonlyArray<JsRuntimeInfo> | undefined): string {
+  if (jsRuntimes === undefined || jsRuntimes.length === 0) return '';
+  const listing = jsRuntimes
+    .map((runtime) => `**${runtime.name} ${runtime.version}** (\`${runtime.path}\`)`)
+    .join(', ');
+  const bun = jsRuntimes.find((runtime) => runtime.name === 'bun');
+  const capabilityNotes =
+    bun !== undefined && isBunStdlibCapable(bun.version) ? `\n\n${BUN_STDLIB_NOTES}` : '';
+  return (
+    `\n\n## JavaScript Runtimes\n\nJavaScript runtimes available to Bash: ${listing}.` +
+    `${capabilityNotes}\n\n`
+  );
+}
+
 export const DEFAULT_PRODUCT_NAME = 'Kimi Code CLI';
 
 export const DEFAULT_REPLY_STYLE_GUIDE =
@@ -137,6 +163,7 @@ export function systemPromptVars(
     reply_style_guide: context.replyStyleGuide ?? DEFAULT_REPLY_STYLE_GUIDE,
     os: context.osKind ?? '',
     windows_notes: context.osKind === 'Windows' ? `\n\n${WINDOWS_NOTES}\n\n` : '',
+    runtime_notes: runtimeNotesFor(context.jsRuntimes),
     shell: shellName.length > 0 ? `${shellName} (\`${shellPath}\`)` : '',
     now: context.now ?? new Date().toISOString(),
     cwd: context.cwd ?? '',

@@ -13,6 +13,7 @@ import {
 } from '#/app/agentProfileCatalog/contribution';
 import {
   DEFAULT_REPLY_STYLE_GUIDE,
+  isBunStdlibCapable,
   profileCanDelegate,
   renderPromptTemplateResult,
   renderSystemPromptResult,
@@ -77,6 +78,62 @@ describe('systemPromptVars', () => {
     expect(Number.isNaN(Date.parse(vars['now'] ?? ''))).toBe(false);
   });
 
+  it('composes runtime notes with capability guidance for Bun >= 1.4', () => {
+    const vars = systemPromptVars(
+      {
+        osKind: 'Linux',
+        jsRuntimes: [
+          { name: 'bun', version: '1.4.0', path: '/usr/bin/bun' },
+          { name: 'node', version: '24.15.0', path: '/usr/bin/node' },
+        ],
+      },
+      { skillActive: true },
+    );
+
+    expect(vars['runtime_notes']).toContain('## JavaScript Runtimes');
+    expect(vars['runtime_notes']).toContain('**bun 1.4.0** (`/usr/bin/bun`)');
+    expect(vars['runtime_notes']).toContain('**node 24.15.0** (`/usr/bin/node`)');
+    expect(vars['runtime_notes']).toContain('Bun.Image');
+    expect(vars['runtime_notes']).toContain('`bun` interpreter');
+  });
+
+  it('omits capability guidance for Bun versions below 1.4', () => {
+    const vars = systemPromptVars(
+      { jsRuntimes: [{ name: 'bun', version: '1.3.14', path: '/usr/bin/bun' }] },
+      { skillActive: true },
+    );
+
+    expect(vars['runtime_notes']).toContain('**bun 1.3.14**');
+    expect(vars['runtime_notes']).not.toContain('Bun.Image');
+  });
+
+  it('lists node-only environments without capability guidance', () => {
+    const vars = systemPromptVars(
+      { jsRuntimes: [{ name: 'node', version: '24.15.0', path: '/usr/bin/node' }] },
+      { skillActive: true },
+    );
+
+    expect(vars['runtime_notes']).toContain('**node 24.15.0**');
+    expect(vars['runtime_notes']).not.toContain('Bun.Image');
+  });
+
+  it('renders runtime notes as empty without probe data and keeps the prompt stable', () => {
+    const empty = renderSystemPromptResult('', {}, { skillActive: true }).text;
+    expect(empty).not.toContain('JavaScript Runtimes');
+    const withRuntimes = renderSystemPromptResult(
+      '',
+      { jsRuntimes: [{ name: 'bun', version: '1.4.0', path: '/usr/bin/bun' }] },
+      { skillActive: true },
+    ).text;
+    expect(withRuntimes).toContain('## JavaScript Runtimes');
+    const again = renderSystemPromptResult(
+      '',
+      { jsRuntimes: [{ name: 'bun', version: '1.4.0', path: '/usr/bin/bun' }] },
+      { skillActive: true },
+    ).text;
+    expect(again).toBe(withRuntimes);
+  });
+
   it('empties skills and the skills section when the Skill tool is off', () => {
     const vars = systemPromptVars({ skills: 'SKILLS' }, { skillActive: false });
 
@@ -120,6 +177,21 @@ describe('systemPromptVars', () => {
 
     expect(vars['product_name']).toBe('Kimi Desktop');
     expect(vars['reply_style_guide']).toBe('GUI_STYLE');
+  });
+});
+
+describe('isBunStdlibCapable', () => {
+  it.each([
+    ['1.4.0', true],
+    ['1.4.12', true],
+    ['1.5.0', true],
+    ['2.0.0', true],
+    ['1.3.14', false],
+    ['1.3.0-beta.1', false],
+    ['', false],
+    ['garbage', false],
+  ])('bun %s -> stdlib capable: %s', (version, expected) => {
+    expect(isBunStdlibCapable(version)).toBe(expected);
   });
 });
 

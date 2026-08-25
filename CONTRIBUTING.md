@@ -45,6 +45,13 @@ cd kimi-code
 bun install
 ```
 
+> **Bun version note:** the committed `bun.lock` is lockfileVersion 3
+> (required by the nested `overrides`), so Bun **>= 1.4** is mandatory —
+> older Bun releases cannot read it. Also, after upgrading your local Bun,
+> the first `bun install` re-applies `patches/ssh2@1.17.0.patch` once; the
+> patch cache key changed from a 16 KiB hash to the full-file SHA-1. This is
+> expected, not a bug.
+
 Useful scripts:
 
 - `bun run dev:cli` — run the CLI in dev mode

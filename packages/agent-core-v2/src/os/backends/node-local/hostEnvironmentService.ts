@@ -11,6 +11,7 @@ import { applyLoginShellPathFromNode } from '#/_base/execEnv/loginShellPath';
 import {
   type HostEnvironmentInfo,
   IHostEnvironment,
+  type JsRuntimeInfo,
   type OsKind,
   type PathClass,
   type ShellName,
@@ -90,6 +91,10 @@ export class HostEnvironmentService implements IHostEnvironment {
 
   get homeDir(): string {
     return this.require('homeDir') as string;
+  }
+
+  get jsRuntimes(): ReadonlyArray<JsRuntimeInfo> | undefined {
+    return this.require('jsRuntimes') as ReadonlyArray<JsRuntimeInfo> | undefined;
   }
 }
 
