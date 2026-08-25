@@ -91,15 +91,7 @@ export async function engineFetch(
 ): Promise<EngineHttpResponse> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const origin = new URL(url).origin;
-  const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
   const dispatcher = dispatcherFor(url);
-  const signal =
-    options.signal !== undefined
-      ? AbortSignal.any([controller.signal, options.signal])
-      : controller.signal;
 
   const h3Eligible = isBunRuntime() && process.env['KIMI_CODE_SEARCH_H3'] !== '0';
   if (h3Eligible && h3OriginState(origin) === 'ok') {
@@ -109,6 +101,15 @@ export async function engineFetch(
       markH3Origin(origin, 'dead');
     }
   }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+  const signal =
+    options.signal !== undefined
+      ? AbortSignal.any([controller.signal, options.signal])
+      : controller.signal;
 
   try {
     const response = await undiciFetch(url, {
@@ -163,3 +164,9 @@ export async function engineFetch(
 }
 
 export { DEFAULT_USER_AGENT };
+
+/** No-op unless OPEN_WEBSEARCH_DEBUG=1; keeps library chatter out of the TUI. */
+export function debugLog(message: string): void {
+  if ((process.env['OPEN_WEBSEARCH_DEBUG'] ?? '') !== '1') return;
+  console.warn(message);
+}

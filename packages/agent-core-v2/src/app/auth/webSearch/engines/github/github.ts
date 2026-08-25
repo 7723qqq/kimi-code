@@ -1,6 +1,6 @@
 import { Error2, ErrorCodes } from '#/errors';
 
-import { engineFetch, type EngineHttpResponse } from '../engine-http';
+import { debugLog, engineFetch, type EngineHttpResponse } from '../engine-http';
 import type { ArticleFetchFn, SearchEngineOptions } from '../types';
 
 const README_CANDIDATES = [
@@ -124,12 +124,12 @@ async function fetchReadme(
       return content;
     }
     sawFetchFailure = true;
-    console.warn(`Empty or invalid README content for ${owner}/${repo} at ${readmeFile}`);
+    debugLog(`Empty or invalid README content for ${owner}/${repo} at ${readmeFile}`);
   }
   if (sawFetchFailure) {
-    console.warn(`Failed to fetch README for ${owner}/${repo}`);
+    debugLog(`Failed to fetch README for ${owner}/${repo}`);
   } else {
-    console.warn(`README not found for ${owner}/${repo}`);
+    debugLog(`README not found for ${owner}/${repo}`);
   }
   return undefined;
 }
@@ -140,7 +140,7 @@ async function getReadmeFromUrl(
 ): Promise<{ content: string } | undefined> {
   const repoInfo = extractOwnerAndRepo(githubUrl);
   if (repoInfo === null) {
-    console.warn(`Unable to extract owner and repo from URL: ${githubUrl}`);
+    debugLog(`Unable to extract owner and repo from URL: ${githubUrl}`);
     return undefined;
   }
   const content = await fetchReadme(repoInfo.owner, repoInfo.repo, options);

@@ -63,6 +63,17 @@ describe('engineFetch http3 adaptation', () => {
     expect((init as { protocol?: string })?.protocol).toBe('http3');
   });
 
+  it('leaves no dangling timeout behind the h3 fast path', async () => {
+    markH3Origin(ORIGIN, 'ok');
+    vi.useFakeTimers();
+    try {
+      await engineFetch(URL_);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('falls back to undici and marks the origin dead when h3 fails', async () => {
     markH3Origin(ORIGIN, 'ok');
     vi.mocked(undiciFetchMock).mockResolvedValue(undiciResponse() as never);
