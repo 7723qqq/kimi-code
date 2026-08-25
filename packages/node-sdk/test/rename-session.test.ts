@@ -15,9 +15,10 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { drainQueryStoreDisposals, drainSessionIndexMirror } from '@moonshot-ai/agent-core-v2';
+
 import type { KimiError } from '#/index';
 import { createKimiHarness, type Event } from '#/index';
-import { drainQueryStoreDisposals, drainSessionIndexMirror } from '#/sdk-rpc-client-v2';
 
 import { TEST_IDENTITY } from './test-identity';
 
