@@ -41,33 +41,11 @@ REPORT_ROOT_CONTAINER="/data/server-e2e-reports/docker"
 REPORT_DIR_CONTAINER="${REPORT_ROOT_CONTAINER}/${REPORT_DIR_NAME}"
 TMPDIR_CONTAINER="/data/docker-e2e/tmp"
 
-NM_ROOT="${STATE_ROOT}/docker-e2e/${RUN_ID}/nm"
-
-workspace_node_modules=(
-  "root:/workspace/kimi-code/node_modules"
-  "apps_kimi-code:/workspace/kimi-code/apps/kimi-code/node_modules"
-  "apps_kimi-web:/workspace/kimi-code/apps/kimi-web/node_modules"
-  "apps_vis:/workspace/kimi-code/apps/vis/node_modules"
-  "apps_vis_server:/workspace/kimi-code/apps/vis/server/node_modules"
-  "apps_vis_web:/workspace/kimi-code/apps/vis/web/node_modules"
-  "docs:/workspace/kimi-code/docs/node_modules"
-  "pkg_acp-server:/workspace/kimi-code/packages/acp-server/node_modules"
-  "pkg_agent-core-v2:/workspace/kimi-code/packages/agent-core-v2/node_modules"
-  "pkg_kap-server:/workspace/kimi-code/packages/kap-server/node_modules"
-  "pkg_klient:/workspace/kimi-code/packages/klient/node_modules"
-  "pkg_kaos:/workspace/kimi-code/packages/kaos/node_modules"
-  "pkg_kosong:/workspace/kimi-code/packages/kosong/node_modules"
-  "pkg_migration-legacy:/workspace/kimi-code/packages/migration-legacy/node_modules"
-  "pkg_node-sdk:/workspace/kimi-code/packages/node-sdk/node_modules"
-  "pkg_oauth:/workspace/kimi-code/packages/oauth/node_modules"
-  "pkg_protocol:/workspace/kimi-code/packages/protocol/node_modules"
-  "pkg_telemetry:/workspace/kimi-code/packages/telemetry/node_modules"
-)
+# Bun installs everything hoisted into the workspace-root node_modules, so a
+# single writable volume there is enough (the repo checkout stays read-only).
+NM_ROOT="${STATE_ROOT}/docker-e2e/${RUN_ID}/nm/root"
 
 mkdir -p "${STATE_ROOT}" "${KIMI_HOME_HOST}" "${REPORT_DIR_HOST}" "${NM_ROOT}"
-for mount in "${workspace_node_modules[@]}"; do
-  mkdir -p "${NM_ROOT}/${mount%%:*}"
-done
 
 # Seed only auth/config into the isolated docker-e2e home. Never copy server
 # locks, sessions, uploaded files, or reports from the compose server home.
@@ -78,8 +56,15 @@ if [[ -d "${SEED_HOME_HOST}/credentials" && ! -d "${KIMI_HOME_HOST}/credentials"
   cp -R "${SEED_HOME_HOST}/credentials" "${KIMI_HOME_HOST}/credentials"
 fi
 
-if [[ "${KIMI_SERVER_E2E_SKIP_BUILD:-0}" != "1" ]]; then
+if [[ ! -f "${REPO_ROOT}/Dockerfile" ]]; then
+  # This fork carries no repository-wide server dev image; fall back to a
+  # stock Node image and let the container script provision Bun itself.
+  BASE_IMAGE="${KIMI_SERVER_E2E_FALLBACK_BASE_IMAGE:-node:24-bookworm}"
+elif [[ "${KIMI_SERVER_E2E_SKIP_BUILD:-0}" != "1" ]]; then
   docker build -t "${BASE_IMAGE}" -f "${REPO_ROOT}/Dockerfile" "${REPO_ROOT}"
+fi
+
+if [[ "${KIMI_SERVER_E2E_SKIP_BUILD:-0}" != "1" ]]; then
   docker build \
     -t "${IMAGE}" \
     -f "${PACKAGE_DIR}/Dockerfile" \
@@ -96,18 +81,24 @@ cd /workspace/kimi-code
 mkdir -p "${KIMI_CODE_HOME}/server" "${KIMI_SERVER_E2E_REPORT_DIR}" "${TMPDIR}" /data/server-e2e-reports/docker
 rm -f "${KIMI_CODE_HOME}/server/lock"
 
-if [[ ! -e /workspace/kimi-code/node_modules/.modules.yaml || ! -e /workspace/kimi-code/packages/klient/node_modules/ws ]]; then
-  echo "[server-e2e:docker] installing pnpm deps"
-  pnpm install --frozen-lockfile
+if ! command -v bun >/dev/null 2>&1; then
+  echo "[server-e2e:docker] installing Bun runtime"
+  curl -fsSL https://bun.sh/install | bash
+  export PATH="${HOME}/.bun/bin:${PATH}"
+fi
+
+if [[ ! -e /workspace/kimi-code/node_modules/ws ]]; then
+  echo "[server-e2e:docker] installing dependencies with bun"
+  bun install --frozen-lockfile
 else
-  echo "[server-e2e:docker] pnpm deps already present"
+  echo "[server-e2e:docker] dependencies already present"
 fi
 
 server_log="/data/server-e2e-reports/docker/server.log"
 : > "${server_log}"
 
 echo "[server-e2e:docker] starting server on container-local ${KIMI_SERVER_URL}"
-pnpm dev:server -- \
+bun run dev:server \
   --host 127.0.0.1 \
   --port "${KIMI_SERVER_E2E_PORT}" \
   --log-level debug \
@@ -148,7 +139,7 @@ if [[ "${ready}" != "1" ]]; then
 fi
 
 cd /workspace/kimi-code/packages/klient
-pnpm test
+bun run test
 EOS
 
 docker_args=(
@@ -164,16 +155,11 @@ docker_args=(
   --env "TMPDIR=${TMPDIR_CONTAINER}"
   --env "TERM=xterm-256color"
   --env "TZ=Asia/Shanghai"
-  --env "npm_config_store_dir=/workspace/kimi-code/node_modules/.pnpm-store"
-  --env "npm_config_package_import_method=copy"
   --volume "${REPO_ROOT}:/workspace/kimi-code:ro"
   --volume "${KIMI_HOME_HOST}:${KIMI_HOME_CONTAINER}"
   --volume "${REPORT_ROOT_HOST}:${REPORT_ROOT_CONTAINER}"
+  --volume "${NM_ROOT}:/workspace/kimi-code/node_modules"
 )
-
-for mount in "${workspace_node_modules[@]}"; do
-  docker_args+=(--volume "${NM_ROOT}/${mount%%:*}:${mount#*:}")
-done
 
 echo "[server-e2e:docker] running ${IMAGE} without host port publishing"
 set +e

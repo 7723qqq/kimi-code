@@ -18,9 +18,7 @@ ENV KIMI_CODE_HOME=/data/docker-e2e/kimi-code-home \
     KIMI_SERVER_E2E_REPORT_DIR=/data/server-e2e-reports/docker/latest \
     TMPDIR=/data/docker-e2e/tmp \
     TERM=xterm-256color \
-    TZ=Asia/Shanghai \
-    npm_config_store_dir=/workspace/kimi-code/node_modules/.pnpm-store \
-    npm_config_package_import_method=copy
+    TZ=Asia/Shanghai
 
 WORKDIR /workspace/kimi-code/packages/klient
 

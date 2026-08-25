@@ -67,7 +67,10 @@ Run from `packages/klient`:
   — include the live legacy cases against a running server.
 - `bun run docker:e2e` — docker e2e; the run
   derives its runner name/namespace from the current workspace to avoid
-  cross-workspace conflicts.
+  cross-workspace conflicts. Dependencies install with Bun into a writable
+  node_modules volume; without a repository-root server dev Dockerfile the
+  harness falls back to a stock `node:24-bookworm` base image and provisions
+  Bun inside the container (`KIMI_SERVER_E2E_FALLBACK_BASE_IMAGE` overrides it).
 - `bun run typecheck` / `bun run smoke` (in-process
   smoke over the memory transport; see `examples/smoke.ts`).
 - `bun run smoke:boundary` — ModelRequester boundary
