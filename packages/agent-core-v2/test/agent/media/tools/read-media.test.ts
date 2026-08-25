@@ -24,7 +24,10 @@ import {
   type VideoUploader,
 } from '#/agent/tools/read-media-file/read-media-file';
 import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
-import type { ModelCapability } from '#/kosong/contract/capability';
+import {
+  UNKNOWN_CAPABILITY,
+  type ModelCapability,
+} from '#/kosong/contract/capability';
 import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
 import type { ContentPart } from '#/kosong/contract/message';
 import type { IModelCatalog } from '#/kosong/model/catalog';
@@ -684,6 +687,15 @@ describe('Read tool media reads', () => {
     );
     expect(result.isError).toBe(true);
     expect(result.output).toContain('does not support image input');
+  });
+
+  it('attempts the read when image capability is unknown instead of hard-blocking', async () => {
+    const result = await execute(
+      makeTool({ '/workspace/sample.png': { data: pngBuffer() } }, UNKNOWN_CAPABILITY),
+      { path: '/workspace/sample.png' },
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.output).not.toContain('does not support image input');
   });
 
   it('wraps a video as a data URL when no uploader is provided', async () => {

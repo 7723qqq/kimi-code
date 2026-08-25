@@ -16,7 +16,10 @@ import {
 } from '#/agent/media/image-format-policy';
 import { inlineVideoPart, isVideoUploadAuthError } from '#/agent/media/videoUpload';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ModelCapability } from '#/kosong/contract/capability';
+import {
+  isUnknownCapability,
+  type ModelCapability,
+} from '#/kosong/contract/capability';
 import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
 import type { ContentPart } from '#/kosong/contract/message';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
@@ -197,7 +200,12 @@ export async function executeMediaRead(
       };
     }
 
-    if (fileType.kind === 'image' && !ctx.capabilities.image_in) {
+    // An all-false capability set may mean the model id is simply missing
+    // from the static detection tables (custom relays, new model names).
+    // Only hard-block on a confirmed negative; let unknown capabilities
+    // through so a genuinely multimodal upstream can accept the image.
+    const capabilitiesUnknown = isUnknownCapability(ctx.capabilities);
+    if (fileType.kind === 'image' && !ctx.capabilities.image_in && !capabilitiesUnknown) {
       return {
         isError: true,
         output:
@@ -211,7 +219,7 @@ export async function executeMediaRead(
         output: buildImageConversionGuidance(args.path, fileType.mimeType, env.osKind),
       };
     }
-    if (fileType.kind === 'video' && !ctx.capabilities.video_in) {
+    if (fileType.kind === 'video' && !ctx.capabilities.video_in && !capabilitiesUnknown) {
       return {
         isError: true,
         output:
