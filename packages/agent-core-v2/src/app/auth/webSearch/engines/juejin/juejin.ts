@@ -1,7 +1,7 @@
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
-import { engineFetch } from '../engine-http';
+import { debugLog, engineFetch } from '../engine-http';
 import type { SearchEngineOptions } from '../types';
 
 const JUEJIN_SEARCH_URL = 'https://api.juejin.cn/search_api/v1/search';
@@ -157,7 +157,7 @@ export async function searchJuejin(
       );
     }
     if (parsed.err_no !== 0) {
-      console.warn(`Juejin API error: ${parsed.err_msg ?? 'unknown'}`);
+      debugLog(`Juejin API error: ${parsed.err_msg ?? 'unknown'}`);
       break;
     }
     if (!Array.isArray(parsed.data)) {

@@ -157,20 +157,26 @@ describe('FetchURLTool backend resolution', () => {
 });
 
 describe('LocalFetchURLProvider abort signal', () => {
-  it('passes the signal through to fetchImpl', async () => {
+  it('wires the caller signal into fetchImpl so aborts propagate', async () => {
     const controller = new AbortController();
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response('plain text', {
-        status: 200,
-        headers: { 'content-type': 'text/plain' },
-      }),
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          (init?.signal as AbortSignal | undefined)?.addEventListener('abort', () =>
+            reject(new Error('The operation was aborted.')),
+          );
+        }) as Promise<Response>,
     );
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
-    await provider.fetch('https://example.com/test', { signal: controller.signal });
+    const pending = expect(
+      provider.fetch('https://example.com/test', { signal: controller.signal }),
+    ).rejects.toThrow('The operation was aborted.');
+    await vi.waitUntil(() => fetchImpl.mock.calls.length > 0);
+    controller.abort();
+    await pending;
 
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [, init] = fetchImpl.mock.calls[0]!;
-    expect((init as RequestInit | undefined)?.signal).toBe(controller.signal);
+    expect((init as RequestInit | undefined)?.signal).toBeInstanceOf(AbortSignal);
   });
 });

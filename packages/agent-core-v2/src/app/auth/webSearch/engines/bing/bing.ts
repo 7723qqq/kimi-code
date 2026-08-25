@@ -2,7 +2,7 @@ import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
 import { loadHtml } from '../engine-html';
-import { engineFetch } from '../engine-http';
+import { debugLog, engineFetch } from '../engine-http';
 import type { SearchEngineOptions } from '../types';
 import { parseBingSearchResults, type BingSearchResult } from './parser';
 
@@ -150,14 +150,14 @@ async function searchBingWithHttp(
       );
     }
     if (pageState.hasResults && pageState.detectedKeywords.length > 0) {
-      console.warn(
+      debugLog(
         `Bing page contains suspicious keywords but also has results, skipping block detection: ${pageState.detectedKeywords.join(', ')}`,
       );
     }
     const results = parseBingSearchResults(html, limit - allResults.length);
     allResults.push(...results);
     if (results.length === 0) {
-      console.warn('No more Bing results from HTTP mode, ending early.');
+      debugLog('No more Bing results from HTTP mode, ending early.');
       break;
     }
     pageNumber += 1;

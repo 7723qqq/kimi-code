@@ -1029,12 +1029,14 @@ describe('WebSearchProviderService', () => {
         customHeaders: { 'X-Custom': 'yes' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      json: async () => ({
-        search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
-      }),
-    });
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
+        }),
+        { status: 200 },
+      ),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
@@ -1045,7 +1047,7 @@ describe('WebSearchProviderService', () => {
       { title: 'Title', url: 'https://example.com', snippet: 'Snippet' },
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://api.example.com/v1/search');
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer access-token');
@@ -1063,12 +1065,14 @@ describe('WebSearchProviderService', () => {
         customHeaders: { 'X-Custom': 'yes' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      json: async () => ({
-        search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
-      }),
-    });
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
+        }),
+        { status: 200 },
+      ),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
@@ -1079,7 +1083,7 @@ describe('WebSearchProviderService', () => {
     expect(results).toEqual([
       { title: 'Title', url: 'https://example.com', snippet: 'Snippet' },
     ]);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://search.example.com/search');
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer search-key');
@@ -1099,19 +1103,16 @@ describe('WebSearchProviderService', () => {
         oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      json: async () => ({
-        search_results: [{ title: 'T', url: 'https://result.example.com', snippet: 'S' }],
-      }),
-    });
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ search_results: [] }), { status: 200 }),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
     expect(provider).not.toBeUndefined();
     await provider!.search('hello');
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://config.example.com/search');
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer config-key');
@@ -1125,12 +1126,9 @@ describe('WebSearchProviderService', () => {
         oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      json: async () => ({
-        search_results: [{ title: 'T', url: 'https://result.example.com', snippet: 'S' }],
-      }),
-    });
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ search_results: [] }), { status: 200 }),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
@@ -1141,7 +1139,7 @@ describe('WebSearchProviderService', () => {
     });
     await provider!.search('hello');
 
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer access-token');
   });
 

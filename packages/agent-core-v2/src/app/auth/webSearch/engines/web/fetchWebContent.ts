@@ -1,14 +1,16 @@
 import type { LookupAddress } from 'node:dns';
 import { lookup } from 'node:dns/promises';
-import { BlockList, isIP } from 'node:net';
+import { isIP } from 'node:net';
 
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
 
 import { Error2, ErrorCodes } from '#/errors';
 
+import { isBlockedIpAddress } from '#/_base/utils/private-address';
+
 import { loadHtml, type EngineElement } from '../engine-html';
-import { engineFetch, type EngineHttpResponse } from '../engine-http';
+import { debugLog, engineFetch, type EngineHttpResponse } from '../engine-http';
 import type { SearchEngineOptions } from '../types';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -92,19 +94,12 @@ function isMarkdownPath(url: URL): boolean {
   return pathname.endsWith('.md') || pathname.endsWith('.markdown') || pathname.endsWith('.mdx');
 }
 
-function shouldDebugReadabilityFallback(): boolean {
-  return process.env['OPEN_WEBSEARCH_DEBUG'] === '1';
-}
-
 function logReadabilityFallback(message: string, error?: unknown): void {
-  if (!shouldDebugReadabilityFallback()) {
-    return;
-  }
   if (error instanceof Error) {
-    console.warn(`[fetchWebContent/readability] ${message}: ${error.message}`);
+    debugLog(`[fetchWebContent/readability] ${message}: ${error.message}`);
     return;
   }
-  console.warn(`[fetchWebContent/readability] ${message}`);
+  debugLog(`[fetchWebContent/readability] ${message}`);
 }
 
 function isAbortError(error: unknown): boolean {
@@ -199,28 +194,6 @@ function extractReadableLinks(html: string, finalUrl: string): FetchWebContentLi
   return links;
 }
 
-const PRIVATE_ADDRESS_BLOCKLIST = (() => {
-  const list = new BlockList();
-  list.addSubnet('0.0.0.0', 8, 'ipv4');
-  list.addSubnet('10.0.0.0', 8, 'ipv4');
-  list.addSubnet('100.64.0.0', 10, 'ipv4');
-  list.addSubnet('127.0.0.0', 8, 'ipv4');
-  list.addSubnet('169.254.0.0', 16, 'ipv4');
-  list.addSubnet('172.16.0.0', 12, 'ipv4');
-  list.addSubnet('192.168.0.0', 16, 'ipv4');
-  list.addSubnet('::', 128, 'ipv6');
-  list.addSubnet('::1', 128, 'ipv6');
-  list.addSubnet('fc00::', 7, 'ipv6');
-  list.addSubnet('fe80::', 10, 'ipv6');
-  return list;
-})();
-
-function isBlockedAddress(address: string): boolean {
-  const normalized = address.split('%', 1)[0] ?? address;
-  if (isIP(normalized) === 4) return PRIVATE_ADDRESS_BLOCKLIST.check(normalized, 'ipv4');
-  return isIP(normalized) === 6 && PRIVATE_ADDRESS_BLOCKLIST.check(normalized, 'ipv6');
-}
-
 function assertPublicHttpUrl(url: string | URL, label = 'URL'): URL {
   const parsed = typeof url === 'string' ? new URL(url) : url;
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -231,7 +204,7 @@ function assertPublicHttpUrl(url: string | URL, label = 'URL'): URL {
   const hostRaw = parsed.hostname.toLowerCase();
   const host = hostRaw.startsWith('[') && hostRaw.endsWith(']') ? hostRaw.slice(1, -1) : hostRaw;
   if (isIP(host) !== 0) {
-    if (isBlockedAddress(host)) {
+    if (isBlockedIpAddress(host)) {
       throw new Error2(
         ErrorCodes.WEB_FETCH_FAILED,
         `${label} points to a private or local network target.`,
@@ -272,7 +245,7 @@ async function assertPublicHttpUrlResolved(url: string | URL, label = 'URL'): Pr
     });
   }
   for (const entry of addresses) {
-    if (isBlockedAddress(entry.address)) {
+    if (isBlockedIpAddress(entry.address)) {
       throw new Error2(
         ErrorCodes.WEB_FETCH_FAILED,
         `${label} resolves to a private or local network target.`,

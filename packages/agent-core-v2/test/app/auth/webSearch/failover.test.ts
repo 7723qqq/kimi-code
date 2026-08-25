@@ -36,6 +36,20 @@ describe('createFailoverWebSearchProvider', () => {
     expect(r.map((x) => x.title)).toEqual(['found']);
   });
 
+  it('returns an empty result set when every candidate comes back empty without errors', async () => {
+    const p = createFailoverWebSearchProvider([provider([]), provider([])]);
+    expect(await p.search('q')).toEqual([]);
+  });
+
+  it('still surfaces the error when a candidate fails even though another was merely empty', async () => {
+    const empty = provider([]);
+    const boom = provider([], () => {
+      throw new Error('boom');
+    });
+    const p = createFailoverWebSearchProvider([empty, boom]);
+    await expect(p.search('q')).rejects.toThrow('boom');
+  });
+
   it('surfaces the last error when every candidate fails', async () => {
     const boom = provider([], () => {
       throw new Error('network down');

@@ -56,7 +56,7 @@ export function resolveResultLimit(env: Record<string, string | undefined> = pro
 
 export interface LocalWebSearchProviderOptions {
   fetchImpl?: typeof fetch;
-  /** Engine override; defaults to `KIMI_CODE_SEARCH_ENGINE` or duckduckgo. */
+  /** Engine override; defaults to `KIMI_CODE_SEARCH_ENGINE` or bing. */
   engine?: string;
   env?: Record<string, string | undefined>;
 }

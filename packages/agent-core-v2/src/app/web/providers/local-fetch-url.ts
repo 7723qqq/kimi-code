@@ -1,11 +1,12 @@
 import { lookup as callbackLookup, type LookupAddress, type LookupOptions } from 'node:dns';
 import { lookup } from 'node:dns/promises';
-import { BlockList, isIP, type LookupFunction } from 'node:net';
+import { isIP, type LookupFunction } from 'node:net';
 
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
 import { Agent, fetch as undiciFetch, type Dispatcher } from '#/_base/utils/undici-npm';
 
+import { isBlockedIpAddress } from '#/_base/utils/private-address';
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -28,6 +29,8 @@ const DEFAULT_USER_AGENT =
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 const MAX_REDIRECT_HOPS = 10;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -37,6 +40,8 @@ export interface LocalFetchURLProviderOptions {
   fetchImpl?: typeof fetch;
   maxBytes?: number;
   allowPrivateAddresses?: boolean;
+  /** Budget shared by the whole fetch call, across all redirect hops. */
+  timeoutMs?: number;
 }
 
 /**
@@ -58,18 +63,26 @@ export interface LocalFetchURLProviderOptions {
  * whose global fetch is not undici (Bun) it would be ignored — silently
  * dropping DNS pinning and re-resolving through whatever resolver the runtime
  * prefers. Pinning the implementation keeps Node and Bun semantics identical.
+ *
+ * The whole call runs against one shared deadline (`timeoutMs`, default
+ * 30s): every redirect hop gets the remaining budget, a hung server surfaces
+ * as a "timed out" error instead of riding undici's multi-minute defaults,
+ * and response bodies are streamed with the same `maxBytes` cap applied
+ * incrementally rather than buffered first.
  */
 export class LocalFetchURLProvider implements UrlFetcher {
   private readonly userAgent: string;
   private readonly fetchImpl: typeof fetch;
   private readonly maxBytes: number;
   private readonly allowPrivateAddresses: boolean;
+  private readonly timeoutMs: number;
 
   constructor(options: LocalFetchURLProviderOptions = {}) {
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
     this.fetchImpl = options.fetchImpl ?? (undiciFetch as unknown as typeof fetch);
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.allowPrivateAddresses = options.allowPrivateAddresses ?? false;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
   async fetch(
@@ -110,24 +123,11 @@ export class LocalFetchURLProvider implements UrlFetcher {
       if (Number.isFinite(cl) && cl > this.maxBytes) {
         await response.body?.cancel().catch(() => {
         });
-        throw new Error2(
-          ErrorCodes.WEB_FETCH_FAILED,
-          `Response body too large: ${String(cl)} bytes exceeds maxBytes (${String(this.maxBytes)}).`,
-          { details: { bytes: cl, maxBytes: this.maxBytes } },
-        );
+        throw tooLargeError(cl, this.maxBytes);
       }
     }
 
-    const body = await response.text();
-
-    const actualBytes = Buffer.byteLength(body, 'utf8');
-    if (actualBytes > this.maxBytes) {
-      throw new Error2(
-        ErrorCodes.WEB_FETCH_FAILED,
-        `Response body too large: ${String(actualBytes)} bytes exceeds maxBytes (${String(this.maxBytes)}).`,
-        { details: { bytes: actualBytes, maxBytes: this.maxBytes } },
-      );
-    }
+    const body = stripBom(await readBodyWithCap(response.body, this.maxBytes));
 
     const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
     if (contentType.startsWith('text/plain') || contentType.startsWith('text/markdown')) {
@@ -142,17 +142,12 @@ export class LocalFetchURLProvider implements UrlFetcher {
     signal: AbortSignal | undefined,
     dispatchers: Dispatcher[],
   ): Promise<Response> {
+    const deadline = Date.now() + this.timeoutMs;
     let currentUrl = url;
     let redirects = 0;
     for (;;) {
       const target = await resolveSafeFetchTarget(currentUrl, this.allowPrivateAddresses);
-      const response = await this.fetchImpl(currentUrl, {
-        method: 'GET',
-        headers: { 'User-Agent': this.userAgent },
-        signal,
-        redirect: 'manual',
-        dispatcher: this.pinnedDispatcherFor(target, dispatchers) as unknown,
-      } as RequestInit);
+      const response = await this.fetchWithDeadline(currentUrl, target, signal, dispatchers, deadline);
       if (!REDIRECT_STATUSES.has(response.status)) return response;
       const location = response.headers.get('location');
       if (location === null) return response;
@@ -166,6 +161,39 @@ export class LocalFetchURLProvider implements UrlFetcher {
       }
       redirects += 1;
       currentUrl = new URL(location, currentUrl).toString();
+    }
+  }
+
+  private async fetchWithDeadline(
+    url: string,
+    target: SafeFetchTarget,
+    signal: AbortSignal | undefined,
+    dispatchers: Dispatcher[],
+    deadline: number,
+  ): Promise<Response> {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw fetchTimeoutError(url, this.timeoutMs);
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, remaining);
+    try {
+      const hopSignal =
+        signal !== undefined ? AbortSignal.any([controller.signal, signal]) : controller.signal;
+      return await this.fetchImpl(url, {
+        method: 'GET',
+        headers: { 'User-Agent': this.userAgent },
+        signal: hopSignal,
+        redirect: 'manual',
+        dispatcher: this.pinnedDispatcherFor(target, dispatchers) as unknown,
+      } as RequestInit);
+    } catch (error) {
+      if (controller.signal.aborted && signal?.aborted !== true) {
+        throw fetchTimeoutError(url, this.timeoutMs);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -218,26 +246,47 @@ export class LocalFetchURLProvider implements UrlFetcher {
   }
 }
 
-const PRIVATE_ADDRESS_BLOCKLIST = (() => {
-  const list = new BlockList();
-  list.addSubnet('0.0.0.0', 8, 'ipv4');
-  list.addSubnet('10.0.0.0', 8, 'ipv4');
-  list.addSubnet('100.64.0.0', 10, 'ipv4');
-  list.addSubnet('127.0.0.0', 8, 'ipv4');
-  list.addSubnet('169.254.0.0', 16, 'ipv4');
-  list.addSubnet('172.16.0.0', 12, 'ipv4');
-  list.addSubnet('192.168.0.0', 16, 'ipv4');
-  list.addSubnet('::', 128, 'ipv6');
-  list.addSubnet('::1', 128, 'ipv6');
-  list.addSubnet('fc00::', 7, 'ipv6');
-  list.addSubnet('fe80::', 10, 'ipv6');
-  return list;
-})();
+function tooLargeError(bytes: number, maxBytes: number): Error2 {
+  return new Error2(
+    ErrorCodes.WEB_FETCH_FAILED,
+    `Response body too large: ${String(bytes)} bytes exceeds maxBytes (${String(maxBytes)}).`,
+    { details: { bytes, maxBytes } },
+  );
+}
 
-function isBlockedAddress(address: string): boolean {
-  const normalized = address.split('%', 1)[0] ?? address;
-  if (isIP(normalized) === 4) return PRIVATE_ADDRESS_BLOCKLIST.check(normalized, 'ipv4');
-  return isIP(normalized) === 6 && PRIVATE_ADDRESS_BLOCKLIST.check(normalized, 'ipv6');
+function fetchTimeoutError(url: string, timeoutMs: number): Error2 {
+  return new Error2(
+    ErrorCodes.WEB_FETCH_FAILED,
+    `Fetching "${url}" timed out after ${String(timeoutMs)}ms.`,
+    { details: { url, timeoutMs } },
+  );
+}
+
+async function readBodyWithCap(
+  body: ReadableStream<Uint8Array> | null,
+  maxBytes: number,
+): Promise<string> {
+  if (body === null) return '';
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) throw tooLargeError(total, maxBytes);
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function stripBom(text: string): string {
+  return text.startsWith('\uFEFF') ? text.slice(1) : text;
 }
 
 interface SafeFetchTarget {
@@ -265,7 +314,7 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
   const port = parsed.port !== '' ? parsed.port : parsed.protocol === 'https:' ? '443' : '80';
   if (allowPrivate) return { host, port };
   if (isIP(host) !== 0) {
-    if (isBlockedAddress(host)) {
+    if (isBlockedIpAddress(host)) {
       throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, `Refusing to fetch private address: "${host}"`, {
         details: { host },
       });
@@ -290,7 +339,7 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
     );
   }
   for (const { address } of addresses) {
-    if (isBlockedAddress(address)) {
+    if (isBlockedIpAddress(address)) {
       throw new Error2(
         ErrorCodes.WEB_PRIVATE_ADDRESS,
         `Refusing to fetch host "${host}": resolves to private address "${address}".`,

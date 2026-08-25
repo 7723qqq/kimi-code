@@ -184,10 +184,7 @@ describe('WebFetchService', () => {
         customHeaders: { 'X-Custom': 'yes' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      text: async () => 'page body',
-    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await fetcher().fetch('https://example.com/page');
@@ -211,10 +208,7 @@ describe('WebFetchService', () => {
         customHeaders: { 'X-Config': '1' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      text: async () => 'page body',
-    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
     expect(fetcher()).toBeInstanceOf(MoonshotFetchURLProvider);
@@ -236,7 +230,7 @@ describe('WebFetchService', () => {
     servicesConfig = {
       moonshotFetch: { baseUrl: 'https://fetch.example.com/fetch', apiKey: 'fetch-key' },
     };
-    const fetchMock = vi.fn().mockResolvedValue({ status: 200, text: async () => 'page body' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
     await fetcher().fetch('https://example.com/page');
@@ -253,7 +247,7 @@ describe('WebFetchService', () => {
       baseUrl: 'https://api.example.com/v1',
       oauth: { storage: 'file', key: 'oauth/kimi-code' },
     };
-    const fetchMock = vi.fn().mockResolvedValue({ status: 200, text: async () => 'page body' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
     await fetcher().fetch('https://example.com/page');

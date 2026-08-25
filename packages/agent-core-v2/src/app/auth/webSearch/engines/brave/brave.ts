@@ -2,7 +2,7 @@ import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
 import { loadHtml, type EngineElement } from '../engine-html';
-import { engineFetch } from '../engine-http';
+import { debugLog, engineFetch } from '../engine-http';
 import type { SearchEngineOptions } from '../types';
 
 const BRAVE_BASE_URL = 'https://search.brave.com/search';
@@ -139,7 +139,7 @@ export async function searchBrave(
     const results = parseBraveResults(html);
     allResults.push(...results);
     if (results.length === 0) {
-      console.warn('No more Brave results, ending early.');
+      debugLog('No more Brave results, ending early.');
       break;
     }
     pn += 1;

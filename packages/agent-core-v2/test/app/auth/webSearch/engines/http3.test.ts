@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, vi, it } from 'vitest';
 import { engineFetch } from '#/app/auth/webSearch/engines/engine-http';
 import { undiciFetch as undiciFetchMock } from '#/app/auth/webSearch/engines/engine-undici';
 import {
+  h3Fetch,
   h3OriginState,
   isBunRuntime,
   markH3Origin,
@@ -58,6 +59,17 @@ describe('engineFetch http3 adaptation', () => {
     expect(vi.mocked(undiciFetchMock)).not.toHaveBeenCalled();
     const init = vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit | undefined;
     expect((init as { protocol?: string })?.protocol).toBe('http3');
+  });
+
+  it('leaves no dangling timeout behind the h3 fast path', async () => {
+    markH3Origin(ORIGIN, 'ok');
+    vi.useFakeTimers();
+    try {
+      await engineFetch(URL_);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('falls back to undici and marks the origin dead when h3 fails', async () => {
@@ -117,5 +129,74 @@ describe('engineFetch http3 adaptation', () => {
     await vi.waitFor(() => expect(h3OriginState(ORIGIN)).toBe('ok'));
 
     expect(h3Attempts).toBe(1);
+  });
+});
+
+describe('h3Fetch direct routing behind a proxy', () => {
+  beforeEach(() => {
+    resetH3States();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('exempts the target host from proxy env while an h3 request is in flight', async () => {
+    vi.stubEnv('HTTPS_PROXY', 'http://proxy.example:8080');
+    let seenNoProxy: string | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        seenNoProxy = process.env['NO_PROXY'];
+        return new Response('ok', { status: 200 });
+      }),
+    );
+
+    await h3Fetch('https://h3.test/search?q=x', { timeoutMs: 1000 });
+
+    expect(seenNoProxy).toContain('h3.test');
+    expect(process.env['NO_PROXY']).toBeUndefined();
+    expect(process.env['no_proxy']).toBeUndefined();
+  });
+
+  it('restores a pre-existing NO_PROXY verbatim afterwards', async () => {
+    vi.stubEnv('HTTPS_PROXY', 'http://proxy.example:8080');
+    vi.stubEnv('NO_PROXY', 'internal.example,*.corp.example');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
+
+    await h3Fetch('https://h3.test/', { timeoutMs: 1000 });
+
+    expect(process.env['NO_PROXY']).toBe('internal.example,*.corp.example');
+    expect(process.env['no_proxy']).toBe(
+      process.platform === 'win32' ? 'internal.example,*.corp.example' : undefined,
+    );
+  });
+
+  it('keeps earlier hosts exempt until their own concurrent calls finish', async () => {
+    vi.stubEnv('HTTPS_PROXY', 'http://proxy.example:8080');
+    let releaseFirst!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const snapshots: (string | undefined)[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL) => {
+        snapshots.push(process.env['NO_PROXY']);
+        if (snapshots.length === 1) await gate;
+        return new Response('ok', { status: 200 });
+      }),
+    );
+
+    const first = h3Fetch('https://a.test/', { timeoutMs: 5000 });
+    const second = h3Fetch('https://b.test/', { timeoutMs: 5000 });
+    await second;
+    expect(snapshots[1]).toContain('a.test');
+    expect(snapshots[1]).toContain('b.test');
+
+    releaseFirst();
+    await first;
+    expect(process.env['NO_PROXY']).toBeUndefined();
   });
 });

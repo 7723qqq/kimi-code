@@ -358,3 +358,81 @@ describe('LocalFetchURLProvider connection pinning', () => {
     expect(asUndiciAgent(dispatcher).closed).toBe(true);
   });
 });
+
+describe('LocalFetchURLProvider timeouts and streaming caps', () => {
+  beforeEach(() => {
+    lookupMock.mockReset();
+    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+    for (const key of ['http_proxy', 'HTTP_PROXY', 'https_proxy', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY']) {
+      vi.stubEnv(key, '');
+    }
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  function hungResponse(): (url: unknown, init?: RequestInit) => Promise<Response> {
+    return (_url, init) =>
+      new Promise((_resolve, reject) => {
+        const signal = init?.signal as AbortSignal | undefined;
+        signal?.addEventListener('abort', () =>
+          reject(new Error('The operation was aborted.')),
+        );
+      }) as Promise<Response>;
+  }
+
+  it('reports a timed-out error when the server hangs past the shared deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn<typeof fetch>(hungResponse());
+      const provider = new LocalFetchURLProvider({ fetchImpl, timeoutMs: 1000 });
+      const pending = expect(provider.fetch('https://example.com/')).rejects.toThrow(
+        /timed out after 1000ms/,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      await pending;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('propagates a caller abort during a hang instead of reporting a timeout', async () => {
+    const caller = new AbortController();
+    const fetchImpl = vi.fn<typeof fetch>(hungResponse());
+    const provider = new LocalFetchURLProvider({ fetchImpl, timeoutMs: 60_000 });
+
+    const pending = expect(
+      provider.fetch('https://example.com/', { signal: caller.signal }),
+    ).rejects.toThrow('The operation was aborted.');
+    await vi.waitUntil(() => fetchImpl.mock.calls.length > 0);
+    caller.abort();
+    await pending;
+  });
+
+  it('rejects an oversized chunked response while streaming, before buffering it', async () => {
+    let pullCount = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pullCount += 1;
+        if (pullCount <= 100) {
+          controller.enqueue(new Uint8Array(100).fill(0x61));
+        } else {
+          controller.close();
+        }
+      },
+    });
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(stream, { status: 200, headers: { 'content-type': 'text/plain' } }),
+      );
+    const provider = new LocalFetchURLProvider({ fetchImpl, maxBytes: 1000 });
+
+    await expect(provider.fetch('https://example.com/chunked')).rejects.toThrow(
+      'Response body too large',
+    );
+    expect(pullCount).toBeLessThan(30);
+  });
+});

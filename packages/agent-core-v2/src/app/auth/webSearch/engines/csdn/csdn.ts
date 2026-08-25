@@ -1,7 +1,7 @@
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
-import { engineFetch } from '../engine-http';
+import { debugLog, engineFetch } from '../engine-http';
 import type { SearchEngineOptions } from '../types';
 
 const CSDN_SEARCH_URL = 'https://so.csdn.net/api/v3/search';
@@ -124,7 +124,7 @@ export async function searchCsdn(
     }
     allResults.push(...results);
     if (results.length === 0) {
-      console.warn('No more CSDN results, ending early.');
+      debugLog('No more CSDN results, ending early.');
       break;
     }
     pn += 1;
