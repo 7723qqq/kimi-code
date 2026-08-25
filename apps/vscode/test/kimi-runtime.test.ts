@@ -2,7 +2,7 @@
  * Scenario: the VS Code host owns one Kimi harness and routes Webviews to shared SDK sessions.
  * Responsibilities: create/resume/switch, per-session settings, multi-view ownership, detach, and disposal.
  * Wiring: KimiRuntime and SessionRuntime are real; in-memory Session/KimiHarness fakes form the public SDK boundary.
- * Run: pnpm exec vitest run --config apps/vscode/vitest.config.ts test/kimi-runtime.test.ts
+ * Run: bunx vitest run --config apps/vscode/vitest.config.ts test/kimi-runtime.test.ts
  */
 
 import type {

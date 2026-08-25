@@ -2,7 +2,7 @@
  * Scenario: Node SDK sessions persist and list through the public harness.
  * Responsibilities: workDir scoping and native path-safe listing.
  * Wiring: real in-process harness/session storage; no remote provider calls.
- * Run: pnpm exec vitest run test/list-sessions.test.ts
+ * Run: bunx vitest run test/list-sessions.test.ts
  *
  * The former `SessionStore.list` suite (workDir bucket layout, session-index
  * file format, fork wire details, mtime sorting, legacy flat scanning) tested

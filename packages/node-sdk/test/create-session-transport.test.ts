@@ -2,7 +2,7 @@
  * Scenario: KimiHarness session creation and resume transport behavior.
  * Responsibilities: SDK options reach the in-process core and session identity remains stable.
  * Wiring: the real SDK/core are used; model/network boundaries are configured but never called.
- * Run: pnpm -C packages/node-sdk exec vitest run test/create-session-transport.test.ts
+ * Run: cd packages/node-sdk && bunx vitest run test/create-session-transport.test.ts
  */
 
 import { existsSync } from 'node:fs';

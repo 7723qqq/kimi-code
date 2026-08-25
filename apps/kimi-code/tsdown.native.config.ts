@@ -27,7 +27,7 @@ function shouldAlwaysBundle(id: string): boolean {
   if (optionalNativeDependencies.has(id)) return false;
   // Everything else is force-bundled, which covers `@moonshot-ai/*` (incl.
   // vis-server for `kimi vis`) plus its transitive `hono` / `@hono/node-server`
-  // — so the SEA bundle is self-contained (check-bundle.mjs enforces this).
+  // — so the native bundle is self-contained (check-bundle.mjs enforces this).
   return true;
 }
 

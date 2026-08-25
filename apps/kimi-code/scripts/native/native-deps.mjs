@@ -107,7 +107,7 @@ export const nativeDeps = Object.freeze([
     // pi-tui's JS is bundled into main.cjs, so only the platform-specific
     // native helper (.node under native/) ships alongside the binary — its
     // dist/ JS is intentionally NOT collected (it stays in the bundle). This
-    // keeps the SEA native-asset payload small. Linux has no native helper.
+    // keeps the embedded native-asset payload small. Linux has no native helper.
     collect: 'native-file-only',
     parent: null,
     nativeFileRelatives: (target) => piTuiNativeFileByTarget[target] ?? [],
@@ -125,7 +125,7 @@ export const nativeDeps = Object.freeze([
     name: () => '@moonshot-ai/kimi-agent',
     // Rust NAPI module — the agent engine (turn loop, LLM proxy, tool dispatch).
     // JS (rust-loop.ts) is bundled into main.cjs; only the .node binary ships
-    // as a native asset so the SEA exe can load it at runtime.
+    // as a native asset so the compiled Bun binary can load it at runtime.
     collect: 'native-files',
     parent: null,
   },

@@ -34,7 +34,7 @@ function errorCode(error: unknown): string {
 }
 
 /**
- * Install the SEA-bundled global-search worker without making optional
+ * Install the embedded global-search worker without making optional
  * extraction fatal. Without it the search service resolves no worker entry
  * inside the single-file binary and reports the index as degraded.
  */

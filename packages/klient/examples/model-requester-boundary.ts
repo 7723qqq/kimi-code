@@ -30,7 +30,7 @@
  * and request-side encoding of tool declarations and tool results.
  *
  * Run (the examples tsconfig enables the decorators the engine sources need):
- *   pnpm -C packages/klient smoke:boundary
+ *   cd packages/klient && bun run smoke:boundary
  *
  * Env:
  *   KIMI_CODE_HOME        — default `~/.kimi-code`

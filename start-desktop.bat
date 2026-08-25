@@ -1,5 +1,5 @@
 @echo off
-REM Kimi Code Desktop launcher — builds the SEA and runs a vendored Electron shell.
+REM Kimi Code Desktop launcher — builds the native binary (bun) and runs a vendored Electron shell.
 REM Usage: double-click or run from cmd/powershell.
 
 setlocal
@@ -31,12 +31,12 @@ if not exist "packages\kimi-native-tools\kimi-native-tools.win32-x64-msvc.node" 
     cd /d "%~dp0"
 )
 
-REM Build the SEA executable (one-time, skip if already built).
+REM Build the native executable (one-time, skip if already built).
 if not exist "apps\kimi-code\dist-native\bin\win32-x64\kimi.exe" (
-    echo Building SEA executable...
+    echo Building native binary (bun)...
     call bun run --cwd apps/kimi-code build:native:bun
     if errorlevel 1 (
-        echo [ERROR] SEA build failed.
+        echo [ERROR] Native build failed.
         pause
         exit /b 1
     )

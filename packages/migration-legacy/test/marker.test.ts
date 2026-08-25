@@ -6,7 +6,7 @@ import { join } from 'node:path';
  * Scenario: legacy migration marker persistence and prompt suppression.
  * Responsibilities: preserve run history and decide whether one target still needs migration.
  * Wiring: real temporary filesystem; no stubbed collaborators.
- * Run: pnpm --filter @moonshot-ai/migration-legacy test -- marker.test.ts
+ * Run: cd packages/migration-legacy && bun run test -- marker.test.ts
  */
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 

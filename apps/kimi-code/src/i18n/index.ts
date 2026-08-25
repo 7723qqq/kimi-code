@@ -29,11 +29,10 @@ export type { Locale };
 export type TranslationKey = SharedTranslationKey<typeof en>;
 export type Engine = 'rust' | 'js';
 
-// In a SEA binary, @moonshot-ai/kimi-native-tools is excluded from the JS
-// bundle and shipped as a native asset. The Module._load hook approach
-// doesn't work because the SEA runtime throws ERR_UNKNOWN_BUILTIN_MODULE
-// before Module._load is called. Instead, ensureNative() falls back to
-// loading the module from the native asset cache via getNativePackageRoot.
+// In the compiled Bun binary, @moonshot-ai/kimi-native-tools is excluded
+// from the JS bundle and shipped as an embedded asset. When the direct
+// require() fails there, ensureNative() falls back to loading the module
+// from the native asset cache via getNativePackageRoot.
 import { getNativePackageRoot } from '../native/native-assets';
 
 const messages = { en, zh } as const;
@@ -105,7 +104,7 @@ function ensureNative(): NativeModule {
     localeJsonEn = JSON.stringify(en);
     return mod;
   } catch {
-    // In a SEA binary the module is a native asset, not a bundled JS module.
+    // In the compiled binary the module is an embedded asset, not a bundled JS module.
     // Load it from the extracted cache via getNativePackageRoot.
     const pkgRoot = getNativePackageRoot('@moonshot-ai/kimi-native-tools');
     if (pkgRoot === null)

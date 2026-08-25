@@ -2,7 +2,7 @@
  * Scenario: prompt-driven session behavior, including historical-turn forks.
  * Responsibilities: public SDK events, persisted replay, metadata, and input errors.
  * Wiring: real in-process core/storage with only the remote model provider stubbed.
- * Run: pnpm exec vitest run packages/node-sdk/test/session-prompt-events.test.ts
+ * Run: bunx vitest run packages/node-sdk/test/session-prompt-events.test.ts
  */
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';

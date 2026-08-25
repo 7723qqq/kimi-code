@@ -148,7 +148,7 @@ describe('detectInstallSource', () => {
     ).resolves.toBe('homebrew');
   });
 
-  it('returns native when SEA isSea() is true (highest priority)', async () => {
+  it('returns native when detectNative reports a packaged SEA-era install (highest priority)', async () => {
     await expect(
       detectInstallSource({
         getPackageRoot: () => '/usr/local/lib/node_modules/@moonshot-ai/kimi-code',

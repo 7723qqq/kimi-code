@@ -22,7 +22,7 @@ async function assertWebAssets() {
   } catch {
     throw new Error(
       `未找到已提交的 web 产物 ${target}/index.html。web 产物由 code-app 仓同步（见根 AGENTS.md），` +
-        '请从该仓运行 `KIMI_CODE_REPO=<此 checkout> pnpm run sync:web` 并提交 dist-web。',
+        '请在该仓完成同步后将 dist-web 提交到本仓。',
     );
   }
 

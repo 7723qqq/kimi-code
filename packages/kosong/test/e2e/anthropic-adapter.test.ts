@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
  * Scenario: exercise the Anthropic adapter over a real local HTTP connection.
  * Responsibilities: verify public-provider request serialization and response parsing at the wire.
  * Wiring: the provider and Anthropic SDK are real; only the remote Messages API is stubbed.
- * Run: pnpm exec vitest run packages/kosong/test/e2e/anthropic-adapter.test.ts
+ * Run: bunx vitest run packages/kosong/test/e2e/anthropic-adapter.test.ts
  */
 import type { Message, StreamedMessagePart, ToolCall } from '#/message';
 import { AnthropicChatProvider } from '#/providers/anthropic';

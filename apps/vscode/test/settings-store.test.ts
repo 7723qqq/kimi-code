@@ -2,7 +2,7 @@
  * Scenario: Webview state crosses the VS Code bridge during settings changes, MCP edits, and chat failures.
  * Responsibilities: model metadata and selections remain provider-aware; MCP edits stay lossless; chat errors recover visibly.
  * Wiring: the real Zustand store and MCP bridge; settings saves, toast, and the VS Code messaging API are the only replaced boundaries.
- * Run: pnpm exec vitest run --config apps/vscode/vitest.config.ts test/settings-store.test.ts
+ * Run: bunx vitest run --config apps/vscode/vitest.config.ts test/settings-store.test.ts
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

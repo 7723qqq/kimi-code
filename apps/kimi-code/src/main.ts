@@ -170,7 +170,7 @@ function bootstrap(): void {
   // before any client is constructed. No-op when no proxy variable is set; an
   // invalid proxy URL is reported and ignored rather than aborting startup.
   installGlobalProxyDispatcher(process.env);
-  // Best-effort SEA worker installation. Diagnostics are trace-only and avoid
+  // Best-effort worker installation. Diagnostics are trace-only and avoid
   // exposing the user's cache path; failure keeps MiniDb's bounded inline mode.
   const workerInstall = installMinidbTextBuildWorker();
   startupTrace(
@@ -180,7 +180,7 @@ function bootstrap(): void {
         ? `minidb-worker:failed code=${workerInstall.errorCode} sha256=${workerInstall.assetSha256 ?? 'unknown'}`
         : `minidb-worker:${workerInstall.status}`,
   );
-  // Same pattern for the global-search worker: extracted from the SEA blob so
+  // Same pattern for the global-search worker: extracted from the embedded assets so
   // the search index runs off the main thread; a failure leaves the search
   // surface degraded.
   const searchWorkerInstall = installKapSearchWorker();

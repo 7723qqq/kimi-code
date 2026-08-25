@@ -4,7 +4,7 @@
  * KIMI_CODE_LEGACY_FLAG override the setting, and ignore non-truthy env values.
  * Wiring: the real VSCodeSettings module; the vscode configuration store is a
  * mutable in-memory fake.
- * Run: pnpm --filter kimi-code exec vitest run test/vscode-settings.test.ts
+ * Run: cd apps/vscode && bunx vitest run test/vscode-settings.test.ts
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

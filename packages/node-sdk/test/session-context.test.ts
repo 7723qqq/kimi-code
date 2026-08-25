@@ -2,7 +2,7 @@
  * Scenario: host-managed context changes through the public Session API.
  * Responsibilities: clear/import behavior, validation, status, and persisted resume.
  * Wiring: real in-process core and filesystem storage; no model boundary is invoked.
- * Run: pnpm exec vitest run packages/node-sdk/test/session-context.test.ts
+ * Run: bunx vitest run packages/node-sdk/test/session-context.test.ts
  */
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';

@@ -11,7 +11,7 @@
  * transcript grows.
  *
  * Run:
- *   pnpm --filter @moonshot-ai/kimi-code exec vitest bench test/tui/render-memo.bench.ts
+ *   cd apps/kimi-code && bunx vitest bench test/tui/render-memo.bench.ts
  */
 
 import { bench, describe } from 'vitest';

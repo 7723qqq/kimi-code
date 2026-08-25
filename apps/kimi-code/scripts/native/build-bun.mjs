@@ -119,8 +119,8 @@ async function buildBunNative() {
   // The runtime bundle is not embedded as a file asset: a shebang-stripped
   // copy is staged below and compiled into the entry module graph, which
   // removes the runtime extraction + dynamic import from the startup path.
-  // The original bundle keeps its `#!` banner for the SEA pipeline; only the
-  // staged copy is rewritten.
+  // The original bundle keeps its `#!` banner; only the staged copy handed to
+  // the Bun compile step is rewritten.
   const stageMainPath = join(stageRoot, 'main.cjs');
   writeFileSync(
     stageMainPath,

@@ -5,7 +5,7 @@
 // heap/RSS, and the whole run is emitted as machine-readable JSON (stable
 // field names, `schemaVersion: 1`) so later phases can diff before/after.
 //
-// Run:  npm run bench                 (human output + JSON on stdout)
+// Run:  bun run bench                 (human output + JSON on stdout)
 //       node --import tsx bench/bench.ts --json .tmp/bench.json
 //       node --import tsx bench/bench.ts --quick   (small sizes, for tests)
 //

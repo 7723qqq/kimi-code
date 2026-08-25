@@ -420,7 +420,7 @@ export function getNativePackageRoot(
 }
 
 // Expose globally for modules that can't import this function directly
-// (e.g. packages/kap-server/src/i18n.ts in the same SEA bundle).
+// (e.g. packages/kap-server/src/i18n.ts in the same compiled bundle).
 (globalThis as Record<string, unknown>)['__kimi_getNativePackageRoot'] = getNativePackageRoot;
 
 export function hasNativePackage(packageName: string, manifest: NativeAssetManifest): boolean {
@@ -512,7 +512,7 @@ export function cleanupStaleNativeCache(options: CleanupOptions): CleanupResult 
 
 /**
  * Convenience: discover currentRoot from embedded manifest + run cleanup.
- * Safe to call without args from main.ts startup. Returns null if not in SEA mode.
+ * Safe to call without args from main.ts startup. Returns null outside the compiled binary.
  */
 export function cleanupStaleNativeCacheForCurrent(
   options: NativeAssetOptions = {},

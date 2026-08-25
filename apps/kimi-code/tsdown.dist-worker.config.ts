@@ -2,7 +2,7 @@
 // (packages/kap-server/src/search/worker/entry.ts) into ONE self-contained
 // `dist/search-worker.mjs` sibling of the main bundle. The search worker
 // host resolves it at runtime next to `dist/main.mjs` (dev/tests use the TS
-// source; the SEA binary uses the extracted asset from
+// source; the compiled Bun binary uses the extracted asset from
 // tsdown.worker.config.ts). Separate config because rolldown forbids
 // `codeSplitting: false` with multiple inputs.
 

@@ -4,7 +4,7 @@
  * connection checks, and host-driven OAuth URL/cancellation orchestration.
  * Wiring: real KimiHarness/Core/filesystem and stdio transport; only the OAuth
  * RPC boundary is stubbed so no external authorization service is contacted.
- * Run: pnpm exec vitest run packages/node-sdk/test/mcp-config.test.ts
+ * Run: bunx vitest run packages/node-sdk/test/mcp-config.test.ts
  */
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

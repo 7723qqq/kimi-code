@@ -285,8 +285,9 @@ export interface StageNativeUpdateOptions {
   readonly platform?: NodeJS.Platform;
   readonly arch?: string;
   /**
-   * Which artifact flavor to download. Defaults to `'sea'`; a Bun packaged
-   * binary must pass `'bun'` so the update never swaps runtimes silently.
+   * Which artifact flavor to download. Defaults to `'bun'`; `'sea'` remains
+   * accepted so a staged update recorded before the SEA pipeline was retired
+   * can still be resolved explicitly.
    */
   readonly engine?: NativeInstallKind;
   readonly fetchImpl?: typeof fetch;

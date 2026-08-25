@@ -4,7 +4,7 @@
  * editor mentions use relative paths inside the working directory and absolute paths outside.
  * Wiring: real temporary local files plus the public handler/bridge surfaces;
  * VS Code host APIs are the only stubbed boundary.
- * Run: pnpm --filter kimi-code exec vitest run --config vitest.config.ts test/workspace-paths.test.ts
+ * Run: cd apps/vscode && bunx vitest run --config vitest.config.ts test/workspace-paths.test.ts
  */
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";

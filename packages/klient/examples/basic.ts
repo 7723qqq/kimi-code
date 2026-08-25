@@ -4,7 +4,7 @@
  * the process — same facade either way).
  *
  * Run it (the engine sources need the decorators tsconfig + raw-text loader):
- *   pnpm -C packages/klient exec tsx --tsconfig ./tsconfig.examples.json \
+ *   cd packages/klient && bunx tsx --tsconfig ./tsconfig.examples.json \
  *     --import ../../build/register-raw-text-loader.mjs examples/basic.ts
  */
 import { mkdtemp, rm } from 'node:fs/promises';

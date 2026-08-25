@@ -2,7 +2,7 @@
  * Scenario: public SDK skill discovery and activation.
  * Responsibilities: list workspace/session skills and activate a session skill through KimiHarness.
  * Wiring: the in-process core and filesystem are real; only the remote model provider is stubbed.
- * Run: pnpm exec vitest run packages/node-sdk/test/session-skills.test.ts
+ * Run: bunx vitest run packages/node-sdk/test/session-skills.test.ts
  */
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';

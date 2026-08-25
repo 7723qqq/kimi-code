@@ -1,7 +1,7 @@
 // Builds the vis web single-file bundle, gzips it, and writes a generated
 // TS module that embeds it as base64 so tsdown can later bundle it into
-// dist/main.mjs (works identically for the npm package and the native SEA
-// binary).
+// dist/main.mjs (works identically for the npm package and the compiled
+// Bun binary).
 import { execFileSync } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';

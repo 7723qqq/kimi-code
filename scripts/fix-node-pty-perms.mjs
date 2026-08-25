@@ -3,24 +3,23 @@
  * Restore the executable bit on node-pty's `spawn-helper` prebuilt binaries.
  *
  * Why: on macOS/Linux node-pty launches the shell through a tiny `spawn-helper`
- * executable shipped under `prebuilds/<platform-arch>/`. pnpm's content-
- * addressable store does not preserve the +x mode on these non-bin prebuild
- * assets, so after `pnpm install` the helper lands as 0644 and any PTY spawn
- * fails with "posix_spawnp failed". npm/yarn (and the published tarball) keep
- * the bit, so this is a pnpm-dev-only fixup.
+ * executable shipped under `prebuilds/<platform-arch>/`. Some installers and
+ * package caches do not preserve the +x mode on these non-bin prebuild assets,
+ * so after an install the helper can land as 0644 and any PTY spawn fails
+ * with "posix_spawnp failed".
  *
  * Idempotent and never fails the install: any error is logged and ignored.
  */
 import { chmodSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 
 function nodePtyRoot() {
   const require = createRequire(import.meta.url);
-  // Resolve from packages/services (where node-pty is declared) so we find the
-  // workspace's hoisted copy regardless of where this script runs.
+  // Resolve from the workspace root so we find the hoisted copy regardless of
+  // where this script runs.
   const entry = require.resolve('node-pty', {
-    paths: [join(process.cwd(), 'packages/services'), process.cwd()],
+    paths: [process.cwd()],
   });
   // .../node-pty/lib/index.js -> .../node-pty
   return dirname(dirname(entry));

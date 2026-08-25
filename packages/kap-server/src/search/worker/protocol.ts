@@ -24,7 +24,7 @@ export interface SearchWorkerData {
    */
   readonly bootSalt: string;
   /**
-   * Packaged (SEA-extracted) minidb text-build worker file. The main process
+   * Packaged (runtime-extracted) minidb text-build worker file. The main process
    * already extracted it for its own minidb; the search worker configures
    * its own copy of the runtime so full-text generation builds triggered by
    * the search-index MiniDb keep running in a nested worker instead of

@@ -2,7 +2,7 @@
  * Scenario: VSCode-owned file baselines for new, migrated, and forked sessions.
  * Responsibilities: capture originals, show changes, keep/undo, persist legacy tombstones, and reject unsafe paths.
  * Wiring: real temporary workspace/global-storage/legacy files; no stubbed collaborators.
- * Run: pnpm --filter kimi-code test -- baseline.manager.test.ts
+ * Run: cd apps/vscode && bun run test -- baseline.manager.test.ts
  */
 import fs, { existsSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';

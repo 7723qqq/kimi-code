@@ -6,7 +6,7 @@ import { join } from 'node:path';
  * Scenario: translating legacy session state into the v1 session metadata file.
  * Responsibilities: user-visible metadata and legacy session-scoped fields survive migration.
  * Wiring: real state writer and filesystem; no collaborators are stubbed.
- * Run: pnpm exec vitest run packages/migration-legacy/test/sessions/state-writer.test.ts
+ * Run: bunx vitest run packages/migration-legacy/test/sessions/state-writer.test.ts
  */
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 

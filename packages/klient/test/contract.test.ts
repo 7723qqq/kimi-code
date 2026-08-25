@@ -2,8 +2,8 @@
  * Scenario: runtime validation at Klient wire-contract boundaries.
  *
  * Exercises the session-creation and plugin-manifest schemas directly with no
- * external collaborators. Run with `pnpm --filter @moonshot-ai/klient exec
- * vitest run test/contract.test.ts`.
+ * external collaborators. Run with `cd packages/klient && bunx vitest run
+ * test/contract.test.ts`.
  */
 
 import { describe, expect, it } from 'vitest';

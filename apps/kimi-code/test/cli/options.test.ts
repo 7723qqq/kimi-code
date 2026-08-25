@@ -2,7 +2,7 @@
  * Scenario: top-level CLI option parsing, validation, and help discovery.
  * Responsibilities: accepted arguments map to CLIOptions and invalid combinations fail early.
  * Wiring: Commander is real; command handlers and output sinks are local test boundaries.
- * Run: pnpm -C apps/kimi-code exec vitest run test/cli/options.test.ts
+ * Run: cd apps/kimi-code && bunx vitest run test/cli/options.test.ts
  */
 
 import { describe, expect, it } from 'vitest';

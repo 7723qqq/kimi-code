@@ -3,7 +3,7 @@
  * `process.env.KIMI_SERVER_URL ?? http://127.0.0.1:58627`.
  *
  * Every test gates on a `daemonReachable()` check so CI / dev machines
- * without a running server stay green. Run a server (`pnpm dev:server` from
+ * without a running server stay green. Run a server (`bun run dev:server` from
  * repo root) to exercise these locally.
  *
  * Coverage:

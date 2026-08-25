@@ -247,8 +247,8 @@
               pkgs.python3
               pkgs.gnumake
               # kimi-native-tools' .node addon is compiled from source in
-              # the sandbox (napi-rs → cargo); the SEA asset collector
-              # refuses to proceed without it.
+              # the sandbox (napi-rs → cargo); the Bun build's asset
+              # collector refuses to proceed without it.
               pkgs.cargo
               pkgs.rustc
             ]
@@ -303,12 +303,12 @@ EOF
                     "await runVerifyStep({ requireGatekeeper: false });" \
                     "// runVerifyStep skipped in nix sandbox (sigtool lacks -dv)"
               ''}
-              # Build the Rust native addon from source: its .node is a
-              # required SEA asset (collected by assets.mjs below). Invoke
-              # napi's JS entry directly — its bin shim uses
+              # Build the Rust native addon from source: its .node is an
+              # asset embedded in the Bun binary (collected by assets.mjs
+              # below). Invoke napi's JS entry directly — its bin shim uses
               # `#!/usr/bin/env`, absent in the sandbox.
               (cd packages/kimi-native-tools && node ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
-              # kimi-agent is the second napi addon collected as a SEA asset.
+              # kimi-agent is the second napi addon embedded as an asset.
               (cd packages/kimi-agent && node ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
               # Run the one lifecycle script whose output the artifact
               # needs: node-pty's prebuild/native build (the FOD installed
@@ -323,7 +323,7 @@ EOF
               # the sandbox.
               (cd node_modules/node-pty && node ../../node_modules/node-gyp/bin/node-gyp.js rebuild)
               (cd node_modules/node-pty && node scripts/post-install.js)
-              # The SEA blob step embeds the Kimi web assets from
+              # The Bun build step embeds the Kimi web assets from
               # apps/kimi-code/dist-web and fails if that directory is
               # missing. The bundle is committed (synced from the code-app
               # repo) — verify it is in place before producing the binary.

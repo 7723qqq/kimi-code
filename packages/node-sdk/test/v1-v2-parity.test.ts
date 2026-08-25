@@ -10,7 +10,7 @@
  * are retained only where a projection is still needed for cross-home
  * normalization.
  * Wiring: real v2 engine, in-process, two temp homes; no provider calls.
- * Run: pnpm exec vitest run test/v1-v2-parity.test.ts
+ * Run: bunx vitest run test/v1-v2-parity.test.ts
  */
 import {
   appendFile,

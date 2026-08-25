@@ -6,7 +6,7 @@
  * round-trip with the `kosong.models.changed` event, the read-only model
  * catalog, and the error path.
  *
- *   pnpm -C packages/klient smoke
+ *   cd packages/klient && bun run smoke
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

@@ -3,7 +3,7 @@
  * Responsibilities: picker filtering, persistence of `[secondary_model] default_model`
  * (keeping existing pool descriptions), and error paths.
  * Wiring: real command and selector with the SDK/session boundaries stubbed by a small host rig.
- * Run: pnpm -C apps/kimi-code exec vitest run test/tui/commands/secondary-model.test.ts
+ * Run: cd apps/kimi-code && bunx vitest run test/tui/commands/secondary-model.test.ts
  */
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, vi } from 'vitest';

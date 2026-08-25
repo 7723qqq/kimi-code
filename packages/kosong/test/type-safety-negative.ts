@@ -5,7 +5,7 @@
  * If tsc does NOT reject it, the @ts-expect-error itself becomes an error
  * ("Unused '@ts-expect-error' directive"), proving the type system has a gap.
  *
- * Run: pnpm exec tsc --noEmit -p tsconfig.type-negative.json
+ * Run: bunx tsc --noEmit -p tsconfig.type-negative.json
  */
 
 import type { Message, ToolCall, StreamedMessagePart, TextPart } from '#/message';

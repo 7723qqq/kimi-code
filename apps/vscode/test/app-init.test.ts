@@ -6,7 +6,7 @@
  * device flow already persisted the token), where Reload alone can never change
  * the on-disk state and the user would otherwise be stranded.
  * Wiring: resolveAppView is pure; the bridge and toast boundaries are mocked away.
- * Run: pnpm exec vitest run --config apps/vscode/vitest.config.ts test/app-init.test.ts
+ * Run: bunx vitest run --config apps/vscode/vitest.config.ts test/app-init.test.ts
  */
 import { describe, expect, it, vi } from "vitest";
 

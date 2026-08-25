@@ -2,7 +2,7 @@
  * Scenario: Node SDK sessions rename through the public harness.
  * Responsibilities: persisting custom titles and emitting the active-session event.
  * Wiring: real in-process harness/session storage; no remote provider calls.
- * Run: pnpm exec vitest run test/rename-session.test.ts
+ * Run: bunx vitest run test/rename-session.test.ts
  *
  * The former `SessionStore.rename` suite (state.json field preservation,
  * internal error codes like `session.state_not_found` / `session.state_invalid`)

@@ -5,10 +5,10 @@
  *   node scripts/native/bench-native.mjs <binary> [<binary> ...] [--runs N]
  *
  * Each binary is invoked as `<bin> --version`; the first run per binary is a
- * warmup (page cache, extraction) and discarded. Reports min / median / mean
- * / p95 wall-clock milliseconds so the SEA and Bun builds of one target can
- * be compared side by side. Copy each build aside before benching — both
- * pipelines write to the same dist-native/bin/<target>/kimi path.
+ * warmup (page cache, asset extraction) and discarded. Reports min / median /
+ * mean / p95 wall-clock milliseconds so builds of one target can be compared
+ * side by side. Copy each build aside before benching — every build writes to
+ * the same dist-native/bin/<target>/kimi path.
  */
 
 import { spawnSync } from 'node:child_process';

@@ -3,7 +3,7 @@
 // Long-running soak: sustained random set/del/compact/reopen to catch memory
 // leaks and slow degradation. Opt-in via SOAK=<seconds> because it is slow.
 //
-//   SOAK=30 npm run test
+//   SOAK=30 bun run test
 
 import assert from 'node:assert/strict';
 

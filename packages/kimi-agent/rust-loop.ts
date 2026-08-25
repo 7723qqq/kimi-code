@@ -262,10 +262,10 @@ class NapiEngine {
       }
     }
 
-    // SEA exe: the .node file is embedded as a native asset and extracted
-    // to a cache directory at runtime. The global helper
-    // `__kimi_getNativePackageRoot` (installed by native-assets.ts) returns
-    // the cached package root for a given package name.
+    // Packaged single-file binary: the .node file is embedded as a native
+    // asset and extracted to a cache directory at runtime. The global
+    // helper `__kimi_getNativePackageRoot` (installed by native-assets.ts)
+    // returns the cached package root for a given package name.
     const getNativePackageRoot = (globalThis as Record<string, unknown>)[
       '__kimi_getNativePackageRoot'
     ];
@@ -477,7 +477,7 @@ class AgentProcess {
       // Development: directly from Rust build output
       resolve(projectRoot, 'packages/kimi-agent/target/release/kimi-agent-cli' + ext),
       resolve(projectRoot, 'packages/kimi-agent/target/debug/kimi-agent-cli' + ext),
-      // Production: bundled alongside the SEA binary
+      // Production: bundled alongside the packaged single-file binary
       resolve(projectRoot, 'dist-native', 'bin', arch, 'kimi-agent-cli' + ext),
     ];
     try {

@@ -38,8 +38,8 @@ const flatMessages: Record<Locale, Map<string, string>> = {
 
 // ── Optional native Rust engine ─────────────────────────────────────────────
 // The Rust engine (`@moonshot-ai/kimi-native-tools`) provides a faster path
-// via napi-rs. When unavailable (e.g. in a browser or SEA binary), we fall
-// back to the pure-JS implementation transparently.
+// via napi-rs. When unavailable (e.g. in a browser or packaged single-file
+// binary), we fall back to the pure-JS implementation transparently.
 
 interface NativeModule {
   nativeTranslateCached?: (
