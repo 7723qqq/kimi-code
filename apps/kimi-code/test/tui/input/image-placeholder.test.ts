@@ -1,4 +1,4 @@
-import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -385,5 +385,44 @@ describe('rewriteMediaPlaceholders', () => {
       cleanup();
       rmSync(srcDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('extractMediaAttachments: bare image paths', () => {
+  const PNG_1X1 = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  );
+
+  it('attaches an absolute POSIX image path and replaces it inline', () => {
+    const dir = makeTempDir();
+    const file = join(dir, 'sample.png');
+    writeFileSync(file, PNG_1X1);
+    const store = new ImageAttachmentStore();
+    const r = extractMediaAttachments(`看这个 ${file} 谢谢`, store);
+    expect(r.hasMedia).toBe(true);
+    expect(r.imageAttachmentIds).toEqual([1]);
+    expect(r.parts.some((p) => p.type === 'image_url')).toBe(true);
+    expect(JSON.stringify(r.parts)).not.toContain('sample.png');
+  });
+
+  it('converts a quoted path containing spaces', () => {
+    const dir = join(makeTempDir(), 'with space');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'wx shot.png');
+    writeFileSync(file, PNG_1X1);
+    const store = new ImageAttachmentStore();
+    const r = extractMediaAttachments(`"${file}"`, store);
+    expect(r.hasMedia).toBe(true);
+    expect(r.imageAttachmentIds).toEqual([1]);
+  });
+
+  it('leaves a Windows path with no backing file as literal text', () => {
+    const store = new ImageAttachmentStore();
+    const text = String.raw`看 D:\微信聊天数据\temp\a7d0eaaa.png 这张图`;
+    const r = extractMediaAttachments(text, store);
+    expect(r.hasMedia).toBe(false);
+    expect(r.parts).toEqual([]);
+    expect(text).toContain('D:\\微信聊天数据');
   });
 });

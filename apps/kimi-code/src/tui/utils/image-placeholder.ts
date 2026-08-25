@@ -37,10 +37,22 @@
  *   - Adjacent text segments are flattened — empty / whitespace-only
  *     segments drop out so we never emit `{type:'text', text:' '}`
  *     noise between two media parts.
+ *   - Bare absolute image file paths (typed or pasted — Windows drive
+ *     paths included, with a WSL `/mnt/<drive>` fallback) attach as
+ *     images when the file is readable and parses as a supported format;
+ *     anything else stays as literal text.
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFileSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -53,6 +65,7 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { getCacheDir } from '#/utils/paths';
+import { parseImageMeta } from '#/utils/image/image-mime';
 
 import { MEDIA_FILE_REF_MIN_REMAINING_MS } from '../constant/media';
 import type {
@@ -102,10 +115,55 @@ export interface ImageResendSnapshot {
   };
 }
 
+// Absolute image file paths found in submitted text — Windows drive paths
+// (WeChat/QQ "copy image" often lands as a path, not pixels) included. The
+// quoted alternative allows spaces; the bare form stops at whitespace.
+const IMAGE_PATH_REGEX =
+  /"([^"\n]+[\\/][^"\n]+?\.(?:png|jpe?g|gif|webp|bmp))"|((?:[A-Za-z]:)?[\\/][^\s"']+\.(?:png|jpe?g|gif|webp|bmp))/gi;
+
+const MAX_PATH_ATTACH_BYTES = 20 * 1024 * 1024;
+const MAX_PATH_ATTACHMENTS_PER_SUBMIT = 10;
+
+function attachFromImagePath(raw: string, store: ImageAttachmentStore): string | undefined {
+  const withoutQuotes = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
+  const candidates = [withoutQuotes];
+  // A Windows path pasted into WSL has no native `D:\` backing here; try the
+  // standard `/mnt/<drive>` translation before giving up.
+  const drive = /^([A-Za-z]):[\\/](.*)$/.exec(withoutQuotes);
+  if (drive?.[1] !== undefined && drive?.[2] !== undefined) {
+    candidates.push(`/mnt/${drive[1].toLowerCase()}/${drive[2].replaceAll('\\', '/')}`);
+  }
+  for (const candidate of candidates) {
+    try {
+      if (!statSync(candidate).isFile()) continue;
+      const bytes = readFileSync(candidate);
+      if (bytes.length === 0 || bytes.length > MAX_PATH_ATTACH_BYTES) continue;
+      const meta = parseImageMeta(bytes);
+      if (meta === null) continue;
+      return `${store.addImage(bytes, meta.mime, meta.width, meta.height).placeholder} `;
+    } catch {
+      // unreadable / vanished between stat and read — next candidate
+    }
+  }
+  return undefined;
+}
+
+function rewriteImageFilePaths(text: string, store: ImageAttachmentStore): string {
+  let conversions = 0;
+  return text.replace(IMAGE_PATH_REGEX, (match, quoted: string | undefined, unquoted: string | undefined) => {
+    if (conversions >= MAX_PATH_ATTACHMENTS_PER_SUBMIT) return match;
+    const placeholder = attachFromImagePath(quoted ?? unquoted ?? match, store);
+    if (placeholder === undefined) return match;
+    conversions++;
+    return placeholder;
+  });
+}
+
 export function extractMediaAttachments(
   text: string,
   store: ImageAttachmentStore,
 ): ExtractionResult {
+  text = rewriteImageFilePaths(text, store);
   const parts: PromptPart[] = [];
   const imageAttachmentIds: number[] = [];
   const videoAttachmentIds: number[] = [];
