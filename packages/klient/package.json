@@ -35,11 +35,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && bun run typecheck:examples",
     "typecheck:examples": "tsc -p tsconfig.examples.json --noEmit",
     "test": "vitest run",
-    "smoke": "tsx --tsconfig ./tsconfig.examples.json --import ../../build/register-raw-text-loader.mjs examples/smoke.ts",
-    "smoke:boundary": "tsx --tsconfig ./tsconfig.examples.json --import ../../build/register-raw-text-loader.mjs examples/model-requester-boundary.ts",
-    "smoke:select-tools": "tsx --tsconfig ./tsconfig.examples.json --import ../../build/register-raw-text-loader.mjs examples/kimi-select-tools.ts",
-    "stress:kosong-config": "tsx --tsconfig ./tsconfig.examples.json --import ../../build/register-raw-text-loader.mjs examples/kosong-config-stress.ts",
-    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "smoke": "bun --import ../../build/register-raw-text-loader.mjs examples/smoke.ts",
+    "smoke:boundary": "bun --import ../../build/register-raw-text-loader.mjs examples/model-requester-boundary.ts",
+    "smoke:select-tools": "bun --import ../../build/register-raw-text-loader.mjs examples/kimi-select-tools.ts",
+    "stress:kosong-config": "bun --import ../../build/register-raw-text-loader.mjs examples/kosong-config-stress.ts",
+    "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
     "docker:e2e": "bash scripts/run-docker-e2e.sh"
   },
   "dependencies": {

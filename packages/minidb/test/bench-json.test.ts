@@ -19,7 +19,14 @@ test('bench --quick emits a JSON report with a stable schema', async () => {
     const reportPath = path.join(dir, 'report.json');
     await promisify(execFile)(
       process.execPath,
-      ['--import', 'tsx', path.join(pkgDir, 'bench', 'bench.ts'), '--quick', '--json', reportPath],
+      // Bun executes .ts benches natively; Node needs the tsx loader hook.
+      [
+        ...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']),
+        path.join(pkgDir, 'bench', 'bench.ts'),
+        '--quick',
+        '--json',
+        reportPath,
+      ],
       { cwd: pkgDir, timeout: 240_000, maxBuffer: 16 * 1024 * 1024 },
     );
     const report = JSON.parse(await fs.readFile(reportPath, 'utf8'));
@@ -122,8 +129,7 @@ test('open-lifecycle bench --quick emits the phase-1 baseline report', async () 
     await promisify(execFile)(
       process.execPath,
       [
-        '--import',
-        'tsx',
+        ...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']),
         path.join(pkgDir, 'bench', 'open-lifecycle.ts'),
         '--quick',
         '--json',

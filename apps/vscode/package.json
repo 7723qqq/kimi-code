@@ -251,19 +251,19 @@
   "scripts": {
     "vscode:prepublish": "bun run build",
     "dev": "bun run dev:prepare && bun run \"/^dev:(extension|webview)/\"",
-    "dev:prepare": "node scripts/prepare-dev.mjs",
-    "dev:extension": "node scripts/watch-extension.mjs",
+    "dev:prepare": "bun scripts/prepare-dev.mjs",
+    "dev:extension": "bun scripts/watch-extension.mjs",
     "dev:webview": "vite build --config webview-ui/vite.config.ts --watch --sourcemap",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p webview-ui/tsconfig.json --noEmit",
     "build": "bun run build:extension && bun run build:webview",
     "build:webview": "vite build --config webview-ui/vite.config.ts",
     "build:extension": "tsdown --config tsdown.config.ts",
     "test": "vitest run --config vitest.config.ts",
-    "test:extension-host": "node scripts/extension-host-smoke.mjs",
-    "package:platform": "node scripts/vsix-package.mjs",
-    "package:verify": "node scripts/vsix-verify.mjs",
-    "publish:vsix": "node scripts/vsix-publish.mjs",
-    "publish:ovsx": "node scripts/ovsx-publish.mjs"
+    "test:extension-host": "bun scripts/extension-host-smoke.mjs",
+    "package:platform": "bun scripts/vsix-package.mjs",
+    "package:verify": "bun scripts/vsix-verify.mjs",
+    "publish:vsix": "bun scripts/vsix-publish.mjs",
+    "publish:ovsx": "bun scripts/ovsx-publish.mjs"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.4",

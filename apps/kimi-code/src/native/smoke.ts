@@ -45,7 +45,7 @@ function smokePiTuiNativeLoad(): void {
 async function smokeMinidbWorker(): Promise<void> {
   const cacheBase = getNativeCacheBase();
   mkdirSync(cacheBase, { recursive: true });
-  const dir = mkdtempSync(join(cacheBase, 'sea-minidb-smoke-'));
+  const dir = mkdtempSync(join(cacheBase, 'minidb-smoke-'));
   let db: MiniDb<Record<string, unknown>> | null = null;
   try {
     db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
@@ -57,7 +57,7 @@ async function smokeMinidbWorker(): Promise<void> {
           return {
             op: 'set' as const,
             key: `doc-${id}`,
-            value: { text: `sea worker searchable document ${id}` },
+            value: { text: `worker searchable document ${id}` },
           };
         }),
       );
@@ -81,7 +81,7 @@ async function smokeMinidbWorker(): Promise<void> {
 }
 
 async function smokeSearchWorker(): Promise<void> {
-  // The SEA-extracted global-search worker entry must boot from disk and
+  // The extracted global-search worker entry must boot from disk and
   // complete the versioned ready handshake.
   const runtime = getSearchWorkerRuntimeState();
   if (!runtime.configured) {
@@ -89,9 +89,9 @@ async function smokeSearchWorker(): Promise<void> {
   }
   const cacheBase = getNativeCacheBase();
   mkdirSync(cacheBase, { recursive: true });
-  const dir = mkdtempSync(join(cacheBase, 'sea-search-worker-'));
+  const dir = mkdtempSync(join(cacheBase, 'search-worker-'));
   const worker = new Worker(runtime.path, {
-    workerData: { dir, bootSalt: 'sea-smoke' },
+    workerData: { dir, bootSalt: 'native-smoke' },
   });
   try {
     // A corrupted worker entry must fail the smoke test with a diagnosable
@@ -122,7 +122,7 @@ async function smokeSearchWorker(): Promise<void> {
   }
 }
 
-async function smokeTerminalBinding(): Promise<void> {
+function smokeTerminalBinding(): void {
   // Resolve the PTY module exactly the way packaged builds do (asset-cache
   // first) and dlopen its binding for real — verifying arch and integrity on
   // every platform the smoke runs on.
@@ -143,7 +143,7 @@ async function runSmoke(): Promise<void> {
   smokePiTuiNativeLoad();
   await smokeMinidbWorker();
   await smokeSearchWorker();
-  await smokeTerminalBinding();
+  smokeTerminalBinding();
   process.stdout.write(
     `Native asset smoke passed: ${manifest.target}; MiniDb worker build passed; search worker ready; PTY binding loaded\n`,
   );

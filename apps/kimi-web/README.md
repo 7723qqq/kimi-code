@@ -9,13 +9,14 @@ to a local **server** over REST + WebSocket. Vue 3 + Vite + TypeScript.
 
 ```bash
 # Against a REAL server (the server must be running and reachable)
-WEB_PORT=5197 KIMI_SERVER_URL=http://192.168.97.91:58627 pnpm -C apps/kimi-web run dev
-#   …or from the repo root:  pnpm -C apps/kimi-web run dev   (uses the defaults below)
+cd apps/kimi-web
+WEB_PORT=5197 KIMI_SERVER_URL=http://192.168.97.91:58627 bun run dev
+#   …or from the repo root with defaults:  (cd apps/kimi-web && bun run dev)
 
-# checks
-pnpm -C apps/kimi-web run typecheck     # vue-tsc --noEmit
-pnpm -C apps/kimi-web run test          # vitest (pure logic only)
-pnpm -C apps/kimi-web run build         # vite build
+# checks (from inside apps/kimi-web)
+bun run typecheck     # vue-tsc --noEmit
+bun run test          # vitest (pure logic only)
+bun run build         # vite build
 ```
 
 ### How it connects to the server
@@ -92,8 +93,8 @@ web UI of the `kimi` CLI (`apps/kimi-code`).
 
 ### Current release flow
 
-1. **Develop** — `pnpm -C apps/kimi-web run dev`.
-2. **Build** — `pnpm -C apps/kimi-web run build` produces `apps/kimi-web/dist`.
+1. **Develop** — `cd apps/kimi-web && bun run dev`.
+2. **Build** — `cd apps/kimi-web && bun run build` produces `apps/kimi-web/dist`.
 3. **Ship the prebuilt bundle** — `apps/kimi-code/dist-web` is a committed,
    prebuilt bundle **synced from the code-app repo**, not built from
    `apps/kimi-web` here. `cd apps/kimi-code && bun run build` does not copy
@@ -125,5 +126,6 @@ release.
   version unless the web app becomes an independently published product.
 - **Exercise the web build explicitly.** `apps/kimi-web` is excluded from the
   root Bun workspace (excluded via `workspaces` in the root `package.json`), so the root `bun run build`
-  does **not** cover it. Build it explicitly (`pnpm -C apps/kimi-web run build`, pnpm stays the package manager inside kimi-web)
+  does **not** cover it. Build it explicitly (`cd apps/kimi-web && bun run build`; Bun manages this app
+  through its own `apps/kimi-web/bun.lock`)
   in CI; keep the release pipeline doing the same.

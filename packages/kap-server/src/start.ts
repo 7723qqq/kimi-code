@@ -115,6 +115,11 @@ export interface ServerStartOptions {
    * production catalog.
    */
   readonly pluginMarketplaceUrl?: string;
+  /**
+   * Home directory for `~` expansion in the plugin marketplace catalog URL
+   * and entry sources. Defaults to `os.homedir()`.
+   */
+  readonly pluginMarketplaceHomeDir?: string;
   readonly configPath?: string;
   /**
    * Override the instance-registry directory — used in tests that need the
@@ -479,6 +484,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
       opts.pluginMarketplaceUrl === undefined &&
       (process.env['KIMI_CODE_PLUGIN_MARKETPLACE_URL'] === undefined ||
         process.env['KIMI_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER'] === '1'),
+    pluginMarketplaceHomeDir: opts.pluginMarketplaceHomeDir,
     onShutdown: () => {
       void close().catch((error: unknown) => logger.error({ err: error }, 'server close failed'));
     },

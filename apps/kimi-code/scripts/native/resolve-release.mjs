@@ -15,7 +15,12 @@ function parsePublishedPackages() {
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
-  } catch {
+  } catch (error) {
+    console.warn(
+      `Ignoring malformed CHANGESETS_PUBLISHED_PACKAGES: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
     return [];
   }
 }

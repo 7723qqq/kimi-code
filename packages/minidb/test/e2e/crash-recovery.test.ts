@@ -22,9 +22,17 @@ const WRITER = path.join(__dirname, 'helpers', 'crash-writer.ts');
 
 function crashWriter(dir: string, compactEvery: number, runMs: number): Promise<void> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', WRITER, dir, String(compactEvery)], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const child = spawn(
+      process.execPath,
+      // Bun executes .ts writers natively; Node needs the tsx loader hook.
+      [
+        ...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']),
+        WRITER,
+        dir,
+        String(compactEvery),
+      ],
+      { stdio: ['ignore', 'pipe', 'ignore'] },
+    );
     let killTimer: ReturnType<typeof setTimeout> | null = null;
     // Wait until the child signals progress (>=25 keys durable) before starting
     // the kill clock, so the test is robust even under heavy CPU contention.

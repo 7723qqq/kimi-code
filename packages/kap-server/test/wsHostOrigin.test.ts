@@ -29,6 +29,7 @@ function expectRejected(url: string, opts?: ConnectOptions): Promise<void> {
     const done = (err?: Error): void => {
       clearTimeout(t);
       ws.removeAllListeners();
+      ws.on('error', () => {});
       try {
         ws.terminate();
       } catch {

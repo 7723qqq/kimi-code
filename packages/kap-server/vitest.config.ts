@@ -10,5 +10,11 @@ export default defineConfig({
     name: 'kap-server',
     include: ['test/**/*.{test,e2e}.ts'],
     setupFiles: ['test/setup.ts'],
+    // Under the Bun runtime, vitest trips over zod's CJS-getter exports unless zod is inlined.
+    server: {
+      deps: {
+        inline: [/zod/],
+      },
+    },
   },
 });

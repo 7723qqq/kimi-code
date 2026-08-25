@@ -4,7 +4,7 @@ import { BlockList, isIP, type LookupFunction } from 'node:net';
 
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
-import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici';
+import { Agent, fetch as undiciFetch, type Dispatcher } from '#/_base/utils/undici-npm';
 
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 import { Error2, ErrorCodes } from '#/errors';

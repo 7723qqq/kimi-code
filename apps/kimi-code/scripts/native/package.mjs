@@ -6,10 +6,13 @@ import { pipeline } from 'node:stream/promises';
 
 import { ZipFile } from 'yazl';
 
+import { fail } from './exec.mjs';
 import { executableName, nativeArtifactsDir, nativeBinPath, targetTriple } from './paths.mjs';
 
 const target = targetTriple();
-const execName = executableName();
+// Member name must follow the resolved target platform (KIMI_CODE_BUILD_TARGET),
+// mirroring nativeBinPath()'s platform derivation, not the host running this script.
+const execName = executableName(target.split('-')[0]);
 const sourceBinary = nativeBinPath(target);
 const artifactsDir = nativeArtifactsDir();
 
@@ -21,11 +24,6 @@ const engineSegment = process.env.KIMI_CODE_NATIVE_ENGINE ?? null;
 const artifactName = `kimi-code${engineSegment ? `-${engineSegment}` : ''}-${target}.zip`;
 const artifactPath = resolve(artifactsDir, artifactName);
 const checksumPath = `${artifactPath}.sha256`;
-
-function fail(message) {
-  console.error(message);
-  process.exit(1);
-}
 
 async function sha256(path) {
   return await new Promise((resolveHash, reject) => {

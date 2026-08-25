@@ -80,6 +80,9 @@ export interface RegisterApiV1RoutesOptions {
   readonly pluginMarketplaceUrl: () => string;
   /** True when the catalog URL is the built-in default (no option/env set). */
   readonly pluginMarketplaceIsDefault: boolean;
+  /** Home directory for `~` expansion in the plugins catalog (see
+      `PluginsRouteOptions.marketplaceHomeDir`). */
+  readonly pluginMarketplaceHomeDir?: string;
   /**
    * Surface `dangerous_bypass_auth` in the `/meta` payload. Set by `start.ts`
    * from the `disableAuth` server option (the `--dangerous-bypass-auth` CLI
@@ -153,6 +156,7 @@ export async function registerApiV1Routes(
       registerPluginsRoutes(apiV1 as unknown as Parameters<typeof registerPluginsRoutes>[0], core, {
         marketplaceUrl: opts.pluginMarketplaceUrl,
         marketplaceIsDefault: opts.pluginMarketplaceIsDefault,
+        marketplaceHomeDir: opts.pluginMarketplaceHomeDir,
       });
       registerMessagesRoutes(
         apiV1 as unknown as Parameters<typeof registerMessagesRoutes>[0],

@@ -32,7 +32,7 @@ export function loadNativePackage<T>(
 /**
  * Probe whether the Rust native tools addon is loadable in this process.
  *
- * `'rust'` — the addon loads (built / bundled / SEA-injected); `'js'` — the
+ * `'rust'` — the addon loads (built or bundled); `'js'` — the
  * TypeScript fallback is in effect. Shown in the `/status` report so users
  * can see which implementation they are actually running.
  *

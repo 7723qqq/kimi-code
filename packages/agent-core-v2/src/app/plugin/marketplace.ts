@@ -45,6 +45,8 @@ export interface MarketplaceLocation {
 export interface ReadPluginMarketplaceOptions {
   readonly source: string;
   readonly workDir: string;
+  /** Home directory for `~` expansion; defaults to `os.homedir()`. */
+  readonly homeDir?: string;
   readonly fetchImpl?: typeof fetch;
   readonly sourceCheckoutLocation?: () => Promise<MarketplaceLocation | undefined>;
 }
@@ -67,7 +69,11 @@ export function computeUpdateStatus(
   return { kind: 'up-to-date', version: local };
 }
 
-export function resolveMarketplaceLocation(source: string, workDir: string): MarketplaceLocation {
+export function resolveMarketplaceLocation(
+  source: string,
+  workDir: string,
+  home: string = homedir(),
+): MarketplaceLocation {
   const trimmed = source.trim();
   if (trimmed.length === 0) {
     throw new Error(`${KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV} cannot be empty.`);
@@ -79,13 +85,13 @@ export function resolveMarketplaceLocation(source: string, workDir: string): Mar
     const path = fileURLToPath(trimmed);
     return { raw: trimmed, kind: 'local', resolved: path };
   }
-  return { raw: trimmed, kind: 'local', resolved: resolveLocalPath(trimmed, workDir) };
+  return { raw: trimmed, kind: 'local', resolved: resolveLocalPath(trimmed, workDir, home) };
 }
 
 export async function readPluginMarketplace(
   options: ReadPluginMarketplaceOptions,
 ): Promise<{ raw: string; location: MarketplaceLocation }> {
-  const location = resolveMarketplaceLocation(options.source, options.workDir);
+  const location = resolveMarketplaceLocation(options.source, options.workDir, options.homeDir);
   const fetchImpl = options.fetchImpl ?? fetch;
   try {
     return { raw: await readMarketplaceText(location, fetchImpl), location };
@@ -99,7 +105,11 @@ export async function readPluginMarketplace(
   }
 }
 
-export function parsePluginMarketplace(raw: string, location: MarketplaceLocation): PluginMarketplace {
+export function parsePluginMarketplace(
+  raw: string,
+  location: MarketplaceLocation,
+  home: string = homedir(),
+): PluginMarketplace {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -120,7 +130,7 @@ export function parsePluginMarketplace(raw: string, location: MarketplaceLocatio
   return {
     source: location.resolved,
     version: stringField(parsed, 'version'),
-    plugins: rawPlugins.map((entry, index) => parseMarketplaceEntry(entry, index, location)),
+    plugins: rawPlugins.map((entry, index) => parseMarketplaceEntry(entry, index, location, home)),
   };
 }
 
@@ -170,6 +180,7 @@ function parseMarketplaceEntry(
   value: unknown,
   index: number,
   location: MarketplaceLocation,
+  home: string,
 ): PluginMarketplaceEntry {
   if (!isRecord(value)) {
     throw new TypeError(`Plugin marketplace entry ${index + 1} must be an object.`);
@@ -182,7 +193,7 @@ function parseMarketplaceEntry(
   if (source === undefined) {
     throw new Error(`Plugin marketplace entry ${id} must define "source".`);
   }
-  const resolvedSource = resolveEntrySource(source, location);
+  const resolvedSource = resolveEntrySource(source, location, home);
   return {
     id,
     displayName: stringField(value, 'displayName') ?? stringField(value, 'name') ?? id,
@@ -227,14 +238,14 @@ function parseMarketplaceTier(
   );
 }
 
-function resolveEntrySource(source: string, location: MarketplaceLocation): string {
+function resolveEntrySource(source: string, location: MarketplaceLocation, home: string): string {
   const trimmed = source.trim();
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
     return trimmed;
   }
   if (trimmed.startsWith('file://')) return fileURLToPath(trimmed);
   if (trimmed === '~' || trimmed.startsWith('~/')) {
-    return resolveLocalPath(trimmed, '');
+    return resolveLocalPath(trimmed, '', home);
   }
   if (isAbsolute(trimmed)) return trimmed;
   if (location.kind === 'remote') {
@@ -322,9 +333,9 @@ async function fetchLatestReleaseTag(
   }
 }
 
-function resolveLocalPath(input: string, workDir: string): string {
-  if (input === '~') return homedir();
-  if (input.startsWith('~/')) return join(homedir(), input.slice(2));
+function resolveLocalPath(input: string, workDir: string, home: string = homedir()): string {
+  if (input === '~') return home;
+  if (input.startsWith('~/')) return join(home, input.slice(2));
   return isAbsolute(input) ? input : resolve(workDir, input);
 }
 

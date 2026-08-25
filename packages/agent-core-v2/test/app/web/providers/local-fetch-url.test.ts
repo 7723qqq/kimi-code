@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
 
-import { Agent } from 'undici';
+import { Agent } from '#/_base/utils/undici-npm';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';

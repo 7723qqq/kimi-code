@@ -1,7 +1,8 @@
-import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici';
+import { ProxyAgent, type Dispatcher } from '#/_base/utils/undici-npm';
 
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 
+import { undiciFetch } from './engine-undici';
 import {
   h3Fetch,
   h3OriginState,

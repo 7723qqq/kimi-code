@@ -5,6 +5,7 @@ import {
   classifyInstallSource,
   detectInstallSource,
   detectNativeInstall,
+  type BunRuntimeView,
 } from '#/cli/update/source';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
@@ -211,44 +212,40 @@ describe('detectInstallSource', () => {
 });
 
 describe('detectNativeInstall', () => {
-  const markerGlobals = globalThis as {
-    Bun?: unknown;
-    __KIMI_BUN_ASSETS__?: Record<string, string>;
-  };
-  let originalBun: unknown;
-  let originalAssets: unknown;
-
-  beforeEach(() => {
-    originalBun = markerGlobals.Bun;
-    originalAssets = markerGlobals.__KIMI_BUN_ASSETS__;
-  });
-
-  afterEach(() => {
-    if (originalBun === undefined) delete markerGlobals.Bun;
-    else markerGlobals.Bun = originalBun;
-    if (originalAssets === undefined) delete markerGlobals.__KIMI_BUN_ASSETS__;
-    else markerGlobals.__KIMI_BUN_ASSETS__ = originalAssets as Record<string, string>;
-  });
-
   it('reports a bun packaged install when the Bun runtime carries embedded assets', () => {
-    markerGlobals.Bun = { version: '1.3.0' };
-    markerGlobals.__KIMI_BUN_ASSETS__ = { 'runtime/main.cjs': '/tmp/main.cjs' };
-    expect(detectNativeInstall()).toEqual({ native: true, kind: 'bun' });
+    expect(
+      detectNativeInstall({
+        Bun: { version: '1.3.0' },
+        __KIMI_BUN_ASSETS__: { 'runtime/main.cjs': '/tmp/main.cjs' },
+      }),
+    ).toEqual({ native: true, kind: 'bun' });
   });
 
   it('stays non-native when Bun runs without embedded assets (a dev checkout)', () => {
-    markerGlobals.Bun = { version: '1.3.0' };
-    expect(detectNativeInstall()).toEqual({ native: false });
+    expect(detectNativeInstall({ Bun: { version: '1.3.0' } })).toEqual({ native: false });
   });
 
   it('ignores an empty embedded-asset map', () => {
-    markerGlobals.Bun = { version: '1.3.0' };
-    markerGlobals.__KIMI_BUN_ASSETS__ = {};
-    expect(detectNativeInstall()).toEqual({ native: false });
+    expect(
+      detectNativeInstall({ Bun: { version: '1.3.0' }, __KIMI_BUN_ASSETS__: {} }),
+    ).toEqual({ native: false });
   });
 
   it('does not treat the asset marker alone as native outside the Bun runtime', () => {
-    markerGlobals.__KIMI_BUN_ASSETS__ = { 'runtime/main.cjs': '/tmp/main.cjs' };
-    expect(detectNativeInstall()).toEqual({ native: false });
+    expect(
+      detectNativeInstall({ __KIMI_BUN_ASSETS__: { 'runtime/main.cjs': '/tmp/main.cjs' } }),
+    ).toEqual({ native: false });
+  });
+
+  it('reads the live globalThis when no view is injected', () => {
+    const view = globalThis as BunRuntimeView;
+    // Whatever the host runtime is, the default view must agree with it:
+    // a packaged bun binary reports bun, everything else reports non-native.
+    expect(detectNativeInstall()).toEqual(
+      view.Bun !== undefined && view.__KIMI_BUN_ASSETS__ !== undefined &&
+          Object.keys(view.__KIMI_BUN_ASSETS__).length > 0
+        ? { native: true, kind: 'bun' }
+        : { native: false },
+    );
   });
 });

@@ -4,7 +4,7 @@ import {
   type Dispatcher,
   EnvHttpProxyAgent,
   setGlobalDispatcher as undiciSetGlobalDispatcher,
-} from 'undici';
+} from '#/_base/utils/undici-npm';
 import { SocksClient } from 'socks';
 
 type Env = Readonly<Record<string, string | undefined>>;

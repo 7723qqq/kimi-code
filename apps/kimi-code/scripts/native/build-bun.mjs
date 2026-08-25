@@ -12,12 +12,13 @@ import {
   nativeAssetManifestKey,
   stageExecSideNativeHelpers,
 } from './assets.mjs';
-import { run } from './exec.mjs';
+import { fail, run, tryRun } from './exec.mjs';
 import {
   appRoot,
   nativeBinPath,
   nativeIntermediatesDir,
   nativeJsBundlePath,
+  nativeManifestDir,
   targetTriple,
 } from './paths.mjs';
 import { collectWebAssets, webAssetManifestKey } from './web-assets.mjs';
@@ -30,8 +31,7 @@ const { values } = parseArgs({
 
 const profile = values.profile;
 if (!['local', 'release'].includes(profile)) {
-  console.error(`Unknown profile: ${profile}. Expected 'local' or 'release'.`);
-  process.exit(1);
+  fail(`Unknown profile: ${profile}. Expected 'local' or 'release'.`);
 }
 
 const ASSET_SUFFIX = '.bin';
@@ -56,31 +56,29 @@ function resolveBun() {
 }
 
 async function buildBunNative() {
-  if (process.versions.bun !== undefined) {
-    console.error('Run this script with Node; the compiled binary itself runs on Bun.');
-    process.exit(1);
-  }
+  // Bun is the canonical build orchestrator for this pipeline: tsdown emits
+  // different bytes under node-vs-bun runners, so artifacts must all come
+  // from one orchestrator to stay reproducible.
 
   const target = targetTriple();
   const bunTarget = BUN_TARGETS.get(target);
   if (bunTarget === undefined) {
-    console.error(`Unsupported Bun native target: ${target}`);
-    process.exit(1);
+    fail(`Unsupported Bun native target: ${target}`);
   }
 
   console.log(`==> Bun native build (target=${target}, profile=${profile})`);
 
   if (profile === 'release' && process.env[BUILT_IN_CATALOG_ENV] === undefined) {
     const catalogPath = resolve(nativeIntermediatesDir(), 'built-in-catalog.json');
-    try {
-      await run(process.execPath, [
-        resolve(appRoot, 'scripts/update-catalog.mjs'),
-        '--out',
-        catalogPath,
-      ]);
+    const built = await tryRun(process.execPath, [
+      resolve(appRoot, 'scripts/update-catalog.mjs'),
+      '--out',
+      catalogPath,
+    ]);
+    if (built) {
       process.env[BUILT_IN_CATALOG_ENV] = catalogPath;
-    } catch (error) {
-      console.warn(`Built-in catalog unavailable (${String(error)}); continuing without it`);
+    } else {
+      console.warn('Built-in catalog unavailable; continuing without it');
     }
   }
 
@@ -94,19 +92,22 @@ async function buildBunNative() {
   const web = await collectWebAssets({ appRoot, target });
 
   const entries = [];
+  // Flattening '/' -> '__' is lossy ('a/b__c' vs 'a/b/c'), so distinct keys
+  // can map to the same staged filename; refuse to silently overwrite.
+  const stagedFiles = new Map();
   const putAsset = (key, srcPath) => {
     const dest = join(stageRoot, `${key.replaceAll('/', '__')}${ASSET_SUFFIX}`);
+    const collision = stagedFiles.get(dest);
+    if (collision !== undefined) {
+      fail(`Asset key collision after flattening: '${key}' and '${collision}' both map to ${dest}`);
+    }
+    stagedFiles.set(dest, key);
     mkdirSync(dirname(dest), { recursive: true });
     copyFileSync(srcPath, dest);
     entries.push([key, dest]);
   };
 
-  const nativeManifestPath = join(
-    nativeIntermediatesDir(),
-    'native-assets',
-    target,
-    'manifest.json',
-  );
+  const nativeManifestPath = join(nativeManifestDir(target), 'manifest.json');
   mkdirSync(dirname(nativeManifestPath), { recursive: true });
   writeFileSync(nativeManifestPath, native.manifestJson);
   putAsset(nativeAssetManifestKey(target), nativeManifestPath);
@@ -160,7 +161,8 @@ async function buildBunNative() {
     buildArgs.push('--bytecode', '--format', 'esm');
   }
   // Compiled executables would otherwise autoload .env / bunfig.toml from the
-  // user's cwd at runtime, silently diverging from Node/SEA behavior.
+  // user's cwd at runtime — surprising behavior for a standalone CLI that
+  // reads its own config explicitly.
   buildArgs.push('--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig');
   buildArgs.push('--outfile', outfile, join(stageRoot, 'bun-entry.ts'));
   await run(resolveBun(), buildArgs);
@@ -178,10 +180,15 @@ async function buildBunNative() {
     identity: profile === 'release' ? (process.env.APPLE_SIGNING_IDENTITY ?? '-') : '-',
     keychainPath: profile === 'release' ? (process.env.APPLE_KEYCHAIN_PATH ?? null) : null,
   });
+  // flake.nix string-matches this exact expression via substituteInPlace; keep the line byte-identical.
   await runVerifyStep({ requireGatekeeper: false });
 
   const mb = (statSync(outfile).size / 1024 / 1024).toFixed(1);
   console.log(`==> Bun native build complete: ${outfile} (${mb} MB)`);
 }
 
-await buildBunNative();
+try {
+  await buildBunNative();
+} catch (error) {
+  fail(String(error?.message ?? error));
+}

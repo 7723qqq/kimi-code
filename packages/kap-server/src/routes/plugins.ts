@@ -108,6 +108,12 @@ export interface PluginsRouteOptions {
       server option or env stays static). */
   readonly marketplaceUrl: () => string;
   /**
+   * Home directory for `~` expansion in the catalog URL and entry sources.
+   * Defaults to `os.homedir()`; tests inject one because Bun caches homedir
+   * at first call, so post-startup HOME mutations are invisible.
+   */
+  readonly marketplaceHomeDir?: string;
+  /**
    * True when the catalog location is the built-in default (neither the
    * server option nor the env var set) — only then does a failed remote read
    * fall back to the source-checkout catalog and get capability markers
@@ -139,6 +145,7 @@ export function registerPluginsRoutes(
         read = await readPluginMarketplace({
           source: opts.marketplaceUrl(),
           workDir: process.cwd(),
+          homeDir: opts.marketplaceHomeDir,
           fetchImpl,
           sourceCheckoutLocation:
             opts.marketplaceIsDefault === true ? getSourceCheckoutLocation : undefined,
@@ -155,7 +162,7 @@ export function registerPluginsRoutes(
       }
       let marketplace: PluginMarketplace;
       try {
-        marketplace = parsePluginMarketplace(read.raw, read.location);
+        marketplace = parsePluginMarketplace(read.raw, read.location, opts.marketplaceHomeDir);
       } catch (error) {
         reply.send(
           errEnvelope(

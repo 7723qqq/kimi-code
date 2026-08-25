@@ -736,8 +736,20 @@ function isElectron(): boolean {
   return typeof process.versions['electron'] === 'string';
 }
 
+/**
+ * True only for the packaged kimi binary: an executable whose basename is
+ * not `node` AND that carries the embedded-asset marker. A bare `bun`
+ * checkout satisfies the first half alone and must not hijack stdio node
+ * plugins onto the bundled runner.
+ */
 function isKimiNativeBinary(): boolean {
-  return !path.basename(process.execPath).toLowerCase().startsWith('node');
+  if (!path.basename(process.execPath).toLowerCase().startsWith('node')) {
+    const assets = (
+      globalThis as { __KIMI_BUN_ASSETS__?: Record<string, unknown> }
+    ).__KIMI_BUN_ASSETS__;
+    return assets !== undefined && assets !== null && Object.keys(assets).length > 0;
+  }
+  return false;
 }
 
 async function countDiscoveredPluginSkills(

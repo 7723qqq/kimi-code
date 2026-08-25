@@ -53,8 +53,8 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test test/*.test.ts",
-    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\""
+    "test": "node scripts/test.mjs",
+    "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {
     "get-east-asian-width": "1.6.0",

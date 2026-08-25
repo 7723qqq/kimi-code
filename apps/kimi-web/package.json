@@ -9,7 +9,7 @@
     "build": "vite build",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
-    "check:style": "node scripts/check-style.mjs"
+    "check:style": "bun scripts/check-style.mjs"
   },
   "dependencies": {
     "@chenglou/pretext": "0.0.8",

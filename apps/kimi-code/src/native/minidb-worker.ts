@@ -16,7 +16,7 @@ import {
 } from './native-assets';
 
 export type MinidbTextBuildWorkerInstallStatus =
-  | { readonly status: 'not-sea' }
+  | { readonly status: 'not-packaged' }
   | { readonly status: 'asset-missing' }
   | {
       readonly status: 'installed';
@@ -40,7 +40,7 @@ export function installMinidbTextBuildWorker(
   options: NativeAssetOptions = {},
 ): MinidbTextBuildWorkerInstallStatus {
   const source = options.source ?? getEmbeddedAssetSource();
-  if (source === null) return { status: 'not-sea' };
+  if (source === null) return { status: 'not-packaged' };
 
   let assetSha256: string | undefined;
   try {

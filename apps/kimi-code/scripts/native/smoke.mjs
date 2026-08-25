@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 
+import { fail } from './exec.mjs';
 import { appRoot, nativeBinPath, nativeSmokeHome, targetTriple } from './paths.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -12,11 +13,6 @@ const smokeHome = nativeSmokeHome();
 const packageJson = JSON.parse(await readFile(resolve(appRoot, 'package.json'), 'utf-8'));
 const expectedVersion = packageJson.version;
 
-function fail(message) {
-  console.error(message);
-  process.exit(1);
-}
-
 async function ensureExecutableExists() {
   try {
     await stat(executablePath);
@@ -25,27 +21,12 @@ async function ensureExecutableExists() {
   }
 }
 
-async function runKimi(args) {
+async function runKimi(args, env) {
   try {
     const { stdout, stderr } = await execFileAsync(executablePath, args, {
       cwd: appRoot,
       maxBuffer: 1024 * 1024 * 16,
-    });
-    return `${stdout}${stderr}`;
-  } catch (error) {
-    const detail = [error.stdout?.trim(), error.stderr?.trim(), error.message]
-      .filter(Boolean)
-      .join('\n');
-    fail(`Native smoke failed: ${executablePath} ${args.join(' ')}\n${detail}`);
-  }
-}
-
-async function runKimiWithEnv(args, env) {
-  try {
-    const { stdout, stderr } = await execFileAsync(executablePath, args, {
-      cwd: appRoot,
-      env: { ...process.env, ...env },
-      maxBuffer: 1024 * 1024 * 16,
+      env: env === undefined ? undefined : { ...process.env, ...env },
     });
     return `${stdout}${stderr}`;
   } catch (error) {
@@ -77,7 +58,7 @@ const smokeCache = resolve(smokeHome, 'cache');
 await rm(smokeHome, { recursive: true, force: true });
 await mkdir(smokeCache, { recursive: true });
 try {
-  const nativeAssetOutput = await runKimiWithEnv(['--version'], {
+  const nativeAssetOutput = await runKimi(['--version'], {
     KIMI_CODE_CACHE_DIR: smokeCache,
     KIMI_CODE_HOME: smokeHome,
     KIMI_CODE_NATIVE_ASSET_SMOKE: '1',

@@ -47,9 +47,9 @@
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "bench": "node --import tsx bench/bench.ts",
-    "bench:cluster": "node --import tsx bench/cluster.ts",
-    "bench:open": "node --import tsx bench/open-lifecycle.ts",
-    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\""
+    "bench": "bun bench/bench.ts",
+    "bench:cluster": "bun bench/cluster.ts",
+    "bench:open": "bun bench/open-lifecycle.ts",
+    "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
   }
 }

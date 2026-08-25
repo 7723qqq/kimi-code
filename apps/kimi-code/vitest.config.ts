@@ -17,5 +17,11 @@ export default defineConfig({
       KIMI_LANG: 'en',
     },
     include: ['test/**/*.test.ts', 'test/**/*.test.tsx'],
+    // Under the Bun runtime, vitest trips over zod's CJS-getter exports unless zod is inlined.
+    server: {
+      deps: {
+        inline: [/zod/],
+      },
+    },
   },
 });

@@ -20,10 +20,6 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -48,10 +44,6 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -65,7 +57,9 @@ jobs:
       - name: Build kimi-native-tools
         run: cd packages/kimi-native-tools && bun run build
 
-      - run: bun run test --shard=${{ matrix.shard }}/5
+      # The vitest suite runs under the Bun runtime (`--bun`): Bun is the
+      # canonical dev/test toolchain and the shards need no Node install.
+      - run: bun --bun run test --shard=${{ matrix.shard }}/5
 
   # pi-tui's suite runs on node:test (not vitest), so the root `bun run test`
   # does not execute it; it needs its own job.
@@ -79,17 +73,13 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - run: bun install --frozen-lockfile
-      - run: cd packages/pi-tui && bun run test
+      - run: cd packages/pi-tui && bun --bun run test
 
   # The VS Code extension suite runs on the default (v2) engine as part of the
   # sharded root run above; this job reruns it on the legacy v1 engine, which
@@ -104,17 +94,19 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/cache@v4
         with:
-          node-version-file: .nvmrc
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
+      # Same Bun-runtime note as the sharded test job.
       - run: bun install --frozen-lockfile
-      - run: cd apps/vscode && bun run test
+      - run: cd apps/vscode && bun --bun run test
         env:
           KIMI_CODE_LEGACY_FLAG: "1"
 
@@ -130,20 +122,22 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/cache@v4
         with:
-          node-version-file: .nvmrc
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
+      # Same Bun-runtime note as the sharded test job.
       - run: bun install --frozen-lockfile
       # Windows runners are slower and run the whole suite (including
       # in-process e2e tests) under more contention, so the default 5s test
       # timeout causes flaky failures. Give it more headroom.
-      - run: bun run test -- --testTimeout=30000
+      - run: bun --bun run test -- --testTimeout=30000
 
   lint:
     runs-on: ubuntu-latest
@@ -155,23 +149,19 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - run: bun install --frozen-lockfile
-      - run: bun run lint
-      - run: bun run sherif
+      - run: bun --bun run lint
+      - run: bun --bun run sherif
       # Locale consistency: en/zh key parity, placeholder validity, and JSON
       # freshness (regenerate, then fail if tracked JSON drifted from the TS sources).
-      - run: node scripts/check-locale-keys.mjs
-      - run: node scripts/check-locale-placeholders.cjs
-      - run: node scripts/generate-locale-json.cjs && git diff --exit-code -- '**/locales/*.json'
+      - run: bun scripts/check-locale-keys.mjs
+      - run: bun scripts/check-locale-placeholders.cjs
+      - run: bun scripts/generate-locale-json.cjs && git diff --exit-code -- '**/locales/*.json'
 
   typecheck:
     runs-on: ubuntu-latest
@@ -183,10 +173,6 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -195,14 +181,14 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Typecheck
         run: |
-          bunx --package @typescript/native-preview@beta tsgo --version
+          bunx --bun --package @typescript/native-preview@beta tsgo --version
           for config in packages/*/tsconfig.json apps/kimi-code/tsconfig.json; do
             echo "Typechecking ${config}"
-            bunx --package @typescript/native-preview@beta tsgo -p "${config}" --noEmit
+            bunx --bun --package @typescript/native-preview@beta tsgo -p "${config}" --noEmit
           done
       - name: Typecheck VS Code extension
-        run: cd apps/vscode && bun run typecheck
+        run: cd apps/vscode && bun --bun run typecheck
       - name: Typecheck vis-server
-        run: cd apps/vis/server && bun run typecheck
+        run: cd apps/vis/server && bun --bun run typecheck
       - name: Typecheck vis-web
-        run: cd apps/vis/web && bun run typecheck
+        run: cd apps/vis/web && bun --bun run typecheck

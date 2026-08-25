@@ -12,7 +12,7 @@
  */
 import { chmodSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 
 function nodePtyRoot() {
   const require = createRequire(import.meta.url);

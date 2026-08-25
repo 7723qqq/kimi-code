@@ -45,7 +45,3 @@ export function nativeArtifactsDir() {
 export function nativeSmokeHome() {
   return resolve(nativeDistRoot(), 'smoke-home');
 }
-
-export function nativeManifestKey(target = targetTriple()) {
-  return `native/${target}/manifest.json`;
-}

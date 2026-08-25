@@ -37,7 +37,7 @@ Kimi Code 对 CLI/TUI 行为、agent 工作流和公开 API 已有自己的主�
 
 ## 开发环境
 
-前置要求：Node.js >= 24.15.0、Bun >= 1.4、Git。
+前置要求：Bun >= 1.4、Git。任何开发流程都不再需要 Node.js——vitest 测试套件在 Bun 运行时下执行（`bun --bun run test`；本机装有 Node 时，普通 `bun run test` 依旧可用）。
 
 ```sh
 git clone https://github.com/MoonshotAI/kimi-code.git
@@ -67,12 +67,12 @@ bun install
 
 ### 原生构建（自包含二进制）
 
-原生构建用 Bun 把 CLI 编译为单文件可执行文件。需要 Bun >= 1.4（`curl -fsSL https://bun.sh/install | bash`；详见 [bun.sh](https://bun.sh)）。构建脚本本身仍由 Node.js >= 24.15 运行；Rust 工具链必需，因为要嵌入 `kimi-native-tools` 的 `.node` 二进制。
+原生构建用 Bun 把 CLI 编译为单文件可执行文件。需要 Bun >= 1.4（`curl -fsSL https://bun.sh/install | bash`；详见 [bun.sh](https://bun.sh)），构建脚本本身也运行在 Bun 上；Rust 工具链必需，因为要嵌入 `kimi-native-tools` 的 `.node` 二进制。
 
 在 `apps/kimi-code` 下运行：
 
 ```sh
-node scripts/native/build-bun.mjs
+bun scripts/native/build-bun.mjs
 bun run test:native:smoke
 ```
 
@@ -80,7 +80,7 @@ bun run test:native:smoke
 
 产物输出到 `apps/kimi-code/dist-native/bin/<target>/kimi`。
 
-Bun 字节码默认关闭：在本流水线上实测启动无收益，而字节码会增大产物体积，且与构建时的 Bun 版本强绑定。设置 `KIMI_CODE_BUN_ENABLE_BYTECODE=1` 可显式嵌入字节码。开启时注意模块格式：裸 `--bytecode` 默认输出 CommonJS，无法表达顶层 `await`；Bun 自 v1.3.9 起在 `--format=esm` 下支持顶层 `await`，但本流水线保持 CJS 默认值，因此编译入口必须避免顶层 `await`。
+Bun 字节码默认关闭：在本流水线上实测启动无收益，而字节码会增大产物体积，且与构建时的 Bun 版本强绑定。设置 `KIMI_CODE_BUN_ENABLE_BYTECODE=1` 可显式嵌入字节码。开启时编译步骤会同时传入 `--bytecode --format=esm`：裸 `--bytecode` 默认输出 CommonJS，无法表达顶层 `await`；ESM 字节码自 Bun v1.3.9 起支持顶层 `await`。
 
 运行时集成说明：
 
@@ -93,7 +93,7 @@ Bun 字节码默认关闭：在本流水线上实测启动无收益，而字节�
 测量一次构建的启动开销：先把产物复制另存（构建会写入 `dist-native/bin/<target>/kimi`），然后运行：
 
 ```sh
-node scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
+bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 ```
 
 ### Nix 构建

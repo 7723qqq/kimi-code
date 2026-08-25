@@ -1105,7 +1105,7 @@ describe('crash handler', () => {
     expect(transport.saved).toHaveLength(0);
   });
 
-  it('rethrows when it is the only rejection listener, recording the crash exactly once', () => {
+  it('rethrows when it is the only rejection listener, recording the crash exactly once', async () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
@@ -1117,13 +1117,7 @@ describe('crash handler', () => {
     installCrashHandlersForClient(client);
     const reason = new TypeError('promise failed');
     try {
-      expect(() =>
-        (process.emit as (event: string, ...args: unknown[]) => boolean)(
-          'unhandledRejection',
-          reason,
-          Promise.resolve(),
-        ),
-      ).toThrow(reason);
+      expect(await emitRejectionAndCatch(reason)).toBe(reason);
 
       // Tracked once as a rejection; when the rethrow later surfaces at the
       // uncaughtException monitor it must not be reported a second time.
@@ -1145,7 +1139,7 @@ describe('crash handler', () => {
     }
   });
 
-  it('dedupes rethrown non-Error rejection reasons at the uncaught monitor', () => {
+  it('dedupes rethrown non-Error rejection reasons at the uncaught monitor', async () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
@@ -1155,17 +1149,7 @@ describe('crash handler', () => {
     installCrashHandlersForClient(client);
     const reason = { code: 'E' };
     try {
-      let caught: unknown;
-      try {
-        (process.emit as (event: string, ...args: unknown[]) => boolean)(
-          'unhandledRejection',
-          reason,
-          Promise.resolve(),
-        );
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBe(reason);
+      expect(await emitRejectionAndCatch(reason)).toBe(reason);
 
       // The plain-object reason is rethrown through the monitor; it must be
       // deduped there, not reported as a second crash.
@@ -1191,7 +1175,7 @@ describe('crash handler', () => {
     }
   });
 
-  it('dedupes null rejection reasons and classifies monitor crashes null-safely', () => {
+  it('dedupes null rejection reasons and classifies monitor crashes null-safely', async () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
@@ -1200,17 +1184,7 @@ describe('crash handler', () => {
     process.removeAllListeners('unhandledRejection');
     installCrashHandlersForClient(client);
     try {
-      let caught: unknown = 'not-thrown';
-      try {
-        (process.emit as (event: string, ...args: unknown[]) => boolean)(
-          'unhandledRejection',
-          null,
-          Promise.resolve(),
-        );
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBe(null);
+      expect(await emitRejectionAndCatch(null)).toBe(null);
 
       // The rethrown null reaches the monitor: deduped, and the error-type
       // classification must not itself throw on null/undefined.
@@ -1277,6 +1251,43 @@ function requestInitFrom(
   const init = call?.[1];
   if (init === undefined) throw new Error(`No request init for fetch call ${String(index)}`);
   return init;
+}
+
+const NOT_CAUGHT = Symbol('not-caught');
+
+// Emitting 'unhandledRejection' at a sole crash-handler listener makes it
+// rethrow the reason: Node propagates that throw synchronously out of
+// process.emit, while Bun defers it and delivers the reason asynchronously
+// through uncaughtException. Own the uncaughtException channel briefly so the
+// rethrow is captured here instead of escaping into the vitest worker.
+async function emitRejectionAndCatch(reason: unknown): Promise<unknown> {
+  const uncaughtListeners = process.listeners('uncaughtException');
+  process.removeAllListeners('uncaughtException');
+  let caught: unknown = NOT_CAUGHT;
+  const catcher = (error: unknown): void => {
+    caught = error;
+  };
+  process.on('uncaughtException', catcher);
+  try {
+    try {
+      (process.emit as (event: string, ...args: unknown[]) => boolean)(
+        'unhandledRejection',
+        reason,
+        Promise.resolve(),
+      );
+    } catch (error) {
+      caught = error;
+    }
+    for (let waited = 0; caught === NOT_CAUGHT && waited < 2000; waited += 5) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  } finally {
+    process.off('uncaughtException', catcher);
+    for (const listener of uncaughtListeners) {
+      process.on('uncaughtException', listener as (...args: unknown[]) => void);
+    }
+  }
+  return caught;
 }
 
 function emitCrash(

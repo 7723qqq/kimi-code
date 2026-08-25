@@ -21,5 +21,6 @@ Never overwrite this directory wholesale when syncing from upstream. Each of the
 
 ## Testing
 
-- This package's tests run with `node --test` (`cd packages/pi-tui && bun run test`), not vitest; the root `vitest run` does not execute them — CI covers them through the dedicated `test-pi-tui` job in `.github/workflows/ci.yml`.
+- This package's tests are written for `node:test`, not vitest; the root `vitest run` does not execute them — CI covers them through the dedicated `test-pi-tui` job in `.github/workflows/ci.yml`.
+- The `test` script goes through `scripts/test.mjs`, which dispatches on runtime: real Node spawns `node --test`, Bun (`bun --bun run test`) spawns `bun test` — Bun's `node --test` shim cannot arm the node:test harness. Both runtimes must stay green.
 - Prefer adding new narrow-width tests to the existing test file of the corresponding component.

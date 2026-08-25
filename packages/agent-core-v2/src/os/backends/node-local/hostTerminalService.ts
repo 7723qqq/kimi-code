@@ -9,41 +9,17 @@ import { Service } from '#/_base/di/service';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
-import { IHostTerminalService, type TerminalProcess, type TerminalSpawnOptions } from '#/os/interface/terminal';
+import {
+  IHostTerminalService,
+  type HostTerminalBunRuntime,
+  type TerminalProcess,
+  type TerminalSpawnOptions,
+} from '#/os/interface/terminal';
 
-interface BunTerminal {
-  write(data: string | Uint8Array): void;
-  resize(cols: number, rows: number): void;
-  close(): void;
-}
-
-interface BunSubprocessWithTerminal {
-  readonly terminal: BunTerminal;
-  readonly exited: Promise<number | null>;
-  kill(): void;
-}
-
-interface BunGlobalLike {
-  readonly Terminal?: unknown;
-  spawn(
-    command: readonly string[],
-    options: {
-      cwd?: string;
-      env?: Record<string, string | undefined>;
-      terminal: {
-        name?: string;
-        cols?: number;
-        rows?: number;
-        data(terminal: BunTerminal, data: Uint8Array): void;
-      };
-    },
-  ): BunSubprocessWithTerminal;
-}
-
-function currentBun(): BunGlobalLike | undefined {
-  const bun = (globalThis as unknown as { Bun?: BunGlobalLike }).Bun;
-  if (bun === undefined || typeof bun.Terminal !== 'function') return undefined;
-  return bun;
+function usableBunTerminal(
+  bun: HostTerminalBunRuntime | undefined | null,
+): HostTerminalBunRuntime | undefined {
+  return bun !== null && bun !== undefined && typeof bun.Terminal === 'function' ? bun : undefined;
 }
 
 interface PackagedRootsGlobal {
@@ -88,13 +64,27 @@ export class HostTerminalService extends Service implements IHostTerminalService
 
   private readonly processes = new Set<TerminalProcess>();
 
-  spawn(options: TerminalSpawnOptions): Promise<TerminalProcess> {
-    const bun = currentBun();
+  /**
+   * Spawn an interactive terminal process.
+   *
+   * @param bunOverride Backend selection seam for tests and embedders: a
+   * Bun-like object routes through Bun.Terminal when it carries one, `null`
+   * forces node-pty regardless of host runtime, and omission auto-detects
+   * from `globalThis.Bun`.
+   */
+  spawn(
+    options: TerminalSpawnOptions,
+    bunOverride?: HostTerminalBunRuntime | null,
+  ): Promise<TerminalProcess> {
+    const candidate = bunOverride === undefined
+      ? (globalThis as unknown as { Bun?: HostTerminalBunRuntime }).Bun
+      : bunOverride;
+    const bun = usableBunTerminal(candidate);
     if (bun !== undefined) return Promise.resolve(this.spawnBun(bun, options));
     return this.spawnNodePty(options);
   }
 
-  private spawnBun(bun: BunGlobalLike, options: TerminalSpawnOptions): TerminalProcess {
+  private spawnBun(bun: HostTerminalBunRuntime, options: TerminalSpawnOptions): TerminalProcess {
     const dataEmitter = new Emitter<string>('hostTerminal.data');
     const exitEmitter = new Emitter<{ exitCode: number | null }>('hostTerminal.exit');
     const decoder = new TextDecoder();

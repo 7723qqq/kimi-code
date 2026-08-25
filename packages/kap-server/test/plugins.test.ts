@@ -542,8 +542,6 @@ describe('server-v2 /api/v1 plugins', () => {
         ],
       }),
     );
-    vi.stubEnv('HOME', fakeHome);
-    vi.stubEnv('USERPROFILE', fakeHome);
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
@@ -551,6 +549,7 @@ describe('server-v2 /api/v1 plugins', () => {
       homeDir: home!,
       logLevel: 'silent',
       pluginMarketplaceUrl: '~/marketplace.json',
+      pluginMarketplaceHomeDir: fakeHome,
     });
     base = `http://127.0.0.1:${server.port}`;
 
@@ -558,7 +557,10 @@ describe('server-v2 /api/v1 plugins', () => {
       'GET',
       '/api/v1/plugins/marketplace',
     );
-    expect(body.code).toBe(0);
+    expect(
+      body.code,
+      `marketplace responded: ${JSON.stringify((body as { msg?: string }).msg ?? body)}`,
+    ).toBe(0);
     expect(body.data.entries.map((e) => e.id)).toEqual(['tilde-plugin', 'tilde-entry-plugin']);
     expect(body.data.entries[1]?.source).toBe(join(fakeHome, 'plugins', 't.zip'));
   });

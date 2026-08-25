@@ -31,7 +31,7 @@ export function buildCodesignArgs({ identity, executable, entitlementsPath, keyc
   return args;
 }
 
-async function sha256(path) {
+export async function sha256(path) {
   return await new Promise((resolveHash, reject) => {
     const hash = createHash('sha256');
     const stream = createReadStream(path);
@@ -62,10 +62,4 @@ export async function runSignStep({ identity = '-', keychainPath = null } = {}) 
 
   await writeChecksum(executable);
   console.log(`Signed and hashed: ${executable}`);
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const identity = process.env.APPLE_SIGNING_IDENTITY ?? '-';
-  const keychainPath = process.env.APPLE_KEYCHAIN_PATH ?? null;
-  await runSignStep({ identity, keychainPath });
 }

@@ -16,17 +16,29 @@ export type NativeInstallDetection =
   | { readonly native: false }
   | { readonly native: true; readonly kind: NativeInstallKind };
 
+/**
+ * The runtime markers packaging detection reads. Injectable so tests can
+ * describe bun/node environments without mutating `globalThis` — under the
+ * real Bun runtime `globalThis.Bun` is read-only and permanently present.
+ */
+export interface BunRuntimeView {
+  readonly Bun?: unknown;
+  readonly __KIMI_BUN_ASSETS__?: Record<string, string>;
+}
+
 // Bun packaged builds are recognized by the embedded-asset marker that
 // scripts/native/bun-entry.ts registers.
-function detectBunNativeInstall(): NativeInstallDetection | null {
-  if ((globalThis as unknown as { Bun?: unknown }).Bun === undefined) return null;
-  if (getBunEmbeddedAssetSource() === null) return null;
+function detectBunNativeInstall(view: BunRuntimeView): NativeInstallDetection | null {
+  if (view.Bun === undefined) return null;
+  if (getBunEmbeddedAssetSource(view) === null) return null;
   return { native: true, kind: 'bun' };
 }
 
 /** Runtime packaging detection — native when running as a packaged binary. */
-export function detectNativeInstall(): NativeInstallDetection {
-  const bun = detectBunNativeInstall();
+export function detectNativeInstall(
+  view: BunRuntimeView = globalThis as BunRuntimeView,
+): NativeInstallDetection {
+  const bun = detectBunNativeInstall(view);
   if (bun !== null) return bun;
   return { native: false };
 }

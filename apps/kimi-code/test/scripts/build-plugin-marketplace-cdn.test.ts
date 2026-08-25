@@ -35,8 +35,8 @@ describe('buildPluginMarketplaceCdn', () => {
 
     await buildPluginMarketplaceCdn({ pluginsRoot, outDir });
 
-    await expect(access(join(outDir, 'official/listed-plugin.zip'))).resolves.toBeUndefined();
-    await expect(access(join(outDir, 'official/kimi-webbridge.zip'))).resolves.toBeUndefined();
+    await expect(access(join(outDir, 'official/listed-plugin.zip'))).resolves.toBeFalsy();
+    await expect(access(join(outDir, 'official/kimi-webbridge.zip'))).resolves.toBeFalsy();
     await expect(access(join(outDir, 'official/not-listed.zip'))).rejects.toThrow();
     const marketplace = JSON.parse(await readFile(join(outDir, 'marketplace.json'), 'utf8'));
     expect(marketplace.plugins).toHaveLength(1);

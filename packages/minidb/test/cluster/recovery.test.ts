@@ -18,10 +18,15 @@ function crashWriter(dir: string, shardCount: number): Promise<void> {
   return new Promise((resolve) => {
     const child = spawn(
       process.execPath,
-      ['--import', 'tsx', WORKER, 'crash', dir, String(shardCount)],
-      {
-        stdio: ['ignore', 'pipe', 'ignore'],
-      },
+      // Bun executes .ts workers natively; Node needs the tsx loader hook.
+      [
+        ...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']),
+        WORKER,
+        'crash',
+        dir,
+        String(shardCount),
+      ],
+      { stdio: ['ignore', 'pipe', 'ignore'] },
     );
     let killTimer: ReturnType<typeof setTimeout> | null = null;
     let heartbeats = 0;
@@ -89,7 +94,14 @@ test(
       const key = keyOnShard('victim', 1, shardCount);
       const holder = spawn(
         process.execPath,
-        ['--import', 'tsx', WORKER, 'hold', dir, String(shardCount), key],
+        [
+          ...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']),
+          WORKER,
+          'hold',
+          dir,
+          String(shardCount),
+          key,
+        ],
         {
           stdio: ['ignore', 'pipe', 'inherit'],
         },

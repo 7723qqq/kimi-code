@@ -14,7 +14,7 @@ import {
 } from './native-assets';
 
 export type KapSearchWorkerInstallStatus =
-  | { readonly status: 'not-sea' }
+  | { readonly status: 'not-packaged' }
   | { readonly status: 'asset-missing' }
   | {
       readonly status: 'installed';
@@ -42,7 +42,7 @@ export function installKapSearchWorker(
   options: NativeAssetOptions = {},
 ): KapSearchWorkerInstallStatus {
   const source = options.source ?? getEmbeddedAssetSource();
-  if (source === null) return { status: 'not-sea' };
+  if (source === null) return { status: 'not-packaged' };
 
   let assetSha256: string | undefined;
   try {

@@ -1,33 +1,22 @@
-import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
-import { copyFile, mkdir, readdir, readFile, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { toPosixPath, listFiles, sha256 } from './fs-utils.mjs';
 import {
   KAP_SEARCH_WORKER_ASSET,
   MINIDB_TEXT_BUILD_WORKER_ASSET,
   NATIVE_ASSET_MANIFEST_VERSION,
+  buildAssetKey,
   buildManifestKey,
   buildRuntimeAssetKey,
 } from './manifest.mjs';
-import { PI_TUI_PACKAGE_NAME, resolveTargetDeps, SUPPORTED_TARGETS } from './native-deps.mjs';
-import { nativeBinDir } from './paths.mjs';
+import { PI_TUI_PACKAGE_NAME, resolveTargetDeps } from './native-deps.mjs';
+import { nativeBinDir, nativeIntermediatesDir } from './paths.mjs';
 
 export { NATIVE_ASSET_MANIFEST_VERSION };
-
-// Re-export for any external consumer that still needs it. Internally we
-// use resolveTargetDeps() exclusively — no more if/else against package names.
-export const NATIVE_TARGETS = Object.freeze(
-  Object.fromEntries(
-    SUPPORTED_TARGETS.map((t) => {
-      const deps = resolveTargetDeps(t);
-      const clipboardTarget = deps.find((d) => d.id === 'clipboard-target')?.resolvedName;
-      return [t, { clipboardPackage: clipboardTarget }];
-    }),
-  ),
-);
 
 const jsExtensions = ['.js', '.cjs', '.mjs', '.json', '.node'];
 const runtimeEntryNames = ['index.js', 'index.cjs', 'index.mjs'];
@@ -36,37 +25,8 @@ function fail(message) {
   throw new Error(message);
 }
 
-function toPosixPath(path) {
-  return path.split('\\').join('/');
-}
-
-function sha256(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
-}
-
 async function readJson(path) {
   return JSON.parse(await readFile(path, 'utf-8'));
-}
-
-async function listFiles(root) {
-  const files = [];
-
-  async function walk(dir) {
-    const entries = await readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(path);
-        continue;
-      }
-      if (entry.isFile()) {
-        files.push(path);
-      }
-    }
-  }
-
-  await walk(root);
-  return files;
 }
 
 function resolvePackageRootGeneric(
@@ -143,12 +103,7 @@ async function addRuntimeDependencyFiles(packageRoot, filePath, selected) {
   const extension = extname(filePath);
   if (!['.js', '.cjs', '.mjs'].includes(extension)) return;
 
-  let text;
-  try {
-    text = await readFile(filePath, 'utf-8');
-  } catch {
-    return;
-  }
+  const text = await readFile(filePath, 'utf-8');
 
   for (const specifier of relativeRuntimeSpecifiers(text)) {
     const candidate = resolveFileCandidate(resolve(dirname(filePath), specifier));
@@ -173,6 +128,7 @@ async function collectPackageFiles({
   packageRoot,
   includeNativeFiles,
   includeEntryJs = true,
+  requireEntryJs = false,
   nativeFileRelatives = [],
 }) {
   const packageJsonPath = join(packageRoot, 'package.json');
@@ -181,7 +137,14 @@ async function collectPackageFiles({
 
   if (includeEntryJs) {
     const entry = resolvePackageEntry(packageRoot, packageJson);
-    if (entry !== null) {
+    if (entry === null) {
+      // `native-files` packages may legitimately lack a JS entry: kimi-agent
+      // pre-bundles its runtime JS into main.cjs and ships only the .node
+      // binary. Modes whose extracted tree must be requireable fail hard.
+      if (requireEntryJs) {
+        fail(`Native package ${packageName} has no resolvable entry point at ${packageRoot}`);
+      }
+    } else {
       selected.add(entry);
       await addRuntimeDependencyFiles(packageRoot, entry, selected);
     }
@@ -206,7 +169,9 @@ async function collectPackageFiles({
     }
   }
 
-  const sorted = [...selected].sort((a, b) => a.localeCompare(b));
+  // Codepoint order, not localeCompare — the manifest bytes hash into the
+  // runtime cache root and must not vary with host ICU.
+  const sorted = [...selected].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   if (includeNativeFiles && !sorted.some((file) => file.endsWith('.node'))) {
     fail(`Native package ${packageName} does not contain a .node file at ${packageRoot}`);
   }
@@ -225,12 +190,13 @@ async function packageManifestEntries({ packageName, packageRoot, files, target 
     const mode = (await stat(file)).mode & 0o777;
     const packageRelativePath = toPosixPath(relative(packageRoot, file));
     const relativePath = `${root}/${packageRelativePath}`;
-    const assetKey = `native/${target}/${relativePath}`;
+    const assetKey = buildAssetKey(target, root, packageRelativePath);
     entries.push({
       assetKey,
       relativePath,
       sha256: sha256(sourceBytes),
-      ...(mode === 0o644 ? {} : { mode }),
+      // JSON.stringify drops undefined keys, so 0o644 entries stay unchanged.
+      mode: mode === 0o644 ? undefined : mode,
     });
     assets[assetKey] = file;
   }
@@ -246,13 +212,6 @@ async function packageManifestEntries({ packageName, packageRoot, files, target 
 }
 
 export const nativeAssetManifestKey = buildManifestKey;
-
-export function nativeAssetSummary(manifest) {
-  return [
-    ...manifest.packages.map((pkg) => `${pkg.name}: ${pkg.files.length} files`),
-    `runtime: ${manifest.runtimeFiles.length} files`,
-  ];
-}
 
 export async function collectNativeAssets({ appRoot, target }) {
   const requireFromApp = createRequire(pathToFileURL(resolve(appRoot, 'package.json')));
@@ -274,6 +233,7 @@ export async function collectNativeAssets({ appRoot, target }) {
       packageRoot,
       includeNativeFiles: dep.collect === 'native-files',
       includeEntryJs: dep.collect !== 'native-file-only',
+      requireEntryJs: dep.collect === 'js-only' || dep.collect === 'js-and-native-file',
       nativeFileRelatives: dep.nativeFileRelatives,
     });
     const result = await packageManifestEntries({
@@ -291,7 +251,7 @@ export async function collectNativeAssets({ appRoot, target }) {
     ['text-build-worker.mjs', MINIDB_TEXT_BUILD_WORKER_ASSET],
     ['search-worker.mjs', KAP_SEARCH_WORKER_ASSET],
   ]) {
-    const workerSource = resolve(appRoot, 'dist-native', 'intermediates', fileName);
+    const workerSource = resolve(nativeIntermediatesDir(), fileName);
     const workerBytes = await readFile(workerSource);
     const workerAssetKey = buildRuntimeAssetKey(target, asset.key);
     runtimeFiles.push({
@@ -335,9 +295,10 @@ export function execSideHelperTargets(manifest) {
   const rootPrefix = `${pkg.root}/`;
   const targets = [];
   for (const file of pkg.files) {
-    const portableRelativePath = file.relativePath.replaceAll('\\', '/');
-    if (!portableRelativePath.startsWith(rootPrefix)) continue;
-    const packageRelativePath = portableRelativePath.slice(rootPrefix.length);
+    // relativePath is already POSIX-normalized where manifests are built
+    // (toPosixPath in packageManifestEntries), so no separator conversion here.
+    if (!file.relativePath.startsWith(rootPrefix)) continue;
+    const packageRelativePath = file.relativePath.slice(rootPrefix.length);
     if (!packageRelativePath.startsWith('native/') || !packageRelativePath.endsWith('.node')) {
       continue;
     }

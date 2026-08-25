@@ -1,12 +1,10 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { startPluginMarketplaceServer } from './dev-plugin-marketplace-server.mjs';
 
-const require = createRequire(import.meta.url);
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = resolve(SCRIPT_DIR, '..');
 // Monorepo root. Used as the dev CLI's working directory so `make dev` opens
@@ -43,18 +41,14 @@ if (externalUrl !== undefined && externalUrl.length > 0) {
   }
 }
 
-const tsxCli = require.resolve('tsx/cli');
 const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === '--') cliArgs.shift();
+// Bun executes src/main.ts directly: it strips TS types, honors the legacy
+// parameter decorators agent-core-v2's DI uses, and picks up the nearest
+// tsconfig.json on its own — no tsx intermediary needed.
 const child = spawn(
   process.execPath,
   [
-    tsxCli,
-    // Use the dev tsconfig whose `include` covers packages/*/src, so tsx's
-    // esbuild transform sees `experimentalDecorators: true` for DI parameter
-    // decorators in agent-core. Mirrors `dev:server` in package.json.
-    '--tsconfig',
-    resolve(APP_ROOT, 'tsconfig.dev.json'),
     '--import',
     pathToFileURL(resolve(REPO_ROOT, 'build/register-raw-text-loader.mjs')).href,
     resolve(APP_ROOT, 'src/main.ts'),

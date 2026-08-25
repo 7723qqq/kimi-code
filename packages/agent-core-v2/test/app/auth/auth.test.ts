@@ -1101,7 +1101,9 @@ describe('WebSearchProviderService', () => {
     };
     const fetchMock = vi.fn().mockResolvedValue({
       status: 200,
-      json: async () => ({ search_results: [] }),
+      json: async () => ({
+        search_results: [{ title: 'T', url: 'https://result.example.com', snippet: 'S' }],
+      }),
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -1125,7 +1127,9 @@ describe('WebSearchProviderService', () => {
     };
     const fetchMock = vi.fn().mockResolvedValue({
       status: 200,
-      json: async () => ({ search_results: [] }),
+      json: async () => ({
+        search_results: [{ title: 'T', url: 'https://result.example.com', snippet: 'S' }],
+      }),
     });
     vi.stubGlobal('fetch', fetchMock);
 

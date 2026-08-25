@@ -5,6 +5,9 @@ import { bunAssets } from './bun-assets.gen';
 // this module before ./main.cjs.
 const assets: Record<string, string> = {};
 for (const [key, path] of bunAssets) {
+  if (key in assets) {
+    throw new Error(`Duplicate Bun embedded asset key: ${key}`);
+  }
   assets[key] = path;
 }
 (

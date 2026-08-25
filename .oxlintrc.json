@@ -54,6 +54,17 @@
     ],
     "import/no-duplicates": "warn",
     "import/no-mutable-exports": "warn",
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "undici",
+            "message": "Bun resolves bare 'undici' to its built-in stub ahead of node_modules (oven-sh/bun#38840); import from the package-local undici-npm compat module instead."
+          }
+        ]
+      }
+    ],
     "unicorn/error-message": "warn",
     "unicorn/throw-new-error": "warn",
     "unicorn/catch-error-name": "warn",

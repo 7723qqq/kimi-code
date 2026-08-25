@@ -6,8 +6,10 @@ interface BunAssetsGlobal {
   __KIMI_BUN_ASSETS__?: Readonly<Record<string, string>>;
 }
 
-export function getBunEmbeddedAssetSource(): NativeAssetSource | null {
-  const assets = (globalThis as unknown as BunAssetsGlobal).__KIMI_BUN_ASSETS__;
+export function getBunEmbeddedAssetSource(
+  view: BunAssetsGlobal = globalThis as BunAssetsGlobal,
+): NativeAssetSource | null {
+  const assets = view.__KIMI_BUN_ASSETS__;
   if (assets === undefined) return null;
   const keys = Object.keys(assets);
   if (keys.length === 0) return null;

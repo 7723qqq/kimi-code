@@ -22,7 +22,7 @@
     }
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "bun --watch src/index.ts",
     "build": "tsdown",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

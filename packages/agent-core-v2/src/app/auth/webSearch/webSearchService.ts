@@ -32,18 +32,32 @@ export class WebSearchProviderService implements IWebSearchProviderService {
   ) {}
 
   getWebSearchProvider(): WebSearchProvider | undefined {
-    const candidates: WebSearchProvider[] = [];
-    const services = this.fromServicesConfig();
-    if (services !== undefined) candidates.push(services);
-    let managed: WebSearchProvider | undefined;
-    try {
-      managed = this.fromManagedOAuth();
-    } catch {
-      managed = undefined;
+    const factories: ReadonlyArray<() => WebSearchProvider | undefined> = [
+      () => this.fromServicesConfig(),
+      () => {
+        try {
+          return this.fromManagedOAuth();
+        } catch {
+          return undefined;
+        }
+      },
+      () => this.localProvider(),
+    ];
+    // Construct the highest-priority defined candidate eagerly so its side
+    // effects (token resolution, identity freeze checks) surface at
+    // acquisition time; lower tiers stay lazy until a cascade reaches them.
+    // Factory errors propagate here by design — each tier decides its own
+    // fall-through (the managed factory catches internally).
+    const pending = [...factories];
+    let first: WebSearchProvider | undefined;
+    while (first === undefined && pending.length > 0) {
+      const candidate = pending.shift()?.();
+      if (candidate !== undefined) first = candidate;
     }
-    if (managed !== undefined) candidates.push(managed);
-    candidates.push(this.localProvider());
-    return createFailoverWebSearchProvider(candidates);
+    return createFailoverWebSearchProvider([
+      ...(first !== undefined ? [first] : []),
+      ...pending,
+    ]);
   }
 
   hasWebSearchProvider(): boolean {
@@ -112,18 +126,29 @@ function nonEmptyString(value: string | undefined): string | undefined {
 }
 
 /**
- * Try each provider in order; an auth failure (missing/expired managed
+ * Try each candidate in order; an auth failure (missing/expired managed
  * token) falls through to the next candidate instead of surfacing a
  * dead-end, while caller aborts propagate immediately. Empty result sets
- * also cascade — engines can legitimately miss a query.
+ * also cascade — engines can legitimately miss a query. Entries may be
+ * ready providers or lazy factories; factories run only when the cascade
+ * reaches them.
  */
 export function createFailoverWebSearchProvider(
-  candidates: readonly WebSearchProvider[],
+  candidates: ReadonlyArray<WebSearchProvider | (() => WebSearchProvider | undefined)>,
 ): WebSearchProvider {
   return {
     async search(query, options) {
       let lastError: unknown = new Error('no search provider configured');
-      for (const candidate of candidates) {
+      for (const entry of candidates) {
+        let candidate: WebSearchProvider | undefined;
+        try {
+          candidate = typeof entry === 'function' ? entry() : entry;
+        } catch (error) {
+          if (options?.signal?.aborted) throw error;
+          lastError = error;
+          continue;
+        }
+        if (candidate === undefined) continue;
         try {
           const results = await candidate.search(query, options);
           if (results.length > 0 || candidates.length === 1) return results;

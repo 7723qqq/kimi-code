@@ -20,8 +20,8 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
-- **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (`bun run dev:cli`, tsx running `src/main.ts`); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
-- **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Self-update remains engine-aware for legacy SEA installs.
+- **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (`bun run dev:cli`, Bun executing `src/main.ts` directly); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
+- **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the vitest suites (`bun --bun run test`) all run on Bun; CI installs no Node. Self-update remains engine-aware for legacy SEA installs.
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): MCP auto-reconnect with bounded exponential backoff (`mcpCore/connection-manager.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 
 > For a user-facing summary of these additions, see `README.md` → "What's Different in This Fork" (and its Chinese mirror `README.zh-CN.md` → "本 Fork 新增特性").
@@ -36,7 +36,8 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 |-------|-----------|
 | Primary language | **TypeScript** 6.0.2 (strict mode) |
 | Module system | ESM (`"type": "module"` in every package) |
-| Runtime | **Node.js** >= 24.15.0 (`.nvmrc`: 24.15.0) |
+| Dev runtime | **Bun** >= 1.4 — install, build, lint, typecheck, and the vitest suites (`bun --bun run test`) all run through bun |
+| Published CLI runtime | **Node.js** >= 22.19.0 (`engines` floor of the published package; unchanged by the dev-toolchain migration) |
 | Native code | **Rust** (via napi-rs for Node addon, pure Rust CLI tools) |
 | Web UI (peer) | **Vue 3** + **Vite** |
 | VS Code extension | **React 19** + **TailwindCSS 4** + **shadcn/ui** |
@@ -74,7 +75,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 ```
 apps/
   kimi-code/        — Main CLI / TUI application (entry point, incl. dist-web web bundle)
-  kimi-web/         — Vue 3 Web UI (fork addition; excluded from the root Bun workspace; keeps its own pnpm)
+  kimi-web/         — Vue 3 Web UI (fork addition; excluded from the root Bun workspace; standalone Bun install via its own bun.lock)
   vscode/           — VS Code extension (React 19 webview)
   kimi-inspect/     — Web inspector for kap-server /api/v1/debug RPC surface
   vis/              — Session replay & debugging visualizer
@@ -218,9 +219,9 @@ scripts/
 
 ## Environment Requirements
 
-- **Node.js**: `>=24.15.0` (`.nvmrc` is `24.15.0`; Bun does not enforce `engines` on install, so verify with `.nvmrc` instead).
-- **Node engines**: 发布包的 engines 有意保持 >=22.19.0 的宽松下限（上游一致），仓库开发标准以 .nvmrc 24.15.0 为准
-- **Bun**: `>= 1.4` (package manager and script runner; `bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`).
+- **Bun**: `>= 1.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the vitest suites (`bun --bun run test`) all run through bun.
+- **Node.js**: no longer required for any development workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's node:test suite included). CI installs no Node.
+- **Published package engines**: 发布包的 engines 有意保持 >=22.19.0 的宽松下限（上游一致的消费者契约），不随本次开发工具链迁移变化。
 - **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
 
@@ -235,7 +236,7 @@ bun install                   # Install all dependencies
 bun run build                 # Build all workspace packages
 bun run build:packages        # Build only packages/*
 bun run dev:cli               # Run CLI in dev mode
-cd apps/kimi-web && pnpm run dev # Run web UI in dev mode (excluded from the workspace; keeps its own pnpm)
+cd apps/kimi-web && bun run dev # Run web UI in dev mode (standalone Bun install via apps/kimi-web/bun.lock)
 bun run dev:server            # Run server in dev mode
 bun run test                  # Run all tests (vitest)
 bun run test:watch            # Watch mode
@@ -282,21 +283,21 @@ cd apps/vscode && bun run build
 cd apps/vscode && bun run test
 cd apps/vscode && bun run package:platform     # Produce .vsix
 
-# Web UI (excluded from the root workspace; keeps its own pnpm)
-cd apps/kimi-web && pnpm run build
-cd apps/kimi-web && pnpm run dev
+# Web UI (standalone Bun install via apps/kimi-web/bun.lock)
+cd apps/kimi-web && bun run build
+cd apps/kimi-web && bun run dev
 ```
 
 To run a local build inside `~/.kimi-code/` instead of the released binary (PowerShell on Windows, bash on Linux), see [`CONTRIBUTING.md` → "Deploy to local `.kimi-code` for testing"](CONTRIBUTING.md#deploy-to-local-kimi-code-for-testing).
 
 ### CI pipeline
 
-GitHub Actions (`ci.yml`) runs on every PR and push to `main`:
+GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job installs Bun via `oven-sh/setup-bun`; no job installs Node:
 1. **build** — Install, build, smoke test CLI bundle
-2. **test** — `vitest run` split across 5 parallel shards on Ubuntu
-3. **test-pi-tui** — `pi-tui` suite (uses node:test, not vitest)
+2. **test** — `bun --bun run test` (vitest under the Bun runtime) split across 5 parallel shards on Ubuntu
+3. **test-pi-tui** — `pi-tui` suite (uses node:test via Bun's node:test shim)
 4. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
-5. **typecheck** — TypeScript check across all packages (uses `tsgo` from `@typescript/native-preview`)
+5. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 6. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
 7. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
 
@@ -367,9 +368,9 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 
 - All user-facing strings must use `t()` calls from the i18n framework.
 - Supported locales: `en` (English), `zh` (Chinese).
-- Locale JSON must be regenerated after translation changes: `node scripts/generate-locale-json.cjs`.
-- Run `node scripts/scan-hardcoded-v2.mjs` to find hardcoded strings that should be localized.
-- Run `node scripts/check-locale-placeholders.cjs` to validate placeholder consistency.
+- Locale JSON must be regenerated after translation changes: `bun scripts/generate-locale-json.cjs`.
+- Run `bun scripts/scan-hardcoded-v2.mjs` to find hardcoded strings that should be localized.
+- Run `bun scripts/check-locale-placeholders.cjs` to validate placeholder consistency.
 
 ---
 
@@ -378,7 +379,7 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 ### Test Framework
 
 - **vitest 4.1.10** for all TypeScript/JavaScript tests (root-level)
-- **node:test** for `@moonshot-ai/pi-tui` (not part of vitest workspace)
+- **node:test** for `@moonshot-ai/pi-tui` (not part of vitest workspace; this suite still runs under Node)
 - **cargo test** for Rust packages (`kimi-native-tools`)
 - **Coverage**: v8 provider, reports in text + HTML
 

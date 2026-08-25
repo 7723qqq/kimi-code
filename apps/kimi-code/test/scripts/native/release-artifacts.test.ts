@@ -17,7 +17,9 @@ const packageScript = resolve(appRoot, 'scripts/native/package.mjs');
 const manifestScript = resolve(appRoot, 'scripts/native/produce-manifest.mjs');
 const artifactsDir = resolve(appRoot, 'dist-native/artifacts');
 const target = 'test-zip-artifact';
-const executableName = process.platform === 'win32' ? 'kimi.exe' : 'kimi';
+// Member/binary names follow the fake target's platform segment ('test' is not
+// win32), independent of the platform running this test.
+const executableName = 'kimi';
 const fakeBinary = resolve(appRoot, 'dist-native/bin', target, executableName);
 
 function sha256(bytes: Buffer | string): string {

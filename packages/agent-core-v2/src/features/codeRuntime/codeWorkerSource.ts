@@ -7,7 +7,8 @@
  * deepseek-harness `code-runtime-worker-thread` (MIT): the program body runs
  * as a strict-mode async function (top-level `await` / `return` work), the
  * five `console.*` methods are captured in emission order under a shared
- * character budget, and the completion value must be JSON-serializable —
+ * character budget, programs additionally receive the worker's own
+ * `require`, and the completion value must be JSON-serializable —
  * `undefined` becomes an absent value, anything else un-serializable becomes
  * an `invalid-output` failure. Log lines stream to the host eagerly so
  * captured output survives a mid-run termination. The worker is a soft
@@ -98,8 +99,8 @@ async function runOnce(msg) {
     // The async function constructor, reached through an instance because
     // AsyncFunction is not a global. The program body is strict mode.
     const AsyncFunction = (async () => {}).constructor;
-    const fn = new AsyncFunction('console', "'use strict';\n" + msg.code);
-    const value = await fn(consoleShim);
+    const fn = new AsyncFunction('console', 'require', "'use strict';\n" + msg.code);
+    const value = await fn(consoleShim, require);
     done = { type: 'done', ...prepareCompletion(value, logs.remaining()) };
   } catch (error) {
     let message;

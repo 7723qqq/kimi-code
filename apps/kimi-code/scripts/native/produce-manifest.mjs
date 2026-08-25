@@ -11,8 +11,7 @@
  * `bun` section, and a missing target would strand clients on that platform.
  *
  * Output:
- *   <input-dir>/manifest.json   ← consumed by install.sh / install.ps1
- *
+ *   <input-dir>/manifest.json   ← consumed by src/cli/update/native-manifest.ts
  */
 
 import { readFile, readdir, writeFile } from 'node:fs/promises';
@@ -33,7 +32,7 @@ const entries = await readdir(inputDir);
 const sumFiles = entries.filter((f) => /^kimi-code-bun-[a-z0-9]+-[a-z0-9]+\.zip\.sha256$/.test(f));
 
 if (sumFiles.length === 0) {
-  console.error(`No kimi-code-<target>.zip.sha256 files found in ${inputDir}`);
+  console.error(`No kimi-code-bun-<target>.zip.sha256 files found in ${inputDir}`);
   process.exit(1);
 }
 
@@ -46,8 +45,11 @@ for (const sumFile of sumFiles.sort()) {
     process.exit(1);
   }
   const filename = basename(sumFile, '.sha256');
-  // kimi-code-darwin-arm64.zip → darwin-arm64; kimi-code-bun-linux-x64.zip → linux-x64
+  // kimi-code-bun-linux-x64.zip → linux-x64
   const target = filename.replace(/^kimi-code-/, '').replace(/^bun-/, '').replace(/\.zip$/, '');
+  if (!SUPPORTED_TARGETS.includes(target)) {
+    console.warn(`Warning: ${sumFile} maps to unsupported target '${target}'; including anyway`);
+  }
   bun[target] = { filename, checksum };
 }
 

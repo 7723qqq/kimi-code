@@ -380,20 +380,25 @@ describe('worker orchestration (thread hosting)', () => {
     await db.close();
   });
 
-  test('worker OOM is contained by resourceLimits: the host keeps serving', async () => {
-    const dir = await openTmp('oom');
-    const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
-    await seedTextDb(db, 30000);
-    const tmp = await openTmp('oom-tmp');
-    const spec = await specForLiveDb(db, dir, tmp);
-    const handle = startWorkerTextBuild(spec, { workerMaxOldSpaceMb: 48 });
-    // A 48 MiB old-space cap cannot hold the reconstructed corpus: the worker
-    // dies; the host process (this test) is unaffected and keeps serving.
-    await expect(handle.promise).rejects.toThrow();
-    expect(db.get('k42')).toMatchObject({ score: 42 });
-    expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
-    await db.close();
-  }, 60000);
+  // Bun's worker_threads ignores resourceLimits, so the heap-cap OOM never fires there.
+  test.skipIf(typeof Bun !== 'undefined')(
+    'worker OOM is contained by resourceLimits: the host keeps serving',
+    async () => {
+      const dir = await openTmp('oom');
+      const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
+      await seedTextDb(db, 30000);
+      const tmp = await openTmp('oom-tmp');
+      const spec = await specForLiveDb(db, dir, tmp);
+      const handle = startWorkerTextBuild(spec, { workerMaxOldSpaceMb: 48 });
+      // A 48 MiB old-space cap cannot hold the reconstructed corpus: the worker
+      // dies; the host process (this test) is unaffected and keeps serving.
+      await expect(handle.promise).rejects.toThrow();
+      expect(db.get('k42')).toMatchObject({ score: 42 });
+      expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
+      await db.close();
+    },
+    60000,
+  );
 
   test('cancel() aborts a running worker promptly', async () => {
     const dir = await openTmp('cancel');

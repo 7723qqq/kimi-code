@@ -52,7 +52,7 @@
   },
   "scripts": {
     "build": "tsdown && bun run build:dts",
-    "build:dts": "node scripts/build-dts.mjs",
+    "build:dts": "bun scripts/build-dts.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist .tmp-api-extractor"
   },

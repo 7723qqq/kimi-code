@@ -1,16 +1,6 @@
-import { createHash } from 'node:crypto';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve, win32 as pathWin32 } from 'node:path';
+import { isAbsolute, join, relative, resolve, win32 as pathWin32 } from 'node:path';
 
 import { join as joinPosix } from 'pathe';
 
@@ -21,7 +11,9 @@ import {
   MINIDB_TEXT_BUILD_WORKER_ASSET,
   NATIVE_ASSET_MANIFEST_VERSION as MANIFEST_VERSION,
   buildManifestKey,
+  isManifestVersionSupported,
 } from '../../scripts/native/manifest.mjs';
+import { currentTarget, ensureFile, sanitizeSegment, sha256, toBuffer } from './asset-utils';
 import { getBunEmbeddedAssetSource } from './bun-assets';
 
 export const NATIVE_ASSET_MANIFEST_VERSION = MANIFEST_VERSION;
@@ -65,25 +57,8 @@ export interface NativeAssetOptions {
   readonly version?: string;
 }
 
-function currentTarget(): string {
-  return KIMI_BUILD_INFO.buildTarget ?? `${process.platform}-${process.arch}`;
-}
-
 export function nativeAssetManifestKey(target: string = currentTarget()): string {
   return buildManifestKey(target);
-}
-
-function toBuffer(value: ArrayBuffer | ArrayBufferView | Buffer | string): Buffer {
-  if (Buffer.isBuffer(value)) return value;
-  if (typeof value === 'string') return Buffer.from(value);
-  if (ArrayBuffer.isView(value)) {
-    return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
-  }
-  return Buffer.from(value);
-}
-
-function sha256(bytes: Buffer | Uint8Array | string): string {
-  return createHash('sha256').update(bytes).digest('hex');
 }
 
 function manifestObject(value: unknown, label: string): Record<string, unknown> {
@@ -160,7 +135,7 @@ export function validateNativeAssetManifest(
   expectedTarget?: string,
 ): NativeAssetManifest {
   const manifest = manifestObject(value, 'root');
-  if (manifest['version'] !== NATIVE_ASSET_MANIFEST_VERSION) {
+  if (!isManifestVersionSupported(manifest['version'])) {
     throw new Error(`Unsupported native asset manifest version: ${String(manifest['version'])}`);
   }
   const target = manifestString(manifest['target'], 'target');
@@ -243,11 +218,6 @@ function optionalEnvValue(env: NodeJS.ProcessEnv, key: string): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
-function sanitizeSegment(value: string): string {
-  const sanitized = value.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
-  return sanitized.length > 0 ? sanitized : 'unknown';
-}
-
 export function getEmbeddedAssetSource(): NativeAssetSource | null {
   return getBunEmbeddedAssetSource();
 }
@@ -261,8 +231,7 @@ export function getEmbeddedNativeAssetManifest(
   if (!source.getAssetKeys().includes(key)) return null;
   const raw = source.getRawAsset(key);
   const parsed: unknown = JSON.parse(toBuffer(raw).toString('utf-8'));
-  validateNativeAssetManifest(parsed, target);
-  return parsed as NativeAssetManifest;
+  return validateNativeAssetManifest(parsed, target);
 }
 
 export function getNativeCacheBase(options: NativeAssetOptions = {}): string {
@@ -289,55 +258,20 @@ export function getNativeCacheBase(options: NativeAssetOptions = {}): string {
   );
 }
 
+/** Cache root for an already-validated native asset manifest. */
 export function getNativeAssetCacheRoot(
   manifest: NativeAssetManifest,
   options: NativeAssetOptions = {},
 ): string {
-  const validated = validateNativeAssetManifest(manifest);
   const version = sanitizeSegment(options.version ?? KIMI_BUILD_INFO.version ?? 'dev');
   const manifestHash = sha256(JSON.stringify(manifest));
   return join(
     getNativeCacheBase(options),
     'native',
     version,
-    sanitizeSegment(validated.target),
+    sanitizeSegment(manifest.target),
     manifestHash,
   );
-}
-
-function readFileSha256(path: string): string | null {
-  try {
-    return sha256(readFileSync(path));
-  } catch {
-    return null;
-  }
-}
-
-function ensureFile(path: string, bytes: Buffer, expectedSha256: string, mode?: number): void {
-  if (readFileSha256(path) === expectedSha256) return;
-
-  mkdirSync(dirname(path), { recursive: true });
-  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tempPath, bytes, { mode: mode ?? 0o644 });
-
-  try {
-    renameSync(tempPath, path);
-    return;
-  } catch {
-    if (readFileSha256(path) === expectedSha256) {
-      rmSync(tempPath, { force: true });
-      return;
-    }
-  }
-
-  try {
-    rmSync(path, { force: true });
-    renameSync(tempPath, path);
-  } catch (error) {
-    rmSync(tempPath, { force: true });
-    if (readFileSha256(path) === expectedSha256) return;
-    throw error;
-  }
 }
 
 function ensureEntryFile(cacheRoot: string): void {
@@ -350,15 +284,26 @@ function ensureEntryFile(cacheRoot: string): void {
   );
 }
 
-export function ensureNativeAssetTree(options: NativeAssetOptions = {}): string | null {
-  const source = options.source ?? getEmbeddedAssetSource();
-  if (source === null) return null;
+// Resolve + validate the manifest exactly once per public entry point:
+// caller-supplied manifests are validated here, embedded ones inside
+// getEmbeddedNativeAssetManifest. Downstream helpers treat the result as
+// trusted and must not re-validate.
+function resolveValidatedManifest(
+  source: NativeAssetSource,
+  options: NativeAssetOptions,
+): NativeAssetManifest | null {
+  if (options.manifest !== undefined && options.manifest !== null) {
+    return validateNativeAssetManifest(options.manifest);
+  }
+  return getEmbeddedNativeAssetManifest(source, currentTarget());
+}
 
-  const rawManifest = options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
-  if (rawManifest === null) return null;
-  const manifest = validateNativeAssetManifest(rawManifest);
-
-  const cacheRoot = getNativeAssetCacheRoot(rawManifest, options);
+function extractNativeAssetTree(
+  source: NativeAssetSource,
+  manifest: NativeAssetManifest,
+  options: NativeAssetOptions,
+): string {
+  const cacheRoot = getNativeAssetCacheRoot(manifest, options);
   const sourceKeys = new Set(source.getAssetKeys());
   const files = [...manifest.packages.flatMap((pkg) => pkg.files), ...manifest.runtimeFiles];
   for (const file of files) {
@@ -378,19 +323,28 @@ export function ensureNativeAssetTree(options: NativeAssetOptions = {}): string 
   return cacheRoot;
 }
 
+export function ensureNativeAssetTree(options: NativeAssetOptions = {}): string | null {
+  const source = options.source ?? getEmbeddedAssetSource();
+  if (source === null) return null;
+
+  const manifest = resolveValidatedManifest(source, options);
+  if (manifest === null) return null;
+
+  return extractNativeAssetTree(source, manifest, options);
+}
+
 export function getNativeRuntimeFile(key: string, options: NativeAssetOptions = {}): string | null {
   const source = options.source ?? getEmbeddedAssetSource();
   if (source === null) return null;
 
-  const rawManifest = options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
-  if (rawManifest === null) return null;
-  const manifest = validateNativeAssetManifest(rawManifest);
+  const manifest = resolveValidatedManifest(source, options);
+  if (manifest === null) return null;
 
   const file = manifest.runtimeFiles.find((entry) => entry.key === key);
   if (file === undefined) return null;
 
-  const cacheRoot = ensureNativeAssetTree({ ...options, source, manifest: rawManifest });
-  return cacheRoot === null ? null : resolveAssetPath(cacheRoot, file.relativePath);
+  const cacheRoot = extractNativeAssetTree(source, manifest, options);
+  return resolveAssetPath(cacheRoot, file.relativePath);
 }
 
 export function getMinidbTextBuildWorkerFile(options: NativeAssetOptions = {}): string | null {
@@ -408,24 +362,19 @@ export function getNativePackageRoot(
   const source = options.source ?? getEmbeddedAssetSource();
   if (source === null) return null;
 
-  const rawManifest = options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
-  if (rawManifest === null) return null;
-  const manifest = validateNativeAssetManifest(rawManifest);
+  const manifest = resolveValidatedManifest(source, options);
+  if (manifest === null) return null;
 
   const pkg = manifest.packages.find((entry) => entry.name === packageName);
   if (pkg === undefined) return null;
 
-  const cacheRoot = ensureNativeAssetTree({ ...options, source, manifest: rawManifest });
-  return cacheRoot === null ? null : resolveAssetPath(cacheRoot, pkg.root);
+  const cacheRoot = extractNativeAssetTree(source, manifest, options);
+  return resolveAssetPath(cacheRoot, pkg.root);
 }
 
 // Expose globally for modules that can't import this function directly
 // (e.g. packages/kap-server/src/i18n.ts in the same compiled bundle).
 (globalThis as Record<string, unknown>)['__kimi_getNativePackageRoot'] = getNativePackageRoot;
-
-export function hasNativePackage(packageName: string, manifest: NativeAssetManifest): boolean {
-  return manifest.packages.some((pkg) => pkg.name === packageName);
-}
 
 export function nativeAssetCacheExists(
   packageName: string,
@@ -479,7 +428,7 @@ export function cleanupStaleNativeCache(options: CleanupOptions): CleanupResult 
       if (!st.isDirectory()) continue;
       siblings.push({ path, mtimeMs: st.mtimeMs });
     } catch (error) {
-      (result.errors as Array<{ path: string; error: unknown }>).push({ path, error });
+    result.errors.push({ path, error });
     }
   }
 
@@ -503,7 +452,7 @@ export function cleanupStaleNativeCache(options: CleanupOptions): CleanupResult 
       rmSync(path, { recursive: true, force: true });
       result.removed.push(path);
     } catch (error) {
-      (result.errors as Array<{ path: string; error: unknown }>).push({ path, error });
+    result.errors.push({ path, error });
     }
   }
 
@@ -520,17 +469,17 @@ export function cleanupStaleNativeCacheForCurrent(
   const source = options.source ?? getEmbeddedAssetSource();
   if (source === null) return null;
 
-  const manifest = options.manifest ?? getEmbeddedNativeAssetManifest(source, currentTarget());
+  const manifest = resolveValidatedManifest(source, options);
   if (manifest === null) return null;
 
   const cacheBase = getNativeCacheBase(options);
-  const version = KIMI_BUILD_INFO.version ?? 'dev';
+  const version = sanitizeSegment(KIMI_BUILD_INFO.version ?? 'dev');
   const currentRoot = getNativeAssetCacheRoot(manifest, options);
 
   return cleanupStaleNativeCache({
     cacheBase,
     version,
-    target: manifest.target,
+    target: sanitizeSegment(manifest.target),
     currentRoot,
   });
 }

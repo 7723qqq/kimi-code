@@ -37,7 +37,7 @@ For the full project map, see [AGENTS.md](AGENTS.md).
 
 ## Development Setup
 
-Prerequisites: Node.js >= 24.15.0, Bun >= 1.4, Git.
+Prerequisites: Bun >= 1.4, Git. Node.js is no longer required for any development workflow — the vitest suites run under the Bun runtime (`bun --bun run test`; plain `bun run test` keeps working under a local Node too).
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git
@@ -143,7 +143,7 @@ node "%KIMI_CODE_HOME%\dist\main.mjs" %*
 
 ### Native build (self-contained binary)
 
-The native build compiles the CLI into a standalone single-file executable with Bun. Requires Bun >= 1.4 (`curl -fsSL https://bun.sh/install | bash`; see [bun.sh](https://bun.sh)). Node.js >= 24.15 still runs the build script itself, and a Rust toolchain is required because the `kimi-native-tools` `.node` binary is embedded.
+The native build compiles the CLI into a standalone single-file executable with Bun. Requires Bun >= 1.4 (`curl -fsSL https://bun.sh/install | bash`; see [bun.sh](https://bun.sh)); the build script itself runs under Bun as well. A Rust toolchain is required because the `kimi-native-tools` `.node` binary is embedded.
 
 Windows (x64):
 
@@ -183,7 +183,7 @@ mv ~/.kimi-code/bin/kimi-new ~/.kimi-code/bin/kimi
 
 Output: `apps/kimi-code/dist-native/bin/<target>/kimi`.
 
-Bun bytecode is disabled by default: it measured no startup gain on this pipeline, while bytecode adds binary size and locks the artifact to the exact Bun version that built it. Set `KIMI_CODE_BUN_ENABLE_BYTECODE=1` to embed bytecode anyway. Note the module format when enabling: bare `--bytecode` defaults to CommonJS output, which cannot express top-level `await`; Bun has supported top-level `await` in bytecode since v1.3.9 under `--format=esm`, but this pipeline keeps the CJS default, so the compile entry must stay free of top-level `await`.
+Bun bytecode is disabled by default: it measured no startup gain on this pipeline, while bytecode adds binary size and locks the artifact to the exact Bun version that built it. Set `KIMI_CODE_BUN_ENABLE_BYTECODE=1` to embed bytecode anyway. When enabled, the compile step passes `--bytecode --format=esm`: bare `--bytecode` defaults to CommonJS output, which cannot express top-level `await`, while ESM bytecode has supported top-level `await` since Bun v1.3.9.
 
 Runtime integration notes:
 
@@ -196,7 +196,7 @@ Runtime integration notes:
 To measure startup cost of a build, copy it aside (it writes to `dist-native/bin/<target>/kimi`) and run:
 
 ```sh
-node scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
+bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 ```
 
 ### Nix build

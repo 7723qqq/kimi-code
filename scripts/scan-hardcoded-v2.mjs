@@ -162,7 +162,11 @@ function collectLeaves(obj, prefix = '') {
 async function loadLocaleDir(modInfo, lang) {
   const dir = resolve(ROOT, join(modInfo.localeDir, lang));
   const merged = {};
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  // Sections share common keys (title, close, output, ...), so merge order
+  // decides which value survives; readdir order differs between node and bun,
+  // so sort the entries to keep the merged map runtime-independent.
+  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1));
+  for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.ts')) continue;
     const mod = await loadTSModule(join(dir, entry.name));
     const data = mod?.default ?? mod;

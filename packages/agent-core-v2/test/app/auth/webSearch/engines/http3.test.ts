@@ -1,21 +1,16 @@
 import { afterEach, beforeEach, describe, expect, vi, it } from 'vitest';
 
-import { fetch as undiciFetchMock } from 'undici';
-
 import { engineFetch } from '#/app/auth/webSearch/engines/engine-http';
+import { undiciFetch as undiciFetchMock } from '#/app/auth/webSearch/engines/engine-undici';
 import {
   h3OriginState,
+  isBunRuntime,
   markH3Origin,
   resetH3States,
 } from '#/app/auth/webSearch/engines/http3';
 
-vi.mock('undici', () => ({
-  fetch: vi.fn(),
-  ProxyAgent: class {},
-  Agent: class {},
-  buildConnector: vi.fn(),
-  EnvHttpProxyAgent: class {},
-  setGlobalDispatcher: vi.fn(),
+vi.mock('#/app/auth/webSearch/engines/engine-undici', () => ({
+  undiciFetch: vi.fn(),
 }));
 
 const ORIGIN = 'https://h3.test';
@@ -42,7 +37,9 @@ function undiciResponse(extraHeaders: Record<string, string> = {}): {
 describe('engineFetch http3 adaptation', () => {
   beforeEach(() => {
     resetH3States();
-    vi.stubGlobal('Bun', {});
+    if (!isBunRuntime()) {
+      vi.stubGlobal('Bun', {});
+    }
     vi.mocked(undiciFetchMock).mockClear();
     const h3 = vi.fn(async () => new Response('ok', { status: 200 }));
     vi.stubGlobal('fetch', h3);

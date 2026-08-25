@@ -59,8 +59,13 @@ function abortReason(signal: AbortSignal): Error {
   return abortError();
 }
 
+const DEFAULT_ABORT_MESSAGES = new Set([
+  'This operation was aborted',
+  'The operation was aborted.',
+]);
+
 function isDefaultAbortReason(reason: Error): boolean {
-  return reason.name === 'AbortError' && reason.message === 'This operation was aborted';
+  return reason.name === 'AbortError' && DEFAULT_ABORT_MESSAGES.has(reason.message);
 }
 
 export interface DeadlineAbortSignal {

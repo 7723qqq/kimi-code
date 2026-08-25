@@ -118,17 +118,18 @@ describe('systemPromptVars', () => {
   });
 
   it('renders runtime notes as empty without probe data and keeps the prompt stable', () => {
-    const empty = renderSystemPromptResult('', {}, { skillActive: true }).text;
+    const now = '2026-08-25T00:00:00.000Z';
+    const empty = renderSystemPromptResult('', { now }, { skillActive: true }).text;
     expect(empty).not.toContain('JavaScript Runtimes');
     const withRuntimes = renderSystemPromptResult(
       '',
-      { jsRuntimes: [{ name: 'bun', version: '1.4.0', path: '/usr/bin/bun' }] },
+      { now, jsRuntimes: [{ name: 'bun', version: '1.4.0', path: '/usr/bin/bun' }] },
       { skillActive: true },
     ).text;
     expect(withRuntimes).toContain('## JavaScript Runtimes');
     const again = renderSystemPromptResult(
       '',
-      { jsRuntimes: [{ name: 'bun', version: '1.4.0', path: '/usr/bin/bun' }] },
+      { now, jsRuntimes: [{ name: 'bun', version: '1.4.0', path: '/usr/bin/bun' }] },
       { skillActive: true },
     ).text;
     expect(again).toBe(withRuntimes);

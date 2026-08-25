@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
@@ -10,6 +10,22 @@ const tsxCli = join(
   'dist',
   'cli.mjs',
 );
+
+/**
+ * Pick the runner for spawned worker processes.
+ *
+ * On a Bun host the tsx CLI must not be used: tsx's CJS interop breaks when
+ * its own CLI executes under Bun (`Cannot find module './cjs/index.cjs'
+ * from ''`), while Bun loads TypeScript sources natively, so the inline
+ * `.mjs` worker (which imports `../src/index.ts`) runs directly. On Node
+ * the tsx CLI keeps providing type stripping.
+ */
+function workerRunner(): { readonly bin: string; readonly prefixArgs: readonly string[] } {
+  if (basename(process.execPath).startsWith('bun')) {
+    return { bin: process.execPath, prefixArgs: [] };
+  }
+  return { bin: tsxCli, prefixArgs: [] };
+}
 
 export interface TempDirHandle {
   readonly path: string;
@@ -62,8 +78,9 @@ export async function spawnInlineWorkers(
   const scriptPath = join(opts.tmpDir, 'worker.mjs');
   await writeFile(scriptPath, opts.inlineScript, 'utf8');
   const running: RunningWorker[] = [];
+  const runner = workerRunner();
   for (let id = 0; id < opts.count; id += 1) {
-    const child = spawn(tsxCli, [scriptPath, String(id)], {
+    const child = spawn(runner.bin, [...runner.prefixArgs, scriptPath, String(id)], {
       env: {
         ...process.env,
         KIMI_CODE_HOME: opts.shareDir,

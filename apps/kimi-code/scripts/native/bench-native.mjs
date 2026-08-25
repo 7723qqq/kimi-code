@@ -18,7 +18,11 @@ import { resolve } from 'node:path';
 const argv = process.argv.slice(2);
 const runsFlagIndex = argv.indexOf('--runs');
 const runs = runsFlagIndex >= 0 ? Number(argv[runsFlagIndex + 1]) : 20;
-const binaries = argv.filter((arg, index) => arg !== '--runs' && index !== runsFlagIndex + 1);
+// Exclude the flag itself and its value only when the flag is present;
+// an absent --runs must not drop argv[0] (index === runsFlagIndex + 1 === 0).
+const binaries = argv.filter(
+  (arg, index) => arg !== '--runs' && !(runsFlagIndex >= 0 && index === runsFlagIndex + 1),
+);
 
 if (binaries.length === 0 || !Number.isInteger(runs) || runs < 2) {
   console.error('Usage: node scripts/native/bench-native.mjs <binary> [<binary> ...] [--runs 20]');
@@ -38,9 +42,8 @@ function runOnce(binary) {
   const result = spawnSync(binary, ['--version'], { encoding: 'utf-8' });
   const elapsedMs = performance.now() - started;
   if (result.status !== 0 || result.stdout.trim().length === 0) {
-    throw new Error(
-      `${binary} --version failed (status ${String(result.status)}): ${result.stderr.trim()}`,
-    );
+    const detail = [result.stderr.trim(), result.error?.message].filter(Boolean).join('\n');
+    throw new Error(`${binary} --version failed (status ${String(result.status)}): ${detail}`);
   }
   return elapsedMs;
 }

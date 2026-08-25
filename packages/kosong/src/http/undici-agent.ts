@@ -21,7 +21,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { rootCertificates } from 'node:tls';
 
-import { Agent, buildConnector, fetch as undiciFetch } from 'undici';
+import { Agent, buildConnector, fetch as undiciFetch } from '#/http/undici-npm';
 
 // ── System CA loading (for providers with non-public CAs, e.g. xfyun.cn) ────
 

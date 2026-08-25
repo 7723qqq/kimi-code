@@ -8,10 +8,10 @@
   "scripts": {
     "build:deps": "(cd web && bun run build) && (cd server && bun run build)",
     "predev": "bun run build:deps",
-    "dev": "node scripts/dev.mjs",
+    "dev": "bun scripts/dev.mjs",
     "build": "bun run build:deps && node scripts/copy-web-dist.mjs",
     "prestart": "bun run build",
-    "start": "node server/dist/server.mjs"
+    "start": "bun server/dist/server.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

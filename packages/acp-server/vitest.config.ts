@@ -49,5 +49,11 @@ export default defineConfig({
   test: {
     name: 'acp-server',
     include: ['test/**/*.{test,e2e}.ts'],
+    // Under the Bun runtime, vitest trips over zod's CJS-getter exports unless zod is inlined.
+    server: {
+      deps: {
+        inline: [/zod/],
+      },
+    },
   },
 });

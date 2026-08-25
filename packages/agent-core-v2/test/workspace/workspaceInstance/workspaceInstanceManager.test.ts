@@ -58,7 +58,7 @@ class TestRuntimeUnitHost implements RuntimeUnitHost {
     try {
       attachment = await prepare(host);
     } catch (error) {
-      for (const registration of registrations.reverse()) await registration.remove();
+      for (const registration of registrations.toReversed()) await registration.remove();
       throw error;
     }
     let active = true;
@@ -66,7 +66,7 @@ class TestRuntimeUnitHost implements RuntimeUnitHost {
       if (!active) return;
       active = false;
       await attachment.dispose();
-      for (const registration of registrations.reverse()) await registration.remove();
+      for (const registration of registrations.toReversed()) await registration.remove();
       const index = this.units.indexOf(handle);
       if (index >= 0) this.units.splice(index, 1);
     };
@@ -88,7 +88,7 @@ class TestRuntimeUnitHost implements RuntimeUnitHost {
   }
 
   async dispose(): Promise<void> {
-    for (const unit of [...this.units].reverse()) await unit.dispose();
+    for (const unit of [...this.units].toReversed()) await unit.dispose();
   }
 }
 

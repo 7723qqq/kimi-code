@@ -140,7 +140,15 @@ describe('server-v2 /api/v1/search', () => {
     for (let attempt = 0; attempt < 100; attempt++) {
       body = await postSearch({ query: '苹果' });
       expect(body.code).toBe(0);
-      if (body.data.items.length > 0) break;
+      // The title document is indexed by a separate pass from the message
+      // documents; wait for both before leaving the retry window.
+      if (
+        body.data.items.length > 0 &&
+        body.data.items.some((h) => h.role === 'user') &&
+        body.data.items.some((h) => h.role === 'title')
+      ) {
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     expect(body).toBeDefined();
@@ -193,7 +201,7 @@ describe('server-v2 /api/v1/search', () => {
     for (let attempt = 0; attempt < 100; attempt++) {
       body = await postSearch({ query: '的价格', mode: 'literal' });
       expect(body.code).toBe(0);
-      if (body.data.items.length > 0) break;
+      if (body.data.items.some((h) => h.role === 'user')) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     expect(body).toBeDefined();

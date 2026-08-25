@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       packages_published: ${{ steps.changesets.outputs.published }}
+      # Dormant on this fork: the changesets and kimi-release steps below are
+      # commented out, so these outputs are permanently empty and downstream
+      # jobs gated on them never run.
       kimi_native_release: ${{ steps.kimi-release.outputs.should_publish }}
       kimi_release_tag: ${{ steps.kimi-release.outputs.tag }}
     permissions:
@@ -29,12 +32,6 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          registry-url: "https://registry.npmjs.org"
 
       - name: Cache Bun packages
         uses: actions/cache@v4
@@ -54,7 +51,7 @@ jobs:
         shell: bash
         run: |
           CATALOG_FILE="$RUNNER_TEMP/kimi-code-built-in-catalog.json"
-          node apps/kimi-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
+          bun apps/kimi-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
           echo "KIMI_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
 
       - name: Build packages
@@ -122,6 +119,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup Bun (package manager)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
       - name: Download native artifacts
         uses: actions/download-artifact@v8
         with:
@@ -132,7 +134,7 @@ jobs:
       - name: Produce manifest.json
         env:
           RELEASE_TAG: ${{ needs.release.outputs.kimi_release_tag }}
-        run: node apps/kimi-code/scripts/native/produce-manifest.mjs dist-native-release "$RELEASE_TAG"
+        run: bun apps/kimi-code/scripts/native/produce-manifest.mjs dist-native-release "$RELEASE_TAG"
 
       - name: Upload assets to GitHub Release
         env:

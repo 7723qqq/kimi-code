@@ -49,9 +49,12 @@ interface Report {
 
 function runWorker(args: string[]): Promise<Report> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', WORKER, ...args], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      process.execPath,
+      // Bun executes .ts workers natively; Node needs the tsx loader hook.
+      [...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']), WORKER, ...args],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));

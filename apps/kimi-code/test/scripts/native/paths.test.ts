@@ -9,7 +9,6 @@ import {
   nativeBinDir,
   nativeBinPath,
   nativeJsBundlePath,
-  nativeManifestKey,
   targetTriple,
   nativeDistRoot,
   nativeManifestDir,
@@ -70,10 +69,6 @@ describe('path helpers', () => {
 
   it('returns intermediate artifact paths', () => {
     expect(nativeJsBundlePath()).toBe(p('dist-native/intermediates/main.cjs'));
-  });
-
-  it('returns manifest key for target', () => {
-    expect(nativeManifestKey('darwin-arm64')).toBe('native/darwin-arm64/manifest.json');
   });
 
   it('returns native dist root', () => {

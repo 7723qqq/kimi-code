@@ -26,11 +26,6 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-
       - name: Cache Bun packages
         uses: actions/cache@v4
         with:
@@ -47,7 +42,7 @@ jobs:
         shell: bash
         run: |
           CATALOG_FILE="$RUNNER_TEMP/kimi-code-built-in-catalog.json"
-          node apps/kimi-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
+          bun apps/kimi-code/scripts/update-catalog.mjs --out "$CATALOG_FILE"
           echo "KIMI_CODE_BUILT_IN_CATALOG_FILE=$CATALOG_FILE" >> "$GITHUB_ENV"
 
       - name: Build Kimi Code package
