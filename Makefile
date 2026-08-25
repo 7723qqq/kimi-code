@@ -64,14 +64,14 @@ dev:
 ## Rust binaries
 
 rust-build:
-	cargo build --release -p kimi-agent
+	cd packages/kimi-agent && cargo build --release
 
 rust-check:
-	cargo check -p kimi-agent
+	cd packages/kimi-agent && cargo check
 
 rust-test:
-	cargo test -p kimi-agent
-	cargo run -p kimi-agent -- --test
+	cd packages/kimi-agent && cargo test
+	cd packages/kimi-agent && cargo run -- --test
 
 ## vis
 
