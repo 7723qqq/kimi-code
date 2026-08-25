@@ -51,6 +51,11 @@ bun install
 > `patches/ssh2@1.17.0.patch` 重新打一次：补丁缓存键已从「前 16KiB 哈希」
 > 改为整文件 SHA-1，属预期行为而非故障。
 
+**同步上游须知**：本 fork 已整体删除 `packages/agent-core`（v1 引擎），
+而上游仍在持续修补它。`.gitattributes` 已将这些路径标记为
+`merge=ours`，合并时自动保持删除态，不再产生 modify/delete 冲突。
+每个克隆需一次性执行：`git config merge.ours.driver true`。
+
 常用脚本：
 
 - `bun run dev:cli` — 开发模式运行 CLI

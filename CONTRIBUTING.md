@@ -52,6 +52,12 @@ bun install
 > patch cache key changed from a 16 KiB hash to the full-file SHA-1. This is
 > expected, not a bug.
 
+**Syncing upstream:** this fork deletes `packages/agent-core` (the v1 engine)
+while upstream keeps patching it. `.gitattributes` marks those paths
+`merge=ours`, so merges auto-resolve to "kept deleted" instead of raising
+modify/delete conflicts. One-time setup per clone:
+`git config merge.ours.driver true`.
+
 Useful scripts:
 
 - `bun run dev:cli` — run the CLI in dev mode
