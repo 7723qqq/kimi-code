@@ -1029,12 +1029,14 @@ describe('WebSearchProviderService', () => {
         customHeaders: { 'X-Custom': 'yes' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      json: async () => ({
-        search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
-      }),
-    });
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
+        }),
+        { status: 200 },
+      ),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
@@ -1063,12 +1065,14 @@ describe('WebSearchProviderService', () => {
         customHeaders: { 'X-Custom': 'yes' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      json: async () => ({
-        search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
-      }),
-    });
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          search_results: [{ title: 'Title', url: 'https://example.com', snippet: 'Snippet' }],
+        }),
+        { status: 200 },
+      ),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
@@ -1099,12 +1103,9 @@ describe('WebSearchProviderService', () => {
         oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ search_results: [] }),
-      text: async () => '<html><body>no results</body></html>',
-    });
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ search_results: [] }), { status: 200 }),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
@@ -1125,12 +1126,9 @@ describe('WebSearchProviderService', () => {
         oauth: { storage: 'file', key: 'oauth/kimi-code' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ search_results: [] }),
-      text: async () => '<html><body>no results</body></html>',
-    });
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ search_results: [] }), { status: 200 }),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const provider = createService().getWebSearchProvider();
