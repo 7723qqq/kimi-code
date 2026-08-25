@@ -48,10 +48,10 @@ describe('local web search engines', () => {
     });
   });
 
-  it('resolves the engine order from KIMI_CODE_SEARCH_ENGINE with a duckduckgo default', () => {
-    expect(resolveSearchEngines({})[0]).toBe('duckduckgo');
-    expect(resolveSearchEngines({ KIMI_CODE_SEARCH_ENGINE: 'bing' })[0]).toBe('bing');
-    expect(resolveSearchEngines({ KIMI_CODE_SEARCH_ENGINE: 'unknown' })[0]).toBe('duckduckgo');
+  it('resolves the engine order from KIMI_CODE_SEARCH_ENGINE with a bing default', () => {
+    expect(resolveSearchEngines({})[0]).toBe('bing');
+    expect(resolveSearchEngines({ KIMI_CODE_SEARCH_ENGINE: 'duckduckgo' })[0]).toBe('duckduckgo');
+    expect(resolveSearchEngines({ KIMI_CODE_SEARCH_ENGINE: 'unknown' })[0]).toBe('bing');
   });
 
   it('honors the allowlist and caps the result limit', () => {

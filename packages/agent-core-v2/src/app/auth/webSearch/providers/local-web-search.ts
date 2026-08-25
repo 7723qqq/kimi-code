@@ -43,10 +43,10 @@ export function resolveSearchEngines(
           .map((name) => name.trim().toLowerCase())
           .filter((name) => name in ENGINE_REGISTRY);
   const ordered = [
-    ...(preferred !== undefined && preferred in ENGINE_REGISTRY ? [preferred] : ['duckduckgo']),
-    ...allowed.filter((name) => name !== preferred && name !== 'duckduckgo'),
+    ...(preferred !== undefined && preferred in ENGINE_REGISTRY ? [preferred] : ['bing']),
+    ...allowed.filter((name) => name !== preferred && name !== 'bing'),
   ];
-  return ordered.length > 0 ? ordered : ['duckduckgo'];
+  return ordered.length > 0 ? ordered : ['bing'];
 }
 
 export function resolveResultLimit(env: Record<string, string | undefined> = process.env): number {
