@@ -133,11 +133,22 @@ describe('engineFetch http3 adaptation', () => {
 });
 
 describe('h3Fetch direct routing behind a proxy', () => {
+  const savedProxyEnv: Record<string, string | undefined> = {};
+
   beforeEach(() => {
     resetH3States();
+    for (const key of ['NO_PROXY', 'no_proxy'] as const) {
+      savedProxyEnv[key] = process.env[key];
+      delete process.env[key];
+    }
   });
 
   afterEach(() => {
+    for (const key of ['NO_PROXY', 'no_proxy'] as const) {
+      const saved = savedProxyEnv[key];
+      if (saved === undefined) delete process.env[key];
+      else process.env[key] = saved;
+    }
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
