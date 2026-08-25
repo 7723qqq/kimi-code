@@ -16,15 +16,13 @@
  *
  * `@moonshot-ai/acp-server` (and its `agent-core-v2` engine) is loaded via a
  * lazy dynamic import so parsing the CLI does not initialize the ACP engine —
- * the same lazy-load pattern `kimi -p` uses to keep the v2 runner's module
- * graph off the CLI startup path (`#/cli/run-prompt.ts`).
+ * mirroring the `kimi server run` v2 routing in `#/cli/sub/server/run.ts`.
  */
 
 import type { Command } from 'commander';
 
 import { getVersion } from '#/cli/version';
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
-import { t } from '#/i18n';
 import { getDataDir } from '#/utils/paths';
 
 import { parseRegionFlag, runLoginFlow } from './login-flow';
@@ -33,7 +31,11 @@ export function registerNativeAcpCommand(parent: Command): void {
   parent
     .command('acp')
     .description('Run kimi-code as an Agent Client Protocol (ACP) server over stdio.')
-.option('--login', t('cli.optionDescriptions.acpLogin'), false)
+    .option(
+      '--login',
+      'Run the device-code login flow then exit (entry point for ACP terminal-auth).',
+      false,
+    )
     .option('--region <region>', 'Login region used together with --login: "mainland-cn" (kimi.com) or "global" (kimi.ai).')
     .action(async (opts: { login?: boolean; region?: string }) => {
       if (opts.login === true) {

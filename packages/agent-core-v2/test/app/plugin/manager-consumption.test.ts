@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -7,8 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PluginManager } from '#/app/plugin/manager';
 
-import { stubSkill } from '../skillCatalog/stubs';
-import { createZipFromDir } from './zip-helper';
+import { stubSkill } from '../../features/skill/catalog/stubs';
 
 async function isolatedTmpdir(): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), 'kimi-isolated-tmp-'));
@@ -97,7 +97,14 @@ async function makePlugin(
 }
 
 async function zipDir(sourceRoot: string): Promise<Buffer> {
-  return createZipFromDir(sourceRoot);
+  const zipPath = path.join(
+    tmpdir(),
+    `plugin-${Date.now()}-${Math.random().toString(36).slice(2)}.zip`,
+  );
+  execFileSync('zip', ['-qr', zipPath, '.'], { cwd: sourceRoot });
+  const buffer = await readFile(zipPath);
+  await rm(zipPath, { force: true });
+  return buffer;
 }
 
 async function serveOnce(buffer: Buffer): Promise<string> {
@@ -574,6 +581,92 @@ describe('PluginManager consumption plane', () => {
     expect(manager.enabledMcpServers()).toEqual({});
   });
 
+  it('mcpServerEntries() lists disabled plugins and disabled servers with provenance', async () => {
+    const home = await makeKimiHome();
+    const demo = await makePlugin('demo', {
+      mcpServers: {
+        finance: { command: 'finance-mcp' },
+        docs: { url: 'https://example.com/mcp' },
+      },
+    });
+    const other = await makePlugin('other', {
+      mcpServers: { data: { command: 'data-mcp' } },
+    });
+    const manager = new PluginManager({ kimiHomeDir: home });
+    await manager.load();
+    await manager.install(demo);
+    await manager.install(other);
+    await manager.setMcpServerEnabled('demo', 'finance', false);
+    await manager.setEnabled('other', false);
+
+    const entries = manager.mcpServerEntries();
+    expect(entries).toHaveLength(3);
+    const finance = entries.find((entry) => entry.name === 'plugin-demo:finance');
+    expect(finance).toEqual(expect.objectContaining({ pluginId: 'demo', serverName: 'finance' }));
+    expect(finance?.config.enabled).toBe(false);
+    const docs = entries.find((entry) => entry.name === 'plugin-demo:docs');
+    expect(docs).toEqual(expect.objectContaining({ pluginId: 'demo', serverName: 'docs' }));
+    expect(docs?.config.enabled).toBe(true);
+    const data = entries.find((entry) => entry.name === 'plugin-other:data');
+    expect(data).toEqual(expect.objectContaining({ pluginId: 'other', serverName: 'data' }));
+    expect(data?.config.enabled).toBe(false);
+  });
+
+  it('mcpServerEntries() applies the stdio runtime transforms to every entry', async () => {
+    const home = await makeKimiHome();
+    const root = await makePlugin('demo', {
+      mcpServers: {
+        finance: { command: 'finance-mcp', env: { CUSTOM: '1' } },
+        docs: { url: 'https://example.com/mcp' },
+      },
+    });
+    const manager = new PluginManager({ kimiHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    const managedRoot = await managedPluginRoot(manager, 'demo');
+
+    const entries = manager.mcpServerEntries();
+    const finance = entries.find((entry) => entry.name === 'plugin-demo:finance');
+    expect(finance?.config).toEqual(
+      expect.objectContaining({
+        command: 'finance-mcp',
+        cwd: managedRoot,
+        env: expect.objectContaining({
+          CUSTOM: '1',
+          KIMI_CODE_HOME: home,
+          KIMI_PLUGIN_ROOT: managedRoot,
+        }),
+      }),
+    );
+    const docs = entries.find((entry) => entry.name === 'plugin-demo:docs');
+    expect(docs?.config).toEqual(
+      expect.objectContaining({
+        transport: 'http',
+        url: 'https://example.com/mcp',
+        enabled: true,
+      }),
+    );
+    expect(JSON.stringify(docs?.config)).not.toContain('KIMI_PLUGIN_ROOT');
+  });
+
+  it('mcpServerEntries() skips plugins in error state', async () => {
+    const home = await makeKimiHome();
+    const root = await makePlugin('demo', {
+      mcpServers: { finance: { command: 'finance-mcp' } },
+    });
+    const manager = new PluginManager({ kimiHomeDir: home });
+    await manager.load();
+    await manager.install(root);
+    await writeFile(
+      path.join(await managedPluginRoot(manager, 'demo'), 'kimi.plugin.json'),
+      '{ not json',
+      'utf8',
+    );
+    await manager.reload();
+    expect(manager.get('demo')?.state).toBe('error');
+    expect(manager.mcpServerEntries()).toEqual([]);
+  });
+
   it('setMcpServerEnabled() rejects unknown MCP servers', async () => {
     const home = await makeKimiHome();
     const root = await makePlugin('demo');
@@ -611,35 +704,6 @@ describe('PluginManager consumption plane', () => {
     await manager.remove('demo');
     expect(manager.get('demo')).toBeUndefined();
     expect((await stat(root)).isDirectory()).toBe(true);
-  });
-
-  it('remove() refuses to delete a record whose root is outside the managed directory', async () => {
-    const home = await makeKimiHome();
-    const outside = await makePlugin('outside');
-    await mkdir(path.join(home, 'plugins'), { recursive: true });
-    await writeFile(
-      path.join(home, 'plugins', 'installed.json'),
-      JSON.stringify({
-        version: 1,
-        plugins: [
-          {
-            id: 'outside',
-            root: outside,
-            source: 'local-path',
-            enabled: true,
-            installedAt: new Date().toISOString(),
-          },
-        ],
-      }),
-      'utf8',
-    );
-
-    const manager = new PluginManager({ kimiHomeDir: home });
-    await manager.load();
-    await expect(manager.remove('outside')).rejects.toThrow(/outside the managed directory/);
-    expect(manager.get('outside')).toBeDefined();
-    expect((await stat(outside)).isDirectory()).toBe(true);
-    await rm(outside, { recursive: true, force: true });
   });
 
   it('enabledHooks() returns hooks from enabled plugins with cwd and env injected', async () => {

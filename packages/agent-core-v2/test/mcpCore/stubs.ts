@@ -1,15 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { fileURLToPath } from 'node:url';
 
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import { McpServer } from '@modelcontextprotocol/server';
-import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 
 import type { Tool as KosongTool } from '#/kosong/contract/tool';
 import type { McpOAuthStore } from '#/mcpCore/oauth/store';
+import type {
+  McpOAuthScheduledTask,
+  McpOAuthScheduler,
+} from '#/mcpCore/oauth/service';
 import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
 import type {
   ExecutableTool,
@@ -18,28 +21,27 @@ import type {
   ToolExecution,
 } from '#/tool/toolContract';
 
-export const fixturesDir = fileURLToPath(new URL('./fixtures/', import.meta.url));
-export const stdioFixture = fileURLToPath(
-  new URL('./fixtures/mock-stdio-server.mjs', import.meta.url),
-);
-export const cwdStdioFixture = fileURLToPath(
-  new URL('./fixtures/cwd-stdio-server.mjs', import.meta.url),
-);
-export const slowStdioFixture = fileURLToPath(
-  new URL('./fixtures/slow-stdio-server.mjs', import.meta.url),
-);
-export const slowToolStdioFixture = fileURLToPath(
-  new URL('./fixtures/slow-tool-stdio-server.mjs', import.meta.url),
-);
-export const hangingListStdioFixture = fileURLToPath(
-  new URL('./fixtures/hanging-list-stdio-server.mjs', import.meta.url),
-);
-export const crashAfterConnectFixture = fileURLToPath(
-  new URL('./fixtures/crash-after-connect-stdio-server.mjs', import.meta.url),
-);
-export const stderrThenExitFixture = fileURLToPath(
-  new URL('./fixtures/stderr-then-exit-stdio-server.mjs', import.meta.url),
-);
+export const fixturesDir = new URL('./fixtures/', import.meta.url).pathname;
+export const stdioFixture = new URL('./fixtures/mock-stdio-server.mjs', import.meta.url).pathname;
+export const cwdStdioFixture = new URL('./fixtures/cwd-stdio-server.mjs', import.meta.url).pathname;
+export const slowStdioFixture = new URL('./fixtures/slow-stdio-server.mjs', import.meta.url)
+  .pathname;
+export const slowToolStdioFixture = new URL(
+  './fixtures/slow-tool-stdio-server.mjs',
+  import.meta.url,
+).pathname;
+export const hangingListStdioFixture = new URL(
+  './fixtures/hanging-list-stdio-server.mjs',
+  import.meta.url,
+).pathname;
+export const crashAfterConnectFixture = new URL(
+  './fixtures/crash-after-connect-stdio-server.mjs',
+  import.meta.url,
+).pathname;
+export const stderrThenExitFixture = new URL(
+  './fixtures/stderr-then-exit-stdio-server.mjs',
+  import.meta.url,
+).pathname;
 
 export function createMemoryMcpOAuthStore(): McpOAuthStore {
   const data = new Map<string, unknown>();
@@ -53,10 +55,46 @@ export function createMemoryMcpOAuthStore(): McpOAuthStore {
     async remove(key: string): Promise<void> {
       data.delete(key);
     },
-    async list(suffix: string): Promise<readonly string[]> {
-      return [...data.keys()].filter((key) => key.endsWith(suffix));
+    async list(prefix?: string): Promise<readonly string[]> {
+      const keys = [...data.keys()];
+      return prefix === undefined ? keys : keys.filter((key) => key.startsWith(prefix));
     },
   };
+}
+
+export class ManualMcpOAuthScheduler implements McpOAuthScheduler {
+  private current: number;
+  private sequence = 0;
+  private readonly tasks = new Map<
+    number,
+    { readonly due: number; readonly task: () => void | Promise<void> }
+  >();
+
+  constructor(now = Date.now()) {
+    this.current = now;
+  }
+
+  now(): number {
+    return this.current;
+  }
+
+  schedule(delayMs: number, task: () => void | Promise<void>): McpOAuthScheduledTask {
+    const id = this.sequence++;
+    this.tasks.set(id, { due: this.current + delayMs, task });
+    return { cancel: () => this.tasks.delete(id) };
+  }
+
+  async advanceBy(deltaMs: number): Promise<void> {
+    this.current += deltaMs;
+    while (true) {
+      const next = [...this.tasks]
+        .filter(([, task]) => task.due <= this.current)
+        .toSorted((left, right) => left[1].due - right[1].due || left[0] - right[0])[0];
+      if (next === undefined) return;
+      this.tasks.delete(next[0]);
+      await next[1].task();
+    }
+  }
 }
 
 export function fakeMcpClient(
@@ -121,11 +159,11 @@ export async function startInProcessHttpMcpServer(opts?: {
   const mcpServer = new McpServer({ name: 'mock-http', version: '0.0.1' });
   mcpServer.registerTool(
     'echo',
-    { description: 'Echoes text', inputSchema: z.object({ text: z.string() }) },
+    { description: 'Echoes text', inputSchema: { text: z.string() } },
     ({ text }) => ({ content: [{ type: 'text', text }] }),
   );
 
-  const transport = new NodeStreamableHTTPServerTransport({
+  const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
   });
   await mcpServer.connect(transport);
@@ -146,7 +184,7 @@ export async function startInProcessHttpMcpServer(opts?: {
   const port = (httpServer.address() as AddressInfo).port;
 
   return {
-    url: `http://localhost:${port}/mcp`,
+    url: `http://127.0.0.1:${port}/mcp`,
     close: () => closeServer(httpServer),
   };
 }
@@ -170,7 +208,7 @@ export async function startInProcessSseMcpServer(opts?: {
       const mcpServer = new McpServer({ name: 'mock-sse', version: '0.0.1' });
       mcpServer.registerTool(
         'echo',
-        { description: 'Echoes text', inputSchema: z.object({ text: z.string() }) },
+        { description: 'Echoes text', inputSchema: { text: z.string() } },
         ({ text }) => ({ content: [{ type: 'text', text }] }),
       );
       const transport = new SSEServerTransport('/messages', res);
@@ -200,7 +238,7 @@ export async function startInProcessSseMcpServer(opts?: {
   const port = (httpServer.address() as AddressInfo).port;
 
   return {
-    url: `http://localhost:${port}/mcp`,
+    url: `http://127.0.0.1:${port}/mcp`,
     async close() {
       await Promise.all([...transports.values()].map((transport) => transport.close()));
       await closeServer(httpServer);

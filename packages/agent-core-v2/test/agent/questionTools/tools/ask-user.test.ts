@@ -1,25 +1,34 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { createServices } from '#/_base/di/test';
 import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
-import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type { IAgentTaskService } from '#/agent/task/task';
 import {
   AskUserQuestionInputSchema,
+  IAskUserQuestionTool,
   type AskUserQuestionInput,
 } from '#/agent/tools/ask-user-question/ask-user-question';
 import { AskUserQuestionTool } from '#/agent/tools/ask-user-question/askUserQuestionTool';
-import type { QuestionBackgroundTask } from '#/agent/tools/ask-user-question/question-background-task';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import type {
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import {
   ISessionQuestionService,
-  QuestionRequest,
-  QuestionResult,
+  type QuestionRequest,
+  type QuestionResult,
 } from '#/session/question/question';
-
+import type {
+  QuestionBackgroundTask,
+  QuestionTaskInfo,
+} from '#/agent/tools/ask-user-question/question-background-task';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
+const TASK_TOOLS = new Set(['TaskList', 'TaskOutput', 'TaskStop']);
+
+let disposables: DisposableStore;
 
 function input(
   overrides: Partial<AskUserQuestionInput['questions'][number]> = {},
@@ -42,13 +51,14 @@ function input(
 
 function makeTool(
   options: {
+    readonly activeTaskTools?: ReadonlySet<string>;
     readonly request?: (
       req: QuestionRequest,
       requestOptions?: { readonly signal?: AbortSignal },
     ) => Promise<QuestionResult>;
   } = {},
 ): {
-  readonly tool: AskUserQuestionTool;
+  readonly tool: IAskUserQuestionTool;
   readonly request: ReturnType<typeof vi.fn>;
   readonly telemetryTrack: ReturnType<typeof vi.fn>;
   readonly registerTask: ReturnType<typeof vi.fn>;
@@ -57,30 +67,54 @@ function makeTool(
 } {
   const request = vi.fn(options.request ?? (async () => ({ Postgres: true }) as QuestionResult));
   const telemetryTrack = vi.fn();
-  const question = { request } as unknown as ISessionQuestionService;
-  const telemetry = { track2: telemetryTrack } as unknown as ITelemetryService;
   let lastTask: QuestionBackgroundTask | undefined;
   const registerTask = vi.fn((task: QuestionBackgroundTask) => {
     lastTask = task;
     return 'q_test_task_id';
   });
-  const getTask = vi.fn((id: string) =>
-    id === 'q_test_task_id' ? { status: 'running' } : undefined,
+  const getTask = vi.fn(
+    (id: string): QuestionTaskInfo | undefined =>
+      id === 'q_test_task_id'
+        ? {
+            taskId: id,
+            description: 'Which database?',
+            status: 'running',
+            detached: true,
+            startedAt: 0,
+            endedAt: null,
+            kind: 'question',
+            questionCount: 1,
+            toolCallId: 'call_bg',
+          }
+        : undefined,
   );
-  const tasks = { registerTask, getTask } as unknown as IAgentTaskService;
-  const scopeContext = { agentId: 'main' } as unknown as IAgentScopeContext;
-  const tool = new AskUserQuestionTool(question, telemetry, tasks, scopeContext);
-  return {
-    tool,
-    request,
-    telemetryTrack,
-    registerTask,
-    getTask,
-    lastRegisteredTask: () => lastTask,
-  };
+  const activeTaskTools = options.activeTaskTools ?? TASK_TOOLS;
+  const ix = createServices(disposables, {
+    additionalServices: (reg) => {
+      reg.definePartialInstance(ISessionQuestionService, { request });
+      reg.definePartialInstance(ITelemetryService, { track2: telemetryTrack });
+      reg.definePartialInstance(IAgentTaskService, { registerTask, getTask });
+      reg.definePartialInstance(IAgentScopeContext, { agentId: 'main' });
+      reg.definePartialInstance(IAgentToolPolicyService, {
+        isToolActive: (name: string) => activeTaskTools.has(name),
+      });
+      reg.define(IAskUserQuestionTool, AskUserQuestionTool);
+    },
+    strict: true,
+  });
+  const tool = ix.get(IAskUserQuestionTool);
+  return { tool, request, telemetryTrack, registerTask, getTask, lastRegisteredTask: () => lastTask };
 }
 
 describe('AskUserQuestionTool', () => {
+  beforeEach(() => {
+    disposables = new DisposableStore();
+  });
+
+  afterEach(() => {
+    disposables.dispose();
+  });
+
   it('exposes current metadata and schema', () => {
     const { tool } = makeTool();
 
@@ -101,7 +135,9 @@ describe('AskUserQuestionTool', () => {
   });
 
   it('rejects empty question text and empty option labels at the schema layer', () => {
-    expect(AskUserQuestionInputSchema.safeParse(input({ question: '' })).success).toBe(false);
+    expect(
+      AskUserQuestionInputSchema.safeParse(input({ question: '' })).success,
+    ).toBe(false);
     expect(
       AskUserQuestionInputSchema.safeParse(
         input({
@@ -155,7 +191,10 @@ describe('AskUserQuestionTool', () => {
 
   it('allows the same option label to appear in different questions', async () => {
     const args: AskUserQuestionInput = {
-      questions: [input().questions[0]!, input({ question: 'Which cache?' }).questions[0]!],
+      questions: [
+        input().questions[0]!,
+        input({ question: 'Which cache?' }).questions[0]!,
+      ],
     };
     expect(AskUserQuestionInputSchema.safeParse(args).success).toBe(true);
 
@@ -170,7 +209,7 @@ describe('AskUserQuestionTool', () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
-  it('builds the v1-aligned schema including an optional background flag', () => {
+  it('exposes background mode when all task controls are active', () => {
     const { tool } = makeTool();
     const params = tool.parameters as {
       properties: { background?: { type?: string; default?: boolean } };
@@ -178,6 +217,104 @@ describe('AskUserQuestionTool', () => {
 
     expect(params.properties.background?.type).toBe('boolean');
     expect(params.properties.background?.default).toBe(false);
+    expect(tool.description).toContain('background=true');
+    expect(tool.description).toContain('task_id');
+  });
+
+  it('hides and rejects background mode after a task control becomes inactive', async () => {
+    const activeTaskTools = new Set(TASK_TOOLS);
+    const { tool, request, registerTask } = makeTool({
+      activeTaskTools,
+    });
+
+    expect(tool.parameters).toHaveProperty('properties.background');
+    activeTaskTools.delete('TaskStop');
+
+    const params = tool.parameters as { properties: Record<string, unknown> };
+
+    expect(params.properties).not.toHaveProperty('background');
+    expect(tool.description.toLowerCase()).not.toContain('background');
+    expect(tool.description).not.toContain('task_id');
+    expect(tool.description).not.toContain('TaskOutput');
+
+    const result = await executeTool(tool, {
+      turnId: 0,
+      toolCallId: 'call_bg_disabled',
+      args: { ...input(), background: true },
+      signal,
+    });
+
+    expect(result).toEqual({
+      isError: true,
+      output:
+        'Background questions are not available for this agent because TaskList, TaskOutput, and TaskStop are not enabled.',
+    });
+    expect(registerTask).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('preserves foreground answers when background mode is unavailable', async () => {
+    const { tool, request } = makeTool({ activeTaskTools: new Set() });
+
+    const result = await executeTool(tool, {
+      turnId: 0,
+      toolCallId: 'call_fg_disabled',
+      args: input(),
+      signal,
+    });
+
+    expect(result).toEqual({
+      isError: false,
+      output: JSON.stringify({ answers: { Postgres: true } }),
+    });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it('preserves foreground dismissal when background mode is unavailable', async () => {
+    const { tool } = makeTool({
+      activeTaskTools: new Set(),
+      request: async () => null,
+    });
+
+    const result = await executeTool(tool, {
+      turnId: 0,
+      toolCallId: 'call_fg_dismissed',
+      args: input(),
+      signal,
+    });
+
+    expect(result).toEqual({
+      isError: false,
+      output: JSON.stringify({
+        answers: {},
+        note: 'User dismissed the question without answering.',
+      }),
+    });
+  });
+
+  it('preserves foreground errors when background mode is unavailable', async () => {
+    const { tool } = makeTool({
+      activeTaskTools: new Set(),
+      request: async () => {
+        throw new Error2(
+          CoreErrors.codes.NOT_IMPLEMENTED,
+          'Client does not support questions',
+        );
+      },
+    });
+
+    const result = await executeTool(tool, {
+      turnId: 0,
+      toolCallId: 'call_fg_unsupported',
+      args: input(),
+      signal,
+    });
+
+    expect(result).toEqual({
+      isError: true,
+      output:
+        'The connected client does not support interactive questions. Do NOT call this tool again. Ask the user directly in your text response instead.',
+    });
   });
 
   it('dispatches questions through the session question service', async () => {
@@ -214,67 +351,6 @@ describe('AskUserQuestionTool', () => {
       answered: 1,
       trace_id: undefined,
     });
-  });
-
-  it('accepts the deprecated camelCase multiSelect alias end to end', async () => {
-    const aliased = input({ multiSelect: true } as Partial<AskUserQuestionInput['questions'][number]>);
-    delete (aliased.questions[0] as Record<string, unknown>)['multi_select'];
-    expect(AskUserQuestionInputSchema.safeParse(aliased).success).toBe(true);
-
-    const { tool, request } = makeTool();
-    await executeTool(tool, {
-      turnId: 0,
-      toolCallId: 'call_alias',
-      args: aliased,
-      signal,
-    });
-
-    expect(request).toHaveBeenCalledWith(
-      expect.objectContaining({
-        questions: [expect.objectContaining({ question: 'Which database?', multiSelect: true })],
-      }),
-      { signal, agentId: 'main' },
-    );
-  });
-
-  it('prefers the canonical multi_select when both spellings are present', async () => {
-    const both = input({
-      multi_select: false,
-      multiSelect: true,
-    } as Partial<AskUserQuestionInput['questions'][number]>);
-
-    const { tool, request } = makeTool();
-    await executeTool(tool, {
-      turnId: 0,
-      toolCallId: 'call_both',
-      args: both,
-      signal,
-    });
-
-    expect(request).toHaveBeenCalledWith(
-      expect.objectContaining({
-        questions: [expect.objectContaining({ multiSelect: false })],
-      }),
-      { signal, agentId: 'main' },
-    );
-  });
-
-  it('advertises both multi_select and its alias in the JSON schema', () => {
-    const { tool } = makeTool();
-    const params = tool.parameters as {
-      properties: {
-        questions: {
-          items: {
-            properties: Record<string, unknown>;
-            additionalProperties: boolean;
-          };
-        };
-      };
-    };
-    const itemProps = params.properties.questions.items.properties;
-    expect(itemProps['multi_select']).toBeDefined();
-    expect(itemProps['multiSelect']).toBeDefined();
-    expect(params.properties.questions.items.additionalProperties).toBe(false);
   });
 
   it('passes empty headers and option descriptions through verbatim (v1 wire parity)', async () => {
@@ -425,7 +501,10 @@ describe('AskUserQuestionTool', () => {
   it('returns a distinct hard error when the host signals unsupported', async () => {
     const { tool } = makeTool({
       request: async () => {
-        throw new Error2(CoreErrors.codes.NOT_IMPLEMENTED, 'Client does not support questions');
+        throw new Error2(
+          CoreErrors.codes.NOT_IMPLEMENTED,
+          'Client does not support questions',
+        );
       },
     });
 

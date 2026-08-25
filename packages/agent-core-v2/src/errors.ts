@@ -5,11 +5,8 @@ import { TaskErrors } from '#/agent/task/errors';
 import { ProtocolErrors } from '#/kosong/protocol/errors';
 import { ConfigErrors } from '#/app/config/errors';
 import { CapabilityErrors } from '#/app/capability/errors';
-import { CronErrors } from '#/app/cron/errors';
-import { AttachmentErrors } from '#/features/attachment/errors';
+import { CronErrors } from '#/features/cron/errors';
 import { DebugErrors } from '#/debug/errors';
-import { LspErrors } from '#/features/lsp/errors';
-import { SessionQueryErrors } from '#/features/sessionQuery/errors';
 import { EventErrors } from '#/app/event/errors';
 import { FileErrors } from '#/app/file/fileService';
 import { FsErrors } from '#/workspace/workspaceFs/internal/errors';
@@ -26,7 +23,7 @@ import { PromptErrors } from '#/agent/prompt/errors';
 import { ModelsDevImportErrors } from '#/app/kosongConfig/errors';
 import { SessionExportErrors } from '#/app/sessionExport/errors';
 import { SessionErrors } from '#/session/errors';
-import { SkillErrors } from '#/app/skillCatalog/errors';
+import { SkillErrors } from '#/features/skill/catalog/errors';
 import { StateErrors } from '#/state/errors';
 import { StorageErrors } from '#/persistence/interface/storage';
 import { TerminalErrors } from '#/os/interface/terminalErrors';
@@ -46,11 +43,8 @@ export { TaskErrors } from '#/agent/task/errors';
 export { ProtocolErrors } from '#/kosong/protocol/errors';
 export { ConfigErrors } from '#/app/config/errors';
 export { CapabilityErrors } from '#/app/capability/errors';
-export { CronErrors } from '#/app/cron/errors';
+export { CronErrors } from '#/features/cron/errors';
 export { DebugErrors } from '#/debug/errors';
-export { AttachmentErrors } from '#/features/attachment/errors';
-export { LspErrors } from '#/features/lsp/errors';
-export { SessionQueryErrors } from '#/features/sessionQuery/errors';
 export { FileErrors } from '#/app/file/fileService';
 export { FsErrors } from '#/workspace/workspaceFs/internal/errors';
 export { FullCompactionErrors } from '#/agent/fullCompaction/errors';
@@ -66,7 +60,7 @@ export { PromptErrors } from '#/agent/prompt/errors';
 export { ModelsDevImportErrors } from '#/app/kosongConfig/errors';
 export { SessionExportErrors } from '#/app/sessionExport/errors';
 export { SessionErrors } from '#/session/errors';
-export { SkillErrors } from '#/app/skillCatalog/errors';
+export { SkillErrors } from '#/features/skill/catalog/errors';
 export { StorageErrors } from '#/persistence/interface/storage';
 export { TerminalErrors } from '#/os/interface/terminalErrors';
 export { UsageErrors } from '#/agent/usage/errors';
@@ -86,9 +80,6 @@ export const ErrorCodes = {
   ...CapabilityErrors.codes,
   ...CronErrors.codes,
   ...DebugErrors.codes,
-  ...AttachmentErrors.codes,
-  ...LspErrors.codes,
-  ...SessionQueryErrors.codes,
   ...FileErrors.codes,
   ...FsErrors.codes,
   ...FullCompactionErrors.codes,

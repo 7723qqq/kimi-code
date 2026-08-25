@@ -3,22 +3,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import {
-  IAgentContextInjectorService,
-  type ContextInjectionProvider,
-} from '#/agent/contextInjector/contextInjector';
-import { PermissionModeInjection } from '#/agent/permissionMode/injection/permissionModeInjection';
+import type { ReminderRuntime } from '#/features/reminder/reminderAgentRuntime';
+import type { ContextInjectionProvider } from '#/features/reminder/types';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { lifecycleWithReminder } from '../../features/reminder/stubs';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { permissionModeKey } from '#/agent/permissionMode/permissionModeOps';
+import { PermissionModeInjection } from '#/agent/permissionMode/injection/permissionModeInjection';
 import { AgentPermissionModeService } from '#/agent/permissionMode/permissionModeService';
+import { permissionModeKey } from '#/agent/permissionMode/permissionModeOps';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import type { IEventDispatcher } from '#/state/eventDispatcher';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
 import {
@@ -38,9 +38,8 @@ let registeredInjection:
     }
   | undefined;
 
-const injectorStub: IAgentContextInjectorService = {
-  _serviceBrand: undefined,
-  register: (name, provider) => {
+const injectorStub: ReminderRuntime = {
+  register: (name: string, provider: ContextInjectionProvider) => {
     registeredInjection = { name, provider: provider as ContextInjectionProvider };
     return {
       dispose: () => {
@@ -48,8 +47,9 @@ const injectorStub: IAgentContextInjectorService = {
       },
     };
   },
+  notify: () => {},
   reconcileWhenIdle: async () => {},
-};
+} as unknown as ReminderRuntime;
 
 let disposables: DisposableStore;
 let ix: TestInstantiationService;
@@ -65,7 +65,7 @@ beforeEach(() => {
   ix = disposables.add(new TestInstantiationService());
   ix.stub(IFileSystemStorageService, new InMemoryStorageService());
   ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
-  ix.stub(IAgentContextInjectorService, injectorStub);
+  ix.stub(IAgentLifecycleService, lifecycleWithReminder(injectorStub));
   ix.set(IAgentStateService, new AgentStateService());
   ix.set(IAgentPermissionModeService, new SyncDescriptor(AgentPermissionModeService));
   log = ix.get(IAppendLogStore);
@@ -79,10 +79,7 @@ afterEach(() => disposables.dispose());
 async function readRecords(): Promise<WireRecord[]> {
   await dispatcher.flush();
   const out: WireRecord[] = [];
-  for await (const record of log.read<WireRecord>(
-    testWireScope(SCOPE, KEY),
-    AGENT_WIRE_RECORD_KEY,
-  )) {
+  for await (const record of log.read<WireRecord>(testWireScope(SCOPE, KEY), AGENT_WIRE_RECORD_KEY)) {
     out.push(record);
   }
   return out;
@@ -193,16 +190,16 @@ describe('AgentPermissionModeService (wire-backed)', () => {
     svc.setMode('auto');
 
     let restoredProvider: ContextInjectionProvider | undefined;
-    const ix2 = disposables.add(new TestInstantiationService());
-    ix2.stub(IAgentContextInjectorService, {
-      _serviceBrand: undefined,
-      register: (_name, provider) => {
-        restoredProvider = provider as ContextInjectionProvider;
+    const states = new AgentStateService();
+    const reminder = {
+      register: (_name: string, provider: ContextInjectionProvider) => {
+        restoredProvider = provider;
         return { dispose: () => {} };
       },
-    });
-    ix2.set(IAgentStateService, new AgentStateService());
-    disposables.add(ix2.createInstance(PermissionModeInjection, svc));
+      notify: () => {},
+      reconcileWhenIdle: async () => {},
+    } as unknown as ReminderRuntime;
+    disposables.add(new PermissionModeInjection(svc, reminder, states));
     if (restoredProvider === undefined) throw new Error('expected restored provider');
 
     const run = () =>
@@ -230,17 +227,17 @@ describe('AgentPermissionModeService (wire-backed)', () => {
     const freshState = ix2.get(IAgentStateService);
     freshState.contributeState(permissionModeKey);
 
-    await restoreTestEventDispatcher(fresh, log2, testWireScope(SCOPE, 'permission-mode-replay'), [
-      { type: 'permission.set_mode', mode: 'auto' },
-    ]);
+    await restoreTestEventDispatcher(
+      fresh,
+      log2,
+      testWireScope(SCOPE, 'permission-mode-replay'),
+      [{ type: 'permission.set_mode', mode: 'auto' }],
+    );
 
     expect(freshState.get(permissionModeKey)).toBe('auto');
 
     const written: WireRecord[] = [];
-    for await (const record of log2.read<WireRecord>(
-      testWireScope(SCOPE, 'permission-mode-replay'),
-      AGENT_WIRE_RECORD_KEY,
-    )) {
+    for await (const record of log2.read<WireRecord>(testWireScope(SCOPE, 'permission-mode-replay'), AGENT_WIRE_RECORD_KEY)) {
       written.push(record);
     }
     expect(written[0]).toMatchObject({ type: 'metadata' });

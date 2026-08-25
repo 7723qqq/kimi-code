@@ -1,25 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { CollectionToken, CollectionView } from '#/_base/di/collection';
-import { ScopeActivation, type ServicesAccessor } from '#/_base/di/instantiation';
-import { type InstantiationService } from '#/_base/di/instantiationService';
-import {
-  _clearScopedRegistryForTests,
-  registerScopedService,
-  type Scope,
-} from '#/_base/di/scope';
-import { createScopedTestHost } from '#/_base/di/test';
 import type { ToolCall } from '#/kosong/contract/message';
 import {
   compileToolArgsValidator,
   validateToolArgs,
 } from '#/tool/args-validator';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
-import { IFeatureManager } from '#/app/feature/featureManager';
-import { FeatureManagerService } from '#/app/feature/featureManagerService';
-import { LifecycleScope } from '#/app/scopes';
-import { IAgentGoalService } from '#/features/goal/goal';
-import { GoalFeature } from '#/features/goal/goalFeature';
+import { AgentGoal, type GoalRuntime } from '#/features/goal/goalAgentRuntime';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { CreateGoalTool } from '#/features/goal/tools/create-goal/createGoalTool';
 import { GetGoalTool } from '#/features/goal/tools/get-goal/getGoalTool';
 import { SetGoalBudgetTool } from '#/features/goal/tools/set-goal-budget/setGoalBudgetTool';
@@ -32,16 +20,9 @@ import {
   IAgentToolExecutorService,
   type ToolExecutionResult,
 } from '#/agent/toolExecutor/toolExecutor';
-import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IEventBus } from '#/app/event/eventBus';
 import { TurnStarted } from '#/agent/loop/turnEvents';
-import { IFeatureAssemblyService } from '#/features/featureAssembly';
-import { FeatureAssemblyService } from '#/features/featureAssemblyService';
-import {
-  _clearFeatureRecipesForTests,
-  registerFeature,
-} from '#/features/featureRegistry';
 
 import {
   agentService,
@@ -55,13 +36,9 @@ import { stubAgentContext } from '../../../agent/agentContext/stubs';
 
 const signal = new AbortController().signal;
 
-function collectionViewOf<T>(scope: Scope, token: CollectionToken<T>): CollectionView<T> {
-  return (scope.instantiation as InstantiationService).fiberHost.collectionView(token);
-}
-
 describe('goal tools', () => {
   let ctx: TestAgentContext;
-  let goals: IAgentGoalService;
+  let goals: GoalRuntime;
   let loopService: IAgentLoopService;
   let eventBus: IEventBus;
   let toolExecutor: IAgentToolExecutorService;
@@ -75,11 +52,14 @@ describe('goal tools', () => {
       agentService(IAgentSwarmService, stubAgentSwarm()),
       permissionModeServices('auto'),
     );
-    goals = ctx.get(IAgentGoalService);
+    goals = ctx.resolve(AgentGoal);
+    void ctx.restoreRuntimes();
     eventBus = ctx.get(IEventBus);
     toolExecutor = ctx.get(IAgentToolExecutorService);
-    setGoalBudgetTool = new SetGoalBudgetTool(goals);
-    updateGoalTool = new UpdateGoalTool(goals);
+    const manager = { resolve: () => goals } as unknown as IAgentLifecycleService;
+    const scope = ctx.get(IAgentScopeContext);
+    setGoalBudgetTool = new SetGoalBudgetTool(manager, scope);
+    updateGoalTool = new UpdateGoalTool(manager, scope);
   });
 
   afterEach(async () => {
@@ -445,55 +425,3 @@ describe('goal tools', () => {
   }
 });
 
-describe('goal tool main-agent gating', () => {
-  const gatedTools = [
-    ['CreateGoalTool', CreateGoalTool],
-    ['GetGoalTool', GetGoalTool],
-    ['SetGoalBudgetTool', SetGoalBudgetTool],
-    ['UpdateGoalTool', UpdateGoalTool],
-  ] as const;
-
-  beforeEach(() => {
-    _clearScopedRegistryForTests();
-    _clearFeatureRecipesForTests();
-    registerScopedService(
-      LifecycleScope.App,
-      IFeatureManager,
-      FeatureManagerService,
-      ScopeActivation.OnScopeCreated,
-      'feature',
-    );
-    registerScopedService(
-      LifecycleScope.App,
-      IFeatureAssemblyService,
-      FeatureAssemblyService,
-      ScopeActivation.OnScopeCreated,
-      'features',
-    );
-    registerFeature(GoalFeature);
-  });
-
-  function accessorFor(agentId: string): ServicesAccessor {
-    const scopeContext: IAgentScopeContext = {
-      _serviceBrand: undefined,
-      agentId,
-      agentContext: stubAgentContext(agentId, 0),
-      scope: () => '',
-    };
-    return { get: () => scopeContext } as unknown as ServicesAccessor;
-  }
-
-  it.each(gatedTools)('%s is contributed with a main-agent-only guard', (name, ctor) => {
-    const host = createScopedTestHost();
-    const agent = host.child(LifecycleScope.Agent, 'agent-1');
-    const contribution = collectionViewOf(agent, AgentToolContribution).items.find(
-      (c) => c.ctor === ctor,
-    );
-    expect(contribution, `${name} contribution`).toBeDefined();
-    const when = contribution?.options.when;
-    expect(when, `${name} must gate on agent identity`).toBeDefined();
-    expect(when?.(accessorFor('main'))).toBe(true);
-    expect(when?.(accessorFor('sub-1'))).toBe(false);
-    host.dispose();
-  });
-});

@@ -26,12 +26,11 @@ import {
   runAcpServer,
   type AvailableCommand,
   type SlashCommandsSnapshot,
-} from '@moonshot-ai/acp-server';
-import type { SessionHandle, SkillSummary } from '@moonshot-ai/klient';
+} from '@moonshot-ai/acp-adapter';
+import { createKimiHarness, type Session, type SkillSummary } from '@moonshot-ai/kimi-code-sdk';
 
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
-import { getVersion } from '#/cli/version';
-import { t } from '#/i18n';
+import { createKimiCodeHostIdentity, getVersion } from '#/cli/version';
 import { buildSkillSlashCommands } from '#/tui/commands/skills';
 
 import { isLegacyEnabled } from '../experimental-v2';
@@ -47,7 +46,11 @@ export function registerAcpCommand(parent: Command): void {
   parent
     .command('acp')
     .description('Run kimi-code as an Agent Client Protocol (ACP) server over stdio.')
-    .option('--login', t('cli.optionDescriptions.acpLogin'), false)
+    .option(
+      '--login',
+      'Run the device-code login flow then exit (entry point for ACP terminal-auth).',
+      false,
+    )
     .option('--region <region>', 'Login region used together with --login: "mainland-cn" (kimi.com) or "global" (kimi.ai).')
     .action(async (opts: { login?: boolean; region?: string }) => {
       if (opts.login === true) {
@@ -56,6 +59,11 @@ export function registerAcpCommand(parent: Command): void {
         });
         return;
       }
+      const identity = createKimiCodeHostIdentity();
+      const harness = createKimiHarness({
+        identity,
+        uiMode: 'acp',
+      });
       // Forward `KIMI_CODE_HOME` (if set) into `authMethods[0].env` so the
       // `kimi login` subprocess clients spawn for terminal-auth writes its
       // token under the same data root the ACP server reads from. Used for
@@ -85,11 +93,11 @@ export function registerAcpCommand(parent: Command): void {
       // listSkills() failure degrades to builtins-only so a broken
       // skill source never blanks the palette.
       const resolveSlashCommands = async (
-        session: SessionHandle,
+        session: Session,
       ): Promise<SlashCommandsSnapshot> => {
         let skills: readonly SkillSummary[] = [];
         try {
-          skills = await session.skills.list();
+          skills = await session.listSkills();
         } catch {
           skills = [];
         }
@@ -111,7 +119,7 @@ export function registerAcpCommand(parent: Command): void {
         };
       };
       try {
-        await runAcpServer({
+        await runAcpServer(harness, {
           agentInfo: { name: 'Kimi Code CLI', version: getVersion() },
           slashCommands: resolveSlashCommands,
           ...(terminalAuthEnv ? { terminalAuthEnv } : {}),
@@ -120,8 +128,8 @@ export function registerAcpCommand(parent: Command): void {
             : {}),
         });
         process.exit(0);
-      } catch (error) {
-        process.stderr.write(`acp server: fatal error: ${String(error)}\n`);
+      } catch (err) {
+        process.stderr.write(`acp server: fatal error: ${String(err)}\n`);
         process.exit(1);
       }
     });

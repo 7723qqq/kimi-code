@@ -14,17 +14,21 @@ import { join } from 'node:path';
 import { createServerLogger, startServer, type ServerLogger } from '@moonshot-ai/kap-server';
 import { shutdownTelemetry, track } from '@moonshot-ai/kimi-telemetry';
 import chalk from 'chalk';
-import { type Command } from 'commander';
+import { type Command, Option } from 'commander';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
-import { t } from '#/i18n';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
+import { generateRemoteControlQr } from '#/utils/remote-control-qr';
 
 import { initializeServerTelemetry } from '../../telemetry';
-import { createKimiCodeHostIdentity, getHostPackageRoot, getVersion } from '../../version';
+import {
+  createKimiCodeHostIdentity,
+  getHostPackageRoot,
+  getVersion,
+} from '../../version';
 import {
   accessUrlLines,
   buildOpenableUrl,
@@ -32,6 +36,16 @@ import {
   splitTokenFragment,
 } from './access-urls';
 import { type NetworkAddress } from './networks';
+import {
+  formatRemoteControlOutput,
+  formatRemoteControlStatus,
+  isRemoteControlEnabled,
+  REMOTE_CONTROL_FLAG_ENV,
+  startRemoteControl,
+  type RemoteControlHandle,
+  type RemoteControlOptions,
+  type RemoteControlStatus,
+} from './remote-control';
 import {
   DEFAULT_FOREGROUND_LOG_LEVEL,
   DEFAULT_LAN_HOST,
@@ -59,11 +73,13 @@ interface RoutedServer {
 
 export interface WebCliOptions extends ServerCliOptions {
   open?: boolean;
+  remoteControl?: boolean;
 }
 
 export interface StartForegroundHooks {
   /** Fires once the server is listening, before the foreground runner blocks. */
-  onReady?: (origin: string) => void;
+  onReady?: (origin: string) => void | Promise<void>;
+  onShutdown?: (reason: string) => void | Promise<void>;
 }
 
 export interface WebCommandDeps {
@@ -72,6 +88,7 @@ export interface WebCommandDeps {
     options: ParsedServerOptions,
     hooks?: StartForegroundHooks,
   ) => Promise<never>;
+  startRemoteControl?: (options: RemoteControlOptions) => Promise<RemoteControlHandle>;
   openUrl(url: string): void;
   /**
    * Best-effort read of the server's persistent bearer token. When it returns
@@ -102,50 +119,70 @@ export function buildWebUrl(origin: string, token: string): string {
 }
 
 /** Build the `web` command, mounting the runner action on `cmd` itself. */
-export function buildWebCommand(cmd: Command): Command {
-  return cmd
+export function buildWebCommand(
+  cmd: Command,
+  opts: { forceRemoteControl?: boolean } = {},
+): Command {
+  const forceRemoteControl = opts.forceRemoteControl === true;
+  const withServerOptions = cmd
     .option(
       '--port <port>',
-      t('cli.optionDescriptions.serverRunOptionPort', { port: String(DEFAULT_SERVER_PORT) }),
+      `Bind port (default ${DEFAULT_SERVER_PORT})`,
       String(DEFAULT_SERVER_PORT),
     )
     .option(
       '--host [host]',
-      t('cli.optionDescriptions.serverRunOptionHost', {
-        host: DEFAULT_SERVER_HOST,
-        lanHost: DEFAULT_LAN_HOST,
-      }),
+      `Bind host. Omit to bind ${DEFAULT_SERVER_HOST} (this machine only); pass --host to bind ${DEFAULT_LAN_HOST} (all interfaces), or --host <host> for a specific host. The bearer token is printed at startup.`,
     )
-    .option('--allowed-host <host...>', t('cli.optionDescriptions.serverRunOptionAllowedHost'))
-    .option('--insecure-no-tls', t('cli.optionDescriptions.serverRunOptionInsecureNoTls'), true)
+    .option(
+      '--allowed-host <host...>',
+      'Extra Host header value to allow through the DNS-rebinding check. Repeat or comma-separate; a leading dot matches a domain suffix (e.g. .example.com).',
+    )
+    .option(
+      '--insecure-no-tls',
+      'Allow a non-loopback bind without a TLS-terminating reverse proxy. Defaults to true; only relevant for non-loopback binds.',
+      true,
+    )
     .option(
       '--allow-remote-shutdown',
-      t('cli.optionDescriptions.serverRunOptionAllowRemoteShutdown'),
-      false,
-    )
-    .option(
-      '--allow-remote-terminals',
-      t('cli.optionDescriptions.serverRunOptionAllowRemoteTerminals'),
+      'On a non-loopback bind, keep POST /api/v1/shutdown enabled (default: route is disabled → 404).',
       false,
     )
     .option(
       '--dangerous-bypass-auth',
-      t('cli.optionDescriptions.serverRunOptionDangerousBypassAuth'),
+      'Disable bearer-token auth on every REST and WebSocket route, and advertise it via /api/v1/meta so the web UI connects without a token. Only use on a trusted network or behind your own authenticating proxy.',
       false,
     )
     .option(
       '--log-level <level>',
-      t('cli.optionDescriptions.serverRunOptionLogLevel', { levels: VALID_LOG_LEVELS.join('|') }),
+      `Server log level: ${VALID_LOG_LEVELS.join('|')}. Omit to keep logs off.`,
     )
-    .option('--debug-endpoints', t('cli.optionDescriptions.serverRunOptionDebugEndpoints'), false)
+    .option(
+      '--debug-endpoints',
+      'Mount /api/v1/debug/* routes for test introspection. OFF by default; production callers leave this unset.',
+      false,
+    )
     .option(
       '--web-title <title>',
       'Set a custom browser tab title for this web UI instance (default: "<workspace dir> | Kimi Code").',
-    )
-    .option('--no-open', t('cli.optionDescriptions.serverRunOptionNoOpen'), true)
+    );
+  if (!forceRemoteControl) {
+    withServerOptions.addOption(
+      new Option(
+        '--rc, --remote-control',
+        'Expose the web UI through Kimi Remote Control (experimental).',
+      )
+        .default(false)
+        .hideHelp(!isRemoteControlEnabled()),
+    );
+  }
+  return withServerOptions
+    .option('--no-open', 'Do not open the web UI in the default browser.', true)
     .action(async (opts: WebCliOptions) => {
       try {
-        await handleWebCommand(opts);
+        await handleWebCommand(
+          forceRemoteControl ? { ...opts, remoteControl: true } : opts,
+        );
       } catch (error) {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         process.exit(1);
@@ -158,9 +195,21 @@ export async function handleWebCommand(
   deps: WebCommandDeps = DEFAULT_WEB_COMMAND_DEPS,
 ): Promise<void> {
   const parsed = parseServerOptions(opts);
+  if (opts.remoteControl === true && !isRemoteControlEnabled()) {
+    throw new Error(
+      `--remote-control is experimental: set ${REMOTE_CONTROL_FLAG_ENV}=1 (or KIMI_CODE_EXPERIMENTAL_FLAG=1) to enable it.`,
+    );
+  }
+  if (opts.remoteControl === true && parsed.dangerousBypassAuth) {
+    throw new Error('--remote-control cannot be combined with --dangerous-bypass-auth.');
+  }
+  if (opts.remoteControl === true && !isLoopbackHost(parsed.host)) {
+    throw new Error('--remote-control requires a loopback host.');
+  }
   const run = deps.startServerForeground ?? startServerForeground;
+  let remoteControl: RemoteControlHandle | undefined;
   await run(parsed, {
-    onReady: (origin) => {
+    onReady: async (origin) => {
       // Resolve the persistent token only once the server is up: a fresh
       // server writes `server.token` on first boot, so reading it beforehand
       // would miss first-time starts and the browser would hit the auth gate.
@@ -169,6 +218,38 @@ export async function handleWebCommand(
       // token line when unavailable. When auth is bypassed, the token is
       // meaningless and is intentionally NOT shown or carried in the URL.
       const token = parsed.dangerousBypassAuth ? undefined : deps.resolveToken?.();
+      if (opts.remoteControl === true) {
+        if (token === undefined) throw new Error('Unable to read the local server token.');
+        const dataDir = getDataDir();
+        let outputReady = false;
+        const pendingStatuses: string[] = [];
+        const onStatus = (status: RemoteControlStatus): void => {
+          const line = formatRemoteControlStatus(status);
+          if (outputReady) deps.stdout.write(line);
+          else pendingStatuses.push(line);
+        };
+        remoteControl = await (deps.startRemoteControl ?? startRemoteControl)({
+          homeDir: dataDir,
+          localOrigin: origin,
+          localServerToken: token,
+          stderr: deps.stderr,
+          onStatus,
+        });
+        const qrCode = await generateRemoteControlQr(remoteControl.url, dataDir);
+        deps.stdout.write(
+          formatRemoteControlOutput({
+            url: remoteControl.url,
+            localOrigin: origin,
+            deviceName: remoteControl.deviceName,
+            qrCode: qrCode.terminal,
+            pngPath: qrCode.pngPath,
+          }),
+        );
+        outputReady = true;
+        for (const line of pendingStatuses) deps.stdout.write(line);
+        if (opts.open === true) deps.openUrl(remoteControl.url);
+        return;
+      }
       deps.stdout.write(
         parsed.logLevel === DEFAULT_FOREGROUND_LOG_LEVEL
           ? formatReadyBanner(origin, parsed.host, {
@@ -182,6 +263,9 @@ export async function handleWebCommand(
         deps.openUrl(token !== undefined ? buildWebUrl(origin, token) : origin);
       }
     },
+    onShutdown: async () => {
+      await remoteControl?.close();
+    },
   });
 }
 
@@ -190,7 +274,9 @@ function formatReadyLine(
   token: string | undefined,
   dangerousBypassAuth = false,
 ): string {
-  const notice = dangerousBypassAuth ? `${formatDangerNoticeLines().join('\n')}\n` : '';
+  const notice = dangerousBypassAuth
+    ? `${formatDangerNoticeLines().join('\n')}\n`
+    : '';
   return `${notice}Kimi server: ${buildOpenableUrl(origin, token)}\n`;
 }
 
@@ -203,8 +289,8 @@ function formatDangerNoticeLines(): string[] {
   const danger = (text: string): string => chalk.hex(darkColors.error)(text);
   const dangerBold = (text: string): string => chalk.bold.hex(darkColors.error)(text);
   return [
-    `  ${dangerBold(t('tui.statusMessages.serverDangerAuthDisabled'))}`,
-    `  ${danger(t('tui.statusMessages.serverDangerAnyoneAccess'))}`,
+    `  ${dangerBold('⚠ DANGER: authentication is DISABLED (--dangerous-bypass-auth).')}`,
+    `  ${danger('Anyone who can reach this port gets full access. Only continue if you understand the risk.')}`,
     `  ${danger('If you are unsure, stop this process now with ')}${dangerBold('Ctrl+C')}${danger('.')}`,
   ];
 }
@@ -217,7 +303,7 @@ export async function startServerForeground(
   options: ParsedServerOptions,
   hooks: StartForegroundHooks = {},
 ): Promise<never> {
-  return runServerInProcess(options, hooks.onReady);
+  return runServerInProcess(options, hooks);
 }
 
 /**
@@ -226,7 +312,7 @@ export async function startServerForeground(
  */
 async function runServerInProcess(
   options: ParsedServerOptions,
-  onReady?: (origin: string) => void,
+  hooks: StartForegroundHooks,
 ): Promise<never> {
   const version = getVersion();
   // Registers the telemetry provider for `track` / `shutdownTelemetry`; the
@@ -240,6 +326,14 @@ async function runServerInProcess(
     if (stopping) return;
     stopping = true;
     running?.logger.info({ reason }, 'server shutting down');
+    try {
+      await hooks.onShutdown?.(reason);
+    } catch (error) {
+      running?.logger.error(
+        { err: error instanceof Error ? error : new Error(String(error)) },
+        'foreground shutdown hook error',
+      );
+    }
     try {
       await running?.close();
       await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
@@ -259,7 +353,9 @@ async function runServerInProcess(
   const logger = createServerLogger({ level: options.logLevel });
   const webAssetsDir = serverWebAssetsDir();
   if (webAssetsDir === undefined) {
-    logger.info('dev mode: web assets not built; starting the API server without the web UI');
+    logger.info(
+      'dev mode: web assets not built; starting the API server without the web UI',
+    );
   }
   const v2 = await startServer({
     host: options.host,
@@ -281,7 +377,6 @@ async function runServerInProcess(
     debugEndpoints: options.debugEndpoints,
     insecureNoTls: options.insecureNoTls,
     allowRemoteShutdown: options.allowRemoteShutdown,
-    allowRemoteTerminals: options.allowRemoteTerminals,
     allowedHosts: options.allowedHosts,
     disableAuth: options.dangerousBypassAuth,
     webTitle: options.webTitle,
@@ -309,7 +404,17 @@ async function runServerInProcess(
 
   running.logger.info({ address: running.address }, 'server ready');
 
-  onReady?.(running.address);
+  try {
+    await hooks.onReady?.(running.address);
+  } catch (error) {
+    try {
+      await hooks.onShutdown?.('startup_failed');
+    } finally {
+      await running.close();
+      await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
+    }
+    throw error;
+  }
 
   return new Promise<never>(() => {
     // Keeps the event loop alive; the process ends via shutdown()/process.exit.
@@ -374,8 +479,8 @@ export function formatReadyBanner(
   const logo = ['▐█▛█▛█▌', '▐█████▌'] as const;
   const lines: string[] = [
     '',
-    `  ${primary(logo[0])}  ${title(t('tui.statusMessages.serverReadyBanner'))}  ${dim(getVersion())}`,
-    `  ${primary(logo[1])}  ${dim(t('tui.statusMessages.serverReadyLocalUi'))}`,
+    `  ${primary(logo[0])}  ${title('Kimi server ready')}  ${dim(getVersion())}`,
+    `  ${primary(logo[1])}  ${dim('Local web UI is available from this machine.')}`,
     '',
   ];
 
@@ -402,9 +507,7 @@ export function formatReadyBanner(
     // Set the token off with surrounding whitespace rather than color, so it is
     // easy to spot without being highlighted.
     lines.push('');
-    lines.push(
-      `  ${label('Token:    ')}${opts.token.slice(0, 8)}...${opts.token.slice(-4)}  ${dim("(use 'kimi web rotate-token' to customize)")}`,
-    );
+    lines.push(`  ${label('Token:    ')}${opts.token}`);
     lines.push('');
   }
 

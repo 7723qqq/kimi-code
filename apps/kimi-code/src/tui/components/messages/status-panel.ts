@@ -14,7 +14,6 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { PRODUCT_NAME } from '#/constant/app';
-import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import {
   formatTokenCount,
@@ -56,16 +55,6 @@ export interface StatusReportOptions {
   readonly statusError?: string;
   readonly managedUsage?: ManagedUsageReport;
   readonly managedUsageError?: string;
-  /**
-   * Rust native tools availability, probed at report time
-   * (`'rust'` = addon loaded, `'js'` = TypeScript fallback).
-   */
-  readonly nativeTools?: 'rust' | 'js';
-  /**
-   * How the running binary was packaged (`'sea'` Node single-file or the
-   * experimental Bun build); undefined when running from source.
-   */
-  readonly packagedEngine?: 'sea' | 'bun';
 }
 
 type Colorize = (text: string) => string;
@@ -78,7 +67,7 @@ function displayModelName(alias: string, models: Record<string, ModelAlias>): st
 
 function formatModelStatus(options: StatusReportOptions): string {
   const model = options.status?.model ?? options.model;
-  if (model.trim().length === 0) return t('tui.messages.statusPanel.modelNotSet');
+  if (model.trim().length === 0) return 'not set';
 
   const effort = options.status?.thinkingEffort ?? options.thinkingEffort;
   return `${displayModelName(model, options.availableModels)} (thinking ${effort})`;
@@ -126,39 +115,27 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
     { label: 'Model', value: formatModelStatus(options) },
     { label: 'Directory', value: options.workDir },
     { label: 'Permissions', value: permission },
-    { label: t('tui.messages.statusPanel.planModeLabel'), value: planMode ? 'on' : 'off' },
+    { label: 'Plan mode', value: planMode ? 'on' : 'off' },
   ];
   if (options.towerAvailable) {
     rows.push({ label: 'Tower mode', value: towerMode ? 'on' : 'off' });
   }
   rows.push({ label: 'Session', value: sessionId });
-  if (options.packagedEngine !== undefined || options.nativeTools !== undefined) {
-    const parts = [
-      options.packagedEngine ?? 'source',
-      options.nativeTools,
-    ].filter((part): part is string => part !== undefined);
-    rows.push({ label: 'Runtime', value: parts.join(' · ') });
-  }
   const title = options.sessionTitle?.trim();
-  if (title !== undefined && title.length > 0)
-    rows.push({ label: t('tui.messages.statusPanel.titleLabel'), value: title });
+  if (title !== undefined && title.length > 0) rows.push({ label: 'Title', value: title });
   if (options.statusError !== undefined) {
-    rows.push({
-      label: t('tui.messages.statusPanel.warningLabel'),
-      value: options.statusError,
-      severity: 'error',
-    });
+    rows.push({ label: 'Warning', value: options.statusError, severity: 'error' });
   }
 
   const lines: string[] = [
-    `${accent(t('tui.messages.statusPanel.titlePrefix', { productName: PRODUCT_NAME }))} ${muted(t('tui.messages.statusPanel.titleVersion', { version: options.version }))}`,
+    `${accent(`>_ ${PRODUCT_NAME}`)} ${muted(`(v${options.version})`)}`,
     '',
   ];
   addFieldRows(lines, rows, muted, value, errorStyle);
 
   const { ratio, tokens, maxTokens } = contextValues(options);
   lines.push('');
-  lines.push(accent(t('tui.messages.statusPanel.contextWindow')));
+  lines.push(accent('Context window'));
   if (maxTokens > 0) {
     const safeRatio = safeUsageRatio(ratio);
     const bar = renderProgressBar(safeRatio, 20);
@@ -168,7 +145,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
         muted(`(${formatTokenCount(tokens)} / ${formatTokenCount(maxTokens)})`),
     );
   } else {
-    lines.push(`  ${muted(t('tui.messages.statusPanel.noContextData'))}`);
+    lines.push(`  ${muted('No context window data available.')}`);
   }
 
   const managedSection = buildManagedUsageReportLines({

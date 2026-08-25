@@ -6,7 +6,7 @@
  * Git Bash probe, workspace trust, the config write cascade, deleteSession,
  * foldAgentWireReplay).
  * Wiring: real v2 engine bootstrapped on a temp KIMI_CODE_HOME; remote provider calls are stubbed.
- * Run: bunx vitest run test/sdk-rpc-client-v2.test.ts
+ * Run: pnpm exec vitest run test/sdk-rpc-client-v2.test.ts
  */
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -24,9 +24,11 @@ import {
   createKimiHarnessV2,
   ErrorCodes,
   isDaemonFileUrl,
+  isKimiError,
   KimiHarness,
   removeProviderFromConfig,
   SDKRpcClientV2,
+  toKimiErrorPayload,
   type Event,
   type KimiConfig,
 } from '#/index';
@@ -34,21 +36,23 @@ import { foldAgentWireReplay } from '#/v2/resume-replay';
 import {
   drainQueryStoreDisposals,
   drainSessionIndexMirror,
+  Error2,
   getLiveSessionById,
-  agentContextOf,
   HostProcessError,
+  AgentTodo,
   IAgentLifecycleService,
   IAgentTowerService,
   IHostRequestHeaders,
+  IMcpManagementService,
+  IMcpOAuthService,
   ISessionManager,
-  ISessionTodoService,
   OsProcessErrors,
 } from '@moonshot-ai/agent-core-v2';
 
-import { mcpOAuthStoreKey } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
+import { McpOAuthService } from '../../agent-core/src/mcp/oauth/service';
+import { McpOAuthService as McpOAuthServiceV2 } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
 
 import { TEST_IDENTITY } from './test-identity';
-import { startMcpAuthStatusServer } from './mcp-auth-status-server';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 
 const hostEnvProbe = vi.hoisted(() => ({ failWithMissingShell: false }));
@@ -134,33 +138,28 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     }
   });
 
-  it('reports global MCP authorization from the persisted v2 credential store', async () => {
+  it('reports global MCP authorization without probing when verify is false', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
     tempDirs.push(homeDir);
-    const statusServer = await startMcpAuthStatusServer();
+    const implicitOAuthUrl = 'https://implicit-oauth.example.test/mcp';
     const authorizedUrl = 'https://authorized.example.test/mcp';
     const requiredUrl = 'https://required.example.test/mcp';
-    const mcpCredsDir = join(homeDir, 'credentials', 'mcp');
-    await mkdir(mcpCredsDir, { recursive: true });
-    await writeFile(
-      join(mcpCredsDir, `${mcpOAuthStoreKey('oauth-authorized', authorizedUrl)}-tokens.json`),
-      JSON.stringify({ access_token: 'test-access-token', token_type: 'Bearer' }),
-      'utf-8',
-    );
-    await writeFile(
-      join(mcpCredsDir, `${mcpOAuthStoreKey('sse', statusServer.oauthUrl)}-tokens.json`),
-      JSON.stringify({ access_token: 'stale-sse-token', token_type: 'Bearer' }),
-      'utf-8',
-    );
+    const externalOAuth = new McpOAuthService({ kimiHomeDir: homeDir });
+    await externalOAuth
+      .getProvider('oauth-authorized', authorizedUrl)
+      .saveTokens({ access_token: 'test-access-token', token_type: 'Bearer' });
+    await externalOAuth
+      .getProvider('sse', implicitOAuthUrl)
+      .saveTokens({ access_token: 'stale-sse-token', token_type: 'Bearer' });
     await writeFile(
       join(homeDir, 'mcp.json'),
       JSON.stringify({
         mcpServers: {
           stdio: { command: 'local-command' },
-          plain: { transport: 'http', url: statusServer.plainUrl },
-          detected: { transport: 'http', url: statusServer.oauthUrl },
-          sse: { transport: 'sse', url: statusServer.oauthUrl },
-          'sse-oauth': { transport: 'sse', url: statusServer.oauthUrl, auth: 'oauth' },
+          plain: { transport: 'http', url: 'https://plain.example.test/mcp' },
+          detected: { transport: 'http', url: implicitOAuthUrl },
+          sse: { transport: 'sse', url: implicitOAuthUrl },
+          'sse-oauth': { transport: 'sse', url: implicitOAuthUrl, auth: 'oauth' },
           bearer: {
             transport: 'http',
             url: 'https://bearer.example.test/mcp',
@@ -183,10 +182,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const harness = createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY });
 
     try {
-      await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
+      await expect(harness.listMcpServerAuthStatuses({ verify: false })).resolves.toEqual([
         { name: 'stdio', authStatus: 'not-applicable' },
         { name: 'plain', authStatus: 'not-applicable' },
-        { name: 'detected', authStatus: 'oauth-required' },
+        { name: 'detected', authStatus: 'not-applicable' },
         { name: 'sse', authStatus: 'not-applicable' },
         { name: 'sse-oauth', authStatus: 'oauth-required' },
         { name: 'bearer', authStatus: 'bearer-token' },
@@ -194,20 +193,15 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
         { name: 'oauth-authorized', authStatus: 'oauth-authorized' },
       ]);
 
-      await writeFile(
-        join(mcpCredsDir, `${mcpOAuthStoreKey('oauth-required', requiredUrl)}-tokens.json`),
-        JSON.stringify({ access_token: 'new-test-access-token', token_type: 'Bearer' }),
-        'utf-8',
-      );
-      await rm(
-        join(mcpCredsDir, `${mcpOAuthStoreKey('oauth-authorized', authorizedUrl)}-tokens.json`),
-        { force: true },
-      );
+      await externalOAuth
+        .getProvider('oauth-required', requiredUrl)
+        .saveTokens({ access_token: 'new-test-access-token', token_type: 'Bearer' });
+      await externalOAuth.invalidate('oauth-authorized', authorizedUrl, 'tokens');
 
-      await expect(harness.listMcpServerAuthStatuses()).resolves.toEqual([
+      await expect(harness.listMcpServerAuthStatuses({ verify: false })).resolves.toEqual([
         { name: 'stdio', authStatus: 'not-applicable' },
         { name: 'plain', authStatus: 'not-applicable' },
-        { name: 'detected', authStatus: 'oauth-required' },
+        { name: 'detected', authStatus: 'not-applicable' },
         { name: 'sse', authStatus: 'not-applicable' },
         { name: 'sse-oauth', authStatus: 'oauth-required' },
         { name: 'bearer', authStatus: 'bearer-token' },
@@ -216,9 +210,115 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       ]);
     } finally {
       await harness.close();
-      await statusServer.close();
     }
-  }, 30_000);
+  }, 15_000);
+
+  it('restates engine MCP management Error2s as KimiError, undeclared codes as internal', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    try {
+      const management = client.engineAccessor.get(IMcpManagementService);
+      const listSpy = vi.spyOn(management, 'listServers');
+      const captureRejection = async (promise: Promise<unknown>): Promise<unknown> => {
+        try {
+          await promise;
+        } catch (error) {
+          return error;
+        }
+        return expect.unreachable('expected the call to reject');
+      };
+      try {
+        // A declared engine code keeps its identity across the restate: the
+        // SDK throws the same class v1 throws, and the payload serializer
+        // accepts the code.
+        listSpy.mockRejectedValueOnce(
+          new Error2('mcp.oauth_failed', 'OAuth flow timed out', {
+            details: { flowId: 'flow-1' },
+          }),
+        );
+        const oauthError = await captureRejection(client.listGlobalMcpServers());
+        expect(isKimiError(oauthError)).toBe(true);
+        expect(oauthError).toMatchObject({
+          code: 'mcp.oauth_failed',
+          message: 'OAuth flow timed out',
+          details: { flowId: 'flow-1' },
+        });
+        expect(toKimiErrorPayload(oauthError)).toMatchObject({
+          code: 'mcp.oauth_failed',
+          message: 'OAuth flow timed out',
+        });
+
+        // A code this build's registry does not declare (a newer engine than
+        // the pinned SDK) restates as `internal` instead of minting an
+        // undeclared KimiError code the serializer would reject.
+        listSpy.mockRejectedValueOnce(new Error2('mcp.future_code' as never, 'from a newer engine'));
+        const unknownError = await captureRejection(client.listGlobalMcpServers());
+        expect(isKimiError(unknownError)).toBe(true);
+        expect(unknownError).toMatchObject({
+          code: ErrorCodes.INTERNAL,
+          message: 'from a newer engine',
+        });
+        expect(toKimiErrorPayload(unknownError)).toMatchObject({
+          code: ErrorCodes.INTERNAL,
+          message: 'from a newer engine',
+        });
+      } finally {
+        listSpy.mockRestore();
+      }
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('close() awaits the MCP OAuth service shutdown', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    // Activate the OnDemand OAuth service, then gate its shutdown behind a
+    // manual release: close() alone (no manual service.shutdown()) must
+    // trigger and await that shutdown, so a host removing homeDir right after
+    // close() cannot race in-flight token writes.
+    client.engineAccessor.get(IMcpOAuthService);
+    let releaseShutdown: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseShutdown = resolve;
+    });
+    const baseShutdown = McpOAuthServiceV2.prototype.shutdown;
+    const shutdownSpy = vi
+      .spyOn(McpOAuthServiceV2.prototype, 'shutdown')
+      .mockImplementation(function (this: McpOAuthServiceV2) {
+        return baseShutdown.call(this).then(() => gate);
+      });
+    try {
+      let closed = false;
+      const closePromise = client.close().then(() => {
+        closed = true;
+      });
+      await vi.waitFor(() => {
+        expect(shutdownSpy).toHaveBeenCalled();
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(closed).toBe(false);
+      releaseShutdown();
+      await closePromise;
+      expect(closed).toBe(true);
+    } finally {
+      releaseShutdown();
+      shutdownSpy.mockRestore();
+    }
+  });
+
+  it('close() resolves promptly when the MCP OAuth service was never used', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
+    tempDirs.push(homeDir);
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+    // Nothing touched IMcpOAuthService: close() force-activates the OnDemand
+    // service only to shut it down, and that activate-then-shutdown cycle
+    // must be a clean no-op (the proactive-refresh sweep bows out on the
+    // shutdown flag).
+    await expect(client.close()).resolves.toBeUndefined();
+  });
 
   it('seeds the host request headers (User-Agent + X-Msh-*) into the engine', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
@@ -904,10 +1004,12 @@ key = "${titleOAuthRef.key}"
 
       const handle = getLiveSessionById(client.engineAccessor, 'ses_todos');
       expect(handle).toBeDefined();
-      const main = await handle!.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
-      await handle!.accessor.get(ISessionTodoService).setTodos(agentContextOf(main), [
-        { id: '1', parentId: null, kind: 'task', title: 'write tests', status: 'in_progress' },
-        { id: '2', parentId: null, kind: 'task', title: 'ship it', status: 'pending' },
+      const manager = handle!.accessor.get(IAgentLifecycleService);
+      const main = await manager.create({ agentId: 'main' });
+      const todo = manager.resolve(main, AgentTodo);
+      await todo.replace([
+        { title: 'write tests', status: 'in_progress' },
+        { title: 'ship it', status: 'pending' },
       ]);
 
       expect(await client.getTodos({ sessionId: 'ses_todos' })).toEqual([
@@ -916,9 +1018,7 @@ key = "${titleOAuthRef.key}"
       ]);
 
       const served = await client.getTodos({ sessionId: 'ses_todos' });
-      const stored = await handle!
-        .accessor.get(ISessionTodoService)
-        .getTodos(agentContextOf(main));
+      const stored = todo.get();
       expect(served).not.toBe(stored);
       expect(served[0]).not.toBe(stored[0]);
       await expect(client.getTodos({ sessionId: 'ses_missing' })).rejects.toMatchObject({
@@ -943,7 +1043,7 @@ key = "${titleOAuthRef.key}"
       const mainTower = () => {
         const handle = getLiveSessionById(client.engineAccessor, 'ses_tower');
         expect(handle).toBeDefined();
-        const agent = handle!.accessor.get(IAgentLifecycleService).findAgentHandle('main');
+        const agent = handle!.accessor.get(IAgentLifecycleService).handleOf('main');
         expect(agent).toBeDefined();
         return agent!.accessor.get(IAgentTowerService);
       };

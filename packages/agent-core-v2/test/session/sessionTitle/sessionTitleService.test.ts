@@ -1,33 +1,41 @@
-import { OAuthConnectionError, OAuthUnauthorizedError } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+
+import { OAuthConnectionError, OAuthUnauthorizedError } from '@moonshot-ai/kimi-code-oauth';
 
 import { DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { IOAuthService } from '#/app/auth/auth';
+import { IFlagService } from '#/app/flag/flag';
 import { IEventService } from '#/app/event/event';
 import type { Event2 } from '#/app/event/event2';
-import { IFlagService } from '#/app/flag/flag';
-import { LifecycleScope } from '#/app/scopes';
 import { IHostRequestHeaders } from '#/kosong/model/hostRequestHeaders';
-import { IProviderService, type OAuthRef, type ProviderConfig } from '#/kosong/provider/provider';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import {
+  IProviderService,
+  type OAuthRef,
+  type ProviderConfig,
+} from '#/kosong/provider/provider';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
+import {
+  IAgentLifecycleService,
+  MAIN_AGENT_ID,
+} from '#/session/agentLifecycle/agentLifecycle';
+import {
+  IAgentTitlePromptSource,
+  type TitleDigestExcerpt,
+  type TitleTurnExcerpt,
+} from '#/session/sessionTitle/agentTitlePromptSource';
+import { ISessionTitleService } from '#/session/sessionTitle/sessionTitle';
+import { SessionTitleService } from '#/session/sessionTitle/sessionTitleService';
 import {
   ISessionMetadata,
   type SessionMeta,
   type SessionMetaPatch,
   type SessionMetadataChangedEvent,
 } from '#/session/sessionMetadata/sessionMetadata';
-import type { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
-import type { IAgentTitlePromptSource } from '#/session/sessionTitle/agentTitlePromptSource';
-import {
-  type TitleDigestExcerpt,
-  type TitleTurnExcerpt,
-} from '#/session/sessionTitle/agentTitlePromptSource';
-import { ISessionTitleService } from '#/session/sessionTitle/sessionTitle';
-import { SessionTitleService } from '#/session/sessionTitle/sessionTitleService';
+import { SessionMetaUpdated } from '#/session/sessionMetadata/sessionMetaEvents';
 import '#/kosong/provider/providers/kimi/kimi.contrib';
 
 import { registerLogServices } from '../../_base/log/stubs';
@@ -190,9 +198,7 @@ describe('SessionTitleService', () => {
           dispose: () => undefined,
         };
         reg.definePartialInstance(IAgentLifecycleService, {
-          get: () => mainAgent,
-          findAgentHandle: () => mainAgent,
-          list: () => [mainAgent],
+          handleOf: () => mainAgent,
         });
         reg.defineInstance(IEventService, events);
         reg.defineInstance(IProviderService, stubProviderService(providers));
@@ -337,9 +343,9 @@ describe('SessionTitleService', () => {
     await metadata.setGeneratedTitleIfUncustomized('已生成的标题');
     titlePrompts = ['hello'];
 
-    await expect(ix.get(ISessionTitleService).generateTitle({ force: true })).resolves.toBe(
-      '生成的标题',
-    );
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ force: true }),
+    ).resolves.toBe('生成的标题');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(metadata.meta.title).toBe('生成的标题');
     expect(metadata.meta.titleKind).toBe('generated');
@@ -349,9 +355,9 @@ describe('SessionTitleService', () => {
     await metadata.setTitle('user 取的标题');
     titlePrompts = ['hello'];
 
-    await expect(ix.get(ISessionTitleService).generateTitle({ force: true })).resolves.toBe(
-      '生成的标题',
-    );
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ force: true }),
+    ).resolves.toBe('生成的标题');
     expect(metadata.meta.title).toBe('生成的标题');
     expect(metadata.meta.titleKind).toBe('generated');
   });
@@ -412,9 +418,9 @@ describe('SessionTitleService', () => {
       ],
     };
 
-    await expect(ix.get(ISessionTitleService).generateTitle({ source: 'digest' })).resolves.toBe(
-      '生成的标题',
-    );
+    await expect(
+      ix.get(ISessionTitleService).generateTitle({ source: 'digest' }),
+    ).resolves.toBe('生成的标题');
 
     let [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init?.body as string)).toEqual({

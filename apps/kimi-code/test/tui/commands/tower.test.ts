@@ -5,7 +5,7 @@ import type { Session } from '@moonshot-ai/kimi-code-sdk';
 import { handleTowerCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import {
-  getLlmNotSetMessage,
+  LLM_NOT_SET_MESSAGE,
   TOWER_STATUS_PROMPT,
   TOWER_TEARDOWN_PROMPT,
 } from '#/tui/constant/kimi-tui';
@@ -141,7 +141,7 @@ describe('handleTowerCommand', () => {
 
     await handleTowerCommand(host, 'Ship feature X');
 
-    expect(host.showError).toHaveBeenCalledWith(getLlmNotSetMessage());
+    expect(host.showError).toHaveBeenCalledWith(LLM_NOT_SET_MESSAGE);
     expect(session.setTowerMode).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });

@@ -1,8 +1,8 @@
 import { Container, Text } from '@moonshot-ai/pi-tui';
 
-import { t } from '#/i18n';
 import { SHELL_OUTPUT_PREVIEW_LINES } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
+
 import { formatBashOutputForDisplay, sanitizeShellOutput } from '#/tui/utils/shell-output';
 
 import { TruncatedOutputComponent } from './tool-renderers/truncated';
@@ -150,7 +150,7 @@ export class ShellRunComponent extends Container {
   private renderText(): string {
     try {
       if (this.backgrounded) {
-        return `  ${currentTheme.fg('textDim', t('tui.messages.shellRun.backgrounded'))}`;
+        return `  ${currentTheme.fg('textDim', 'Moved to background.')}`;
       }
       const elapsed = Math.floor((Date.now() - this.startedAt) / 1000);
       const dim = (s: string): string => currentTheme.fg('textDim', s);
@@ -158,7 +158,7 @@ export class ShellRunComponent extends Container {
       let body: string;
       let extra = 0;
       if (trimmed.length === 0) {
-body = `  ${dim(t('tui.messages.shellRun.running'))}`;
+        body = `  ${dim('Running…')}`;
       } else if (this.expanded) {
         const notice = this.combinedTruncated ? `  ${dim(TRUNCATED_RUNNING_NOTICE)}\n` : '';
         body =
@@ -173,14 +173,11 @@ body = `  ${dim(t('tui.messages.shellRun.running'))}`;
         extra = Math.max(0, lines.length - RUNNING_TAIL_LINES);
         body = tail.map((line) => `  ${dim(line)}`).join('\n');
       }
-      const timing =
-        extra > 0
-          ? `  ${dim(t('tui.messages.shellRun.timing', { extra, elapsed }))}`
-          : `  ${dim(t('tui.messages.shellRun.timingNoExtra', { elapsed }))}`;
-      const hint = `  ${dim(t('tui.messages.shellRun.hint'))}`;
+      const timing = `  ${dim(`${extra > 0 ? `+${extra} lines ` : ''}(${elapsed}s)`)}`;
+      const hint = `  ${dim('(ctrl+b to run in background)')}`;
       return `${body}\n${timing}\n${hint}`;
     } catch {
-      return `  ${t('tui.messages.shellRun.outputUnavailable')}`;
+      return '  (output unavailable)';
     }
   }
 }

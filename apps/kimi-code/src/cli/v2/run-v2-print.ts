@@ -19,7 +19,8 @@
 import { readFile } from 'node:fs/promises';
 
 import {
-  IAgentGoalService,
+  AgentCron,
+  AgentGoal,
   IAgentLifecycleService,
   IAgentPermissionModeService,
   IAgentProfileService,
@@ -30,12 +31,12 @@ import {
   IConfigService,
   IEventBus,
   IOAuthToolkit,
-  ISessionCronService,
   ISessionIndex,
   ISessionManager,
   ITelemetryService,
   PRINT_MAX_TURNS_DEFAULT,
   PRINT_WAIT_CEILING_S_DEFAULT,
+  agentContextOf,
   applyPrintModeConfigDefaults,
   bootstrap,
   createCloudAppender,
@@ -57,7 +58,7 @@ import {
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import { createKimiDefaultHeaders, createKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
-import type { GoalUpdated } from '@moonshot-ai/agent-core-v2';
+import type { GoalUpdated } from '@moonshot-ai/agent-core-v2/features/goal/goalOps';
 import type { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import type {
   AssistantDelta,
@@ -78,7 +79,6 @@ import {
   CLI_USER_AGENT_PRODUCT,
   PROMPT_CLEANUP_TIMEOUT_MS,
 } from '#/constant/app';
-import { t } from '#/i18n';
 
 import {
   formatGoalSummaryText,
@@ -357,7 +357,8 @@ async function resolveNativeSession(
       throw new Error(`Session "${opts.session}" was created under a different directory.`);
     }
     const session = await resumeById(opts.session);
-    const agent = await ensureMainAgent(session);
+    const agentContext = await ensureMainAgent(session);
+    const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
     const profile = agent.accessor.get(IAgentProfileService);
     await applyModelOverride(profile, opts.model);
     const currentModel = profile.getModel();
@@ -376,7 +377,8 @@ async function resolveNativeSession(
     const previous = page.items.find((summary) => summary.cwd === workDir);
     if (previous !== undefined) {
       const session = await resumeById(previous.id);
-      const agent = await ensureMainAgent(session);
+      const agentContext = await ensureMainAgent(session);
+      const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
       const profile = agent.accessor.get(IAgentProfileService);
       await applyModelOverride(profile, opts.model);
       const currentModel = profile.getModel();
@@ -401,7 +403,8 @@ async function resolveNativeSession(
       model,
     },
   });
-  const agent = await ensureMainAgent(session);
+  const agentContext = await ensureMainAgent(session);
+  const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
   agent.accessor.get(IAgentPermissionModeService).setMode('auto');
   return {
     session,
@@ -429,7 +432,7 @@ async function runNativeTurn(
   await agent.accessor.get(IAuthSummaryService).ensureReady();
 
   const turnEndings = createPrintTurnEndings();
-  const subscription = agent.accessor.get(IEventBus).subscribe((event) => {
+  const subscription = agent.accessor.get(IEventBus).subscribe((event: Event2<any>) => {
     dispatchNativeEvent(writer, event, stderr);
     // Arm the turn-endings collector before `turn.result` settles so a
     // background-task completion that steers a new turn right after the main
@@ -452,8 +455,8 @@ async function runNativeTurn(
       const completion = await handle.completion;
       throw new Error(
         completion.state === 'blocked'
-          ? t('tui.statusMessages.promptBlocked')
-          : t('tui.statusMessages.promptTurnCannotStart'),
+          ? 'Prompt hook blocked the request.'
+          : 'Prompt turn could not be started',
       );
     }
     const result = await turn.result;
@@ -466,8 +469,12 @@ async function runNativeTurn(
     if (result.type === 'completed') {
       const configService = app.accessor.get(IConfigService);
       const taskConfig = resolveAgentTaskConfig(configService);
-      const goalService = agent.accessor.get(IAgentGoalService);
-      const cronService = session.accessor.get(ISessionCronService);
+      const goalService = session.accessor
+        .get(IAgentLifecycleService)
+        .resolve(agentContextOf(agent), AgentGoal);
+      const cronService = session.accessor
+        .get(IAgentLifecycleService)
+        .resolve(agentContextOf(agent), AgentCron);
       try {
         await applyPrintBackgroundPolicy({
           mode: resolvePrintBackgroundMode(configService),
@@ -520,13 +527,15 @@ async function runNativeGoal(
   stderr: PromptOutput,
 ): Promise<void> {
   requireConfiguredModel(model);
-  const goalService = agent.accessor.get(IAgentGoalService);
+  const goalService = session.accessor
+    .get(IAgentLifecycleService)
+    .resolve(agentContextOf(agent), AgentGoal);
   await goalService.createGoal({
     objective: goal.objective,
     replace: goal.replace,
   });
   let completedSnapshot: { readonly status: string } | null = null;
-  const subscription = agent.accessor.get(IEventBus).subscribe((event) => {
+  const subscription = agent.accessor.get(IEventBus).subscribe((event: Event2<any>) => {
     if (event.type === 'goal.updated') {
       const updated = event as unknown as GoalUpdated;
       if (updated.change?.kind === 'completion' && updated.snapshot !== null) {
@@ -552,7 +561,7 @@ async function runNativeGoal(
 
 function dispatchNativeEvent(
   writer: PromptTurnWriter,
-  event: Event2<unknown>,
+  event: Event2<any>,
   stderr: PromptOutput,
 ): void {
   switch (event.type) {
@@ -811,18 +820,21 @@ export async function applyPrintBackgroundPolicy(
 
 function formatTurnEndingFailure(ending: PrintTurnEnding): string {
   if (ending.error?.code === 'provider.filtered') {
-    return t('tui.statusMessages.policyBlocked');
+    return 'Provider safety policy blocked the response.';
   }
   if (ending.error !== undefined) return `${ending.error.code}: ${ending.error.message}`;
   if (ending.reason === 'blocked') {
-    return t('tui.statusMessages.promptBlocked');
+    return 'Prompt hook blocked the request.';
   }
   return `Prompt turn ended with reason: ${ending.reason}`;
 }
 
 function countPendingBackgroundTasks(session: ISessionScopeHandle): number {
   let count = 0;
-  for (const handle of session.accessor.get(IAgentLifecycleService).list()) {
+  const agentManager = session.accessor.get(IAgentLifecycleService);
+  for (const agent of agentManager.list()) {
+    const handle = agentManager.handleOf(agent.agentId);
+    if (handle === undefined) continue;
     count += handle.accessor.get(IAgentTaskService).list(true).length;
   }
   return count;
@@ -844,7 +856,10 @@ async function drainBackgroundTasks(
     const batch: Promise<unknown>[] = [];
     const suppressions: Promise<void>[] = [];
     let activeCount = 0;
-    for (const handle of session.accessor.get(IAgentLifecycleService).list()) {
+    const agentManager = session.accessor.get(IAgentLifecycleService);
+    for (const agent of agentManager.list()) {
+      const handle = agentManager.handleOf(agent.agentId);
+      if (handle === undefined) continue;
       const taskService = handle.accessor.get(IAgentTaskService);
       for (const task of taskService.list(true)) {
         activeCount++;
@@ -868,7 +883,7 @@ function formatNativeTurnFailure(result: LoopRunResult): string {
   if (result.type === 'failed') {
     const error = result.error as { readonly code?: string; readonly message?: string } | undefined;
     if (error?.code === 'provider.filtered') {
-      return t('tui.statusMessages.policyBlocked');
+      return 'Provider safety policy blocked the response.';
     }
     if (error?.code !== undefined) {
       return `${error.code}: ${error.message ?? ''}`.trimEnd();

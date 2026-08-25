@@ -15,12 +15,10 @@ import { registerAuthRoute } from './auth';
 import { registerCapabilitiesRoutes } from './capabilities';
 import { registerConfigRoutes } from './config';
 import { registerConnectionsRoutes } from './connections';
-import { registerCronRoutes } from './cron';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
 import { registerGuiStoreRoutes } from './guiStore';
 import { registerMessagesRoutes } from './messages';
-import { registerMcpRoutes } from './mcp';
 import type { IGuiStoreService } from '../services/guiStore/guiStore';
 import { registerDebugRoutes } from '../transport/registerDebugRoutes';
 import { registerMetaRoute } from './meta';
@@ -61,10 +59,6 @@ interface ApiV1RouteHost {
 
 export interface RegisterApiV1RoutesOptions {
   readonly serverVersion: string;
-  /**
-   * Host product identity from `startServer` — the session export route stamps
-   * its manifest from `hostIdentity.version`.
-   */
   readonly hostIdentity: KimiHostIdentity;
   readonly debugEndpoints?: boolean;
   readonly enableShutdown?: boolean;
@@ -74,26 +68,9 @@ export interface RegisterApiV1RoutesOptions {
   readonly connectionRegistry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
   readonly transcriptService: TranscriptService;
-  /** Catalog URL resolver for the `/plugins/marketplace` route (start.ts
-      applies the option/env override; the default follows the active login
-      region per request). */
   readonly pluginMarketplaceUrl: () => string;
-  /** True when the catalog URL is the built-in default (no option/env set). */
   readonly pluginMarketplaceIsDefault: boolean;
-  /** Home directory for `~` expansion in the plugins catalog (see
-      `PluginsRouteOptions.marketplaceHomeDir`). */
-  readonly pluginMarketplaceHomeDir?: string;
-  /**
-   * Surface `dangerous_bypass_auth` in the `/meta` payload. Set by `start.ts`
-   * from the `disableAuth` server option (the `--dangerous-bypass-auth` CLI
-   * flag).
-   */
   readonly dangerousBypassAuth?: boolean;
-  /**
-   * Custom browser tab title for this instance, surfaced as `web_title` in the
-   * `/meta` payload. Set by `start.ts` from the `webTitle` server option (the
-   * CLI's `--web-title` flag).
-   */
   readonly webTitle?: string;
 }
 
@@ -156,7 +133,6 @@ export async function registerApiV1Routes(
       registerPluginsRoutes(apiV1 as unknown as Parameters<typeof registerPluginsRoutes>[0], core, {
         marketplaceUrl: opts.pluginMarketplaceUrl,
         marketplaceIsDefault: opts.pluginMarketplaceIsDefault,
-        marketplaceHomeDir: opts.pluginMarketplaceHomeDir,
       });
       registerMessagesRoutes(
         apiV1 as unknown as Parameters<typeof registerMessagesRoutes>[0],
@@ -202,8 +178,6 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerConnectionsRoutes>[0],
         opts.connectionRegistry,
       );
-      registerCronRoutes(apiV1 as unknown as Parameters<typeof registerCronRoutes>[0], core);
-      registerMcpRoutes(apiV1 as unknown as Parameters<typeof registerMcpRoutes>[0], core);
       registerSnapshotRoutes(apiV1 as unknown as Parameters<typeof registerSnapshotRoutes>[0], {
         core,
         broadcaster: opts.broadcaster,

@@ -4,19 +4,19 @@ import { join } from 'pathe';
 
 import type { IInstantiationService } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
-import { createScopedChildHandle, type ISessionScopeHandle } from '#/_base/di/scope';
+import {
+  createScopedChildHandle,
+  type ISessionScopeHandle,
+} from '#/_base/di/scope';
 import { unwrapErrorCause } from '#/_base/errors/errors';
 import { AsyncEmitter, Emitter, type Event, type IWaitUntil } from '#/_base/event';
 import { drainLogCloses } from '#/_base/log/logService';
-import { IAgentActivityView } from '#/agent/activityView/activityView';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { agentContextOf } from '#/agent/scopeContext/scopeContext';
-import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
+import { DEFAULT_PLAN_MODE_SECTION } from '#/features/plan/configSection';
+import { IAgentPlanService } from '#/features/plan/plan';
+import { LifecycleScope } from '#/app/scopes';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
-import { IFlagService } from '#/app/flag/flag';
-import { LifecycleScope } from '#/app/scopes';
 import {
   CHILD_SESSION_KIND,
   CHILD_SESSION_KIND_KEY,
@@ -24,48 +24,59 @@ import {
   ISessionIndexMirror,
   PARENT_SESSION_ID_KEY,
 } from '#/app/sessionIndex/sessionIndex';
-import { PLUGIN_SKILL_SOURCE_ID } from '#/app/skillCatalog/skillSource';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2, isError2 } from '#/errors';
-import { DEFAULT_PLAN_MODE_SECTION } from '#/features/plan/configSection';
-import { IAgentPlanService } from '#/features/plan/plan';
-import { IModelCatalog } from '#/kosong/model/catalog';
-import { IModelService } from '#/kosong/model/model';
-import { IProviderService } from '#/kosong/provider/provider';
 import { IHostFileSystem, type HostDirEntry } from '#/os/interface/hostFileSystem';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import {
+  IAgentLifecycleService,
+  MAIN_AGENT_ID,
+} from '#/session/agentLifecycle/agentLifecycle';
 import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
 import { labelsFromAgentMeta } from '#/session/agentLifecycle/subagentMetadata';
-import { sessionEphemeralMcpServersSeed } from '#/session/mcp/ephemeralMcpServers';
-import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
-import { sessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
 import { ISessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
-import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import { sessionEphemeralMcpServersSeed } from '#/session/mcp/ephemeralMcpServers';
+import { sessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
 import { ISessionMetadata, type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
-import {
-  drainSessionMetadataWrites,
-  toEpochMs,
-} from '#/session/sessionMetadata/sessionMetadataService';
-import { ISessionSkillCatalogData } from '#/session/sessionSkillCatalog/skillCatalogData';
-import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
-import { assertValidSubagentModelConfig } from '#/session/subagent/configSection';
+import { ISessionSkillCatalogData } from '#/features/skill/session/skillCatalogData';
+import { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
+import { drainSessionMetadataWrites, toEpochMs } from '#/session/sessionMetadata/sessionMetadataService';
+import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { AGENT_WIRE_RECORD_KEY, createWireMetadataRecord, type WireRecord } from '#/wire/record';
-import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
-import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
-import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
-import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
-import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
+import {
+  AGENT_WIRE_RECORD_KEY,
+  createWireMetadataRecord,
+  type WireRecord,
+} from '#/wire/record';
+import { IModelCatalog } from '#/kosong/model/catalog';
+import { IModelService } from '#/kosong/model/model';
+import { IProviderService } from '#/kosong/provider/provider';
+import { IFlagService } from '#/app/flag/flag';
+import { assertValidSubagentModelConfig } from '#/session/subagent/configSection';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
+import { IPluginAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader';
+import {
+  IExplicitAgentProfileLoader,
+} from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
+import {
+  IExtraAgentProfileLoader,
+} from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
+import {
+  IWorkspaceAgentProfileLoader,
+} from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoader';
 import { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
+import { IAgentActivityView } from '#/agent/activityView/activityView';
+import { IWorkspaceSkillCatalog } from '#/features/skill/workspace/workspaceSkillCatalog';
 import { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
 import { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
-import { IWorkspaceSkillCatalog } from '#/workspace/workspaceSkillCatalog/workspaceSkillCatalog';
+import { PLUGIN_SKILL_SOURCE_ID } from '#/features/skill/catalog/skillSource';
 
 import { agentScopeOf, sessionDirOf, sessionScopeOf } from './internal/addressing';
+import { SessionArchived } from './sessionLifecycleEvents';
 import {
   assertForkTurnIndex,
   sliceMainRecordsAtTurn,
@@ -84,7 +95,6 @@ import {
   type SessionWillCreateEvent,
   ISessionLifecycleService,
 } from './sessionLifecycle';
-import { SessionArchived } from './sessionLifecycleEvents';
 
 type MaterializeSessionOptions = Omit<CreateSessionOptions, 'sessionId'> & {
   readonly sessionId: string;
@@ -102,8 +112,11 @@ const SESSION_CREATE_RELOAD_SKILL_SOURCES: readonly string[] = [
 export class SessionLifecycleService extends Disposable implements ISessionLifecycleService {
   declare readonly _serviceBrand: undefined;
   private readonly sessions = new Map<string, ISessionScopeHandle>();
-  private readonly _onWillCreateSession = this._register(new Emitter<SessionWillCreateEvent>());
-  readonly onWillCreateSession: Event<SessionWillCreateEvent> = this._onWillCreateSession.event;
+  private readonly _onWillCreateSession = this._register(
+    new Emitter<SessionWillCreateEvent>(),
+  );
+  readonly onWillCreateSession: Event<SessionWillCreateEvent> =
+    this._onWillCreateSession.event;
   private readonly _onDidCreateSession = this._register(
     new AsyncEmitter<SessionCreatedEvent & IWaitUntil>(),
   );
@@ -147,8 +160,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     private readonly pluginAgentProfileLoader: IPluginAgentProfileLoader,
     @IWorkspaceDirs private readonly workspaceDirs: IWorkspaceDirs,
     @IWorkspaceSkillCatalog private readonly workspaceSkillCatalog: IWorkspaceSkillCatalog,
-    @IWorkspaceInstructionsService
-    private readonly workspaceInstructions: IWorkspaceInstructionsService,
+    @IWorkspaceInstructionsService private readonly workspaceInstructions: IWorkspaceInstructionsService,
     @IWorkspaceMcpService private readonly workspaceMcp: IWorkspaceMcpService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @IModelService private readonly models: IModelService,
@@ -175,23 +187,28 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       .catch(() => undefined);
     const handle = await this.materializeSession({ ...opts, sessionId });
     try {
+      const agents = handle.accessor.get(IAgentLifecycleService);
       const main =
         opts.mainAgentBinding === undefined
           ? undefined
-          : await handle.accessor.get(IAgentLifecycleService).create({
+          : await agents.create({
               agentId: MAIN_AGENT_ID,
               binding: opts.mainAgentBinding,
             });
       if (this.config.get<boolean>(DEFAULT_PLAN_MODE_SECTION) === true) {
         const planAgent = main ?? (await ensureMainAgent(handle));
-        await planAgent.accessor.get(IAgentPlanService).enter();
+        const planHandle = agents.handleOf(planAgent.agentId);
+        if (planHandle === undefined) {
+          throw new Error2(ErrorCodes.AGENT_NOT_FOUND, 'Main agent was not found');
+        }
+        await planHandle.accessor.get(IAgentPlanService).enter();
       }
       await this.appendSessionIndexEntry(sessionId, opts.workDir);
     } catch (error) {
       const sessionDir = handle.accessor.get(ISessionContext).sessionDir;
       this.sessions.delete(sessionId);
       await this.drainAgents(handle).catch(() => {});
-      handle.dispose();
+      void handle.dispose();
       await this.hostFs.remove(sessionDir).catch(() => {});
       throw error;
     }
@@ -265,7 +282,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
         this.pluginAgentProfileLoader.ready,
       ]);
     } catch (error) {
-      handle.dispose();
+      void handle.dispose();
       void this.explicitAgentProfileLoader.reload().catch(() => undefined);
       throw error;
     }
@@ -303,13 +320,12 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     this.resumeFailures.delete(sessionId);
     const promise = this.doResume(sessionId, opts)
       .catch((error: unknown) => {
-        this.telemetry.withContext({ sessionId }).track2('session_load_failed', {
-          reason: isError2(error) ? error.code : error instanceof Error ? error.name : 'unknown',
-        });
-        this.resumeFailures.set(
-          sessionId,
-          error instanceof Error ? error : new Error('session resume failed'),
-        );
+        this.telemetry
+          .withContext({ sessionId })
+          .track2('session_load_failed', {
+            reason: isError2(error) ? error.code : error instanceof Error ? error.name : 'unknown',
+          });
+        this.resumeFailures.set(sessionId, error instanceof Error ? error : new Error('session resume failed'));
         throw error;
       })
       .finally(() => this.resuming.delete(sessionId));
@@ -342,15 +358,13 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     });
     try {
       const agents = handle.accessor.get(IAgentLifecycleService);
-      if (agents.findAgentHandle(MAIN_AGENT_ID) === undefined) {
-        const main = await agents.create({ agentId: MAIN_AGENT_ID });
-        await main.accessor.get(IAgentProfileService).refreshActiveTools();
-        await main.accessor.get(IAgentToolActivationService).activate();
+      if (agents.get(MAIN_AGENT_ID) === undefined) {
+        await agents.create({ agentId: MAIN_AGENT_ID });
       }
       await this.announceCreated({ sessionId, handle, source: 'resume' });
     } catch (error) {
       this.sessions.delete(sessionId);
-      handle.dispose();
+      void handle.dispose();
       throw error;
     }
     return handle;
@@ -373,7 +387,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     await this.appendLogStore.drainRetirements();
     await drainSessionMetadataWrites();
     await this.indexMirror.drain();
-    handle.dispose();
+    void handle.dispose();
     await drainLogCloses();
     this._onDidCloseSession.fire({ sessionId });
   }
@@ -394,7 +408,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     this.sessions.delete(sessionId);
     await drainSessionMetadataWrites();
     await this.indexMirror.drain();
-    handle.dispose();
+    void handle.dispose();
     await drainLogCloses();
     this._onDidArchiveSession.fire({ sessionId });
   }
@@ -436,7 +450,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   private async drainAgents(handle: ISessionScopeHandle): Promise<void> {
     const agentLifecycle = handle.accessor.get(IAgentLifecycleService);
     for (const agent of agentLifecycle.list()) {
-      await agentLifecycle.remove(agentContextOf(agent));
+      await agentLifecycle.remove(agent);
     }
   }
 
@@ -452,8 +466,11 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sourceId} does not exist`);
     }
     if (sourceHandle !== undefined) {
-      for (const agent of sourceHandle.accessor.get(IAgentLifecycleService).list()) {
-        if (agent.accessor.get(IAgentActivityView).state().turn !== undefined) {
+      const sourceAgents = sourceHandle.accessor.get(IAgentLifecycleService);
+      for (const agent of sourceAgents.list()) {
+        const agentHandle = sourceAgents.handleOf(agent.agentId);
+        if (agentHandle === undefined) continue;
+        if (agentHandle.accessor.get(IAgentActivityView).state().turn !== undefined) {
           throw new Error2(
             ErrorCodes.SESSION_FORK_ACTIVE_TURN,
             `Session "${sourceId}" cannot be forked while a turn is running`,
@@ -477,7 +494,10 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
 
       targetId = opts.newSessionId ?? createSessionId();
       if (this.sessions.has(targetId) || (await this.index.get(targetId)) !== undefined) {
-        throw new Error2(ErrorCodes.SESSION_ALREADY_EXISTS, `Session "${targetId}" already exists`);
+        throw new Error2(
+          ErrorCodes.SESSION_ALREADY_EXISTS,
+          `Session "${targetId}" already exists`,
+        );
       }
 
       const turnSlice =
@@ -569,8 +589,9 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       }
       if (target !== undefined) {
         try {
-          target.dispose();
-        } catch {}
+          void target.dispose();
+        } catch {
+        }
       }
       if (targetSessionDir !== undefined) {
         await this.hostFs.remove(targetSessionDir).catch(() => {});
@@ -637,7 +658,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     if (sourceHandle !== undefined) {
       const agentHandle = sourceHandle.accessor
         .get(IAgentLifecycleService)
-        .findAgentHandle(agentId);
+        .handleOf(agentId);
       if (agentHandle !== undefined) {
         await agentHandle.accessor.get(IEventDispatcher).flush();
       }
@@ -688,12 +709,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
   ): Promise<void> {
     for (const entry of entries) {
       const rel = relBase === '' ? entry.name : `${relBase}/${entry.name}`;
-      if (
-        rel === 'state.json' ||
-        rel === 'logs' ||
-        rel === 'upcoming-goals.json' ||
-        entry.name === AGENT_WIRE_RECORD_KEY
-      ) {
+      if (rel === 'state.json' || rel === 'logs' || rel === 'upcoming-goals.json' || entry.name === AGENT_WIRE_RECORD_KEY) {
         continue;
       }
       if (entry.isSymbolicLink === true) continue;

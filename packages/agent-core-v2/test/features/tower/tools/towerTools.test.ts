@@ -7,8 +7,8 @@ import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
+import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type { AnyAgentTool } from '#/agent/toolRegistry/toolContribution';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
@@ -42,6 +42,7 @@ import { TowerStatusTool } from '#/features/tower/tools/status/statusTool';
 
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 import { stubAgentContext } from '../../../agent/agentContext/stubs';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 
 const execFileAsync = promisify(execFile);
 const signal = new AbortController().signal;
@@ -172,6 +173,37 @@ describe('TowerInitTool', () => {
     expect(result.output).toContain('base branch: main');
     expect((await stat(join(repo, '.tower/comms'))).isDirectory()).toBe(true);
     expect(towerActive).toBe(true);
+  });
+
+  it('accepts an explicit base branch and notes the checkout mismatch', async () => {
+    await git(repo, 'branch', 'develop');
+
+    const result = await run(ix.get(ITowerInitTool), { base: 'develop' });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain('base branch: develop');
+    expect(result.output).toContain('the main checkout is on "main", not base "develop"');
+    const state = await new TowerStore(repo).load();
+    expect(state.base).toBe('develop');
+  });
+
+  it('reports an ignored base when re-initializing with a different one', async () => {
+    await git(repo, 'branch', 'develop');
+    await initViaTool();
+
+    const second = await run(ix.get(ITowerInitTool), { base: 'develop' });
+
+    expect(second.isError).toBeFalsy();
+    expect(second.output).toContain('requested base "develop" ignored');
+    const state = await new TowerStore(repo).load();
+    expect(state.base).toBe('main');
+  });
+
+  it('rejects a base that is not a local branch', async () => {
+    const result = await run(ix.get(ITowerInitTool), { base: 'origin/main' });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('does not exist as a local branch');
   });
 
   it('is idempotent — a second run reports already-initialized and keeps state', async () => {
@@ -343,24 +375,24 @@ describe('TowerStatusTool', () => {
 });
 
 describe('tool registration', () => {
-  const MAIN_ONLY = ['TowerInit', 'TowerPlan', 'TowerSpawn', 'TowerMerge', 'TowerTeardown'];
-  const SHARED = ['TowerSend', 'TowerInbox', 'TowerFinding', 'TowerReview', 'TowerMission', 'TowerStatus'];
-
-  it('gates init/plan/spawn/merge/teardown to the main agent and shares the rest', async () => {
-    for (const name of MAIN_ONLY) {
-      const contribution = TOWER_TOOL_CONTRIBUTIONS.find((c) => c.name === name);
-      expect(contribution, name).toBeDefined();
-      expect(contribution?.when, name).toBeDefined();
-      currentAgentId = 'main';
-      expect(contribution?.when?.(ix), name).toBe(true);
-      currentAgentId = 'agent-w1';
-      expect(contribution?.when?.(ix), name).toBe(false);
+  it('declares no when gate on any tower tool contribution', () => {
+    for (const contribution of TOWER_TOOL_CONTRIBUTIONS) {
+      expect('when' in contribution, contribution.name).toBe(false);
     }
-    currentAgentId = 'main';
-    for (const name of SHARED) {
-      const contribution = TOWER_TOOL_CONTRIBUTIONS.find((c) => c.name === name);
-      expect(contribution, name).toBeDefined();
-      expect(contribution?.when, name).toBeUndefined();
+  });
+
+  it('rejects orchestration tools at execution time for non-main agents', async () => {
+    currentAgentId = 'agent-w1';
+    const cases: readonly (readonly [ServiceIdentifier<AnyAgentTool>, unknown])[] = [
+      [ITowerInitTool, {}],
+      [ITowerPlanTool, { missions: [] }],
+      [ITowerMergeTool, { branch: 'tower/x' }],
+      [ITowerTeardownTool, {}],
+    ];
+    for (const [id, args] of cases) {
+      const result = await run(ix.get(id), args as never);
+      expect(result.isError).toBe(true);
+      expect(result.output).toBe('Tower orchestration tools are only supported by the main agent.');
     }
     expect(towerActive).toBe(false);
     expect((await stat(join(repo, '.tower')).catch(() => undefined))).toBeUndefined();

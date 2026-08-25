@@ -3,11 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  IAgentGoalService,
+  AgentCron,
+  AgentGoal,
   IAgentLifecycleService,
   IAgentPermissionModeService,
   IAgentProfileService,
   IAgentPromptService,
+  IAgentScopeContext,
   IAgentTaskService,
   IAuthSummaryService,
   IBootstrapService,
@@ -15,12 +17,12 @@ import {
   IEventBus,
   IFileSystemStorageService,
   IOAuthToolkit,
-  ISessionCronService,
   ISessionIndex,
   ISessionLifecycleService,
   ISessionManager,
   IWorkspaceLifecycleService,
   ITelemetryService,
+  makeAgentScopeContext,
   type BootstrapInput,
 } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -167,15 +169,29 @@ function makeFakeHarness() {
       },
     ],
     [IAgentTaskService, { list: vi.fn(() => []) }],
-    [IAgentGoalService, { createGoal: vi.fn(), getGoal: vi.fn() }],
+    [
+      IAgentScopeContext,
+      makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' }),
+    ],
   ]);
+  const goal = { createGoal: vi.fn(), getGoal: vi.fn() };
+  const cron = { getNextFireTime: vi.fn(() => null) };
   const agent = fakeScope('main', agentServices);
 
   const sessionServices = new Map<unknown, unknown>([
     // drain enumerates agents; empty → no background work to wait on.
-    [IAgentLifecycleService, { list: vi.fn(() => []) }],
-    // No scheduled cron tasks → no future fire time to wait on.
-    [ISessionCronService, { getNextFireTime: vi.fn(() => null) }],
+    [
+      IAgentLifecycleService,
+      {
+        list: vi.fn(() => []),
+        handleOf: vi.fn(() => agent),
+        resolve: vi.fn((_context: unknown, capability: unknown) => {
+          if (capability === AgentGoal) return goal;
+          if (capability === AgentCron) return cron;
+          throw new Error('unexpected capability');
+        }),
+      },
+    ],
   ]);
   const session = fakeScope('ses_v2', sessionServices);
 
@@ -290,7 +306,7 @@ describe('runV2Print', () => {
     const { app, agent, agentServices } = makeFakeHarness();
 
     mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
@@ -317,7 +333,7 @@ describe('runV2Print', () => {
     const { app, agent } = makeFakeHarness();
 
     mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(opts({ skillsDirs: ['/skills'] }) as never, '1.2.3-test', {
       stdout,
@@ -334,7 +350,7 @@ describe('runV2Print', () => {
     const { app, agent } = makeFakeHarness();
 
     mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
@@ -348,7 +364,7 @@ describe('runV2Print', () => {
     const { app, agent, appServices, agentServices } = makeFakeHarness();
 
     mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(
       opts({ agent: 'reviewer', agentFiles: ['/agents/reviewer.md'] }) as never,
@@ -381,7 +397,7 @@ describe('runV2Print', () => {
     const { app, agent, appServices, agentServices } = makeFakeHarness();
 
     mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(opts({ agentFiles: [agentFile] }) as never, '1.2.3-test', {
       stdout,
@@ -425,7 +441,7 @@ describe('runV2Print', () => {
     const { app, agent, agentServices } = makeFakeHarness();
 
     mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await expect(
       runV2Print(opts({ agentFiles: [agentFile] }) as never, '1.2.3-test', { stdout, stderr }),
@@ -443,7 +459,7 @@ describe('runV2Print', () => {
     const { app, agent } = makeFakeHarness();
 
     mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(opts() as never, '1.2.3-test', { stdout, stderr });
 
@@ -457,7 +473,7 @@ describe('runV2Print', () => {
     const { app, agent } = makeFakeHarness();
 
     mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(
       opts({ agent: 'reviewer', agentFiles: ['~/agents/reviewer.md'] }) as never,
@@ -479,7 +495,7 @@ describe('runV2Print', () => {
     index.get.mockResolvedValue({ id: 'ses_1', cwd: process.cwd() });
 
     mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(opts({ session: 'ses_1', agent: 'reviewer' }) as never, '1.2.3-test', {
       stdout,
@@ -504,7 +520,7 @@ describe('runV2Print', () => {
     index.get.mockResolvedValue({ id: 'ses_1', cwd: process.cwd() });
 
     mocks.bootstrap.mockReturnValue({ app });
-    mocks.ensureMainAgent.mockResolvedValue(agent);
+    mocks.ensureMainAgent.mockResolvedValue({ agentId: 'main', generation: 1 });
 
     await runV2Print(
       opts({ session: 'ses_1', agent: 'reviewer', model: 'new-model' }) as never,

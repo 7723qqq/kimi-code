@@ -5,18 +5,10 @@
  * MUST treat the returned promise as `Promise<never>`.
  */
 
-import { createKimiHarnessV2 } from '@moonshot-ai/kimi-code-sdk';
-import {
-  applyGoogleGeminiConfig,
-  GOOGLE_GEMINI_DEFAULT_MODEL_ID,
-  GoogleOAuthManager,
-  type DeviceAuthorization,
-  type KimiRegion,
-  type ManagedKimiConfigShape,
-} from '@moonshot-ai/kimi-code-oauth';
+import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import type { KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
-import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 import { persistedKimiOAuthRef, regionForBareLogin } from '#/utils/region';
 
@@ -29,40 +21,14 @@ export function parseRegionFlag(value: string): KimiRegion {
   return value;
 }
 
-export async function runLoginFlow(
-  options: { region?: KimiRegion; provider?: string } = {},
-): Promise<never> {
-  if (options.provider === 'antigravity' || options.provider === 'google-antigravity') {
-    return runAntigravitySyncFlow();
-  }
-  if (options.provider === 'google' || options.provider === 'gemini') {
-    const antigravity = GoogleOAuthManager.detectAntigravityCredentials();
-    if (antigravity.available) {
-      process.stderr.write(
-        `Found existing Google Antigravity login (${antigravity.email ?? 'active user'}). Checking credentials...\n`,
-      );
-      // Import alone proves nothing: validate that the token is usable
-      // (unexpired or refreshable) before committing to the sync path.
-      const accessToken = await new GoogleOAuthManager()
-        .getValidAccessToken()
-        .catch(() => undefined);
-      if (accessToken !== undefined && accessToken.length > 0) {
-        process.stderr.write('Using the synced Google Antigravity credentials.\n');
-        return runAntigravitySyncFlow();
-      }
-      process.stderr.write(
-        'Stored Google credentials are expired or not refreshable. Falling back to browser login.\n',
-      );
-    }
-    return runGoogleLoginFlow();
-  }
+export async function runLoginFlow(options: { region?: KimiRegion } = {}): Promise<never> {
   // No flag: a fresh install follows the resolved region (env/marker/
   // default); an existing login keeps its own environment (see
   // regionForBareLogin — the default slot re-pins mainland-cn, a scoped slot
   // keeps its configured hosts).
   const region = options.region ?? regionForBareLogin(persistedKimiOAuthRef());
   const identity = createKimiCodeHostIdentity();
-  const harness = createKimiHarnessV2({
+  const harness = createKimiHarness({
     identity,
     uiMode: 'cli',
   });
@@ -74,7 +40,7 @@ export async function runLoginFlow(
     const result = await harness.auth.login(undefined, {
       signal: controller.signal,
       region,
-      onDeviceCode: (data: DeviceAuthorization) => {
+      onDeviceCode: (data) => {
         const url = data.verificationUriComplete || data.verificationUri;
         // Print the manual fallback before attempting to open the user's
         // browser so headless/browser-opener failures never hide the URL
@@ -87,7 +53,7 @@ export async function runLoginFlow(
             data.expiresIn !== null && data.expiresIn !== undefined
               ? `Code expires in ${data.expiresIn}s.`
               : undefined,
-            t('tui.statusMessages.loginWaiting'),
+            'Waiting for authorization to complete...',
             '',
           ]
             .filter((line): line is string => line !== undefined)
@@ -112,109 +78,3 @@ export async function runLoginFlow(
     process.exit(1);
   }
 }
-
-export async function runGoogleLoginFlow(): Promise<never> {
-  const manager = new GoogleOAuthManager();
-  const identity = createKimiCodeHostIdentity();
-  const harness = createKimiHarnessV2({
-    identity,
-    uiMode: 'cli',
-  });
-  const controller = new AbortController();
-  process.once('SIGINT', () => {
-    controller.abort();
-  });
-
-  try {
-    const result = await manager.startLoginFlow({
-      signal: controller.signal,
-      onAuthUrl: (data) => {
-        process.stderr.write(
-          [
-            '',
-            `Opening browser for Google Gemini authorization: ${data.authUrl}`,
-            `If the browser did not open, paste the URL above into your browser.`,
-            t('tui.statusMessages.loginWaiting'),
-            '',
-          ].join('\n'),
-        );
-        try {
-          openUrl(data.authUrl);
-        } catch {
-          // Best effort
-        }
-      },
-    });
-
-    const config = await harness.getConfig();
-    applyGoogleGeminiConfig(config as ManagedKimiConfigShape, {
-      authType: 'oauth',
-      selectedModel: GOOGLE_GEMINI_DEFAULT_MODEL_ID,
-      thinking: true,
-      effort: 'high',
-    });
-
-    await harness.setConfig({
-      providers: config.providers,
-      models: config.models,
-      defaultModel: config.defaultModel,
-      thinking: config.thinking,
-    });
-
-    process.stderr.write(
-      `Logged in to Google Gemini (${result.providerName}). Default model set to ${config.defaultModel}.\n`,
-    );
-    process.exit(0);
-  } catch (error) {
-    if (controller.signal.aborted) {
-      process.stderr.write('Login cancelled.\n');
-    } else {
-      const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`Google login failed: ${message}\n`);
-    }
-    process.exit(1);
-  }
-}
-
-export async function runAntigravitySyncFlow(): Promise<never> {
-  const manager = new GoogleOAuthManager();
-  const identity = createKimiCodeHostIdentity();
-  const harness = createKimiHarnessV2({
-    identity,
-    uiMode: 'cli',
-  });
-
-  const detection = GoogleOAuthManager.detectAntigravityCredentials();
-  if (!detection.available) {
-    process.stderr.write('No Google Antigravity credentials found at ~/.gemini/oauth_creds.json.\n');
-    process.exit(1);
-  }
-
-  const token = await manager.importAntigravityCredentials();
-  if (!token) {
-    process.stderr.write('Failed to import Google credentials from ~/.gemini/oauth_creds.json.\n');
-    process.exit(1);
-  }
-
-  const config = await harness.getConfig();
-  applyGoogleGeminiConfig(config as ManagedKimiConfigShape, {
-    authType: 'oauth',
-    selectedModel: GOOGLE_GEMINI_DEFAULT_MODEL_ID,
-    thinking: true,
-    effort: 'high',
-  });
-
-  await harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-    defaultModel: config.defaultModel,
-    thinking: config.thinking,
-  });
-
-  process.stderr.write(
-    `Synced Google Antigravity account (${detection.email ?? 'active user'}). Default model set to ${config.defaultModel}.\n`,
-  );
-  process.exit(0);
-}
-
-

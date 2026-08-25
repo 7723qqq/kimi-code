@@ -9,12 +9,14 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { createReminderStub, lifecycleWithReminder } from '../reminder/stubs';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { runWillBeginStepHooks, type StubLoop } from '../../agent/loop/stubs';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type {
@@ -26,6 +28,7 @@ import { IAgentTowerService, TOWER_FLAG_ID } from '#/features/tower/tower';
 import { _setTowerFeatureAssembledForTests } from '#/features/tower/towerFeature';
 import { AgentTowerService, TOWER_MODE_TOOLS } from '#/features/tower/towerService';
 import { towerKey } from '#/features/tower/towerOps';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
@@ -35,18 +38,15 @@ import { IFeatureManager } from '#/app/feature/featureManager';
 import { IFlagService } from '#/app/flag/flag';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import type { ToolCall } from '#/kosong/contract/message';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ToolAccesses } from '#/tool/toolContract';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
-import {
-  stubToolExecutorEvents,
-  type ToolExecutorEventStubs,
-} from '../../agent/toolExecutor/stubs';
+import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 import { stubFlag } from '../../app/flag/stubs';
 import {
   appService,
@@ -105,10 +105,7 @@ function hookContext(toolCalls: ToolCall[]): ResolvedToolExecutionHookContext {
   };
 }
 
-function writeHookContext(
-  toolName: string,
-  paths: readonly string[],
-): ResolvedToolExecutionHookContext {
+function writeHookContext(toolName: string, paths: readonly string[]): ResolvedToolExecutionHookContext {
   const call = toolCall(toolName, `call_${toolName.toLowerCase()}`);
   return {
     turnId: 0,
@@ -175,10 +172,10 @@ describe('AgentTowerService', () => {
         activeTools = activeTools?.filter((candidate) => candidate !== name);
       },
     } as unknown as IAgentProfileService);
-    ix.stub(IAgentContextInjectorService, {
-      register: () => ({ dispose: () => {} }),
-      reconcileWhenIdle: async () => {},
-    } as unknown as IAgentContextInjectorService);
+    ix.stub(
+      IAgentLifecycleService,
+      lifecycleWithReminder(createReminderStub()),
+    );
     ix.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
@@ -576,10 +573,10 @@ describe('AgentTowerService', () => {
     ix2.stub(IAgentToolApprovalService, { formatDenyMessage });
     ix2.stub(IFlagService, stubFlag((id) => id === TOWER_FLAG_ID));
     ix2.stub(ISessionContext, { cwd: '/nonexistent-tower-repo' } as unknown as ISessionContext);
-    ix2.stub(IAgentContextInjectorService, {
-      register: () => ({ dispose: () => {} }),
-      reconcileWhenIdle: async () => {},
-    } as unknown as IAgentContextInjectorService);
+    ix2.stub(
+      IAgentLifecycleService,
+      lifecycleWithReminder(createReminderStub()),
+    );
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
@@ -676,10 +673,10 @@ describe('AgentTowerService', () => {
     ix2.stub(IAgentToolApprovalService, { formatDenyMessage });
     ix2.stub(IFlagService, stubFlag(() => false));
     ix2.stub(ISessionContext, { cwd: '/nonexistent-tower-repo' } as unknown as ISessionContext);
-    ix2.stub(IAgentContextInjectorService, {
-      register: () => ({ dispose: () => {} }),
-      reconcileWhenIdle: async () => {},
-    } as unknown as IAgentContextInjectorService);
+    ix2.stub(
+      IAgentLifecycleService,
+      lifecycleWithReminder(createReminderStub()),
+    );
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
@@ -741,10 +738,10 @@ describe('AgentTowerService', () => {
     ix2.stub(IAgentToolApprovalService, { formatDenyMessage });
     ix2.stub(IFlagService, stubFlag((id) => id === TOWER_FLAG_ID));
     ix2.stub(ISessionContext, { cwd: '/nonexistent-tower-repo' } as unknown as ISessionContext);
-    ix2.stub(IAgentContextInjectorService, {
-      register: () => ({ dispose: () => {} }),
-      reconcileWhenIdle: async () => {},
-    } as unknown as IAgentContextInjectorService);
+    ix2.stub(
+      IAgentLifecycleService,
+      lifecycleWithReminder(createReminderStub()),
+    );
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
@@ -819,10 +816,10 @@ describe('AgentTowerService', () => {
         cwd: repo,
         sessionId: 'session-fork',
       } as unknown as ISessionContext);
-      ix2.stub(IAgentContextInjectorService, {
-        register: () => ({ dispose: () => {} }),
-        reconcileWhenIdle: async () => {},
-      } as unknown as IAgentContextInjectorService);
+      ix2.stub(
+        IAgentLifecycleService,
+        lifecycleWithReminder(createReminderStub()),
+      );
       ix2.stub(IAgentContextMemoryService, {
         get: () => [],
       } as unknown as IAgentContextMemoryService);
@@ -901,10 +898,10 @@ describe('AgentTowerService', () => {
         cwd: repo,
         sessionId: 'session-fork',
       } as unknown as ISessionContext);
-      ix2.stub(IAgentContextInjectorService, {
-        register: () => ({ dispose: () => {} }),
-        reconcileWhenIdle: async () => {},
-      } as unknown as IAgentContextInjectorService);
+      ix2.stub(
+        IAgentLifecycleService,
+        lifecycleWithReminder(createReminderStub()),
+      );
       ix2.stub(IAgentContextMemoryService, {
         get: () => [],
       } as unknown as IAgentContextMemoryService);
@@ -983,10 +980,10 @@ describe('AgentTowerService', () => {
         cwd: repo,
         sessionId: 'session-fork',
       } as unknown as ISessionContext);
-      ix2.stub(IAgentContextInjectorService, {
-        register: () => ({ dispose: () => {} }),
-        reconcileWhenIdle: async () => {},
-      } as unknown as IAgentContextInjectorService);
+      ix2.stub(
+        IAgentLifecycleService,
+        lifecycleWithReminder(createReminderStub()),
+      );
       ix2.stub(IAgentContextMemoryService, {
         get: () => [],
       } as unknown as IAgentContextMemoryService);
@@ -1062,10 +1059,10 @@ describe('AgentTowerService', () => {
       cwd: '/nonexistent-tower-repo',
       sessionId: 'session-fork',
     } as unknown as ISessionContext);
-    ix2.stub(IAgentContextInjectorService, {
-      register: () => ({ dispose: () => {} }),
-      reconcileWhenIdle: async () => {},
-    } as unknown as IAgentContextInjectorService);
+    ix2.stub(
+      IAgentLifecycleService,
+      lifecycleWithReminder(createReminderStub()),
+    );
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
@@ -1134,10 +1131,10 @@ describe('AgentTowerService', () => {
       cwd: '/nonexistent-tower-repo',
       sessionId: 'session-owner',
     } as unknown as ISessionContext);
-    ix2.stub(IAgentContextInjectorService, {
-      register: () => ({ dispose: () => {} }),
-      reconcileWhenIdle: async () => {},
-    } as unknown as IAgentContextInjectorService);
+    ix2.stub(
+      IAgentLifecycleService,
+      lifecycleWithReminder(createReminderStub()),
+    );
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
@@ -1187,10 +1184,10 @@ describe('AgentTowerService', () => {
     ix2.stub(IAgentToolApprovalService, { formatDenyMessage });
     ix2.stub(IFlagService, stubFlag((id) => id === TOWER_FLAG_ID));
     ix2.stub(ISessionContext, { cwd: '/nonexistent-tower-repo' } as unknown as ISessionContext);
-    ix2.stub(IAgentContextInjectorService, {
-      register: () => ({ dispose: () => {} }),
-      reconcileWhenIdle: async () => {},
-    } as unknown as IAgentContextInjectorService);
+    ix2.stub(
+      IAgentLifecycleService,
+      lifecycleWithReminder(createReminderStub()),
+    );
     ix2.stub(IAgentContextMemoryService, {
       get: () => [],
     } as unknown as IAgentContextMemoryService);
@@ -1284,9 +1281,7 @@ describe('AgentTowerService', () => {
 
       expect(decision?.veto?.isError).toBe(true);
       const output = decision?.veto?.output;
-      expect(output).toContain(
-        `tower workers may only write inside their own worktree (${worktree})`,
-      );
+      expect(output).toContain(`tower workers may only write inside their own worktree (${worktree})`);
       expect(output).toContain(`${repo}/src/gemm.cpp`);
       expect(output).toContain(`${repo}/.tower/worktrees/wt-2/x.ts`);
       expect(output).toContain('TowerFinding');
@@ -1348,12 +1343,8 @@ describe('AgentTowerService', () => {
   });
 });
 
-type InjectableDynamicInjector = {
-  inject(boundary: undefined, isNewTurn: boolean): Promise<void>;
-};
-
-async function injectDynamic(injector: InjectableDynamicInjector): Promise<void> {
-  await injector.inject(undefined, false);
+async function injectDynamic(ctx: TestAgentContext): Promise<void> {
+  await runWillBeginStepHooks(ctx.get(IAgentLoopService) as StubLoop, false);
 }
 
 function appendAssistantTurn(
@@ -1381,7 +1372,6 @@ function lastTowerReminder(context: IAgentContextMemoryService): string {
 describe('TowerModeInjection', () => {
   let ctx: TestAgentContext;
   let context: IAgentContextMemoryService;
-  let injector: InjectableDynamicInjector;
   let tower: IAgentTowerService;
   let towerFlagOn: boolean;
   let cwd: string;
@@ -1394,8 +1384,9 @@ describe('TowerModeInjection', () => {
       appService(IFlagService, stubFlag((id) => towerFlagOn && id === TOWER_FLAG_ID)),
     );
     context = ctx.get(IAgentContextMemoryService);
-    injector = ctx.get(IAgentContextInjectorService) as unknown as InjectableDynamicInjector;
     tower = ctx.get(IAgentTowerService);
+    await ctx.restorePersisted();
+    await ctx.restoreRuntimes();
   });
 
   afterEach(async () => {
@@ -1410,7 +1401,7 @@ describe('TowerModeInjection', () => {
   it('injects the full reminder when tower mode turns on', async () => {
     await tower.enter();
 
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
     const text = lastTowerReminder(context);
 
     expect(text).toContain('Tower mode is active');
@@ -1421,9 +1412,9 @@ describe('TowerModeInjection', () => {
   it('injects the exit reminder when tower mode turns off after being active', async () => {
     await tower.enter();
 
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
     tower.exit();
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
 
     expect(towerReminderMessages(context)).toHaveLength(2);
     expect(lastTowerReminder(context)).toContain('Tower mode is no longer active');
@@ -1432,25 +1423,25 @@ describe('TowerModeInjection', () => {
   it('emits the exit reminder once when the tower flag is turned off with an active reminder in context', async () => {
     await tower.enter();
 
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
     expect(towerReminderMessages(context)).toHaveLength(1);
 
     towerFlagOn = false;
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
 
     expect(towerReminderMessages(context)).toHaveLength(2);
     expect(lastTowerReminder(context)).toContain('Tower mode is no longer active');
 
     appendAssistantTurn(ctx, context, 'assistant one');
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
     ctx.appendUserMessage([{ type: 'text', text: 'next task' }]);
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
 
     expect(towerReminderMessages(context)).toHaveLength(2);
   });
 
   it('does not inject anything when tower mode is inactive from the start', async () => {
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
 
     expect(towerReminderMessages(context)).toHaveLength(0);
     expect(context.get()).toHaveLength(0);
@@ -1459,9 +1450,9 @@ describe('TowerModeInjection', () => {
   it('skips reinjection before the assistant-turn threshold', async () => {
     await tower.enter();
 
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
     appendAssistantTurn(ctx, context, 'assistant one');
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
 
     expect(towerReminderMessages(context)).toHaveLength(1);
   });
@@ -1469,10 +1460,10 @@ describe('TowerModeInjection', () => {
   it('injects the sparse reminder after the short assistant-turn threshold', async () => {
     await tower.enter();
 
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
     appendAssistantTurn(ctx, context, 'assistant one');
     appendAssistantTurn(ctx, context, 'assistant two');
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
 
     const text = lastTowerReminder(context);
     expect(text).toContain('Tower mode still active');
@@ -1482,11 +1473,11 @@ describe('TowerModeInjection', () => {
   it('refreshes the full reminder after the long assistant-turn threshold', async () => {
     await tower.enter();
 
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
     for (let i = 0; i < 5; i += 1) {
       appendAssistantTurn(ctx, context, `assistant ${String(i)}`);
     }
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
 
     const text = lastTowerReminder(context);
     expect(text).toContain('Tower mode is active');
@@ -1496,10 +1487,10 @@ describe('TowerModeInjection', () => {
   it('refreshes the full reminder when a user message follows at least one assistant turn', async () => {
     await tower.enter();
 
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
     appendAssistantTurn(ctx, context, 'assistant one');
     ctx.appendUserMessage([{ type: 'text', text: 'next task' }]);
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
 
     const text = lastTowerReminder(context);
     expect(text).toContain('Tower mode is active');
@@ -1509,9 +1500,9 @@ describe('TowerModeInjection', () => {
   it('does not duplicate the full reminder when the first objective follows activation directly', async () => {
     await tower.enter();
 
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
     ctx.appendUserMessage([{ type: 'text', text: 'first objective' }]);
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
 
     expect(towerReminderMessages(context)).toHaveLength(1);
   });
@@ -1519,15 +1510,15 @@ describe('TowerModeInjection', () => {
   it('emits the exit reminder only once and returns the full reminder on re-entry', async () => {
     await tower.enter();
 
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
     tower.exit();
-    await injectDynamic(injector);
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
+    await injectDynamic(ctx);
 
     expect(towerReminderMessages(context)).toHaveLength(2);
 
     await tower.enter();
-    await injectDynamic(injector);
+    await injectDynamic(ctx);
 
     expect(towerReminderMessages(context)).toHaveLength(3);
     expect(lastTowerReminder(context)).toContain('Tower mode is active');

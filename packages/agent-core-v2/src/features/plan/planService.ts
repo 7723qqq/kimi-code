@@ -7,7 +7,8 @@ import { unwrapErrorCause } from '#/_base/errors/errors';
 import { Error2, ErrorCodes } from '#/errors';
 import { generateHeroSlug } from '#/_base/utils/hero-slug';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
+import { activateReminderWhenReady } from '#/features/reminder/internal/reminderActivation';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { PlanModeInjection } from '#/features/plan/injection/planModeInjection';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -25,7 +26,6 @@ import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionTodoService } from '#/session/todo/sessionTodo';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { ContextUndone } from '#/agent/undo/undoService';
@@ -36,7 +36,6 @@ import {
   type PlanFilePath,
 } from './plan';
 import { ExitPlanModeReview } from './exitPlanModeReview';
-import { tryConvertPlanToTodos } from './planToTodoConverter';
 import {
   PlanModeCancel,
   PlanModeEnter,
@@ -54,7 +53,7 @@ export class AgentPlanService extends Service implements IAgentPlanService {
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IHostFileSystem private readonly hostFs: IHostFileSystem,
     @IBlobStore private readonly blobs: IBlobStore,
-    @IAgentContextInjectorService injector: IAgentContextInjectorService,
+    @IAgentLifecycleService agentLifecycle: IAgentLifecycleService,
     @IAgentTelemetryContextService private readonly telemetryContext: IAgentTelemetryContextService,
     @IEventBus eventBus: IEventBus,
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
@@ -63,9 +62,8 @@ export class AgentPlanService extends Service implements IAgentPlanService {
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
     @IAgentPermissionModeService private readonly modeService: IAgentPermissionModeService,
-    @ITelemetryService private readonly telemetry: ITelemetryService,
+    @ITelemetryService telemetry: ITelemetryService,
     @IAgentStateService private readonly agentState: IAgentStateService,
-    @ISessionTodoService private readonly todo: ISessionTodoService,
   ) {
     super();
     this.agentState.contributeState(planKey);
@@ -87,7 +85,11 @@ export class AgentPlanService extends Service implements IAgentPlanService {
       }),
     );
 
-    this._register(new PlanModeInjection(injector, this, this.context, agentState));
+    this._register(
+      activateReminderWhenReady(agentLifecycle, this.agentCtx, (reminder) =>
+        new PlanModeInjection(reminder, this, this.context, agentState),
+      ),
+    );
     this._register(this.registerPlanGuard(toolExecutor));
   }
 
@@ -199,18 +201,6 @@ export class AgentPlanService extends Service implements IAgentPlanService {
   exit(id?: string): void {
     void this.dispatcher.dispatch(new PlanModeExit({ agentId: this.agentCtx.agentId, id }));
     this.telemetryContext.set({ mode: 'agent' });
-    void this.maybeSeedTodoFromPlan();
-  }
-
-  private async maybeSeedTodoFromPlan(): Promise<void> {
-    const planData = await this.status();
-    if (planData === null) return;
-    const outcome = await tryConvertPlanToTodos(planData, this.todo, this.agentCtx.agentContext);
-    if (outcome.kind === 'converted') {
-      this.telemetry.track2('plan_to_todo_converted', {
-        item_count: outcome.count,
-      });
-    }
   }
 
   async recordRevision(): Promise<void> {

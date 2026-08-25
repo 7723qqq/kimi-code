@@ -1,20 +1,22 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { subtreeWatchFilter } from '#/_base/utils/paths';
+import { defineState } from '#/state/state';
 import { TimeoutTimer } from '#/_base/utils/timer';
+import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { agentsMdWatchRoots, loadAgentsMdForRoots } from '#/agent/profile/context';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IHostEnvironment, type HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
+import { IHostFsWatchService, type HostFsChange } from '#/os/interface/hostFsWatch';
 import type { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
-import { defineState } from '#/state/state';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 
-import type { IWorkspaceInstructionsService } from './workspaceInstructions';
-import { type WorkspaceInstructionsSnapshot } from './workspaceInstructions';
+import {
+  IWorkspaceInstructionsService,
+  type WorkspaceInstructionsSnapshot,
+} from './workspaceInstructions';
 
 const WATCH_DEBOUNCE_MS = 200;
 
@@ -30,10 +32,12 @@ export class WorkspaceInstructionsService
   declare readonly _serviceBrand: undefined;
 
   readonly ready: Promise<void>;
-  private readonly onDidChangeEmitter = this._register(new Emitter<void>());
-  readonly onDidChange: Event<void> = this.onDidChangeEmitter.event;
+  private readonly onDidChangeEmitter = this._register(new Emitter<readonly HostFsChange[]>());
+  readonly onDidChange: Event<readonly HostFsChange[]> = this.onDidChangeEmitter.event;
   private readonly watchDebounce = this._register(new TimeoutTimer());
   private reloadTail: Promise<void> = Promise.resolve();
+  private loaded = false;
+  private readonly pendingChanges = new Map<string, HostFsChange>();
 
   constructor(
     @IWorkspaceContext private readonly workspace: IWorkspaceContext,
@@ -63,27 +67,29 @@ export class WorkspaceInstructionsService
   }
 
   reload(): Promise<void> {
-    const tail = this.reloadTail
-      .catch(() => undefined)
-      .then(async () => {
-        const result = await loadAgentsMdForRoots(
-          { fs: this.fs, homeDir: this.env.homeDir },
-          this.bootstrap.homeDir,
-          [this.workspace.cwd],
-        );
-        const next: WorkspaceInstructionsSnapshot = {
-          agentsMd: result.content,
-          agentsMdWarning: result.warning,
-          agentsMdPaths: result.paths,
-        };
-        const changed =
-          next.agentsMd !== this.current.agentsMd ||
-          next.agentsMdWarning !== this.current.agentsMdWarning;
-        this.current = next;
-        if (changed) {
-          this.onDidChangeEmitter.fire();
-        }
-      });
+    const tail = this.reloadTail.catch(() => undefined).then(async () => {
+      const result = await loadAgentsMdForRoots(
+        { fs: this.fs, homeDir: this.env.homeDir },
+        this.bootstrap.homeDir,
+        [this.workspace.cwd],
+      );
+      const next: WorkspaceInstructionsSnapshot = {
+        agentsMd: result.content,
+        agentsMdWarning: result.warning,
+        agentsMdPaths: result.paths,
+      };
+      const changed =
+        next.agentsMd !== this.current.agentsMd ||
+        next.agentsMdWarning !== this.current.agentsMdWarning;
+      this.current = next;
+      const changes = [...this.pendingChanges.values()];
+      this.pendingChanges.clear();
+      const loaded = this.loaded;
+      this.loaded = true;
+      if (changed && loaded) {
+        this.onDidChangeEmitter.fire(changes);
+      }
+    });
     this.reloadTail = tail;
     return tail;
   }
@@ -121,7 +127,8 @@ export class WorkspaceInstructionsService
         });
         this._register(handle);
         this._register(
-          handle.onDidChange(() => {
+          handle.onDidChange((change) => {
+            this.pendingChanges.set(change.path, change);
             this.watchDebounce.cancelAndSet(() => {
               void this.reload().catch((error) => {
                 this.log.warn(`AGENTS.md reload failed: ${String(error)}`);
@@ -135,3 +142,4 @@ export class WorkspaceInstructionsService
     }
   }
 }
+

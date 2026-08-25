@@ -1,13 +1,11 @@
 import { ScopeActivation } from '#/_base/di/instantiation';
 import { LifecycleScope } from '#/app/scopes';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { Feature } from '#/features/feature';
 import { registerFeature } from '#/features/featureRegistry';
 
-import { IAgentGoalService } from './goal';
+import { goalAgentRuntimeProvider } from './goalAgentRuntime';
 import { IGoalDeadlineScheduler } from './goalDeadlineScheduler';
 import { GoalDeadlineSchedulerService } from './goalDeadlineSchedulerService';
-import { AgentGoalService } from './goalService';
 import { ICreateGoalTool } from './tools/create-goal/create-goal';
 import { CreateGoalTool } from './tools/create-goal/createGoalTool';
 import { IGetGoalTool } from './tools/get-goal/get-goal';
@@ -22,31 +20,25 @@ export class GoalFeature extends Feature {
 
   constructor() {
     super();
-    this.contributeAgentService(IAgentGoalService, AgentGoalService, {
-      activation: ScopeActivation.OnScopeCreated,
-    });
+    this.contributeAgentRuntime(goalAgentRuntimeProvider);
     this.contributeService(LifecycleScope.App, IGoalDeadlineScheduler, GoalDeadlineSchedulerService, {
       activation: ScopeActivation.OnDemand,
     });
     this.contributeTool(ICreateGoalTool, CreateGoalTool, {
       name: 'CreateGoal',
       domain: 'goal',
-      when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
     });
     this.contributeTool(IGetGoalTool, GetGoalTool, {
       name: 'GetGoal',
       domain: 'goal',
-      when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
     });
     this.contributeTool(ISetGoalBudgetTool, SetGoalBudgetTool, {
       name: 'SetGoalBudget',
       domain: 'goal',
-      when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
     });
     this.contributeTool(IUpdateGoalTool, UpdateGoalTool, {
       name: 'UpdateGoal',
       domain: 'goal',
-      when: (accessor) => accessor.get(IAgentScopeContext).agentId === 'main',
     });
   }
 }

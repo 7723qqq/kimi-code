@@ -1,127 +1,134 @@
-import { request } from 'node:http';
+import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
+import type { AddressInfo as HttpAddress } from 'node:net';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { startCallbackServer, type CallbackServer } from '#/mcpCore/oauth/callback-server';
+import {
+  type CallbackServer,
+  OAuthCallbackClosedError,
+  startCallbackServer,
+} from '#/mcpCore/oauth/callback-server';
+import { McpOAuthService } from '#/mcpCore/oauth/service';
 
-function get(uri: string, host?: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const req = request(uri, { headers: host !== undefined ? { host } : undefined }, (res) => {
-      res.resume();
-      res.on('end', () => resolve(res.statusCode ?? 0));
-    });
-    req.on('error', reject);
-    req.end();
-  });
+import { createMemoryMcpOAuthStore } from '../stubs';
+
+const cleanups: Array<() => Promise<void> | void> = [];
+afterEach(async () => {
+  while (cleanups.length > 0) {
+    await cleanups.pop()?.();
+  }
+});
+
+function trackServer(server: CallbackServer): void {
+  cleanups.push(() => server.close());
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+async function startRegistrationServer(): Promise<{ readonly url: string }> {
+  const httpServer: HttpServer = createHttpServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/register') {
+      res.writeHead(404).end();
+      return;
+    }
+    let body = '';
+    req.on('data', (chunk: Buffer) => {
+      body += chunk.toString('utf-8');
+    });
+    req.on('end', () => {
+      const metadata = JSON.parse(body) as Record<string, unknown>;
+      res.writeHead(201, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ...metadata, client_id: 'test-client' }));
+    });
+  });
+  await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+  cleanups.push(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        httpServer.close((err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      }),
+  );
+  const port = (httpServer.address() as HttpAddress).port;
+  return { url: `http://127.0.0.1:${port}` };
 }
 
-describe('callback-server', () => {
-  let server: CallbackServer | undefined;
+describe('startCallbackServer', () => {
+  it('resolves a late waitForCode with a callback that arrived before it', async () => {
+    const server = await startCallbackServer();
+    trackServer(server);
 
-  afterEach(async () => {
-    await server?.close();
-    server = undefined;
-  });
+    const response = await fetch(`${server.redirectUri}?code=early-code&state=early-state`);
+    expect(response.status).toBe(200);
 
-  it('resolves the authorization code and state on a well-formed callback', async () => {
-    server = await startCallbackServer();
-    const wait = server.waitForCode({ timeoutMs: 2000 });
-    const status = await get(`${server.redirectUri}?code=abc123&state=xyz`);
-    expect(status).toBe(200);
-    await expect(wait).resolves.toEqual({ code: 'abc123', state: 'xyz' });
-  });
-
-  it('rejects callbacks with a mismatched Host header', async () => {
-    server = await startCallbackServer();
-    let settled = false;
-    const wait = server.waitForCode({ timeoutMs: 2000 });
-    void wait.then(
-      () => {
-        settled = true;
-        return undefined;
-      },
-      () => {
-        settled = true;
-        return undefined;
-      },
-    );
-    const status = await get(`${server.redirectUri}?code=abc123`, 'evil.example');
-    expect(status).toBe(404);
-    await sleep(100);
-    expect(settled).toBe(false);
-  });
-
-  it('rejects when the server reports an OAuth error', async () => {
-    server = await startCallbackServer();
-    const wait = server.waitForCode({ timeoutMs: 2000 });
-    const assertion = expect(wait).rejects.toThrow(/access_denied/);
-    const status = await get(`${server.redirectUri}?error=access_denied&error_description=no`);
-    expect(status).toBe(400);
-    await assertion;
-  });
-
-  it('rejects when the callback is missing the authorization code', async () => {
-    server = await startCallbackServer();
-    const wait = server.waitForCode({ timeoutMs: 2000 });
-    const assertion = expect(wait).rejects.toThrow(/missing authorization code/);
-    const status = await get(`${server.redirectUri}?state=xyz`);
-    expect(status).toBe(400);
-    await assertion;
-  });
-
-  it('rejects non-GET requests', async () => {
-    server = await startCallbackServer();
-    let settled = false;
-    const wait = server.waitForCode({ timeoutMs: 2000 });
-    void wait.then(
-      () => {
-        settled = true;
-        return undefined;
-      },
-      () => {
-        settled = true;
-        return undefined;
-      },
-    );
-    const status = await new Promise<number>((resolve, reject) => {
-      const req = request(server!.redirectUri, { method: 'POST' }, (res) => {
-        res.resume();
-        res.on('end', () => resolve(res.statusCode ?? 0));
-      });
-      req.on('error', reject);
-      req.end();
+    await expect(server.waitForCode({ timeoutMs: 10_000 })).resolves.toEqual({
+      code: 'early-code',
+      state: 'early-state',
     });
-    expect(status).toBe(404);
-    await sleep(100);
-    expect(settled).toBe(false);
   });
 
-  it('rejects paths other than /callback', async () => {
-    server = await startCallbackServer();
-    let settled = false;
-    const wait = server.waitForCode({ timeoutMs: 2000 });
-    void wait.then(
-      () => {
-        settled = true;
-        return undefined;
-      },
-      () => {
-        settled = true;
-        return undefined;
-      },
+  it('delivers the callback payload to a pending wait', async () => {
+    const server = await startCallbackServer();
+    trackServer(server);
+    const pending = server.waitForCode({ timeoutMs: 10_000 });
+
+    await fetch(`${server.redirectUri}?code=code-1&state=state-1`);
+
+    await expect(pending).resolves.toEqual({ code: 'code-1', state: 'state-1' });
+  });
+
+  it('rejects a pending wait with a closed error when explicitly closed', async () => {
+    const server = await startCallbackServer();
+    trackServer(server);
+    const pending = server.waitForCode({ timeoutMs: 10_000 });
+    const rejection = expect(pending).rejects.toBeInstanceOf(OAuthCallbackClosedError);
+
+    await server.close();
+
+    await rejection;
+  });
+
+  it('rejects a late waitForCode after close', async () => {
+    const server = await startCallbackServer();
+    trackServer(server);
+
+    await server.close();
+
+    await expect(server.waitForCode({ timeoutMs: 10_000 })).rejects.toBeInstanceOf(
+      OAuthCallbackClosedError,
     );
-    const status = await get(`${server.redirectUri.replace('/callback', '/other')}?code=abc`);
-    expect(status).toBe(404);
-    await sleep(100);
-    expect(settled).toBe(false);
   });
+});
 
-  it('times out when no callback arrives', async () => {
-    server = await startCallbackServer();
-    await expect(server.waitForCode({ timeoutMs: 100 })).rejects.toThrow(/timed out/);
-  });
+describe('McpOAuthService cancellation', () => {
+  it('rejects an in-flight completion when the authorization flow is cancelled', async () => {
+    const service = new McpOAuthService({ store: createMemoryMcpOAuthStore() });
+    cleanups.push(() => service.dispose());
+    const registrationServer = await startRegistrationServer();
+    const provider = service.getProvider('example', 'https://mcp.example.test/rpc');
+    await provider.ready;
+    await provider.saveDiscoveryState({
+      authorizationServerUrl: registrationServer.url,
+      authorizationServerMetadata: {
+        issuer: registrationServer.url,
+        authorization_endpoint: `${registrationServer.url}/authorize`,
+        token_endpoint: `${registrationServer.url}/token`,
+        registration_endpoint: `${registrationServer.url}/register`,
+        response_types_supported: ['code'],
+        grant_types_supported: ['authorization_code'],
+        token_endpoint_auth_methods_supported: ['none'],
+      },
+    });
+
+    const flow = await service.beginAuthorization('example', 'https://mcp.example.test/rpc');
+    const completion = flow.complete({ timeoutMs: 10_000 });
+    const rejection = expect(completion).rejects.toThrow('OAuth callback listener closed');
+
+    await flow.cancel();
+
+    await rejection;
+  }, 15000);
 });

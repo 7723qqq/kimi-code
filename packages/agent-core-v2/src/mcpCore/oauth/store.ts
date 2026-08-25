@@ -5,7 +5,9 @@ import { basename } from 'pathe';
 import { ErrorCodes, Error2 } from '#/errors';
 
 export function sanitizeStoreKey(name: string): string {
-  const safe = basename(name).replaceAll(/[^a-zA-Z0-9_-]/g, '_').replaceAll(/_+/g, '_');
+  const safe = basename(name)
+    .replaceAll(/[^a-zA-Z0-9_-]/g, '_')
+    .replaceAll(/_+/g, '_');
   if (safe.length === 0 || safe.startsWith('.')) {
     throw new Error2(ErrorCodes.CONFIG_INVALID, `Invalid MCP OAuth store key: "${name}"`);
   }
@@ -30,19 +32,9 @@ export function mcpOAuthStoreKey(serverName: string, serverUrl: string | URL): s
   return `${safeName}-${digest}`;
 }
 
-/** Sidecar `<key>-meta.json` suffix; the service scans these on startup. */
-export const META_SUFFIX = '-meta.json';
-
-/** Sidecar `<key>-meta.json` record mapping a store key back to its server. */
-export interface McpOAuthStoreMeta {
-  readonly serverName: string;
-  readonly serverUrl: string;
-}
-
 export interface McpOAuthStore {
   read<T>(key: string): Promise<T | undefined>;
   write(key: string, data: unknown): Promise<void>;
   remove(key: string): Promise<void>;
-  /** Store keys ending with `suffix`; empty when nothing matches. */
-  list(suffix: string): Promise<readonly string[]>;
+  list(prefix?: string): Promise<readonly string[]>;
 }

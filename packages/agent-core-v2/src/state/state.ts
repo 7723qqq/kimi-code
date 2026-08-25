@@ -3,8 +3,7 @@ import type { z } from 'zod';
 
 import { BugIndicatingError } from '#/_base/errors/errors';
 import type { StateKey } from '#/_base/state/stateRegistry';
-import type { Event2 } from '#/app/event/event2';
-import { registerEvent2Class, type Event2Class } from '#/app/event/event2';
+import { Event2, registerEvent2Class, type Event2Class } from '#/app/event/event2';
 import type { PartsTransformer, RecordDehydrator } from '#/wire/record';
 
 import { StateError, StateErrors } from './errors';
@@ -169,7 +168,9 @@ export function registerUndoableProtocol(protocol: UndoableProtocol): void {
   }
 }
 
-export function keepsUndoCheckpoints(key: ReplayableStateKey<any>): boolean {
+export function keepsUndoCheckpoints(
+  key: ReplayableStateKey<any>,
+): boolean {
   const undoable = key.replayable.undoable;
   return undoable !== undefined && undoable.onUndo === undefined;
 }
@@ -265,6 +266,46 @@ export function expandedModelAppliers(
       return;
     }
     ctx.undoToCheckpoint(event.count);
+  });
+  return expanded;
+}
+
+export function expandedRuntimeFolds(
+  owner: string,
+  undoable: boolean,
+  folds: ReadonlyMap<Event2Class<any, any>, StateFold<any, any>>,
+): ReadonlyMap<Event2Class<any, any>, StateFold<any, any>> {
+  if (!undoable) return folds;
+  if (undoableProtocol === undefined) {
+    throw new BugIndicatingError(
+      `Agent runtime '${owner}' is undoable but no undoable protocol is registered ` +
+        '(the contextMemory domain registers it at import time)',
+    );
+  }
+  const protocol = undoableProtocol;
+  if (folds.has(protocol.events.undo)) {
+    throw new BugIndicatingError(
+      `Undoable agent runtime '${owner}' must not fold the undo event itself`,
+    );
+  }
+  const expanded = new Map(folds);
+  const domainAppend = expanded.get(protocol.events.appendMessage);
+  expanded.set(protocol.events.appendMessage, (state, event, ctx) => {
+    if (protocol.isUndoAnchor(event.message)) {
+      ctx.checkpoint();
+      return;
+    }
+    return domainAppend?.(state, event, ctx);
+  });
+  for (const cls of [protocol.events.applyCompaction, protocol.events.clear]) {
+    const domain = expanded.get(cls);
+    expanded.set(cls, (state, event, ctx) => {
+      ctx.clearCheckpoints();
+      return domain?.(state, event, ctx);
+    });
+  }
+  expanded.set(protocol.events.undo, (_state, event, ctx) => {
+    if (protocol.isValidUndoCount(event.count)) ctx.undoToCheckpoint(event.count);
   });
   return expanded;
 }

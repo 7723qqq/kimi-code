@@ -1,29 +1,23 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
-import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { defineState } from '#/state/state';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 
-import type { IWorkspaceTrust } from './workspaceTrust';
-import { type WorkspaceTrustChange } from './workspaceTrust';
+import { IWorkspaceTrust, type WorkspaceTrustChange } from './workspaceTrust';
+import { deleteWorkspaceTrust, readWorkspaceTrust, writeWorkspaceTrust } from './trustRecord';
 
-const TRUST_SCOPE = 'workspace-trust';
-
-interface TrustRecord {
-  readonly root: string;
-  readonly trustedAt: number;
-}
-
-export const workspaceTrustTrustedKey = defineState<boolean>('workspaceTrust.trusted', () => false);
+export const workspaceTrustTrustedKey = defineState<boolean>(
+  'workspaceTrust.trusted',
+  () => false,
+);
 
 export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust {
   declare readonly _serviceBrand: undefined;
 
   readonly ready: Promise<void>;
   private readonly root: string;
-  private readonly storeKey: string;
   private readonly changeEmitter = this._register(new Emitter<WorkspaceTrustChange>());
   readonly onDidChange = this.changeEmitter.event;
 
@@ -35,7 +29,6 @@ export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust
     super();
     this.states.contributeState(workspaceTrustTrustedKey);
     this.root = workspace.cwd;
-    this.storeKey = encodeWorkDirKey(workspace.cwd);
     this.ready = this.initialize();
   }
 
@@ -58,26 +51,19 @@ export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust
 
   async trust(): Promise<void> {
     if (this.trusted) return;
-    await this.docs.set(TRUST_SCOPE, this.storeKey, {
-      root: this.root,
-      trustedAt: Date.now(),
-    });
+    await writeWorkspaceTrust(this.docs, this.root, Date.now());
     this.trusted = true;
     this.changeEmitter.fire({ trusted: true });
   }
 
   async untrust(): Promise<void> {
     if (!this.trusted) return;
-    await this.docs.delete(TRUST_SCOPE, this.storeKey);
+    await deleteWorkspaceTrust(this.docs, this.root);
     this.trusted = false;
     this.changeEmitter.fire({ trusted: false });
   }
 
   private async initialize(): Promise<void> {
-    try {
-      this.trusted = (await this.docs.get<TrustRecord>(TRUST_SCOPE, this.storeKey)) !== undefined;
-    } catch {
-      this.trusted = false;
-    }
+    this.trusted = await readWorkspaceTrust(this.docs, this.root);
   }
 }

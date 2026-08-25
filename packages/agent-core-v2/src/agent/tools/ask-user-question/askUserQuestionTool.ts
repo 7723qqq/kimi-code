@@ -1,13 +1,19 @@
-import type { z } from 'zod';
-
 import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { isAbortError } from '#/_base/utils/abort';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import type { QuestionAnsweredEvent, QuestionDismissedEvent } from '#/app/telemetry/events';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { QuestionAnsweredEvent, QuestionDismissedEvent } from '#/app/telemetry/events';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+
 import { ISessionQuestionService } from '#/session/question/question';
 import type {
   QuestionAnswers,
@@ -15,17 +21,10 @@ import type {
   QuestionResponse,
   QuestionResult,
 } from '#/session/question/question';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
-
 import {
+  AskUserQuestionInputSchema,
   AskUserQuestionInputSchemaWithBackground,
   IAskUserQuestionTool,
-  questionMultiSelect,
   questionUniquenessError,
   type AskUserQuestionInput,
 } from './ask-user-question';
@@ -37,20 +36,33 @@ const QUESTION_DISMISSED_MESSAGE = 'User dismissed the question without answerin
 const QUESTION_UNSUPPORTED_FAILURE_MESSAGE =
   'The connected client does not support interactive questions. Do NOT call this tool again. Ask the user directly in your text response instead.';
 
+const BACKGROUND_DESCRIPTION =
+  '- Set background=true when you can keep working without the answer. This starts a background question task and returns a task_id immediately. The answer arrives automatically in a later turn — you do not need to poll, sleep, or check on it. Continue with other work; never fabricate or predict the answer.';
+
+const BACKGROUND_UNAVAILABLE_MESSAGE =
+  'Background questions are not available for this agent because TaskList, TaskOutput, and TaskStop are not enabled.';
+
+const PARAMETERS_WITH_BACKGROUND = toInputJsonSchema(AskUserQuestionInputSchemaWithBackground);
+const PARAMETERS_FOREGROUND_ONLY = toInputJsonSchema(AskUserQuestionInputSchema);
+
 export class AskUserQuestionTool implements IAskUserQuestionTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'AskUserQuestion' as const;
-  readonly description: string;
-  readonly parameters: Record<string, unknown>;
 
   constructor(
     @ISessionQuestionService private readonly question: ISessionQuestionService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-  ) {
-    this.description = `${DESCRIPTION}- Set background=true when you can keep working without the answer. This starts a background question task and returns a task_id immediately. The answer arrives automatically in a later turn — you do not need to poll, sleep, or check on it. Continue with other work; never fabricate or predict the answer.`;
-    this.parameters = toInputJsonSchema(this.inputSchema());
+    @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
+  ) {}
+
+  get description(): string {
+    return `${DESCRIPTION}${this.allowBackground() ? BACKGROUND_DESCRIPTION : ''}`;
+  }
+
+  get parameters(): Record<string, unknown> {
+    return this.allowBackground() ? PARAMETERS_WITH_BACKGROUND : PARAMETERS_FOREGROUND_ONLY;
   }
 
   resolveExecution(args: AskUserQuestionInput): ToolExecution {
@@ -68,6 +80,10 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     args: AskUserQuestionInput,
     { toolCallId, signal, turnId, trace }: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
+    if (args.background === true && !this.allowBackground()) {
+      return { isError: true, output: BACKGROUND_UNAVAILABLE_MESSAGE };
+    }
+
     const uniquenessError = questionUniquenessError(args.questions);
     if (uniquenessError !== null) {
       return { isError: true, output: uniquenessError };
@@ -80,8 +96,12 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     return this.executeQuestion(args, { toolCallId, turnId, signal, trace });
   }
 
-  private inputSchema(): z.ZodType<AskUserQuestionInput> {
-    return AskUserQuestionInputSchemaWithBackground;
+  private allowBackground(): boolean {
+    return (
+      this.toolPolicy.isToolActive('TaskList') &&
+      this.toolPolicy.isToolActive('TaskOutput') &&
+      this.toolPolicy.isToolActive('TaskStop')
+    );
   }
 
   private executeInBackground(
@@ -102,8 +122,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     try {
       taskId = this.tasks.registerTask(
         new QuestionBackgroundTask(
-          (taskSignal) =>
-            this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal, trace }),
+          (taskSignal) => this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal, trace }),
           description,
           { questionCount: args.questions.length, toolCallId },
         ),
@@ -152,7 +171,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
               label: o.label,
               description: o.description,
             })),
-            multiSelect: questionMultiSelect(q),
+            multiSelect: q.multi_select,
           })),
         },
         { signal, agentId: this.scopeContext.agentId },
@@ -214,10 +233,9 @@ function dismissedQuestionResult(): ExecutableToolResult {
   };
 }
 
-function normalizeQuestionResult(result: QuestionResult): {
-  readonly answers: QuestionAnswers;
-  readonly method?: QuestionAnswerMethod | undefined;
-} | null {
+function normalizeQuestionResult(
+  result: QuestionResult,
+): { readonly answers: QuestionAnswers; readonly method?: QuestionAnswerMethod | undefined } | null {
   if (result === null) return null;
   if (isQuestionResponse(result)) {
     return {

@@ -1,10 +1,8 @@
 import {
-  applyGoogleGeminiConfig,
   applyOpenPlatformConfig,
   fetchOpenPlatformModels,
   filterModelsByPrefix,
   getOpenPlatformById,
-  GoogleOAuthManager,
   OpenPlatformApiError,
   type KimiRegion,
   type ManagedKimiCodeModelInfo,
@@ -13,10 +11,6 @@ import {
 } from '@moonshot-ai/kimi-code-oauth';
 import { log } from '@moonshot-ai/kimi-code-sdk';
 
-const GOOGLE_GEMINI_PROVIDER_ID = 'google-gemini';
-const GOOGLE_GEMINI_DEFAULT_MODEL_ID = 'gemini-3.7-flash';
-
-import { t } from '#/i18n';
 import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
@@ -44,16 +38,6 @@ export async function handleLoginCommand(host: SlashCommandHost): Promise<void> 
   if (platformId === 'kimi-code' || platformId === KIMI_CODE_GLOBAL_PLATFORM_VALUE) {
     const region: KimiRegion = platformId === KIMI_CODE_GLOBAL_PLATFORM_VALUE ? 'global' : 'mainland-cn';
     await handleKimiCodeOAuthLogin(host, region);
-    return;
-  }
-
-  if (platformId === 'google-antigravity-sync') {
-    await handleGoogleAntigravitySync(host);
-    return;
-  }
-
-  if (platformId === 'google-oauth') {
-    await handleGoogleOAuthLogin(host);
     return;
   }
 
@@ -89,7 +73,7 @@ async function handleKimiCodeOAuthLogin(
       },
     });
     refreshKimiRegion();
-    spinner?.stop({ ok: true, label: t('tui.statusMessages.loggedIn') });
+    spinner?.stop({ ok: true, label: 'Logged in.' });
     spinner = undefined;
     try {
       await host.authFlow.refreshConfigAfterLogin();
@@ -104,15 +88,13 @@ async function handleKimiCodeOAuthLogin(
       already_logged_in: alreadyLoggedIn,
     });
     if (alreadyLoggedIn) {
-      host.showStatus(t('tui.statusMessages.alreadyLoggedInRefreshed'), 'success');
+      host.showStatus('Already logged in. Model configuration refreshed.', 'success');
     }
   } catch (error) {
     const cancelled = controller.signal.aborted;
     spinner?.stop({
       ok: false,
-      label: cancelled
-        ? t('tui.statusMessages.loginCancelled')
-        : t('tui.statusMessages.loginFailed'),
+      label: cancelled ? 'Login cancelled.' : 'Login failed.',
     });
     spinner = undefined;
     if (cancelled) return;
@@ -131,145 +113,15 @@ async function handleKimiCodeOAuthLogin(
   }
 }
 
-async function handleGoogleAntigravitySync(host: SlashCommandHost): Promise<void> {
-  const manager = new GoogleOAuthManager();
-  const token = await manager.importAntigravityCredentials();
-  if (!token) {
-    host.showError('Failed to import Google credentials from ~/.gemini/oauth_creds.json');
-    return;
-  }
-
-  const config = await host.harness.getConfig();
-  applyGoogleGeminiConfig(config as ManagedKimiConfigShape, {
-    authType: 'oauth',
-    selectedModel: GOOGLE_GEMINI_DEFAULT_MODEL_ID,
-    thinking: true,
-    effort: 'high',
-  });
-
-  await host.harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-    defaultModel: config.defaultModel,
-    thinking: config.thinking,
-  });
-
-  try {
-    await host.authFlow.refreshConfigAfterLogin();
-  } catch (refreshError) {
-    const message = formatErrorMessage(refreshError);
-    host.showError(`Authentication synced, but failed to refresh config: ${message}`);
-    return;
-  }
-
-  const detection = GoogleOAuthManager.detectAntigravityCredentials();
-  host.track('login', {
-    provider: GOOGLE_GEMINI_PROVIDER_ID,
-    method: 'antigravity_sync',
-  });
-  host.showStatus(
-    `Google Antigravity synced (${detection.email ?? 'active account'}) · default model: ${config.defaultModel}`,
-    'success',
-  );
-}
-
-async function handleGoogleOAuthLogin(host: SlashCommandHost): Promise<void> {
-  const detection = GoogleOAuthManager.detectAntigravityCredentials();
-  if (detection.available) {
-    return handleGoogleAntigravitySync(host);
-  }
-
-  const manager = new GoogleOAuthManager();
-  const alreadyLoggedIn = await manager.hasToken();
-
-  let spinner: LoginProgressSpinnerHandle | undefined;
-  const controller = new AbortController();
-  const cancelLogin = (): void => {
-    controller.abort();
-  };
-  host.cancelInFlight = cancelLogin;
-  try {
-    await manager.startLoginFlow({
-      signal: controller.signal,
-      onAuthUrl: (data) => {
-        // showLoginAuthorizationPrompt opens the browser itself (once) and
-        // renders the URL box; Google's browser flow has no user code.
-        spinner = host.showLoginAuthorizationPrompt({
-          verificationUriComplete: data.authUrl,
-          title: t('tui.chrome.deviceCodeBox.googleTitle'),
-        });
-      },
-    });
-
-    spinner?.stop({ ok: true, label: 'Google login successful.' });
-    spinner = undefined;
-
-    const config = await host.harness.getConfig();
-    applyGoogleGeminiConfig(config as ManagedKimiConfigShape, {
-      authType: 'oauth',
-      selectedModel: GOOGLE_GEMINI_DEFAULT_MODEL_ID,
-      thinking: true,
-      effort: 'high',
-    });
-
-    await host.harness.setConfig({
-      providers: config.providers,
-      models: config.models,
-      defaultModel: config.defaultModel,
-      thinking: config.thinking,
-    });
-
-    try {
-      await host.authFlow.refreshConfigAfterLogin();
-    } catch (refreshError) {
-      const message = formatErrorMessage(refreshError);
-      host.showError(`Authentication successful, but failed to refresh config: ${message}`);
-      return;
-    }
-
-    host.track('login', {
-      provider: GOOGLE_GEMINI_PROVIDER_ID,
-      method: 'oauth',
-      already_logged_in: alreadyLoggedIn,
-    });
-    host.showStatus(`Google login complete · default model: ${config.defaultModel}`, 'success');
-  } catch (error) {
-    const cancelled = controller.signal.aborted;
-    spinner?.stop({
-      ok: false,
-      label: cancelled
-        ? t('tui.statusMessages.loginCancelled')
-        : t('tui.statusMessages.googleLoginFailed'),
-    });
-    spinner = undefined;
-    if (cancelled) return;
-    log.warn('google login failed', {
-      providerName: GOOGLE_GEMINI_PROVIDER_ID,
-      alreadyLoggedIn,
-      sessionId: host.session?.id,
-      error,
-    });
-    const message = formatErrorMessage(error);
-    host.showError(`Google login failed: ${message}`);
-  } finally {
-    if (host.cancelInFlight === cancelLogin) {
-      host.cancelInFlight = undefined;
-    }
-  }
-}
-
 async function handleOpenPlatformLogin(
   host: SlashCommandHost,
   platform: OpenPlatformDefinition,
 ): Promise<void> {
   const consoleHost = platform.consoleUrl?.replace(/^https?:\/\//, '') ?? '';
-  const platformName =
-    consoleHost.length > 0
-      ? `Kimi Platform (${consoleHost})`
-      : t('tui.statusMessages.kimiPlatformDisplay');
+  const platformName = consoleHost.length > 0 ? `Kimi Platform (${consoleHost})` : 'Kimi Platform';
   const subtitleLines = [
     `${'base_url'.padEnd(12)}${platform.baseUrl}`,
-    `${t('tui.statusMessages.savedToLabel').padEnd(12)}~/.kimi-code/config.toml`,
+    `${'saved to'.padEnd(12)}~/.kimi-code/config.toml`,
   ];
   const apiKey = await promptApiKey(host, platformName, subtitleLines);
   if (apiKey === undefined) return;
@@ -292,7 +144,9 @@ async function handleOpenPlatformLogin(
       error instanceof OpenPlatformApiError &&
       error.status === 401
     ) {
-      host.showStatus(t('tui.statusMessages.hintUseKimiCodeInstead'));
+      host.showStatus(
+        'Hint: If your API key was obtained from Kimi Code, please select "Kimi Code" instead.',
+      );
     }
     return;
   } finally {
@@ -302,7 +156,7 @@ async function handleOpenPlatformLogin(
   }
 
   if (models.length === 0) {
-    host.showError(t('tui.statusMessages.noModelsForPlatform'));
+    host.showError('No models available for this platform.');
     return;
   }
 
@@ -356,7 +210,7 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
     options.push({
       value: DEFAULT_OAUTH_PROVIDER_NAME,
       label: PRODUCT_NAME,
-      description: t('tui.statusMessages.oauthLoginDescription'),
+      description: 'OAuth login',
     });
   }
   for (const id of apiKeyProviderIds) {
@@ -369,7 +223,7 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
   }
 
   if (options.length === 0) {
-    host.showStatus(t('tui.statusMessages.nothingToLogout'));
+    host.showStatus('Nothing to logout.');
     return;
   }
 
@@ -381,16 +235,12 @@ export async function handleLogoutCommand(host: SlashCommandHost): Promise<void>
 
   if (target === DEFAULT_OAUTH_PROVIDER_NAME) {
     await host.harness.auth.logout(DEFAULT_OAUTH_PROVIDER_NAME);
-  } else if (target === GOOGLE_GEMINI_PROVIDER_ID) {
-    await new GoogleOAuthManager().logout();
-    await host.harness.removeProvider(target);
   } else {
     await host.harness.removeProvider(target);
   }
 
   if (target === currentProvider) {
     await host.authFlow.refreshConfigAfterLogout();
-    await host.authFlow.clearActiveSessionAfterLogout();
   } else {
     const updated = await host.harness.getConfig({ reload: true });
     host.setAppState({

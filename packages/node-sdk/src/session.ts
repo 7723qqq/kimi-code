@@ -1,9 +1,12 @@
-import type { AgentContextData } from '@moonshot-ai/agent-core-v2';
-import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2';
+import {
+  ErrorCodes,
+  KimiError,
+  type AgentContextData,
+  type KimiErrorCode,
+  type SwarmModeTrigger,
+} from '@moonshot-ai/agent-core';
 
 import { type ApprovalHandler, type Event, type QuestionHandler } from '#/events';
-import { ErrorCodes, KimiError } from '#/legacy';
-import type { KimiErrorCode } from '#/legacy';
 import type { SDKRpcClientBase } from '#/rpc';
 import type {
   AddAdditionalDirOptions,
@@ -18,6 +21,7 @@ import type {
   GoalSnapshot,
   GoalToolResult,
   JsonObject,
+  McpServerConfig,
   McpServerInfo,
   McpStartupMetrics,
   PermissionMode,
@@ -134,15 +138,14 @@ export class Session {
     this.rpc.setQuestionHandler(this.id, handler);
   }
 
-  async prompt(
-    input: string | PromptInput,
-    options?: { disabledTools?: readonly string[]; promptId?: string },
-  ): Promise<void> {
+  async prompt(input: string | PromptInput, options?: { promptId?: string }): Promise<void> {
     this.ensureOpen();
+    if (options?.promptId !== undefined && options.promptId.length === 0) {
+      throw new TypeError('promptId must not be empty');
+    }
     await this.rpc.prompt({
       sessionId: this.id,
       input: normalizePromptInput(input),
-      disabledTools: options?.disabledTools,
       promptId: options?.promptId,
     });
   }
@@ -252,6 +255,21 @@ export class Session {
     await this.rpc.setModel({ sessionId: this.id, model: normalized });
   }
 
+  async getRuntime(): Promise<AgentRuntimeBinding> {
+    this.ensureOpen();
+    return this.rpc.getRuntime({ sessionId: this.id });
+  }
+
+  async switchRuntime(runtimeId: string): Promise<AgentRuntimeBinding> {
+    this.ensureOpen();
+    const normalized = normalizeRequiredString(
+      runtimeId,
+      'Session runtime cannot be empty',
+      ErrorCodes.REQUEST_INVALID,
+    );
+    return this.rpc.switchRuntime({ sessionId: this.id, runtimeId: normalized });
+  }
+
   async setThinking(effort: ThinkingEffort): Promise<void> {
     this.ensureOpen();
     const normalized = normalizeRequiredString(
@@ -311,7 +329,10 @@ export class Session {
   async setSwarmMode(enabled: boolean, trigger: SwarmModeTrigger): Promise<void> {
     this.ensureOpen();
     if (typeof enabled !== 'boolean') {
-      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Session swarm mode must be a boolean');
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'Session swarm mode must be a boolean',
+      );
     }
     if (enabled) {
       await this.rpc.setSwarmMode({ sessionId: this.id, enabled: true, trigger });
@@ -329,21 +350,6 @@ export class Session {
       );
     }
     await this.rpc.setTowerMode({ sessionId: this.id, enabled });
-  }
-
-  async getRuntime(): Promise<AgentRuntimeBinding> {
-    this.ensureOpen();
-    return this.rpc.getRuntime({ sessionId: this.id });
-  }
-
-  async switchRuntime(runtimeId: string): Promise<AgentRuntimeBinding> {
-    this.ensureOpen();
-    const normalized = normalizeRequiredString(
-      runtimeId,
-      'Runtime id cannot be empty',
-      ErrorCodes.REQUEST_INVALID,
-    );
-    return this.rpc.switchRuntime({ sessionId: this.id, runtimeId: normalized });
   }
 
   async getPlan(): Promise<SessionPlan> {
@@ -449,7 +455,10 @@ export class Session {
    * `<sessionDir>/tasks/<taskId>/output.log`. `tail` caps the returned
    * string to that many trailing characters.
    */
-  async getBackgroundTaskOutput(taskId: string, options: { tail?: number } = {}): Promise<string> {
+  async getBackgroundTaskOutput(
+    taskId: string,
+    options: { tail?: number } = {},
+  ): Promise<string> {
     this.ensureOpen();
     const trimmedTaskId = normalizeRequiredString(
       taskId,
@@ -470,7 +479,10 @@ export class Session {
    * for unknown or already-terminal task ids are no-ops at the core
    * level — this method does not throw in those cases.
    */
-  async stopBackgroundTask(taskId: string, options: { reason?: string } = {}): Promise<void> {
+  async stopBackgroundTask(
+    taskId: string,
+    options: { reason?: string } = {},
+  ): Promise<void> {
     this.ensureOpen();
     const trimmedTaskId = normalizeRequiredString(
       taskId,
@@ -515,13 +527,12 @@ export class Session {
   }
 
   /**
-   * Used by `kimi -p` after the main agent's turn ends with
-   * `reason === 'completed'`. Returns `'finish'` when the run may exit, or
-   * `'continue'` when the caller must keep the session alive so a
-   * background-task completion can steer the main agent into a new turn.
-   * Policy is selected by `background.print_background_mode`
-   * (`'exit' | 'drain' | 'steer'`); when unset it falls back to the legacy
-   * `keep_alive_on_exit` mapping (`true ⇒ 'drain'`).
+   * Used by `kimi -p` after the main agent's turn ends with `reason ===
+   * 'completed'`. Returns `'finish'` when the run may exit, or `'continue'` when
+   * the caller must keep the session alive so a background-task completion can
+   * steer the main agent into a new turn. Policy is selected by
+   * `background.print_background_mode` (`'exit' | 'drain' | 'steer'`); when unset
+   * it falls back to the legacy `keep_alive_on_exit` mapping (`true ⇒ 'drain'`).
    */
   async handlePrintMainTurnCompleted(): Promise<'finish' | 'continue'> {
     this.ensureOpen();
@@ -579,9 +590,33 @@ export class Session {
     return this.rpc.getMcpStartupMetrics({ sessionId: this.id });
   }
 
-  async reconnectMcpServer(name: string): Promise<void> {
+  /**
+   * Connect an MCP server in this live session. `persist: true` also writes
+   * the user-level `mcp.json` (the entry becomes a mutable `global` one);
+   * otherwise it stays a session-local `caller` entry.
+   */
+  async addMcpServer(
+    server: McpServerConfig,
+    options: { readonly persist?: boolean } = {},
+  ): Promise<McpServerInfo> {
     this.ensureOpen();
-    await this.rpc.reconnectMcpServer({ sessionId: this.id, name });
+    return this.rpc.addSessionMcpServer({
+      sessionId: this.id,
+      server,
+      persist: options.persist,
+    });
+  }
+
+  /**
+   * Reconnect a server. Without `config` the session re-resolves the current
+   * effective config from the unified registry (file edits and plugin
+   * enable/disable land here). With `config`, the entry is replaced with the
+   * given full config — a plugin-contributed server rejects this because its
+   * config is read-only, owned by the plugin manifest.
+   */
+  async reconnectMcpServer(name: string, config?: McpServerConfig): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.reconnectMcpServer({ sessionId: this.id, name, config });
   }
 
   async listPlugins(): Promise<readonly PluginSummary[]> {
@@ -620,7 +655,11 @@ export class Session {
     return capabilityRpc(this.rpc).installCapability(id);
   }
 
-  async setPluginMcpServerEnabled(id: string, server: string, enabled: boolean): Promise<void> {
+  async setPluginMcpServerEnabled(
+    id: string,
+    server: string,
+    enabled: boolean,
+  ): Promise<void> {
     this.ensureOpen();
     await this.rpc.setPluginMcpServerEnabled(id, server, enabled);
   }
@@ -664,7 +703,10 @@ export class Session {
     const normalizedPluginId = pluginId.trim();
     const normalizedCommandName = commandName.trim();
     if (normalizedPluginId.length === 0 || normalizedCommandName.length === 0) {
-      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Plugin id and command name cannot be empty');
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'Plugin id and command name cannot be empty',
+      );
     }
     const commandArgs = normalizeOptionalString(args);
     await this.rpc.activatePluginCommand({
@@ -776,7 +818,11 @@ function normalizePromptInput(input: string | PromptInput): PromptInput {
   return input;
 }
 
-function normalizeRequiredString(value: string, message: string, code: KimiErrorCode): string {
+function normalizeRequiredString(
+  value: string,
+  message: string,
+  code: KimiErrorCode,
+): string {
   const normalized = value.trim();
   if (normalized.length === 0) {
     throw new KimiError(code, message);

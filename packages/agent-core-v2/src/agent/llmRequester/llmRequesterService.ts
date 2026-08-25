@@ -1,9 +1,7 @@
 import { createHash } from 'node:crypto';
-import { IInstantiationService } from '#/_base/di/instantiation';
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { defineState } from '#/state/state';
-import { IAgentMicroCompactionService } from '#/agent/microCompaction/microCompaction';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import {
   IAgentContextProjectorService,
@@ -19,13 +17,13 @@ import { IAgentMediaResolverService } from '#/agent/media/mediaResolver';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IConfigService } from '#/app/config/config';
 import {
+  APIContextOverflowError,
   APIRequestTooLargeError,
   APIStatusError,
   classifyApiError,
   isImageFormatError,
   isRecoverableRequestStructureError,
   isRetryableGenerateError,
-  isUnknownCacheKeyFieldError,
 } from '#/kosong/contract/errors';
 import { isToolCall, type Message, type StreamedMessagePart } from '#/kosong/contract/message';
 import { type ThinkingEffort } from '#/kosong/contract/provider';
@@ -75,8 +73,15 @@ import {
   type LlmRequestToolSchema,
 } from './llmRequestOps';
 import { isAbortError } from '#/_base/utils/abort';
+import { parseBooleanEnv } from '#/_base/utils/env';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
-import { retryErrorFields } from '#/_base/utils/retry';
+import {
+  readRetryAfterMs,
+  retryBackoffDelay,
+  retryErrorFields,
+  sleepForRetry,
+} from '#/_base/utils/retry';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 
 const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
@@ -84,6 +89,8 @@ const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
 };
 
 const noopOnPart: AgentLLMRequestPartHandler = () => {};
+
+export const KIMI_CODE_INFINITE_RETRY_ENV = 'KIMI_CODE_INFINITE_RETRY';
 
 interface ResolvedLLMRequest {
   readonly requester: ModelRequester;
@@ -142,7 +149,6 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   declare readonly _serviceBrand: undefined;
 
   private readonly toolCallIdNormalizer = new ToolCallIdNormalizer();
-  private readonly cacheKeyRejectedModels = new Set<string>();
 
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
@@ -161,7 +167,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentStateService private readonly states: IAgentStateService,
-    @IInstantiationService private readonly instantiation: IInstantiationService,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
   ) {
     this.states.contributeState(llmRequestTraceKey);
     this.states.contributeState(llmRequesterLastConfigLogSignatureKey);
@@ -305,14 +311,6 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     }
   }
 
-  private microCompactionService: IAgentMicroCompactionService | undefined;
-  private get microCompaction(): IAgentMicroCompactionService {
-    this.microCompactionService ??= this.instantiation.invokeFunction((accessor) =>
-      accessor.get(IAgentMicroCompactionService),
-    );
-    return this.microCompactionService;
-  }
-
   private async runRequest(
     request: ResolvedLLMRequest,
     onPart: AgentLLMRequestPartHandler,
@@ -320,8 +318,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     onRequestTrace: (traceId: string | undefined) => void,
   ): Promise<AgentLLMRequestFinish> {
     this.toolCallIdNormalizer.seedFrom(this.context.get());
-    const compacted = this.microCompaction.compact(request.messages);
-    const shaped = this.toolSelect.shapeHistory(compacted);
+    const shaped = this.toolSelect.shapeHistory(request.messages);
     const recoveredStrip = this.mediaStripSnapshotForTurn(request.source);
     let policy: ProjectionPolicy | undefined =
       recoveredStrip !== undefined
@@ -329,9 +326,6 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         : this.isRecoveryTurn(this.mediaDegradedTurns, request.source)
           ? { media: 'degraded' }
           : undefined;
-    if (this.cacheKeyRejectedModels.has(request.modelAlias)) {
-      policy = { ...policy, withoutCacheKey: true };
-    }
     const captureMediaStripPolicy = (): { readonly strip: MediaStripSnapshot } => {
       const snapshot = this.projector.captureMediaStripSnapshot(shaped);
       this.markMediaStrippedRecoveryTurn(snapshot, request.source);
@@ -381,10 +375,8 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       };
 
       try {
-        const attemptParams =
-          policy?.withoutCacheKey === true ? withoutCacheKeyParams(request.params) : request.params;
         for await (const event of request.requester.request(input, signal, {
-          ...attemptParams,
+          ...request.params,
           onTraceId: setTraceId,
         })) {
           switch (event.type) {
@@ -453,6 +445,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
       };
     };
 
+    let infiniteRetryAttempt = 0;
     for (;;) {
       try {
         return await run(policy);
@@ -464,10 +457,37 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
           signal,
           captureMediaStripPolicy,
         );
-        if (nextPolicy === undefined) throw error;
-        policy = nextPolicy;
+        if (nextPolicy !== undefined) {
+          policy = nextPolicy;
+          continue;
+        }
+        const raw = unwrapErrorCause(error);
+        if (
+          !this.infiniteRetryEnabled ||
+          isAbortError(error) ||
+          signal?.aborted === true ||
+          raw instanceof APIContextOverflowError
+        ) {
+          throw error;
+        }
+        infiniteRetryAttempt += 1;
+        const delayMs =
+          readRetryAfterMs(raw) ??
+          retryBackoffDelay(infiniteRetryAttempt - 1);
+        this.log.warn('llm request failed; retrying indefinitely (KIMI_CODE_INFINITE_RETRY)', {
+          model: request.model.name,
+          ...request.logFields,
+          attempt: infiniteRetryAttempt,
+          delayMs,
+          ...retryErrorFields(error),
+        });
+        await sleepForRetry(delayMs, signal);
       }
     }
+  }
+
+  private get infiniteRetryEnabled(): boolean {
+    return parseBooleanEnv(this.bootstrap.getEnv(KIMI_CODE_INFINITE_RETRY_ENV)) === true;
   }
 
   private nextProjectionPolicyForError(
@@ -520,15 +540,6 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
         ...request.logFields,
       });
       return { ...policy, structure: 'strict' };
-    }
-    if (policy?.withoutCacheKey !== true && isUnknownCacheKeyFieldError(raw)) {
-      signal?.throwIfAborted();
-      this.log.warn('provider rejected prompt_cache_key as an unknown field; resending without it', {
-        model: request.model.name,
-        ...request.logFields,
-      });
-      this.cacheKeyRejectedModels.add(request.modelAlias);
-      return { ...policy, withoutCacheKey: true };
     }
     return undefined;
   }
@@ -841,12 +852,6 @@ function projectionNameOf(policy: ProjectionPolicy | undefined): LlmRequestProje
   if (policy.media === 'degraded') return 'media-degraded';
   if (typeof policy.media === 'object') return 'media-stripped';
   return undefined;
-}
-
-function withoutCacheKeyParams(params: ModelRequestParams): ModelRequestParams {
-  if (params.cacheKey === undefined) return params;
-  const { cacheKey: _dropped, ...rest } = params;
-  return rest;
 }
 
 function projectionField(fields: AgentLLMRequestLogFields): LlmRequestProjection | undefined {

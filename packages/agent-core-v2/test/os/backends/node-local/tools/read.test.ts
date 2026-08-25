@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PathSecurityError } from '#/tool/path-access';
 import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
-import type { ISessionSkillCatalog } from '#/session/sessionSkillCatalog/skillCatalog';
+import type { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
@@ -14,7 +14,6 @@ import {
   TRANSCODE_MAX_BYTES,
 } from '#/agent/tools/os/read/read';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
-import { IMediaReadContext } from '#/agent/media/mediaReadContext';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
@@ -87,9 +86,7 @@ function createReadTool(
     inspect: () => runtime,
     acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }),
   };
-  return new ReadTool(resolver, workspace, skillCatalog, {
-    getMediaReadContext: () => undefined,
-  } as IMediaReadContext);
+  return new ReadTool(resolver, workspace, skillCatalog);
 }
 
 function createSpiedFs(content: string) {
@@ -418,7 +415,7 @@ describe('ReadTool', () => {
     const output = toolContentString(result);
 
     expect(result.isError).toBe(true);
-    expect(output).toBe('Media reading is unavailable in the current runtime.');
+    expect(output).toBe('"/tmp/sample.png" is an image file. Only text files can be read.');
     expect(readText).not.toHaveBeenCalled();
   });
 
@@ -450,7 +447,7 @@ describe('ReadTool', () => {
     const output = toolContentString(result);
 
     expect(result.isError).toBe(true);
-    expect(output).toMatch(/Media reading is unavailable/);
+    expect(output).toMatch(/image file/i);
     expect(readText).not.toHaveBeenCalled();
   });
 
@@ -471,7 +468,7 @@ describe('ReadTool', () => {
     const output = toolContentString(result);
 
     expect(result.isError).toBe(true);
-    expect(output).toBe('Media reading is unavailable in the current runtime.');
+    expect(output).toBe('"/tmp/sample.mp4" is a video file. Only text files can be read.');
     expect(readText).not.toHaveBeenCalled();
   });
 
@@ -898,7 +895,6 @@ describe('ReadTool', () => {
       runtime,
       stubWorkspaceContext('/workspace'),
       { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
-      { getMediaReadContext: () => undefined } as IMediaReadContext,
     );
     const execution = tool.resolveExecution({ path: '/workspace/a.txt' });
     expect('execute' in execution).toBe(true);

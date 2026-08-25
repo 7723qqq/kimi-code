@@ -5,6 +5,7 @@ import * as retry from 'retry';
 import { isUserCancellation } from '#/_base/utils/abort';
 import { setClampedTimeout } from '#/_base/utils/timer';
 import { BugIndicatingError, Error2, ErrorCodes } from '#/errors';
+import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
 import type { SessionSwarmRunResult, SessionSwarmTask } from './sessionSwarm';
 
 export interface AgentRunAttemptOptions {
@@ -22,8 +23,7 @@ export interface AgentRunAttemptOptions {
 export interface AgentSpawnAttemptOptions extends AgentRunAttemptOptions {
   readonly profileName: string;
   readonly swarmItem?: string;
-  readonly binding?: { readonly model: string; readonly thinking?: string };
-  readonly fork?: boolean;
+  readonly plan: SubagentSpawnPlan;
 }
 
 export type AgentRunAttemptHandle = {
@@ -293,8 +293,7 @@ export class AgentRunBatch<T> {
         const spawnOptions: AgentSpawnAttemptOptions = {
           profileName: task.profileName,
           swarmItem: task.swarmItem,
-          binding: task.binding,
-          fork: task.kind === 'spawn' ? task.fork : undefined,
+          plan: task.plan,
           ...runOptions,
         };
         handle = await this.launcher.spawn(spawnOptions);

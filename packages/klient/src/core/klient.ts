@@ -54,7 +54,7 @@ export function createKlientFromChannel(
 ): Klient {
   const validate = options.validate ?? true;
 
-  const call: ScopedCaller = async (scope, service, method, args) => {
+  const call: ScopedCaller = async (scope, service, method, args, options) => {
     const procedure = globalContract[service]?.[method];
     if (procedure === undefined) {
       // A facade method without a contract entry is a klient bug, not a wire error.
@@ -65,7 +65,7 @@ export function createKlientFromChannel(
     }
     const name = `${service}.${method}`;
     const wireArgs = validate ? parseInput(name, procedure, args) : args;
-    const data = await channel.call(scope, service, method, wireArgs);
+    const data = await channel.call(scope, service, method, wireArgs, options);
     return validate ? parseOutput(name, procedure, data) : data;
   };
 

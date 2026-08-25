@@ -8,23 +8,21 @@ import { buildUsageReportLines, UsagePanelComponent, type ManagedUsageReport } f
 import { isExperimentalFlagEnabled } from './experimental-flags';
 import {
   FEEDBACK_ISSUE_URL,
+  FEEDBACK_STATUS_CANCELLED,
+  FEEDBACK_STATUS_FALLBACK,
+  FEEDBACK_STATUS_NETWORK_ERROR,
+  FEEDBACK_STATUS_NOT_SIGNED_IN,
+  FEEDBACK_STATUS_SUBMITTING,
+  FEEDBACK_STATUS_SUCCESS,
+  FEEDBACK_STATUS_UPLOAD_FAILED,
   FEEDBACK_TELEMETRY_EVENT,
   feedbackIdLine,
   feedbackSessionLine,
-  getFeedbackStatusCancelled,
-  getFeedbackStatusFallback,
-  getFeedbackStatusNetworkError,
-  getFeedbackStatusNotSignedIn,
-  getFeedbackStatusSubmitting,
-  getFeedbackStatusSuccess,
-  getFeedbackStatusUploadFailed,
   kimiCodeSignupUrl,
   withFeedbackVersionPrefix,
 } from '../constant/feedback';
 import { DEFAULT_OAUTH_PROVIDER_NAME, isManagedUsageProvider } from '../constant/kimi-tui';
 import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
-import { detectNativeInstall } from '#/cli/update/source';
-import { nativeToolsStatus } from '#/native/native-require';
 import { formatErrorMessage } from '../utils/event-payload';
 import { openUrl } from '#/utils/open-url';
 import { promptFeedbackAttachment, promptFeedbackInput } from './prompts';
@@ -53,11 +51,11 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
   } catch {
     // The sign-in state is unreadable — keep the feedback entry usable by
     // falling back to GitHub Issues instead of failing the command.
-    fallback(getFeedbackStatusFallback());
+    fallback(FEEDBACK_STATUS_FALLBACK);
     return;
   }
   if (!signedIn) {
-    host.showStatus(getFeedbackStatusNotSignedIn());
+    host.showStatus(FEEDBACK_STATUS_NOT_SIGNED_IN);
     host.showStatus(kimiCodeSignupUrl());
     host.showStatus(FEEDBACK_ISSUE_URL);
     return;
@@ -66,19 +64,19 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
   // Stage 1: collect the free-form feedback text.
   const input = await promptFeedbackInput(host);
   if (input === undefined) {
-    host.showStatus(getFeedbackStatusCancelled());
+    host.showStatus(FEEDBACK_STATUS_CANCELLED);
     return;
   }
 
   // Stage 2: ask whether to attach diagnostics (logs / codebase).
   const level = await promptFeedbackAttachment(host);
   if (level === undefined) {
-    host.showStatus(getFeedbackStatusCancelled());
+    host.showStatus(FEEDBACK_STATUS_CANCELLED);
     return;
   }
 
   const version = withFeedbackVersionPrefix(host.state.appState.version);
-  const spinner = host.showLoginProgressSpinner(getFeedbackStatusSubmitting());
+  const spinner = host.showLoginProgressSpinner(FEEDBACK_STATUS_SUBMITTING);
   // Guarantee the spinner's underlying setInterval is always cleared, even when
   // submitFeedback throws — otherwise the interval (and its per-frame
   // requestRender) leaks for the rest of the session.
@@ -99,7 +97,7 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
 
     if (res.kind !== 'ok') {
       stopSpinner({ ok: false, label: res.message });
-      fallback(getFeedbackStatusFallback());
+      fallback(FEEDBACK_STATUS_FALLBACK);
       return;
     }
 
@@ -114,16 +112,16 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
       attachmentFailed = true;
     }
 
-    stopSpinner({ ok: true, label: getFeedbackStatusSuccess() });
+    stopSpinner({ ok: true, label: FEEDBACK_STATUS_SUCCESS });
     host.showStatus(feedbackSessionLine(host.state.appState.sessionId));
     host.showStatus(feedbackIdLine(res.feedbackId));
     host.track(FEEDBACK_TELEMETRY_EVENT);
     if (attachmentFailed) {
-      host.showStatus(getFeedbackStatusUploadFailed());
+      host.showStatus(FEEDBACK_STATUS_UPLOAD_FAILED);
     }
   } catch (error) {
-    stopSpinner({ ok: false, label: getFeedbackStatusNetworkError() });
-    fallback(getFeedbackStatusFallback());
+    stopSpinner({ ok: false, label: FEEDBACK_STATUS_NETWORK_ERROR });
+    fallback(FEEDBACK_STATUS_FALLBACK);
     throw error;
   }
 }
@@ -170,7 +168,6 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     loadManagedUsageReport(host),
   ]);
   const appState = host.state.appState;
-  const install = detectNativeInstall();
   const reportArgs = {
     version: appState.version,
     model: appState.model,
@@ -190,8 +187,6 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     statusError: runtimeStatus.error,
     managedUsage: managedUsage?.usage,
     managedUsageError: managedUsage?.error,
-    nativeTools: nativeToolsStatus(),
-    packagedEngine: install.native ? install.kind : undefined,
   };
   const panel = new UsagePanelComponent(() => buildStatusReportLines(reportArgs), 'primary', ' Status ');
   host.state.transcriptContainer.addChild(panel);

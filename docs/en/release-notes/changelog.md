@@ -10,30 +10,20 @@ This page documents the changes in each Kimi Code CLI release.
 
 ### Features
 
-- Support OAuth login through both kimi.ai and kimi.com.
-- Add the WaitFor tool — the agent can wait for a background task to finish within the current turn instead of ending the turn and being re-invoked. WaitFor tool calls show a quiet-line summary of completed tasks, timeouts, and running counts.
-- Add 13 data sources to the official Kimi Datasource plugin — Chinese government data (NDA/NBS) and standards (GB/HB/DB/TT), eight international organization datasets (WHO, FAO, UNSD, ECB, Eurostat, UNICEF, OECD, FRED), Xinhua Finance, and Caixin. Update the plugin from the Official tab in `/plugins`.
-- web: Add a Pin action to the chat header more-menu to pin the current session to the sidebar pinned section, and drag the divider between the pinned section and the session list to resize both areas.
-- web: Collapse long `!` shell command output instead of flooding the transcript. Press `Ctrl-O` to expand or collapse it together with tool output.
-- web: Make skill-activation turns undoable so they can be withdrawn and resent.
+- Support two OAuth login methods — kimi.ai and kimi.com.
+- Add the WaitFor tool: the agent can now wait for a background task to finish within the current turn instead of ending the turn and being re-invoked.
+- Add 13 data sources to the official Kimi Datasource plugin — Chinese government data (NDA/NBS) and standards (GB/HB/DB/TT), eight international organization datasets (WHO, FAO, UNSD, ECB, Eurostat, UNICEF, OECD, FRED), Xinhua Finance, and Caixin. Update the plugin from the Official tab in /plugins.
+- web: Add a Pin action to the chat header more-menu.
 
 ### Polish
 
-- Sub-agents no longer spawn their own sub-agents by default; custom agent profiles can still allow it explicitly.
-- web: Polish the web menus and panels — rounded menu items concentric with their frames, hidden button hover tooltips outside an open menu, tightened row spacing in the account menu, fixed action-button alignment between section headers and session rows, and keep the model picker, slash command, and `@` mention panels within the viewport.
-- web: Upgrade the `@` mention menu — file and skill candidates are merged and ranked by match quality, file search is faster, with path-fragment matching and hit highlighting.
-- web: Improve the prompt queue interaction, with per-row steer and send.
-- web: Auto-open the browser authorization page after choosing a login region, redesign the authorization waiting page, and refresh the login state as soon as the window regains focus instead of waiting for the poll.
+- Edit and Write now require reading an existing file before modifying it.
+<!-- - Sub-agents no longer spawn their own sub-agents by default; custom agent profiles can still allow it explicitly. -->
+- Collapse long `!` shell command output instead of flooding the transcript. Press ctrl+o to expand or collapse it together with tool output.
 
 ### Bug Fixes
 
-- Fix `config.toml` entries being lost when the file had a syntax error or was edited outside the app.
-- Edit and Write now require reading an existing file before modifying it, and reject the write when the file changed on disk since it was last read.
-- Stop retrying requests blocked by the provider content filter; the filter notice now shows immediately.
-- Fix 422 errors from some OpenAI-compatible providers when a conversation includes tool calls.
-- Fix the missing OAuth authenticate tool for remote MCP servers that require login.
-- Fix background agent rows that could not be stopped right after they appeared, and stray rows left behind when an agent failed to start.
-- Fix the model being directed to unavailable tools when it encounters an image or binary file.
+- Fix config.toml entries being lost when the file had a syntax error or was edited outside the app.
 - Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
 
 ## 0.37.2 (2026-08-19)

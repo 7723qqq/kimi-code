@@ -10,12 +10,15 @@ import {
   IModelCatalog,
   type ExecutableTool,
 } from '@moonshot-ai/agent-core-v2';
+import {
+  listMcpServersResponseSchema,
+  listToolsResponseSchema,
+} from '../src/protocol/rest-tool';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { listMcpServersResponseSchema, listToolsResponseSchema } from '../src/protocol/rest-tool';
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -81,7 +84,7 @@ describe('server-v2 /api/v1 tools + mcp', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });
@@ -116,8 +119,11 @@ describe('server-v2 /api/v1 tools + mcp', () => {
   async function ensureMainAgent(sessionId: string) {
     const session = getLiveSessionById(server!.core.accessor, sessionId);
     if (session === undefined) throw new Error(`session ${sessionId} not found`);
-    let agent = session.accessor.get(IAgentLifecycleService).findAgentHandle('main');
-    agent ??= await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
+    let agent = session.accessor.get(IAgentLifecycleService).handleOf('main');
+    if (agent === undefined) {
+      await session.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
+      agent = session.accessor.get(IAgentLifecycleService).handleOf('main')!;
+    }
     return agent;
   }
 
@@ -142,8 +148,8 @@ describe('server-v2 /api/v1 tools + mcp', () => {
     });
 
     it('returns builtin tools after the session creates its main agent', async () => {
-      const id = await createSession();
-      const { body } = await getJson<{ tools: ToolWire[] }>(`/api/v1/tools?session_id=${id}`);
+      await createSession();
+      const { body } = await getJson<{ tools: ToolWire[] }>('/api/v1/tools');
       expect(body.code).toBe(0);
       expect(listToolsResponseSchema.parse(body.data).tools.length).toBeGreaterThan(0);
     });
@@ -157,7 +163,7 @@ describe('server-v2 /api/v1 tools + mcp', () => {
       registry.register(makeTool('MySkill'), { source: 'user' });
       registry.register(makeTool('mcp__myserver__search'), { source: 'mcp' });
 
-      const { body } = await getJson<{ tools: ToolWire[] }>(`/api/v1/tools?session_id=${id}`);
+      const { body } = await getJson<{ tools: ToolWire[] }>('/api/v1/tools');
       expect(body.code).toBe(0);
       const tools = listToolsResponseSchema.parse(body.data).tools;
 
@@ -175,7 +181,9 @@ describe('server-v2 /api/v1 tools + mcp', () => {
     it('accepts an explicit session_id query', async () => {
       const sid = await createSession();
       await ensureMainAgent(sid);
-      const { body } = await getJson<{ tools: ToolWire[] }>(`/api/v1/tools?session_id=${sid}`);
+      const { body } = await getJson<{ tools: ToolWire[] }>(
+        `/api/v1/tools?session_id=${sid}`,
+      );
       expect(body.code).toBe(0);
       expect(listToolsResponseSchema.safeParse(body.data).success).toBe(true);
     });

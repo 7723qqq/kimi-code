@@ -1,18 +1,24 @@
-import type { ImageLimits } from './image-limits';
-import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
 import type { Kaos } from '@moonshot-ai/kaos';
+import {
+  ErrorCodes,
+  KimiError,
+  ImageLimits,
+  withTelemetryContext,
+  type ExperimentalFeatureState,
+} from '@moonshot-ai/agent-core';
 
-import type { KimiAuthFacade } from '#/auth';
-import { ErrorCodes, KimiError, log, withTelemetryContext } from '#/legacy';
-import type { SDKRpcClientBase } from '#/rpc';
 import { capabilityRpc, Session } from '#/session';
+import type { KimiAuthFacade } from '#/auth';
+import type { SDKRpcClientBase } from '#/rpc';
 import type {
   AuthenticateMcpServerOptions,
+  AppMcpServerInspection,
   CapabilityStatus,
   ConfigDiagnostics,
   CreateSessionOptions,
   ExportSessionInput,
   ExportSessionResult,
+  FileMeta,
   ForkSessionInput,
   GenerateSessionTitleInput,
   GetConfigOptions,
@@ -21,8 +27,10 @@ import type {
   KimiConfigPatch,
   KimiHostIdentity,
   ListSessionsOptions,
+  McpManagedServerInfo,
   McpServerConfig,
   McpServerInfo,
+  McpServerLocator,
   McpTestResult,
   PluginCommandDef,
   PluginInfo,
@@ -41,7 +49,6 @@ import type {
   UploadFileOptions,
   WorkspaceTrustInfo,
 } from '#/types';
-import type { FileMeta } from '#/types';
 
 export interface KimiHarnessRuntimeOptions {
   readonly identity?: KimiHostIdentity;
@@ -75,8 +82,6 @@ export class KimiHarness {
   private readonly ensureConfigFileImpl: () => Promise<void>;
   private readonly closeImpl: () => void | Promise<void>;
   private readonly sessionStartedProperties: TelemetryProperties;
-  /** Guards {@link close}: the second call returns immediately. */
-  private closed = false;
 
   /**
    * Ingestion-side [image] limits owned by this harness's core; undefined for
@@ -121,8 +126,11 @@ export class KimiHarness {
   }
 
   async createSession(options: CreateSessionOptions): Promise<Session> {
-    const { planMode, sessionStartedProperties, ...coreOptions } = options;
-    const summary = await this.rpc.createSession(coreOptions);
+    const { planMode, kaos, persistenceKaos, sessionStartedProperties, ...coreOptions } = options;
+    const summary =
+      kaos === undefined && persistenceKaos === undefined
+        ? await this.rpc.createSession(coreOptions)
+        : await this.rpc.createSessionWithKaos(coreOptions, kaos ?? persistenceKaos as Kaos, persistenceKaos);
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -157,14 +165,8 @@ export class KimiHarness {
     // the engine serializes behind that close.
     if (active !== undefined && !active.isClosed) {
       if (kaos !== undefined || persistenceKaos !== undefined) {
-        await this.rpc.resumeSessionWithKaos(
-          { ...resumeInput, id },
-          kaos ?? (persistenceKaos as Kaos),
-          persistenceKaos,
-        );
-      } else if (input.agentProfile !== undefined || (input.additionalDirs?.length ?? 0) > 0) {
-        // Re-resume so the engine applies the deltas (profile re-select,
-        // additional-dir merge) instead of silently dropping them.
+        await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
+      } else if (input.agentProfile !== undefined) {
         await this.rpc.resumeSession({ ...resumeInput, id });
       }
       return active;
@@ -193,11 +195,7 @@ export class KimiHarness {
     const summary =
       kaos === undefined && persistenceKaos === undefined
         ? await this.rpc.resumeSession({ ...resumeInput, id })
-        : await this.rpc.resumeSessionWithKaos(
-            { ...resumeInput, id },
-            kaos ?? (persistenceKaos as Kaos),
-            persistenceKaos,
-          );
+        : await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -277,15 +275,7 @@ export class KimiHarness {
   }
 
   async closeSession(id: string): Promise<void> {
-    const cached = this.activeSessions.get(id);
-    if (cached !== undefined) {
-      await cached.close();
-      return;
-    }
-    // The session exists server-side but was never materialized through this
-    // harness — close it directly (the RPC materializes + closes by id) so the
-    // server-side session isn't leaked.
-    await this.rpc.closeSession({ sessionId: normalizeSessionId(id) });
+    await this.activeSessions.get(id)?.close();
   }
 
   async deleteSession(id: string): Promise<void> {
@@ -296,7 +286,9 @@ export class KimiHarness {
 
   async renameSession(input: RenameSessionInput): Promise<void> {
     await this.rpc.renameSession(input);
-    this.activeSessions.get(input.id)?.emitMetaUpdated({ title: input.title, isCustomTitle: true });
+    this.activeSessions
+      .get(input.id)
+      ?.emitMetaUpdated({ title: input.title, isCustomTitle: true });
   }
 
   /**
@@ -431,10 +423,16 @@ export class KimiHarness {
     return this.rpc.getExperimentalFeatures();
   }
 
+  /**
+   * Upload media bytes to the engine's file store; pair the returned meta
+   * with `buildDaemonFileUrl` to reference the file from a prompt.
+   * agent-core-v2 only — the v1 engine throws `not_implemented`.
+   */
   async uploadFile(data: Uint8Array, options: UploadFileOptions): Promise<FileMeta> {
     return this.rpc.uploadFile(data, options);
   }
 
+  /** Delete a daemon upload owned by a client-side staging operation. */
   async deleteFile(fileId: string): Promise<void> {
     return this.rpc.deleteFile(fileId);
   }
@@ -469,29 +467,71 @@ export class KimiHarness {
     return this.rpc.replaceConfigSections(sections);
   }
 
-  /** User-global MCP entries from `<KIMI_CODE_HOME>/mcp.json` only. */
-  async listMcpServers(): Promise<readonly McpServerConfig[]> {
-    return this.rpc.listGlobalMcpServers();
+  /**
+   * The unified MCP management view: user-level `<KIMI_CODE_HOME>/mcp.json`
+   * entries (mutable), plus read-only project-layer entries when `cwd` is
+   * given and plugin-contributed entries — each tagged with its `source`,
+   * `origin`, and `mutable` flag.
+   */
+  async listMcpServers(
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
+    return this.rpc.listGlobalMcpServers(options);
   }
 
-  async listMcpServerAuthStatuses(): Promise<readonly GlobalMcpServerAuthStatus[]> {
-    return this.rpc.listGlobalMcpServerAuthStatuses();
+  /** One entry of the unified MCP management view, resolved by name. */
+  async getMcpServer(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<McpManagedServerInfo> {
+    return this.rpc.getGlobalMcpServer(name, options);
   }
 
-  async addMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]> {
-    return this.rpc.addGlobalMcpServer(server);
+  async listMcpServerAuthStatuses(
+    options: { readonly cwd?: string; readonly verify?: boolean } = {},
+  ): Promise<readonly GlobalMcpServerAuthStatus[]> {
+    return this.rpc.listGlobalMcpServerAuthStatuses(options);
   }
 
-  async updateMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]> {
-    return this.rpc.updateGlobalMcpServer(server);
+  /**
+   * The app-level MCP catalog (global + plugin entries) with live
+   * authorization state: OAuth candidates are probed with a real connection,
+   * so a stored-but-rejected grant surfaces as `oauth-expired` and an
+   * unreachable one as `unavailable`.
+   */
+  async inspectAppMcpServers(
+    targets?: readonly McpServerLocator[],
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly AppMcpServerInspection[]> {
+    return this.rpc.inspectAppMcpServers(targets, options);
   }
 
-  async removeMcpServer(name: string): Promise<readonly McpServerConfig[]> {
-    return this.rpc.removeGlobalMcpServer(name);
+  async addMcpServer(
+    server: McpServerConfig,
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
+    return this.rpc.addGlobalMcpServer(server, options);
   }
 
-  async authenticateMcpServer(name: string, options: AuthenticateMcpServerOptions): Promise<void> {
-    const started = await this.rpc.beginGlobalMcpServerAuth(name);
+  async updateMcpServer(
+    server: McpServerConfig,
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
+    return this.rpc.updateGlobalMcpServer(server, options);
+  }
+
+  async removeMcpServer(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
+    return this.rpc.removeGlobalMcpServer(name, options);
+  }
+
+  async authenticateMcpServer(
+    name: string,
+    options: AuthenticateMcpServerOptions,
+  ): Promise<void> {
+    const started = await this.rpc.beginGlobalMcpServerAuth(name, { cwd: options.cwd });
     if (started.status === 'already-authorized') return;
     try {
       const opened = await options.onAuthorizationUrl(started.authorizationUrl);
@@ -503,34 +543,72 @@ export class KimiHarness {
         options.signal,
       );
     } catch (error) {
-      await this.rpc.cancelGlobalMcpServerAuth(started.flowId).catch(() => {});
+      await this.rpc.cancelGlobalMcpServerAuth(started.flowId).catch(() => undefined);
       throw error;
     }
   }
 
-  async resetMcpServerAuth(name: string): Promise<void> {
-    return this.rpc.resetGlobalMcpServerAuth(name);
+  async resetMcpServerAuth(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<void> {
+    return this.rpc.resetGlobalMcpServerAuth(name, options);
   }
 
-  async testMcpServer(name: string, options: TestMcpServerOptions = {}): Promise<McpTestResult> {
+  /**
+   * The locator-addressed variant of {@link authenticateMcpServer}: plugin
+   * servers are addressed by `pluginId` + manifest-local `serverName`, so the
+   * flow works even when the runtime name collides with a global entry.
+   */
+  async authenticateAppMcpServer(
+    locator: McpServerLocator,
+    options: AuthenticateMcpServerOptions,
+  ): Promise<void> {
+    const started = await this.rpc.beginMcpServerAuth(locator, { cwd: options.cwd });
+    if (started.status === 'already-authorized') return;
+    try {
+      const opened = await options.onAuthorizationUrl(started.authorizationUrl);
+      if (opened === false) {
+        throw new KimiError(ErrorCodes.REQUEST_INVALID, 'MCP OAuth authorization was cancelled');
+      }
+      await this.rpc.completeMcpServerAuth(
+        { flowId: started.flowId, timeoutMs: options.timeoutMs },
+        options.signal,
+      );
+    } catch (error) {
+      await this.rpc.cancelMcpServerAuth(started.flowId).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** The locator-addressed variant of {@link resetMcpServerAuth}. */
+  async resetAppMcpServerAuth(
+    locator: McpServerLocator,
+    options: { readonly cwd?: string } = {},
+  ): Promise<void> {
+    return this.rpc.resetMcpServerAuth(locator, options);
+  }
+
+  async testMcpServer(
+    name: string,
+    options: TestMcpServerOptions = {},
+  ): Promise<McpTestResult> {
     return this.rpc.testGlobalMcpServer(name, options);
   }
 
+  /**
+   * Probe a full inline MCP server config without saving it first — the
+   * config counterpart of {@link testMcpServer}.
+   */
+  async testMcpServerConfig(
+    server: McpServerConfig,
+    options: TestMcpServerOptions = {},
+  ): Promise<McpTestResult> {
+    return this.rpc.testGlobalMcpServerConfig(server, options);
+  }
+
   async close(): Promise<void> {
-    if (this.closed) return;
-    this.closed = true;
-    // Best-effort session teardown: a session close failure must not block
-    // the engine teardown below (the host's onClose may remove homeDir).
-    const results = await Promise.allSettled(
-      Array.from(this.activeSessions.values(), (session) => session.close()),
-    );
-    for (const result of results) {
-      if (result.status === 'rejected') {
-        log.error('A session close failed during harness shutdown; continuing teardown', {
-          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-        });
-      }
-    }
+    await Promise.all(Array.from(this.activeSessions.values(), (session) => session.close()));
     await this.closeImpl();
   }
 
@@ -549,9 +627,8 @@ export class KimiHarness {
       // Canonical fields are owned by the harness and must win over any
       // caller-supplied sessionStartedProperties that happen to share a key.
       // `client_id` is always null here: a single-process host has no
-      // per-connection client id (that concept only existed for the v1
-      // engine's daemon clients, see `core-impl.ts` — removed with the v1
-      // engine). Kept as an explicit key so both producers share the
+      // per-connection client id (that concept only exists for daemon clients,
+      // see core-impl.ts). Kept as an explicit key so both producers share the
       // same session_started schema.
       client_id: null,
       client_name: this.identity?.productName ?? null,
@@ -565,12 +642,7 @@ export class KimiHarness {
 const DEFAULT_SESSION_STARTED_UI_MODE = 'shell';
 
 function resumeCoalesceKey(id: string, input: ResumeSessionInput): string {
-  const {
-    kaos,
-    persistenceKaos,
-    sessionStartedProperties: _sessionStartedProperties,
-    ...rest
-  } = input;
+  const { kaos, persistenceKaos, ...rest } = input;
   return JSON.stringify({
     ...rest,
     id,

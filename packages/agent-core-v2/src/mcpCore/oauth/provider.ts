@@ -1,61 +1,50 @@
 import { randomBytes } from 'node:crypto';
 
+import type {
+  OAuthClientProvider,
+  OAuthDiscoveryState,
+} from '@modelcontextprotocol/sdk/client/auth.js';
 import {
   OAuthTokensSchema,
+  type OAuthClientInformationFull,
+  type OAuthClientInformationMixed,
+  type OAuthClientMetadata,
   type OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { OAuthTokenTransaction } from '@moonshot-ai/kimi-code-oauth';
 
 import { BugIndicatingError } from '#/errors';
 
-import type {
-  OAuthClientProvider,
-  OAuthDiscoveryState,
-} from '@modelcontextprotocol/sdk/client/auth.js';
-import type {
-  OAuthClientInformationFull,
-  OAuthClientInformationMixed,
-  OAuthClientMetadata,
-} from '@modelcontextprotocol/sdk/shared/auth.js';
-
 import { KIMI_MCP_CLIENT_NAME } from '../client-shared';
-import {
-  canonicalMcpOAuthResource,
-  mcpOAuthStoreKey,
-  META_SUFFIX,
-  type McpOAuthStore,
-  type McpOAuthStoreMeta,
-} from './store';
+import { canonicalMcpOAuthResource, mcpOAuthStoreKey, type McpOAuthStore } from './store';
 
 const TOKENS_SUFFIX = '-tokens.json';
 const CLIENT_SUFFIX = '-client.json';
 const DISCOVERY_SUFFIX = '-discovery.json';
+export const META_SUFFIX = '-meta.json';
 const PASSIVE_REDIRECT_URI = 'http://127.0.0.1:3118/callback';
-
-export interface McpOAuthProviderOptions {
-  readonly serverName: string;
-  readonly serverUrl: string | URL;
-  readonly store: McpOAuthStore;
-  readonly clientLabel?: string;
-  readonly clientName?: string;
-  /** Called after tokens are persisted (login, exchange, or refresh). */
-  readonly onTokensSaved?: (tokens: StoredMcpOAuthTokens) => void;
-  /** Called after any credential invalidation, including SDK-driven ones. */
-  readonly onCredentialsInvalidated?: (
-    scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery',
-  ) => void;
-}
-
-export interface McpOAuthProviderOptions {
-  readonly serverName: string;
-  readonly serverUrl: string | URL;
-  readonly store: McpOAuthStore;
-  readonly clientLabel?: string;
-  readonly clientName?: string;
-}
 
 export interface StoredMcpOAuthTokens extends OAuthTokens {
   readonly obtained_at?: number;
+}
+
+export interface McpOAuthStoreMeta {
+  readonly serverName: string;
+  readonly serverUrl: string;
+}
+
+export interface McpOAuthProviderOptions {
+  readonly serverName: string;
+  readonly serverUrl: string | URL;
+  readonly store: McpOAuthStore;
+  readonly clientLabel?: string;
+  readonly clientName?: string;
+  readonly now?: () => number;
+  readonly onTokensSaved?: (tokens: StoredMcpOAuthTokens) => void;
+  readonly onCredentialsInvalidated?: (
+    scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery',
+  ) => void;
+  readonly track?: (operation: Promise<unknown>) => void;
 }
 
 export class McpOAuthClientProvider implements OAuthClientProvider {
@@ -67,14 +56,14 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   private readonly clientLabel: string;
   private readonly onTokensSaved: McpOAuthProviderOptions['onTokensSaved'];
   private readonly onCredentialsInvalidated: McpOAuthProviderOptions['onCredentialsInvalidated'];
-  private readonly tokenTransaction: OAuthTokenTransaction<OAuthTokens>;
+  private readonly now: () => number;
   private _redirectUrl: URL | undefined;
   private _codeVerifier: string | undefined;
   private _state: string | undefined;
   private _lastAuthorizationUrl: URL | undefined;
+  private readonly tokenTransaction: OAuthTokenTransaction<OAuthTokens>;
 
   private clientCache: OAuthClientInformationMixed | undefined;
-  private tokensCache: OAuthTokens | undefined;
   private discoveryCache: OAuthDiscoveryState | undefined;
 
   constructor(options: McpOAuthProviderOptions) {
@@ -87,39 +76,48 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
       `${options.clientName ?? KIMI_MCP_CLIENT_NAME} (${options.serverName})`;
     this.onTokensSaved = options.onTokensSaved;
     this.onCredentialsInvalidated = options.onCredentialsInvalidated;
+    this.now = options.now ?? Date.now;
     const tokensFile = `${this.storeKey}${TOKENS_SUFFIX}`;
+    const metaFile = `${this.storeKey}${META_SUFFIX}`;
     this.tokenTransaction = new OAuthTokenTransaction({
       key: this.storeKey,
       read: async () => this.store.read<OAuthTokens>(tokensFile),
       write: async (tokens) => {
         const incoming = tokens as StoredMcpOAuthTokens;
-        const stamped: StoredMcpOAuthTokens = {
+        await this.store.write(tokensFile, {
           ...incoming,
-          obtained_at: incoming.obtained_at ?? Date.now(),
-        };
-        this.tokensCache = stamped;
-        await this.store.write(tokensFile, stamped);
+          obtained_at: incoming.obtained_at ?? this.now(),
+        });
       },
       remove: async () => {
-        this.tokensCache = undefined;
         await this.store.remove(tokensFile);
       },
       parse: (value) => OAuthTokensSchema.safeParse(value).data,
-      adopt: (tokens) => {
-        this.tokensCache = tokens;
+      normalize: (tokens) => OAuthTokensSchema.safeParse(tokens).data ?? tokens,
+      track: options.track,
+      afterCommit: async (tokens) => {
+        if (tokens === undefined) {
+          await this.store.remove(metaFile);
+          return;
+        }
+        const meta: McpOAuthStoreMeta = { serverName: this.serverName, serverUrl: this.serverUrl };
+        await this.store.write(metaFile, meta);
+        const stamped: StoredMcpOAuthTokens = {
+          ...tokens,
+          obtained_at: (tokens as StoredMcpOAuthTokens).obtained_at ?? this.now(),
+        };
+        this.onTokensSaved?.(stamped);
       },
     });
     this.ready = this.load();
   }
 
   private async load(): Promise<void> {
-    const [client, tokens, discovery] = await Promise.all([
+    const [client, discovery] = await Promise.all([
       this.store.read<OAuthClientInformationFull>(`${this.storeKey}${CLIENT_SUFFIX}`),
-      this.store.read<OAuthTokens>(`${this.storeKey}${TOKENS_SUFFIX}`),
       this.store.read<OAuthDiscoveryState>(`${this.storeKey}${DISCOVERY_SUFFIX}`),
     ]);
     this.clientCache = client;
-    this.tokensCache = tokens;
     this.discoveryCache = discovery;
   }
 
@@ -169,31 +167,18 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }
 
   async saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {
-    this.clientCache = info;
     await this.store.write(`${this.storeKey}${CLIENT_SUFFIX}`, info);
+    this.clientCache = info;
   }
 
   async tokens(): Promise<OAuthTokens | undefined> {
-    await this.ready;
-    return this.tokensCache;
+    return this.store.read<OAuthTokens>(`${this.storeKey}${TOKENS_SUFFIX}`);
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
     await this.tokenTransaction.save(tokens);
-    const meta: McpOAuthStoreMeta = { serverName: this.serverName, serverUrl: this.serverUrl };
-    await this.store.write(`${this.storeKey}${META_SUFFIX}`, meta);
-    const stamped: StoredMcpOAuthTokens = {
-      ...tokens,
-      obtained_at: (tokens as StoredMcpOAuthTokens).obtained_at ?? Date.now(),
-    };
-    this.onTokensSaved?.(stamped);
   }
 
-  /**
-   * Wrap the fetch used by the SDK's OAuth flow. Refresh-token grants for
-   * the same MCP identity are serialized, re-read from durable storage
-   * inside the lock, and committed before the lock is released.
-   */
   createOAuthFetch(fetchFn: typeof fetch = globalThis.fetch): typeof fetch {
     return this.tokenTransaction.createFetch(fetchFn);
   }
@@ -214,8 +199,8 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }
 
   async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
-    this.discoveryCache = state;
     await this.store.write(`${this.storeKey}${DISCOVERY_SUFFIX}`, state);
+    this.discoveryCache = state;
   }
 
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
@@ -230,7 +215,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     const uris = info.redirect_uris;
     if (!Array.isArray(uris) || uris.length === 0) return false;
     if (uris.includes(redirectUri)) return false;
-    await this.invalidateCredentials('client');
+    await this.clearCredentials('client');
     return true;
   }
 
@@ -251,7 +236,6 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     this.onCredentialsInvalidated?.(scope);
   }
 
-  /** Explicit user-driven reset; unlike the SDK invalidation hook, never preserves tokens. */
   async clearCredentials(
     scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery',
   ): Promise<void> {
@@ -262,15 +246,14 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     }
     if (scope === 'tokens' || scope === 'all') {
       await this.tokenTransaction.clear();
-      await this.store.remove(`${this.storeKey}${META_SUFFIX}`);
     }
     if (scope === 'client' || scope === 'all') {
-      this.clientCache = undefined;
       await this.store.remove(`${this.storeKey}${CLIENT_SUFFIX}`);
+      this.clientCache = undefined;
     }
     if (scope === 'discovery' || scope === 'all') {
-      this.discoveryCache = undefined;
       await this.store.remove(`${this.storeKey}${DISCOVERY_SUFFIX}`);
+      this.discoveryCache = undefined;
     }
     if (scope === 'all') {
       this._codeVerifier = undefined;
@@ -287,15 +270,15 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }
 }
 
+function registeredRedirectUri(info: OAuthClientInformationMixed | undefined): string | undefined {
+  if (info === undefined || !('redirect_uris' in info)) return undefined;
+  const [redirectUri] = info.redirect_uris;
+  return redirectUri;
+}
+
 export function createMcpOAuthFetch(
   provider: OAuthClientProvider | undefined,
   fetchFn: typeof fetch | undefined,
 ): typeof fetch | undefined {
   return provider instanceof McpOAuthClientProvider ? provider.createOAuthFetch(fetchFn) : fetchFn;
-}
-
-function registeredRedirectUri(info: OAuthClientInformationMixed | undefined): string | undefined {
-  if (info === undefined || !('redirect_uris' in info)) return undefined;
-  const [redirectUri] = info.redirect_uris;
-  return redirectUri;
 }

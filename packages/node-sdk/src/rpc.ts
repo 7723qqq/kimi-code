@@ -1,38 +1,48 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import type { AgentContextData, ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
-import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2';
+import {
+  ErrorCodes,
+  KimiError,
+  makeErrorPayload,
+  type AgentContextData,
+  type ApprovalRequest,
+  type ApprovalResponse,
+  type BeginGlobalMcpServerAuthResult,
+  type CoreAPI,
+  type Event,
+  type ExperimentalFeatureState,
+  type GetCronTasksResult,
+  type QuestionRequest,
+  type QuestionResult,
+  type RPCMethods,
+  type SDKAPI,
+  type ToolCallRequest,
+  type ToolCallResponse,
+  type SwarmModeTrigger,
+} from '@moonshot-ai/agent-core';
 import type { Kaos } from '@moonshot-ai/kaos';
 
-import type { ApprovalHandler, Event, QuestionHandler } from '#/events';
-import type {
-  ApprovalRequest,
-  ApprovalResponse,
-  QuestionRequest,
-  QuestionResult,
-  ToolCallRequest,
-  ToolCallResponse,
-} from '#/events';
-import { ErrorCodes, KimiError, log, makeErrorPayload } from '#/legacy';
+import type { ApprovalHandler, QuestionHandler } from '#/events';
 import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
   AgentCommandInfo,
   AgentRuntimeBinding,
+  AppMcpServerInspection,
   BackgroundTaskInfo,
-  BeginGlobalMcpServerAuthResult,
   ConfigDiagnostics,
   CreateSessionOptions,
   ExportSessionInput,
   ExportSessionResult,
   CreateGoalInput,
+  FileMeta,
   ForkSessionInput,
   GenerateSessionTitleInput,
   GetConfigOptions,
-  GetCronTasksResult,
   GlobalMcpServerAuthStatus,
-  GlobalMcpServerConfig,
+  McpManagedServerInfo,
   McpServerConfig,
+  McpServerLocator,
   GoalSnapshot,
   GoalToolResult,
   JsonObject,
@@ -49,8 +59,8 @@ import type {
   CompactOptions,
   SessionPlan,
   SessionStatus,
-  SessionUsage,
   SessionTodoItem,
+  SessionUsage,
   PromptInput,
   PromptSkillActivation,
   RenameSessionInput,
@@ -61,16 +71,26 @@ import type {
   SkillSummary,
   PluginCommandDef,
   Unsubscribe,
+  UploadFileOptions,
   WorkspaceTrustInfo,
 } from '#/types';
-import type { FileMeta, UploadFileOptions } from '#/types';
 
 const MAIN_AGENT_ID = 'main';
 
 export interface SessionPromptRpcInput {
   readonly sessionId: string;
   readonly input: PromptInput;
+  /**
+   * Client-managed session tool denylist (full-replace semantics), forwarded
+   * to engines with profile tool gating. Omit to keep the persisted value;
+   * `[]` clears the client portion.
+   */
   readonly disabledTools?: readonly string[];
+  /**
+   * Client-chosen prompt record id, unique for the Agent's persisted history
+   * and echoed on the consuming turn's `turn.started` (`promptId`). Honored by
+   * the v2 RPC client only.
+   */
   readonly promptId?: string;
 }
 
@@ -140,10 +160,22 @@ export interface RunCommandRpcInput extends SessionIdRpcInput {
   readonly args?: string | undefined;
 }
 
+export interface SwitchSessionRuntimeRpcInput extends SessionIdRpcInput {
+  readonly runtimeId: string;
+}
+
 export interface ReconnectMcpServerRpcInput extends SessionIdRpcInput {
   readonly name: string;
-  readonly config?: McpServerConfig | undefined;
+  /**
+   * Optional full replacement config (the "name + full config" channel).
+   * Omitted: the session re-resolves the effective config from the unified
+   * registry instead of reusing the boot-time snapshot. Plugin-contributed
+   * entries reject an explicit config (theirs is read-only).
+   */
+  readonly config?: McpServerConfig;
 }
+
+type ResolvedCoreAPI = RPCMethods<CoreAPI>;
 
 export abstract class SDKRpcClientBase {
   private readonly interactiveAgentScope = new AsyncLocalStorage<string>();
@@ -159,34 +191,13 @@ export abstract class SDKRpcClientBase {
     return this.interactiveAgentScope.run(agentId, fn);
   }
 
-  /**
-   * The v1 RPC pair (and its `CoreAPI` / `RPCMethods` protocol types) is gone
-   * with the v1 client. Base-class methods not overridden by the v2 client
-   * reach this and fail loudly instead of dispatching to a v1 engine. The
-   * `any` return is the deliberate migration pressure valve: the base-class
-   * method bodies below are dead code on the only surviving client (the v2
-   * client overrides every real method), kept only so unimplemented methods
-   * fail with the same coded error instead of a missing-method TypeError.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  protected getRpc(): Promise<any> {
-    throw new KimiError(
-      ErrorCodes.NOT_IMPLEMENTED,
-      'This SDK method is not wired to agent-core-v2 yet.',
-    );
-  }
+  protected abstract getRpc(): Promise<ResolvedCoreAPI>;
 
   async createSession(input: CreateSessionOptions): Promise<SessionSummary> {
     const rpc = await this.getRpc();
     const { planMode, ...coreInput } = input;
-    const summary = await rpc.createSession(coreInput);
-    if (planMode) {
-      await rpc.enterPlan({
-        sessionId: summary.id,
-        agentId: this.interactiveAgentId,
-      });
-    }
-    return summary;
+    void planMode;
+    return rpc.createSession(coreInput);
   }
 
   async createSessionWithKaos(
@@ -378,39 +389,74 @@ export abstract class SDKRpcClientBase {
     );
   }
 
-  async listGlobalMcpServers(): Promise<readonly McpServerConfig[]> {
+  async listGlobalMcpServers(
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
     const rpc = await this.getRpc();
-    return rpc.listGlobalMcpServers({});
+    return rpc.listGlobalMcpServers({ cwd: options.cwd });
   }
 
-  async getGlobalMcpServer(name: string): Promise<GlobalMcpServerConfig> {
+  async getGlobalMcpServer(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<McpManagedServerInfo> {
     const rpc = await this.getRpc();
-    return rpc.getGlobalMcpServer({ name });
+    return rpc.getGlobalMcpServer({ name, cwd: options.cwd });
   }
 
-  async listGlobalMcpServerAuthStatuses(): Promise<readonly GlobalMcpServerAuthStatus[]> {
+  async listGlobalMcpServerAuthStatuses(
+    options: { readonly cwd?: string; readonly verify?: boolean } = {},
+  ): Promise<readonly GlobalMcpServerAuthStatus[]> {
     const rpc = await this.getRpc();
-    return rpc.listGlobalMcpServerAuthStatuses({});
+    return rpc.listGlobalMcpServerAuthStatuses({ cwd: options.cwd, verify: options.verify });
   }
 
-  async addGlobalMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]> {
+  async inspectAppMcpServers(
+    targets?: readonly McpServerLocator[],
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly AppMcpServerInspection[]> {
     const rpc = await this.getRpc();
-    return rpc.addGlobalMcpServer({ server });
+    return rpc.inspectAppMcpServers({ targets, cwd: options.cwd });
   }
 
-  async updateGlobalMcpServer(server: McpServerConfig): Promise<readonly McpServerConfig[]> {
+  async addGlobalMcpServer(
+    server: McpServerConfig,
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
     const rpc = await this.getRpc();
-    return rpc.updateGlobalMcpServer({ server });
+    return rpc.addGlobalMcpServer({ server, cwd: options.cwd });
   }
 
-  async removeGlobalMcpServer(name: string): Promise<readonly McpServerConfig[]> {
+  async updateGlobalMcpServer(
+    server: McpServerConfig,
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
     const rpc = await this.getRpc();
-    return rpc.removeGlobalMcpServer({ name });
+    return rpc.updateGlobalMcpServer({ server, cwd: options.cwd });
   }
 
-  async beginGlobalMcpServerAuth(name: string): Promise<BeginGlobalMcpServerAuthResult> {
+  async removeGlobalMcpServer(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<readonly McpManagedServerInfo[]> {
     const rpc = await this.getRpc();
-    return rpc.beginGlobalMcpServerAuth({ name });
+    return rpc.removeGlobalMcpServer({ name, cwd: options.cwd });
+  }
+
+  async beginGlobalMcpServerAuth(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<BeginGlobalMcpServerAuthResult> {
+    const rpc = await this.getRpc();
+    return rpc.beginGlobalMcpServerAuth({ name, cwd: options.cwd });
+  }
+
+  async beginMcpServerAuth(
+    locator: McpServerLocator,
+    options: { readonly cwd?: string } = {},
+  ): Promise<BeginGlobalMcpServerAuthResult> {
+    const rpc = await this.getRpc();
+    return rpc.beginMcpServerAuth({ locator, cwd: options.cwd });
   }
 
   async completeGlobalMcpServerAuth(
@@ -421,14 +467,38 @@ export abstract class SDKRpcClientBase {
     return rpc.completeGlobalMcpServerAuth(input, { signal });
   }
 
+  async completeMcpServerAuth(
+    input: { readonly flowId: string; readonly timeoutMs?: number },
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.completeMcpServerAuth(input, { signal });
+  }
+
   async cancelGlobalMcpServerAuth(flowId: string): Promise<void> {
     const rpc = await this.getRpc();
     return rpc.cancelGlobalMcpServerAuth({ flowId });
   }
 
-  async resetGlobalMcpServerAuth(name: string): Promise<void> {
+  async cancelMcpServerAuth(flowId: string): Promise<void> {
     const rpc = await this.getRpc();
-    return rpc.resetGlobalMcpServerAuth({ name });
+    return rpc.cancelMcpServerAuth({ flowId });
+  }
+
+  async resetGlobalMcpServerAuth(
+    name: string,
+    options: { readonly cwd?: string } = {},
+  ): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.resetGlobalMcpServerAuth({ name, cwd: options.cwd });
+  }
+
+  async resetMcpServerAuth(
+    locator: McpServerLocator,
+    options: { readonly cwd?: string } = {},
+  ): Promise<void> {
+    const rpc = await this.getRpc();
+    return rpc.resetMcpServerAuth({ locator, cwd: options.cwd });
   }
 
   async testGlobalMcpServer(
@@ -437,6 +507,18 @@ export abstract class SDKRpcClientBase {
   ): Promise<McpTestResult> {
     const rpc = await this.getRpc();
     return rpc.testGlobalMcpServer({ name, cwd: options.cwd });
+  }
+
+  /**
+   * Probe a full inline (unsaved) MCP server config — the `server` channel of
+   * the engine's `testGlobalMcpServer`, so nothing has to be persisted first.
+   */
+  async testGlobalMcpServerConfig(
+    server: McpServerConfig,
+    options: { readonly cwd?: string } = {},
+  ): Promise<McpTestResult> {
+    const rpc = await this.getRpc();
+    return rpc.testGlobalMcpServer({ server, cwd: options.cwd });
   }
 
   async prompt(input: SessionPromptRpcInput): Promise<void> {
@@ -449,15 +531,17 @@ export abstract class SDKRpcClientBase {
     });
   }
 
+  /**
+   * Grouped skill activation + prompt submission. Only the v2 engine
+   * (`SDKRpcClientV2`) implements it; the v1 route has no combined-submission
+   * RPC, so the base fails loudly instead of degrading into N+1 turns.
+   */
   async promptWithSkills(input: SessionPromptWithSkillsRpcInput): Promise<void> {
-    const agentId = this.interactiveAgentId;
-    const rpc = await this.getRpc();
-    return rpc.promptWithSkills({
-      sessionId: input.sessionId,
-      agentId,
-      input: input.input,
-      skills: input.skills,
-    });
+    void input;
+    throw new KimiError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'promptWithSkills requires the agent-core-v2 engine.',
+    );
   }
 
   async runShellCommand(input: {
@@ -667,6 +751,14 @@ export abstract class SDKRpcClientBase {
     });
   }
 
+  async getTodos(input: SessionIdRpcInput): Promise<readonly SessionTodoItem[]> {
+    void input;
+    throw new KimiError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'getTodos is only available on the agent-core-v2 engine.',
+    );
+  }
+
   async undoHistory(input: SessionIdRpcInput & { count: number }): Promise<void> {
     const rpc = await this.getRpc();
     return rpc.undoHistory({
@@ -674,11 +766,6 @@ export abstract class SDKRpcClientBase {
       agentId: this.interactiveAgentId,
       count: input.count,
     });
-  }
-
-  async getTodos(input: SessionIdRpcInput): Promise<readonly SessionTodoItem[]> {
-    const rpc = await this.getRpc();
-    return rpc.getTodos({ sessionId: input.sessionId });
   }
 
   async getContext(input: SessionIdRpcInput): Promise<AgentContextData> {
@@ -728,7 +815,7 @@ export abstract class SDKRpcClientBase {
     const maxContextTokens = capability?.max_input_tokens ?? capability?.max_context_tokens ?? 0;
     const contextTokens = context.tokenCount;
     // Deliberately unclamped: >100% is the documented overflow signal on this
-    // path (see the former acp-adapter's `formatContextUsage`, removed with the v1 engine), unlike the schema-bounded
+    // path (see acp-adapter's formatContextUsage), unlike the schema-bounded
     // REST status surfaces which clamp to 1.
     const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
     const hasUsage =
@@ -889,7 +976,29 @@ export abstract class SDKRpcClientBase {
 
   async reconnectMcpServer(input: ReconnectMcpServerRpcInput): Promise<void> {
     const rpc = await this.getRpc();
-    return rpc.reconnectMcpServer({ sessionId: input.sessionId, name: input.name });
+    return rpc.reconnectMcpServer({
+      sessionId: input.sessionId,
+      name: input.name,
+      config: input.config,
+    });
+  }
+
+  /**
+   * Connect an MCP server in a live session. `persist: true` also writes the
+   * user-level `mcp.json` (the entry becomes a mutable `global` one);
+   * otherwise it stays a session-local `caller` entry.
+   */
+  async addSessionMcpServer(input: {
+    readonly sessionId: string;
+    readonly server: McpServerConfig;
+    readonly persist?: boolean;
+  }): Promise<McpServerInfo> {
+    const rpc = await this.getRpc();
+    return rpc.addSessionMcpServer({
+      sessionId: input.sessionId,
+      server: input.server,
+      persist: input.persist,
+    });
   }
 
   async listPlugins(): Promise<readonly PluginSummary[]> {
@@ -907,7 +1016,11 @@ export abstract class SDKRpcClientBase {
     return rpc.setPluginEnabled({ id, enabled });
   }
 
-  async setPluginMcpServerEnabled(id: string, server: string, enabled: boolean): Promise<void> {
+  async setPluginMcpServerEnabled(
+    id: string,
+    server: string,
+    enabled: boolean,
+  ): Promise<void> {
     const rpc = await this.getRpc();
     return rpc.setPluginMcpServerEnabled({ id, server, enabled });
   }
@@ -968,6 +1081,16 @@ export abstract class SDKRpcClientBase {
     );
   }
 
+  async getRuntime(input: SessionIdRpcInput): Promise<AgentRuntimeBinding> {
+    void input;
+    throw new KimiError(ErrorCodes.NOT_IMPLEMENTED, 'This SDK client does not support runtimes.');
+  }
+
+  async switchRuntime(input: SwitchSessionRuntimeRpcInput): Promise<AgentRuntimeBinding> {
+    void input;
+    throw new KimiError(ErrorCodes.NOT_IMPLEMENTED, 'This SDK client does not support runtimes.');
+  }
+
   onEvent(listener: (event: Event) => void): Unsubscribe {
     this.eventListeners.add(listener);
     return () => {
@@ -976,16 +1099,8 @@ export abstract class SDKRpcClientBase {
   }
 
   receiveEvent(event: Event): void {
-    // Isolate each listener so one throwing listener can't break delivery to
-    // the rest or let the error escape into the engine's event dispatch.
     for (const listener of this.eventListeners) {
-      try {
-        listener(event);
-      } catch (error) {
-        log.error('Event listener threw', {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
+      listener(event);
     }
   }
 
@@ -1056,41 +1171,39 @@ export abstract class SDKRpcClientBase {
     }
   }
 
-  async getRuntime(input: SessionIdRpcInput): Promise<AgentRuntimeBinding> {
-    const rpc = await this.getRpc();
-    return rpc.getRuntime(input);
-  }
-
-  async switchRuntime(input: SwitchSessionRuntimeRpcInput): Promise<AgentRuntimeBinding> {
-    const rpc = await this.getRpc();
-    return rpc.switchRuntime(input);
-  }
-
-  async addSessionMcpServer(input: {
-    readonly sessionId: string;
-    readonly server: McpServerConfig;
-    readonly persist?: boolean;
-  }): Promise<McpServerInfo> {
-    const rpc = await this.getRpc();
-    return rpc.addSessionMcpServer(input);
-  }
-
   async toolCall(request: ToolCallRequest): Promise<ToolCallResponse> {
     return {
       output: `SDK custom tool calls are not supported: ${request.toolCallId}`,
       isError: true,
     };
   }
+
+}
+
+export class ClientAPI implements SDKAPI {
+  constructor(readonly client: SDKRpcClientBase) {}
+
+  emitEvent(event: Event): void {
+    this.client.receiveEvent(event);
+  }
+
+  requestApproval(
+    request: ApprovalRequest & { sessionId: string; agentId: string },
+  ): Promise<ApprovalResponse> {
+    return this.client.requestApproval(request);
+  }
+
+  requestQuestion(
+    request: QuestionRequest & { sessionId: string; agentId: string },
+  ): Promise<QuestionResult> {
+    return this.client.requestQuestion(request);
+  }
+
+  toolCall(request: ToolCallRequest): Promise<ToolCallResponse> {
+    return this.client.toolCall(request);
+  }
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * Input for `switchRuntime` — the session id and the target runtime id.
- * Derived from `SessionIdRpcInput` with the extra `runtimeId` field.
- */
-export interface SwitchSessionRuntimeRpcInput extends SessionIdRpcInput {
-  readonly runtimeId: string;
 }

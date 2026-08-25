@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
-import { SUBAGENT_BACKEND_NAMES } from '#/session/subagent/backend/subagentBackend';
 import { type AgentTool } from '#/tool/toolContract';
+import { DEFAULT_PROFILE_NAME } from '#/session/subagent/spawn';
 
-export const DEFAULT_PROFILE_NAME = 'coder';
+export { DEFAULT_PROFILE_NAME };
 export const RESUMED_LABEL = 'subagent';
 
 export const SubagentToolInputSchema = z.preprocess(
@@ -18,9 +18,8 @@ export const SubagentToolInputSchema = z.preprocess(
       typeof normalized['resume'] === 'string' && normalized['resume'].trim().length > 0;
     const hasSubagentType =
       typeof normalized['subagent_type'] === 'string' && normalized['subagent_type'].length > 0;
-    const hasBackend =
-      typeof normalized['backend'] === 'string' && normalized['backend'].length > 0;
-    if (!hasSubagentType && !hasResumeId && !hasBackend) {
+    const hasFork = normalized['fork'] === true;
+    if (!hasSubagentType && !hasResumeId && !hasFork) {
       normalized['subagent_type'] = DEFAULT_PROFILE_NAME;
     } else if (!hasSubagentType) {
       delete normalized['subagent_type'];
@@ -48,23 +47,17 @@ export const SubagentToolInputSchema = z.preprocess(
       .describe(
         'If true, return immediately without waiting for completion. Prefer false unless the task can run independently and there is a clear benefit to not waiting.',
       ),
+    fork: z
+      .boolean()
+      .optional()
+      .describe(
+        'Fork the current context: the subagent starts with a snapshot of this agent\'s completed conversation history instead of zero context, inheriting this agent\'s agent type, tool set, and model. A non-empty resume is rejected. If subagent_type is provided, it must match this agent\'s type; if model is provided, it must be this agent\'s model or "primary". Different types and model overrides are rejected.',
+      ),
     model: z
       .string()
       .optional()
       .describe(
         'Which model to run the subagent on: one of the aliases listed under "Available models" in this tool description, or "primary" for the main model you are running on (for hard, quality-sensitive tasks). When omitted, the configured default model is used. Ignored when resuming — resumed subagents keep their own model.',
-      ),
-    fork: z
-      .boolean()
-      .optional()
-      .describe(
-        'When true, start the subagent from a snapshot of the calling agent\'s completed conversation history instead of from zero context. The forked subagent shares the caller\'s profile, model, and tool set so the prompt prefix cache is reused. Requires the KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK flag. Cannot be combined with subagent_type, resume, or model — the fork inherits all three from the caller.',
-      ),
-    backend: z
-      .enum(SUBAGENT_BACKEND_NAMES)
-      .optional()
-      .describe(
-        'Run the task in an external agent CLI instead of an in-process subagent: one of the backends listed under "Available backends" in this tool description. The prompt is executed by that CLI and its final text is returned as the result. Cannot be combined with subagent_type, resume, model, fork, or run_in_background.',
       ),
   }),
 );
@@ -92,26 +85,6 @@ export const RESUME_WITH_TYPE_UNAVAILABLE =
 export const USER_INTERRUPTED_SUBAGENT_MESSAGE =
   'The subagent was stopped before it finished by user.';
 export const SUBAGENT_STOPPED_MESSAGE = 'The subagent was stopped before it finished.';
-export const SUBAGENT_FORK_FLAG_REQUIRED =
-  'The fork parameter requires the KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK flag to be enabled.';
-export const FORK_CANNOT_COMBINE_WITH_RESUME =
-  'Cannot use fork with resume — fork creates a new subagent from the caller\'s snapshot; resume targets an existing agent by id.';
-export const FORK_CANNOT_COMBINE_WITH_SUBAGENT_TYPE =
-  'Cannot use fork with subagent_type — a forked subagent inherits the caller\'s profile. Omit subagent_type to use fork.';
-export const FORK_CANNOT_COMBINE_WITH_MODEL =
-  'Cannot use fork with model — a forked subagent inherits the caller\'s model. Omit model to use fork.';
-export const SUBAGENT_BACKEND_FLAG_REQUIRED =
-  'The backend parameter requires the KIMI_CODE_EXPERIMENTAL_SUBAGENT_BACKENDS flag to be enabled.';
-export const BACKEND_CANNOT_COMBINE_WITH_RESUME =
-  'Cannot use backend with resume — an external backend runs a fresh session in the external CLI; resume targets an existing in-process agent by id.';
-export const BACKEND_CANNOT_COMBINE_WITH_SUBAGENT_TYPE =
-  'Cannot use backend with subagent_type — external backends have no in-process agent profile. Omit subagent_type to use backend.';
-export const BACKEND_CANNOT_COMBINE_WITH_MODEL =
-  'Cannot use backend with model — external backends are configured through the [subagentBackend] config section instead of the model parameter.';
-export const BACKEND_CANNOT_COMBINE_WITH_FORK =
-  'Cannot use backend with fork — fork snapshots the in-process conversation history, which an external backend does not share.';
-export const BACKEND_BACKGROUND_UNAVAILABLE =
-  'Background execution is not available for external backends.';
 
 export interface ISubagentTool extends AgentTool<SubagentToolInput> {
   readonly _serviceBrand: undefined;

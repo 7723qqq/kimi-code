@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  declaredDefaultEffortForModel,
   defaultThinkingEffortForModel,
   drivesThinkingThroughTraits,
   modelSupportsThinkingEffort,
@@ -96,6 +97,24 @@ describe('resolveThinkingEffortForModel', () => {
     expect(modelSupportsThinkingEffort('extreme', thinkingModel, true)).toBe(false);
     expect(modelSupportsThinkingEffort('off', thinkingModel, true)).toBe(true);
     expect(modelSupportsThinkingEffort('extreme', thinkingModel, false)).toBe(true);
+  });
+
+  it('declaredDefaultEffortForModel returns the declared default only when the model lists it', () => {
+    expect(declaredDefaultEffortForModel(thinkingModel)).toBe('high');
+    expect(
+      declaredDefaultEffortForModel({
+        capabilities: ['thinking'],
+        supportEfforts: ['low', 'medium'],
+        defaultEffort: 'high',
+      }),
+    ).toBeUndefined();
+    expect(
+      declaredDefaultEffortForModel({ capabilities: ['thinking'], supportEfforts: ['low'] }),
+    ).toBeUndefined();
+    expect(
+      declaredDefaultEffortForModel({ supportEfforts: ['max'], defaultEffort: 'max' }),
+    ).toBeUndefined();
+    expect(declaredDefaultEffortForModel(undefined)).toBeUndefined();
   });
 });
 

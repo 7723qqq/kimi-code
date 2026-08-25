@@ -16,7 +16,6 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import { kimiCodeCdnBase } from '#/constant/app';
-import { t } from '#/i18n';
 import { getBinDir } from '#/utils/paths';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
@@ -154,7 +153,7 @@ async function downloadFile(url: string, dest: string): Promise<void> {
     throw new Error(`Failed to download fd: ${response.status}`);
   }
   if (response.body === null) {
-    throw new Error(t('tui.statusMessages.fdDownloadEmptyResponse'));
+    throw new Error('Failed to download fd: empty response body');
   }
   await pipeline(Readable.fromWeb(response.body), createWriteStream(dest));
 }

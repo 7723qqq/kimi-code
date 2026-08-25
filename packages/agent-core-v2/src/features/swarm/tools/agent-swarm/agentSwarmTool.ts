@@ -1,50 +1,46 @@
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import {
-  rootDelegationExtras,
-  subagentAllowlistFor,
-  subagentTypeNotAllowedMessage,
-  withoutDelegatingTargets,
-} from '#/app/agentProfileCatalog/profile-shared';
-import { IConfigService } from '#/app/config/config';
-import { IFlagService } from '#/app/flag/flag';
-import { Error2, ErrorCodes } from '#/errors';
-import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import {
-  buildSubagentModelDescriptions,
-  exposesSubagentModelChoice,
-  resolveSubagentBinding,
-  resolveSubagentTimeoutMs,
-  stripSubagentForkParameter,
-  stripSubagentModelParameter,
-} from '#/session/subagent/configSection';
-import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
-import { forkIncompatibility } from '#/session/subagent/forkCompat';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   ToolAccesses,
   type ExecutableToolContext,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-
-import type { IAgentSwarmTool } from './agent-swarm';
+import { Error2, ErrorCodes } from '#/errors';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { IConfigService } from '#/app/config/config';
+import { IFlagService } from '#/app/flag/flag';
+import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import { resolveSwarmTimeoutMs } from '#/features/swarm/configSection';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
+import {
+  FORK_EXPERIMENTAL_UNAVAILABLE,
+  FORK_WITH_RESUME_UNAVAILABLE,
+  forkIncompatibility,
+  type SubagentSpawnPlan,
+} from '#/session/subagent/spawn';
+import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
+import {
+  buildSubagentModelDescriptions,
+  exposesSubagentModelChoice,
+  stripSubagentForkParameter,
+  stripSubagentModelParameter,
+} from '#/session/subagent/configSection';
 import {
   AgentSwarmToolInputSchema,
+  IAgentSwarmTool,
   MAX_AGENT_SWARM_SUBAGENTS,
   PROMPT_TEMPLATE_PLACEHOLDER,
   type AgentSwarmToolInput,
 } from './agent-swarm';
 import AGENT_SWARM_DESCRIPTION from './agent-swarm.md?raw';
+import AGENT_SWARM_FORK_DESCRIPTION from './agent-swarm-fork.md?raw';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
 
 const AGENT_SWARM_PARAMETERS = toInputJsonSchema(AgentSwarmToolInputSchema);
 const AGENT_SWARM_PARAMETERS_NO_MODEL = stripSubagentModelParameter(AGENT_SWARM_PARAMETERS);
-const AGENT_SWARM_PARAMETERS_NO_FORK = stripSubagentForkParameter(AGENT_SWARM_PARAMETERS);
-const AGENT_SWARM_PARAMETERS_NO_MODEL_NO_FORK = stripSubagentForkParameter(AGENT_SWARM_PARAMETERS_NO_MODEL);
 
 interface AgentSwarmSpawnSpec {
   readonly kind: 'spawn';
@@ -77,12 +73,12 @@ export class AgentSwarmTool implements IAgentSwarmTool {
   readonly name = 'AgentSwarm' as const;
 
   get parameters(): Record<string, unknown> {
-    const exposesModel = exposesSubagentModelChoice(this.config, this.flags);
-    const forkEnabled = this.flags.enabled(SUBAGENT_FORK_FLAG_ID);
-    if (exposesModel && forkEnabled) return AGENT_SWARM_PARAMETERS;
-    if (exposesModel) return AGENT_SWARM_PARAMETERS_NO_FORK;
-    if (forkEnabled) return AGENT_SWARM_PARAMETERS_NO_MODEL;
-    return AGENT_SWARM_PARAMETERS_NO_MODEL_NO_FORK;
+    const parameters = exposesSubagentModelChoice(this.config, this.flags)
+      ? AGENT_SWARM_PARAMETERS
+      : AGENT_SWARM_PARAMETERS_NO_MODEL;
+    return this.flags.enabled(SUBAGENT_FORK_FLAG_ID)
+      ? parameters
+      : stripSubagentForkParameter(parameters);
   }
 
   private readonly callerAgentId: string;
@@ -93,38 +89,26 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     @IAgentSwarmService private readonly swarmMode: IAgentSwarmService,
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
-    @ISessionAgentProfileCatalog private readonly catalog: ISessionAgentProfileCatalog,
+    @ISessionSubagentService private readonly subagents: ISessionSubagentService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
   ) {
     this.callerAgentId = scopeContext.agentId;
   }
 
   get description(): string {
+    let description = AGENT_SWARM_DESCRIPTION;
+    if (this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
+      description += `\n\n${AGENT_SWARM_FORK_DESCRIPTION}`;
+    }
     const modelLines = buildSubagentModelDescriptions(
       this.config,
       this.flags,
       this.profile.data().modelAlias,
     );
-    return modelLines === undefined
-      ? AGENT_SWARM_DESCRIPTION
-      : `${AGENT_SWARM_DESCRIPTION}\n\n${modelLines}`;
+    return modelLines === undefined ? description : `${description}\n\n${modelLines}`;
   }
 
   resolveExecution(args: AgentSwarmToolInput): ToolExecution {
-    if (args.fork === true && !this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
-      return {
-        output: 'The fork parameter requires the KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK flag to be enabled.',
-        isError: true,
-      };
-    }
-    const forkError = forkIncompatibility({
-      fork: args.fork,
-      subagent_type: args.subagent_type,
-      model: args.model,
-    });
-    if (forkError !== undefined) {
-      return { output: forkError, isError: true };
-    }
     const agentCount = (args.items?.length ?? 0) + Object.keys(args.resume_agent_ids ?? {}).length;
     return {
       accesses: ToolAccesses.all(),
@@ -162,46 +146,33 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     signal: AbortSignal,
     toolCallId: string,
   ): Promise<string> {
-    const isFork = args.fork === true;
-    const profileName = isFork
-      ? (this.profile.data().profileName ?? DEFAULT_SUBAGENT_TYPE)
-      : normalizeOptionalString(args.subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
-    let binding: { model: string; thinking?: string } | undefined;
-    if ((args.items?.length ?? 0) > 0 && !isFork) {
-      await this.catalog.ready;
-      const own = this.profile.data();
-      const extras =
-        this.callerAgentId === 'main'
-          ? rootDelegationExtras(this.catalog, own, this.catalog.list())
-          : undefined;
-      let allowlist = subagentAllowlistFor(this.catalog, own, extras);
-      if (allowlist !== undefined && own.subagents === undefined) {
-        allowlist = withoutDelegatingTargets(this.catalog, allowlist);
-      }
-      if (allowlist !== undefined && !allowlist.includes(profileName)) {
-        throw new Error2(
-          ErrorCodes.AGENT_TYPE_NOT_ALLOWED,
-          subagentTypeNotAllowedMessage(profileName, allowlist),
-          { details: { profileName, allowlist } },
-        );
-      }
-      const targetProfile = this.catalog.get(profileName);
-      if (targetProfile === undefined) {
-        throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${profileName}"`, {
-          details: { profileName },
-        });
-      }
-      if (own.modelAlias !== undefined) {
-        const resolved = resolveSubagentBinding(
-          this.config,
-          this.flags,
-          { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-          args.model,
-        );
-        binding = { model: resolved.model, thinking: resolved.thinking };
-      }
+    const fork = args.fork === true;
+    if (fork && !this.flags.enabled(SUBAGENT_FORK_FLAG_ID)) {
+      throw new Error2(ErrorCodes.VALIDATION_FAILED, FORK_EXPERIMENTAL_UNAVAILABLE);
     }
-    const timeoutMs = resolveSubagentTimeoutMs(this.config);
+    if (fork && Object.keys(args.resume_agent_ids ?? {}).length > 0) {
+      throw new Error2(ErrorCodes.VALIDATION_FAILED, FORK_WITH_RESUME_UNAVAILABLE);
+    }
+    let plan: SubagentSpawnPlan | undefined;
+    if ((args.items?.length ?? 0) > 0) {
+      if (fork) {
+        const incompatible = forkIncompatibility(
+          { subagent_type: args.subagent_type, model: args.model },
+          this.profile.data(),
+        );
+        if (incompatible !== undefined) {
+          throw new Error2(ErrorCodes.VALIDATION_FAILED, incompatible);
+        }
+      }
+      plan = await this.subagents.planSpawn({
+        callerAgentId: this.callerAgentId,
+        profileName: args.subagent_type,
+        model: args.model,
+        fork,
+      });
+    }
+    const profileName = plan?.profileName ?? DEFAULT_SUBAGENT_TYPE;
+    const timeoutMs = resolveSwarmTimeoutMs(this.config);
     const specs = await createAgentSwarmSpecs(args, (agentId) =>
       this.swarmService.getSwarmItem({ callerAgentId: this.callerAgentId, agentId }),
     );
@@ -229,8 +200,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
       return {
         ...common,
         kind: 'spawn' as const,
-        binding,
-        ...(isFork ? { fork: true } : {}),
+        plan: plan!,
       };
     });
     const results = await this.swarmService.run({
@@ -238,7 +208,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
       tasks,
     });
     return renderSwarmResults(
-      results.map(({ task, ...result }) => ({ spec: task.data as AgentSwarmSpec, ...result })),
+      results.map(({ task, ...result }) => ({ spec: task.data, ...result })),
     );
   }
 }
@@ -347,11 +317,9 @@ function renderSwarmResults(results: readonly SwarmRunResult[]): string {
   for (const result of results) {
     const agentId = result.agentId === undefined ? '' : ` agent_id="${result.agentId}"`;
     const mode = result.spec.kind === 'resume' ? ' mode="resume"' : '';
-    const item =
-      result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
+    const item = result.spec.item === undefined ? '' : ` item="${escapeXmlAttribute(result.spec.item)}"`;
     const state = result.state === undefined ? '' : ` state="${result.state}"`;
-    const body =
-      result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
+    const body = result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
     lines.push(
       `<subagent${mode}${agentId}${item}${state} outcome="${result.status}">${body}</subagent>`,
     );

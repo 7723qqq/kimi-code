@@ -9,7 +9,13 @@
 
 import { createConnection, type Socket } from 'node:net';
 
-import type { EventSourceRef, IDisposable, KlientChannel, ScopeRef } from '../../core/channel.js';
+import type {
+  CallOptions,
+  EventSourceRef,
+  IDisposable,
+  KlientChannel,
+  ScopeRef,
+} from '../../core/channel.js';
 import { RPCError } from '../../core/errors.js';
 import { trimTrailingUndefined } from '../args.js';
 import { encodeFrame, NdjsonDecoder, type IpcFrame } from './codec.js';
@@ -95,17 +101,24 @@ export class IpcChannel implements KlientChannel {
     });
   }
 
-  async call(scope: ScopeRef, service: string, method: string, args: unknown[]): Promise<unknown> {
+  async call(
+    scope: ScopeRef,
+    service: string,
+    method: string,
+    args: unknown[],
+    options?: CallOptions,
+  ): Promise<unknown> {
     await this.ready;
     if (this.closed) throw new Error('ipc closed');
+    const timeoutMs = options?.timeoutMs ?? this.callTimeoutMs;
     const id = this.nextId();
     const promise = new Promise<unknown>((resolve, reject) => {
       const timer =
-        this.callTimeoutMs > 0
+        timeoutMs > 0
           ? setTimeout(() => {
               this.pending.delete(id);
-              reject(new RPCError(50001, `call timed out after ${this.callTimeoutMs}ms`));
-            }, this.callTimeoutMs)
+              reject(new RPCError(50001, `call timed out after ${timeoutMs}ms`));
+            }, timeoutMs)
           : undefined;
       this.pending.set(id, { resolve, reject, timer });
     });
@@ -125,12 +138,7 @@ export class IpcChannel implements KlientChannel {
     return promise;
   }
 
-  stream(
-    scope: ScopeRef,
-    service: string,
-    method: string,
-    args: unknown[],
-  ): AsyncIterable<unknown> {
+  stream(scope: ScopeRef, service: string, method: string, args: unknown[]): AsyncIterable<unknown> {
     return {
       [Symbol.asyncIterator]: () => {
         // Simple queue: push/pull with deferred promises. `buffer` holds
@@ -195,31 +203,25 @@ export class IpcChannel implements KlientChannel {
         const ensureStarted = (): void => {
           if (started) return;
           started = true;
-          void this.ready
-            .then(() => {
-              if (this.closed) {
-                pending.error(new Error('ipc closed'));
-                return;
-              }
-              streamId = this.nextId();
-              this.streams.set(streamId, pending);
-              this.send({
-                type: 'stream',
-                id: streamId,
-                scope: scopeKindOf(scope),
-                service,
-                method,
-                arg: trimTrailingUndefined(args),
-                workspaceId: scope.workspaceId,
-                sessionId: scope.sessionId,
-                agentId: scope.agentId,
-              });
-            })
-            .catch((error) => {
-              // The handshake failed before the stream started; surface it to
-              // every next() waiter instead of leaving them pending forever.
-              pending.error(error instanceof Error ? error : new Error(String(error)));
+          void this.ready.then(() => {
+            if (this.closed) {
+              pending.error(new Error('ipc closed'));
+              return;
+            }
+            streamId = this.nextId();
+            this.streams.set(streamId, pending);
+            this.send({
+              type: 'stream',
+              id: streamId,
+              scope: scopeKindOf(scope),
+              service,
+              method,
+              arg: trimTrailingUndefined(args),
+              workspaceId: scope.workspaceId,
+              sessionId: scope.sessionId,
+              agentId: scope.agentId,
             });
+          });
         };
 
         return {
@@ -278,19 +280,15 @@ export class IpcChannel implements KlientChannel {
       source.kind === 'stream'
         ? { ...base, event: source.name }
         : { ...base, service: source.service, event: source.event };
-    void this.ready
-      .then(() => {
-        this.send(frame);
-      })
-      .catch(() => {});
+    void this.ready.then(() => {
+      this.send(frame);
+    });
     return {
       dispose: () => {
         if (!this.listens.delete(id)) return;
-        void this.ready
-          .then(() => {
-            this.send({ type: 'unlisten', id });
-          })
-          .catch(() => {});
+        void this.ready.then(() => {
+          this.send({ type: 'unlisten', id });
+        });
       },
     };
   }
