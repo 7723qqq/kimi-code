@@ -17,12 +17,17 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { KimiError } from '#/index';
 import { createKimiHarness, type Event } from '#/index';
+import { drainQueryStoreDisposals, drainSessionIndexMirror } from '#/sdk-rpc-client-v2';
 
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  // Dispose fires the mirror/query-store async closes; let them land before
+  // the shared teardown removes the temp home.
+  await drainSessionIndexMirror();
+  await drainQueryStoreDisposals();
   for (const dir of tempDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });
   }

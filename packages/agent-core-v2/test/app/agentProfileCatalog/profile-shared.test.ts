@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   normalizeAgentProfile,
@@ -118,20 +118,25 @@ describe('systemPromptVars', () => {
   });
 
   it('renders runtime notes as empty without probe data and keeps the prompt stable', () => {
-    const empty = renderSystemPromptResult('', {}, { skillActive: true }).text;
-    expect(empty).not.toContain('JavaScript Runtimes');
-    const withRuntimes = renderSystemPromptResult(
-      '',
-      { jsRuntimes: [{ name: 'bun', version: '1.4.0', path: '/usr/bin/bun' }] },
-      { skillActive: true },
-    ).text;
-    expect(withRuntimes).toContain('## JavaScript Runtimes');
-    const again = renderSystemPromptResult(
-      '',
-      { jsRuntimes: [{ name: 'bun', version: '1.4.0', path: '/usr/bin/bun' }] },
-      { skillActive: true },
-    ).text;
-    expect(again).toBe(withRuntimes);
+    vi.useFakeTimers();
+    try {
+      const empty = renderSystemPromptResult('', {}, { skillActive: true }).text;
+      expect(empty).not.toContain('JavaScript Runtimes');
+      const withRuntimes = renderSystemPromptResult(
+        '',
+        { jsRuntimes: [{ name: 'bun', version: '1.4.0', path: '/usr/bin/bun' }] },
+        { skillActive: true },
+      ).text;
+      expect(withRuntimes).toContain('## JavaScript Runtimes');
+      const again = renderSystemPromptResult(
+        '',
+        { jsRuntimes: [{ name: 'bun', version: '1.4.0', path: '/usr/bin/bun' }] },
+        { skillActive: true },
+      ).text;
+      expect(again).toBe(withRuntimes);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('empties skills and the skills section when the Skill tool is off', () => {
