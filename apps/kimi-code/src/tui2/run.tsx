@@ -21,9 +21,8 @@
  * Status: REAL (tui2). New file — no v1 counterpart.
  */
 
-import { createSignal } from 'solid-js'
 import { createCliRenderer } from '@opentui/core'
-import { render } from '@opentui/solid'
+import { render, useTerminalDimensions } from '@opentui/solid'
 import { KeymapProvider, useBindings } from '@opentui/keymap/solid'
 
 import { Tui2ProviderStack, useTui2Store } from './context'
@@ -83,9 +82,10 @@ function hostToDispatch(host: KimiTUI): DialogDispatch {
  */
 export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
   const store = useTui2Store()
-  // opentui's CliRenderer does not yet expose a size getter; the shell lays
-  // out with these defaults until the renderer surfaces terminal dimensions.
-  const [termSize] = createSignal({ width: 80, height: 24 })
+  // Layout follows the live terminal size (opentui's useTerminalDimensions),
+  // so the input line and panes span the actual terminal width, not a fixed
+  // 80-column default.
+  const dimensions = useTerminalDimensions()
   const dispatch = hostToDispatch(host)
   const editorKeyboard = host.editorKeyboard
 
@@ -126,8 +126,8 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
   return (
     <MainShell
       dispatch={dispatch}
-      width={termSize().width}
-      height={termSize().height}
+      width={dimensions().width}
+      height={dimensions().height}
       activityMode={store.state.activityMode === 'idle' ? 'hidden' : store.state.activityMode}
       activityTip={store.state.activityTip}
       activityDetail={store.state.activityDetail}
