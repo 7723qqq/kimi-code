@@ -34,14 +34,17 @@ export class WebSearchProviderService implements IWebSearchProviderService {
   getWebSearchProvider(): WebSearchProvider | undefined {
     const candidates: WebSearchProvider[] = [];
     const services = this.fromServicesConfig();
-    if (services !== undefined) candidates.push(services);
-    let managed: WebSearchProvider | undefined;
-    try {
-      managed = this.fromManagedOAuth();
-    } catch {
-      managed = undefined;
+    if (services !== undefined) {
+      candidates.push(services);
+    } else {
+      let managed: WebSearchProvider | undefined;
+      try {
+        managed = this.fromManagedOAuth();
+      } catch {
+        managed = undefined;
+      }
+      if (managed !== undefined) candidates.push(managed);
     }
-    if (managed !== undefined) candidates.push(managed);
     candidates.push(this.localProvider());
     return createFailoverWebSearchProvider(candidates);
   }
@@ -115,7 +118,9 @@ function nonEmptyString(value: string | undefined): string | undefined {
  * Try each provider in order; an auth failure (missing/expired managed
  * token) falls through to the next candidate instead of surfacing a
  * dead-end, while caller aborts propagate immediately. Empty result sets
- * also cascade — engines can legitimately miss a query.
+ * also cascade — engines can legitimately miss a query — and when every
+ * candidate comes back empty without erroring, that empty set is the
+ * final answer.
  */
 export function createFailoverWebSearchProvider(
   candidates: readonly WebSearchProvider[],
@@ -123,16 +128,18 @@ export function createFailoverWebSearchProvider(
   return {
     async search(query, options) {
       let lastError: unknown = new Error('no search provider configured');
+      let sawError = false;
       for (const candidate of candidates) {
         try {
           const results = await candidate.search(query, options);
-          if (results.length > 0 || candidates.length === 1) return results;
-          lastError = new Error('no search results');
+          if (results.length > 0) return results;
         } catch (error) {
           if (options?.signal?.aborted) throw error;
+          sawError = true;
           lastError = error;
         }
       }
+      if (!sawError) return [];
       throw lastError;
     },
   };

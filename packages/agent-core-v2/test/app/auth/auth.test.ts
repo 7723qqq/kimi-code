@@ -1100,8 +1100,10 @@ describe('WebSearchProviderService', () => {
       },
     };
     const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
       status: 200,
       json: async () => ({ search_results: [] }),
+      text: async () => '<html><body>no results</body></html>',
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -1124,8 +1126,10 @@ describe('WebSearchProviderService', () => {
       },
     };
     const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
       status: 200,
       json: async () => ({ search_results: [] }),
+      text: async () => '<html><body>no results</body></html>',
     });
     vi.stubGlobal('fetch', fetchMock);
 
