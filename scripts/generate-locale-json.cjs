@@ -1,7 +1,7 @@
 /**
  * Generate JSON locale files from TypeScript locale sources.
  *
- * Usage: pnpm run generate:locale-json
+ * Usage: bun run generate:locale-json
  *
  * Reads each TS locale file and writes its JSON equivalent so the
  * Rust i18n engine can load them directly without runtime serialization.

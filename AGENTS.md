@@ -21,6 +21,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
 - **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (`bun run dev:cli`, tsx running `src/main.ts`); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
+- **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Self-update remains engine-aware for legacy SEA installs.
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): MCP auto-reconnect with bounded exponential backoff (`mcpCore/connection-manager.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 
 > For a user-facing summary of these additions, see `README.md` → "What's Different in This Fork" (and its Chinese mirror `README.zh-CN.md` → "本 Fork 新增特性").
@@ -296,7 +297,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`:
 3. **test-pi-tui** — `pi-tui` suite (uses node:test, not vitest)
 4. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 5. **typecheck** — TypeScript check across all packages (uses `tsgo` from `@typescript/native-preview`)
-6. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then SEA packaging and a native smoke test.
+6. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
 7. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
 
 Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
@@ -442,7 +443,7 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ## Monorepo Workspace Maintenance
 
-- **The `workspaces` field in the root `package.json`** is the source of truth for workspace membership. Globs: `packages/*` (minus `!packages/kimi-build`), `apps/*` (minus `!apps/kimi-web`), `apps/vis/server`, `apps/vis/web`, and `docs`.
+- **The `workspaces` field in the root `package.json`** is the source of truth for workspace membership. Globs: `packages/*`, `apps/*` (minus `!apps/kimi-web`), `apps/vis/server`, `apps/vis/web`, and `docs`.
 - **`flake.nix`** also contains a hardcoded `workspacePaths` list that must be manually kept in sync.
 - **Whenever you add or remove a workspace package, you MUST update both the root `package.json` and `flake.nix`** — for every package, including leaf / test / e2e packages that nothing depends on.
   - Missing a path in `flake.nix`'s `workspacePaths` silently drops files from the Nix build's `src` fileset.

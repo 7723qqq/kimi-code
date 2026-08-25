@@ -136,7 +136,7 @@ scope:
 tags: node, bun, environment
 scope: 
 
-需要 Node.js >= 24.15.0、Bun >= 1.4.0（`bunfig.toml` 钉了 hoisted linker）。Node 版本不满足会让 SEA 构建脚本直接报错。
+需要 Node.js >= 24.15.0、Bun >= 1.4.0（`bunfig.toml` 钉了 hoisted linker）。Node 版本不满足会让原生打包脚本（`bun run build:native:bun`）直接报错。
 
 ---
 

@@ -173,7 +173,7 @@ Outline prompt:
 
 ```
 * Install and upgrade
-  * System requirements: Node.js 24.15.0+, recommend pnpm
+  * System requirements: Node.js 24.15.0+, recommend npm
   * Install, upgrade, uninstall steps
 ```
 
@@ -185,7 +185,7 @@ Outline prompt:
 ### System requirements
 
 - Node.js 24.15.0+
-- Recommend pnpm
+- Recommend npm
 
 ### Install
 
@@ -201,9 +201,9 @@ Outline prompt:
 ```markdown
 ## Install and upgrade
 
-Kimi Code CLI requires Node.js 24.15.0 or later. We recommend using pnpm for installation and management.
+Kimi Code CLI requires Node.js 24.15.0 or later. We recommend using npm for installation and management.
 
-If you haven't installed pnpm yet, please refer to the pnpm installation docs first. Install Kimi Code CLI:
+If you haven't installed npm yet, please refer to the npm installation docs first. Install Kimi Code CLI:
 
 (code block)
 
@@ -318,11 +318,11 @@ Before shipping, verify these values match the rest of the docs:
 ## Build and preview
 
 - Docs are built with VitePress from `docs/`.
-- Common commands (run inside `docs/`):
-  - `npm install`
-  - `npm run dev`
-  - `npm run build`
-  - `npm run preview`
+- Common commands (run inside `docs/`, or from the repo root via `bun run dev:docs`):
+  - `bun install`
+  - `bun run dev`
+  - `bun run build`
+  - `bun run preview`
 - The build output is `docs/.vitepress/dist`.
 
 ## Changelog syncing

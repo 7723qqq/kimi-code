@@ -335,7 +335,7 @@ Check:
 Then run the docs build:
 
 ```bash
-pnpm --filter docs run build
+cd docs && bun run build
 ```
 
 ### 8. Human Review Checkpoint
@@ -397,7 +397,7 @@ Fill in `.github/pull_request_template.md`. For changelog sync PRs:
 
 - **Related Issue**: write `N/A — post-release docs maintenance` (no issue required).
 - **Problem**: the docs-site changelog is behind the published CLI release(s).
-- **What changed**: list synced version(s), note English source + Chinese translation, and mention verification (`pnpm --filter docs run build`).
+- **What changed**: list synced version(s), note English source + Chinese translation, and mention verification (`cd docs && bun run build`).
 - **Checklist**: check CONTRIBUTING; explain no issue, no tests, no changeset, and that `gen-docs` is not needed because this is the dedicated changelog sync flow.
 
 Example body:
@@ -415,7 +415,7 @@ The docs-site changelog has not yet been synced for `<version range>` after the 
 
 - Synced `<version range>` from `apps/kimi-code/CHANGELOG.md` into `docs/en/release-notes/changelog.md`
 - Translated the new English increment into `docs/zh/release-notes/changelog.md`
-- Verified with `pnpm --filter docs run build`
+- Verified with `cd docs && bun run build`
 
 ## Checklist
 
