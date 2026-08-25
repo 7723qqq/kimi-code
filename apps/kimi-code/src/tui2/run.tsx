@@ -28,7 +28,7 @@ import { KeymapProvider, useBindings } from '@opentui/keymap/solid'
 
 import { Tui2ProviderStack, useTui2Store } from './context'
 import { buildBaseLayer, createTui2Keymap, type Tui2CommandHandlers, type Tui2Keymap } from './keymap'
-import { createTui2Store, type Tui2Store } from './state'
+import type { Tui2Store } from './state'
 import { showModelPicker } from './commands/config'
 import { MainShell } from './components/main-shell'
 import { KimiTUI } from './controllers/kimi-tui'
@@ -148,7 +148,6 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
 
 export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiTui2Result> {
   const renderer = await createCliRenderer({ screenMode: 'main-screen', exitOnCtrlC: false })
-  const store = createTui2Store({})
   const keymap = createTui2Keymap(renderer)
 
   // Tui2Terminal adapter — opentui owns the terminal directly, the
@@ -176,7 +175,7 @@ export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiT
         {/* The store provider must wrap every consumer (including the Shell's
             own useTui2Store()); mounting it inside the Shell would leave the
             store out of scope for the Shell function body itself. */}
-        <Tui2ProviderStack store={store}>
+        <Tui2ProviderStack store={host.store}>
           <ShellView />
         </Tui2ProviderStack>
       </KeymapProvider>
@@ -197,5 +196,5 @@ export async function runKimiTui2(options: RunKimiTui2Options): Promise<RunKimiT
 
   await renderPromise
 
-  return { renderer, store, keymap, host }
+  return { renderer, store: host.store, keymap, host }
 }
