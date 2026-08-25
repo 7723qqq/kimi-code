@@ -1,0 +1,57 @@
+/**
+ * Startup / session chrome hints for the v2 TUI.
+ *
+ * Mirrors `tui/constant/kimi-tui.ts`. Pure logic — the message strings are
+ * locale-aware and the constants describe app-level timing/behaviour knobs.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
+import { t } from '#/i18n';
+
+export {
+  DEFAULT_OAUTH_PROVIDER_NAME,
+  OAUTH_LOGIN_REQUIRED_CODE,
+  PRODUCT_NAME,
+} from '#/constant/app';
+
+export function getLlmNotSetMessage(): string {
+  return t('tui.chrome.hints.llmNotSet');
+}
+export function getNoActiveSessionMessage(): string {
+  return t('tui.chrome.hints.noActiveSession');
+}
+export function getCtrlDHint(): string {
+  return t('tui.chrome.hints.ctrlDExit');
+}
+export function getCtrlCHint(): string {
+  return t('tui.chrome.hints.ctrlCExit');
+}
+export const MAIN_AGENT_ID = 'main';
+export function getOauthLoginRequiredStartupNotice(): string {
+  return t('tui.chrome.hints.oauthLoginExpired');
+}
+export const SESSIONLESS_STARTUP_NOTICE =
+  'No session yet — one will be created on your first message.';
+export const EXIT_CONFIRM_WINDOW_MS = 1500;
+// Time window for treating two consecutive Esc presses as a double-Esc, which
+// opens the undo selector. Kept short (double-click feel) so two deliberate
+// presses far apart don't accidentally trigger undo.
+export const DOUBLE_ESC_WINDOW_MS = 600;
+
+/**
+ * How long the leader key (`ctrl+x`) stays armed waiting for a chord before
+ * cancelling. Long enough to read the which-key overlay, short enough that a
+ * stray `ctrl+x` doesn't swallow the next keystroke.
+ */
+export const LEADER_TIMEOUT_MS = 2000;
+
+/** Session picker page size: one backend keyset page and one picker window. */
+export const SESSION_LIST_PAGE_SIZE = 50;
+
+export function isManagedUsageProvider(
+  providerKey: string | undefined,
+): providerKey is typeof DEFAULT_OAUTH_PROVIDER_NAME {
+  return providerKey === DEFAULT_OAUTH_PROVIDER_NAME;
+}

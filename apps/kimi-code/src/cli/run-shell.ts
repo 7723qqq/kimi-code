@@ -25,8 +25,8 @@ import { detectPendingMigration } from '#/migration/index';
 import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
-import { KimiTUI } from '#/tui/index';
 import { currentTheme, getColorPalette } from '#/tui/theme';
+import { resolveTuiVariant } from '#/tui2/env';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 import { startupTrace } from '#/utils/startup-trace';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
@@ -37,6 +37,19 @@ import type { CLIOptions } from './options';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
 
+/**
+ * The TUI surface the CLI shell needs for telemetry + exit handling. Both
+ * stacks implement it structurally: the v1 pi-tui KimiTUI and the v2
+ * opentui host. The shell never reaches into stack-specific internals.
+ */
+interface TuiSurface {
+  getCurrentSessionId(): string;
+  hasSessionContent(): boolean;
+  readonly uiMode: string;
+  exitOpenUrl: string | undefined;
+  exitForegroundTask: ((exitCode: number) => Promise<void>) | undefined;
+}
+
 export async function runShell(
   opts: CLIOptions,
   version: string,
@@ -44,6 +57,26 @@ export async function runShell(
 ): Promise<void> {
   const startedAt = Date.now();
   const configStartedAt = startedAt;
+
+  // Resolve which TUI stack serves this session. v2 (opentui + SolidJS) is
+  // opt-in via KIMI_TUI=v2; unset/v1 keeps the pi-tui default.
+  const tuiVariant = resolveTuiVariant();
+  if (tuiVariant === 'v2') {
+    // Register the opentui/solid bun-plugin *before* any tui2 module (incl.
+    // `state.tsx` with its JSX provider) is loaded. The plugin rewrites
+    // `solid-js/dist/server.js` to the reactive client build and applies
+    // babel-preset-solid so JSX children are lazy accessors; without it
+    // providers mount before consumers and `useTui2Store()` throws
+    // "Tui2StoreProvider missing". This requires Bun (node:ffi is needed by
+    // opentui anyway).
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error -- `@opentui/solid/preload` ships no type declarations (Bun-only).
+    await import('@opentui/solid/preload');
+  }
+  const tuiEntry = await (tuiVariant === 'v2'
+    ? import('#/tui2/index')
+    : import('#/tui/index'));
+  const KimiTUI = tuiEntry.KimiTUI;
   let tuiConfig: TuiConfig;
   let configWarning: string | undefined;
   try {
@@ -91,6 +124,7 @@ export async function runShell(
   log.info('kimi-code starting', {
     version,
     uiMode: CLI_UI_MODE,
+    tuiVariant,
     nodeVersion: process.version,
     platform: `${process.platform}/${process.arch}`,
     workDir,
@@ -120,7 +154,7 @@ export async function runShell(
   // Resolve --agent/--agent-file once for the startup session; validateOptions
   // has already rejected them alongside --session/--continue.
   const agentProfile = await resolveAgentProfileSelection(opts, workDir);
-  const tui = new KimiTUI(harness, {
+  const startupInput: ConstructorParameters<typeof KimiTUI>[1] = {
     cliOptions: opts,
     agentProfile,
     additionalDirs: opts.addDirs?.length ? opts.addDirs : undefined,
@@ -131,7 +165,8 @@ export async function runShell(
     migrationPlan,
     migrateOnly: runOptions.migrateOnly,
     engineV2,
-  });
+  };
+  const tui = new KimiTUI(harness, startupInput);
 
   initializeCliTelemetry({
     harness,
@@ -153,8 +188,25 @@ export async function runShell(
     }
     withTelemetryContext({ sessionId }).track(event, properties);
   };
+  // The exit/telemetry surface both TUI stacks share. v1 keeps the KimiTUI
+  // instance; the v2 runner swaps this to the opentui host once it exists
+  // (see the KIMI_TUI=v2 branch below). The v1 adapter reads through getters
+  // so late-set fields (exitOpenUrl / exitForegroundTask) stay live.
+  let tuiSurface: TuiSurface = {
+    getCurrentSessionId: () => tui.getCurrentSessionId(),
+    hasSessionContent: () => tui.hasSessionContent(),
+    get uiMode() {
+      return tui.state.ui.mode;
+    },
+    get exitOpenUrl() {
+      return tui.exitOpenUrl;
+    },
+    get exitForegroundTask() {
+      return tui.exitForegroundTask;
+    },
+  };
   const trackLifecycle = (event: string, properties?: Parameters<KimiHarness['track']>[1]) => {
-    trackLifecycleForSession(tui.getCurrentSessionId(), event, properties);
+    trackLifecycleForSession(tuiSurface.getCurrentSessionId(), event, properties);
   };
 
   let savedStty: string | undefined;
@@ -229,11 +281,11 @@ export async function runShell(
     process.off('unhandledRejection', onUnhandledRejection);
   };
 
-  tui.onExit = async (exitCode = 0) => {
-    const sessionId = tui.getCurrentSessionId();
-    const hasContent = tui.hasSessionContent();
+  const exitHandler = async (exitCode = 0) => {
+    const sessionId = tuiSurface.getCurrentSessionId();
+    const hasContent = tuiSurface.hasSessionContent();
     setCrashPhase('shutdown');
-    trackLifecycle('exit', { duration_ms: Date.now() - startedAt, tui_mode: tui.state.ui.mode });
+    trackLifecycle('exit', { duration_ms: Date.now() - startedAt, tui_mode: tuiSurface.uiMode });
     await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
     const gutter = ' '.repeat(CHROME_GUTTER);
     process.stdout.write(`${gutter}${t('tui.statusMessages.shellBye')}\n`);
@@ -241,9 +293,9 @@ export async function runShell(
     if (sessionId !== '' && hasContent) {
       hints.push(`${gutter}${t('tui.statusMessages.shellResumeHint', { sessionId })}`);
     }
-    if (tui.exitOpenUrl !== undefined) {
+    if (tuiSurface.exitOpenUrl !== undefined) {
       hints.push(
-        `${gutter}${t('tui.statusMessages.webOpenUrl', { url: toTerminalHyperlink(tui.exitOpenUrl, tui.exitOpenUrl) })}`,
+        `${gutter}${t('tui.statusMessages.webOpenUrl', { url: toTerminalHyperlink(tuiSurface.exitOpenUrl, tuiSurface.exitOpenUrl) })}`,
       );
     }
     if (hints.length > 0) {
@@ -251,15 +303,43 @@ export async function runShell(
     }
     removeCrashHandlers();
     restoreStty();
-    if (tui.exitForegroundTask !== undefined) {
+    if (tuiSurface.exitForegroundTask !== undefined) {
       // `/web` starting a new server: the TUI has shut down cleanly; hand the
       // terminal to the foreground server instead of exiting. The task runs
       // until the server stops (Ctrl+C), then this process exits.
-      await tui.exitForegroundTask(exitCode);
+      await tuiSurface.exitForegroundTask(exitCode);
       return;
     }
     process.exit(exitCode);
   };
+  tui.onExit = exitHandler;
+  if (tuiVariant === 'v2') {
+    // The opentui runner owns the renderer + host lifecycle and blocks until
+    // the renderer is destroyed (in a real terminal: on exit). The shared
+    // crash/stty/telemetry plumbing above stays active; exit routes through
+    // exitHandler with the opentui host swapped into tuiSurface. Startup-perf
+    // telemetry is not recorded on this experimental path (the runner is
+    // already inside its own render loop by the time startup settles).
+    try {
+      const { runKimiTui2 } = await import('#/tui2/run');
+      await runKimiTui2({
+        harness,
+        startupInput,
+        onExit: async (host, exitCode = 0) => {
+          tuiSurface = host;
+          await exitHandler(exitCode);
+        },
+      });
+    } catch (error) {
+      removeCrashHandlers();
+      setCrashPhase('shutdown');
+      trackLifecycle('exit', { duration_ms: Date.now() - startedAt, tui_mode: tuiSurface.uiMode });
+      await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
+      await harness.close();
+      throw error;
+    }
+    return;
+  }
   try {
     const initStartedAt = Date.now();
     startupTrace('tui.start:begin');
@@ -273,12 +353,12 @@ export async function runShell(
       config_ms: configMs,
       init_ms: initMs,
       mcp_ms: mcpMs,
-      tui_mode: tui.state.ui.mode,
+      tui_mode: tuiSurface.uiMode,
     });
   } catch (error) {
     removeCrashHandlers();
     setCrashPhase('shutdown');
-    trackLifecycle('exit', { duration_ms: Date.now() - startedAt, tui_mode: tui.state.ui.mode });
+    trackLifecycle('exit', { duration_ms: Date.now() - startedAt, tui_mode: tuiSurface.uiMode });
     await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
     await harness.close();
     throw error;

@@ -1,0 +1,200 @@
+/**
+ * TUI2 visible-width / truncation helpers.
+ *
+ * Mirrors the *behavior* of `packages/pi-tui/src/utils.ts` (visibleWidth /
+ * truncateToWidth) so terminal layout stays consistent, but is fully
+ * self-contained: ANSI/OSC stripping and grapheme width are computed inline,
+ * with the east-asian width lookup replaced by a local wide-codepoint test.
+ * This lets the tui2 build drop pi-tui without pulling in an extra runtime
+ * dependency just for text measuring.
+ *
+ * Status: REAL (tui2). Self-contained; behavior mirrors the pi-tui algorithm.
+ */
+
+// Shared grapheme segmenter instance (matches pi-tui's shared instance usage).
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+const zeroWidthRegex = /[\p{Default_Ignorable_Code_Point}\p{Control}\p{Surrogate}]/v;
+const combiningMarkRegex = /^\p{Mark}$/u;
+const rgiEmojiRegex = /^\p{RGI_Emoji}$/v;
+const wideRegex =
+  /^[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Script_Extensions=Han}\p{Script_Extensions=Hangul}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Bopomofo}]/v;
+
+/**
+ * Extract an ANSI escape sequence at `pos`. Returns its full code and the
+ * number of source chars it covers, or null when `str[pos]` is not ESC.
+ */
+function extractAnsiCode(str: string, pos: number): { code: string; length: number } | null {
+  if (pos >= str.length || str[pos] !== '\x1b') return null;
+
+  const next = str[pos + 1];
+
+  // CSI sequence: ESC [ ... m/G/K/H/J
+  if (next === '[') {
+    let j = pos + 2;
+    while (j < str.length && !/[mGKHJ]/.test(str[j]!)) j++;
+    if (j < str.length) return { code: str.substring(pos, j + 1), length: j + 1 - pos };
+    return null;
+  }
+
+  // OSC sequence: ESC ] ... BEL or ESC ] ... ST (ESC \)
+  if (next === ']') {
+    let j = pos + 2;
+    while (j < str.length) {
+      if (str[j] === '\x07') return { code: str.substring(pos, j + 1), length: j + 1 - pos };
+      if (str[j] === '\x1b' && str[j + 1] === '\\') {
+        return { code: str.substring(pos, j + 2), length: j + 2 - pos };
+      }
+      j++;
+    }
+    return null;
+  }
+
+  // APC sequence: ESC _ ... BEL or ESC _ ... ST (ESC \)
+  if (next === '_') {
+    let j = pos + 2;
+    while (j < str.length) {
+      if (str[j] === '\x07') return { code: str.substring(pos, j + 1), length: j + 1 - pos };
+      if (str[j] === '\x1b' && str[j + 1] === '\\') {
+        return { code: str.substring(pos, j + 2), length: j + 2 - pos };
+      }
+      j++;
+    }
+    return null;
+  }
+
+  return null;
+}
+
+/** Remove ANSI, OSC, and APC control sequences while preserving visible text. */
+export function stripTerminalSequences(str: string): string {
+  if (!str.includes('\x1b')) return str;
+  let result = '';
+  let i = 0;
+  while (i < str.length) {
+    const ansi = extractAnsiCode(str, i);
+    if (ansi) {
+      i += ansi.length;
+      continue;
+    }
+    result += str[i];
+    i++;
+  }
+  return result;
+}
+
+/** Estimated terminal cells for a single grapheme cluster (approx. of pi-tui). */
+function graphemeWidth(segment: string): number {
+  if (segment === '\t') return 3;
+  // Zero-width / combining controls take no cells; combining marks rarely do.
+  if (zeroWidthRegex.test(segment) || combiningMarkRegex.test(segment)) return 0;
+  // Emoji (incl. RGI sequences) and wide CJK scripts take two cells.
+  if (rgiEmojiRegex.test(segment) || wideRegex.test(segment)) return 2;
+  return 1;
+}
+
+/**
+ * Calculate the visible width of a string in terminal columns.
+ */
+export function visibleWidth(str: string): number {
+  if (str.length === 0) return 0;
+
+  let clean = str;
+  if (str.includes('\t')) {
+    clean = clean.replace(/\t/g, '   ');
+  }
+  if (clean.includes('\x1b')) {
+    let stripped = '';
+    let i = 0;
+    while (i < clean.length) {
+      const ansi = extractAnsiCode(clean, i);
+      if (ansi) {
+        i += ansi.length;
+        continue;
+      }
+      stripped += clean[i];
+      i++;
+    }
+    clean = stripped;
+  }
+
+  let width = 0;
+  for (const { segment } of graphemeSegmenter.segment(clean)) {
+    width += graphemeWidth(segment);
+  }
+  return width;
+}
+
+/**
+ * Truncate text to fit within `maxWidth` visible columns, appending
+ * `ellipsis` when content is cut and optionally padding to exactly `maxWidth`.
+ * ANSI escapes do not count toward the width; a trailing reset is emitted so
+ * styling does not leak past the truncated boundary.
+ */
+export function truncateToWidth(
+  text: string,
+  maxWidth: number,
+  ellipsis: string = '…',
+  pad: boolean = false,
+): string {
+  if (maxWidth <= 0) return '';
+  if (text.length === 0) return pad ? ' '.repeat(maxWidth) : '';
+
+  const textWidth = visibleWidth(text);
+  const ellipsisWidth = visibleWidth(ellipsis);
+
+  if (textWidth <= maxWidth) {
+    return pad ? text + ' '.repeat(maxWidth - textWidth) : text;
+  }
+
+  const targetWidth = maxWidth - ellipsisWidth;
+  if (targetWidth <= 0) {
+    // Not enough room for the ellipsis next to a visible char; still try to
+    // show the ellipsis alone if it fits within maxWidth.
+    if (ellipsisWidth <= maxWidth) {
+      return ellipsis + (pad ? ' '.repeat(maxWidth - ellipsisWidth) : '');
+    }
+    return '';
+  }
+
+  // Walk graphemes, skipping ANSI codes, and stop once the target width is hit.
+  let result = '';
+  let pendingAnsi = '';
+  let keptWidth = 0;
+  let i = 0;
+  while (i < text.length) {
+    const ansi = extractAnsiCode(text, i);
+    if (ansi) {
+      pendingAnsi += ansi.code;
+      i += ansi.length;
+      continue;
+    }
+    let end = i;
+    while (end < text.length && !extractAnsiCode(text, end)) end++;
+
+    for (const { segment } of graphemeSegmenter.segment(text.slice(i, end))) {
+      const w = graphemeWidth(segment);
+      if (keptWidth + w > targetWidth) {
+        i = text.length;
+        break;
+      }
+      if (pendingAnsi) {
+        result += pendingAnsi;
+        pendingAnsi = '';
+      }
+      result += segment;
+      keptWidth += w;
+    }
+    if (i >= text.length) break;
+    i = end;
+  }
+
+  if (keptWidth === 0) {
+    return ellipsis + (pad ? ' '.repeat(maxWidth - ellipsisWidth) : '');
+  }
+
+  const reset = '\x1b[0m';
+  let out = `${result}${reset}${ellipsis}`;
+  if (pad) out += ' '.repeat(Math.max(0, maxWidth - keptWidth - ellipsisWidth));
+  return out;
+}

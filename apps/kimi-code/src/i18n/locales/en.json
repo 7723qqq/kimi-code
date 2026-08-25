@@ -178,6 +178,17 @@
       "activityPane": {
         "tipPrefix": " · Tip: {{tip}}"
       },
+      "agentPane": {
+        "empty": "No agents",
+        "mainAgent": "main",
+        "phaseThinking": "thinking",
+        "phaseComposing": "composing",
+        "phaseShell": "running shell",
+        "phaseWaiting": "waiting"
+      },
+      "diffReviewPane": {
+        "empty": "No file changes"
+      },
       "hints": {
         "ctrlDExit": "Press Ctrl+D again to exit",
         "ctrlCExit": "Press Ctrl+C again to exit",
@@ -819,6 +830,49 @@
         "title": " Select messages to undo",
         "noMessages": "   No messages"
       },
+      "whichKey": {
+        "title": " Keybindings ",
+        "cancelHint": "· Esc / Enter / q to close",
+        "searchLabel": "Search: ",
+        "noMatches": "No matching commands",
+        "leaderSection": "Leader (Ctrl-X)",
+        "shortcutsSection": "Shortcuts",
+        "leaderHint": "Press Ctrl-X then a key",
+        "actions": {
+          "externalEditor": "Edit in external editor",
+          "model": "Select model",
+          "sessions": "Switch session",
+          "newSession": "New session",
+          "compact": "Compact context",
+          "undo": "Undo",
+          "redo": "Redo",
+          "status": "Status report",
+          "sidebar": "Toggle activity pane",
+          "theme": "Select theme",
+          "agent": "Team / agents",
+          "help": "Help",
+          "navigate": "Navigate messages",
+          "agentPane": "Toggle agent panel",
+          "review": "Toggle diff review"
+        },
+        "shortcuts": {
+          "ctrlD": "Exit (on empty input)",
+          "ctrlC": "Interrupt / clear input",
+          "ctrlG": "Edit in external editor",
+          "ctrlO": "Toggle tool output",
+          "ctrlS": "Steer / send queued",
+          "ctrlB": "Detach background task",
+          "ctrlT": "Toggle todo expand",
+          "shiftTab": "Toggle plan mode",
+          "undo": "Undo",
+          "escape": "Cancel / dismiss",
+          "whichKey": "Show keybindings",
+          "newLine": "Insert newline",
+          "transcriptNav": "Navigate messages (j/k, Enter, Esc)",
+          "agentPane": "Toggle agent panel",
+          "review": "Toggle diff review"
+        }
+      },
       "queuePane": {
         "hintCompacting": "  ↑ to edit · will send after compaction",
         "hintSteer": "  ↑ to edit · ctrl-s to steer immediately",
@@ -1058,6 +1112,7 @@
       "undoLimit": "Cannot undo {{requested}}; only {{max}} can be undone in the active context{{reason}}.",
       "undoLimitAfterCompaction": " after the last compaction",
       "undoNothingToUndoAfterCompaction": "Nothing to undo after the last compaction.",
+      "redoNotAvailable": "Redo is not available.",
       "undoUserMessage": "User message",
       "undoUserMessageWithImage": "User message ({{count}} images)",
       "undoSkillUnknown": "Skill: unknown",

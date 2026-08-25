@@ -1,0 +1,541 @@
+/**
+ * `/goal` slash command — parse and drive goal lifecycle (create / pause /
+ * resume / cancel / status / queue) with permission prompts and the goal
+ * queue manager.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+import { ErrorCodes, isKimiError, type PermissionMode } from '@moonshot-ai/kimi-code-sdk';
+
+import { t } from '#/i18n';
+
+import type {
+  GoalQueueEditResult,
+  GoalQueueManagerAction,
+} from '../components/dialogs/goal-queue-manager';
+import type { GoalStartPermissionChoice } from '../components/dialogs/goal-start-permission-prompt';
+import { getLlmNotSetMessage } from '../constant/kimi-tui';
+import {
+  appendGoalQueueItem,
+  moveGoalQueueItem,
+  readGoalQueue,
+  removeGoalQueueItem,
+  updateGoalQueueItem,
+  type GoalQueueSnapshot,
+} from '../goal-queue-store';
+import type { Tui2Store } from '../state';
+import type { AppState, TranscriptEntry } from '../types';
+import { formatErrorMessage } from '../utils/event-payload';
+import { nextTranscriptId } from '../utils/transcript-id';
+import type { SlashCommandHost } from './dispatch';
+
+const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
+
+type GoalCommandHost = Pick<
+  SlashCommandHost,
+  | 'session'
+  | 'requireSession'
+  | 'setAppState'
+  | 'showError'
+  | 'showStatus'
+  | 'track'
+  | 'mountEditorReplacement'
+  | 'restoreEditor'
+  | 'restoreInputText'
+  | 'sendNormalUserInput'
+> & {
+  state: { appState: AppState };
+  /** tui2: the response store (present on the tui2 shell; dialogs render
+   *  from `store.state.activeDialog` instead of a mounted panel). */
+  store?: Tui2Store;
+  /** tui2: append a transcript entry instead of mounting a pi-tui component. */
+  appendTranscriptEntry?(entry: TranscriptEntry): void;
+};
+
+export interface GoalStartOptions {
+  readonly beforeSend?: () => boolean | Promise<boolean>;
+  readonly sendInput?: (objective: string) => void;
+}
+
+export type ParsedGoalCommand =
+  | { readonly kind: 'status' }
+  | { readonly kind: 'pause' }
+  | { readonly kind: 'resume' }
+  | { readonly kind: 'cancel' }
+  | {
+      readonly kind: 'create';
+      readonly objective: string;
+      readonly replace: boolean;
+    }
+  | { readonly kind: 'next-add'; readonly objective: string }
+  | { readonly kind: 'next-manage' }
+  | { readonly kind: 'error'; readonly message: string; readonly severity?: 'error' | 'hint' };
+
+const CONTROL_SUBCOMMANDS = new Set(['pause', 'resume', 'cancel']);
+
+/**
+ * Parses the deterministic `/goal` command grammar. Reserved subcommands
+ * (`pause`/`resume`/`cancel`/`status`/`replace`) are only honored as the first
+ * token; use `/goal -- <objective>` to start a goal whose text begins with one
+ * of those words. (`cancel` is the single discard action — it removes the
+ * current goal.) Stop conditions are expressed in the objective in natural
+ * language (e.g. "…or stop after 20 turns"); the model honors them when it
+ * self-audits each turn and reports `complete`/`blocked` via UpdateGoal.
+ */
+export function parseGoalCommand(rawArgs: string): ParsedGoalCommand {
+  const args = rawArgs.trim();
+  if (args.length === 0 || args === 'status') return { kind: 'status' };
+
+  const tokens = args.split(/\s+/);
+  const first = tokens[0];
+  if (first === 'next') {
+    return parseNextGoalCommand(tokens);
+  }
+  if (first !== undefined && CONTROL_SUBCOMMANDS.has(first) && tokens.length === 1) {
+    return { kind: first as 'pause' | 'resume' | 'cancel' };
+  }
+
+  let index = 0;
+  let replace = false;
+  if (tokens[index] === 'replace') {
+    replace = true;
+    index += 1;
+  }
+  // `--` ends subcommand parsing so an objective can begin with a reserved word
+  // (e.g. `/goal -- pause the rollout`).
+  if (tokens[index] === '--') {
+    index += 1;
+  }
+
+  const objective = tokens.slice(index).join(' ').trim();
+  if (objective.length === 0) {
+    // A usage hint, not a failure — shown in the same calm style as the other
+    // "nothing to act on" messages (no goal to pause/resume/cancel).
+    return {
+      kind: 'error',
+      severity: 'hint',
+      message: t('tui.statusMessages.provideObjective'),
+    };
+  }
+  if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
+    return {
+      kind: 'error',
+      message: t('tui.statusMessages.objectiveTooLong', { max: MAX_GOAL_OBJECTIVE_LENGTH }),
+    };
+  }
+  return { kind: 'create', objective, replace };
+}
+
+export async function handleGoalCommand(host: SlashCommandHost, args: string): Promise<void> {
+  const parsed = parseGoalCommand(args);
+  switch (parsed.kind) {
+    case 'error':
+      if (parsed.severity === 'hint') host.showStatus(parsed.message);
+      else host.showError(parsed.message);
+      return;
+    case 'status':
+      await showGoalStatus(host);
+      return;
+    case 'pause':
+      await pauseGoal(host);
+      return;
+    case 'resume':
+      await resumeGoal(host);
+      return;
+    case 'cancel':
+      await cancelGoal(host);
+      return;
+    case 'next-add':
+      await queueNextGoal(host, parsed);
+      return;
+    case 'next-manage':
+      await showGoalQueueManager(host);
+      return;
+    case 'create':
+      await createGoal(host, parsed, args);
+      return;
+  }
+}
+
+function parseNextGoalCommand(tokens: readonly string[]): ParsedGoalCommand {
+  if (tokens.length === 2 && tokens[1] === 'manage') return { kind: 'next-manage' };
+  let index = 1;
+  if (tokens[index] === '--') index += 1;
+  const objective = tokens.slice(index).join(' ').trim();
+  if (objective.length === 0) {
+    return {
+      kind: 'error',
+      severity: 'hint',
+      message: t('tui.statusMessages.provideNextObjective'),
+    };
+  }
+  if (objective.length > MAX_GOAL_OBJECTIVE_LENGTH) {
+    return {
+      kind: 'error',
+      message: t('tui.statusMessages.objectiveTooLong', { max: MAX_GOAL_OBJECTIVE_LENGTH }),
+    };
+  }
+  return { kind: 'next-add', objective };
+}
+
+async function queueNextGoal(
+  host: SlashCommandHost,
+  parsed: Extract<ParsedGoalCommand, { kind: 'next-add' }>,
+): Promise<void> {
+  const session = host.requireSession();
+  let hasCurrentGoal: boolean;
+  try {
+    const { goal } = await session.getGoal();
+    hasCurrentGoal = goal !== null;
+  } catch (error) {
+    host.showError(
+      t('tui.statusMessages.failedToInspectGoal', { error: formatErrorMessage(error) }),
+    );
+    return;
+  }
+
+  if (!hasCurrentGoal && !isBusy(host)) {
+    host.showStatus(t('tui.statusMessages.startingNow'));
+    await createGoal(
+      host,
+      { kind: 'create', objective: parsed.objective, replace: false },
+      `next ${parsed.objective}`,
+    );
+    return;
+  }
+
+  try {
+    await appendGoalQueueItem(session, { objective: parsed.objective });
+  } catch (error) {
+    host.showError(formatErrorMessage(error));
+    return;
+  }
+  host.track('goal_queue_append');
+  if (!hasCurrentGoal) host.requestQueuedGoalPromotion?.();
+  host.appendTranscriptEntry({
+    id: nextTranscriptId(),
+    kind: 'status',
+    renderMode: 'plain',
+    content: t('tui.messages.goalPanel.upcomingAdded'),
+  });
+}
+
+async function showGoalQueueManager(
+  host: SlashCommandHost,
+  selectedGoalId?: string,
+): Promise<void> {
+  let snapshot: GoalQueueSnapshot;
+  try {
+    snapshot = await readGoalQueue(host.requireSession());
+  } catch (error) {
+    host.showError(
+      t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }),
+    );
+    return;
+  }
+
+  host.track('goal_queue_manage');
+  // tui2: the dialog renders from `store.state.activeDialog`.
+  const store = host.store;
+  if (store === undefined) return;
+  store.setState('goalQueueManager', {
+    goals: snapshot.goals,
+    selectedGoalId,
+    editingGoalId: undefined,
+  });
+  store.setState('activeDialog', 'goal-queue-manager');
+}
+
+export async function handleGoalQueueManagerAction(
+  host: SlashCommandHost,
+  action: GoalQueueManagerAction,
+): Promise<GoalQueueSnapshot | void> {
+  const session = host.requireSession();
+  switch (action.kind) {
+    case 'move': {
+      const snapshot = await moveGoalQueueItem(session, {
+        goalId: action.goalId,
+        direction: action.direction,
+      });
+      host.track('goal_queue_move', { direction: action.direction });
+      return snapshot;
+    }
+    case 'delete': {
+      const snapshot = await removeGoalQueueItem(session, { goalId: action.goalId });
+      host.track('goal_queue_remove');
+      return snapshot;
+    }
+    case 'edit':
+      await showGoalQueueEditDialog(host, action.goalId);
+      return;
+  }
+}
+
+async function showGoalQueueEditDialog(host: SlashCommandHost, goalId: string): Promise<void> {
+  let snapshot: GoalQueueSnapshot;
+  try {
+    snapshot = await readGoalQueue(host.requireSession());
+  } catch (error) {
+    host.showError(
+      t('tui.statusMessages.failedToLoadUpcomingGoals', { error: formatErrorMessage(error) }),
+    );
+    return;
+  }
+
+  const goal = snapshot.goals.find((item) => item.id === goalId);
+  if (goal === undefined) {
+    host.showStatus(t('tui.statusMessages.queuedGoalNoLongerExists'));
+    await showGoalQueueManager(host);
+    return;
+  }
+
+  // tui2: the edit dialog renders from `store.state.activeDialog`.
+  const store = host.store;
+  if (store === undefined) return;
+  store.setState('goalQueueManager', {
+    goals: snapshot.goals,
+    selectedGoalId: goalId,
+    editingGoalId: goalId,
+  });
+  store.setState('activeDialog', 'goal-queue-edit');
+}
+
+export async function handleGoalQueueEditResult(
+  host: SlashCommandHost,
+  result: GoalQueueEditResult,
+): Promise<void> {
+  if (result.kind === 'cancel') {
+    await showGoalQueueManager(host, result.goalId);
+    return;
+  }
+
+  const snapshot = await updateGoalQueueItem(host.requireSession(), {
+    goalId: result.goalId,
+    objective: result.objective,
+  });
+  host.track('goal_queue_update');
+  // tui2: refresh the list in the store and reopen the manager.
+  const store = host.store;
+  if (store === undefined) return;
+  store.setState('goalQueueManager', {
+    goals: snapshot.goals,
+    selectedGoalId: result.goalId,
+    editingGoalId: undefined,
+  });
+  store.setState('activeDialog', 'goal-queue-manager');
+}
+
+export async function createGoal(
+  host: GoalCommandHost,
+  parsed: Extract<ParsedGoalCommand, { kind: 'create' }>,
+  rawArgs?: string,
+  options: GoalStartOptions = {},
+): Promise<boolean> {
+  // A goal must be able to start a model turn; refuse to create one otherwise.
+  if (host.state.appState.model.trim().length === 0 || host.session === undefined) {
+    host.showError(getLlmNotSetMessage());
+    return false;
+  }
+
+  if (
+    host.state.appState.permissionMode === 'manual' ||
+    host.state.appState.permissionMode === 'yolo'
+  ) {
+    showGoalStartPermissionPrompt(host, parsed, rawArgs ?? parsed.objective);
+    return false;
+  }
+
+  return startGoal(host, parsed, options);
+}
+
+function showGoalStartPermissionPrompt(
+  host: GoalCommandHost,
+  parsed: Extract<ParsedGoalCommand, { kind: 'create' }>,
+  rawArgs: string,
+): void {
+  const store = host.store;
+  if (store === undefined) return;
+  // tui2: the dialog renders from `store.state.activeDialog`; the choice
+  // is resolved through the host's `pickGoalStartChoice` (which reads the
+  // saved context from the store).
+  store.setState('goalStartContext', {
+    parsed: { objective: parsed.objective, replace: parsed.replace },
+    rawArgs,
+    mode: host.state.appState.permissionMode === 'yolo' ? 'yolo' : 'manual',
+  });
+  store.setState('activeDialog', 'goal-start-permission-prompt');
+}
+
+/** Resolve the open goal-start permission dialog (called by the host
+ *  when the user picks a permission). Reads the context stored by
+ *  `showGoalStartPermissionPrompt` and runs the original goal-start flow. */
+export async function resolveGoalStartPermissionChoice(
+  host: GoalCommandHost,
+  choice: GoalStartPermissionChoice,
+): Promise<void> {
+  const store = host.store;
+  if (store === undefined) return;
+  const context = store.state.goalStartContext;
+  store.setState('activeDialog', null);
+  store.setState('goalStartContext', undefined);
+  if (context === undefined) return;
+  const parsed: Extract<ParsedGoalCommand, { kind: 'create' }> = {
+    kind: 'create',
+    objective: context.parsed.objective,
+    ...(context.parsed.replace !== undefined ? { replace: context.parsed.replace } : {}),
+  } as Extract<ParsedGoalCommand, { kind: 'create' }>;
+  if (choice === 'cancel') {
+    host.restoreInputText(`/goal ${context.rawArgs.trim()}`);
+    host.showStatus(t('tui.statusMessages.goalNotStarted'));
+    return;
+  }
+  host.restoreEditor();
+  await startGoalWithPermission(host, parsed, choice, {});
+}
+
+async function startGoalWithPermission(
+  host: GoalCommandHost,
+  parsed: Extract<ParsedGoalCommand, { kind: 'create' }>,
+  choice: GoalStartPermissionChoice,
+  options: GoalStartOptions,
+): Promise<void> {
+  const previousMode = host.state.appState.permissionMode;
+  const switched = choice !== previousMode && (choice === 'auto' || choice === 'yolo');
+  if (switched) {
+    if (!(await setPermissionForGoal(host, choice))) return;
+  }
+  const started = await startGoal(host, parsed, options);
+  // The permission switch only exists to run this goal. If creation fails
+  // (e.g. a goal already exists and `replace` was not given), restore the
+  // previous mode so the session is not left more permissive than before.
+  if (!started && switched) {
+    await setPermissionForGoal(host, previousMode);
+  }
+}
+
+async function setPermissionForGoal(host: GoalCommandHost, mode: PermissionMode): Promise<boolean> {
+  try {
+    await host.requireSession().setPermission(mode);
+  } catch (error) {
+    host.showError(
+      t('tui.statusMessages.failedToSetPermission', { error: formatErrorMessage(error) }),
+    );
+    return false;
+  }
+  host.setAppState({ permissionMode: mode });
+  return true;
+}
+
+async function startGoal(
+  host: GoalCommandHost,
+  parsed: Extract<ParsedGoalCommand, { kind: 'create' }>,
+  options: GoalStartOptions,
+): Promise<boolean> {
+  try {
+    await host.requireSession().createGoal({
+      objective: parsed.objective,
+      replace: parsed.replace,
+    });
+  } catch (error) {
+    if (isKimiError(error) && error.code === ErrorCodes.GOAL_ALREADY_EXISTS) {
+      host.showError(t('tui.statusMessages.goalAlreadyActive'));
+      return false;
+    }
+    host.showError(formatErrorMessage(error));
+    return false;
+  }
+  if (options.beforeSend !== undefined && !(await options.beforeSend())) {
+    return false;
+  }
+  if (host.appendTranscriptEntry !== undefined) {
+    host.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'status',
+      renderMode: 'plain',
+      content: t('tui.messages.goalPanel.goalSet'),
+    });
+  }
+  if (options.sendInput !== undefined) {
+    options.sendInput(parsed.objective);
+  } else {
+    host.sendNormalUserInput(parsed.objective);
+  }
+  return true;
+}
+
+async function pauseGoal(host: SlashCommandHost): Promise<void> {
+  const session = host.requireSession();
+  try {
+    await session.pauseGoal();
+    if (isStreaming(host)) await session.cancel();
+  } catch (error) {
+    if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
+      host.showStatus(t('tui.statusMessages.noGoalToPause'));
+      return;
+    }
+    host.showError(formatErrorMessage(error));
+    return;
+  }
+  host.track('goal_pause');
+  host.showStatus(t('tui.statusMessages.goalPaused'));
+}
+
+async function resumeGoal(host: SlashCommandHost): Promise<void> {
+  if (host.state.appState.model.trim().length === 0 || host.session === undefined) {
+    host.showError(getLlmNotSetMessage());
+    return;
+  }
+
+  try {
+    await host.requireSession().resumeGoal();
+  } catch (error) {
+    if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
+      host.showStatus(t('tui.statusMessages.noGoalToResume'));
+      return;
+    }
+    host.showError(formatErrorMessage(error));
+    return;
+  }
+  host.track('goal_resume');
+  host.sendNormalUserInput(t('tui.statusMessages.resumeGoalInput'));
+}
+
+async function cancelGoal(host: SlashCommandHost): Promise<void> {
+  const session = host.requireSession();
+  try {
+    await session.cancelGoal();
+    if (isStreaming(host)) await session.cancel();
+  } catch (error) {
+    if (isKimiError(error) && error.code === ErrorCodes.GOAL_NOT_FOUND) {
+      host.showStatus(t('tui.statusMessages.noGoalToCancel'));
+      return;
+    }
+    host.showError(formatErrorMessage(error));
+    return;
+  }
+  host.track('goal_cancel');
+  host.showNotice(t('tui.statusMessages.goalCancelled'));
+}
+
+async function showGoalStatus(host: SlashCommandHost): Promise<void> {
+  const { goal } = await host.requireSession().getGoal();
+  host.track('goal_status', { status: goal?.status ?? 'none' });
+  if (goal === null) {
+    host.showStatus(t('tui.statusMessages.noGoalSet'));
+    return;
+  }
+  host.appendTranscriptEntry({
+    id: nextTranscriptId(),
+    kind: 'status',
+    renderMode: 'plain',
+    content: t('tui.statusMessages.goalStatus', { status: goal.status }),
+  });
+}
+
+function isStreaming(host: SlashCommandHost): boolean {
+  return host.state.appState.streamingPhase !== 'idle';
+}
+
+function isBusy(host: SlashCommandHost): boolean {
+  return isStreaming(host) || host.state.appState.isCompacting;
+}

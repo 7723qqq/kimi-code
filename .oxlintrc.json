@@ -108,6 +108,18 @@
       }
     },
     {
+      // tui2's `.ts` facade re-exports a matching `.tsx` opentui component.
+      // `allowImportingTsExtensions` requires the explicit `.tsx` specifier
+      // (the same-directory `.ts` facade would otherwise win the resolution),
+      // so the import/extensions rule does not apply to these facades.
+      "files": [
+        "apps/kimi-code/src/tui2/**/*.ts"
+      ],
+      "rules": {
+        "import/extensions": "off"
+      }
+    },
+    {
       // The worker closures: these modules (and everything
       // packages/minidb/src/worker/ and
       // packages/kap-server/src/search/worker/ pull in) are loaded by a bare

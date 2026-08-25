@@ -73,13 +73,21 @@
     "dev:prod": "bun dist/main.mjs",
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:tui2": "node ../../node_modules/typescript/bin/tsc -p tsconfig.tui2.json --noEmit",
+    "build:tui2": "bun scripts/tui2/build-entry.mjs",
+    "dev:tui2": "bun --preload @opentui/solid/preload src/tui2/entry.tsx",
     "test": "cd ../.. && bun run build:packages && bun --bun run vitest run",
     "e2e": "cd ../.. && bun run build:packages && KIMI_E2E=1 bun --bun run vitest run test/e2e",
     "e2e:real": "cd ../.. && bun run build:packages && KIMI_E2E_REAL=1 bun --bun run vitest run test/e2e/real-llm-smoke.e2e.test.ts",
     "postinstall": "bun scripts/postinstall.mjs"
   },
   "dependencies": {
-    "@moonshot-ai/kimi-agent": "workspace:^"
+    "@moonshot-ai/kimi-agent": "workspace:^",
+    "@opentui/core": "0.5.4",
+    "@opentui/solid": "0.5.4",
+    "solid-js": "^1.9.7",
+    "@opentui/keymap": "0.5.4",
+    "opentui-spinner": "0.0.7"
   },
   "devDependencies": {
     "@moonshot-ai/acp-server": "workspace:^",

@@ -1,0 +1,27 @@
+/**
+ * Shared transcript and selector markers for the v2 TUI.
+ *
+ * Mirrors `tui/constant/symbols.ts`. Framework-agnostic glyphs shared across
+ * messages and list pickers so every surface stays visually consistent.
+ *
+ * Status: REAL (tui2). Self-contained; no v1 re-export.
+ */
+
+import { t } from '#/i18n';
+
+// Use U+25CF instead of U+23FA to avoid emoji/fallback rendering in terminals.
+export const STATUS_BULLET = '● ';
+
+// Shared transcript markers. Keep widths stable because message wrapping
+// assumes the marker occupies the leading cells.
+export const USER_MESSAGE_BULLET = '✨ ';
+export const SUCCESS_MARK = '✓ ';
+export const FAILURE_MARK = '✗ ';
+
+// Shared selector markers — keep every list picker visually consistent.
+// SELECT_POINTER marks the highlighted row; getCurrentMark() is appended to the
+// row that is the currently-active value. See .agents/skills/write-tui/DESIGN.md.
+export const SELECT_POINTER = '❯';
+export function getCurrentMark(): string {
+  return t('tui.labels.current');
+}
