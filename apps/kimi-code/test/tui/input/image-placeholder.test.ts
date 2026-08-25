@@ -425,4 +425,16 @@ describe('extractMediaAttachments: bare image paths', () => {
     expect(r.parts).toEqual([]);
     expect(text).toContain('D:\\微信聊天数据');
   });
+
+  it('reuses one attachment when the same path appears twice', () => {
+    const dir = makeTempDir();
+    const file = join(dir, 'dup.png');
+    writeFileSync(file, PNG_1X1);
+    const store = new ImageAttachmentStore();
+    const r = extractMediaAttachments(`对比 ${file} 和 ${file} 的差异`, store);
+    // Both spans resolve to the SAME stored attachment (dedupe) — two
+    // references, one set of bytes; without dedupe this would be [1, 2].
+    expect(r.imageAttachmentIds).toEqual([1, 1]);
+    expect(r.parts.filter((p) => p.type === 'image_url')).toHaveLength(2);
+  });
 });

@@ -124,7 +124,13 @@ const IMAGE_PATH_REGEX =
 const MAX_PATH_ATTACH_BYTES = 20 * 1024 * 1024;
 const MAX_PATH_ATTACHMENTS_PER_SUBMIT = 10;
 
-function attachFromImagePath(raw: string, store: ImageAttachmentStore): string | undefined {
+function attachFromImagePath(
+  raw: string,
+  store: ImageAttachmentStore,
+  seen: Map<string, string>,
+): string | undefined {
+  const cached = seen.get(raw);
+  if (cached !== undefined) return cached;
   const withoutQuotes = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
   const candidates = [withoutQuotes];
   // A Windows path pasted into WSL has no native `D:\` backing here; try the
@@ -140,7 +146,9 @@ function attachFromImagePath(raw: string, store: ImageAttachmentStore): string |
       if (bytes.length === 0 || bytes.length > MAX_PATH_ATTACH_BYTES) continue;
       const meta = parseImageMeta(bytes);
       if (meta === null) continue;
-      return `${store.addImage(bytes, meta.mime, meta.width, meta.height).placeholder} `;
+      const placeholder = `${store.addImage(bytes, meta.mime, meta.width, meta.height).placeholder} `;
+      seen.set(raw, placeholder);
+      return placeholder;
     } catch {
       // unreadable / vanished between stat and read — next candidate
     }
@@ -150,9 +158,12 @@ function attachFromImagePath(raw: string, store: ImageAttachmentStore): string |
 
 function rewriteImageFilePaths(text: string, store: ImageAttachmentStore): string {
   let conversions = 0;
-  return text.replace(IMAGE_PATH_REGEX, (match, quoted: string | undefined, unquoted: string | undefined) => {
+  // Repeated references to the same path share one attachment instead of
+  // duplicating bytes and uploading twice.
+  const seen = new Map<string, string>();
+  return text.replace(IMAGE_PATH_REGEX, (match, quoted, unquoted) => {
     if (conversions >= MAX_PATH_ATTACHMENTS_PER_SUBMIT) return match;
-    const placeholder = attachFromImagePath(quoted ?? unquoted ?? match, store);
+    const placeholder = attachFromImagePath(quoted ?? unquoted ?? match, store, seen);
     if (placeholder === undefined) return match;
     conversions++;
     return placeholder;
