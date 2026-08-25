@@ -32,7 +32,18 @@ export class WebSearchProviderService implements IWebSearchProviderService {
   ) {}
 
   getWebSearchProvider(): WebSearchProvider | undefined {
-    return this.fromServicesConfig() ?? this.fromManagedOAuth() ?? this.localProvider();
+    const candidates: WebSearchProvider[] = [];
+    const services = this.fromServicesConfig();
+    if (services !== undefined) candidates.push(services);
+    let managed: WebSearchProvider | undefined;
+    try {
+      managed = this.fromManagedOAuth();
+    } catch {
+      managed = undefined;
+    }
+    if (managed !== undefined) candidates.push(managed);
+    candidates.push(this.localProvider());
+    return createFailoverWebSearchProvider(candidates);
   }
 
   hasWebSearchProvider(): boolean {
@@ -98,6 +109,33 @@ export class WebSearchProviderService implements IWebSearchProviderService {
 function nonEmptyString(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
+}
+
+/**
+ * Try each provider in order; an auth failure (missing/expired managed
+ * token) falls through to the next candidate instead of surfacing a
+ * dead-end, while caller aborts propagate immediately. Empty result sets
+ * also cascade — engines can legitimately miss a query.
+ */
+export function createFailoverWebSearchProvider(
+  candidates: readonly WebSearchProvider[],
+): WebSearchProvider {
+  return {
+    async search(query, options) {
+      let lastError: unknown = new Error('no search provider configured');
+      for (const candidate of candidates) {
+        try {
+          const results = await candidate.search(query, options);
+          if (results.length > 0 || candidates.length === 1) return results;
+          lastError = new Error('no search results');
+        } catch (error) {
+          if (options?.signal?.aborted) throw error;
+          lastError = error;
+        }
+      }
+      throw lastError;
+    },
+  };
 }
 
 registerScopedService(
