@@ -1047,7 +1047,7 @@ describe('WebSearchProviderService', () => {
       { title: 'Title', url: 'https://example.com', snippet: 'Snippet' },
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://api.example.com/v1/search');
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer access-token');
@@ -1083,7 +1083,7 @@ describe('WebSearchProviderService', () => {
     expect(results).toEqual([
       { title: 'Title', url: 'https://example.com', snippet: 'Snippet' },
     ]);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://search.example.com/search');
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer search-key');
@@ -1112,7 +1112,7 @@ describe('WebSearchProviderService', () => {
     expect(provider).not.toBeUndefined();
     await provider!.search('hello');
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://config.example.com/search');
     const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer config-key');
@@ -1139,7 +1139,7 @@ describe('WebSearchProviderService', () => {
     });
     await provider!.search('hello');
 
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer access-token');
   });
 
