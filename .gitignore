@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-single/
 dist-native/
+dist-web/
 .tmp-api-extractor/
 .contract-types-tmp/
 .local/
@@ -10,9 +11,14 @@ coverage/
 .vitest-results/
 .vite/
 .DS_Store
+# Compiled opentui entry (bun build --compile artifacts)
+apps/kimi-code/src/tui2/*.exe
+# Cargo build artifacts for the standalone kimi-build crate
+packages/kimi-build/target/
 .playwright-mcp/
 .claude
 .conductor
+.workbuddy/
 .kimi-stash-dir
 plugins/cdn/
 .worktrees/

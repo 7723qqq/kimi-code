@@ -34,21 +34,21 @@ function makeHost(): { host: SlashCommandHost; replacement: () => Replacement | 
 function selectCurrent(replacement: () => Replacement | undefined, value: string): void {
   const r = replacement()
   if (r === undefined) throw new Error('no editor replacement mounted')
-  ;(r.props.onSelect as (v: string) => void)(value)
+  ;(r.props['onSelect'] as (v: string) => void)(value)
 }
 
 /** Simulate the user pressing Esc on the currently mounted dialog. */
 function cancelCurrent(replacement: () => Replacement | undefined): void {
   const r = replacement()
   if (r === undefined) throw new Error('no editor replacement mounted')
-  ;(r.props.onCancel as () => void)()
+  ;(r.props['onCancel'] as () => void)()
 }
 
 /** Finish the result dialog (Enter), which resolves the flow promise. */
 function finishResult(replacement: () => Replacement | undefined): void {
   const r = replacement()
   if (r === undefined) throw new Error('no editor replacement mounted')
-  ;(r.props.onDone as () => void)()
+  ;(r.props['onDone'] as () => void)()
 }
 
 const plan: MigrationPlan = {
@@ -60,14 +60,51 @@ const plan: MigrationPlan = {
 } as MigrationPlan
 
 const report: MigrationReport = {
+  startedAt: '2026-01-01T00:00:00.000Z',
+  completedAt: '2026-01-01T00:00:01.000Z',
+  migratorVersion: 'test',
+  source: 'C:/x/.kimi',
+  target: 'C:/y/.kimi-code',
   summary: {
-    config: { migrated: true, migratedHooks: 0, droppedHooks: 0, configConflicts: [], wroteSiblingDueToConflict: false, wroteTuiSibling: false, siblingContents: { providers: 0, models: 0, hooks: 0 } },
-    mcp: { mergedServers: [], wroteSiblingDueToConflict: false },
-    userHistory: { copied: 0 },
-    skills: { copied: 0 },
-    sessions: { sessionsMigrated: 0, sessionsFailed: [], sessionsConflicts: [], sessionsSkippedEmpty: 0 },
+    config: {
+      migrated: true,
+      tuiExtracted: false,
+      droppedProviders: [],
+      droppedModels: [],
+      droppedKeys: [],
+      configConflicts: [],
+      wroteSiblingDueToConflict: false,
+      wroteTuiSibling: false,
+      migratedHooks: 0,
+      droppedHooks: 0,
+      siblingContents: { providers: [], models: [], hooks: 0 },
+    },
+    mcp: { mergedServers: [], keptNewForConflicts: [], droppedServers: [], wroteSiblingDueToConflict: false },
+    userHistory: { copied: 0, skippedExisting: 0, failures: [] },
+    skills: { copied: 0, skippedExisting: 0, failures: [] },
+    sessions: {
+      scope: 'config-only',
+      bucketsScanned: 0,
+      bucketsSkippedNonlocalKaos: 0,
+      bucketsSkippedNoWorkdirFound: 0,
+      sessionsAttempted: 0,
+      sessionsMigrated: 0,
+      sessionsAlreadyMigrated: 0,
+      sessionsSkippedPlaceholder: 0,
+      sessionsSkippedEmpty: 0,
+      sessionsSkippedMalformed: 0,
+      sessionsFailed: [],
+      sessionsConflicts: [],
+      sessionsDebrisArchived: [],
+    },
   },
-  notices: { detectedPlugins: [], mcpOauthServersRequiringReauth: [] },
+  notices: {
+    mcpOauthServersRequiringReauth: [],
+    oauthLoginsRequiringRelogin: [],
+    detectedPlugins: [],
+    configConflictNotice: null,
+    tuiConflictNotice: null,
+  },
 }
 
 describe('runMigrationFlow', () => {
