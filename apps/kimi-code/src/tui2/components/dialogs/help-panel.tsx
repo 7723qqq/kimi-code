@@ -19,6 +19,7 @@ import { t } from '#/i18n'
 
 import { currentTheme } from '../../theme'
 import { printableChar } from '../../utils/printable-key'
+import { truncateToWidth as truncateToVisibleWidth } from '../../utils/width'
 
 import { Box } from '../common/box'
 import { Text } from '../common/text'
@@ -62,8 +63,9 @@ export interface HelpPanelProps {
 }
 
 function truncateToWidth(text: string, width: number): string {
-  if (text.length <= width) return text
-  return `${text.slice(0, Math.max(1, width - 1))}${ELLIPSIS}`
+  // Visible-width aware (CJK glyphs span two columns); shadows the local
+  // utils helper of the same name for a drop-in call-site fix.
+  return truncateToVisibleWidth(text, width, ELLIPSIS)
 }
 
 function getSlashCommandDisplayGroup(name: string): number {

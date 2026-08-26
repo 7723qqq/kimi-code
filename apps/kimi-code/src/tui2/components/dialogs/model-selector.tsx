@@ -34,6 +34,7 @@ import { pageView } from '../../utils/paging'
 import { getCurrentMark, SELECT_POINTER } from '../../constant/symbols'
 import { currentTheme } from '../../theme'
 import { isPrintableChar, printableChar } from '../../utils/printable-key'
+import { wrapToVisualRows } from '../../utils/width'
 import { effortLabel } from './effort-label'
 
 import { Box } from '../common/box'
@@ -128,20 +129,9 @@ export interface ModelSelectorProps {
 
 function wrapPlain(text: string, width: number): string[] {
   const safeWidth = Math.max(1, width)
-  const words = text.split(/\s+/).filter((word) => word.length > 0)
-  const lines: string[] = []
-  let current = ''
-  for (const word of words) {
-    const candidate = current.length === 0 ? word : `${current} ${word}`
-    if (candidate.length <= safeWidth) {
-      current = candidate
-      continue
-    }
-    if (current.length > 0) lines.push(current)
-    current = word.length <= safeWidth ? word : `${word.slice(0, Math.max(1, safeWidth - 1))}…`
-  }
-  if (current.length > 0) lines.push(current)
-  return lines.length > 0 ? lines : ['']
+  // Fold by visible width (CJK glyphs span two columns) so wrapped
+  // description lines stay inside the selector on CJK locales.
+  return wrapToVisualRows(text, safeWidth)
 }
 
 export const ModelSelector: Component<ModelSelectorProps> = (props) => {

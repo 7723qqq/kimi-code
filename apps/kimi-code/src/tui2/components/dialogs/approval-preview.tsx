@@ -30,6 +30,7 @@ import type {
 } from '../../reverse-rpc/types'
 import { currentTheme } from '../../theme'
 import { isPrintableChar, printableChar } from '../../utils/printable-key'
+import { truncateToWidth, visibleWidth } from '../../utils/width'
 
 import { Box } from '../common/box'
 import { Text } from '../common/text'
@@ -53,15 +54,16 @@ interface BuiltBody {
 }
 
 function padToWidth(line: string, width: number): string {
-  if (line.length === width) return line
-  if (line.length > width) return `${line.slice(0, Math.max(1, width - 1))}${ELLIPSIS}`
-  return line + ' '.repeat(width - line.length)
+  const visible = visibleWidth(line)
+  if (visible === width) return line
+  if (visible > width) return truncateToWidth(line, width)
+  return line + ' '.repeat(width - visible)
 }
 
 function fitExactly(line: string, width: number): string {
-  let s = line
-  if (s.length > width) s = `${s.slice(0, Math.max(1, width - 1))}${ELLIPSIS}`
-  return padToWidth(s, width)
+  // Visible-width aware: `.length` counts CJK wide glyphs as one column,
+  // which pushed box borders out of alignment on CJK lines.
+  return padToWidth(truncateToWidth(line, width, ELLIPSIS), width)
 }
 
 function buildBody(block: ApprovalPreviewBlock): BuiltBody {
