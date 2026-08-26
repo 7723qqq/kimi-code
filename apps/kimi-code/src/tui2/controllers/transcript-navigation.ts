@@ -13,6 +13,7 @@
  * Status: REAL (tui2). Replaces the v1 stub.
  */
 
+import { printableChar } from '../utils/printable-key';
 import type { Tui2Store } from '../state';
 import type { TranscriptEntry, TranscriptEntryKind } from '../types';
 
@@ -123,11 +124,13 @@ export function createTranscriptNavController(store: Tui2Store): TranscriptNavCo
       move(-1);
       return true;
     }
-    if (data === 'j') {
+    // Printables may arrive as Kitty CSI-u sequences; decode before comparing.
+    const ch = printableChar(data);
+    if (ch === 'j') {
       move(1);
       return true;
     }
-    if (data === 'k') {
+    if (ch === 'k') {
       move(-1);
       return true;
     }

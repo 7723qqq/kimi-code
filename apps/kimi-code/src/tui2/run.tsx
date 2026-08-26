@@ -44,6 +44,7 @@ import { MainShell } from './components/main-shell'
 import type { EditorKeyboardController } from './controllers/editor-keyboard'
 import { KimiTUI } from './controllers/kimi-tui'
 import type { DialogDispatch, DialogResult } from './dispatch'
+import { printableChar } from './utils/printable-key'
 
 import type { CliRenderer } from '@opentui/core'
 
@@ -210,6 +211,30 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
   )
 }
 
+/**
+ * Translate an opentui KeyEvent into the raw-data vocabulary
+ * `TranscriptNavController.handleKey` understands (key names plus legacy
+ * byte literals); printables decode through printableChar so Kitty CSI-u
+ * sequences map back to plain characters.
+ */
+function transcriptNavData(key: KeyEvent): string {
+  switch (key.name) {
+    case 'escape':
+      return 'escape'
+    case 'return':
+    case 'enter':
+      return 'enter'
+    case 'up':
+      return 'up'
+    case 'down':
+      return 'down'
+    default:
+      return printableChar(
+        key.sequence !== undefined && key.sequence.length > 0 ? key.sequence : (key.name ?? ''),
+      )
+  }
+}
+
 /** Whether the main editor owns keyboard focus (no dialog / external editor). */
 function isEditorFocusState(store: Tui2Store): boolean {
   return (
@@ -222,23 +247,35 @@ function isEditorFocusState(store: Tui2Store): boolean {
 /**
  * Key-intercept handler for editor-scoped routing: armed only while the main
  * editor owns the input focus (no dialog / editor replacement / external
- * editor), ↑/↓ drive autocomplete navigation + input-history recall, and
- * Enter/Tab select a highlighted suggestion instead of reaching the editor
- * buffer (consumed only when a suggestion was actually applied). The
- * single-line input has no ↑/↓ cursor semantics, so consuming them while the
- * editor is focused loses nothing.
+ * editor). While transcript navigation is active it owns
+ * j/k/↑/↓/Enter/Esc first; otherwise ↑/↓ drive autocomplete navigation +
+ * input-history recall, and Enter/Tab select a highlighted suggestion
+ * instead of reaching the editor buffer (consumed only when a suggestion
+ * was actually applied). The single-line input has no ↑/↓ cursor semantics,
+ * so consuming them while the editor is focused loses nothing.
  */
 export function createEditorKeyInterceptor(deps: {
   readonly store: Tui2Store
   readonly editorKeyboard: Pick<
     EditorKeyboardController,
-    'handleUpArrowEmpty' | 'handleDownArrowEmpty' | 'acceptAutocomplete'
+    | 'handleUpArrowEmpty'
+    | 'handleDownArrowEmpty'
+    | 'acceptAutocomplete'
+    | 'handleTranscriptNavKey'
   >
 }): (ctx: { event: KeyEvent; consume: () => void }) => void {
   return (ctx) => {
     if (!isEditorFocusState(deps.store)) return
     const key = ctx.event
     if (key.ctrl || key.meta || key.shift || key.super === true) return
+    // Navigation mode eats its keys (consuming so history recall and the
+    // editor buffer never see them); unconsumed keys keep typing normally.
+    if (deps.store.state.transcriptNav.active) {
+      if (deps.editorKeyboard.handleTranscriptNavKey(transcriptNavData(key))) {
+        ctx.consume()
+      }
+      return
+    }
     switch (key.name) {
       case 'up':
         deps.editorKeyboard.handleUpArrowEmpty()

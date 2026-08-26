@@ -42,6 +42,7 @@ function interceptorHarness(store?: Tui2Store) {
     handleUpArrowEmpty: vi.fn(),
     handleDownArrowEmpty: vi.fn(),
     acceptAutocomplete: vi.fn(() => true),
+    handleTranscriptNavKey: vi.fn(() => true),
   }
   const consume = vi.fn()
   const intercept = createEditorKeyInterceptor({
@@ -128,6 +129,37 @@ describe('createEditorKeyInterceptor', () => {
     })
     press(fakeKey('up'))
     expect(editorKeyboard.handleUpArrowEmpty).not.toHaveBeenCalled()
+  })
+
+  it('routes keys to the nav controller while navigation is active', () => {
+    const { store, editorKeyboard, consume, press } = interceptorHarness()
+    // While inactive nothing is routed.
+    press(fakeKey('j'))
+    expect(editorKeyboard.handleTranscriptNavKey).not.toHaveBeenCalled()
+
+    store.setState('transcriptNav', { active: true })
+    press(fakeKey('j'))
+    expect(editorKeyboard.handleTranscriptNavKey).toHaveBeenCalledWith('j')
+    expect(consume).toHaveBeenCalled()
+
+    // Named keys translate into the nav vocabulary; an unhandled key falls
+    // through unconsumed (typing keeps working).
+    editorKeyboard.handleTranscriptNavKey.mockClear()
+    consume.mockClear()
+    press(fakeKey('escape'))
+    expect(editorKeyboard.handleTranscriptNavKey).toHaveBeenCalledWith('escape')
+
+    editorKeyboard.handleTranscriptNavKey.mockReturnValueOnce(false)
+    consume.mockClear()
+    press(fakeKey('x'))
+    expect(consume).not.toHaveBeenCalled()
+
+    // Kitty CSI-u printables decode back to the plain character.
+    editorKeyboard.handleTranscriptNavKey.mockClear()
+    press(fakeKey('j', { sequence: '\u001b[106u' }))
+    expect(editorKeyboard.handleTranscriptNavKey).toHaveBeenCalledWith('j')
+
+    store.setState('transcriptNav', { active: false })
   })
 
   it('consumes Enter / Tab only when a popup selection was applied', () => {
