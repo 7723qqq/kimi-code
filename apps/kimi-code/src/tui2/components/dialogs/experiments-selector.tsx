@@ -19,14 +19,11 @@ import type { ColorInput, KeyEvent } from '@opentui/core'
 
 import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk'
 
-import { fuzzyFilter } from '../../utils/fuzzy'
-
 import { t } from '#/i18n'
 
-import { pageView } from '../../utils/paging'
 import { SELECT_POINTER } from '../../constant/symbols'
 import { currentTheme } from '../../theme'
-import { isPrintableChar, printableChar } from '../../utils/printable-key'
+import { createSearchableList } from '../../utils/searchable-list'
 
 import { Box } from '../common/box'
 import { Text } from '../common/text'
@@ -81,9 +78,20 @@ function featureDetail(feature: ExperimentalFeatureState): string {
 }
 
 export const ExperimentsSelector: Component<ExperimentsSelectorProps> = (props) => {
-  const [cursor, setCursor] = createSignal(0)
-  const [query, setQuery] = createSignal('')
   const [draft, setDraft] = createSignal(new Map<ExperimentalFeatureState['id'], boolean>())
+  const list = createSearchableList<ExperimentalFeatureState>({
+    items: () => props.features,
+    toSearchText: (f) => `${featureTitle(f)} ${f.id} ${featureDescription(f)}`,
+    pageSize: 8,
+    searchable: true,
+  })
+  const setCursor = list.setCursor
+  const query = list.query
+  const setQuery = list.setQuery
+  const filtered = list.filtered
+  const page = list.page
+  const selectedIndex = list.selectedIndex
+  const visible = list.visible
 
   function effectiveEnabled(feature: ExperimentalFeatureState): boolean {
     return draft().get(feature.id) ?? feature.enabled
@@ -92,21 +100,6 @@ export const ExperimentsSelector: Component<ExperimentsSelectorProps> = (props) 
     return effectiveEnabled(feature) !== feature.enabled
   }
 
-  const filtered = createMemo<readonly ExperimentalFeatureState[]>(() => {
-    const all = props.features
-    const q = query()
-    if (q.length === 0) return all
-    return fuzzyFilter(
-      [...all],
-      q,
-      (f) => `${featureTitle(f)} ${f.id} ${featureDescription(f)}`,
-    )
-  })
-  const page = createMemo(() => pageView(filtered().length, cursor(), 8))
-  const selectedIndex = createMemo(() =>
-    Math.min(cursor(), Math.max(0, filtered().length - 1)),
-  )
-  const visible = createMemo(() => filtered().slice(page().start, page().end))
   const draftChanges = createMemo<ExperimentalFeatureDraftChange[]>(() =>
     props.features
       .filter(isDraftChanged)
@@ -126,16 +119,11 @@ export const ExperimentsSelector: Component<ExperimentsSelectorProps> = (props) 
         props.onCancel()
         return
       case 'up':
-        setCursor((c) => Math.max(0, c - 1))
-        return
       case 'down':
-        setCursor((c) => Math.min(Math.max(0, filtered().length - 1), c + 1))
-        return
       case 'pageup':
-        setCursor((c) => Math.max(0, c - 8))
-        return
       case 'pagedown':
-        setCursor((c) => Math.min(Math.max(0, filtered().length - 1), c + 8))
+      case 'backspace':
+        list.handleNavigationKey(event)
         return
       case 'return':
       case 'enter': {
@@ -149,19 +137,8 @@ export const ExperimentsSelector: Component<ExperimentsSelectorProps> = (props) 
         event.stopPropagation()
         toggleSelected()
         return
-      case 'backspace':
-        if (query().length > 0) {
-          setQuery((q) => q.slice(0, -1))
-          setCursor(0)
-        }
-        return
     }
-    if (query().length === 0 && event.name !== 'tab') return
-    const ch = printableChar(event.sequence ?? event.name)
-    if (isPrintableChar(ch)) {
-      setQuery((q) => q + ch)
-      setCursor(0)
-    }
+    list.handleNavigationKey(event)
   }
 
   function toggleSelected(): void {
