@@ -65,6 +65,7 @@ import {
   buildSkillSlashCommands,
   isExperimentalFlagEnabled,
   setExperimentalFeatures,
+  showUsage,
   sortSlashCommands,
   type KimiSlashCommand,
   type SkillListSession,
@@ -74,6 +75,7 @@ import type { SlashCommandHost } from '../commands/dispatch';
 import {
   currentTuiConfig,
   handleGitHubTokenInput,
+  showAstronSettingsPanel,
   showExperimentsPanel,
   showModelPicker,
 } from '../commands/config';
@@ -529,12 +531,15 @@ export class KimiTUI {
         });
         return;
       case 'usage':
-        this.store.setState('activeDialog', 'help');
+        void showUsage(this as unknown as SlashCommandHost);
         return;
       case 'github_token':
         // Same prompt as the v1 /settings flow: collect the token and
         // persist it to the config store.
         await handleGitHubTokenInput(this as unknown as SlashCommandHost);
+        return;
+      case 'astron':
+        void showAstronSettingsPanel(this as unknown as SlashCommandHost);
         return;
     }
   }
