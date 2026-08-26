@@ -200,24 +200,6 @@ export interface KimiTUIStartupInput {
   readonly engineV2?: boolean;
 }
 
-type EffectiveActivityPaneMode =
-  | AppState['streamingPhase']
-  | 'idle'
-  | 'session'
-  | 'hidden'
-  | 'tool';
-type LoadingTipKind = 'moon' | 'composing';
-
-function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
-  if (mode === 'waiting' || mode === 'tool') return 'moon';
-  if (mode === 'composing') return 'composing';
-  return undefined;
-}
-
-function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((value, index) => value === b[index]);
-}
-
 type MutableCreateSessionOptions = {
   -readonly [P in keyof CreateSessionOptions]: CreateSessionOptions[P];
 };
@@ -235,6 +217,12 @@ interface SendMessageOptions {
  */
 import { combineSteerInput } from '../utils/steer-input';
 import { mainAgentPhaseLabel, subagentStatus } from '../utils/agent-pane-status';
+import {
+  loadingTipKind,
+  sameStringArrays,
+  type EffectiveActivityPaneMode,
+  type LoadingTipKind,
+} from '../utils/activity-pane';
 
 /** How long the one-shot "moved to background" footer hint stays visible. */
 const DETACH_HINT_DISPLAY_MS = 4_000;
