@@ -30,6 +30,7 @@ import type {
   QuestionPanelResponse,
   QuestionSubmissionMethod,
 } from '../../reverse-rpc/types'
+import { SELECT_POINTER } from '../../constant/symbols'
 import { currentTheme } from '../../theme'
 import { isPrintableChar, printableChar } from '../../utils/printable-key'
 
@@ -223,9 +224,27 @@ export const QuestionDialog: Component<QuestionDialogProps> = (props) => {
       cancel()
       return
     }
+    // v1 also answered empty on Ctrl+C / Ctrl+D (question-dialog.ts:146); the
+    // tui2 port only kept Esc, breaking the muscle-memory cancel path.
+    if (event.ctrl && (event.name === 'c' || event.name === 'd')) {
+      event.stopPropagation()
+      cancel()
+      return
+    }
     if (event.ctrl && event.name === 'o') {
       event.stopPropagation()
       props.onToggleToolOutput?.()
+      return
+    }
+    // ←/→ move between question tabs like Tab/backtab (v1 :183-187).
+    if (event.name === 'left') {
+      event.stopPropagation()
+      selectPrevTab()
+      return
+    }
+    if (event.name === 'right') {
+      event.stopPropagation()
+      selectNextTab()
       return
     }
     if (event.name === 'tab') {
@@ -461,7 +480,7 @@ const QuestionBody: Component<QuestionBodyProps> = (props) => {
             return (
               <Clickable onClick={() => props.onSelectOption(i())}>
                 <Box flexDirection="row">
-                  <Text fg={cursorIdx() === i() ? titleFg() : textDimFg()}>{`  ${cursorIdx() === i() ? '❯' : ' '} `}</Text>
+                  <Text fg={cursorIdx() === i() ? titleFg() : textDimFg()}>{`  ${cursorIdx() === i() ? SELECT_POINTER : ' '} `}</Text>
                   <Show
                     when={selectedHere()}
                     fallback={<Text fg={textFg()}>{`${String(i() + 1)}. ${opt.label}`}</Text>}
@@ -479,7 +498,7 @@ const QuestionBody: Component<QuestionBodyProps> = (props) => {
         {/* Other option */}
         <Clickable onClick={() => props.onSelectOption(props.question.options.length)}>
           <Box flexDirection="row">
-            <Text fg={cursorIdx() === props.question.options.length ? titleFg() : textDimFg()}>{`  ${cursorIdx() === props.question.options.length ? '❯' : ' '} `}</Text>
+            <Text fg={cursorIdx() === props.question.options.length ? titleFg() : textDimFg()}>{`  ${cursorIdx() === props.question.options.length ? SELECT_POINTER : ' '} `}</Text>
             <Show
               when={props.editingOther}
               fallback={

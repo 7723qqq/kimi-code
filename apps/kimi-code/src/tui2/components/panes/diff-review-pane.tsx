@@ -19,6 +19,7 @@ import type { ColorInput, KeyEvent } from '@opentui/core'
 
 import { t } from '#/i18n'
 
+import { SELECT_POINTER } from '../../constant/symbols'
 import { currentTheme } from '../../theme'
 import { isPrintableChar, printableChar } from '../../utils/printable-key'
 import { renderDiffLines } from '../media/diff-preview'
@@ -146,7 +147,7 @@ export const DiffReviewPane: Component<DiffReviewPaneProps> = (props) => {
           const stats = diffStats(item)
           return (
             <Box flexDirection="row">
-              <Text fg={selected() ? titleFg() : textMutedFg()}>{`  ${selected() ? '❯' : ' '} `}</Text>
+              <Text fg={selected() ? titleFg() : textMutedFg()}>{`  ${selected() ? SELECT_POINTER : ' '} `}</Text>
               <Text fg={selected() ? titleFg() : textFg()}>{item.path}</Text>
               <Text>{' '}</Text>
               <Show
