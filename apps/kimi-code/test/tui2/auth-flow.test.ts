@@ -17,7 +17,7 @@ import type { SessionEventHandler } from '@/tui2/controllers/session-event-handl
 import { createTui2Store, type Tui2Store } from '@/tui2/state'
 import type { KimiTUIOptions } from '@/tui2/types'
 
-const refreshAllProviderModels = vi.fn()
+const refreshAllProviderModels = vi.hoisted(() => vi.fn())
 vi.mock('@/tui2/utils/refresh-providers', () => ({ refreshAllProviderModels }))
 
 interface Harness {

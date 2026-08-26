@@ -16,7 +16,7 @@ import { createTui2Store, type Tui2Store } from '@/tui2/state'
 import { TERMINAL_FOCUS_IN } from '@/tui2/utils/terminal-focus'
 
 // Replace the real OS-clipboard reader so tests never touch the environment.
-const clipboardHasImage = vi.fn()
+const clipboardHasImage = vi.hoisted(() => vi.fn())
 vi.mock('@/utils/clipboard/clipboard-has-image', () => ({ clipboardHasImage }))
 
 function setup(options?: { modelSupportsImage?: boolean }): {

@@ -25,7 +25,7 @@ import type { ImageAttachmentStore } from '@/tui2/utils/image-attachment-store'
 
 // The clipboard reader touches the real OS clipboard; replace it so the
 // paste-image path is driven entirely by mocks.
-const readClipboardMedia = vi.fn()
+const readClipboardMedia = vi.hoisted(() => vi.fn())
 vi.mock('@/utils/clipboard/clipboard-image', () => ({
   ClipboardMediaError: class ClipboardMediaError extends Error {},
   readClipboardMedia,
