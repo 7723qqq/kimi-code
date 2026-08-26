@@ -172,11 +172,20 @@ export const MainShell: Component<MainShellProps> = (props) => {
       </Show>
 
       <Box flexDirection="row" flexGrow={1}>
-        <Box flexDirection="column" flexGrow={1} width={leftWidth(props.width)}>
+        {/* Transcript scrolls inside an opentui ScrollBox (viewport clips,
+            sticky bottom) instead of overflowing into the terminal buffer:
+            the native diff renderer's terminal-scroll path intermittently
+            leaves old rows behind, drawing new content on top of them. */}
+        <scrollbox
+          flexGrow={1}
+          width={leftWidth(props.width)}
+          stickyScroll
+          stickyStart="bottom"
+        >
           <For each={displayItems()}>
             {(item) => <TranscriptDisplayItemView item={item} workspaceDir={store.state.workDir} />}
           </For>
-        </Box>
+        </scrollbox>
 
         <Show when={showRightPane()}>
           <Box flexDirection="column" width={rightWidth(props.width)}>
