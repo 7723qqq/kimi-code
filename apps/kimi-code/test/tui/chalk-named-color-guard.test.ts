@@ -22,7 +22,13 @@ function walk(dir: string, files: string[] = []): string[] {
       const p = join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(p, files);
-      } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') && !entry.name.endsWith('.spec.ts')) {
+      } else if (
+        (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) &&
+        !entry.name.endsWith('.test.ts') &&
+        !entry.name.endsWith('.test.tsx') &&
+        !entry.name.endsWith('.spec.ts') &&
+        !entry.name.endsWith('.spec.tsx')
+      ) {
         files.push(p);
       }
     }
