@@ -35,10 +35,10 @@ import type { ProviderConfig } from '@moonshot-ai/kimi-code-sdk'
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '../../../constant/app'
 import { t } from '#/i18n'
 
-import { pageView } from '../../utils/paging'
 import { getCurrentMark, SELECT_POINTER } from '../../constant/symbols'
 import { currentTheme } from '../../theme'
 import { printableChar } from '../../utils/printable-key'
+import { createSearchableList } from '../../utils/searchable-list'
 
 import { Box } from '../common/box'
 import { Text } from '../common/text'
@@ -147,14 +147,20 @@ function buildRows(props: ProviderManagerProps): readonly Row[] {
 }
 
 export const ProviderManager: Component<ProviderManagerProps> = (props) => {
-  const [cursor, setCursor] = createSignal(0)
   const [confirmState, setConfirmState] = createSignal<ConfirmState | undefined>(undefined)
 
   const rows = createMemo(() => buildRows(props))
-  const page = createMemo(() => pageView(rows().length, cursor(), PAGE_SIZE))
-  const selectedIndex = createMemo(() => Math.min(cursor(), Math.max(0, rows().length - 1)))
-  const visible = createMemo(() => rows().slice(page().start, page().end))
-  const selectedRow = (): Row | undefined => rows()[selectedIndex()]
+  const list = createSearchableList<Row>({
+    items: rows,
+    toSearchText: (row) => row.label,
+    pageSize: PAGE_SIZE,
+    searchable: false,
+  })
+  const setCursor = list.setCursor
+  const page = list.page
+  const selectedIndex = list.selectedIndex
+  const visible = list.visible
+  const selectedRow = (): Row | undefined => list.selected()
 
   function applyKey(event: KeyEvent): void {
     if (event.repeated === true) return
@@ -185,11 +191,11 @@ export const ProviderManager: Component<ProviderManagerProps> = (props) => {
       return
     }
     if (event.name === 'up') {
-      setCursor((c) => Math.max(0, c - 1))
+      list.handleNavigationKey(event)
       return
     }
     if (event.name === 'down') {
-      setCursor((c) => Math.min(rows().length - 1, c + 1))
+      list.handleNavigationKey(event)
       return
     }
     if (event.name === 'left') {
@@ -201,11 +207,11 @@ export const ProviderManager: Component<ProviderManagerProps> = (props) => {
       return
     }
     if (event.name === 'pageup') {
-      setCursor((c) => Math.max(0, c - PAGE_SIZE))
+      list.handleNavigationKey(event)
       return
     }
     if (event.name === 'pagedown') {
-      setCursor((c) => Math.min(rows().length - 1, c + PAGE_SIZE))
+      list.handleNavigationKey(event)
       return
     }
     if (event.name === 'return' || event.name === 'enter') {
