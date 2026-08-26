@@ -67,16 +67,19 @@ export function buildCommands(handlers: Tui2CommandHandlers): readonly Command<R
 /** Default key → command bindings for the base mode. */
 export function buildBaseBindings(): Layer<Renderable, KeyEvent>['bindings'] {
   return [
-    { key: 'ctrl+c', command: COMMANDS.cancelStream },
-    { key: 'ctrl+d', command: COMMANDS.exit },
-    { key: 'ctrl+e', command: COMMANDS.externalEditor },
-    { key: 'ctrl+m', command: COMMANDS.switchModel },
-    { key: 'ctrl+o', command: COMMANDS.toggleToolOutput },
-    { key: 'ctrl+s', command: COMMANDS.sendQueued },
-    { key: 'ctrl+t', command: COMMANDS.toggleTodoExpand },
-    { key: 'ctrl+l', command: COMMANDS.sessions },
-    { key: 'ctrl+n', command: COMMANDS.newSession },
-    { key: 'escape', command: COMMANDS.cancel },
+    // NOTE: the binding field is `cmd`, not `command`. opentui's keymap
+    // compiler silently drops unknown fields (a `command` field would make
+    // every shortcut a no-op), so keep these in sync with `Binding.cmd`.
+    { key: 'ctrl+c', cmd: COMMANDS.cancelStream },
+    { key: 'ctrl+d', cmd: COMMANDS.exit },
+    { key: 'ctrl+e', cmd: COMMANDS.externalEditor },
+    { key: 'ctrl+m', cmd: COMMANDS.switchModel },
+    { key: 'ctrl+o', cmd: COMMANDS.toggleToolOutput },
+    { key: 'ctrl+s', cmd: COMMANDS.sendQueued },
+    { key: 'ctrl+t', cmd: COMMANDS.toggleTodoExpand },
+    { key: 'ctrl+l', cmd: COMMANDS.sessions },
+    { key: 'ctrl+n', cmd: COMMANDS.newSession },
+    { key: 'escape', cmd: COMMANDS.cancel },
   ]
 }
 
