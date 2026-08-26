@@ -8,7 +8,7 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (28 sections · 2 overlay(s))
+# Index (29 sections · 2 overlay(s))
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
@@ -26,6 +26,7 @@
 #   mcp                      src/app/mcpConfig/configSection.ts
 #   mergeAllAvailableSkills  src/features/skill/catalog/configSection.ts
 #   modelCatalog             src/app/kosongConfig/configSection.ts
+#   modelOverrides           src/app/kosongConfig/configSection.ts
 #   models                   src/app/kosongConfig/configSection.ts
 #   permission               src/agent/permissionRules/configSection.ts
 #   providers                src/app/kosongConfig/configSection.ts
@@ -250,6 +251,18 @@ merge_all_available_skills = true
 [model_catalog]
 # refresh_interval_ms: integer
 # refresh_on_start: boolean
+
+# ##########################################################################
+# modelOverrides (config.toml: model_overrides)
+#   owner: src/app/kosongConfig/configSection.ts
+#   scope: core
+# ##########################################################################
+
+[model_overrides]
+# temperature: number
+# top_p: number
+# thinking_keep: string
+# max_completion_tokens: integer
 
 # ##########################################################################
 # models

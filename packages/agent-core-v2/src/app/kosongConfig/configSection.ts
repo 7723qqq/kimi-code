@@ -15,6 +15,7 @@ import {
   transformPlainObject,
 } from '#/app/config/toml';
 import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
+import type { ModelOverrides } from '#/kosong/model/model.types';
 import type { ModelOverride, ModelRecord, ModelsSection } from '#/kosong/model/model';
 import type { ThinkingConfig } from '#/kosong/model/thinking';
 import type { OAuthRef, ProviderConfig, ProvidersSection } from '#/kosong/provider/provider';
@@ -255,6 +256,23 @@ registerConfigSection(MODELS_SECTION, ModelsSectionSchema, {
   defaultValue: {},
   fromToml: modelsFromToml,
   toToml: modelsToToml,
+});
+
+export const MODEL_OVERRIDES_SECTION = 'modelOverrides';
+
+export const ModelOverridesSchema = z.object({
+  temperature: z.number().optional(),
+  topP: z.number().optional(),
+  thinkingKeep: z.string().optional(),
+  maxCompletionTokens: z.number().int().min(1).optional(),
+});
+
+type _AssertModelOverrides = AssertExact<
+  Equal<z.infer<typeof ModelOverridesSchema>, ModelOverrides>
+>;
+
+registerConfigSection(MODEL_OVERRIDES_SECTION, ModelOverridesSchema, {
+  defaultValue: {},
 });
 
 export const THINKING_SECTION = 'thinking';
