@@ -226,6 +226,7 @@ type MutableCreateSessionOptions = {
 interface SendMessageOptions {
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
+  readonly videoAttachmentIds?: readonly number[];
   readonly hasMedia?: boolean;
 }
 
@@ -1690,6 +1691,7 @@ export class KimiTUI {
         hasMedia: true,
         parts: extraction.parts,
         imageAttachmentIds: extraction.imageAttachmentIds,
+        videoAttachmentIds: extraction.videoAttachmentIds,
       });
     } else {
       this.sendMessage(session, text);
@@ -1775,6 +1777,10 @@ export class KimiTUI {
           options?.imageAttachmentIds !== undefined && options.imageAttachmentIds.length > 0
             ? options.imageAttachmentIds
             : undefined,
+        videoAttachmentIds:
+          options?.videoAttachmentIds !== undefined && options.videoAttachmentIds.length > 0
+            ? options.videoAttachmentIds
+            : undefined,
         mode,
       },
     ]);
@@ -1836,6 +1842,10 @@ export class KimiTUI {
       options?.imageAttachmentIds !== undefined && options.imageAttachmentIds.length > 0
         ? options.imageAttachmentIds
         : undefined;
+    const videoAttachmentIds =
+      options?.videoAttachmentIds !== undefined && options.videoAttachmentIds.length > 0
+        ? options.videoAttachmentIds
+        : undefined;
     const userEntryId = nextTranscriptId();
     this.lastDispatchedUserEntryId = userEntryId;
     this.appendTranscriptEntry({
@@ -1845,6 +1855,7 @@ export class KimiTUI {
       renderMode: 'plain',
       content: input,
       imageAttachmentIds,
+      videoAttachmentIds,
     });
 
     this.beginSessionRequest();
@@ -1979,6 +1990,10 @@ export class KimiTUI {
         imageAttachmentIds:
           item.imageAttachmentIds !== undefined && item.imageAttachmentIds.length > 0
             ? item.imageAttachmentIds
+            : undefined,
+        videoAttachmentIds:
+          item.videoAttachmentIds !== undefined && item.videoAttachmentIds.length > 0
+            ? item.videoAttachmentIds
             : undefined,
       });
     }

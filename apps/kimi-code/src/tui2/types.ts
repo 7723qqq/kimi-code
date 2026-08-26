@@ -353,6 +353,7 @@ export interface TranscriptEntry {
   /** Live AgentSwarm progress summary for a tool-call entry. */
   agentSwarmData?: AgentSwarmProgressData;
   imageAttachmentIds?: readonly number[];
+  videoAttachmentIds?: readonly number[];
   skillActivationId?: string;
   skillName?: string;
   skillArgs?: string;
@@ -510,6 +511,7 @@ export interface SteerInputItem {
   readonly text: string;
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
+  readonly videoAttachmentIds?: readonly number[];
 }
 
 export const INITIAL_LIVE_PANE: LivePaneState = {

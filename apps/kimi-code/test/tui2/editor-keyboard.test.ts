@@ -12,6 +12,10 @@
  * private compaction/stream internals.
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { describe, expect, it, vi } from 'vitest'
 
 import type { InputRenderable } from '@opentui/core'
@@ -21,7 +25,7 @@ import { EditorKeyboardController, type EditorKeyboardHost } from '@/tui2/contro
 import { setEditorInput } from '@/tui2/components/editor/editor-input-ref'
 import { getPasteRegistry } from '@/tui2/components/editor/paste-markers'
 import { createTui2Store, type Tui2Store } from '@/tui2/state'
-import type { ImageAttachmentStore } from '@/tui2/utils/image-attachment-store'
+import { ImageAttachmentStore } from '@/tui2/utils/image-attachment-store'
 
 // The clipboard reader touches the real OS clipboard; replace it so the
 // paste-image path is driven entirely by mocks.
@@ -33,7 +37,7 @@ vi.mock('@/utils/clipboard/clipboard-image', () => ({
 
 function make(
   overrides?: Partial<EditorKeyboardHost>,
-  imageStore: Record<string, unknown> = {},
+  imageStore: Record<string, unknown> | ImageAttachmentStore = {},
 ): {
   store: Tui2Store
   host: EditorKeyboardHost
@@ -331,6 +335,43 @@ describe('EditorKeyboardController', () => {
       expect(items[0]?.text).toContain('alpha\nbeta')
       expect(items[0]?.text).not.toContain('[paste #')
       expect(store.state.editorDraft).toBe('')
+    })
+
+    it('Ctrl+S carries queued video attachment ids into the steer items', () => {
+      const { store, host, ctrl } = make({ session: {} as Session })
+      store.setState('streamingPhase', 'composing')
+      store.setState('model', 'kimi')
+      // Queue-leg passthrough: queued items were extracted at submit time,
+      // so steering must forward their ids without re-extraction.
+      store.setState('queuedMessages', [
+        { text: 'queued clip', mode: 'prompt', videoAttachmentIds: [7] },
+      ])
+      ctrl.handleCtrlS()
+      expect(host.steerMessage).toHaveBeenCalledTimes(1)
+      const items = ((host.steerMessage as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[1] ?? []) as Array<{ videoAttachmentIds?: readonly number[] }>
+      expect(items[0]?.videoAttachmentIds).toEqual([7])
+    })
+
+    it('Ctrl+S carries video attachment ids extracted from the steered draft', () => {
+      // tui2 resolves a video placeholder by copying the source into the
+      // shared cache, so the paste source must exist on disk.
+      const dir = mkdtempSync(join(tmpdir(), 'kimi-steer-video-'))
+      try {
+        const src = join(dir, 'example.mp4')
+        writeFileSync(src, Buffer.alloc(16))
+        const imageStore = new ImageAttachmentStore()
+        const attachment = imageStore.addVideo('video/mp4', src, 'example.mp4')
+        const { store, host, ctrl } = make({ session: {} as Session }, imageStore)
+        store.setState('streamingPhase', 'composing')
+        store.setState('model', 'kimi')
+        store.setState('editorDraft', `look ${attachment.placeholder}`)
+        ctrl.handleCtrlS()
+        expect(host.steerMessage).toHaveBeenCalledTimes(1)
+        const items = ((host.steerMessage as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[1] ?? []) as Array<{ videoAttachmentIds?: readonly number[] }>
+        expect(items[0]?.videoAttachmentIds).toEqual([attachment.id])
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
     })
   })
 

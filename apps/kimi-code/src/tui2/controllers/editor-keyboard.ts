@@ -368,7 +368,12 @@ export class EditorKeyboardController {
       if (trimmed.length > 0) {
         // Queued items carry the parts extracted when they were submitted
         // (and were already capability-validated then).
-        items.push({ text: trimmed, parts: m.parts, imageAttachmentIds: m.imageAttachmentIds });
+        items.push({
+          text: trimmed,
+          parts: m.parts,
+          imageAttachmentIds: m.imageAttachmentIds,
+          videoAttachmentIds: m.videoAttachmentIds,
+        });
       }
     }
     let editorExtraction: ReturnType<typeof extractMediaAttachments> | undefined;
@@ -392,6 +397,10 @@ export class EditorKeyboardController {
           editorExtraction.imageAttachmentIds.length > 0
             ? editorExtraction.imageAttachmentIds
             : undefined,
+        videoAttachmentIds:
+          editorExtraction.videoAttachmentIds.length > 0
+            ? editorExtraction.videoAttachmentIds
+            : undefined,
       });
     }
 
@@ -399,6 +408,11 @@ export class EditorKeyboardController {
       // The editor draft is fresh input: gate it on the model's media
       // capabilities before splicing the queue, so a rejection leaves the
       // queue and the draft untouched.
+      //
+      // No releaseStagingMedia here, unlike v1: tui2 materializes videos into
+      // cache file:// parts synchronously inside extractMediaAttachments and
+      // images stay in-memory, so there are no staged daemon uploads to
+      // reclaim on a failed validation.
       if (editorExtraction !== undefined && !host.validateMediaCapabilities(editorExtraction)) {
         return;
       }
