@@ -9,11 +9,15 @@
  * constructor.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Event, Session } from '@moonshot-ai/kimi-code-sdk'
 
-import { SessionEventHandler, type SessionEventHost } from '@/tui2/controllers/session-event-handler'
+import {
+  SessionEventHandler,
+  TOOL_PROGRESS_COALESCE_MS,
+  type SessionEventHost,
+} from '@/tui2/controllers/session-event-handler'
 import { createTui2Store, type Tui2Store } from '@/tui2/state'
 import type { TranscriptEntry } from '@/tui2/types'
 
@@ -711,9 +715,22 @@ const cardOf = (h: Harness, entryId: string) =>
   h.store.state.transcript.find((entry) => entry.id === entryId)?.toolCallData
 
 describe('SessionEventHandler tool.progress dispatch', () => {
+  // Progress patches coalesce onto a ~50ms timer; tests flush synchronously.
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const flushProgress = (): void => {
+    vi.advanceTimersByTime(TOOL_PROGRESS_COALESCE_MS + 1)
+  }
+
   it('routes stdout into liveOutput and never into streamingArguments', () => {
     const { h, entryId } = setupToolCard('Bash', '{"command": "l')
     handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stdout', text: 'file-a\n' } })
+    flushProgress()
     const data = cardOf(h, entryId)
     expect(data?.liveOutput).toBe('file-a\n')
     // Regression: running output used to be appended onto the args preview,
@@ -722,28 +739,47 @@ describe('SessionEventHandler tool.progress dispatch', () => {
     expect(data?.progressLines).toBeUndefined()
   })
 
+  it('coalesces multiple stdout bursts into one transcript patch per interval', () => {
+    const { h, entryId } = setupToolCard('Bash')
+    const storeSpy = vi.spyOn(h.store, 'setState')
+    for (let i = 0; i < 20; i++) {
+      handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stdout', text: `chunk-${String(i)}\n` } })
+    }
+    flushProgress()
+    const data = cardOf(h, entryId)
+    expect(data?.liveOutput).toContain('chunk-19\n')
+    // 20 events applied as a single patch round instead of twenty.
+    const calls = storeSpy.mock.calls as unknown as Array<[string, unknown]>
+    const transcriptPatches = calls.filter(([key]) => key === 'transcript').length
+    expect(transcriptPatches).toBe(1)
+  })
+
   it('appends stderr chunks to the same live output buffer', () => {
     const { h, entryId } = setupToolCard('Bash')
     handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stdout', text: 'out' } })
     handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stderr', text: 'err' } })
+    flushProgress()
     expect(cardOf(h, entryId)?.liveOutput).toBe('outerr')
   })
 
   it('routes status updates into the progress block with replace support', () => {
     const { h, entryId } = setupToolCard('Bash')
     handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'status', text: 'step 1\nstill going', replace: true } })
+    flushProgress()
     let data = cardOf(h, entryId)
     expect(data?.progressLines).toEqual(['step 1', 'still going'])
     expect(data?.progressStatusRows).toBe(2)
 
     // A replacing update swaps the previous replaceable rows instead of piling up.
     handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'status', text: 'step 2', replace: true } })
+    flushProgress()
     data = cardOf(h, entryId)
     expect(data?.progressLines).toEqual(['step 2'])
     expect(data?.progressStatusRows).toBe(1)
 
     // A non-replacing update appends below the replaceable block.
     handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'status', text: 'done bit' } })
+    flushProgress()
     data = cardOf(h, entryId)
     expect(data?.progressLines).toEqual(['step 2', 'done bit'])
     expect(data?.progressStatusRows).toBe(0)
@@ -754,6 +790,7 @@ describe('SessionEventHandler tool.progress dispatch', () => {
     for (let i = 0; i < 30; i++) {
       handle(h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'status', text: `row-${i}` } })
     }
+    flushProgress()
     const lines = cardOf(h, entryId)?.progressLines ?? []
     expect(lines).toHaveLength(24)
     expect(lines[0]).toBe('row-6')
@@ -763,20 +800,24 @@ describe('SessionEventHandler tool.progress dispatch', () => {
       toolCallId: 'c1',
       update: { kind: 'stdout', text: 'x'.repeat(50_001) },
     })
+    flushProgress()
     expect(cardOf(h, entryId)?.liveOutput?.startsWith('[...truncated]\n')).toBe(true)
   })
 
   it('marks foreground Bash/Agent cards with the detach hint on progress', () => {
     const bash = setupToolCard('Bash')
     handle(bash.h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'status', text: 'working' } })
+    flushProgress()
     expect(cardOf(bash.h, bash.entryId)?.detachHint).toBe(true)
 
     const agent = setupToolCard('Agent')
     handle(agent.h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stdout', text: 'chunk' } })
+    flushProgress()
     expect(cardOf(agent.h, agent.entryId)?.detachHint).toBe(true)
 
     const read = setupToolCard('Read')
     handle(read.h, { type: 'tool.progress', toolCallId: 'c1', update: { kind: 'stdout', text: 'chunk' } })
+    flushProgress()
     expect(cardOf(read.h, read.entryId)?.detachHint).toBeUndefined()
   })
 

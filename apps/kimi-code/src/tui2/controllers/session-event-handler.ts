@@ -174,6 +174,78 @@ function estimateTokensFromText(text: string): number {
 const MAX_PROGRESS_LINES = 24;
 const MAX_LIVE_OUTPUT_CHARS = 50_000;
 
+/**
+ * Flush cadence for coalesced `tool.progress` patches. Matches the streaming
+ * UI flush cadence: 20 fps is well above what a terminal repaints.
+ */
+export const TOOL_PROGRESS_COALESCE_MS = 50;
+
+type PendingProgressUpdate =
+  | { readonly kind: 'status'; readonly text: string; readonly replace: boolean }
+  | { readonly kind: 'output'; readonly text: string };
+
+/**
+ * Coalesces rapid-fire `tool.progress` updates (chatty Bash stdout arrives
+ * every few ms) into one transcript store patch per flush interval. Without
+ * this, each event costs an O(transcript) array rebuild plus an O(50KB)
+ * liveOutput string copy — the worst path in busy-shell sessions.
+ *
+ * `flushNow()` must be called before any consumer reads the patched state:
+ * tool results, phase changes and session switches do so eagerly.
+ */
+class ToolProgressCoalescer {
+  private readonly pendingByEntry = new Map<string, PendingProgressUpdate[]>();
+  private detachEntryIds = new Set<string>();
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(
+    private readonly schedule: (fn: () => void) => ReturnType<typeof setTimeout>,
+    private readonly cancel: (timer: ReturnType<typeof setTimeout>) => void,
+    private readonly applyPatches: (
+      pendingByEntry: ReadonlyMap<string, PendingProgressUpdate[]>,
+      detachEligible: ReadonlySet<string>,
+    ) => void,
+  ) {}
+
+  add(entryId: string, update: PendingProgressUpdate, detachEligible: boolean): void {
+    let updates = this.pendingByEntry.get(entryId);
+    if (updates === undefined) {
+      updates = [];
+      this.pendingByEntry.set(entryId, updates);
+    }
+    updates.push(update);
+    if (detachEligible) this.detachEntryIds.add(entryId);
+    if (this.timer === undefined) {
+      this.timer = this.schedule(() => this.flushNow());
+    }
+  }
+
+  /** Apply every buffered patch immediately (tool result / turn end / reset). */
+  flushNow(): void {
+    if (this.timer !== undefined) {
+      this.cancel(this.timer);
+      this.timer = undefined;
+    }
+    if (this.pendingByEntry.size === 0) return;
+    const pending = new Map(this.pendingByEntry);
+    const detach = this.detachEntryIds;
+    this.pendingByEntry.clear();
+    this.detachEntryIds = new Set();
+    this.applyPatches(pending, detach);
+  }
+
+  hasPending(): boolean {
+    return this.timer !== undefined || this.pendingByEntry.size > 0;
+  }
+
+  dispose(): void {
+    if (this.timer !== undefined) this.cancel(this.timer);
+    this.timer = undefined;
+    this.pendingByEntry.clear();
+    this.detachEntryIds.clear();
+  }
+}
+
 /** Append a `tool.progress` status line to the card's progress block. With
  *  `replace`, the previous replaceable status rows are swapped out first
  *  (periodic "still working" updates would otherwise pile up stale rows);
@@ -240,6 +312,26 @@ export class SessionEventHandler {
     private readonly host: SessionEventHost,
     pluginUpdateNotifier?: PluginUpdateNotifier,
   ) {
+    this.progressCoalescer = new ToolProgressCoalescer(
+      (fn) => setTimeout(fn, TOOL_PROGRESS_COALESCE_MS),
+      (timer) => clearTimeout(timer),
+      (pendingByEntry, detachEligible) => {
+        for (const [entryId, updates] of pendingByEntry) {
+          this.patchToolCallEntry(entryId, (data) => {
+            let detach = detachEligible.has(entryId);
+            for (const update of updates) {
+              if (update.kind === 'status') {
+                appendToolProgressLine(data, update.text, update.replace);
+              } else {
+                appendToolLiveOutput(data, update.text);
+              }
+              if (detachEligible.has(entryId)) detach = true;
+            }
+            if (detach) data.detachHint = true;
+          });
+        }
+      },
+    );
     this.subAgentEventHandler = new SubAgentEventHandler(host, {
       backgroundTasks: this.backgroundTasks,
       backgroundTaskTranscriptedTerminal: this.backgroundTaskTranscriptedTerminal,
@@ -279,8 +371,11 @@ export class SessionEventHandler {
   private queuedGoalPromotionInFlight = false;
   private queuedGoalPromotionTimer: ReturnType<typeof setTimeout> | undefined;
   private stepRetryAttemptTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Buffered `tool.progress` patches, applied once per coalesce interval. */
+  private readonly progressCoalescer: ToolProgressCoalescer;
 
   resetRuntimeState(): void {
+    this.progressCoalescer.dispose();
     this.backgroundTasks.clear();
     this.backgroundTaskTranscriptedTerminal.clear();
     this.subAgentEventHandler.resetRuntimeState();
@@ -875,23 +970,23 @@ export class SessionEventHandler {
     // Semantic dispatch — progress must never land in `streamingArguments`:
     // that field renders the command preview, which running output would
     // pollute (v1 kept the same separation via appendProgress/appendLiveOutput).
+    // Patches coalesce onto one per TOOL_PROGRESS_COALESCE_MS tick.
     if (event.update.kind === 'status') {
-      this.patchToolCallEntry(entryId, (data) => {
-        appendToolProgressLine(data, text, event.update.replace === true);
-        if (detachEligible) data.detachHint = true;
-      });
+      this.progressCoalescer.add(
+        entryId,
+        { kind: 'status', text, replace: event.update.replace === true },
+        detachEligible,
+      );
       return;
     }
     if (event.update.kind === 'stdout' || event.update.kind === 'stderr') {
-      this.patchToolCallEntry(entryId, (data) => {
-        appendToolLiveOutput(data, text);
-        if (detachEligible) data.detachHint = true;
-      });
+      this.progressCoalescer.add(entryId, { kind: 'output', text }, detachEligible);
     }
   }
 
   private handleToolResult(event: ToolResultEvent): void {
     const { streamingUI } = this.host;
+    this.progressCoalescer.flushNow();
     streamingUI.flushNow();
     this.clearStepRetry();
     const startMs = this.toolStartTimes.get(event.toolCallId);
