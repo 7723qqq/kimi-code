@@ -182,6 +182,7 @@ export const MainShell: Component<MainShellProps> = (props) => {
         fallback={<EditorReplacementSlot />}
       >
         <CustomEditor
+          width={props.width}
           placeholder={props.editorPlaceholder}
           focused={props.editorFocused ?? true}
           onChange={props.onEditorChange}

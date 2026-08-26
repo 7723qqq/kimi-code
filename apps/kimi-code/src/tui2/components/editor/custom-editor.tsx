@@ -39,7 +39,7 @@ export const CustomEditor: Component<CustomEditorProps> = (props) => {
   const hintFg = (): ColorInput => currentTheme.color('textMuted')
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" width="100%">
       {/* Hint row */}
       <Box flexDirection="row">
         <Text fg={titleFg()} attributes={titleAttrs()}>{` ${t('tui.dialogs.editor.label')} `}</Text>
@@ -55,6 +55,7 @@ export const CustomEditor: Component<CustomEditorProps> = (props) => {
         <Text fg={borderFg()}>{'│'}</Text>
         <Text>{' '}</Text>
         <input
+          flexGrow={1}
           focused={props.focused ?? true}
           placeholder={props.placeholder ?? t('tui.dialogs.editor.placeholder')}
           onInput={(v) => props.onChange?.(v)}
