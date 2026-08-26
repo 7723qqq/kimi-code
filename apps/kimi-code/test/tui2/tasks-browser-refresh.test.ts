@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { BackgroundTaskInfo, Session } from '@moonshot-ai/kimi-code-sdk'
 
-import { TasksBrowserController } from '@/tui2/controllers/tasks-browser'
+import { formatSubagentActivityPreview, TasksBrowserController } from '@/tui2/controllers/tasks-browser'
 import type { TasksBrowserHost } from '@/tui2/controllers/tasks-browser'
 import type { Tui2Store } from '@/tui2/state'
 
@@ -451,5 +451,55 @@ describe('TasksBrowserController behavior', () => {
 
     expect(browser(harness)).toBeUndefined()
     expect(harness.storeState.current['activeDialog']).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Subagent activity preview formatting (formatSubagentActivityPreview)
+// ---------------------------------------------------------------------------
+
+describe('formatSubagentActivityPreview', () => {
+  const record = (): Parameters<typeof formatSubagentActivityPreview>[0] =>
+    ({
+      agentId: 'a',
+      agentName: 'agent A',
+      description: 'd',
+      parentToolCallId: 'p',
+      status: 'running',
+      version: 1,
+      totalSteps: 1,
+      steps: [
+        {
+          step: 1,
+          textTail: 'thinking text',
+          toolCalls: [
+            {
+              id: 't1',
+              name: 'Bash',
+              args: { command: 'ls -la' },
+              status: 'done',
+              startedAt: 0,
+              result: {
+                output: 'line one\nline two\nline three\nline four',
+                is_error: false,
+              },
+            },
+          ],
+        },
+      ],
+    }) as unknown as Parameters<typeof formatSubagentActivityPreview>[0]
+
+  it('includes the tool-call key argument and its result chip', () => {
+    const out = formatSubagentActivityPreview(record())
+    expect(out).toContain('Bash (ls -la)')
+    expect(out).toContain('✓')
+  })
+
+  it('previews the first result lines and appends a more-lines hint', () => {
+    const out = formatSubagentActivityPreview(record())
+    expect(out).toContain('line one')
+    expect(out).toContain('line three')
+    expect(out).toContain('more lines')
+    expect(out).not.toContain('line four')
   })
 })

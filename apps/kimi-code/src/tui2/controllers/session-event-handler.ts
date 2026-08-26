@@ -237,10 +237,6 @@ export class SessionEventHandler {
     return this.subAgentEventHandler.hasActiveAgentSwarmToolCall();
   }
 
-  syncAgentSwarmActivitySpinner(spinner: { renderInline(): string } | undefined): void {
-    this.subAgentEventHandler.syncAgentSwarmActivitySpinner(spinner);
-  }
-
   startSubscription(): void {
     const { host } = this;
     const session = host.requireSession();

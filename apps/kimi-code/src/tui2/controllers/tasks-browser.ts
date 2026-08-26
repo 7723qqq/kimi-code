@@ -14,8 +14,10 @@ import type { BackgroundTaskInfo, Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 
+import { RESULT_PREVIEW_LINES } from '../constant/rendering';
+import { pickChip } from '../components/messages/tool-renderers/chip';
 import type { Tui2Store } from '../state';
-import type { TasksBrowserState } from '../types';
+import type { TasksBrowserState, ToolCallBlockData } from '../types';
 import type { SubToolCallActivity, SubagentActivityRecord } from './subagent-activity-store';
 import type { SessionEventHandler } from './session-event-handler';
 
@@ -456,7 +458,7 @@ export class TasksBrowserController {
 
 const MESSAGE_INDENT = '  ';
 
-function formatSubagentActivityPreview(
+export function formatSubagentActivityPreview(
   record: SubagentActivityRecord,
   workspaceDir?: string,
 ): string {
@@ -467,6 +469,7 @@ function formatSubagentActivityPreview(
     if (step.textTail.trim().length > 0) lines.push(...step.textTail.trimEnd().split('\n'));
     for (const call of step.toolCalls) {
       lines.push(formatPreviewToolCall(call, workspaceDir));
+      lines.push(...formatPreviewToolResult(call));
       if (
         call.result === undefined &&
         call.liveOutputTail !== undefined &&
@@ -501,7 +504,46 @@ function formatPreviewToolCall(call: SubToolCallActivity, workspaceDir?: string)
       : t('tui.dialogs.agentActivityViewer.used');
   const keyArg = extractKeyArgument(call.name, call.args, workspaceDir);
   const argStr = keyArg === null || keyArg.length === 0 ? '' : ` (${keyArg})`;
-  return `${mark} ${verb} ${call.name}${argStr}`;
+  // Same chip as the main transcript card and the activity viewer.
+  let chipStr = '';
+  if (call.result !== undefined) {
+    const provider = pickChip(call.name);
+    const text = provider?.(toToolCallBlockData(call), call.result) ?? '';
+    if (text.length > 0) chipStr = ` · ${text}`;
+  }
+  return `${mark} ${verb} ${call.name}${argStr}${chipStr}`;
+}
+
+/** Result preview: first 3 lines + a more-lines hint (mirrors the viewer). */
+function formatPreviewToolResult(call: SubToolCallActivity): string[] {
+  if (call.result === undefined) return [];
+  if (call.name === 'ReadMediaFile' && call.result.is_error !== true) {
+    return [`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.mediaOutputOmitted')}`];
+  }
+  const output = call.result.output;
+  if (output === undefined || output.length === 0) {
+    return call.result.is_error === true
+      ? [`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.errorTag')}`]
+      : [];
+  }
+  const all = output.split('\n');
+  const shown = all.slice(0, RESULT_PREVIEW_LINES);
+  const out = shown.map((line) => `${MESSAGE_INDENT}${line}`);
+  if (all.length > RESULT_PREVIEW_LINES) {
+    out.push(
+      `${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.moreLines', {
+        count: String(all.length - RESULT_PREVIEW_LINES),
+      })}`,
+    );
+  }
+  if (call.result.is_error === true) {
+    out.push(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.errorTag')}`);
+  }
+  return out;
+}
+
+function toToolCallBlockData(call: SubToolCallActivity): ToolCallBlockData {
+  return { id: call.id, name: call.name, args: call.args };
 }
 
 /** Simplified key-argument extraction (no tool-renderer chips). */

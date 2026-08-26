@@ -27,7 +27,7 @@ import type { BackgroundTaskInfo } from '@moonshot-ai/kimi-code-sdk'
 
 import { t } from '#/i18n'
 
-import { MESSAGE_INDENT } from '../../constant/rendering'
+import { MESSAGE_INDENT, RESULT_PREVIEW_LINES } from '../../constant/rendering'
 import { STATUS_BULLET } from '../../constant/symbols'
 import { currentTheme } from '../../theme'
 import { printableChar } from '../../utils/printable-key'
@@ -35,6 +35,7 @@ import type {
   SubagentActivityRecord,
   SubToolCallActivity,
 } from '../../controllers/subagent-activity-store'
+import { pickChip } from '../messages/tool-renderers/chip'
 import type { ToolCallBlockData } from '../../types'
 
 import { Box } from '../common/box'
@@ -179,7 +180,16 @@ function buildToolCallHeader(call: SubToolCallActivity): string {
       : t('tui.dialogs.agentActivityViewer.used')
   const keyArg = extractKeyArgument(call.name, call.args)
   const argStr = keyArg === null || keyArg.length === 0 ? '' : ` (${keyArg})`
-  return `${bullet} ${verb} ${call.name}${argStr}`
+  // Same chip as the main transcript card (line counts / sizes / exit codes).
+  let chipStr = ''
+  if (call.result !== undefined) {
+    const provider = pickChip(call.name)
+    const text = provider?.(toToolCallBlockData(call), call.result) ?? ''
+    if (text.length > 0) {
+      chipStr = ` · ${text}`
+    }
+  }
+  return `${bullet} ${verb} ${call.name}${argStr}${chipStr}`
 }
 
 function renderToolCallBody(call: SubToolCallActivity, expanded: boolean): string[] {
@@ -192,21 +202,26 @@ function renderToolCallBody(call: SubToolCallActivity, expanded: boolean): strin
   if (call.name === 'ReadMediaFile' && call.result.is_error !== true) {
     return [`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.mediaOutputOmitted')}`]
   }
-  const data: ToolCallBlockData = { id: call.id, name: call.name, args: call.args }
-  void data
-  void expanded
-  // Until tui2 messages components land, render the result as a single
-  // truncated line so the user still sees the call landed. The full
-  // per-tool renderer ships in a follow-up.
   const out: string[] = []
   if (call.result.output !== undefined && call.result.output.length > 0) {
-    const first = call.result.output.split('\n')[0] ?? ''
-    out.push(`${MESSAGE_INDENT}${fitExactly(first, 80)}`)
+    const all = call.result.output.split('\n')
+    const shown = expanded ? all : all.slice(0, RESULT_PREVIEW_LINES)
+    for (const line of shown) {
+      out.push(`${MESSAGE_INDENT}${line}`)
+    }
+    if (!expanded && all.length > RESULT_PREVIEW_LINES) {
+      const more = all.length - RESULT_PREVIEW_LINES
+      out.push(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.moreLine', { count: String(more) })}`)
+    }
   }
   if (call.result.is_error === true) {
     out.push(`${MESSAGE_INDENT}${t('tui.dialogs.agentActivityViewer.errorTag')}`)
   }
   return out
+}
+
+function toToolCallBlockData(call: SubToolCallActivity): ToolCallBlockData {
+  return { id: call.id, name: call.name, args: call.args }
 }
 
 function statusColorToken(status: BackgroundTaskInfo['status']): 'success' | 'textMuted' | 'error' {

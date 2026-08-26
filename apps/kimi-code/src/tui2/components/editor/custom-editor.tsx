@@ -11,13 +11,20 @@
  * the leader chord are consumed by the host keymap before reaching the
  * editor.
  *
- * Status: REAL (tui2, minimal). Replaces the v1 stub.
+ * The view mirrors v1's visual contract: a `> ` prompt token (matching the
+ * pi-tui diagonal), the `! shell mode` badge + `!` prompt while a `!` shell
+ * command is being composed, and border/title colouring driven by the host's
+ * editor-border highlight state (plan/slash context) instead of a fixed
+ * focus colour.
+ *
+ * Status: REAL (tui2). Replaces the v1 stub.
  */
 
 import type { Component } from 'solid-js'
 
 import { t } from '#/i18n'
 
+import { useTui2Store } from '../../context'
 import { currentTheme } from '../../theme'
 import type { ColorInput } from '@opentui/core'
 
@@ -33,26 +40,43 @@ export interface CustomEditorProps {
 }
 
 export const CustomEditor: Component<CustomEditorProps> = (props) => {
-  const borderFg = (): ColorInput => currentTheme.color('borderFocus')
-  const titleFg = (): ColorInput => currentTheme.color('primary')
+  const store = useTui2Store()
+  // Host-maintained editor border state (plan mode / slash context / shell
+  // mode). `editorToken` maps to a theme colour token like v1's borderColor
+  // hook; bash mode additionally shows the `!` prompt + shell-mode badge.
+  const isBash = (): boolean => store.state.inputMode === 'bash'
+  const borderToken = (): 'shellMode' | 'primary' | 'border' =>
+    store.state.editorBorderHighlighted
+      ? store.state.editorBorderToken
+      : 'border'
+  const borderFg = (): ColorInput => currentTheme.color(borderToken())
+  const titleFg = (): ColorInput => currentTheme.color(borderToken())
   const titleAttrs = (): number => currentTheme.attributes('bold')
   const hintFg = (): ColorInput => currentTheme.color('textMuted')
+  const promptFg = (): ColorInput =>
+    isBash() ? currentTheme.color('shellMode') : currentTheme.color('text')
+  const borderWidth = (): number => Math.max(1, (props.width ?? 40) - 2)
+  const label = (): string =>
+    isBash() ? t('tui.messages.shellModeLabel') : t('tui.dialogs.editor.label')
 
   return (
     <Box flexDirection="column" width="100%">
-      {/* Hint row */}
+      {/* Label row */}
       <Box flexDirection="row">
-        <Text fg={titleFg()} attributes={titleAttrs()}>{` ${t('tui.dialogs.editor.label')} `}</Text>
+        <Text fg={titleFg()} attributes={titleAttrs()}>{` ${label()} `}</Text>
         <Text fg={hintFg()}>{` ${t('tui.dialogs.editor.navHint')}`}</Text>
       </Box>
-      {/* Input box */}
+      {/* Top border */}
       <Box flexDirection="row">
         <Text fg={borderFg()}>{'╭'}</Text>
-        <Text>{'─'.repeat(Math.max(1, (props.width ?? 40) - 2))}</Text>
+        <Text fg={borderFg()}>{'─'.repeat(borderWidth())}</Text>
         <Text fg={borderFg()}>{'╮'}</Text>
       </Box>
+      {/* Input row: prompt symbol + input */}
       <Box flexDirection="row">
         <Text fg={borderFg()}>{'│'}</Text>
+        <Text>{' '}</Text>
+        <Text fg={promptFg()}>{isBash() ? '!' : '>'}</Text>
         <Text>{' '}</Text>
         <input
           flexGrow={1}
@@ -66,9 +90,10 @@ export const CustomEditor: Component<CustomEditorProps> = (props) => {
         <Text>{' '}</Text>
         <Text fg={borderFg()}>{'│'}</Text>
       </Box>
+      {/* Bottom border */}
       <Box flexDirection="row">
         <Text fg={borderFg()}>{'╰'}</Text>
-        <Text>{'─'.repeat(Math.max(1, (props.width ?? 40) - 2))}</Text>
+        <Text fg={borderFg()}>{'─'.repeat(borderWidth())}</Text>
         <Text fg={borderFg()}>{'╯'}</Text>
       </Box>
     </Box>

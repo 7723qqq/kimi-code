@@ -208,11 +208,6 @@ export class SubAgentEventHandler {
     );
   }
 
-  syncAgentSwarmActivitySpinner(_spinner: { renderInline(): string } | undefined): void {
-    // The v1 controller fed the activity spinner into the swarm grid; tui2
-    // renders the spinner from the store, so this is a compatibility no-op.
-  }
-
   handleAgentSwarmToolCallStarted(toolCallId: string, args: Record<string, unknown>): void {
     const progress = this.ensureAgentSwarmProgress(toolCallId, args);
     progress.inputComplete = true;

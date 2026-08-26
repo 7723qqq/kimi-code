@@ -641,6 +641,7 @@ export default {
         resultColon: '结果：',
         earlierStepsDiscarded: '更早的步骤已丢弃',
         mediaOutputOmitted: '[媒体输出已省略]',
+        moreLines: '... 还有 {{count}} 行',
         using: '正在使用',
         used: '已使用',
         footer: {

@@ -649,6 +649,7 @@ export default {
         resultColon: 'Result:',
         earlierStepsDiscarded: 'earlier steps discarded',
         mediaOutputOmitted: '[media output omitted]',
+        moreLines: '... {{count}} more lines',
         using: 'Using',
         used: 'Used',
         footer: {

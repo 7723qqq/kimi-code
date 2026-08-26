@@ -145,12 +145,6 @@ export class StreamingUIController {
     return this._streamingBlock !== null;
   }
 
-  getStreamingBlockComponent(): undefined {
-    // The v1 accessor returned the AssistantMessageComponent instance; tui2
-    // components read the store directly, so this is a compatibility no-op.
-    return undefined;
-  }
-
   clearAssistantDraft(): void {
     this._assistantDraft = '';
   }
