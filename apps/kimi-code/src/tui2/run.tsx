@@ -23,10 +23,12 @@
 
 import { createCliRenderer } from '@opentui/core'
 import { render, useTerminalDimensions } from '@opentui/solid'
-import { KeymapProvider, useBindings } from '@opentui/keymap/solid'
+import { KeymapProvider, useBindings, useKeymap } from '@opentui/keymap/solid'
+import { createEffect, onCleanup } from 'solid-js'
 
 import { Tui2ProviderStack, useTui2Store } from './context'
-import { buildBaseLayer, createTui2Keymap, type Tui2CommandHandlers, type Tui2Keymap } from './keymap'
+import { buildBaseLayer, createTui2Keymap, leaderCommand, type Tui2CommandHandlers, type Tui2Keymap } from './keymap'
+import { LEADER_CHORDS } from './keybindings'
 import type { Tui2Store } from './state'
 import { showModelPicker } from './commands/config'
 import { MainShell } from './components/main-shell'
@@ -89,6 +91,28 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
   const dispatch = hostToDispatch(host)
   const editorKeyboard = host.editorKeyboard
 
+  // Leader overlay: show the Ctrl-X hint while opentui is mid-sequence (the
+  // first stroke was consumed as a chord prefix), hide it once the chord
+  // resolves, mismatches, or times out. The keymap reports the in-flight
+  // sequence through its `pendingSequence` event.
+  const keymap = useKeymap()
+  createEffect(() => {
+    const offPending = keymap.on('pendingSequence', (sequence: readonly unknown[]) => {
+      // A single pending stroke whose name is 'x' with ctrl means the leader
+      // is armed; any other pending sequence (or none) means it is not.
+      const first = sequence[0] as
+        | { readonly stroke?: { readonly name?: string; readonly ctrl?: boolean } }
+        | undefined;
+      const armed = first !== undefined && first.stroke?.name === 'x' && first.stroke.ctrl === true;
+      if (armed) {
+        host.showLeaderOverlay();
+      } else {
+        host.hideLeaderOverlay();
+      }
+    });
+    onCleanup(offPending);
+  });
+
   const submitDraft = (): void => {
     const v = store.state.editorDraft
     if (v.trim().length === 0) return
@@ -116,6 +140,16 @@ export const Shell = (renderer: CliRenderer, host: KimiTUI) => () => {
     'tui2.sessions': () => void host.showSessionPicker(),
     'tui2.session.new': () => void host.showSessionPicker(),
     'tui2.help': () => host.showHelpPanel(),
+    'tui2.which-key': () => editorKeyboard.handleShowWhichKey(),
+    'tui2.plan.toggle': () => editorKeyboard.dispatchWhichKeyAction('plan-mode'),
+    // Leader chords (Ctrl+X <key>): forward straight into the editor-keyboard
+    // leader dispatch — the same actions the which-key palette executes.
+    ...Object.fromEntries(
+      LEADER_CHORDS.map(({ action }) => [
+        leaderCommand(action),
+        () => editorKeyboard.handleLeaderAction(action),
+      ]),
+    ),
   }
   useBindings(() => buildBaseLayer(handlers))
 

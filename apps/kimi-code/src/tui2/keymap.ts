@@ -14,8 +14,11 @@
  */
 
 import type { CliRenderer, KeyEvent, Renderable } from '@opentui/core'
+import { registerEmacsBindings } from '@opentui/keymap/addons'
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui'
-import type { Command, Keymap, Layer } from '@opentui/keymap'
+import type { Bindings, Command, Keymap, Layer } from '@opentui/keymap'
+
+import { LEADER_CHORDS, type LeaderAction } from './keybindings'
 
 export type Tui2Keymap = Keymap<Renderable, KeyEvent>
 
@@ -39,9 +42,18 @@ export const COMMANDS = {
   sessions: 'tui2.sessions',
   newSession: 'tui2.session.new',
   help: 'tui2.help',
+  /** Ctrl+Alt+K: open the which-key palette. */
+  whichKey: 'tui2.which-key',
+  /** Shift+Tab: toggle plan mode. */
+  togglePlan: 'tui2.plan.toggle',
 } as const
 
 export type Tui2CommandName = (typeof COMMANDS)[keyof typeof COMMANDS]
+
+/** `tui2.leader.<action>` command for every leader chord (Ctrl+X <key>). */
+export function leaderCommand(action: LeaderAction): string {
+  return `tui2.leader.${action}`
+}
 
 export interface Tui2CommandHandlers {
   readonly [command: string]: (() => void) | undefined
@@ -64,7 +76,7 @@ export function buildCommands(handlers: Tui2CommandHandlers): readonly Command<R
 }
 
 /** Default key → command bindings for the base mode. */
-export function buildBaseBindings(): Layer<Renderable, KeyEvent>['bindings'] {
+export function buildBaseBindings(): Bindings<Renderable, KeyEvent> {
   return [
     // NOTE: the binding field is `cmd`, not `command`. opentui's keymap
     // compiler silently drops unknown fields (a `command` field would make
@@ -81,6 +93,12 @@ export function buildBaseBindings(): Layer<Renderable, KeyEvent>['bindings'] {
     { key: 'ctrl+t', cmd: COMMANDS.toggleTodoExpand },
     { key: 'ctrl+l', cmd: COMMANDS.sessions },
     { key: 'ctrl+n', cmd: COMMANDS.newSession },
+    { key: 'shift+tab', cmd: COMMANDS.togglePlan },
+    { key: 'ctrl+alt+k', cmd: COMMANDS.whichKey },
+    // Leader chords: Ctrl+X <key>. These need opentui's emacs sequence
+    // parser (registered in createTui2Keymap) — without it a space-separated
+    // key is never compiled into a two-stroke sequence.
+    ...LEADER_CHORDS.map(({ key, action }) => ({ key: `ctrl+x ${key}`, cmd: leaderCommand(action) })),
     { key: 'escape', cmd: COMMANDS.cancel },
   ]
 }
@@ -88,9 +106,13 @@ export function buildBaseBindings(): Layer<Renderable, KeyEvent>['bindings'] {
 /**
  * Create the TUI2 keymap over a renderer. Uses opentui's default keymap,
  * which wires the renderer's keypress stream to a focus-aware keymap engine.
+ * `registerEmacsBindings` is required for the space-separated leader chords
+ * (`ctrl+x s`) to compile.
  */
 export function createTui2Keymap(renderer: CliRenderer): Tui2Keymap {
-  return createDefaultOpenTuiKeymap(renderer)
+  const keymap = createDefaultOpenTuiKeymap(renderer)
+  registerEmacsBindings(keymap)
+  return keymap
 }
 
 /**

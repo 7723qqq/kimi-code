@@ -179,6 +179,12 @@ export const MainShell: Component<MainShellProps> = (props) => {
         <Text fg={borderFg()}>─</Text>
       </Box>
 
+      <Show when={store.state.leaderOverlayVisible && store.state.activeDialog === null}>
+        {/* Transient Ctrl-X hint: non-focusable, editor keeps focus and the
+            host removes it when the chord fires or times out. */}
+        <WhichKey focusable={false} />
+      </Show>
+
       <ActiveDialogSlot dispatch={props.dispatch} width={props.width} height={props.height} />
 
       <Show
