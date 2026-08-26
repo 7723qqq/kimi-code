@@ -1,34 +1,17 @@
-# TUI2 (opentui + SolidJS) skeleton
+# TUI2 (opentui + SolidJS)
 
-This directory is the **structural skeleton** of the v2 TUI stack. It
-mirrors `tui/` 1:1 in directory layout and file naming, and each file
-currently re-exports the matching `tui/` module so the tree compiles
-and resolves imports under the default v1 path.
+The v2 terminal UI. `tui2/` is a full opentui + SolidJS implementation
+that runs alongside the v1 pi-tui tree (`tui/`); `KIMI_TUI=v2` selects
+it. The migration is complete — every module in this directory is a
+real implementation, and nothing re-exports v1 anymore.
 
 ## Why a parallel directory
 
 `pi-tui` renders to `string[]`; `opentui` owns a real layout tree
 backed by Yoga and dispatches mouse events to layout nodes directly.
-A clean cut-over is impossible in place -- the rendering model is
-different end to end. The parallel directory gives us a place to
-land opentui-based rewrites without churning the v1 tree.
-
-The migration plan is:
-
-1. **Phase 0 (this skeleton)**: every `tui2/X.ts` re-exports
-   `tui/X.ts`. The env switch (`KIMI_TUI=v2`) routes through `tui2/`
-   but ends up at v1, so the build is unchanged.
-2. **Phase 1 (theme + primitives)**: replace the stubs in
-   `tui2/components/common/`, `tui2/theme/`, and `tui2/constant/`
-   with real opentui + SolidJS implementations.
-3. **Phase 2 (entry)**: replace `tui2/kimi-tui.ts` and
-   `tui2/tui-state.ts` with a real opentui renderer wired to the
-   existing controllers (which still live in `tui/controllers/`
-   during the migration).
-4. **Phase 3+ (component-by-component)**: replace the stubs in
-   `tui2/components/dialogs/`, `tui2/components/messages/`, etc.,
-   one at a time, keeping the same exported names so call sites
-   never move.
+A clean cut-over was impossible in place — the rendering model is
+different end to end. The parallel directory is where the opentui
+rewrites landed without churning the v1 tree.
 
 ## Env switch
 
@@ -48,41 +31,47 @@ from the path that matches the variant it was written for.
 
 ## File conventions
 
-- **Stub files** start with the banner `// TUI2 SKELETON --` and end
-  with a single `export * from '../tui/<mirror-path>';` line. They
-  have no logic of their own.
-- **Real files** carry a normal `/** ... */` docblock describing
-  what they do, and have no skeleton banner.
+- **UI files come in `.ts` / `.tsx` pairs.** The `.ts` is a thin
+  forwarding layer (docblock + `export * from './xxx.tsx'`); the
+  implementation lives in the `.tsx`. Pure-logic modules (controllers,
+  utils, commands) are single `.ts` files.
 - **JSX** files end in `.tsx`. Everything else is `.ts`.
 - **Imports** follow the existing `#/*` subpath convention for
   cross-module references; relative imports stay relative.
+- Every real file carries a `/** ... */` docblock describing what it
+  does and which v1 module it replaces.
 
-## What is NOT in this skeleton
+## Layout
 
-These stay where they are in v1 until phase 5+ of the migration:
+- `run.tsx` / `entry.tsx` — renderer bootstrap and the editor-scoped
+  key interceptor (autocomplete, history recall, transcript
+  navigation).
+- `controllers/` — the heavy, independently-testable slices:
+  `kimi-tui.ts` (host), `session-event-handler.ts` (event routing),
+  `streaming-ui.ts` (streaming render), `editor-keyboard.ts` (key
+  handling), `transcript-navigation.ts`, `tasks-browser.ts`,
+  `auth-flow.ts`, `staging-leases.ts` (staged prompt media lifecycle).
+- `components/` — opentui SolidJS components by UI type: `chrome/`
+  (footer, banner, todo, welcome), `dialogs/` (selectors, approval /
+  question panels, settings), `editor/` (input box + paste markers),
+  `messages/` (transcript blocks + tool renderers), `panes/` (queue,
+  btw, agent, activity, diff review).
+- `theme/` — color tokens, styles, markdown theme, terminal-background
+  detection. Single source of truth for color.
+- `commands/` — slash-command declaration, parsing and dispatch.
+- `utils/` — framework-agnostic helpers (width, printable-key, fuzzy,
+  paging, media placeholders, …).
+- `constant/` — non-copy constants (streaming knobs, symbols, tips).
 
-- `tui2/reverse-rpc/` -- reverse-rpc transport has its own protocol
-  contract and only swaps the underlying channel.
-- `tui2/controllers/` -- the streaming/event/replay controllers are
-  the hardest to port because they assume a single-Component render
-  loop. They keep depending on `pi-tui` until a SolidJS port exists.
-- `tui2/commands/` -- slash commands are pure logic; their UI
-  effects ride on whatever Component/dialog implementation is active.
-- `tui2/utils/` -- most utility modules are framework-agnostic and
-  their stubs just re-export v1 for now.
-
-## How to verify the skeleton
+## How to verify
 
 ```
-pnpm --filter @moonshot-ai/kimi-code build:packages
-pnpm --filter @moonshot-ai/kimi-code typecheck
-pnpm --filter @moonshot-ai/kimi-code typecheck:tui2
-pnpm --filter @moonshot-ai/kimi-code test test/tui2
-KIMI_TUI=v2 pnpm --filter @moonshot-ai/kimi-code dev
+cd apps/kimi-code
+bun run typecheck:tui2
+bun --bun run vitest run test/tui2
+KIMI_TUI=v2 bun run dev:tui2
 ```
 
-With `KIMI_TUI=v2`, the CLI should start identically to the v1 path
-because the v2 surface still re-exports v1. The smoke test
-`test/tui2/skeleton.test.ts` asserts the structural invariants
-(env switch, public surface, opentui install, real .tsx impls)
-without booting a renderer.
+The smoke test `test/tui2/skeleton.test.ts` asserts the structural
+invariants (env switch, public surface, opentui install, real .tsx
+impls) without booting a renderer.

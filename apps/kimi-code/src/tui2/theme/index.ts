@@ -26,7 +26,6 @@ export {
   codeHighlightTheme,
   type SyntaxTokenTheme,
 } from './highlight-theme';
-export { gradientTextChunks, gradientTextPlain } from './gradient-text';
 export {
   markdownColors,
   markdownSyntaxTokens,
