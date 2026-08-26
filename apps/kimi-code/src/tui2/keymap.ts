@@ -27,7 +27,7 @@ export const COMMANDS = {
   cancelStream: 'tui2.cancelStream',
   exit: 'tui2.exit',
   focusEditor: 'tui2.editor.focus',
-  /** Ctrl+E: open the external $EDITOR with the draft. */
+  /** Ctrl+G: open the external $EDITOR with the draft. */
   externalEditor: 'tui2.editor.external',
   /** Ctrl+O: toggle tool output expansion. */
   toggleToolOutput: 'tui2.tool.output',
@@ -71,7 +71,10 @@ export function buildBaseBindings(): Layer<Renderable, KeyEvent>['bindings'] {
     // every shortcut a no-op), so keep these in sync with `Binding.cmd`.
     { key: 'ctrl+c', cmd: COMMANDS.cancelStream },
     { key: 'ctrl+d', cmd: COMMANDS.exit },
-    { key: 'ctrl+e', cmd: COMMANDS.externalEditor },
+    // NOTE: v1 / which-key / KIMI_KEYBINDINGS all agree external-editor is
+    // Ctrl+G; the previous 'ctrl+e' binding mislabeled it AND shadowed
+    // opentui's textarea line-end (ctrl+e).
+    { key: 'ctrl+g', cmd: COMMANDS.externalEditor },
     { key: 'ctrl+m', cmd: COMMANDS.switchModel },
     { key: 'ctrl+o', cmd: COMMANDS.toggleToolOutput },
     { key: 'ctrl+s', cmd: COMMANDS.sendQueued },
